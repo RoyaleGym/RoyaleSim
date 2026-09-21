@@ -1,0 +1,1385 @@
+{
+  "$comment": [
+    "THE CALIBRATION REGISTRY. Every physics constant in the engine lives here, and",
+    "every one of them carries how well it is known. Nothing in the Rust core or the",
+    "Python layer may hardcode a number that appears in this file.",
+    "",
+    "WHY: this project's predecessor stalled for weeks trying to make pathfinding",
+    "match the real game. The cause was not difficulty -- it was that plausible",
+    "numbers and measured numbers were stored the same way, so a wrong guess was",
+    "indistinguishable from a fact and later tuning absorbed the error instead of",
+    "revealing it. A constant fitted to the one case anybody checked makes a wrong",
+    "LAW read as right, on every board at once.",
+    "",
+    "STATUS VALUES, in increasing order of trust:",
+    "  guess        nobody has evidence; a placeholder so the engine runs",
+    "  hypothesis   an argument from data shape, not an observation",
+    "  community    multiple independent third parties agree, no primary source",
+    "  datamined    taken from shipped game data (state the file and the vintage)",
+    "  measured     observed in the real game by this project's own oracle",
+    "  owner_ruling a first-hand observation of the live game by a maintainer,",
+    "               quoted verbatim and dated. Ranked WITH measured, never below it:",
+    "               a direct observation of the live 2026 game, which is the target,",
+    "               is a primary source. Added 2026-09-17, because",
+    "               filing the Log ruling as 'community' would have made it",
+    "               indistinguishable from the fandom prose it overturned -- exactly",
+    "               the confusion this registry exists to prevent. Like measured, it",
+    "               cannot be overwritten with a different value without --supersede.",
+    "               A ruling may settle only PART of a key (the Log's sign, not its",
+    "               off-axis vector); say which part in confidence, and keep a",
+    "               promotion_rule for the rest.",
+    "",
+    "PROMOTION RULE: a constant may only be promoted by adding evidence, never by",
+    "an engine result looking right. If the sim matches reality with a 'guess' in",
+    "it, that is a coincidence until measured, and saying so costs nothing."
+  ],
+  "meta": {
+    "target_game_version": "live-2026",
+    "target_decided": "2026-09-12",
+    "target_note": "The LIVE 2026 game was chosen over a frozen 2023 build. Consequence: every datamined constant below is from 2016-2018 or 2023 game data and is therefore EVIDENCE, NOT SPEC. Supercell rewrote ground pathfinding on 2025-03-31; anything tagged pre-2025 about movement is archaeology until re-measured.",
+    "schema_version": 1
+  },
+  "representation": {
+    "SUBTILE_PER_TILE": {
+      "value": 18000,
+      "units": "subtiles per tile",
+      "status": "hypothesis",
+      "confidence": "high",
+      "provenance": "Design choice, following cr-sim. NOT a game constant.",
+      "rationale": [
+        "This number is chosen so that it cannot bake in the answer to the two",
+        "biggest open questions (tick rate, speed divisor). Under EVERY candidate",
+        "hypothesis, a unit's per-tick displacement is an exact integer:",
+        "  Speed is tiles/min, 20 TPS -> Speed * 15 subtiles/tick",
+        "  Speed is tiles/min, 30 TPS -> Speed * 10 subtiles/tick",
+        "  Speed is tiles/min, 60 TPS -> Speed *  5 subtiles/tick",
+        "  Speed is millitiles/50ms  -> Speed * 18 subtiles/tick",
+        "18000 = 1000 * 18, so one millitile (the unit ALL shipped distances use)",
+        "is exactly 18 subtiles and no game data value ever needs rounding.",
+        "Consequence: we can run at 20 TPS and re-run at 60 TPS and any divergence",
+        "is a real signal rather than a rounding artefact."
+      ],
+      "promotion_rules": "Not promotable -- it is ours, not Supercell's. Revisit only if a measured per-tick displacement is not an integer multiple of 1/18000 tile."
+    },
+    "MILLITILE_PER_TILE": {
+      "value": 1000,
+      "units": "millitiles per tile",
+      "status": "datamined",
+      "confidence": "high",
+      "provenance": "All distance columns in characters.csv/buildings.csv are millitiles. Cross-checked against community tile values across dozens of cards: Knight SightRange 5500 = 5.5 tiles, CollisionRadius 500 = 0.5, Mini P.E.K.K.A 450 = 0.45, Mortar/X-Bow Range 11500 = 11.5.",
+      "vintage": "stable across 2016-2023 data sets",
+      "promotion_rules": "Already as good as it gets from data and traces."
+    },
+    "POSITION_TYPE": {
+      "value": "i32 subtiles",
+      "status": "hypothesis",
+      "confidence": "medium",
+      "provenance": "Community projects report entity positions as raw i32. The internal SCALE is unknown; we choose our own (above) and do not claim it matches.",
+      "note": "Arena max is 32 tiles * 18000 = 576000, far inside i32. Squared distances reach 3.3e11 and MUST use i64 -- an i32 squared-distance is a silent overflow bug.",
+      "promotion_rules": "Not observable in a trace; out of scope."
+    }
+  },
+  "time": {
+    "TICK_MS": {
+      "value": 50,
+      "units": "ms per logic tick",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. The free per-unit speed fit (no card table, S in 1..5000, synth_adjudicate B2) has exactly one survivor per card and every unit of a card fits the same integer, which only happens when one trace frame is one logic tick; at 2-5 sub-steps per tick no integer speed survives at all. The stomp pause schedule ((k+1)*TICK_MS) mod (Stop+Wait) > Stop reproduces Giant 308/308 and Golem 306/306 moving ticks with TICK_MS = 50 and no phase offset.",
+      "disagreement": {
+        "30_TPS_33ms": "the old engine in legacy/ used dt=0.033 (and not even exactly 1/30)."
+      },
+      "why_it_matters": "Every interaction is a function of this: body-block timing, whether a Fireball lands before a unit crosses, how many tower hits a Hog gets. A 3x error here is absorbed into fitted card constants and never shows up as itself.",
+      "promotion_rules": "SETTLED by the offline oracle. Re-open only against a second independent oracle capture, never against an argument from data shape.",
+      "engine_contract": "Read from here. Never write `50` in engine code.",
+      "history": [
+        {
+          "value": 50,
+          "status": "hypothesis",
+          "confidence": "LOW",
+          "provenance": "No primary source exists. This is the single most load-bearing unknown in the engine.",
+          "date": "2026-09-18",
+          "overturned_by": "the offline oracle ticks the battle by one logic tick per 50 ms of shipped DeployTime/HitSpeed: every measured per-tick speed is an integer number of millitiles and the stomp phase (Giant 308/308, Golem 306/306) only closes at TICK_MS = 50."
+        }
+      ],
+      "struck_2026_09_18": {
+        "60_TPS_16.67ms": "STRUCK. Its arithmetic is wrong: PhoenixNoRespawn DeployTime 733 ms is 733/16.667 = 43.98 ticks at 60 Hz, not 44 -- the argument needs 733.33. Lightning HitSpeed = 460 is a whole number of ticks at none of 50, 33.3 or 16.67 ms, so 'shipped durations are whole ticks' is void in either direction. Overturned by the oracle measurement above in any case."
+      }
+    },
+    "SPEED_TO_SUBTILES_PER_TICK": {
+      "value": 18,
+      "units": "multiplier applied to the Speed column",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Free integer per-unit fit over every moving tick of every unit (synth_adjudicate B2, no card table, S in 1..5000): exactly one survivor per card and every unit of a card fits it -- Knight 60 (131 units), Giant 52 (12), Golem 54, Skeletons 90 (3), MiniPekka 90, HogRider 120. Those are the raw Speed column values themselves (Giant 45 and Golem 45 after the StopMovementAfterMS/WaitMS rule, movement.STOMP_SPEED_RULE), i.e. Speed is millitiles per tick exactly. 1 millitile = 18 subtiles, so subtiles_per_tick = Speed * 18.",
+      "why_it_matters": "A flat 20% error on the movement speed of every unit in the game.",
+      "promotion_rules": "SETTLED. The former value is in `history` and the two former hypotheses are in `struck_2026_09_18` with their original arguments, the same way time.TICK_MS archives its refuted entry -- a promotion adds evidence, it never deletes it. A buffed speed (SpeedMultiplier) follows the SAME law with a larger integer S: data/oracle-native/rage/Knight_rage_seed2.jsonl.gz fits S = 60 on t121..155, S = 78 on t156..217 (the Rage) and S = 60 again on t218..340, and 78 = 60 x 1.3 exactly. Its ROUNDING is still unmeasured, because 60 x 1.3 is a whole number and floor/round/truncate/ceil all give 78 -- see movement.STOMP_SPEED_RULE.",
+      "engine_contract": "subtiles_per_tick = Speed * SPEED_TO_SUBTILES_PER_TICK. Set to 10 for 30 TPS, 5 for 60 TPS, 18 for the millitile-per-tick reading.",
+      "history": [
+        {
+          "value": 15,
+          "status": "hypothesis",
+          "confidence": "LOW",
+          "provenance": "Derived: assumes Speed is tiles/minute AND TICK_MS=50. Speed 60 (Medium) -> 1.0 tiles/s.",
+          "date": "2026-09-18",
+          "overturned_by": "the offline oracle: Speed is millitiles per 50 ms tick (divide_by_50), so one Speed unit is 18 subtiles per tick, not 15."
+        }
+      ],
+      "resolves": "divide_by_50 vs divide_by_60: divide_by_50 is correct. Medium (Speed 60) is 1.20 tiles/s, not 1.00.",
+      "struck_2026_09_18": {
+        "divide_by_60": "STRUCK 2026-09-18 by the offline oracle. Its argument was: 'Speed is tiles/minute. Medium (60) = 1.00 tiles/s. Supported by cr-sim's exact-at-60TPS derivation and by the highest-sample community VOD medians (skeletons 1.56 at Speed 90, hog 1.45 at Speed 120).' Overturned because the free per-unit integer fit's survivors ARE the raw Speed column (Knight 60, Giant 52, Golem 54, Skeletons 90, MiniPekka 90, HogRider 120) at TICK_MS = 50, i.e. one Speed unit is one millitile per 50 ms tick; at 60 TPS the same fit has no integer survivor.",
+        "divide_by_50": "UPHELD 2026-09-18, and now measured rather than argued. Its argument was: 'Speed is millitiles per 50ms tick. Medium (60) = 1.20 tiles/s. Architecturally cleaner. Matches lower-sample VOD medians (musketeer 1.20, knight 1.12 at Speed 60).' Kept here because the entry it lived in was deleted on promotion; the evidence that settled it is in `provenance`."
+      }
+    },
+    "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK": {
+      "value": 15,
+      "status": "hypothesis",
+      "confidence": "LOW",
+      "provenance": "Mirrors time.SPEED_TO_SUBTILES_PER_TICK (Speed = tiles/min at 20 TPS). Community: the AesDragon wiki blog ASSERTS (unmeasured) that projectile Speed uses the troop unit; a Darknighture frame test (2023) measured x1.2 (Speed/50) for BOTH a Musketeer projectile and a Giant. No source was found for a 'troops /50, projectiles /60' split. crforge and legacy/ use /60 for both. Kept as its own key so a recording can split projectiles from troops without a code change (docs/spell-spec.md, projectile and rolling families).",
+      "candidates": [
+        15,
+        18
+      ],
+      "units": "subtiles per tick per raw projectile Speed unit",
+      "applies_to": "EVERY projectile: troop and tower projectiles (combat.rs fire) and spell projectiles (spell.rs), including The Log's airborne and rolling phases",
+      "promotion_rules": "Time a Goblin Barrel from release to landing, Blue king centre to enemy princess centre (23.16 tiles: 3.474 s at 15, 2.895 s at 18), or a live Log roll from first contact to despawn (3.03 s vs 2.525 s). Split from the troop key only if the projectile measurement disagrees with the troop measurement beyond frame error.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    }
+  },
+  "arena": {
+    "$comment": "NOT stored here. Derived from the shipped tilemap by tools/extract_arena.py into data/derived/arena.json, and gated there. Hardcoding arena geometry is what made the old engine wrong about the river, the bridges and the king footprint all at once.",
+    "ARENA_SOURCE_VINTAGE": {
+      "value": "retroroyale ~2018 tilemap.csv",
+      "status": "datamined",
+      "confidence": "medium",
+      "caveat": "The modern client no longer ships a Map section -- the battlefield moved out of data and into code. The 2016-era per-arena data sets show TWO geometries (2-tile bridges in most arenas, 3-tile in Legendary/Royal), so bridge width is arena-dependent and possibly changed since. An 0.5-tile error in bridge span is about one Knight hitbox and decides every bridge body-block.",
+      "promotion_rules": "Re-measure against a screenshot of the live arena with a calibrated tile overlay."
+    },
+    "TERRITORY_MODEL": {
+      "value": "enemy_tower_no_deploy_rects",
+      "status": "datamined",
+      "confidence": "medium",
+      "candidates": [
+        "enemy_tower_no_deploy_rects"
+      ],
+      "provenance": "data/raw/retroroyale-2018/csv_logic/buildings.csv NoDeploySizeW / NoDeploySizeH, ~2018 client data (PRE-2025; evidence, not spec). The columns are set on exactly three rows: KingTower (18, 16), PrincessTower (11, 21) and NOTINUSE21, a disused copy of the king (18, 16). Carried into data/derived/cards.json towers[].no_deploy_size_tiles by tools/extract_cards.py.",
+      "rule": "A TROOP may not be placed at a point inside the closed axis-aligned rectangle, centred on the tower centre with half-extents NoDeploySizeW/2 and NoDeploySizeH/2 tiles, of any ALIVE ENEMY crown tower; plus the tilemap WATER and NO_DEPLOY bits, arena bounds, building footprints, and the river band (never troop territory, see open_question). Buildings stay own half only (unsourced, unchanged). Spells anywhere.",
+      "unit_inference": "TILES, inferred from 4 of 4 landmarks that come out exact under that reading and 0 of 4 under the half-tile reading, against the independently derived data/derived/arena.json and the princess tower centre (3.5, 6.5): (1) the king rect spans x = [0, 18], exactly the arena width; (2) the left and right princess rects (x = 3.5 +- 5.5 and 14.5 +- 5.5) meet exactly at x = 9, the centre line; (3) and (4) each princess rect's far edge (y = 6.5 + 10.5 = 17) is exactly the far river bank. tools/check_data.py gates all four.",
+      "consequence": "With every enemy tower up, the rects forbid everything from the near river bank onward. When one enemy princess falls, the ground that opens on that side is between the far river bank (y = 17) and the enemy king rect (y = 21): 8 half-rows (4 tiles), x from the side wall to the centre line.",
+      "open_question": "The four dry bridge half-columns (rows 15-17) are marked neither WATER nor NO_DEPLOY in the tilemap, so the rects alone would open them once that lane's princess falls. The engine keeps the river band closed to troops, carried from the previous rule WITHOUT a source. A recording of a troop placement attempt on the bridge after a princess tower falls settles it.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": "own_half_plus_pocket_12_half_rows",
+          "status": "guess",
+          "confidence": "LOW",
+          "provenance": "NONE. A pocket-depth constant in crates/royalesim/src/arena.rs: after a princess tower fell, troop territory reached 12 half-rows (6 tiles) past the far river bank on that engine-column side. Not in globals.csv, locations.csv, arenas.csv, game_modes.csv or the tilemap; chosen only to equal protocol.py MOCK_POCKET_DEPTH_HALF_ROWS. Before it, the engine used the far bank up to the destroyed tower's centre row (8.5 tiles), equally unsourced.",
+          "overturned_by": "buildings.csv NoDeploySizeW/H on the crown towers, read as tiles: 4 of 4 arena landmarks exact (see unit_inference). The shipped mechanic replaces the depth; the depth was not tuned to 8."
+        }
+      ],
+      "vintage": "2018 client data",
+      "promotion_rules": "Record the DEEPEST legal troop placement on one lane after that lane's enemy princess tower falls (drag a troop card forward until the placement indicator refuses). This model predicts the limit at the enemy king rect edge, 4 tiles past the far river bank; the old 12-half-row model predicts 6 tiles, 2 tiles deeper. Also record whether the bridge accepts a troop then (open_question)."
+    }
+  },
+  "targeting": {
+    "ADD_CHARACTER_RANGE_TO_RADIUS": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "high",
+      "provenance": "globals.csv, present in both 1.3.2 and modern data sets.",
+      "meaning": "Range is measured EDGE to EDGE, not centre to centre: in_range = centre_distance <= range + target.collision_radius. The old engine used centre-to-centre only, so every melee unit under-reached.",
+      "open": "Whether the ATTACKER's own collision radius is also added. Nobody checked."
+    },
+    "EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS": {
+      "value": 2000,
+      "units": "millitiles",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "open": "Direction is ambiguous: extra range for TOWERS acquiring units, or for units acquiring TOWERS? Nobody established which."
+    },
+    "EXTRA_SIGHT_RANGE_TO_BUILDING": {
+      "value": 0,
+      "units": "millitiles",
+      "status": "datamined",
+      "confidence": "high",
+      "provenance": "globals.csv"
+    },
+    "LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET": {
+      "value": 25,
+      "units": "millitiles",
+      "status": "datamined",
+      "confidence": "LOW",
+      "provenance": "globals.csv of an UNVENDORED 2023 data, per recon. NOT PRESENT in the vendored 2018 globals.csv (data/raw/retroroyale-2018). Reported during 2026-09-12 recon as read from a newer globals.csv (a 2023 data) that this repo does not vendor, so nothing in the tree backs it. extract_globals.py lists it ABSENT on every run, deliberately.",
+      "meaning": "Retarget hysteresis: a unit keeps its current target until the target is this much beyond range. Without it, units at the range boundary oscillate between targets every tick.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": 25,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv",
+          "overturned_by": "extract_globals.py 2026-09-13: key absent from the vendored globals.csv the provenance cited"
+        }
+      ],
+      "promotion_rules": "Vendor the data it came from and let extract_globals.py cross-check it, or measure retarget hysteresis at the range boundary."
+    },
+    "LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE": {
+      "value": 1500,
+      "units": "millitiles",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "meaning": "An attack already started is only cancelled if the target gets this far beyond range."
+    },
+    "LOGIC_PRESERVE_TARGET_IF_HIT_STARTED": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "meaning": "Once the attack windup begins the target is locked. The old engine recomputed targets from scratch every tick with no lock at all, which silently broke every card mechanic that reads the current target."
+    },
+    "LOGIC_XPOS_BASED_TOWER_TARGETING": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "LOW",
+      "provenance": "globals.csv of an UNVENDORED 2023 data, per recon. NOT PRESENT in the vendored 2018 globals.csv (data/raw/retroroyale-2018). Reported during 2026-09-12 recon as read from a newer globals.csv (a 2023 data) that this repo does not vendor, so nothing in the tree backs it. extract_globals.py lists it ABSENT on every run, deliberately.",
+      "meaning": "The default enemy tower is chosen by lane / x-position, NOT by Euclidean distance. This is why a troop placed dead-centre goes to a specific tower rather than the nearest one.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": true,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv",
+          "overturned_by": "extract_globals.py 2026-09-13: key absent from the vendored globals.csv the provenance cited"
+        }
+      ],
+      "note": "The vendored 2018 globals.csv ships LOGIC_DEFAULT_TARGET_USE_LANE_ID=TRUE in its place (see targeting.LOGIC_DEFAULT_TARGET_USE_LANE_ID). Whether XPOS-based targeting replaced or refined lane-id targeting between 2018 and 2023 is not established."
+    },
+    "MELEE_RANGE_LIMIT": {
+      "value": 1900,
+      "units": "millitiles",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "meaning": "Range at or below which a unit counts as melee for whatever behaviour keys off that."
+    },
+    "LOGIC_DEFAULT_TARGET_USE_LANE_ID": {
+      "value": false,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "vintage": "2018 client data",
+      "meaning": "UNKNOWN beyond the name: the default target is chosen using the lane id of the arena cell (tilemap bits 1/2). A field existing is not a formula.",
+      "promotion_rules": "Deploy a troop on each lane boundary cell and record which tower it walks to.",
+      "note": "Flipped TRUE -> FALSE between the 2018 data and the 2026 build: the data-side trace of Supercell's 'troops now rely much less on lanes'. royalesim does not read this key (tower choice uses LOGIC_XPOS_BASED_TOWER_TARGETING), so the flip changes no behaviour today.",
+      "history": [
+        {
+          "date": "2026-09-18",
+          "value": true,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv LOGIC_DEFAULT_TARGET_USE_LANE_ID (vendored 2018)",
+          "overturned_by": "live 2026 globals.csv reads FALSE"
+        }
+      ],
+      "globals_vintage": "15.535.29"
+    },
+    "LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE (vendored 2018)",
+      "vintage": "2018 client data",
+      "meaning": "UNKNOWN beyond the name. Plausibly orders multi-unit deploys by lane. Not implemented anywhere."
+    }
+  },
+  "collision": {
+    "CONTACT_LAW": {
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH",
+      "candidates": [
+        "client16402",
+        "engine_guess_mass_weighted"
+      ],
+      "provenance": "SETTLED ON THE LIVE 16.402 CAPTURES on 2026-09-19/20 and VERIFIED against every one of them. The per-tick contact and locomotion update (the step, the avoidance and separation scans, the position write and the update order) is implemented in crates/royalesim/src/move16402.rs; the evidence for every rule is the live capture set. THE LAW: (1) each tick every attack update runs before every move update, and the move updates run one unit after another in CREATION order against a bucket index of collision circles (each grown by 250 for movers) built from the start-of-tick positions -- unit i sees units j < i already moved and j > i where they started (a replay with previous-tick neighbours reproduces 46 % of the contact ticks, the sequential order 98 %). (2) avoidance (states 1 and 4, not while attacking): the entities whose circle overlaps the circle of radius min(R,500) around pos + facing (facing has length 256) vote; a static (a unit that does not move) wins over movers, the last seen wins; offset 0 -> +-200, a running offset +-20 only when a static is seen, clamped to +-200, then -10 toward zero every walk tick (so 190 is the visible onset and +10/tick the visible ramp); a static whose circle contains the current waypoint's centre pops that waypoint. (3) separation (states 1, 2, 4): every overlapping neighbour of either side -- buildings and towers included, touching counts (d2 <= (R1+R2)^2; my radius capped at 500 against a static) -- adds trunc(dx x mag / d), trunc(dy x mag / d) away from it with mag = min(299, trunc(min(R1+R2-d, 300) x M_other / M_self)) + 1, and one count; coincident centres push +-1 in y by team. (4) the step: dist = max(1, isqrt(dist2)); step = min(speed, dist, 250); heading = trunc((aim - pos) << 8 / dist); step vector = trunc(heading x step / 256) per axis; facing := normalize256(aim - pos); if the offset is nonzero the step is rotated by the blend v' = ((256 - |a|) v + a perp(v)) >> 8 renormalised to the step length (tan theta = a / (256 - |a|)); the accumulator's MEAN (trunc(acc / count)) capped at 150 is added; pos += step, an axis that crosses out of the grid clamps to the cell edge, and only a DEPLOYING ground unit is clamped at a water edge; then reached := proj(aim - pos', segment) <= 1000. (5) Mass as loaded from the card data: an empty Mass column becomes tdiv(floor(R^2/250) x R, 62500) and every Mass is clamped to [1, 20] -- towers, Tombstone and Goblin Hut weigh 20, a Cannon 13, a Tesla 8 -- which is why a unit touching a tower flies back at the 150 cap. (6) With an empty path and a target out of range the unit walks at the point reach = Range + own CollisionRadius away from the target on the line to itself. VERIFICATION (over the 31 live captures, every frame pair, the world rebuilt at the start of each tick): 240389 / 242232 unit-tick positions exact (0.99239); isolated 0.99367, separation active 0.98319, two or more overlaps 0.98406, against buildings 0.99829, avoidance active 0.98221, spawn overlaps 0.99656, attacking 0.99277; the post-decay avoidance offset exact on 0.99962. The 1843 misses are diagnosed (Skeleton crowds with dying neighbours, missed stomp pauses / freezes, replanned aims, Rage inference, knockbacks not in the trace); no contact-law alternative explains more than 0.005 % of them. The Rust implementation is gated by equivalence with an independent reimplementation on random worlds (20 000 / 20 000 per seed).",
+      "why_it_matters": "27 % of all live moving ticks are crowded; nothing crowded reproduced before this law. Head-on units now pass each other the way the game's do.",
+      "promotion_rules": "SETTLED by 242 232 live unit-ticks. Re-open only against a new client build.",
+      "engine_contract": "state.rs phase_path16402 runs it under pathfinding.PATH_SEARCH = client16402 (the same arm that selects the measured 16.402 search): units update one after the other in creation order, the position write is the game's, collide::separate and the river ejection are bypassed. The frame-planned arm keeps the engine's own guessed separation (PUSH_MODEL below).",
+      "supersedes": [
+        "PUSH_MODEL, SEPARATION_ITERATIONS, BUILDING_FOOTPRINT_MODEL (the engine's guesses; still used by the trace_fitted_astar arm)",
+        "movement.CONTACT_DOMAIN = isolated_unit_only (the domain of the trace-fitted arm's locomotion law; under this law every unit-tick is in domain)"
+      ],
+      "open": [
+        "knockback (confirmed live: speed ladder 25n, -25 per tick, one back-step) is not modelled; the engine still runs its fixed_distance slide",
+        "the buff tags (NO_PUSHED_BY_*, DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS, AVOIDANCE_AS_OBSTACLE) are assumed clear; no corpus card carries them",
+        "the JumpEnabled water hop, the dash and jump states, the touchdown/capture-mode branches",
+        "the death order inside one move pass (a unit killed by an earlier mover's attack component is dropped from later scans in the same tick; measured, mechanism not read)"
+      ]
+    },
+    "PUSH_MODEL": {
+      "value": "mass_weighted",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "NONE. The data ships a Mass column (Skeleton 1, Knight 6, Giant 18, Golem 20) and the wiki says mass matters qualitatively -- but a field existing is not a formula, and the best public reimplementation ignores Mass entirely and weights by speed ratio instead.",
+      "candidates": [
+        "mass_weighted",
+        "speed_weighted",
+        "mass_times_speed",
+        "equal_split"
+      ],
+      "why_it_matters": "Unit push governs body-blocking, swarm spread, and whether a tank walks through or around its own support -- i.e. most of what a player is actually doing. The old engine had NO unit collision whatsoever, which is the single biggest reason it could not model the game.",
+      "promotion_rules": "Directly measurable from captures: record scripted head-on collisions across a mass ladder (Skeleton 1 / Knight 6 / Giant 18 / Golem 20) and a speed ladder, then fit the displacement ratio against mass-ratio, speed-ratio and the product. Also check for a per-tick displacement cap, which is invisible in aggregate.",
+      "oracle_note_2026_09_18": "NOTHING RECORDS THE PUSH. It is not separately observable in the offline-oracle corpus -- it must be fitted from the movement RESIDUAL (movement.CONTACT_DOMAIN): |step| about S plus a 15-28 unit lateral residual perpendicular to the heading for crowd separation, and 0.06-2.5 x S, possibly opposing the heading, for combat pushback. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md."
+    },
+    "SEPARATION_ITERATIONS": {
+      "value": 1,
+      "units": "passes per tick",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "NONE. Affects how tightly a crowd packs.",
+      "promotion_rules": "Measure the steady-state spacing of a Skeleton Army against a wall and fit."
+    },
+    "BUILDING_FOOTPRINT_MODEL": {
+      "value": "collision_radius_circle",
+      "status": "guess",
+      "confidence": "LOW",
+      "candidates": [
+        "collision_radius_circle",
+        "tile_size_override_box",
+        "static_bitmap"
+      ],
+      "provenance": "Three candidate models disagree for exactly the cases that decide games. The King Tower's shipped no-deploy block is 3x3 tiles but its CollisionRadius is 1400 (2.8 tiles diameter) -- those do not reconcile. Princess towers are NOT in the static map at all, so their footprint must come from CollisionRadius 1000 (a 2x2 box), which contradicts the commonly-quoted 3x3.",
+      "why_it_matters": "Decides whether a unit can squeeze between a princess tower and the arena edge, and where a melee unit stands to hit a tower.",
+      "promotion_rules": "Walk a minimum-radius unit (CollisionRadius 400) along a tower edge and record closest approach. Repeat for king and princess."
+    }
+  },
+  "pathfinding": {
+    "ALGORITHM": {
+      "value": "weighted_grid_astar",
+      "status": "measured",
+      "confidence": "HIGH",
+      "candidates": [
+        "weighted_grid_astar",
+        "weighted_grid_astar_community",
+        "lane_flow_with_local_avoidance",
+        "authored_waypoints",
+        "post2025_diagonal_with_lookahead"
+      ],
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Cost stage: over 150 oracle first paths, the oracle path is exactly cost-minimal for its own endpoints under road 5 / plain 8 / water impassable / bit-16 impassable / 8-connected / diagonal x sqrt(2) -- 0 suboptimal, 0 infeasible. 4-connected reproduces 44/150; a uniform diagonal leaves 3 paths strictly dearer than the optimum (witnesses lane_sweep_Knight c00_r06 173 vs 171, c08_r04 197 vs 190, c10_r06 181 vs 174); a flat cost 8 fails 96.",
+      "supercell_2025_release_note": "Troops now rely much less on lanes. Previously, they would move horizontally to reach their lane before advancing. Now, they move diagonally. | Troops can now see Buildings and adjust their movement in advance instead of walking straight into them and only navigating around after a collision.",
+      "why_it_matters": "This is the mechanic the whole project is named after, and the version everybody documented is the one Supercell replaced on 2025-03-31.",
+      "promotion_rules": "Black-box discrimination, not archaeology. Design scenarios where candidate models predict visibly different tracks -- a building offset from the lane centre, a building wall forcing a non-lane detour, a building destroyed mid-path -- record the real tracks, and score each model. The engine must therefore keep the pathfinder behind a swappable interface with all candidates implemented.",
+      "evidence_2026_09_18": "The live 2026 globals.csv configures a weighted A*: open/closed-node policy (REFRESH_OPENNODES=TRUE, REOPEN_CLOSEDNODES=FALSE), HEURISTIC_METHOD=1, DEFAULTHEURISTIC_COST=5, per-cell costs default 8 / road 5 / water 7 / building 50 / blocked 50, NEW_PATHFINDING_CODE=TRUE, DISABLE_PATH_LINEID=TRUE, friendly-only dynamic occlusions. This strongly favours candidate weighted_grid_astar with these costs over lane_flow and pure lookahead; 'rely less on lanes' reads as road (lane-painted) cells being cheaper rather than mandatory. Value left unchanged until the offline oracle's path_nodes confirm grid, costs and cadence. globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "history": [
+        {
+          "value": "lane_flow_with_local_avoidance",
+          "status": "guess",
+          "confidence": "LOW",
+          "provenance": "The three most complete public engines implement three DIFFERENT algorithms and none was verified against the client. Worse, all three model the PRE-2025 game.",
+          "date": "2026-09-18",
+          "overturned_by": "the offline oracle's published path_nodes: a weighted A* over a 36x64 half-tile grid reproduces the cost of 150/150 first paths; lane_flow, authored waypoints and pure post-2025 lookahead do not."
+        }
+      ],
+      "candidate_meanings": {
+        "weighted_grid_astar": "THE MEASURED 2026 MODEL (royalesim PathModel::Oracle2026, src/path2026.rs): 8-connected weighted A* over the 36x64 half-tile grid, cell-entered costs (PATHFINDING_COSTS), the sqrt(2) diagonal (DIAGONAL_COST_RATIO), CHEBYSHEV heuristic over the GOAL SET (HEURISTIC_FORM; octile is refuted by the live 16.402 corpus), half-open AABB occlusions of EVERY building on the board (OCCLUSION_MODEL; friendly-only is refuted likewise) priced at PATHFINDING_BUILDING_COST rather than blocking (OCCLUDED_CELL_TREATMENT), and the reach goal rule (PATH_GOAL_RULE).",
+        "weighted_grid_astar_community": "The pre-measurement community model royalesim still carries (PathModel::GridAStar): uniform octile 10/14 step costs, no cost table, mover-radius-inflated blocking and a string-pulled waypoint list. REFUTED for the 2026 game -- a uniform diagonal makes road 5 / plain 8 and a flat cost 8 classify every path identically, so the road discount becomes unidentifiable, and the flat model then fails 96 of 150 paths."
+      },
+      "still_open": "The EXPANSION ORDER is not reproduced: the exact node sequence matches 13 of 76 distinct experiments at best (see TIE_BREAK). The cost model, the occlusions and the goal predicate are settled; which of several equally-optimal paths the oracle publishes is not. RESTATED 2026-09-18 against the live 16.402 corpus: it remains the single largest gap, but the ceiling moved -- 192/292 exact node sequences with the goal cell HANDED to the search and 142/292 with the reach predicate (HEURISTIC_FORM, promoted to Chebyshev on that evidence). Two things narrowed it: the tie-break knob provably cannot move the result under strict-better relaxation with an f-ordered open list (TIE_BREAK), and the residual has ONE systematic signature -- the oracle shifts column one cell earlier than the model, always immediately after a road/bridge segment. Settled on 2026-09-19 (PATH_SEARCH)."
+    },
+    "PATH_SEARCH": {
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH",
+      "candidates": [
+        "client16402",
+        "trace_fitted_astar"
+      ],
+      "provenance": "SETTLED ON THE LIVE 16.402 CAPTURES on 2026-09-19 and verified against every first path they publish (three independent reproductions of the search agree on every rule below). Every tie-break below was chosen because it reproduces the published node lists, not because a different order was ruled out by argument. The rules cover the search and the path request that enters it, the expansion and relaxation, the heuristic, the cell cost, the building box, the per-tick occlusion rebuild, and the move component's goal-cell choice. THE RULES: (1) ONE goal cell, chosen by the move component: scan rows ascending over target_cell +- (reach/500 + 1), columns ascending when the mover's x < 9000 native else descending, keep the highest category (2 = dry and outside every building box, 1 = water or boxed) and within it the strictly smallest squared distance to the MOVER (first scanned wins ties); reach = Range + own CollisionRadius. (2) the cell cost: -1 out of bounds only; water (tilemap bit 0x20) costs BLOCKED = 50 for a walker and is priced, not refused; no cell of the arena tilemap sets bit 0x40; lane bits & 3 cost ROAD = MATCHINGROAD = 5; else DEFAULT 8; then max(base, occlusion[cell]) where every building of BOTH sides stamps BUILDING = 50 over the half-open box [c - R, c + R) after snapping its centre UP to the next multiple of 500 on each axis, and a box that does not fit entirely inside the grid stamps nothing. Bit 16 plays no part in the cell cost; the king block is priced by the king's own R = 1400 box. (3) step cost = entered cell's cost x 10, x 14 on a diagonal (integer); h = 5 x (10 max(|dc|,|dr|) + 4 min(|dc|,|dr|)) (HEURISTIC_METHOD 1, times DEFAULTHEURISTIC_COST 5); f = g + h. (4) among equally cheap routes, the published route is the one an open list ordered on f alone (no g, no h, no insertion order) produces when equal keys keep their existing order. (5) neighbours in the order N, S, W, E, NW, SW, SE, NE; the start is expanded before the loop; a popped cell is closed, expanded, and the loop ends when the GOAL is closed (i.e. after it has been popped and expanded). (6) an open node reached with a strictly better f takes the new parent, g and f (REFRESH_OPENNODES); a closed node is never revisited (REOPEN_CLOSEDNODES = FALSE). (7) the published list is the parent chain from the goal, goal first, without the start cell. VERIFICATION (scored against the captures): 435/438 live 16.402 first paths and 128/128 offline 15.535 lane-sweep paths reproduce the exact published node sequence; the three live misses are Goblins chasing a MOVING target whose goal cell the trace cannot recover (the sample's target position is the previous tick's). The trace-fitted arm scored 168/345 and 15/128. Controls run on the same harness: water impassable instead of priced 306/388 and 24/128; friendly-only occlusion 336/388; KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS off 421/425. See docs/pathfinding.md.",
+      "why_it_matters": "Which of several equally cheap routes a unit takes is decided by heap order, and the whole engine's positional fidelity in a crowded lane rests on it: 331 of 425 live first paths have a non-unique optimum.",
+      "promotion_rules": "SETTLED. Re-open only against a new client build (re-verify); a trace disagreement is a capture or fixture problem first.",
+      "engine_contract": "path2026::plan_cells dispatches on this key: client16402 -> path16402.rs (absolute-coordinate planning, Red un-rotated; NavRequest.team). trace_fitted_astar -> the 2026-09-18 goal-set A* driven by TIE_BREAK / HEURISTIC_FORM / OCCLUDED_CELL_TREATMENT, kept runnable as the refuted arm.",
+      "supersedes": [
+        "TIE_BREAK (heap order is the tie-break, no neighbour-order knob reproduces it)",
+        "HEURISTIC_FORM (octile 14/10 to ONE goal cell, not Chebyshev over a goal set)",
+        "PATH_GOAL_RULE (the reach predicate picks the goal SET; the code picks one cell of it by category then mover distance)",
+        "WATER_RULE_GROUND (water is priced 50 and pushed, never entered because never cheaper)",
+        "OCCLUSION_MODEL (the box snaps the centre up to a multiple of 500 and is dropped when it leaves the grid; the target building is not exempt)",
+        "DIAGONAL_COST_RATIO (14/10 in x10 integer units, not 1414/1000)"
+      ],
+      "open": [
+        "the target-side condition that gates KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS is unidentified; treating it as always true fits the corpus",
+        "PATHFINDING_FRIENDLYONLY_OCCLUSIONS does not restrict the stamping (every building of both sides is stamped, measured); what the flag does gate is the replan trigger: only the own side's occluder set changing forces a new search"
+      ]
+    },
+    "REPATH_INTERVAL_TICKS": {
+      "value": null,
+      "units": "ticks; null = no periodic replan, the triggers in REPLAN_TRIGGERS instead",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED, and RETIRED as a constant. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. The folklore 10-tick cadence is refuted: every observed recompute is explained by REPLAN_TRIGGERS with 0 unexplained recomputes and 0 predicted triggers that produced none.",
+      "why_it_matters": "Cadence governs how fast a unit responds to a building dropped in its path, which is the central defensive interaction in the game.",
+      "promotion_rules": "Measure the lag between placing a building and the unit visibly changing heading.",
+      "history": [
+        {
+          "value": 10,
+          "status": "guess",
+          "confidence": "LOW",
+          "provenance": "NONE -- pure folklore, inherited from one community engine that chose it arbitrarily.",
+          "date": "2026-09-18",
+          "overturned_by": "the offline oracle: there is no periodic replan timer. 150 structural path recomputes over 31859 path-ticks (0.47 per 100), evenly spread across trace families; the gaps within a trace are {17, 24, 29, 100, 185, 190, 228, 248, 250} with no common period. A 30-tick timer would give about 10 changes per trace."
+        }
+      ],
+      "engine_contract": "royalesim reads this as Option<i32> (state.rs Calib::repath_interval_ticks). null = event-driven; a positive value re-arms the legacy periodic cadence for the pre-2026 models only. The 2026 model ignores it entirely.",
+      "limits": "This bounds OBSERVABLE path changes only. A recompute that returns an identical list is invisible in the traces (8 of 94 tail-surviving recomputes leave path_segment_direction frozen and path_node_consumed clear), and PATHFINDING_SAMEPATH_EPSILON = 3 may be suppressing near-identical results."
+    },
+    "PATHFINDING_COSTS": {
+      "value": {
+        "default": 8,
+        "road": 5,
+        "matchingroad": 5,
+        "blocked": 50,
+        "building": 50,
+        "water": 7,
+        "defaultheuristic": 5
+      },
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "action": "ANSWERED 2026-09-18 by the offline oracle, except one question. Per half-tile cell? YES, the cell ENTERED. Which cells are road? tilemap lane bits 1 or 2. Does ground A* cross water at 7? NO -- water is impassable to ground (WATER_RULE_GROUND). STILL OPEN: whether MATCHINGROAD means the unit's own lane, which is unmeasurable while both constants are 5. See PATHFINDING_COSTS.application.",
+      "note": "This matters beyond pedantry: if these costs do not exist, then 'buildings bend paths' collapses, and the Cannon-pull behaviour is entirely a TARGETING effect (building-targeters carry 7000-9500 sight range vs the 5500 modal value). Those are two different mechanisms producing the same observation and they predict differently for the case that matters: whether a unit already locked on a tower deviates around a building placed off its path.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": null,
+          "status": "disputed_existence",
+          "confidence": "LOW",
+          "provenance": "One source reports PATHFINDING_DEFAULT_COST=8 / ROAD=5 / WATER=7 / BUILDING=50 / BLOCKED=50 as confirmed, but its only evidence is a docstring in a three-week-old hobby repo -- no CSV line, no globals.csv row. An independent scan of both the 1.3.2 and the modern globals.csv finds no such key. A third source uses water cost 800, not 7 -- a 114x disagreement on the same constant.",
+          "overturned_by": "extract_globals.py / data-pipeline search 2026-09-13"
+        },
+        {
+          "date": "2026-09-18",
+          "value": null,
+          "status": "disputed_existence",
+          "confidence": "LOW",
+          "provenance": "One source reports PATHFINDING_DEFAULT_COST=8 / ROAD=5 / WATER=7 / BUILDING=50 / BLOCKED=50 as confirmed, but its only evidence is a docstring in a three-week-old hobby repo -- no CSV line, no globals.csv row. An independent scan of both the 1.3.2 and the modern globals.csv finds no such key. A third source uses water cost 800, not 7 -- a 114x disagreement on the same constant.",
+          "overturned_by": "the post-2025 client ships these keys; the 2026-09-13 search covered only the 2018 and 2023 data sets"
+        }
+      ],
+      "finding_2026_09_13": "Searched every key, cell and column name in all 18 vendored csv_logic files: NO key or column named PATHFINDING_*_COST exists. The only globals containing PATHFIND are LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED and LOGIC_PATHFIND_BACKWARDS_TRY_KEEP_TARGET; the only columns are SpawnPathfindSpeed/Effect/Morph. The claimed cost table therefore has no primary source in the 2018 data, and the data supports the TARGETING explanation of building pull instead: building-targeters carry longer sight ranges (Hog Rider 9500, Balloon 7700, Giant 7500 vs modal 5500). This does not rule out costs in the post-2025 client.",
+      "globals_vintage": "15.535.29",
+      "globals_keys": {
+        "default": "PATHFINDING_DEFAULT_COST",
+        "road": "PATHFINDING_ROAD_COST",
+        "matchingroad": "PATHFINDING_MATCHINGROAD_COST",
+        "blocked": "PATHFINDING_BLOCKED_COST",
+        "building": "PATHFINDING_BUILDING_COST",
+        "water": "PATHFINDING_WATER_COST",
+        "defaultheuristic": "PATHFINDING_DEFAULTHEURISTIC_COST"
+      },
+      "application": {
+        "status": "measured",
+        "confidence": "HIGH",
+        "value": {
+          "granularity": "per half-tile cell ENTERED (the step pays for the destination cell, not the origin)",
+          "road_cells": "tilemap lane bits 1 or 2 (data/raw/cr-15.535.29/tilemaps/tilemap.csv); the 2026-only marker bits 128, 256 and 512 are not road -- adding them changes nothing",
+          "blocked_cells": "tilemap bit 16 (arena edge + king-tower block): impassable",
+          "water_cells": "tilemap bit 32: impassable to ground (see WATER_RULE_GROUND)",
+          "diagonal": "the entered cell's cost times DIAGONAL_COST_RATIO"
+        },
+        "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Cost-axis discrimination at diag = sqrt(2) over 150 first paths (synth_adjudicate F): road 5 / plain 8 -> 0 suboptimal; flat 8 -> 96; road 4 -> suboptimal appear; road 6 -> likewise; water at 7 -> 25; water at 50 and bit-16 at 50 -> 0 (indistinguishable from a block, see OCCLUDED_CELL_TREATMENT). Tilemap value histogram {0: 1386, 1: 309, 2: 309, 16: 104, 17: 36, 18: 36, 32: 112, 128: 8, 257: 1, 258: 1, 512: 2}; the alignment is forced by the bit-16 block spanning cols 15-20 x rows 3-8, centred on the side-0 king at (9000, 3000).",
+        "still_unanswered": "ROAD_COST and MATCHINGROAD_COST are BOTH 5 in the live globals, so no trace can separate 'road' from 'the unit's own lane'. The engine treats either lane bit as road."
+      }
+    },
+    "AVOID_WATER_ATTACK_POS": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv AVOID_WATER_ATTACK_POS (vendored 2018)",
+      "vintage": "2018 client data",
+      "meaning": "UNKNOWN beyond the name: a ground unit's chosen attack position avoids water cells (e.g. when attacking something across the river bank)."
+    },
+    "LOGIC_PATHFIND_BACKWARDS_TRY_KEEP_TARGET": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv LOGIC_PATHFIND_BACKWARDS_TRY_KEEP_TARGET (vendored 2018)",
+      "vintage": "2018 client data",
+      "meaning": "UNKNOWN beyond the name: when a path requires moving away from the target, the unit tries to keep that target rather than retarget."
+    },
+    "LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED (vendored 2018)",
+      "vintage": "2018 client data",
+      "meaning": "UNKNOWN beyond the name: the 'waypoint reached' radius for spawn pathfinding scales with unit speed. Relevant to the characters.csv SpawnPathfindSpeed column."
+    },
+    "NEW_PATHFINDING_CODE": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Feature flag for the 2025 rewrite; TRUE in the live build.",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "DISABLE_PATH_LINEID": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Path 'line id' (lane id) disabled for pathing.",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "PATHFINDING_DYNAMIC_OCCLUSIONS": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Dynamic occluders (units/buildings spawned at runtime) enter the path grid.",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "PATHFINDING_FRIENDLYONLY_OCCLUSIONS": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Only FRIENDLY objects occlude a unit's path grid (enemy buildings are targets, not obstacles).",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29",
+      "the_measured_pathfinder_disagrees_2026_09_18": "THE VALUE STANDS -- the flag really is TRUE in the shipped 15.535.29 globals.csv, and this key records what the data says. What it does NOT describe is the pathfinder the game runs: MEASURED on the LIVE 16.402 client, the occluder set is EVERY BUILDING ON THE BOARD, both sides (see OCCLUSION_MODEL, which is the key the engine reads). Friendly-only occlusion fails 119 of 785 live first paths; adding the other side's buildings fixes 113 and breaks 0 (the path sweeps, sweep [b]: 'own buildings only, cost 50' 119 suboptimal vs 'own + ENEMY buildings, cost 50' 6). The independent corpus reads 290/292 -> 292/292. Live traces: 13 captures, both sides, CR 16.402. So either the flag means something narrower than its name (dynamic occluders only? a different subsystem?) or the live build ignores it; nothing here establishes which, and the ledger records the measurement over the datamined name. The decomposition is worth carrying: ~107 of the 113 are the enemy KING footprint and only ~6 are non-king enemy buildings -- 3 to 5 cell-for-cell witnesses (a Goblin Hut at (14500,22500), a Cannon at (14500,12500), a Goblin Hut at (2500,22500)). Real, but thin, and a cheap confirming experiment would settle it."
+    },
+    "PATHFINDING_REFRESH_OPENNODES": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "A* re-scores nodes already in the open set.",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "PATHFINDING_REOPEN_CLOSEDNODES": {
+      "value": false,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "A* never reopens closed nodes (inconsistent-heuristic behaviour matters for tie cases).",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "PATHFINDING_HEURISTIC_METHOD": {
+      "value": 1,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Heuristic selector; value 1. Meaning (octile? manhattan? euclidean?) unknown -- measure.",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "PATHFINDING_SAMEPATH_EPSILON": {
+      "value": 3,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Tolerance for treating a re-plan as the same path; value 3 (units unknown).",
+      "engine_contract": "Not yet read by royalesim; becomes load-bearing when the 2026 pathfinder is implemented from oracle measurements.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Ground position-to-target computation avoids buildings.",
+      "engine_contract": "Read by royalesim as of 2026-09-18 through the derived keys above (OCCLUSION_MODEL, HEURISTIC_FORM, TIE_BREAK, ALGORITHM); the raw global stays here as the primary source.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "USE_TARGET_QUEUEING": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Target acquisition is queued rather than immediate.",
+      "engine_contract": "Not yet read by royalesim; becomes load-bearing when the 2026 pathfinder is implemented from oracle measurements.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "MAX_PUSHBACK_LENGTH": {
+      "value": 40000,
+      "status": "datamined",
+      "confidence": "HIGH",
+      "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
+      "meaning": "Upper bound on a single pushback displacement, millitiles.",
+      "engine_contract": "Not yet read by royalesim; becomes load-bearing when the 2026 pathfinder is implemented from oracle measurements.",
+      "history": [],
+      "globals_vintage": "15.535.29"
+    },
+    "REPLAN_TRIGGERS": {
+      "value": [
+        "goal_cell_changed",
+        "friendly_building_set_changed"
+      ],
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Trigger 1 (the goal cell moves): 137/137 predicted goal-cell flips are followed by a replan, 0 predicted flips produce none and 0 replans are unexplained; lag {1 tick: 128, 2 ticks: 9}. It fires for a MOVING target the same way -- in meet/Knight_vs_HogRider the Knight replans every 3-5 ticks, all goal-cell moves. Trigger 2 (a friendly building enters the world): the replan lands on the tick the entity first exists, 0 ticks of lag, +1 tick from the accepted deploy command -- command at 160, entity first in a frame at 161, path already replanned in that frame, in both repath_Giant traces, which produce opposite-sign detours from the same state.",
+      "scope": "Friendly TROOPS are not a trigger and do not enter the path grid: a Giant walking directly behind a friendly Knight has 2 structural path changes in 316 path ticks (meet/Knight_then_Giant_behind). Troops are a movement-time term (CONTACT_DOMAIN), not a pathfinding one. ENEMY troops are off the grid too -- LIVE 16.402, 63 of 467 paths cross an enemy-occupied cell, so rule 8.6 generalises.",
+      "engine_contract": "A replan recomputes the ENTIRE remaining route, never a spliced local bypass: the detour appears in the first path the unit publishes, ten rows (5 tiles) ahead of the obstacle, and rows far beyond it legitimately shift.",
+      "limits": "TRIGGER 2 IS NARROWER THAN THE OCCLUDER SET, AND THAT GAP IS DELIBERATE. OCCLUSION_MODEL moved the occluder set to EVERY building on the board, both sides; this trigger is still 'a FRIENDLY building enters the world', because that is the only thing measured -- the offline corpus only ever dropped friendly buildings, and the live 16.402 measurements examined neither the repath trigger nor building REMOVAL. So in royalesim an enemy building appearing changes what the next plan would return without arming a replan by itself (state.rs `build_obstacles` hashes friendly obstacles only); the goal-cell trigger usually replans anyway. Inventing a trigger nothing measured would be worse than the gap. OPEN: dropping a building in front of an ENEMY unit on the live client and timing the heading change against the same experiment on a friendly one would settle it."
+    },
+    "CELL_SIZE_NATIVE": {
+      "value": 500,
+      "units": "native arena units (millitiles) per pathfinding cell; 36 x 64 cells",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. path_segment_direction == norm256(cell_centre(tail) - pos) on 3781/3781 segment-assignment ticks at exactly (width 36, centre +250, +250). A 10-unit offset shift drops it to 2-3 % (x) or 74 % (y); widths 18, 32, 34, 35, 37, 38, 64 and 72 all score at most 0.08 %.",
+      "engine_contract": "Equals the engine's half-tile cell: representation.SUBTILE_PER_TILE / MILLITILE_PER_TILE * 500 = 9000 subtiles = arena.json half-tile cell. royalesim asserts the two agree at load (path2026.rs)."
+    },
+    "PATH_NODE_ENCODING": {
+      "value": "row_major_36_goal_first_centre_plus_250",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. node = row * 36 + col, centre = (col*500 + 250, row*500 + 250); the published list is GOAL-FIRST and is consumed from the back. Over 29996 live-path ticks the distance from the unit to the last element is never below 737.9 (median 1256.2); a path rebuilt from the unit's own cell each tick would put the last element within about 353 units. Nodes are ABSOLUTE arena cells, not per-side: a side-1 decode has error 118.4 units against 10238 for a rotated decode.",
+      "engine_contract": "royalesim stores the route goal-first and pops from the back for the 2026 model (entity.route), which keeps a byte-level trace diff trivial. The pre-2026 models keep their start-first route."
+    },
+    "DIAGONAL_COST_RATIO": {
+      "value": {
+        "num": 1414,
+        "den": 1000
+      },
+      "units": "integer ratio multiplying the entered cell's cost on a diagonal step",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Multiplier sweep over 150 first paths: 1.0 -> 3 suboptimal, 1.2 -> 2, 1.4142 -> 0, 1.5 -> 1, 2.0 -> 96. The exact-rational zero-failure window is [1.38, 1.48]. In integers: road 5 -> 7, plain 8 -> 11, cost 50 -> 70.",
+      "why_it_matters": "LOAD-BEARING FOR THE WHOLE COST MODEL. With a uniform diagonal, road 5 / plain 8 and a flat cost 8 classify every path identically and the road discount is unidentifiable. Fix the diagonal first; flat 8 then fails 96 paths.",
+      "engine_contract": "Integer arithmetic only: cost * num / den, truncating. A float comparison at 1e-6 produces spurious failures."
+    },
+    "HEURISTIC_FORM": {
+      "value": "chebyshev_over_goal_set",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "candidates": [
+        "chebyshev_over_goal_set",
+        "octile_over_goal_set"
+      ],
+      "formula": "h(cell) = min over the GOAL SET of PATHFINDING_DEFAULTHEURISTIC_COST * max(|dc|, |dr|), i.e. 5 * Chebyshev, with the goal set unchanged (see why_the_goal_set).",
+      "provenance": "MEASURED. LIVE CLIENT, CR 16.402 -- recorded from the real game and converted to the offline-oracle trace format; 13 captures. Analysis: the expansion pass (exact node-sequence reproduction; corpus 337 first paths, 292 after de-duplicating the two two-client pairs). Report: the live 16.402 measurements. HANDED THE ORACLE'S OWN GOAL CELL, exact node-sequence reproduction: the engine's shipped ortho-first + octile 78/292; Dijkstra (h = 0) 171/292; forward A* with strict-< relaxation, entered-cell costs and h = W * max(|dc|, |dr|) for W in 3..5, 192/292 (65.8 %). Offline, the same sweep on lane_sweep_Knight reads 36/128 for Chebyshev against 14/128 for ortho-first + octile, so this is not a 16.402 change -- it is a better fit on both builds. THE WEIGHT IS NOT PINNED: W = 3, 4 and 5 are indistinguishable on this corpus; 5 is taken because it is the shipped PATHFINDING_DEFAULTHEURISTIC_COST, a datamined constant that fits rather than a fitted one. With the reach PREDICATE as the goal test instead of the handed goal cell the best falls to 142/292, which is the goal-cell question (PATH_GOAL_RULE `limits`), not the heuristic's.",
+      "admissibility": "5 * Chebyshev is admissible and consistent against this cost field, so REOPEN_CLOSEDNODES = FALSE stays safe and the returned path is still exactly cost-minimal. The cheapest cell costs road = 5 to enter and the cheapest diagonal 5 * 1414/1000 = 7, so a route of Chebyshev distance N costs at least 5N; and h changes by at most 5 across any neighbour while a diagonal step costs at least 7. crates/royalesim/src/path2026.rs `the_measured_heuristic_is_chebyshev_and_both_forms_are_admissible` asserts the consequence directly -- swapping the form may not change what a path COSTS.",
+      "why_the_goal_set": "ADMISSIBILITY TRAP, and it is not cosmetic. THIS HALF IS UNCHANGED BY THE 16.402 PROMOTION -- only the metric inside the minimum changed. The goal is 'any cell within reach of the target' (PATH_GOAL_RULE), so a heuristic computed to the TARGET cell over-estimates the cost to the actual goal by up to reach/500 * 5 and is non-zero at goal cells -- A* then pops a goal that is not the cheapest one. Measured on the walk traces: with h to the target cell the search returns column 7 (cost 152) instead of the oracle's column 6 (cost 150) for every one of the six cards; with h as the min over the in-reach cells it returns the oracle's path.",
+      "still_not_reproduced": "The heuristic does not change WHICH paths are optimal (the cost model was validated with Dijkstra), only the expansion order. 192/292 is a ceiling, not a solution: the residual has one systematic signature -- the oracle shifts column one cell EARLIER than the model, always immediately after a road/bridge segment (witnesses 20260918-112215:25:MiniPekka and 20260918-112751:7:Giant both 8,33 -> 7,32 -> 7,31 -> 8,30 where the model stays 7,30; 112751:32:Musketeer 5,39 -> 6,38 vs 5,38). A heuristic charging more than the 11-vs-8 diagonal premium for a one-column offset would produce it, but every b - a >= 4 member of h = a*(max-min) + b*min scores far worse overall. It may not be a heap A* at all: a different heuristic form, a post-processing pass over the raw route and a hierarchical search are all still live. Keep it swappable.",
+      "history": [
+        {
+          "date": "2026-09-18",
+          "value": "octile_over_goal_set",
+          "status": "hypothesis",
+          "confidence": "MEDIUM",
+          "candidates": [
+            "octile_over_goal_set",
+            "octile_to_target_cell_minus_reach",
+            "chebyshev",
+            "none"
+          ],
+          "provenance": "The COST is datamined (PATHFINDING_COSTS.defaultheuristic = 5) and PATHFINDING_HEURISTIC_METHOD = 1 is datamined but its meaning is not. Octile h = 5*(max-min) + 7*min is the form consistent with the sqrt(2) step cost (5*sqrt(2) = 7.07). OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md.",
+          "overturned_by": "the live 16.402 expansion sweep: handed the oracle's goal cell, octile reproduces 78/292 exact node sequences where 5 * Chebyshev over the same goal set reproduces 192/292 -- and 171/292 for h = 0 alone, so the octile form was scoring WORSE than no heuristic at all. It was never an observation, only an argument from the shape of the step cost."
+        }
+      ],
+      "dropped_candidates_2026_09_18b": "`octile_to_target_cell_minus_reach` and `none` were removed from the candidate list because royalesim implements no arm for either, and Calib::from_json refuses a name with no implementation rather than silently substituting one (state.rs `pick`, the same convention TIE_BREAK follows). Their evidence is not lost: `octile_to_target_cell_minus_reach` is the admissibility trap described in why_the_goal_set and is refuted on the walk traces, and `none` is Dijkstra, measured at 171/292 above. Add either back together with its arm.",
+      "engine_contract": "royalesim reads this into Calib::heuristic_form (state.rs) and path2026.rs `heuristic_weights` SELECTS the chamfer weights from it -- (5, 5) for Chebyshev, (5, 7) for octile -- which `goal_set_heuristic` then runs as a two-pass transform (exact for any weights with straight <= diag <= 2*straight). Both listed candidates are wired; a name with no arm is refused at load, never silently substituted. This key used to be read by `only()` and not stored at all, so its value could not have been changed without an engine edit.",
+      "promotion_rules": "Raise to HIGH by reproducing the node sequence, not by scoring it better than its rivals: 192/292 is a large improvement and still a minority. Re-open the WEIGHT (3, 4 and 5 are indistinguishable) with a corpus whose h-weight is discriminating, which requires a board where the heuristic's inflation changes the pop order."
+    },
+    "TIE_BREAK": {
+      "value": "ortho_first_placeholder",
+      "status": "guess",
+      "confidence": "LOW",
+      "candidates": [
+        "ortho_first_placeholder",
+        "rowmajor",
+        "diag_first"
+      ],
+      "provenance": "UNVERIFIED AND KNOWN TO BE INSUFFICIENT. Where several successors are equally optimal the oracle prefers the orthogonal one on 1568 of 1672 ambiguous steps (93.8 %), but an ortho-first neighbour order still reproduces only 22/140 exact node sequences, and with the sqrt(2) diagonal exact ties are rare -- so the residual divergence is not a classic tie-break at all. 76 distinct experiments over neighbour order x queue discipline x relaxation rule; none exceeds 13/76. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md.",
+      "why_it_may_be_unreachable": "The recorded path_nodes is a POST-TICK snapshot: a repath can insert one or two nodes below the old waypoint that the unit aims at and consumes within the same tick, so they appear in no recorded frame. 142 ticks in the corpus show this; all carry path_node_consumed == 1 and 140 are explained exactly by a cell 1-2 rows nearer in the same column. Any pathfinder fitted to the recorded node lists is missing those insertions.",
+      "why_the_knob_provably_cannot_matter": "LIVE 16.402, the expansion sweep over the live corpus: 36 combinations of 6 open-list keys x 6 neighbour orders produce ZERO different paths across 418 samples. The reason is structural, not statistical -- with strict-`<` relaxation and an f-first heap, rival parents of a cell differ in g by 2, 3 or 6 while their h differs by 0 or one cell-weight, so an f-tie between them essentially never occurs and the neighbour order never gets a vote. The offline 1040-configuration sweep therefore had at most ~5 genuinely distinct members. THE VALUE STAYS A PLACEHOLDER AND IT IS A HARMLESS ONE; the note below that 'the three orders give a DIFFERENT path on only 25 of 6802 engine problems' is the same fact measured on the engine's own grid. Whatever settles the expansion order will have to change the open-list key or the algorithm, not the neighbour list -- and the leading suspects are now the HEURISTIC (promoted to chebyshev_over_goal_set on the same corpus, 78/292 -> 192/292) and the possibility that it is not a heap A* at all.",
+      "promotion_rules": "Do not record a tie-break as settled on this corpus. Settle it with a scenario whose optimum is unique but whose EXPANSION order is observable, or by the measured 16.402 search itself (PATH_SEARCH = client16402 settles it). Note that a scenario cannot settle it while the relaxation stays strict-`<`: see why_the_knob_provably_cannot_matter.",
+      "engine_contract": "royalesim reads this key into Calib::tie_break and path2026.rs `neighbours()` SELECTS the neighbour order from it -- the three candidates above are the three the engine implements, and Calib::from_json refuses any other name. It used to be read and then ignored, with one hardcoded order underneath, so two of the three values named a discipline that never ran. MEASURED while wiring it: the neighbour order reaches the result ONLY through the push counter in the open-list key (f, then the smaller h, then FIFO), so over a 6802-problem sweep on the shipped grid the three orders give a DIFFERENT path on only 25, and never a different cost. Whatever settles spec 3.6 will therefore have to change the open-list key, not just the neighbour list (path2026.rs `OpenKey`). The two candidates cw_from_n / ccw_from_n were dropped from this list because the engine does not implement them; add them back together with their arms."
+    },
+    "OCCLUSION_MODEL": {
+      "value": "halfopen_aabb_collision_radius_no_mover_pad_goal_exempt",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. SHAPE: a building blocks every half-tile cell overlapping the axis-aligned HALF-OPEN box [cx-R, cx+R) x [cy-R, cy+R), per axis (Chebyshev), never Euclidean -- over 3776 published path lists: 0 suboptimal / 0 infeasible, against circle-overlap at R 45/216, circle-overlap at R+250 27/246 and cell-centre-within-Euclid 23/0. A CLOSED box blocks 57 cells the oracle's own paths use. RADIUS: the building's CollisionRadius (Cannon 600, PrincessTower 1000, KingTower 1400). NO MOVER PAD: a pad of even 1 native unit blocks 155 cells the oracle's own paths use, because 3500 - 1000 = 2500 lands exactly on a cell boundary and the Giant's control path runs up column 4 at rows 11-16. GOAL EXEMPT: 4 of 150 first-path goal cells lie inside a tower box and across all published lists 81 paths end inside an occlusion box, always as the final cell, never as an interior one -- without the exemption the short-reach cards get no path at all. WHOSE BUILDINGS: the DEPLOYER'S OWN, including its own crown towers; without any occluders 12 of 150 first paths are strictly dearer than the optimum.",
+      "limits": "The 500-unit cell quantum brackets the Cannon and the princess tower only to (500, 1000], so the data does NOT show the box scales with CollisionRadius -- it shows that one unfitted rule at three shipped radii reproduces the three observed footprints. Do NOT reuse the tilemap NO_DEPLOY (bit 16) block as the occlusion set: it covers only the two king 3x3 boxes and the river banks, and the princess towers carry ZERO NO_DEPLOY cells. A CLOSED box and a ONE-NATIVE-UNIT mover pad each claim 100 cells of the oracle's own published paths over the 37-case fixture -- crates/royalesim/tests/oracle2026.rs `the_two_rival_occlusion_shapes_are_the_ones_the_corpus_refutes` asserts it, so 'half-open, no pad' is falsifiable in the repo rather than only in this text. Still open after the live pass: rule A vs rule H (a square of half-width CollisionRadius, against the building's own tile grown by half a tile) predict identical cells, because every occluder in BOTH corpora also sits on a tile centre.",
+      "r_king_2026_09_18b": "THE KING FOOTPRINT IS MEASURED, both ways, and the shipped CollisionRadius 1400 is inside the bracket. The OFFLINE corpus cannot see it -- nothing in it approaches a king, so R_king = 0 scores identically to 1400 (0/0) there and only R >= 2000 fails. LIVE 16.402: no path cell is ever within Chebyshev 1500 of an OWN king's centre and the nearest cells used are at Chebyshev exactly 1750, while 97 paths enter the ENEMY king's box. Sweep over 785 first paths (the live path sweeps, king arm): R_king in {0, 500, 1000} -> 113 failures (the extra 107 are enemy-king approaches), {1001, 1250, 1400, 1500} -> 6, 1501 -> 144 (27 extra near the own king, 111 near the enemy). So R_king is in (1000, 1500] and 1400 sits inside it; no engine change, the engine already uses each building's own CollisionRadius. Corner witnesses at Chebyshev exactly 1750: frames-20260918-112751 t255 side-1 Giant from (8466, 31041) starting (14,60),(14,59),(13,58); frames-auto-20260918-130203.b2 t2167 side-0 Giant from (9488, 48) starting (20,2),(21,3),(21,4). STILL OPEN: whether the two sides' kings share one radius -- R_king > 1000 is forced only by enemy-king approaches and R_king <= 1500 only by own-king departures, so if the footprints could differ the brackets are enemy (1000, inf) and own (0, 1500]. The Goblin Hut is bracketed to (500, 1000] the same way and goblin_hut_rework.toml ships 1000, inside it.",
+      "whose_buildings_2026_09_18b": "EVERY BUILDING ON THE BOARD, BOTH SIDES. MEASURED on the LIVE 16.402 client. This supersedes the offline reading 'the DEPLOYER'S OWN, including its own crown towers' in `provenance` above, which held on the offline corpus only because nothing in it ever walked near an enemy building: there, adding the enemy towers as occluders scores identically (0/0/0), because no interior cell of any first path lies inside an enemy tower box, so the datamined PATHFINDING_FRIENDLYONLY_OCCLUSIONS = TRUE looked consistent with it. Live: friendly-only fails 119 of 785 first paths, own + enemy fails 6 -- 113 fixed, 0 broken (the live path sweeps, occluder arm); the independent corpus reads 290/292 -> 292/292. ~107 of the 113 are the enemy KING footprint and ~6 are non-king enemy buildings, resting on 3-5 cell-for-cell witnesses (cell-for-cell, in the live corpus) -- act on it, but that half is thin. Live traces: the live corpus, 13 captures of CR 16.402 (two pairs are the same battle recorded from both clients, byte-identical in path_nodes on all 45 overlapping paths -- an independent check on the capture, and a reason the raw counts double those samples).",
+      "engine_divergence_target_building": "KNOWN, DELIBERATE, AND NOT MEASURED EITHER WAY. royalesim exempts the building a unit is currently attacking from its own occluder set (state.rs `NavRequest.ignore`, path2026.rs `CostField::for_mover`). The scored reference model (779/785) does NOT -- it occludes every building including the target, and that is how the 97 enemy-king crossings were scored, so on a unit walking at a king the two models differ: the reference model charges 50 for the last cells, the engine sees plain terrain under them (and the bit-16 goal exemption, OCCLUDED_CELL_TREATMENT, carries the goal cell). Kept because it is the older separately-argued rule -- a unit must be able to reach the thing it is attacking -- and because removing it is not free: with the box gone the engine would need the goal exemption back for exactly those cells. It costs nothing on any gate in the repo. OPEN: scoring the live corpus with the target building exempted would settle it; the corpus already has the 97 king approaches that discriminate.",
+      "corpus_2026_09_18b": "RE-SCORED 2026-09-18 after the oracle2026 fixture was regenerated from the traces (tools/make_oracle2026_fixture.py): the box admits ALL 37 published first paths -- no INTERIOR cell of any of them lies inside a friendly box. The three cases previously recorded here as 'the model's domain showing its edge' were a FIXTURE defect, not a model limit: the occluding building's centre had been taken from the deploy COMMAND, and the game snaps a deploy to a tile (cannon_dx-0.5 commanded x = 3000 and the Cannon stands at 3500), plus a Tesla's CollisionRadius is 500 in csv_logic, not the 600 that had been assumed. Two consequences worth keeping: (a) cannon_dx-0.5 and cannon_dx+0.5 snap onto dx+0.0 and dx+1.0, so the building corpus is 10 distinct boards, not 12; (b) the Tesla runs put a building on a tile CORNER (3000, 9000) and (2000, 9000), not a tile centre, and the box admits them -- so the 'building on a tile centre' scoping below is narrower than it looked. A half-tile building sweep is still owed; the corpus does not contain one."
+    },
+    "OCCLUDED_CELL_TREATMENT": {
+      "value": "cost_50",
+      "status": "measured",
+      "confidence": "HIGH",
+      "candidates": [
+        "cost_50",
+        "block"
+      ],
+      "meaning": "An occluded cell is ENTERED at PATHFINDING_BUILDING_COST = 50 (the entered-cell cost, so a diagonal pays 50 * DIAGONAL_COST_RATIO = 70). It is not a wall.",
+      "provenance": "MEASURED. LIVE CLIENT, CR 16.402 -- recorded from the real game and converted to the offline-oracle trace format. Traces: the live corpus: 13 native captures, absolute arena coordinates, both sides, training camp and friendly battles at level 11; 785 first-published paths of ground troops over 16 cards. Analysis: the cost-model / occlusion / goal-rule fit, driven by the path sweeps and cross-checked against an independent 292-path corpus. THE DISCRIMINATOR THE OFFLINE CORPUS LACKED: 97 of 785 live paths cross a building-box INTERIOR -- always exactly one cell, always the cell before the goal, always inside the enemy king's R = 1400 box ((17,8) x68 and (18,8) x17 for side-1 units attacking the side-0 king, (18,55) x9 and (17,55) x3 the other way). Scores over the 785 (the live path sweeps, own + enemy occluders throughout): hard block with no goal exemption 6 suboptimal + 456 infeasible; hard block WITH the goal exemption 20 suboptimal + 97 infeasible; cost 50 6 suboptimal + 0 infeasible. The independent 292-path corpus: 257 pass under hard block, 292 under cost 50.",
+      "the_value_is_bracketed_not_pinned": "Anything >= 14 scores identically: cost 12 -> 114 failures, 13 -> 99, 14 / 16 / 20 / 25 / 50 / 100 / 1000 -> 6. The SHIPPED PATHFINDING_BUILDING_COST = 50 sits inside the window and is what is used -- a datamined constant that fits, not a constant fitted to the data. Also open: whether the occluded cost REPLACES the terrain cost or is ADDED to it. Every discriminating cell in the corpus is road (5) or plain (8), so 50 and 50 + terrain are indistinguishable at this resolution; the engine replaces.",
+      "an_alternative_reading_survives": "All 97 crossings are the ENEMY KING. Zero live paths cross any other enemy building box and zero cross any own building box, so 'every box hard-blocks, but the king tower specifically is not an occluder and its R = 1400 avoidance is something else' is not excluded -- it scores 8 suboptimal + 1 infeasible against 6 + 0, worse but alive. The bridge plug does NOT settle it either: under cost 50 crossing the plug is still ~5x dearer than going round (205.000 vs 42.382 over rows 39-34 of frames-20260918-124946 plug #1), so block and cost 50 predict the same route there. A corridor where crossing a NON-king building is genuinely cheaper than going round it would settle it outright.",
+      "history": [
+        {
+          "date": "2026-09-18",
+          "value": "block",
+          "status": "guess",
+          "confidence": "LOW",
+          "provenance": "UNVERIFIED. PATHFINDING_BUILDING_COST = 50 (datamined) and a hard block are INDISTINGUISHABLE in this corpus -- no oracle path ever needed to cross a building, and either reproduces every trace. The same holds for bit-16 terrain (PATHFINDING_BLOCKED_COST = 50). OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md.",
+          "promotion_rules": "Settle with a corridor where crossing the building is cheaper than going around it.",
+          "overturned_by": "the live 16.402 corpus: 97 of 785 paths cross a building box interior, which a hard block makes infeasible. The offline corpus could not see it because no oracle path there ever needed to cross a building, and because nothing in it walked near a king."
+        }
+      ],
+      "promotion_rules": "SETTLED as 'a cost, not a block'. Re-open only against a capture that shows a path refusing a strictly cheaper crossing, or against a second reading of the same corpus. The exact CONSTANT is a separate question (see the_value_is_bracketed_not_pinned) and is still open below 50.",
+      "scope": "APPLIES TO BUILDING OCCLUSION BOXES ONLY -- never to water, and, since 2026-09-18, no longer to bit-16 terrain either. WATER: the two used to share one branch in path2026.rs `CostField::terrain`, so selecting `cost_50` here silently made the river traversable and overrode WATER_RULE_GROUND, which Calib::from_json refuses to load with any value but `impassable`. BIT-16: the same defect, one key deciding another's question -- `cost_50` is a statement about BUILDINGS and it used to make the deploy-restricted arena-edge strips walkable as a side effect. path2026.rs `CostField::terrain` now writes the goal-exempt OCCLUDED sentinel for bit 16 unconditionally and `CostField::occlude` overwrites it with the box cost where the two overlap (see precedence). One ledger key may not quietly override another.",
+      "precedence": "THE BOX COST TAKES PRECEDENCE OVER THE TERRAIN FLAG, and that is the actionable finding -- neither analysis stated it, and their apparent disagreement about bit 16 was entirely this. A bit-16 cell inside a building box costs 50 like any occluded cell. An engine that resolves terrain FIRST and lets an impassable bit-16 flag win costs 39 of 337 live paths, because the tilemap's bit-16 king 3x3 block IS the king tower's own R = 1400 half-open box, cell for cell. Live paths use 744 distinct cells, of which 13 carry bit 16 and ALL 13 lie inside a king box; the other 104 bit-16 cells (the arena-edge strips) are never entered by any path, and no live path touches water anywhere. So bit 16 has no measurable pathfinding meaning of its OWN -- impassable, 5, 8, 12, 50 and 1000 all score 6/785 once enemy occlusion is on -- and spec rule 2.2 is NOT refuted. It is kept impassable outside every box as the conservative reading of an unidentifiable flag.",
+      "engine_contract": "royalesim reads this into Calib::occluded_cells (state.rs) and path2026.rs `CostField::occlude` selects the value it stamps: PATHFINDING_BUILDING_COST under `cost_50`, the goal-exempt OCCLUDED sentinel under `block`. Both candidates are wired and a name with no arm is refused at load. The SHAPE is kept separately from the cost -- `CostField::in_building_box` answers 'is this cell inside a box' whichever treatment is selected -- because under `cost_50` nothing is refused and every gate that asked `refused` would have passed vacuously.",
+      "goal_cell_exemption": "SPEC 4.6 BECOMES UNNECESSARY, and deleting it is an improvement. 456 of 785 live goal cells sit inside a building box, so under the old hard-block reading the exemption was load-bearing; under cost 50 it can go and the score IMPROVES -- 6 failures without it against 12 with it, otherwise identical settings. In royalesim the exemption is now unreachable for building boxes (they are a price, not the sentinel) and survives only on the bit-16 king block, where it is what keeps a short-reach card able to path to a king tower at all and where the live corpus cannot see it either way (path2026.rs OCCLUDED)."
+    },
+    "WATER_RULE_GROUND": {
+      "value": "impassable",
+      "status": "measured",
+      "confidence": "HIGH",
+      "candidates": [
+        "impassable",
+        "cost_7"
+      ],
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. PATHFINDING_WATER_COST = 7 is in the shipped globals but it is WRONG for ground: modelling water as traversable at cost 7 makes 25 of 150 oracle first paths strictly dearer than the optimum -- the oracle refused water shortcuts it would have taken. Water at cost 50 and a hard block are indistinguishable; the hard block is taken for ground and cost 7 is left available for whatever it is really for (flyers, or a non-pathfinding use).",
+      "engine_contract": "path2026.rs `CostField::terrain` writes the IMPASSABLE sentinel for the water bit unconditionally, and path2026.rs `plan_cells` refuses it WITHOUT the spec-4.6 goal exemption -- a distinct sentinel from OCCLUDED, which the goal cell may use. Sharing one sentinel extended the exemption to the river: a ground unit whose target stands on a bridge has in-reach cells two rows into the water, and the route's final cell could legally be one of them. No trace exercises it, so no gate caught it."
+    },
+    "PATH_GOAL_RULE": {
+      "value": "first_cell_within_range_plus_own_collision_radius",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. The path is truncated at the FIRST cell whose CENTRE is within Range + CollisionRadius of the TARGET'S CENTRE POINT -- the target's centre, not its footprint, and not the sum of both collision radii. Verified two-sided (the goal is in reach AND its predecessor is out of reach) on 150/150 first paths, including the meet/ traces with moving targets and side-1 units. Rivals: 'Range only' 1/140, 'Range + both radii' 0/140, 'footprint edge' 0/140. Per-card stop cells from one deploy tile: Giant (reach 1950) row 47; Knight 1700, Golem 1500, HogRider 1400 all row 48; MiniPekka 1250 and Skeletons 1000 row 49.",
+      "limits": "NECESSARY, NOT DETERMINATIVE. It is a condition on the last node, not a predictor of which cell the search stops at: between 12 and 52 cells per sample satisfy it (median 32) and the oracle's goal cell is not the cheapest reachable in-reach cell in 114 of 140 samples, with no cost ties among them. Handing an A* the oracle's goal cell raises exact-sequence reproduction from 22/140 to 43/140 -- THE GOAL CELL IS AN OUTPUT OF THE EXPANSION ORDER. Implement the reach test as the goal PREDICATE and let the pop order choose; do not implement 'pick the nearest or cheapest in-reach cell'. A constant k added to Range + CollisionRadius fits all 150 paths for any k in [-125.2, +24.8), so the reach is pinned to about +-75 units, not exactly.",
+      "sign": "The standoff is on the APPROACH side, not unconditionally negative in y: in meet/Knight_vs_HogRider ticks 250-273 the Knight's target is BELOW it and the goal row is cell_centre_y + reach. An unconditional minus puts the goal on the far side of the target. The predicate form (a radius about the target centre) carries this for free.",
+      "cadence": "Re-derive the goal cell every tick and replan only when the resulting CELL changes (REPLAN_TRIGGERS): that reproduces the 137 observed goal-driven replans with the observed 1-2 tick lag."
+    },
+    "WAYPOINT_ARRIVE_RADIUS": {
+      "value": 1000,
+      "units": "native arena units (1 tile = 2 cells)",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. At most ONE node is consumed per tick: 0 of 3851 tail-drop ticks dropped more than one. Threshold sweep on the post-move Euclidean distance: 1000 is the one-sided exact value (zero false drops across 27824 keep-ticks); 1001 buys 27 fewer misses and costs 3 false drops, 1003 gives 107 total against 148, 1005 and beyond are worse. NOT TUNED to hide the residual -- see WAYPOINT_ARRIVE_RULE, which explains it instead."
+    },
+    "WAYPOINT_ARRIVE_RULE": {
+      "value": "segment_projection",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "candidates": [
+        "segment_projection",
+        "euclid_post_move"
+      ],
+      "candidate_meanings": {
+        "segment_projection": "Consume the tail node when the REMAINING DISTANCE ALONG THE SEGMENT, dot(node_centre - post_move_position, segment_direction) / 256 with integer truncation, is <= WAYPOINT_ARRIVE_RADIUS. segment_direction is the 1/256 unit vector frozen when the node was assigned (norm256(node_centre - POST-move position), the engine's own path_segment_direction field).",
+        "euclid_post_move": "the pathfinder spec's rule 7.5 as written: consume when the post-move EUCLIDEAN distance (floored integer sqrt) to the node centre is <= WAYPOINT_ARRIVE_RADIUS."
+      },
+      "provenance": "MEASURED, and it SUPERSEDES the spec's rule 7.5 on the same corpus. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Scored over all 34644 stable-list tick pairs (3975 ordinary drops, 30669 keeps) (reproduced by tools/oracle_diff.py --rule): euclid_post_move misses 153 drops and fires 3 times early (156 errors); segment_projection misses 6 and fires 10 times early (16 errors), and ALL TEN of its early fires carry avoidance_offset != 0 (110, 190, 150, 140, 130, -160) -- the avoidance regime that is outside the domain of every movement law here (CONTACT_DOMAIN). On the walk family (the isolated-unit gate) segment_projection has ZERO errors; euclid_post_move misses 4, which is exactly why the spec expected '~4 % of pop ticks to diverge'. The mechanism it adds was already in the spec as rule 7.7 -- the segment direction is frozen at consumption and held for the whole segment, zero exceptions on the walk traces -- it was simply never connected to the consumption predicate.",
+      "disproof_of_a_pure_radius": "No radius on the post-move distance can be right: restricted to ISOLATED units (single-unit traces, avoidance_offset == 0, behavior_state == 1) the Knight corpus contains a DROP at distance 1004.478 and a KEEP at 1000.648, so drops and keeps overlap in distance. They do not overlap in the projection.",
+      "engine_contract": "royalesim stores the frozen direction per entity (entity.seg_dir) and evaluates the predicate AFTER the move, at most one pop per tick (state.rs phase_path_2026). Setting this key to euclid_post_move runs the spec's rule 7.5 instead."
+    }
+  },
+  "combat": {
+    "LEVEL_SCALING": {
+      "value": "per_rarity_powerLevelMultiplier_table",
+      "status": "datamined",
+      "confidence": "high",
+      "provenance": "rarities.csv ships an explicit per-rarity multiplier table. It reproduces published per-level hitpoints exactly (Hog Rider 800 -> 880, 968, 1064, 1168, 1280, 1408, 1544).",
+      "note": "The old engine used 1.1^(level-1), which drifts from level 4 onward (1065, 1171, 1288...). It also scaled princess towers at level 11 while leaving the king at level 1, putting the two tower types on different regimes inside one match."
+    },
+    "DAMAGE_ARITHMETIC": {
+      "value": "integer",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "NONE. Unknown whether HP and damage are integers or floats internally, and unknown rounding mode and composition order for level multiplier / crown-tower percent / shields / reductions.",
+      "why_it_matters": "Rounding differences change how many hits a tower takes, which changes every trade in the game.",
+      "promotion_rules": "Count real hits-to-kill for several known matchups and solve for the rounding that reproduces all of them."
+    },
+    "CROWN_TOWER_DAMAGE_ROUNDING": {
+      "value": "ceil_kept_share",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "Crown towers (king and princess only; Cannon and Tesla take full damage) take ceil(damage * pct / 100), which equals damage + trunc_toward_zero(damage * CrownTowerDamagePercent_raw / 100). It reproduces all 8 Supercell-published level-11 crown values checked in docs/spell-spec.md (Fireball 207 at 30%, 172 at 25%; Zap 58 at 30% of an exact 192; Rocket 371 at 25%; Log 58 at 20%; ...), 7 of them non-circular; floor reproduces 3/8 and round-half-up 5/8. The evidence is patch-note stat sheets, not in-battle numbers, and assumes a published number equals battle damage.",
+      "candidates": [
+        "ceil_kept_share",
+        "floor",
+        "round_half_up"
+      ],
+      "supersedes": "the unsourced TRUNCATED (floor) reduction combat.rs::damage_against used before 2026-09-13 (combat.DAMAGE_ARITHMETIC's note predates this key). In the 2018 data only spells, and the non-thin-slice Miner (40%), carry a percent below 100",
+      "promotion_rules": "Read a princess tower's HP number before and after one spell impact in a recording, at a card level where the laws differ (Zap level 8 at 25%: 36.19 -> floor/round 36, ceil 37; level 12: 52.69 -> floor 52, round/ceil 53).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    }
+  },
+  "match": {
+    "$comment": "The old engine had all of this wrong (300s regular, 360s hard stop, double elixir at 120s, no 3-crown win). Correct values are pending the mechanics research pass; anything below marked 'guess' has NOT been verified for the live 2026 game.",
+    "MANA_REGEN_MS_1X": {
+      "value": 28000,
+      "units": "ms to fill a 10-elixir bar",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv (2.8 s per elixir)",
+      "vintage": "pre-2023"
+    },
+    "MANA_REGEN_MS_2X": {
+      "value": 14000,
+      "units": "ms to fill a 10-elixir bar",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "vintage": "pre-2023"
+    },
+    "START_MANA": {
+      "value": 5,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "vintage": "pre-2023"
+    },
+    "MAX_MANA": {
+      "value": 10,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "vintage": "pre-2023"
+    },
+    "KING_ACTIVATE_TIME_MS": {
+      "value": 3300,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv",
+      "open": "What this actually delays, and what triggers activation (princess destroyed / king damaged / spell splash). Nobody established it."
+    },
+    "LOGIC_BATTLE_START_COOLDOWN_MS": {
+      "value": 4500,
+      "status": "datamined",
+      "confidence": "LOW",
+      "provenance": "globals.csv of an UNVENDORED 2023 data, per recon. NOT PRESENT in the vendored 2018 globals.csv (data/raw/retroroyale-2018). Reported during 2026-09-12 recon as read from a newer globals.csv (a 2023 data) that this repo does not vendor, so nothing in the tree backs it. extract_globals.py lists it ABSENT on every run, deliberately.",
+      "open": "Whether cards can be played during it.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": 4500,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv",
+          "overturned_by": "extract_globals.py 2026-09-13: key absent from the vendored globals.csv the provenance cited"
+        }
+      ]
+    },
+    "REGULAR_TIME_S": {
+      "value": 180,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "locations.csv MatchLength=180 on all 26 PvP/TeamVsTeam/PvE/training rows.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": 180,
+          "status": "hypothesis",
+          "confidence": "medium",
+          "provenance": "TOURNAMENT_MATCH_LENGTH_SECONDS=180 in globals. Whether ladder matches this is UNVERIFIED.",
+          "overturned_by": "locations.csv (vendored 2018) gives MatchLength=180 for every PvP location, a direct source for ladder rather than an inference from the tournament constant"
+        }
+      ],
+      "units": "seconds",
+      "vintage": "2018 client data"
+    },
+    "OVERTIME_S": {
+      "value": 60,
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "locations.csv OvertimeSeconds=60 on all 26 PvP/TeamVsTeam/PvE/training rows, with MatchLength=180.",
+      "history": [
+        {
+          "date": "2026-09-13",
+          "value": 180,
+          "status": "guess",
+          "confidence": "LOW",
+          "provenance": "Unverified for the live game.",
+          "overturned_by": "locations.csv (vendored 2018): OvertimeSeconds=60 on every PvP, TeamVsTeam and training location; the 180 in the old registry was never sourced, and the only 180 in the data is TOURNAMENT_OVERTIME_LENGTH_SECONDS, which applies to tournaments"
+        }
+      ],
+      "units": "seconds",
+      "vintage": "2018 client data",
+      "note": "Tournament mode is different: TOURNAMENT_OVERTIME_LENGTH_SECONDS=180. Ladder in the live 2026 game is UNVERIFIED; a recording of any match that reaches overtime settles it.",
+      "promotion_rules": "Time an overtime from start to end in a recording."
+    },
+    "THREE_CROWN_INSTANT_WIN": {
+      "value": true,
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Believed true; not established from a source."
+    },
+    "MANA_REGEN_MS_OVERTIME": {
+      "value": 14000,
+      "units": "ms to fill a 10-elixir bar",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv MANA_REGEN_MS_OVERTIME (vendored 2018)",
+      "vintage": "2018 client data",
+      "note": "14000 is the 2x rate: in 2018, overtime was DOUBLE elixir, not triple. Whether the live 2026 ladder uses triple elixir anywhere is UNVERIFIED. Added 2026-09-13; check whether the engine reads it or reuses MANA_REGEN_MS_2X."
+    },
+    "MANA_SPEED_UP_WHEN_REMAINING_SECONDS": {
+      "value": 60,
+      "units": "seconds of regular time remaining",
+      "status": "datamined",
+      "confidence": "medium",
+      "provenance": "globals.csv MANA_SPEED_UP_WHEN_REMAINING_SECONDS (vendored 2018)",
+      "vintage": "2018 client data",
+      "meaning": "Double elixir begins when this many seconds of regular time remain -- i.e. at 2:00 elapsed of a 3:00 match.",
+      "note": "state.rs already reads this key when present and falls back to globals.json; mock_engine.py reads globals directly. Registered 2026-09-13 so the value has one home."
+    }
+  },
+  "rng": {
+    "GENERATOR": {
+      "value": "pcg32",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Supercell's own PRNG has never been recovered publicly. A real replay is a function of a single rndSeed int, so the generator is a REQUIRED component of reproducing a real match -- and an unavailable one.",
+      "consequence": "We cannot replay a real recorded match. We CAN guarantee bit-identical reproducibility within our own build, which is a different and entirely attainable property, and the one every test depends on.",
+      "engine_contract": "The RNG is owned by battle state and its bit-state is part of the serialized state. A replay is seed + action log + periodic state hash. The old engine had 23 module-global `random` call sites and zero occurrences of `seed`, so nothing it produced was reproducible at all."
+    }
+  },
+  "fidelity_target": {
+    "$comment": [
+      "Stated explicitly so nobody re-litigates it or quietly aims higher and stalls.",
+      "BIT-EXACT replication of Clash Royale is NOT achievable from public evidence,",
+      "and no further archaeology makes it achievable: unknown tick rate, unknown",
+      "speed divisor, unknown internal fixed-point scale and rounding, unrecovered",
+      "PRNG, unknown intra-tick ordering, and a pathfinder Supercell rewrote in 2025",
+      "and never documented -- against a data corpus that stops in 2023 and an arena",
+      "map that stopped shipping entirely.",
+      "",
+      "THE TARGET IS: behavioural fidelity sufficient that strategies transfer, plus",
+      "bit-identical determinism WITHIN this build. That is RocketSim's own posture",
+      "and it was enough to train superhuman Rocket League agents.",
+      "",
+      "The engine's job is to make every disputed constant cheap to change and cheap",
+      "to test, so that each measurement promotes a number instead of triggering a",
+      "rewrite."
+    ]
+  },
+  "spells": {
+    "$comment": [
+      "Spell mechanics that NO shipped column settles (docs/spell-spec.md, PARTIALLY VERIFIED).",
+      "Card STATS for spells (damage, radius, pushback distance, crown percent, waves, roll",
+      "range, stun time, spawn count) are NOT here: they are card data, read from",
+      "data/derived/cards.json (the 2018 data). The live-2026 values the spec",
+      "quotes (Fireball pushback 1000, Arrows 3 x 48 at r 3500, Log range 10100, ...) are",
+      "evidence for a data-vintage decision, not engine inputs."
+    ],
+    "LAUNCH_POINT": {
+      "value": "caster_king_tower_centre",
+      "status": "community",
+      "confidence": "LOW",
+      "provenance": "Wiki King's Tower: spell damage 'originates from the King Tower'; wiki Fireball: travel time depends 'on how far it is sent from the King's Tower'. The exact origin point is unstated. Applies to fixed-target projectile spells (Fireball, Arrows, Rocket, Goblin Barrel); not to The Log (spells.SPELL_AS_DEPLOY_LAUNCH_MODEL) or area effects (Zap).",
+      "candidates": [
+        "caster_king_tower_centre",
+        "king_centre_plus_ProjectileStartRadius_toward_target",
+        "offscreen_behind_king"
+      ],
+      "promotion_rules": "Flight-time regression over >= 3 cast distances in >= 2 directions from 60 fps video, fitting launch point and speed jointly (t = |aim - L| / v).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "AOE_HIT_TEST": {
+      "value": "edge_inclusive",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Engine convention (globals ADD_CHARACTER_RANGE_TO_RADIUS and combat.rs splash): a victim is hit when centre distance <= radius + its collision radius. Nothing public states whether spell areas measure to the hitbox edge or the centre. One key for projectile-spell impacts AND one-shot area effects (the spec's spells.AOE_HIT_TEST and aoe.RADIUS_GEOMETRY ask the same question).",
+      "candidates": [
+        "edge_inclusive",
+        "centre_in_radius"
+      ],
+      "promotion_rules": "Cast Zap with its centre 2.6-3.0 tiles from a stationary enemy Cannon (radius 0.6): hit and stunned under edge_inclusive, untouched under centre_in_radius.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted",
+      "globals_role": "context"
+    },
+    "WAVE_AREA_MODEL": {
+      "value": "single_disc_one_hit_per_wave",
+      "status": "hypothesis",
+      "confidence": "LOW",
+      "provenance": "Each wave of a multi-wave projectile spell (live Arrows: 3) is one disc of the damage carrier's radius, each enemy hit at most once per wave. Community kill counts ('2 volleys eliminate Goblins', 'a single volley is enough to take out Skeletons') and Supercell's tower figure 93 = 3 x 31 imply one hit per wave. The 2018 data ships ONE wave (no ProjectileWaves column), so under the vendored data this key is inert; it exists so a live overlay cannot silently pick a model.",
+      "candidates": [
+        "single_disc_one_hit_per_wave",
+        "ten_subareas_dedupe",
+        "ten_subareas_no_dedupe"
+      ],
+      "promotion_rules": "One-hit-kill Skeletons at radii 2.5-3.9 tiles and several angles across repeated live Arrows casts; a fixed gap pattern means 10 explicit sub-areas.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ONE_SHOT_AREA_EFFECT_APPLICATION": {
+      "value": "first_update_only",
+      "status": "hypothesis",
+      "confidence": "HIGH for Zap, LOW for longer-lived one-shot effects (Freeze)",
+      "provenance": "An area effect with a blank HitSpeed applies exactly once, on its first update, whatever its LifeDuration (Zap ships LifeDuration 1 ms, shorter than any tick hypothesis, so both readings coincide for Zap). crforge's OneShotHandler does the same.",
+      "candidates": [
+        "first_update_only",
+        "each_new_entity_during_life"
+      ],
+      "promotion_rules": "Walk or deploy an enemy troop into an active Freeze 1 s after the cast: frozen means each_new_entity_during_life.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "SPELL_AS_DEPLOY_LAUNCH_MODEL": {
+      "value": "airborne_from_behind_lands_on_tap",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "The Log (SpellAsDeploy): an airborne LogProjectile with no hitbox (AesDragon wiki blog: 'still in the air without a hitbox') starts MinDistance (LogProjectile 3000) behind the tap along the caster's forward axis, lands on the tap, and releases the rolling projectile there, which rolls ProjectileRange from the tap. Supported by 'swarms placed on top of The Log will be immediately hit' and the Barbarian Barrel river lore; airborne_from_tap_forward (crforge) is not ruled out by that lore.",
+      "candidates": [
+        "airborne_from_behind_lands_on_tap",
+        "airborne_from_tap_forward",
+        "instant_roll_at_tap"
+      ],
+      "not_read": "The rolling projectile's own MinDistance (LogProjectileRolling 2500) is IGNORED (spec candidate ignored_when_range_set). No key, because no code reads it.",
+      "promotion_rules": "60 fps recording of a Log dropped with a Skeleton exactly on the tap tile and one 1.5 tiles ahead: which is hit, and frames from release to first damage.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ROLLING_HIT_SHAPE": {
+      "value": "rect_vs_circle_edge",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "The roll's swept axis-aligned rectangle (half-width ProjectileRadius 1950, half-depth ProjectileRadiusY 600) against the victim's collision circle, closed (touching hits) -- the engine's edge convention. A 2023-03-27 patch 'improved The Log's collision detection' changed something unspecified.",
+      "candidates": [
+        "rect_vs_circle_edge",
+        "rect_contains_centre"
+      ],
+      "promotion_rules": "Skeletons at 2.2 tiles lateral offset from the roll's centre line on both sides: hit under rect_vs_circle_edge, untouched under rect_contains_centre.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "SPAWNING_SPELL_WATER_RULE": {
+      "value": "refuse_touching_water",
+      "status": "community",
+      "confidence": "MEDIUM that the river is refused; LOW on the granularity",
+      "provenance": "Fandom Goblin Barrel trivia: 'unable to be placed directly on the river', 'the only spell that cannot be placed directly on the river'. A spell whose projectile spawns characters is refused where the TROOP water test refuses (the tap touches a water half-cell, closed); no territory, no-deploy or footprint rule applies. DEPARTS from the 2026-09-13 build brief's 'Goblin Barrel territory Anywhere' on this evidence; the value 'anywhere' keeps that reading one edit away.",
+      "candidates": [
+        "refuse_touching_water",
+        "anywhere"
+      ],
+      "promotion_rules": "Drag the Goblin Barrel along the river bank and note the placement indicator colour cell by cell.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "PROJECTILE_SPAWN_FORMATION": {
+      "value": "engine_grid",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Units released by a projectile (Goblin Barrel's 3 Goblins) are placed by the same formation rule as a multi-unit troop deploy (state.rs formation: a centred grid one collision diameter apart, rotated for Red) around the landing point, with the unit's own collision radius. GoblinBarrelSpell.Radius 1500 carries no damage and its role in the layout is unknown.",
+      "candidates": [
+        "engine_grid",
+        "ring_at_projectile_radius",
+        "count_ring_tight"
+      ],
+      "not_read": "characters.Goblin.DeployDelay 400 does NOT stagger the released units (spec candidate SPAWNED_UNITS_STAGGER_BY_DEPLOY_DELAY=false). No key, because no code reads it.",
+      "promotion_rules": "First visible frame of the three Goblins from a barrel on open ground, repeated 3 times at one tile.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    }
+  },
+  "knockback": {
+    "$comment": [
+      "Knockback (Pushback) from spells. The DISTANCE is card data (projectiles.csv Pushback,",
+      "millitiles; Fireball 1800 <-> Supercell '1.8 tile', Log 1000 <-> wiki '1 tile'), and",
+      "PushbackAll / IgnorePushback are card data. Everything below is in NO column and in no",
+      "globals.csv key of the 2018 or 2023 data sets (docs/spell-spec.md, shared mechanics)."
+    ],
+    "DISPLACEMENT_LAW": {
+      "value": "fixed_distance",
+      "status": "community",
+      "confidence": "LOW",
+      "provenance": "Every pushed victim is displaced by exactly Pushback, whatever its distance from the source (Supercell 2022-08-02: 'Pushback: 1.8 tile -> 1 tile' reads as a distance). No mass term: Mass is collision-only and no column gives a push-mass law.",
+      "candidates": [
+        "fixed_distance",
+        "linear_falloff_with_distance",
+        "half_distance_constant_speed"
+      ],
+      "promotion_rules": "Frame-track Knights at 0.5 and 2.3 tiles from a Fireball impact and compare final displacements.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "DURATION_MS": {
+      "value": 0,
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "0: the displacement is applied in the Resolve of the hit tick. Above 0: spread evenly over that many ms (integer, the last tick takes the remainder), during which the unit neither walks nor attacks. crforge uses 500 (unsourced, 'reference JS').",
+      "candidates": [
+        0,
+        500
+      ],
+      "units": "ms",
+      "promotion_rules": "Count 60 fps frames of a Fireball knockback slide.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ZERO_VECTOR_DIRECTION": {
+      "value": "caster_forward",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "A victim exactly on a radial source's centre has no direction. caster_forward pushes it along the CASTER's forward axis (+y for a Blue cast, -y for Red), which commutes with the seat rotation. crforge's fixed (0,+1) for both teams does not.",
+      "candidates": [
+        "caster_forward",
+        "none"
+      ],
+      "promotion_rules": "Fireball centred exactly on a stationary unit.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "STACKING": {
+      "value": "vector_sum",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Two knockbacks landing on one unit in one tick are summed (buffered and commutative, so the order sources are processed in cannot matter).",
+      "candidates": [
+        "vector_sum",
+        "max_magnitude_with_mirror_invariant_tiebreak",
+        "latest_replaces"
+      ],
+      "promotion_rules": "Fireball and Log landing on one Knight on the same tick.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "WATER_RESOLUTION": {
+      "value": "eject_to_nearest_land",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "The river does NOT block a push (wiki The Log: pushes a unit 'over the river back to the opponent's side'), and ground units knocked into water bounce (wiki 2020: hover units 'will no longer bounce off of it'). A ground unit whose pushed centre touches water moves to the nearest passable ground point along the x or y axis (ties in its own frame: its own side, then its own left). A result inside a building footprint is pushed out as collision does; if both cannot be satisfied the unit stays where it was.",
+      "candidates": [
+        "eject_to_nearest_land",
+        "continue_along_push_to_far_bank",
+        "clamp_at_bank"
+      ],
+      "promotion_rules": "Fireball a Knight standing 0.3 tiles from the bank, off-bridge; Log a Knight on the bridge exit.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ATTACK_RESET": {
+      "value": "reset_windup_keep_target",
+      "status": "community",
+      "confidence": "MEDIUM that the windup resets; LOW on the target",
+      "provenance": "Wiki Fireball: 'a true stun that resets the attack animations'; wiki The Log: 'will reset their attack animation'. A windup in progress returns to Idle with its timer at 0 and the target lock released; cooldown is untouched. Whether the target itself survives is unknown.",
+      "candidates": [
+        "reset_windup_keep_target",
+        "reset_windup_clear_target"
+      ],
+      "promotion_rules": "Frames from push to next hit of a Knight attacking a tower, logged mid-windup.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "AFFECTS_DEPLOYING_UNITS": {
+      "value": true,
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Deploying units take spell damage (community-established: Arrows vs Goblin Barrel, Fireball-on-placement play); whether they are also displaced is not.",
+      "candidates": [
+        true,
+        false
+      ],
+      "promotion_rules": "Fireball a Musketeer on its placement frame and track it.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "DIRECTION_ROLLING": {
+      "value": "travel_direction",
+      "status": "owner_ruling",
+      "confidence": "HIGH on the SIGN (no victim is ever pushed backward -- that is exactly what was asked); LOW on the vector for an OFF-AXIS victim, which the question did not cover.",
+      "provenance": "A maintainer's direct observation of the live game: when The Log lands it never pushes a troop BACKWARD toward the player who cast it -- not even a troop standing just behind the tap -- it is always forward. Every ground troop the Log hits is therefore displaced by Pushback along the Log's direction of travel -- the caster's own forward axis -- including anything caught by its back edge on landing.",
+      "supersedes": "radial_from_projectile_centre, status guess: 'A rolling projectile (The Log) pushes along the vector from its current centre to the victim. Three fandom strategy lines need a sideways component (lane switching by deploying <on the side of the troop opposite>; pushing troops <closer to the inside of the Arena>; pushing a corner Miner <towards the King's Tower>); a pure forward push produces none of them. A victim exactly on the centre is pushed along the roll.' That was an INFERENCE from strategy prose, and direct observation of the live game outranks third-party prose in this registry's source order. Measured under the refuted value: a victim at own along-offsets -1 to -24300 subtiles was pushed a full tile BACK toward the caster in both seats (the boundary is victim-dependent: half_depth + the victim's collision_radius), and an off-axis victim 1.5 tiles to the side was pushed (14515, 10644). Recorded rather than deleted, because the REASONING was the error: the three lane-switching lines are real strategy advice and still need an explanation. The leading hypothesis is now that the sideways effect players describe comes from the victim REPATHING after a forward push, not from the push vector -- unverified, and a candidate oracle scenario.",
+      "candidates": [
+        "radial_from_projectile_centre",
+        "travel_direction"
+      ],
+      "promotion_rules": "The ruling settles the SIGN, not the vector, so this is not yet 'measured'. To promote: (a) a Knight standing 1 tile BEHIND the tap -- forward under travel_direction, backward under radial_from_projectile_centre (the ruling's own scenario, the cheaper recording); and (b) a Knight struck 1.5 tiles off the roll axis -- pure own-forward under travel_direction, diagonal under radial_from_projectile_centre.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. radial_from_projectile_centre therefore STAYS implemented in spell.rs although it is not shipped -- it is a listed candidate, and it is the regression plant."
+    }
+  },
+  "status": {
+    "$comment": [
+      "Stun: STUN-class buffs (speed, hit-speed and spawn-speed raw multipliers all -100, e.g.",
+      "character_buffs.ZapFreeze). The buff's DURATION is card data (Zap BuffTime 500). The",
+      "engine has one stun timer per entity; nothing else about a stun is in a column."
+    ],
+    "STUN_ATTACK_TIMER_MODEL": {
+      "value": "pause",
+      "status": "community",
+      "confidence": "MEDIUM-HIGH",
+      "provenance": "Supercell release note 2017-03-13, verified at source: 'All stun/freeze effects will now pause the target's attack, causing them to retarget when they resume'. The live wiki Freeze and E-Wiz pages still say pause. crforge implements reset (the pre-2017 model).",
+      "candidates": [
+        "pause",
+        "reset"
+      ],
+      "promotion_rules": "A Knight attacking a building, Zapped at a known offset after a hit lands: hit-to-hit interval HitSpeed+500 ms at every offset under pause; offset+500+LoadTime under reset.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "STUN_RETARGET_ON_RESUME": {
+      "value": true,
+      "status": "community",
+      "confidence": "MEDIUM-HIGH",
+      "provenance": "Supercell 2017-03-13 'causing them to retarget when they resume'; wiki Zap 'Zapping units or the opposing Crown Tower can possibly change their targets'. On application the target lock is released; on the first tick the stun is over, the unit rescans ignoring target lock and keep-target hysteresis.",
+      "candidates": [
+        true,
+        false
+      ],
+      "promotion_rules": "A locked Musketeer with a nearer valid target placed after the lock switches target 0.5 s after a Zap.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "RESUME_RETARGET_WINDUP": {
+      "value": "cancel",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "When the resume rescan picks a DIFFERENT target, a paused windup is cancelled to Idle (the engine's existing change-of-target rule) rather than carried onto the new target.",
+      "candidates": [
+        "cancel",
+        "carry"
+      ],
+      "promotion_rules": "A Musketeer locked mid-windup on a far Giant, a Skeleton dropped nearer, then Zap: new-target hit time minus stun end is a full LoadTime (cancel) or the remaining windup (carry).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "BUFF_EXPIRY_TICK_ALIGNMENT": {
+      "value": "ceil_from_next_tick",
+      "status": "hypothesis",
+      "confidence": "n/a (ours; below video resolution)",
+      "provenance": "A D-ms stun applied in tick N suppresses ticks N+1 .. N+ceil(D/TICK_MS): timers are decremented in Resolve immediately before that tick's new stuns are applied. one_tick_short is the pre-2026-09-13 Status-phase decrement (one tick fewer).",
+      "candidates": [
+        "ceil_from_next_tick",
+        "one_tick_short"
+      ],
+      "promotion_rules": "None by video (50 ms vs 16.7 ms frames under client interpolation); pinned by crates/royalesim/tests/spells.rs. NOTE: timing a 500 ms Zap to settle TICK_MS is far weaker than it reads -- a 500 ms buff lasts 500 ms under every tick hypothesis.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "SAME_BUFF_REAPPLY": {
+      "value": "refresh_max",
+      "status": "hypothesis",
+      "confidence": "MEDIUM",
+      "provenance": "A stun landing on a stunned unit sets the remaining time to max(remaining, new) and never shortens a longer one (ZapFreeze ships no EnableStacking; crforge AppliedEffect.refresh uses max). Several stuns landing in one tick merge by max, which is order-independent.",
+      "candidates": [
+        "refresh_max",
+        "replace"
+      ],
+      "promotion_rules": "Zap a unit 1 s into an Ice Spirit freeze (1.1 s live): it moves at 1.1 s under refresh_max, at 1.5 s under replace.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "STUN_PAUSES_DEPLOY_TIMER": {
+      "value": false,
+      "status": "hypothesis",
+      "confidence": "LOW",
+      "provenance": "By analogy with wiki Freeze 'will not affect the King Tower's activation animation': both timers run, and only stun time left after deploy blocks action.",
+      "candidates": [
+        false,
+        true
+      ],
+      "promotion_rules": "Zap a Knight about 0.8 s into its 1 s deploy: it starts walking about 1.3 s (false) or 1.5 s (true) after placement.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "STUN_PAUSES_BUILDING_LIFETIME": {
+      "value": false,
+      "status": "community",
+      "confidence": "MEDIUM (by analogy)",
+      "provenance": "Wiki Rage: 'building lifetime still drops with its normal rate, even with the Rage'.",
+      "candidates": [
+        false,
+        true
+      ],
+      "promotion_rules": "Freeze a Cannon for 4 s and time its total lifetime.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "STUN_PAUSES_KING_ACTIVATION": {
+      "value": false,
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "Wiki Freeze: 'will not affect the King Tower's activation animation'.",
+      "candidates": [
+        false,
+        true
+      ],
+      "promotion_rules": "Freeze an enemy King at the moment it is first damaged: it attacks as soon as the freeze ends (false) or after a further delay (true).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    }
+  },
+  "movement": {
+    "$comment": [
+      "THE PER-TICK LOCOMOTION LAW OF A GROUND TROOP, measured from the offline oracle on",
+      "2026-09-18. Order matters: re-derive the goal cell, replan if it moved, apply the",
+      "stomp pause, take the heading from the PRE-move position, step with per-axis",
+      "truncation, then consume at most one waypoint. Permuting it does not reproduce the",
+      "traces.",
+      "",
+      "EVERY LAW HERE HAS A DOMAIN: CONTACT_DOMAIN. They hold for a unit that is not in",
+      "contact with another unit. Two of the three regimes that break them set no flag at",
+      "all, so an engine that fits card constants to crowded traces will absorb the",
+      "avoidance and separation terms into the wrong place."
+    ],
+    "HEADING_LAW": {
+      "value": "norm256_floored_isqrt_pre_move",
+      "status": "measured",
+      "confidence": "HIGH",
+      "formula": "d = node_centre - position (PRE-move); L = floor(sqrt(d.x^2 + d.y^2)); dir = (d.x * 256 / L, d.y * 256 / L) with integer division truncating toward zero",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. 100 % on every isolated unit. The FLOORED length is what is load-bearing, not the sqrt routine: over 1258 walk ticks floor(sqrt) matches 1258, nearest-integer 1179, scale-then-sqrt 191, ceil 173. The PRE-move position as the origin scores 106-307 ticks per card against 85-264 for post-move.",
+      "do_not": "|dir| legitimately ranges 254.678..256.236 because each axis truncates independently -- DO NOT renormalise or clamp to 256. Heading is STATELESS: a pure function of position and current node, recomputed from scratch. No inertia, no angular smoothing, no turn-rate limit; it snaps 71.57 degrees in one tick on a spawn tick and nothing in the corpus exceeds that. RotateAngleSpeed exists as a card column but only turret-like cards set it (cannon_cart, zapmachine, minizapmachine, dartbarrell) -- none is a troop."
+    },
+    "POSITION_ROUNDING": {
+      "value": "truncate_toward_zero_per_axis_no_carry",
+      "status": "measured",
+      "confidence": "HIGH",
+      "formula": "position.x += trunc(S * dir.x / 256); position.y += trunc(S * dir.y / 256)",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. The sub-unit remainder is DISCARDED every tick: integrating this law alone from the first moving tick reproduces the final position exactly over 106-308 ticks with zero drift. Floor matches 0 of about 1000 discriminating ticks (dir.x < 0 on every moving tick of every walk unit, so floor and truncation differ on every one); round matches 17-43 per card; ceil 201/240.",
+      "engine_contract": "Rust i32/i32 already truncates toward zero and is correct. Do NOT use f32 and do NOT use div_euclid. The pre-2026 models keep path::advance's 1/65536 fractional carry -- that carry is WRONG for this model and is not used by it."
+    },
+    "STOMP_SPEED_RULE": {
+      "value": "speed_times_stop_plus_wait_over_stop",
+      "status": "measured",
+      "confidence": "HIGH",
+      "formula": "S = Speed if StopMovementAfterMS is unset, else floor(Speed * (StopMovementAfterMS + WaitMS) / StopMovementAfterMS)",
+      "rounding_2026_09_18b": "THE ROUNDING IS FLOOR, MEASURED, which is what raises this key from MEDIUM to HIGH. MEASURED on the LIVE 16.402 client (the live corpus, 13 captures; the movement analysis, Ice Golem arm). The Giant and the Golem could never separate it -- 45 * 740/640 = 52 and 45 * 1200/1000 = 54 are whole numbers, so floor, round and truncate all agree and only ceil was excluded. THE ICE GOLEM SEPARATES IT: icegolemite.toml ships Speed 45, StopMovementAfterMS 470, WaitMS 80, and 45 * 550/470 = 52.6596. Over 2373 ISOLATED free-walk moving ticks, S = 52 scores 2231, S = 53 scores 29, S = 51 scores 104 and S = 54 scores 0. Floor. royalesim already computed floor -- card.rs `move_speed` is integer division on non-negative operands -- so this promotion adds evidence and changes no behaviour.",
+      "provenance": "MEASURED as a value, PARTLY UNVERIFIED as a formula. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. The free per-unit fit gives Giant 52 and Golem 54 while their Speed column is 45 for both; 640/100 and 1000/200 are their shipped StopMovementAfterMS/WaitMS. It is a TWO-POINT fit: Speed + floor(Speed*Wait/Stop) agrees on every shipped stomp card. The offline corpus cannot identify the rounding mode -- floor, round and truncate all give Giant 52 / Golem 54, and only ceil is excluded -- but the live Ice Golem can, because its value is not a whole number: it reads 52 rather than 53, so the rounding is FLOOR. The formula itself is still a two-point fit on the SHAPE; what is settled is the rounding.",
+      "do_not": "Do NOT apply WalkingSpeedTweakPercentage to movement -- it is animation only (the Golem carries both a 15 % tweak and a stop/wait, and 45 * 1.15 = 51.75 != 54). S is the UNBUFFED base.",
+      "cards": "Shipped stomp cards: Giant 640/100, RoyalGiant 640/100, Golem 1000/200, IceGolemite 470/80, GoblinGiant (2026 only). Extracted into data/derived/cards.json as stop_movement_after_ms / wait_ms.",
+      "buffed_speed": "MOVED to movement.BUFF_SPEED_RULE, which is now its own measured key -- the live corpus separated its rounding too. What stood here: 'CORRECTED 2026-09-18 (this key used to say a buffed speed was unmeasured because no trace has one; one does). data/oracle-native/rage/Knight_rage_seed2.jsonl.gz drops a Rage at tick 140. Fitting the free integer S of movement.POSITION_ROUNDING over the Knight's isolated ticks (behavior_state == 1, avoidance_offset == 0) gives S = 60 on t121..155, S = 78 on t156..217 and S = 60 again on t218..340: the buffed regime is the SAME law with a larger integer S, held for 62 ticks, and 78 = 60 x 1.3 exactly. WHAT IS STILL UNMEASURED IS THE ROUNDING, for the same reason as the stomp formula above: 60 x 1.3 is a whole number, so floor, round, truncate and ceil all give 78.'"
+    },
+    "BUFF_SPEED_RULE": {
+      "value": "floor_base_speed_times_speedmultiplier_over_100",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "formula": "S_buffed = floor(S * SpeedMultiplier / 100), where S is the speed the unit ALREADY walks at (i.e. the STOMP_SPEED_RULE output for a stomp card, not the raw Speed column) and SpeedMultiplier is a property of the BUFF",
+      "provenance": "MEASURED. LIVE CLIENT, CR 16.402 -- recorded from the real game and converted to the offline-oracle trace format. Traces: the live corpus, 13 captures, 200096 unit-ticks / 97205 moving ticks. Analysis: the movement pass over the live corpus (Rage, Ice Golem and step arms). WHERE THE MULTIPLIER LIVES: spells_other.csv Rage -> SummonCharacter RageBottle; characters/ragebottle.toml [BUILDING.RageBottle] DeathAreaEffect = 'Rage'; [AEO.Rage] Radius 3000, LifeDuration 4500 ms, BuffTime 1000 ms, CapBuffTimeToAreaEffectTime = true, OnlyOwnTroops = true, Buff = 'Rage'; [BUFF.Rage] SpeedMultiplier = 130. There is no SpeedMultiplier column in area_effect_objects.csv at all -- it is on the BUFF, not the area effect. THE ROUNDING IS FLOOR: the Knight (60 -> 78) and the Skeletons (90 -> 117) are exact products and prove nothing; the RAGED ICE GOLEM does -- its stomped base is 52, 52 * 1.3 = 67.6, and it walks at exactly 67, where round and ceil both give 68. The raged Knight holds S = 78 for t3508..t3563 (56 ticks = 2800 ms) and returns to 60 at t3565, in BOTH clients' captures of the same battle.",
+      "engine": "RECORDED, NOT IMPLEMENTED. royalesim applies no SpeedMultiplier anywhere today, so nothing reads this key yet; path2026.rs `step_delta` takes whatever integer speed it is handed and card.rs `move_speed` documents the rule. When a buff is implemented it must multiply the STOMPED speed and floor.",
+      "open_composition_order": "WHICH OPERAND THE STOMP APPLIES TO IS NOT SETTLED. floor(52 * 130/100) = 67 and floor(floor(45 * 130/100) * 550/470) = floor(58 * 1.17021) = 67 both fit the Ice Golem; only floor(45 * 1.3 * 550/470) = 68 is excluded. A stomp card whose two orderings disagree would settle it.",
+      "not_this_key": "The FREEZE is NOT measured here and must not be quoted from this key. The one Ice Spirit hit in the corpus (frames-auto-20260918-134739, side-1 Knight at (3500, 23499), spirit at t1016) drives the step to exactly zero rather than to a scaled speed, which is consistent with SpeedMultiplier = -100 -- but the Knight retargets the spirit (behavior_state 1 -> 2, path cleared), is pushed 160 native units over 4 ticks, then holds still for 46 ticks = 2300 ms against an 1100 ms BuffTime, and a unit in state 2 does not walk anyway. Nothing in the corpus measures a PARTIAL slow at all. The Prince's ChargeSpeedMultiplier = 200 (ChargeRange 250) is the other buffed speed in the live corpus, at S = 120.",
+      "promotion_rules": "Raise to HIGH with a second non-integral product on a different card, or with any partial slow. Re-open the composition order with a raged stomp card whose two orderings disagree."
+    },
+    "STOMP_PAUSE_SCHEDULE": {
+      "value": "k_plus_1_times_tick_ms_mod_period_strictly_greater_than_stop",
+      "status": "measured",
+      "confidence": "HIGH",
+      "formula": "with k the unit's moving-tick index (k = 0 on its first moving tick, NEVER reset), skip the position update iff ((k + 1) * TICK_MS) % (StopMovementAfterMS + WaitMS) > StopMovementAfterMS",
+      "provenance": "MEASURED, phase uniquely pinned. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Giant 308/308 and Golem 306/306 moving ticks. Strict > beats >= (304/308, 294/306); (k+1) beats k (268/308, 282/306); every phase offset was brute-forced and only 0 fits. A naive 'move 640 ms then wait 100 ms' countdown gives 13 moving ticks in the Giant's first block and the oracle shows 12.",
+      "scope": "The pause gates the unit's OWN LOCOMOTION, not the position write: external displacement still applies during a freeze -- a jostled Giant moves on 2 of 323 scheduled pause ticks.",
+      "what_k_counts_2026_09_18b": "`k` ADVANCES ON EVERY LOCOMOTION TICK FROM THE FIRST MOVING TICK, PAUSES INCLUDED. the spec's phrase 'moving-tick index' is ambiguous and the live 16.402 corpus forces this reading: if `k` advanced only on ticks that actually MOVED it would stick at the first pause and the unit would never move again. Under this reading the Ice Golem's pauses are an exact period-11 progression in absolute tick number (Stop 470 + Wait 80 = 550 ms = 11 ticks, runs of 10 moving ticks) and the Giant's are period 740 ms with 13-tick runs. Traces: the live corpus; the movement analysis. VERIFIED IN THE ENGINE, by reading it rather than by assuming it: state.rs `phase_path_2026` increments `kticks[i]` BEFORE the `stomp_paused` test and `continue`s afterwards, so a pause tick still advances the counter. The increment's position is pinned by a comment there."
+    },
+    "DEPLOY_TIMING": {
+      "value": "spawn_anchored_full_first_step",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. The entity appears on the tick AFTER the command is accepted and is immobile for DeployTime / TICK_MS ticks; it acquires its target, builds its first path and takes its first FULL-LENGTH step all on tick spawn_tick + DeployTime / TICK_MS. The movement state flips one tick early (behavior_state goes 4 -> 1 before the first displacement). LoadTime gates the first ATTACK, not the first move. The first step is never scaled.",
+      "anchor": "Anchor on the SPAWN tick, not the command tick: the Golem's command waits on elixir (accepted 113, spawned 114, moves 174), so a command-tick formula fits five cards and is 14 ticks wrong on the sixth."
+    },
+    "CONTACT_DOMAIN": {
+      "value": "isolated_unit_only",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED, and this is a statement about what is NOT known. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Three regimes break every law in this section and TWO OF THEM SET NO FLAG AT ALL: avoidance (behavior_state 1, avoidance_offset != 0, heading deflected, |step| within +-2.3 % of S); crowd separation (behavior_state 1, NO flag, |step| about S plus a 15-28 unit lateral residual perpendicular to the heading); combat pushback (behavior_state 2, NO flag, displacement 0.06-2.5 x S, can oppose the heading). 174 flagless failures corpus-wide: 137 at state 1, 36 at state 2, 1 at state 4.",
+      "not_directly_observable": "The push is not separately observable in the corpus; it must be inferred from the residual between the predicted and the observed step. Keep it separate from the locomotion law (STOMP_PAUSE_SCHEDULE) so that a pushed unit still moves during a stomp pause. Confirmed again on the live corpus: 1 of 200096 unit-ticks shows anything else.",
+      "how_to_define_isolated_2026_09_18b": "'FREE WALK' MEANS ISOLATED BY DISTANCE, NOT `avoidance_offset == 0`. This is the single easiest way to get a wrong number out of this corpus, and any regression gate written against the flags will look broken on live data for the wrong reason. Offline the traces were single units on an empty board, so the two definitions were the same thing; live they are not, because the corpus records no push of its own AND the separation impulse leaves no flag either. MEASURED on the LIVE 16.402 corpus (the live corpus; the movement analysis, step and push arms): filtering on the fields alone gives step-law exactness 0.7273; adding an isolation radius of 2000 native to the nearest OTHER MOBILE UNIT gives 0.9807; adding Rage and the Prince charge gives 0.99903. Exactness by distance to the nearest other mobile unit -- 0-499: 0.433, 500-999: 0.281, 1000-1499: 0.793, 1500-1999: 0.970, 2000-2499: 0.987, 6000-6499: 0.994. USE d > 2000 native. About 27 % of all live moving ticks are crowded, so no crowded tick can be reproduced bit-exactly until the separation magnitude is fitted.",
+      "what_the_live_pass_refined": "Two of the three regimes are better understood, and neither is implemented. AVOIDANCE: on about 11 % of moving ticks (22158 of them) the step is a quantised ROTATION of the pure path heading rather than the heading itself; |step|/S has median 1.0006, so the length is unchanged and only the direction turns. The rotation is monotone in its magnitude and independent of the distance to the node (71.45 deg at d ~ 1082 and 71.60 deg at d ~ 1493 at the largest magnitude seen), so it is a rotation, not a lateral shift of the aim point -- but it is NOT linear (0.256 deg/unit at the smallest magnitude rising to 0.375 deg/unit at the largest; asin(a/256), asin(a*sqrt(2)/256), tan and 1/1024-of-a-turn were all tried and all miss somewhere), and what SETS it is still unknown -- it fires against static occluders too (one Knight of the 2026-09-18 corpus is at the largest magnitude at t3413 with the nearest mobile unit 8315 native away, walking past its own princess tower). SEPARATION: the residual that actually breaks the step law sets none of the three fields; over 24887 off-law ticks with a neighbour inside 1600 native, observed - predicted points AWAY from the nearest neighbour within 7.5 deg on 57.0 % and within 22.5 deg on 65.5 %, and at 180 deg on only 1.3 %, and it fires at a separation peaking exactly at 1.0 x (own CollisionRadius + neighbour CollisionRadius) -- bins 0.9: 4225, 1.0: 11442, 1.1: 4633. The MAGNITUDE is still unfitted (10-unit bins 0: 2893, 10: 3878, 20: 3372, 30: 2782, 40: 2169, 50: 1870, 60: 1668) and no Mass / PushMassFactor term has been tried.",
+      "avoidance_offset": "UNVERIFIED, DO NOT GUESS. It is set to +-190 in one tick and then performs a +-10-per-tick walk bounded at +-190 -- 16 of 36 runs ramp back UP before coming down, and runs reach 67 ticks against the 19 a pure decay implies. Do NOT implement 'decremented by 10 per tick toward 0'. What sets it, what selects the sign, and what deflection it applies (the ratio of heading error to offset is 0.327-0.387, non-linear) are all unmeasured."
+    }
+  }
+}

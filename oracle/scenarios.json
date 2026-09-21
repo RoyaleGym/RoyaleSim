@@ -1,0 +1,1287 @@
+{
+ "$comment": [
+  "DISCRIMINATING SCENARIOS. A scenario is only worth a recording session if candidate models",
+  "PREDICT DIFFERENT OBSERVABLE OUTCOMES, by more than a phone recording can resolve.",
+  "",
+  "'predictions' is COMPUTED by the synth backend (tools/diff_harness.py --predict), never",
+  "typed from reasoning; tests/test_oracle_scenarios.py fails if a stored number drifts from",
+  "what the model predicts now.",
+  "",
+  "'self_test_expect' is what tools/diff_harness.py --self-test OBSERVED when it rendered",
+  "synthetic truth from every candidate x alternative x global nuisance value under the",
+  "default capture error budget: true = the right candidate came back decisively on every",
+  "cell; {green: false, red_gates: [...]} = it did not, and exactly these gates went red. A",
+  "claim contradicted in either direction fails the self-test. 'discrimination' is the",
+  "readable verdict with the measured margins; 'worth_recording' flags a scenario whose",
+  "result could not be promoted or does not decide its question.",
+  "",
+  "Coordinates are tiles * 100 (tile_100), Blue at low y, Blue king at (9, 3). Setup blocks",
+  "are consumed by oracle/synth.py; 'human_setup' is the same thing for a person.",
+  "",
+  "Model config fields a candidate may set are the fields of oracle.synth.ModelConfig.",
+  "A candidate value that is a LIST is a set of alternatives that the harness profiles",
+  "over (best-scoring alternative represents the candidate). 'nuisance' params are",
+  "profiled the same way for every candidate, so a scenario answers its focal question",
+  "whatever the answer to the others turns out to be -- EXCEPT a nuisance named in",
+  "'prerequisite_pins', which an earlier scenario must settle first (measured: leaving it",
+  "free returns wrong winners). 'per_trial_nuisance' is re-drawn per repetition; every other",
+  "nuisance is one game constant shared by all repetitions of a scenario."
+ ],
+ "schema": "oracle-scenarios/1",
+ "defaults": {
+  "candidate_only": {
+   "$comment": "No registry key exists for these; they are candidate-model parameters, not game constants.",
+   "lookahead_tiles_100": 250,
+   "lookahead_margin_tiles_100": 20
+  },
+  "margin_abs": 0.03,
+  "margin_rel": 0.25,
+  "time_offset_search_s": 1.0,
+  "max_translation_tiles": 0.3
+ },
+ "scenarios": [
+  {
+   "id": "S01_speed_unit",
+   "recording": "REC-A",
+   "kind": "trajectory",
+   "question": "Is the Speed column tiles per minute (Medium 60 = 1.00 tile/s) or millitiles per 50 ms (Medium 60 = 1.20 tile/s)? A flat 20% on the movement of every unit.",
+   "promotes": [
+    {
+     "key": "time.SPEED_TO_SUBTILES_PER_TICK",
+     "param": "speed_unit",
+     "value_map": {
+      "tiles_per_minute": "SUBTILE_PER_TILE / (60 * TPS)",
+      "millitiles_per_50ms": "SUBTILE_PER_TILE / MILLITILE_PER_TILE * 1000 / (50 * TPS)"
+     },
+     "depends_on": [
+      "time.TICK_MS"
+     ],
+     "note": "The registry key fuses two questions: the speed UNIT (this scenario) and the tick rate (S04). A measured unit on top of an unmeasured TICK_MS cannot make the multiplier 'measured'; calibrate.py enforces that."
+    }
+   ],
+   "setup": {
+    "duration_ms": 20000,
+    "actions": [
+     {
+      "t_ms": 0,
+      "card": "Knight",
+      "team": "blue",
+      "tile_100": [
+       700,
+       950
+      ],
+      "label": "knight"
+     },
+     {
+      "t_ms": 0,
+      "card": "Giant",
+      "team": "blue",
+      "tile_100": [
+       1100,
+       950
+      ],
+      "label": "giant"
+     }
+    ]
+   },
+   "human_setup": "Recording A. Knight tapped at tile (7.0, 9.5) and Giant at tile (11.0, 9.5), same moment, your side, nothing else on the board. Let both walk until they reach the enemy princess towers.",
+   "base_overrides": {
+    "avoidance": "collision_only",
+    "deploy_snap": "none",
+    "retarget": "nearest_edge_in_sight"
+   },
+   "focal_param": "speed_unit",
+   "candidates": {
+    "tiles_per_minute": {
+     "speed_unit": "tiles_per_minute"
+    },
+    "millitiles_per_50ms": {
+     "speed_unit": "millitiles_per_50ms"
+    }
+   },
+   "nuisance": {
+    "tps": [
+     20,
+     30,
+     60
+    ],
+    "path_model": [
+     "lane_snap",
+     "diagonal"
+    ]
+   },
+   "rank_by": "mean_err",
+   "observables": [
+    {
+     "name": "knight_s_y18_to_y22",
+     "fn": "time_between_y",
+     "unit": "knight",
+     "y_from": 18.0,
+     "y_to": 22.0,
+     "units": "s"
+    },
+    {
+     "name": "giant_s_y18_to_y22",
+     "fn": "time_between_y",
+     "unit": "giant",
+     "y_from": 18.0,
+     "y_to": 22.0,
+     "units": "s"
+    }
+   ],
+   "owner_minutes": 3,
+   "depends_on_scenarios": [],
+   "self_test_expect": {
+    "tiles_per_minute": true,
+    "millitiles_per_50ms": true
+   },
+   "predictions": {
+    "candidates": {
+     "tiles_per_minute": {
+      "knight_s_y18_to_y22": [
+       4.0,
+       4.0
+      ],
+      "giant_s_y18_to_y22": [
+       5.333,
+       5.333
+      ]
+     },
+     "millitiles_per_50ms": {
+      "knight_s_y18_to_y22": [
+       3.333,
+       3.333
+      ],
+      "giant_s_y18_to_y22": [
+       4.444,
+       4.444
+      ]
+     }
+    },
+    "pairwise_min_separation": {
+     "tiles_per_minute|millitiles_per_50ms": 0.575
+    }
+   },
+   "discrimination": {
+    "verdict": "decisive",
+    "worth_recording": true,
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 120 cells, all correct and decisive; smallest margin 0.380 tile (required 0.049).",
+    "note": "The two hypotheses differ by 20% of every traversal: the Knight crosses y 18->22 in 4.000 s vs 3.333 s, the Giant in 5.333 s vs 4.444 s, whatever the tick rate or routing. Highest value per recorded minute of any recording."
+   }
+  },
+  {
+   "id": "S02_lane_snap_vs_diagonal",
+   "recording": "REC-A",
+   "kind": "trajectory",
+   "question": "Pre-2025 LaneSnap (walk sideways into the lane, then forward) or post-2025 diagonal routing straight to the bridge?",
+   "promotes": [
+    {
+     "key": "pathfinding.ALGORITHM",
+     "param": "path_model",
+     "value_map": {
+      "lane_snap": "lane_flow_with_local_avoidance",
+      "diagonal": "post2025_diagonal_with_lookahead"
+     },
+     "depends_on": [],
+     "joint_with": "S03_building_lookahead",
+     "note": "path_model is only the routing half of ALGORITHM; the avoidance half is S03. calibrate.py requires a joint result."
+    }
+   ],
+   "setup": {
+    "duration_ms": 20000,
+    "actions": [
+     {
+      "t_ms": 0,
+      "card": "Knight",
+      "team": "blue",
+      "tile_100": [
+       700,
+       950
+      ],
+      "label": "knight"
+     },
+     {
+      "t_ms": 0,
+      "card": "Giant",
+      "team": "blue",
+      "tile_100": [
+       1100,
+       950
+      ],
+      "label": "giant"
+     }
+    ]
+   },
+   "human_setup": "Same recording as S01 (Recording A). No extra minutes.",
+   "base_overrides": {
+    "avoidance": "collision_only",
+    "deploy_snap": "none",
+    "retarget": "nearest_edge_in_sight"
+   },
+   "focal_param": "path_model",
+   "candidates": {
+    "lane_snap": {
+     "path_model": "lane_snap"
+    },
+    "diagonal": {
+     "path_model": "diagonal"
+    }
+   },
+   "nuisance": {
+    "tps": [
+     20,
+     60
+    ],
+    "speed_unit": [
+     "tiles_per_minute",
+     "millitiles_per_50ms"
+    ]
+   },
+   "rank_by": "mean_err",
+   "observables": [
+    {
+     "name": "knight_x_at_y12",
+     "fn": "x_at_y",
+     "unit": "knight",
+     "y": 12.0,
+     "units": "tile"
+    },
+    {
+     "name": "giant_x_at_y12",
+     "fn": "x_at_y",
+     "unit": "giant",
+     "y": 12.0,
+     "units": "tile"
+    }
+   ],
+   "owner_minutes": 0,
+   "depends_on_scenarios": [],
+   "self_test_expect": {
+    "lane_snap": true,
+    "diagonal": true
+   },
+   "predictions": {
+    "candidates": {
+     "lane_snap": {
+      "knight_x_at_y12": [
+       3.51,
+       3.528
+      ],
+      "giant_x_at_y12": [
+       14.48,
+       14.495
+      ]
+     },
+     "diagonal": {
+      "knight_x_at_y12": [
+       5.408,
+       5.41
+      ],
+      "giant_x_at_y12": [
+       12.587,
+       12.591
+      ]
+     }
+    },
+    "pairwise_min_separation": {
+     "lane_snap|diagonal": 0.832
+    }
+   },
+   "discrimination": {
+    "verdict": "decisive",
+    "worth_recording": true,
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 80 cells, all correct and decisive; smallest margin 0.625 tile (required 0.037).",
+    "note": "Free with REC-A. At y=12 the Knight is at x 3.51-3.53 under lane_snap and 5.41 under diagonal: a 1.9-tile, categorical difference."
+   }
+  },
+  {
+   "id": "S03_building_lookahead",
+   "recording": "REC-B",
+   "kind": "trajectory",
+   "question": "Does a unit walking its lane toward a tower start bending around a building BEFORE contact (an avoidance field / look-ahead) or only slide round it on collision? Uses a FRIENDLY building, which is never a target, so the targeting explanation is excluded by construction -- this is the experiment that separates a path mechanism from a targeting mechanism, which prior research conflated.",
+   "promotes": [
+    {
+     "key": "pathfinding.ALGORITHM",
+     "param": "avoidance",
+     "value_map": {
+      "collision_only": "lane_flow_with_local_avoidance",
+      "lookahead": "post2025_diagonal_with_lookahead"
+     },
+     "depends_on": [],
+     "joint_with": "S02_lane_snap_vs_diagonal",
+     "note": "joint with S02, see there"
+    },
+    {
+     "key": "pathfinding.PATHFINDING_COSTS",
+     "param": "avoidance",
+     "value_map": {
+      "collision_only": "absent_collision_only",
+      "lookahead": "present_building_lookahead"
+     },
+     "depends_on": [],
+     "note": "Settles EXISTENCE of an avoidance mechanism, never a numeric cost table."
+    }
+   ],
+   "setup": {
+    "duration_ms": 12000,
+    "actions": [
+     {
+      "t_ms": 0,
+      "card": "Cannon",
+      "team": "blue",
+      "tile_100": [
+       400,
+       1200
+      ],
+      "label": "cannon"
+     },
+     {
+      "t_ms": 1500,
+      "card": "Knight",
+      "team": "blue",
+      "tile_100": [
+       350,
+       850
+      ],
+      "label": "knight"
+     }
+    ]
+   },
+   "human_setup": "Recording B. Place your OWN Cannon centred on tile corner (4.0, 12.0): the 2x2 placement shadow straddles the left lane line, half a tile right of it. Wait for it to finish deploying, then tap a Knight at (3.5, 8.5), directly in front of your left princess tower. Record until the Knight is across the bridge. 3 repetitions.",
+   "base_overrides": {
+    "path_model": "diagonal",
+    "deploy_snap": "none",
+    "retarget": "nearest_edge_in_sight"
+   },
+   "focal_param": "avoidance",
+   "candidates": {
+    "collision_only": {
+     "avoidance": "collision_only"
+    },
+    "lookahead": [
+     {
+      "avoidance": "lookahead",
+      "lookahead_tiles_100": 150
+     },
+     {
+      "avoidance": "lookahead",
+      "lookahead_tiles_100": 250
+     },
+     {
+      "avoidance": "lookahead",
+      "lookahead_tiles_100": 400
+     }
+    ]
+   },
+   "nuisance": {
+    "speed_unit": [
+     "tiles_per_minute",
+     "millitiles_per_50ms"
+    ]
+   },
+   "rank_by": "mean_err",
+   "observables": [
+    {
+     "name": "knight_deviation_onset_y",
+     "fn": "deviation_onset_y",
+     "unit": "knight",
+     "x_ref": 3.5,
+     "threshold": 0.2,
+     "units": "tile"
+    },
+    {
+     "name": "knight_min_x",
+     "fn": "min_x",
+     "unit": "knight",
+     "units": "tile"
+    }
+   ],
+   "owner_minutes": 4,
+   "depends_on_scenarios": [],
+   "self_test_expect": {
+    "collision_only": true,
+    "lookahead": true
+   },
+   "predictions": {
+    "candidates": {
+     "collision_only": {
+      "knight_deviation_onset_y": [
+       11.164,
+       11.165
+      ],
+      "knight_min_x": [
+       2.901,
+       2.902
+      ]
+     },
+     "lookahead": {
+      "knight_deviation_onset_y": [
+       9.426,
+       10.323
+      ],
+      "knight_min_x": [
+       2.771,
+       2.807
+      ]
+     }
+    },
+    "pairwise_min_separation": {
+     "collision_only|lookahead": 0.169
+    }
+   },
+   "discrimination": {
+    "verdict": "decisive",
+    "worth_recording": true,
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 80 cells, all correct and decisive; smallest margin 0.060 tile (required 0.030).",
+    "note": "The thinnest margin of the decisive trajectory scenarios: deviation onset y 11.16 with collision only vs 9.43-10.32 with a 1.5-4.0 tile look-ahead. The self-test scores ONE recording; the protocol asks for three. Real placement error is absorbed by observed_placements. PLACEMENT SENSITIVITY, measured 2026-09-13 (one seed per case): the Cannon 0.5 tile LEFT of the script is ranked WRONG when observed placements are ignored (the harness 'placement' plant) and decisively right when kept; 0.5 tile RIGHT makes truth collision_only a DECISIVE WRONG 'lookahead' without observed placements and leaves both truths indecisive with them, because the Knight's path then clears the Cannon. Knight errors of 0.25-0.5 tile are tolerated with observed placements."
+   }
+  },
+  {
+   "id": "S04_tick_rate_phase_lock",
+   "recording": "REC-C",
+   "kind": "event_phase",
+   "question": "Logic tick rate: 20, 30 or 60 TPS? Video cannot see ticks in positions (the client interpolates), but an asynchronous input only becomes visible on a tick boundary, so many appearance timestamps taken modulo the candidate tick period pile up at one phase for the true rate and spread evenly for the others.",
+   "promotes": [
+    {
+     "key": "time.TICK_MS",
+     "param": "tps",
+     "value_map": {
+      "20": 50
+     },
+     "depends_on": [],
+     "note": "Only 20 TPS maps to an integer TICK_MS. 30 and 60 would need the registry to store a rate instead. And 60 fps capture cannot tell 60 TPS from faster or free-running logic, because every 60 fps timestamp is already on a 16.7 ms grid -- promoting 60 needs a 120/240 fps capture."
+    }
+   ],
+   "setup": {
+    "n_events": 40,
+    "spacing_ms": [
+     1500,
+     4000
+    ],
+    "latency_ticks": 0,
+    "event_name": "appear"
+   },
+   "human_setup": "Recording C. 40 single cheap deploys (Skeletons, Ice Spirit, Bats) at deliberately irregular moments. Record at the device's highest CONSTANT frame rate.",
+   "base_overrides": {
+    "deploy_snap": "none"
+   },
+   "focal_param": "tps",
+   "candidates": {
+    "20": {
+     "tps": 20
+    },
+    "30": {
+     "tps": 30
+    },
+    "60": {
+     "tps": 60
+    }
+   },
+   "nuisance": {},
+   "rank_by": "phase_features",
+   "margin_abs": 0.15,
+   "observables": [],
+   "owner_minutes": 8,
+   "depends_on_scenarios": [],
+   "self_test_expect": {
+    "20": true,
+    "30": true,
+    "60": true
+   },
+   "predictions": {
+    "candidates": {
+     "20": {
+      "R_at_50.0ms": 0.965,
+      "R_at_33.33ms": 0.078
+     },
+     "30": {
+      "R_at_50.0ms": 0.138,
+      "R_at_33.33ms": 0.934
+     },
+     "60": {
+      "R_at_50.0ms": 0.123,
+      "R_at_33.33ms": 0.107
+     }
+    },
+    "pairwise_min_separation": {}
+   },
+   "discrimination": {
+    "verdict": "decisive",
+    "worth_recording": true,
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 30 cells, all correct and decisive; smallest margin 0.404 (required 0.150).",
+    "note": "Candidate '60' means 'no phase lock at 50 ms or 33.3 ms': 60 fps capture cannot see a 16.7 ms tick, so a '60' verdict is also what free-running or faster logic would produce. Only '20' maps to a registry value (see promotes)."
+   }
+  },
+  {
+   "id": "S05_push_mass_ladder",
+   "recording": "REC-D",
+   "kind": "trajectory",
+   "question": "Unit push law: mass-weighted, speed-weighted, or equal split? A Hog Rider (mass 4, fastest) overtakes a slower friendly blocker on the same line; the ladder varies the blocker's mass (Skeleton 1, Knight 6, Giant 18) so the laws predict different ORDERINGS of displacement, not just different sizes.",
+   "promotes": [
+    {
+     "key": "collision.PUSH_MODEL",
+     "param": "push_model",
+     "value_map": {
+      "mass_weighted": "mass_weighted",
+      "speed_weighted": "speed_weighted",
+      "equal_split": "equal_split"
+     },
+     "depends_on": [],
+     "note": "speed_weighted here means a unit yields in proportion to the OTHER unit's Speed. The Rust PushModel::SpeedWeighted must use the same convention or the harness scores two hypotheses under one name."
+    }
+   ],
+   "variants": [
+    {
+     "name": "skeleton",
+     "duration_ms": 6000,
+     "actions": [
+      {
+       "t_ms": 0,
+       "card": "Skeleton",
+       "team": "blue",
+       "tile_100": [
+        350,
+        1050
+       ],
+       "label": "blocker"
+      },
+      {
+       "t_ms": 0,
+       "card": "HogRider",
+       "team": "blue",
+       "tile_100": [
+        375,
+        850
+       ],
+       "label": "hog"
+      }
+     ]
+    },
+    {
+     "name": "knight",
+     "duration_ms": 6000,
+     "actions": [
+      {
+       "t_ms": 0,
+       "card": "Knight",
+       "team": "blue",
+       "tile_100": [
+        350,
+        1050
+       ],
+       "label": "blocker"
+      },
+      {
+       "t_ms": 0,
+       "card": "HogRider",
+       "team": "blue",
+       "tile_100": [
+        375,
+        850
+       ],
+       "label": "hog"
+      }
+     ]
+    },
+    {
+     "name": "giant",
+     "duration_ms": 6000,
+     "actions": [
+      {
+       "t_ms": 0,
+       "card": "Giant",
+       "team": "blue",
+       "tile_100": [
+        350,
+        1050
+       ],
+       "label": "blocker"
+      },
+      {
+       "t_ms": 0,
+       "card": "HogRider",
+       "team": "blue",
+       "tile_100": [
+        375,
+        850
+       ],
+       "label": "hog"
+      }
+     ]
+    }
+   ],
+   "human_setup": "Recording D, three rungs, each in its own battle or spaced 20 s apart for elixir: blocker at (3.5, 10.5), then IMMEDIATELY a Hog Rider at (3.75, 8.5), a quarter tile right of the lane line. Rungs: Skeletons (track the skeleton nearest the lane line), Knight, Giant. 3 repetitions per rung.",
+   "base_overrides": {
+    "path_model": "diagonal",
+    "avoidance": "collision_only",
+    "deploy_snap": "none",
+    "retarget": "nearest_edge_in_sight"
+   },
+   "focal_param": "push_model",
+   "candidates": {
+    "mass_weighted": {
+     "push_model": "mass_weighted"
+    },
+    "speed_weighted": {
+     "push_model": "speed_weighted"
+    },
+    "equal_split": {
+     "push_model": "equal_split"
+    }
+   },
+   "nuisance": {
+    "speed_unit": [
+     "tiles_per_minute",
+     "millitiles_per_50ms"
+    ]
+   },
+   "rank_by": "mean_err",
+   "observables": [
+    {
+     "name": "skeleton.blocker_max_abs_dx",
+     "fn": "max_abs_dx",
+     "unit": "skeleton.blocker",
+     "x_ref": 3.5,
+     "units": "tile"
+    },
+    {
+     "name": "knight.blocker_max_abs_dx",
+     "fn": "max_abs_dx",
+     "unit": "knight.blocker",
+     "x_ref": 3.5,
+     "units": "tile"
+    },
+    {
+     "name": "giant.blocker_max_abs_dx",
+     "fn": "max_abs_dx",
+     "unit": "giant.blocker",
+     "x_ref": 3.5,
+     "units": "tile"
+    }
+   ],
+   "owner_minutes": 12,
+   "depends_on_scenarios": [
+    "S01_speed_unit"
+   ],
+   "self_test_expect": {
+    "mass_weighted": true,
+    "speed_weighted": true,
+    "equal_split": true
+   },
+   "predictions": {
+    "candidates": {
+     "mass_weighted": {
+      "skeleton.blocker_max_abs_dx": [
+       0.091,
+       0.152
+      ],
+      "knight.blocker_max_abs_dx": [
+       0.217,
+       0.22
+      ],
+      "giant.blocker_max_abs_dx": [
+       0.179,
+       0.179
+      ]
+     },
+     "speed_weighted": {
+      "skeleton.blocker_max_abs_dx": [
+       0.072,
+       0.129
+      ],
+      "knight.blocker_max_abs_dx": [
+       0.458,
+       0.46
+      ],
+      "giant.blocker_max_abs_dx": [
+       0.733,
+       0.733
+      ]
+     },
+     "equal_split": {
+      "skeleton.blocker_max_abs_dx": [
+       0.062,
+       0.122
+      ],
+      "knight.blocker_max_abs_dx": [
+       0.259,
+       0.262
+      ],
+      "giant.blocker_max_abs_dx": [
+       0.482,
+       0.483
+      ]
+     }
+    },
+    "pairwise_min_separation": {
+     "mass_weighted|speed_weighted": 0.406,
+     "mass_weighted|equal_split": 0.238,
+     "speed_weighted|equal_split": 0.181
+    }
+   },
+   "discrimination": {
+    "verdict": "decisive",
+    "worth_recording": true,
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 60 cells, all correct and decisive; smallest margin 0.071 tile (required 0.035).",
+    "note": "The laws predict different ORDERINGS of blocker displacement across the ladder (mass: knight 0.22 > giant 0.18; speed: giant 0.73 > knight 0.46; equal: giant 0.48 > knight 0.26). Sprites overlap at contact, so track by hand (extract_tracks.py annotate). PLACEMENT SENSITIVITY, measured 2026-09-13 (one seed per case): with the Hog Rider 0.25 tile further RIGHT (x 4.0) truth speed_weighted is indecisive against equal_split EVEN WITH observed_placements (margin 0.001), and at 0.5 tile right equal_split edges ahead; 0.25 tile LEFT keeps every truth decisive with observed placements and makes two of three indecisive without them. The quarter-tile offset is the design; err left of it, never right."
+   }
+  },
+  {
+   "id": "S06_tower_footprint",
+   "recording": "REC-E",
+   "kind": "trajectory",
+   "question": "Princess tower footprint: circle of CollisionRadius 1.0, a 2x2 box (half-width = CollisionRadius), or the community 3x3 box? A Knight walks diagonally past the tower's inner corner, where the shapes disagree most (closest approach along a tower edge).",
+   "promotes": [
+    {
+     "key": "collision.BUILDING_FOOTPRINT_MODEL",
+     "param": "footprint",
+     "value_map": {
+      "circle": "collision_radius_circle",
+      "box": "tile_size_override_box"
+     },
+     "depends_on": [],
+     "note": "box_2x2 and box_3x3 both map to a box model; the half-width is a separate fact the registry has no key for yet."
+    }
+   ],
+   "setup": {
+    "duration_ms": 12000,
+    "actions": [
+     {
+      "t_ms": 0,
+      "card": "Knight",
+      "team": "blue",
+      "tile_100": [
+       550,
+       250
+      ],
+      "label": "knight"
+     }
+    ]
+   },
+   "human_setup": "Recording E. Knight tapped at (5.5, 2.5): behind and right of your left princess tower, beside the king. Its route to the left bridge clips the tower's inner corner. 5 repetitions.",
+   "base_overrides": {
+    "path_model": "diagonal",
+    "deploy_snap": "none",
+    "retarget": "nearest_edge_in_sight"
+   },
+   "focal_param": "footprint",
+   "candidates": {
+    "circle": {
+     "footprint": "circle"
+    },
+    "box_2x2": {
+     "footprint": "box",
+     "princess_box_half_tiles_100": null
+    },
+    "box_3x3": {
+     "footprint": "box",
+     "princess_box_half_tiles_100": 150
+    }
+   },
+   "nuisance": {
+    "avoidance": [
+     "collision_only",
+     "lookahead"
+    ],
+    "speed_unit": [
+     "tiles_per_minute",
+     "millitiles_per_50ms"
+    ]
+   },
+   "rank_by": "mean_err",
+   "observables": [
+    {
+     "name": "knight_min_dist_to_tower",
+     "fn": "min_dist_to_point",
+     "unit": "knight",
+     "point": [
+      3.5,
+      6.5
+     ],
+     "units": "tile"
+    }
+   ],
+   "owner_minutes": 5,
+   "depends_on_scenarios": [
+    "S03_building_lookahead"
+   ],
+   "repetitions": 5,
+   "score_window_s": [
+    3.0,
+    9.0
+   ],
+   "self_test_expect": {
+    "circle": {
+     "green": false,
+     "red_gates": [
+      "decisive-margin"
+     ]
+    },
+    "box_2x2": {
+     "green": false,
+     "red_gates": [
+      "decisive-margin"
+     ]
+    },
+    "box_3x3": true
+   },
+   "predictions": {
+    "candidates": {
+     "circle": {
+      "knight_min_dist_to_tower": [
+       1.498,
+       1.547
+      ]
+     },
+     "box_2x2": {
+      "knight_min_dist_to_tower": [
+       1.5,
+       1.547
+      ]
+     },
+     "box_3x3": {
+      "knight_min_dist_to_tower": [
+       2.0,
+       2.116
+      ]
+     }
+    },
+    "pairwise_min_separation": {
+     "circle|box_2x2": 0.034,
+     "circle|box_3x3": 0.174,
+     "box_2x2|box_3x3": 0.125
+    }
+   },
+   "discrimination": {
+    "verdict": "PARTIAL -- does not decide the promotable question",
+    "worth_recording": "partial",
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. box_3x3: 40 cells correct and decisive (smallest margin 0.042, required 0.030). circle and box_2x2: 80 cells, the RIGHT winner every time but never decisive (margins 0.003-0.023, required 0.030).",
+    "note": "FLAG. collision.BUILDING_FOOTPRINT_MODEL is circle-vs-box, and circle-vs-2x2-box is exactly what this scenario cannot call. A walker bound for the bridge passes the princess tower within ~15 degrees of vertical, and a 2x2 box differs from a radius-1 circle only on its diagonals: clean tracks differ by at most 0.16 tile for about a second, below the ~0.1-tile capture budget once time offset and translation are fitted. A sweep of 70 Knight start positions (2026-09-13) raised the clean separation from 0.034 to at most 0.044 tile. It does reject a 3x3 box decisively. Not worth 5 minutes of recording for the circle question until a design with a diagonal approach exists; the margin threshold was NOT lowered to make it pass."
+   }
+  },
+  {
+   "id": "S07_deploy_snap",
+   "recording": "REC-F",
+   "kind": "deploy_lattice",
+   "question": "Do troops spawn on a whole-tile lattice, a half-tile lattice, or where you tap? Scored as the PERIOD of the spawn-position lattice with its phase profiled out, because a 0.1-tile homography offset makes the phase (x.5 vs x.25 vs x.0) unmeasurable without a separate grid calibration.",
+   "promotes": [],
+   "promotes_missing_key": "No calibration.json key exists for deploy snap granularity. Interface demand on the registry: add a key before this result can be promoted.",
+   "setup": {
+    "n_taps": 40,
+    "tap_x_100": [
+     100,
+     1700
+    ],
+    "tap_y_100": [
+     900,
+     1400
+    ]
+   },
+   "human_setup": "Recording F. 40 single-unit deploys (Knight or Ice Spirit) at deliberately sloppy positions all over your front half. Pause 1 s after each so the spawn frame is clear.",
+   "base_overrides": {},
+   "focal_param": "deploy_snap",
+   "candidates": {
+    "tile": {
+     "deploy_snap": "tile_centre"
+    },
+    "half_tile": [
+     {
+      "deploy_snap": "half_tile_centre"
+     },
+     {
+      "deploy_snap": "half_tile_vertex"
+     }
+    ],
+    "none": {
+     "deploy_snap": "none"
+    }
+   },
+   "nuisance": {},
+   "rank_by": "lattice_nll",
+   "margin_abs": 0.1,
+   "observables": [],
+   "owner_minutes": 6,
+   "depends_on_scenarios": [],
+   "self_test_expect": {
+    "tile": true,
+    "half_tile": true,
+    "none": true
+   },
+   "predictions": {
+    "candidates": {
+     "tile": {
+      "lattice_period_tiles": 1.0
+     },
+     "half_tile": {
+      "lattice_period_tiles": 0.5
+     },
+     "none": {
+      "lattice_period_tiles": null
+     }
+    },
+    "pairwise_min_separation": {}
+   },
+   "discrimination": {
+    "verdict": "decisive, NOT PROMOTABLE",
+    "worth_recording": "after the registry key exists",
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 40 cells, all correct and decisive; smallest margin 0.136 (required 0.100, on truth 'none').",
+    "note": "Discriminates cleanly but promotes nothing: data/calibration.json has no deploy-snap key (promotes_missing_key). Recording it now produces a result calibrate.py must refuse on key-exists."
+   }
+  },
+  {
+   "id": "S08_cannon_pull_hog",
+   "recording": "REC-G",
+   "kind": "trajectory",
+   "question": "Cannon pull on Hog Rider, two questions in one recording. (1) Does a building placed AFTER the Hog has chosen a tower pull it at all (retarget each tick) or is the first target locked? (2) Is the pull bounded by the Hog's SightRange, or does any nearer building win? Variant 'near_after' places the Cannon in pull position 2 s after the Hog activates; variant 'far_first' places a Cannon that is nearer than the tower but outside sight range the whole way.",
+   "promotes": [],
+   "promotes_missing_key": "No calibration.json key for the building retarget rule. Interface demand on the registry: add a key (e.g. targeting.BUILDING_RETARGET_RULE).",
+   "variants": [
+    {
+     "name": "near_after",
+     "duration_ms": 9000,
+     "actions": [
+      {
+       "t_ms": 0,
+       "card": "HogRider",
+       "team": "blue",
+       "tile_100": [
+        350,
+        1100
+       ],
+       "label": "hog"
+      },
+      {
+       "t_ms": 2000,
+       "card": "Cannon",
+       "team": "red",
+       "tile_100": [
+        600,
+        2100
+       ],
+       "label": "cannon"
+      }
+     ]
+    },
+    {
+     "name": "far_first",
+     "duration_ms": 9000,
+     "actions": [
+      {
+       "t_ms": 0,
+       "card": "Cannon",
+       "team": "red",
+       "tile_100": [
+        1300,
+        2100
+       ],
+       "label": "cannon"
+      },
+      {
+       "t_ms": 1000,
+       "card": "HogRider",
+       "team": "blue",
+       "tile_100": [
+        350,
+        1100
+       ],
+       "label": "hog"
+      }
+     ]
+    }
+   ],
+   "human_setup": "Recording G. NEEDS TWO PLAYERS (a friendly battle). Round 1 ('near_after'): Blue plays Hog Rider at (3.5, 11.0); 2 s later Red plays a Cannon centred at (6.0, 21.0). Round 2 ('far_first'): Red plays a Cannon centred at (13.0, 21.0) first; 1 s later Blue plays Hog Rider at (3.5, 11.0). 3 repetitions of each round.",
+   "base_overrides": {
+    "path_model": "diagonal",
+    "avoidance": "collision_only",
+    "deploy_snap": "none"
+   },
+   "focal_param": "retarget",
+   "candidates": {
+    "nearest_edge_in_sight": {
+     "retarget": "nearest_edge_in_sight"
+    },
+    "nearest_edge_global": {
+     "retarget": "nearest_edge_global"
+    },
+    "locked": {
+     "retarget": "locked"
+    }
+   },
+   "nuisance": {
+    "speed_unit": [
+     "tiles_per_minute",
+     "millitiles_per_50ms"
+    ]
+   },
+   "rank_by": "mean_err",
+   "observables": [
+    {
+     "name": "near_after.hog_max_x",
+     "fn": "max_x",
+     "unit": "near_after.hog",
+     "units": "tile"
+    },
+    {
+     "name": "far_first.hog_max_x",
+     "fn": "max_x",
+     "unit": "far_first.hog",
+     "units": "tile"
+    }
+   ],
+   "owner_minutes": 15,
+   "depends_on_scenarios": [
+    "S01_speed_unit"
+   ],
+   "edge_vs_centre_note": "An earlier design also asked whether 'nearest' is measured to the building edge or its centre. The self-test scored those two candidates at margin 0.0000 on every seed: in that geometry they produce identical tracks. Separating them needs a placement sweep where cannon and tower distances differ by less than the radius difference (0.4 tile) for the whole approach; not designed yet.",
+   "repetitions": 3,
+   "self_test_expect": {
+    "nearest_edge_in_sight": true,
+    "nearest_edge_global": true,
+    "locked": true
+   },
+   "predictions": {
+    "candidates": {
+     "nearest_edge_in_sight": {
+      "near_after.hog_max_x": [
+       5.588,
+       5.599
+      ],
+      "far_first.hog_max_x": [
+       3.5,
+       3.5
+      ]
+     },
+     "nearest_edge_global": {
+      "near_after.hog_max_x": [
+       5.588,
+       5.599
+      ],
+      "far_first.hog_max_x": [
+       12.092,
+       12.104
+      ]
+     },
+     "locked": {
+      "near_after.hog_max_x": [
+       3.5,
+       3.5
+      ],
+      "far_first.hog_max_x": [
+       3.5,
+       3.5
+      ]
+     }
+    },
+    "pairwise_min_separation": {
+     "nearest_edge_in_sight|nearest_edge_global": 2.186,
+     "nearest_edge_in_sight|locked": 1.085,
+     "nearest_edge_global|locked": 2.944
+    }
+   },
+   "discrimination": {
+    "verdict": "decisive, NOT PROMOTABLE",
+    "worth_recording": "after the registry key exists",
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. 60 cells, all correct and decisive; smallest margin 0.946 tile (required 0.030).",
+    "note": "Discriminates cleanly (far_first max x 3.50 vs 12.10; near_after max x 5.59 vs 3.50) but promotes nothing: no registry key for the building retarget rule (promotes_missing_key). Needs two players."
+   }
+  },
+  {
+   "id": "S09_repath_lag",
+   "recording": "REC-H",
+   "kind": "trajectory",
+   "question": "REPATH_INTERVAL_TICKS: how soon after a building appears in its path does a walking unit change heading -- every tick, or every 10 ticks (the folklore value)? Scored as the likelihood of each trial's reaction LAG under the lag distribution each candidate predicts over its unobservable repath-clock phase.",
+   "promotes": [
+    {
+     "key": "pathfinding.REPATH_INTERVAL_TICKS",
+     "param": "repath_interval_ticks",
+     "value_map": {
+      "1": 1,
+      "10": 10
+     },
+     "depends_on": [
+      "time.TICK_MS"
+     ],
+     "note": "Only meaningful once S03 shows look-ahead exists and S04 fixes the tick. Per-trial lag is uniform over the interval, so it needs repetitions."
+    }
+   ],
+   "setup": {
+    "duration_ms": 9000,
+    "actions": [
+     {
+      "t_ms": 0,
+      "card": "Knight",
+      "team": "blue",
+      "tile_100": [
+       350,
+       850
+      ],
+      "label": "knight"
+     },
+     {
+      "t_ms": 2550,
+      "card": "Cannon",
+      "team": "blue",
+      "tile_100": [
+       400,
+       1200
+      ],
+      "label": "cannon"
+     }
+    ]
+   },
+   "human_setup": "Recording H. Knight at (3.5, 8.5); when it has walked about 1.5 tiles, drop your own Cannon centred at (4.0, 12.0) in front of it. 10 repetitions.",
+   "base_overrides": {
+    "tps": 20,
+    "path_model": "diagonal",
+    "avoidance": "lookahead",
+    "deploy_snap": "none",
+    "retarget": "nearest_edge_in_sight"
+   },
+   "focal_param": "repath_interval_ticks",
+   "candidates": {
+    "1": {
+     "repath_interval_ticks": 1
+    },
+    "10": {
+     "repath_interval_ticks": 10
+    }
+   },
+   "nuisance": {
+    "speed_unit": [
+     "tiles_per_minute",
+     "millitiles_per_50ms"
+    ],
+    "repath_phase_ticks": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9
+    ]
+   },
+   "rank_by": "lag_likelihood",
+   "observables": [
+    {
+     "name": "knight_deviation_onset_y",
+     "fn": "deviation_onset_y",
+     "unit": "knight",
+     "x_ref": 3.5,
+     "threshold": 0.2,
+     "units": "tile"
+    }
+   ],
+   "owner_minutes": 10,
+   "depends_on_scenarios": [
+    "S01_speed_unit",
+    "S03_building_lookahead",
+    "S04_tick_rate_phase_lock"
+   ],
+   "repetitions": 10,
+   "per_trial_nuisance": [
+    "repath_phase_ticks"
+   ],
+   "lag": {
+    "unit": "knight",
+    "x_ref": 3.5,
+    "threshold": 0.2,
+    "event": "spawn",
+    "event_unit": "cannon",
+    "sigma_s": 0.05,
+    "$comment": "lag = first sample the Knight is 0.2 tile off the lane line, minus the first frame the Cannon is visible. sigma_s is the per-trial timing error (about 2 frames at 60 fps plus onset-detector jitter): an estimate, not a measurement."
+   },
+   "margin_abs": 0.3,
+   "prerequisite_pins": {
+    "speed_unit": {
+     "scenario": "S01_speed_unit",
+     "why": "A reaction lag is a TIME and a faster unit reaches the 0.2-tile onset sooner, so with speed_unit free the lag set of '10' at millitiles_per_50ms (0.35-0.70 s) covers '1' at tiles_per_minute (0.50 s). Measured 2026-09-13 over 20 seeds: truth '1'@tiles_per_minute came back as '10' on 17/20 (speed shared across trials) and truth '10'@millitiles_per_50ms as '1' on 11/20 (speed re-chosen per trial). With speed_unit pinned to truth: 0/30 wrong for all four truths. The harness marks an unpinned recorded run BLOCKED."
+    }
+   },
+   "self_test_expect": {
+    "1": true,
+    "10": true
+   },
+   "predictions": {
+    "candidates": {
+     "1": {
+      "knight_deviation_onset_y": [
+       10.56,
+       10.793
+      ],
+      "lag_s": {
+       "speed_unit=tiles_per_minute": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5
+       ],
+       "speed_unit=millitiles_per_50ms": [
+        0.35,
+        0.35,
+        0.35,
+        0.35,
+        0.35,
+        0.35,
+        0.35,
+        0.35,
+        0.35,
+        0.35
+       ]
+      }
+     },
+     "10": {
+      "knight_deviation_onset_y": [
+       10.559,
+       11.174
+      ],
+      "lag_s": {
+       "speed_unit=tiles_per_minute": [
+        0.5,
+        0.55,
+        0.6,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.75,
+        0.8,
+        0.85
+       ],
+       "speed_unit=millitiles_per_50ms": [
+        0.35,
+        0.4,
+        0.45,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.65,
+        0.7
+       ]
+      }
+     }
+    },
+    "pairwise_min_separation": {
+     "1|10": 0.016
+    }
+   },
+   "discrimination": {
+    "verdict": "decisive ONLY with speed_unit pinned by S01",
+    "worth_recording": "after S01, S03 and S04",
+    "measured": "self-test 2026-09-13: synthetic truth from every candidate x alternative x global nuisance value under the default synth.CaptureModel budget, 10 seeds (tools/diff_harness.py --self-test --seeds 10); the gated claims run at the default 3 seeds. With speed_unit pinned to truth: 40 cells, all correct and decisive; smallest margin 0.354 (required 0.300). Unpinned, measured over 20 seeds before the pin existed: truth '1'@tiles_per_minute came back '10' on 17/20 -- see prerequisite_pins.",
+    "note": "Lag sets: '1' = 0.50 s (tiles/min) or 0.35 s (millitiles/50ms) on every trial; '10' = 0.50-0.85 s or 0.35-0.70 s depending on the repath clock phase. The trajectories alone are 0.016 tile apart: the lag is the observable."
+   }
+  }
+ ]
+}

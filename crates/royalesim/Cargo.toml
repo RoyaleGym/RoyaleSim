@@ -1,0 +1,32 @@
+[package]
+name = "royalesim"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[lib]
+name = "royalesim"
+# cdylib: the Python extension. rlib: so benches/tests and other crates can link it.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# The determinism profile. Overflow checks stay ON in release, because in an
+# integer engine a silent wrap is a silently wrong battle that no test will
+# attribute to the right cause. The cost is a few percent; the alternative is
+# the class of bug this project cannot afford.
+[profile.release.package.royalesim]
+overflow-checks = true
+
+[profile.bench]
+inherits = "release"

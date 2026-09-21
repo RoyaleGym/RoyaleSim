@@ -1,0 +1,71 @@
+[build-system]
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "royalesim"
+version = "0.1.0"
+description = "RoyaleSim: deterministic, integer-only Clash Royale battle engine (Rust, PyO3 binding)"
+# maturin 1.15 refuses to build when the named readme is missing ("Failed to read
+# readme specified in pyproject.toml", measured 2026-09-13); README.md exists since
+# the 2026-09-21 repo split.
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+# The calibration tooling (tools/, oracle/) and its tests. They also import the env
+# layer (the sibling RoyaleGym checkout's `royalegym`) for watch_battle / oracle_diff;
+# install that editable too (README.md, "Setup").
+dev = [
+    "numpy>=2.0",
+    "msgspec>=0.19",
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+    "ruff>=0.16",
+    "mypy>=2.0",
+    "maturin>=1.15,<2.0",
+]
+# The oracle's video path. `oracle/extract_tracks.py` imports cv2 LAZILY, so the
+# module (and tools/diff_harness.py, which imports its schema) loads without it and
+# the `landmarks` / `validate` subcommands work bare.
+oracle = [
+    "opencv-python>=4.10",
+]
+
+[tool.maturin]
+# The Rust core is the whole wheel: one extension module named `royalesim`.
+# Build into the active venv with `maturin develop --release` from this directory.
+manifest-path = "crates/royalesim/Cargo.toml"
+module-name = "royalesim"
+bindings = "pyo3"
+# Only what the crate's `include_str!`s need at build time. The rest of data/raw/ (the
+# vendored Supercell tables and tilemaps) is deliberately not packaged: it is not covered
+# by this repository's licence (LICENSE, data/raw/retroroyale-2018/README.md).
+include = [
+    { path = "data/calibration.json", format = "sdist" },
+    { path = "data/derived/**/*", format = "sdist" },
+    { path = "data/raw/retroroyale-2018/README.md", format = "sdist" },
+    { path = "data/raw/retroroyale-2018/csv_logic/globals.csv", format = "sdist" },
+    { path = "data/raw/retroroyale-2018/csv_logic/rarities.csv", format = "sdist" },
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+markers = ["slow: long-running rollouts"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["tools", "oracle", "tests"]
+extend-exclude = ["crates", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "NPY", "PT"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # ambiguous unicode in comments/docstrings
+    "SIM108",                       # ternaries are not always clearer
+]
