@@ -15,7 +15,7 @@ use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::Vec2;
 use royalesim::state::{footprint_of, BattleConfig, BattleState, EntityView};
-use royalesim::{EntityId, Phase, Team, TICK_PHASES};
+use royalesim::{EntityId, Phase, Team, LEGACY_TICK_PHASES, TICK_PHASES};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
@@ -39,16 +39,25 @@ pub fn config() -> BattleConfig {
     BattleConfig::with_cards(cards())
 }
 
-/// The shipped config with the FRAME-PLANNED pathfinder selected. The shipped
-/// search (path16402.rs, pathfinding.PATH_SEARCH = client16402) is the
-/// client's and is NOT seat-symmetric -- its scan and neighbour orders are in
-/// absolute arena coordinates, so rotated twins can publish different equal-cost
-/// routes. Every seat-symmetry gate (tests/mirror.rs, tests/setup_spawn_order.rs)
-/// measures the OTHER systems under this config; the measured route asymmetry is
-/// pinned by mirror.rs `the_shipped_search_is_absolute_grid_not_seat_symmetric`.
+/// The shipped config with the FRAME-PLANNED pathfinder and the FIXED-DISTANCE
+/// knockback selected. The shipped search (path16402.rs, pathfinding.PATH_SEARCH =
+/// client16402) is the client's and is NOT seat-symmetric -- its scan and
+/// neighbour orders are in absolute arena coordinates, so rotated twins can publish
+/// different equal-cost routes. The shipped knockback (move16402.rs, the measured
+/// ladder) is frame-free arithmetic except at two absolute-frame points the game
+/// has: the zero-vector direction (knockback.ZERO_VECTOR_DIRECTION =
+/// client16402_x_by_id_parity, +-x by id parity) and the water ejection's first-minimum
+/// tie (rows from the top). Every seat-symmetry gate (tests/mirror.rs,
+/// tests/setup_spawn_order.rs) measures the OTHER systems under this config; the
+/// measured route asymmetry is pinned by mirror.rs
+/// `the_shipped_search_is_absolute_grid_not_seat_symmetric`, the ladder's symmetry
+/// off those two points by tests/knockback16402.rs.
 pub fn symmetric_config() -> BattleConfig {
     let mut c = config();
     c.calib.path_search = royalesim::state::PathSearch::TraceFittedAstar;
+    c.calib.knock_law = royalesim::state::KnockLaw::FixedDistance;
+    c.calib.knock_stacking = royalesim::state::KnockStacking::VectorSum;
+    c.calib.knock_zero_vector = royalesim::state::KnockZeroVector::CasterForward;
     c
 }
 
@@ -69,6 +78,40 @@ pub fn mirror(s: &BattleState, p: Vec2) -> Vec2 {
 /// NOT a symmetry: under the seat rotation a unit's twin is on the other bridge.
 pub fn same_lane_opposite(s: &BattleState, p: Vec2) -> Vec2 {
     Vec2::new(p.x, s.arena().height - p.y)
+}
+
+/// How far a knockback ladder (move16402.rs `ladder_speed`, the 25-per-tick countdown,
+/// the step `min(speed, dist, 250)`, the final back-step) carries a unit whose target
+/// is `l` NATIVE units away, in native units -- derived from the law, never pasted:
+/// `25n(n-1)/2 - 25` when the ladder covers `l`, less when a step is cut by the 250 cap.
+pub fn ladder_travel(l: i32) -> i32 {
+    let mut rem = royalesim::move16402::ladder_speed(l);
+    let (mut dist, mut total) = (l, 0);
+    loop {
+        rem -= royalesim::move16402::PUSHBACK_DECEL;
+        let step = rem.min(dist.max(1)).min(250);
+        total += step;
+        dist -= step;
+        if rem < 0 {
+            return total;
+        }
+    }
+}
+
+/// The ticks a ladder for `l` native units runs: one per speed value down to 0, plus
+/// the back-step tick.
+pub fn ladder_ticks(l: i32) -> i32 {
+    royalesim::move16402::ladder_speed(l) / royalesim::move16402::PUSHBACK_DECEL + 1
+}
+
+/// The distance a landed push of `push` SUBTILES finally carries a unit, subtiles,
+/// under `calib`'s knockback.DISPLACEMENT_LAW.
+pub fn knock_carry(calib: &royalesim::state::Calib, push: i32) -> i32 {
+    use royalesim::fixed::SUBTILE_PER_MILLITILE as K;
+    match calib.knock_law {
+        royalesim::state::KnockLaw::FixedDistance => push,
+        royalesim::state::KnockLaw::Client16402 => ladder_travel(push / K) * K,
+    }
 }
 
 pub fn card_stat<'a>(s: &'a BattleState, name: &str) -> &'a royalesim::card::CardDef {
@@ -235,16 +278,37 @@ impl Invariants {
         }
         self.runs = now;
         if let Some(trace) = s.phase_trace() {
-            if trace != TICK_PHASES.as_slice() {
-                return Err(format!("tick {}: phase trace {:?} != TICK_PHASES {:?}", s.tick_count(), trace, TICK_PHASES));
+            let want = expected_phases(&s.config().calib);
+            if trace != want.as_slice() {
+                return Err(format!("tick {}: phase trace {:?} != the match.TICK_ORDER list {:?}", s.tick_count(), trace, want));
             }
         }
         Ok(())
     }
 }
 
-pub fn expected_phases() -> Vec<Phase> {
-    TICK_PHASES.to_vec()
+/// The phase list a battle under `calib` must run: lib.rs `TICK_PHASES` (the
+/// measured order, match.TICK_ORDER = client16402) or `LEGACY_TICK_PHASES`.
+/// The regression plant `phase_order` runs the legacy list under the shipped
+/// key, which is what turns every phase-traced battle red.
+pub fn expected_phases(calib: &royalesim::state::Calib) -> Vec<Phase> {
+    match calib.tick_order {
+        royalesim::state::TickOrder::Client16402 => TICK_PHASES.to_vec(),
+        royalesim::state::TickOrder::LegacyMoveBeforeAttack => LEGACY_TICK_PHASES.to_vec(),
+    }
+}
+
+/// How much of a unit's deploy time is gone by the end of the tick it
+/// materialises in (calibration match.TICK_ORDER): under the measured order the
+/// countdown runs after the move pass of that very tick, so
+/// the first frame already shows DeployTime - TICK_MS; under the legacy order the
+/// countdown ran in Upkeep, before the Spawn phase, and the first frame shows the
+/// full DeployTime. Either way the first step is on spawn + DeployTime / TICK_MS.
+pub fn spawn_tick_countdown(calib: &royalesim::state::Calib) -> i32 {
+    match calib.tick_order {
+        royalesim::state::TickOrder::Client16402 => calib.tick_ms,
+        royalesim::state::TickOrder::LegacyMoveBeforeAttack => 0,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,8 +327,10 @@ pub type Canon = (
     (String, u8, (i32, i32), i32, i32, u8, i32, i32, bool, (i32, i32), Vec<(i32, i32)>, Option<(String, (i32, i32))>),
     // Spell state on the entity: stun timer, resume-retarget flag, and the
     // knockback slide (timer, and the remaining displacement -- a WORLD vector, so
-    // both components flip sign under the rotation, like a projectile's carry).
-    (i32, bool, i32, (i32, i32)),
+    // both components flip sign under the rotation, like a projectile's carry); the
+    // knockback ladder: active, speed, and the target POINT in the team's frame
+    // (native units).
+    (i32, bool, i32, (i32, i32), bool, i32, (i32, i32)),
     // Hide state (Tesla): the state code and its timer, both frame-free
     // scalars.
     (u8, i32),
@@ -297,6 +363,17 @@ fn canon_entity(s: &BattleState, e: &EntityView) -> Canon {
         Team::Blue => (e.knock_rem.x, e.knock_rem.y),
         Team::Red => (-e.knock_rem.x, -e.knock_rem.y),
     };
+    // the ladder's target is a NATIVE point, meaningful while the ladder runs: the
+    // frame transform in native units (and (0, 0) when it does not)
+    let push_target = {
+        let k = royalesim::fixed::SUBTILE_PER_MILLITILE;
+        let a = s.arena();
+        match (e.push_active, e.team) {
+            (false, _) => (0, 0),
+            (true, Team::Blue) => (e.push_target.x, e.push_target.y),
+            (true, Team::Red) => (a.width / k - e.push_target.x, a.height / k - e.push_target.y),
+        }
+    };
     (
         (
             e.card.to_string(),
@@ -312,7 +389,7 @@ fn canon_entity(s: &BattleState, e: &EntityView) -> Canon {
             e.route.iter().map(|p| frame(s, e.team, *p)).collect(),
             target,
         ),
-        (e.stun_ms, e.retarget_on_resume, e.knock_ms, knock_rem),
+        (e.stun_ms, e.retarget_on_resume, e.knock_ms, knock_rem, e.push_active, e.push_speed, push_target),
         (e.hide_state as u8, e.hide_ms),
         (e.spawn_ms, e.spawn_wave_left),
         (e.charged, e.charge_progress, e.effective_speed),

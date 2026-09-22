@@ -21,6 +21,23 @@
 //!      written to the position, then the reached test
 //!      `proj(aim - pos', segment) <= 1000` that pops the waypoint.
 //!
+//! THE KNOCKBACK LADDER (calibration knockback.DISPLACEMENT_LAW = client16402;
+//! measured on the live 16.402 captures, settled step for step on the Giant of
+//! capture 20260918-122757.b1 ticks 1216..1223): a landing push does not displace
+//! the unit, it ARMS a countdown. `start_pushback` aims a target point `L` away from
+//! the source along the source-to-unit line (`L = min(strength,
+//! MAX_PUSHBACK_LENGTH)`) and loads the speed `25n` with `n` the smallest
+//! `25n(n+1)/2 >= L`; every tick after that `pushback_step` REPLACES the walk: the
+//! separation scan still runs (the unit is pushed by and pushes its neighbours),
+//! the speed drops by 25 BEFORE the move, `move_towards(target, speed)` takes a
+//! step of `min(speed, dist, 250)` -- so the ladder reads 150, 125, ..., 25, 0 and
+//! then ONE 25-UNIT STEP BACKWARD (a negative speed is not clamped) -- with the
+//! avoidance offset rotating the step but neither scanned nor decayed and the
+//! facing untouched; the ladder is active while the speed is `>= 0`, and the tick
+//! it turns negative drops the path (a replan follows). `start_pushback`,
+//! `ladder_speed`, `pushback_step`, `blocked_or_water` and `nearest_land` below are
+//! that law; state.rs `apply_effects` arms it and `phase_path16402` runs it.
+//!
 //! UNITS: native millitiles throughout, i32 arithmetic guarded against 32-bit
 //! overflow (`tdiv` truncates toward zero, `>> 8` floors).
 #![allow(unexpected_cfgs)]
@@ -480,6 +497,159 @@ pub fn segment_dir(x: i32, y: i32, node_centre: (i32, i32)) -> (i32, i32) {
     d
 }
 
+// ---------------------------------------------------------------------------
+// knockback: the ladder (calibration knockback.DISPLACEMENT_LAW = client16402)
+
+/// The ladder's decrement per tick and its speed quantum. A constant of the law, like
+/// the 250 step cap and the 150 impulse cap above -- not a column and not a ledger
+/// value: the live Giant's ladder reads 150, 125, ..., 25, 0, -25.
+pub const PUSHBACK_DECEL: i32 = 25;
+
+/// What `start_pushback` armed: the target point (native units) and the first speed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PushStart {
+    pub target: (i32, i32),
+    pub speed: i32,
+}
+
+/// The ladder's first speed for a push of length `l` -- `25n` with `n` the smallest
+/// such that `25n(n+1)/2 >= l` (`do { v += 25; s += v } while (s < l)`). `l` in
+/// (525, 700] gives 175 (the live Giant: 150, 125, ..., 0, -25); the 2018 Fireball's
+/// 1800 gives 300 (n = 12: 1950 >= 1800 > 1650).
+#[inline]
+pub fn ladder_speed(l: i32) -> i32 {
+    let (mut v, mut s) = (0, 0);
+    loop {
+        v += PUSHBACK_DECEL;
+        s += v;
+        if s >= l {
+            break;
+        }
+    }
+    v
+}
+
+/// ARMING a push a PROJECTILE carries: `L = min(strength, MAX)`, and no running
+/// ladder is ever compared against (the gate refused a second push already; see
+/// state.rs `arm_ladder`). `pos` is the unit's native position, `src` the source
+/// point, `max_len` MAX_PUSHBACK_LENGTH. `zero_dir` is the unit direction taken
+/// when the unit stands ON the source (`d == 0`): calibration
+/// knockback.ZERO_VECTOR_DIRECTION selects it (the shipped value is +-x by the
+/// parity of the unit's id); `None` leaves the unit unpushed.
+///
+/// The target is `pos + (tdiv(dx x L, d), tdiv(dy x L, d))` and the speed
+/// `ladder_speed(L)`; `None` when `d == 0` with no direction or `L <= 0`.
+pub fn start_pushback(pos: (i32, i32), src: (i32, i32), strength: i32, max_len: i32, zero_dir: Option<(i32, i32)>) -> Option<PushStart> {
+    let (mut dx, mut dy) = (pos.0 - src.0, pos.1 - src.1); // AWAY from the source
+    // the square sum is unguarded 32-bit; the arena keeps it in range
+    let mut d = isqrt(dx.wrapping_mul(dx).wrapping_add(dy.wrapping_mul(dy)));
+    if d == 0 {
+        let (zx, zy) = zero_dir?;
+        dx = zx;
+        dy = zy;
+        d = 1;
+    }
+    let l = strength.min(max_len);
+    if d > 0 && l > 0 {
+        Some(PushStart { target: (pos.0 + tdiv(dx.wrapping_mul(l), d), pos.1 + tdiv(dy.wrapping_mul(l), d)), speed: ladder_speed(l) })
+    } else {
+        None
+    }
+}
+
+/// ONE LADDER TICK from its countdown on: `remaining -= 25` BEFORE the move, then
+/// `move_towards(target, remaining)` with the facing untouched (`set_dir = false`)
+/// and the avoidance offset in `con` rotating the step as it stands (the scan and
+/// the decay are the walk tick's and do not run here). The caller runs the
+/// separation scan first when the pre-decrement remaining is `> 0`, reads
+/// `active = remaining >= 0` afterwards and drops the path the tick it turns
+/// negative. `state4_ground` is the position write's deploying flag: the water edge
+/// clamps a deploying ground unit only.
+#[allow(clippy::too_many_arguments)]
+pub fn pushback_step(
+    u: (i32, i32),
+    target: (i32, i32),
+    remaining: &mut i32,
+    con: &mut Contact,
+    seg: (i32, i32),
+    state4_ground: bool,
+    is_water: impl Fn(i32, i32) -> bool,
+    width_cells: i32,
+    height_cells: i32,
+) -> Moved {
+    *remaining -= PUSHBACK_DECEL;
+    move_towards(u, target.0, target.1, *remaining, false, con, seg, state4_ground, is_water, width_cells, height_cells)
+}
+
+/// The octagonal length `max(|a|, |b|) + ((min(|a|, |b|) x 53) >> 7)`, the metric
+/// `nearest_land` ranks its candidates by.
+#[inline]
+pub fn octagonal_len(a: i32, b: i32) -> i32 {
+    let (a, b) = (a.wrapping_abs(), b.wrapping_abs());
+    let (hi, lo) = if a > b { (a, b) } else { (b, a) };
+    hi.wrapping_add(((lo.wrapping_mul(0x35) as u32) >> 7) as i32)
+}
+
+/// A position a ground unit cannot stand on: out of the grid, or its cell carries
+/// the blocked bits 0x50, or the water bit 0x20. `bits` is the raw tilemap byte of a
+/// cell (arena.rs `cell_bits`).
+pub fn blocked_or_water(x: i32, y: i32, width_cells: i32, height_cells: i32, bits: impl Fn(i32, i32) -> u8) -> bool {
+    if (x | y) < 0 || x >= width_cells * 500 || y >= height_cells * 500 {
+        return true;
+    }
+    let b = bits(tdiv(x, 500), tdiv(y, 500));
+    b & 0x50 != 0 || b & 0x20 != 0
+}
+
+/// THE WATER EJECTION a ladder tick applies to a ground unit standing on a blocked
+/// or water cell at the start of a tick with remaining `> 0` (flying and hovering
+/// units are exempt; calibration knockback.WATER_RESOLUTION, a hypothesis until a
+/// push ends on the river). The position is clamped 250 inside the grid; if its own
+/// cell is not water it is returned as clamped; else the candidates
+/// `(xc - 2250 + 500k, yc + 250 + 500j)` for `j = -5..=5` and `k = 0..=10`, each
+/// inside the grid and not on water, are ranked by the octagonal length of their
+/// offset and the FIRST minimum in scan order (rows outer from -5, columns inner
+/// from the left, strict `<`) wins -- an absolute-frame tie, like the search's, not
+/// a seat frame. The two range guards test the candidate 250 further out than the
+/// point they admit.
+pub fn nearest_land(x: i32, y: i32, width_cells: i32, height_cells: i32, is_water: impl Fn(i32, i32) -> bool) -> (i32, i32) {
+    let xc = x.max(250).min(width_cells * 500 - 250);
+    let yc = y.max(250).min(height_cells * 500 - 250);
+    if !is_water(tdiv(xc, 500), tdiv(yc, 500)) {
+        return (xc, yc);
+    }
+    let mut best = i32::MAX;
+    let (mut bx, mut by) = (xc, yc);
+    for j in -5..=5 {
+        if j * 500 + yc < -250 {
+            continue;
+        }
+        let cy = j * 500 + yc + 250;
+        let row = tdiv(cy, 500);
+        let dy = cy - yc;
+        for k in 0..=10 {
+            let off = k * 500;
+            if off + xc - 2500 < -250 {
+                continue;
+            }
+            let cx = off + xc - 2250;
+            if cx >= width_cells * 500 || cy >= height_cells * 500 {
+                continue;
+            }
+            if is_water(tdiv(cx, 500), row) {
+                continue;
+            }
+            let dist = octagonal_len(off - 2250, dy);
+            if dist < best {
+                best = dist;
+                by = cy;
+                bx = cx;
+            }
+        }
+    }
+    (bx, by)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +727,71 @@ mod tests {
         assert_eq!(c.offset, 0);
         decay_offset(&mut c);
         assert_eq!(c.offset, 0);
+    }
+
+    #[test]
+    fn the_ladder_speed_is_the_smallest_triangular_cover() {
+        // 25n(n+1)/2: 25, 75, 150, 250, 375, 525, 700, 900, ... the live Giant's L
+        // sits in (525, 700] -> 175; the 2018 Fireball's 1800 in (1650, 1950] -> 300
+        assert_eq!(ladder_speed(1), 25);
+        assert_eq!(ladder_speed(25), 25);
+        assert_eq!(ladder_speed(26), 50);
+        assert_eq!(ladder_speed(525), 150);
+        assert_eq!(ladder_speed(526), 175);
+        assert_eq!(ladder_speed(700), 175);
+        assert_eq!(ladder_speed(701), 200);
+        assert_eq!(ladder_speed(1800), 300);
+        assert_eq!(ladder_speed(40000), 1425, "n = 57: 25 x 57 x 58 / 2 = 41325 >= 40000 > 39900");
+    }
+
+    #[test]
+    fn a_push_aims_l_away_along_the_source_line_and_caps_at_max() {
+        let p = start_pushback((5000, 5000), (5000, 4000), 600, 40000, None).unwrap();
+        assert_eq!(p, PushStart { target: (5000, 5600), speed: 175 });
+        let p = start_pushback((5000, 5000), (4000, 5000), 100_000, 40000, None).unwrap();
+        assert_eq!(p, PushStart { target: (45000, 5000), speed: ladder_speed(40000) });
+        // d == 0: the unit direction given, distance 1, L along it exactly
+        assert_eq!(start_pushback((5000, 5000), (5000, 5000), 1800, 40000, Some((-1, 0))).unwrap().target, (3200, 5000));
+        assert_eq!(start_pushback((5000, 5000), (5000, 5000), 1800, 40000, None), None);
+        assert_eq!(start_pushback((5000, 5000), (4000, 5000), 0, 40000, None), None);
+    }
+
+    #[test]
+    fn the_ladder_reads_150_down_to_zero_then_one_step_back() {
+        // the live Giant: L in (525, 700], v0 175, steps 150 125 100 75 50 25 0 -25
+        let start = start_pushback((5000, 5000), (5000, 4400), 600, 40000, None).unwrap();
+        let mut pos = (5000, 5000);
+        let mut rem = start.speed;
+        let mut steps = Vec::new();
+        let mut active = true;
+        while active {
+            let mut con = Contact::default();
+            let m = pushback_step(pos, start.target, &mut rem, &mut con, (0, 0), false, |_, _| false, 36, 64);
+            steps.push(m.y - pos.1);
+            assert!(m.dir.is_none(), "the facing is never touched");
+            pos = (m.x, m.y);
+            active = rem >= 0;
+        }
+        assert_eq!(steps, vec![150, 125, 100, 75, 50, 25, 0, -25]);
+        assert_eq!(pos, (5000, 5500));
+    }
+
+    #[test]
+    fn nearest_land_returns_the_clamped_point_off_water_and_the_first_octagonal_minimum_on_it() {
+        // a river band on rows 30..=33 of a 36 x 64 grid
+        let water = |_c: i32, r: i32| (30..=33).contains(&r);
+        assert_eq!(nearest_land(5000, 5000, 36, 64, water), (5000, 5000));
+        assert_eq!(nearest_land(100, 100, 36, 64, water), (250, 250), "clamped 250 inside the grid");
+        // on the river's upper half: the row above (j = -1 -> yc - 250 lands on row 29 when
+        // yc is in the first 250 of row 30)
+        let (x, y) = nearest_land(9000, 15100, 36, 64, water);
+        assert!(!water(tdiv(x, 500), tdiv(y, 500)));
+        assert_eq!((x, y), (8750, 14850), "j = -1, k = 4: offset (-250, -250), the first octagonal minimum");
+        assert!(blocked_or_water(9000, 15100, 36, 64, |_, _| 0x20));
+        assert!(blocked_or_water(-1, 100, 36, 64, |_, _| 0));
+        assert!(blocked_or_water(100, 100, 36, 64, |_, _| 0x10), "bit 0x10 counts (the blocked test is on 0x50)");
+        assert!(!blocked_or_water(100, 100, 36, 64, |_, _| 0x03));
+        assert_eq!(octagonal_len(3, 4), 4 + ((3 * 53) >> 7));
+        assert_eq!(octagonal_len(-1000, 0), 1000);
     }
 }

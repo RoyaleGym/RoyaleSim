@@ -183,13 +183,18 @@ fn save_is_reasonably_small_and_fast() {
 /// Blue and Red Fireballs, Logs, Goblin Barrels and Zaps cast at staggered ticks onto
 /// each other's Knights and Giants.
 ///
-/// KNOCKBACK SLIDES: the shipped knockback.DURATION_MS is 0 (instant), under which no
-/// slide state ever exists between ticks. This battle runs the registry's other
-/// candidate (500 ms, crforge's unsourced value) so `knock_rem` / `knock_ms` are live
-/// and can be caught being dropped. A snapshot carries its Calib, so the loaded
-/// battle runs the same candidate.
+/// KNOCKBACK SLIDES: the shipped knockback.DISPLACEMENT_LAW is the 16.402 ladder
+/// (its mid-ladder round trip is tests/knockback16402.rs), and the fixed_distance
+/// arm's shipped DURATION_MS is 0 (instant), under which no slide state ever exists
+/// between ticks. This battle runs the fixed_distance arm with the registry's other
+/// duration candidate (500 ms, crforge's unsourced value) so `knock_rem` /
+/// `knock_ms` are live and can be caught being dropped. A snapshot carries its
+/// Calib, so the loaded battle runs the same candidates.
 fn spell_battle() -> BattleState {
     let mut cfg = config();
+    cfg.calib.knock_law = royalesim::state::KnockLaw::FixedDistance;
+    cfg.calib.knock_stacking = royalesim::state::KnockStacking::VectorSum;
+    cfg.calib.knock_zero_vector = royalesim::state::KnockZeroVector::CasterForward;
     cfg.calib.knock_duration_ms = 500;
     let mut s = BattleState::new(372_241, cfg);
     // Cannons on x = 9 so both Logs' rolls hit something (the troops walk off the axis).

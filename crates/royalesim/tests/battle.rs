@@ -1,11 +1,11 @@
 //! A full scripted battle on the real card data, with every-tick invariants,
 //! and the determinism gate.
 //!
-//! WHAT IT PINS: that the whole tick loop -- Target -> Path -> Move -> Attack ->
-//! Resolve -- runs end to end on the real card data with real units in it, that the
-//! every-tick invariants hold for the length of a battle, and that two runs from one
-//! seed are bit-identical. Unit tests of the individual phases do not reach any of
-//! that.
+//! WHAT IT PINS: that the whole tick loop -- Target -> Attack -> Path -> Move ->
+//! Resolve (the measured 16.402 order: the attacks before the moves) -- runs end to
+//! end on the real card data with real units in it, that the every-tick invariants
+//! hold for the length of a battle, and that two runs from one seed are
+//! bit-identical. Unit tests of the individual phases do not reach any of that.
 //!
 //! WHAT IT CANNOT CATCH: whether the battle is RIGHT. "Plausible crowns" is a smoke
 //! bound, not fidelity. Fidelity is measured against recorded ground truth, not

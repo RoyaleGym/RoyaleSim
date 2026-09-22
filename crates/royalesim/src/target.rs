@@ -227,8 +227,9 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     if e.hide[a] != HideState::Up {
         return TargetDecision { target: None, cancel_attack: true, resumed: false };
     }
-    // Stunned or mid-knockback-slide: keep what it had, scan nothing.
-    if e.stun_ms[a] > 0 || e.knock_ms[a] > 0 {
+    // Stunned or mid-knockback (the slide, or the 16.402 ladder): keep what it
+    // had, scan nothing.
+    if e.stun_ms[a] > 0 || e.knocked(a) {
         return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false };
     }
     if e.kind[a] == EntityKind::KingTower && !ctx.king_active[e.team[a] as usize] {

@@ -1,11 +1,17 @@
 //! BattleState and the tick loop.
 //!
-//! THE LOOP IS DRIVEN BY lib.rs::TICK_PHASES
+//! THE LOOP IS DRIVEN BY lib.rs::TICK_PHASES (calibration match.TICK_ORDER)
 //!     `tick()` iterates that array and dispatches on each phase. Reordering the
-//!     array reorders the engine; nothing else encodes the order.
+//!     array reorders the engine; nothing else encodes the order. The array is the
+//!     order measured on the live 16.402 captures: every ATTACK update for every
+//!     entity, then the MOVE updates one after the other in creation order, then
+//!     the per-unit character update (the deploy countdown) after the move pass.
+//!     lib.rs::LEGACY_TICK_PHASES is the order before that measurement (Move before
+//!     Attack, the countdown in Upkeep), kept runnable under match.TICK_ORDER =
+//!     legacy_move_before_attack.
 //!
-//! WHAT RUNS WHERE
-//!     Upkeep     elixir accrual; deploy timers mature
+//! WHAT RUNS WHERE (the shipped order)
+//!     Upkeep     elixir accrual (the deploy countdown too, under the legacy order)
 //!     Status     king activation timer; building lifetimes (stun/slow timers only
 //!                under status.BUFF_EXPIRY_TICK_ALIGNMENT = one_tick_short)
 //!     Spawn      pending spawns (deploys since last tick) materialise; accepted
@@ -13,17 +19,29 @@
 //!                SPAWNER past its deploy time ticks its timer and queues the units
 //!                that are due (spawner_pass; they materialise NEXT tick)
 //!     Target     every entity decides its target from start-of-phase state
-//!     Path       every unit proposes a movement delta from start-of-phase state
-//!     Move       deltas applied, then collision separation (buffered); then every
-//!                CHARGE card's run-up gains from its own walk (charge_pass)
 //!     Attack     windups advance; hits go to the damage buffer / projectile list
-//!                (a charged unit's hit is DamageSpecial and consumes the charge)
+//!                (a charged unit's hit is DamageSpecial and consumes the charge).
+//!                BEFORE the move: a unit in range at the start of the tick winds
+//!                up and does not step this tick; one whose target is gone or out
+//!                of range walks this tick (the 1 -> 2 / 2 -> 1 rules)
+//!     Path       every unit proposes a movement delta from start-of-phase state;
+//!                under the 16.402 locomotion the whole sequential move pass in
+//!                creation order (phase_path16402), a unit dying this tick dropped
+//!                from the scans of the movers after it (movement.DYING_UNIT_VISIBILITY)
+//!     Move       deltas applied, then collision separation (buffered; frame-planned
+//!                arms only); then every CHARGE card's run-up gains from its own
+//!                walk (charge_pass); then THE DEPLOY COUNTDOWN (deploy_countdown,
+//!                after the move pass, as measured): a unit whose
+//!                deploy time ends this tick stood still this tick and walks next
 //!     Projectile projectiles advance; arrivals go to the damage buffer. Spells
 //!                advance: impacts write damage / knockback / stun buffers, landing
 //!                Goblin Barrels queue their units
 //!     Resolve    the damage buffer is applied in one pass; deaths are queued; then
 //!                stun timers tick, the stun buffer merges (max) and the knockback
-//!                buffer sums and moves the SURVIVORS
+//!                buffer sums and moves the SURVIVORS (knockback.DISPLACEMENT_LAW =
+//!                fixed_distance) or ARMS THE LADDER on them (client16402,
+//!                shipped: the first buffered push per unit, the rest refused while
+//!                it runs; the steps come in the Path phase from the next tick on)
 //!     Reap       queued deaths: death damage is BUFFERED (lands next Resolve),
 //!                death spawns are QUEUED (materialise next Spawn), crown towers
 //!                are recorded, slots are freed
@@ -46,8 +64,9 @@ use crate::path::{self, FrameWorld, NavRequest, Obstacle, UnitBlocker};
 use crate::path2026;
 use crate::move16402;
 use crate::path16402;
+use crate::jump16402;
 use crate::target::{self, TargetCtx, TargetDecision, TowerSightReading, TowerTable};
-use crate::{EntityId, PathModel, Phase, PushModel, Rng, Team, TICK_PHASES};
+use crate::{EntityId, PathModel, Phase, PushModel, Rng, Team, LEGACY_TICK_PHASES, TICK_PHASES};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
@@ -103,6 +122,11 @@ pub struct Calib {
     /// BLOCKED for a water cell a walker asks about, and those cells are pushed on
     /// the heap (path16402.rs `Terrain`).
     pub path_cost_blocked: i32,
+    /// PATHFINDING_WATER_COST (7): what a HOVERING or JumpEnabled mover pays for a
+    /// water cell in place of BLOCKED. Read under
+    /// `PATH_SEARCH = client16402` for every mover with a card.rs `JumpDef`
+    /// (path16402.rs `cell_cost_for`); the trace-fitted arm keeps water impassable.
+    pub path_cost_water: i32,
     pub path_cost_building: i32,
     pub path_cost_heuristic: i32,
     /// pathfinding.DIAGONAL_COST_RATIO: a diagonal step pays `cost * num / den`.
@@ -134,6 +158,13 @@ pub struct Calib {
     /// TIE_BREAK / HEURISTIC_FORM / OCCLUDED_CELL_TREATMENT knobs), kept runnable as
     /// the refuted arm: 168/345.
     pub path_search: PathSearch,
+    /// movement.JUMP_WATER_HOP -- what a JumpEnabled troop does at the water once its
+    /// search priced it at WATER_COST. `client16402`: the leap (jump16402.rs;
+    /// `phase_path16402`), measured step for step on the five live hops of the
+    /// 16.402 corpus. `walk_priced_water`: no hop -- the unit
+    /// walks the cost-7 water at its Speed, the naive reading of the cost field the
+    /// live captures refute, kept runnable as the foil.
+    pub jump_water_hop: JumpWaterHop,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     pub start_mana: i32,
@@ -146,6 +177,14 @@ pub struct Calib {
     /// match.OVERTIME_TIEBREAK -- how a match still level on crowns when overtime
     /// runs out is decided (state.rs `overtime_tiebreak`).
     pub overtime_tiebreak: OvertimeTiebreak,
+    /// match.TICK_ORDER -- which phase list `tick()` runs (lib.rs `TICK_PHASES`,
+    /// the measured order, or `LEGACY_TICK_PHASES`) and, with it, where the
+    /// deploy countdown runs (`deploy_countdown`: after Move, or in Upkeep).
+    pub tick_order: TickOrder,
+    /// movement.DYING_UNIT_VISIBILITY -- whether a troop that dies this tick is
+    /// dropped from the scans of the movers after it in the sequential move pass
+    /// (`doomed_mask`, `phase_path16402`), or seen by every mover.
+    pub dying_unit_visibility: DyingUnitVisibility,
     /// globals.csv MANA_SPEED_UP_WHEN_REMAINING_SECONDS (not in calibration.json).
     pub mana_speed_up_remaining_s: i32,
     /// calibration.json arena.TERRITORY_MODEL. There is no troop pocket depth past
@@ -168,7 +207,19 @@ pub struct Calib {
     pub rolling_hit_shape: RollHitShape,
     /// spells.SPAWNING_SPELL_WATER_RULE.
     pub spawning_spell_water: SpawnWaterRule,
-    /// knockback.DURATION_MS.
+    /// knockback.DISPLACEMENT_LAW -- how a landed push moves the unit (spell.rs
+    /// `impact` / `roll` write the matching `Knock` variant; `apply_effects` and the
+    /// Path / Move phases consume it).
+    pub knock_law: KnockLaw,
+    /// knockback.STACKING -- two pushes on one unit (the same tick, or while a
+    /// ladder runs). Paired with the law in `from_json`: each law implements one.
+    pub knock_stacking: KnockStacking,
+    /// pathfinding.MAX_PUSHBACK_LENGTH, NATIVE millitiles: the cap on one push's
+    /// length `L` (move16402.rs `start_pushback`). Datamined; consumed by the ladder
+    /// arm only.
+    pub max_pushback_length: i32,
+    /// knockback.DURATION_MS (the fixed_distance arm only: the ladder sets its own
+    /// duration from the length).
     pub knock_duration_ms: i32,
     /// knockback.ZERO_VECTOR_DIRECTION.
     pub knock_zero_vector: KnockZeroVector,
@@ -306,8 +357,49 @@ calib_enum!(
     }
 );
 calib_enum!(
-    /// knockback.ZERO_VECTOR_DIRECTION.
-    KnockZeroVector { CasterForward = "caster_forward", NoPush = "none" }
+    /// knockback.DISPLACEMENT_LAW.
+    KnockLaw {
+        /// THE SHIPPED LAW, measured step for step on the live Giant's ladder
+        /// (calibration knockback.DISPLACEMENT_LAW): a landed push aims a
+        /// target `min(Pushback, MAX_PUSHBACK_LENGTH)` away from the source and arms a
+        /// speed ladder `25n, 25(n-1), ..., 25, 0, -25` that replaces the walk tick by
+        /// tick (move16402.rs). The unit ends `25n(n-1)/2 - 25` short of the target's
+        /// distance when the ladder covers it (a 1800 push moves 1600 with the 250
+        /// step cap on its first tick).
+        Client16402 = "client16402",
+        /// The earlier engine: exactly Pushback, instantly (DURATION_MS 0) or
+        /// spread evenly over DURATION_MS, through spell.rs `settle`.
+        FixedDistance = "fixed_distance",
+    }
+);
+calib_enum!(
+    /// knockback.STACKING.
+    KnockStacking {
+        /// fixed_distance: the displacements of one tick are summed per unit.
+        VectorSum = "vector_sum",
+        /// client16402: a push is refused while the unit's ladder is active, so the
+        /// first push of a tick lands and every later one -- the same tick or a later
+        /// tick of the ladder -- is refused outright (a hypothesis paired with the
+        /// ladder; no capture lands two pushes on one unit).
+        FirstWinsWhileActive = "first_wins_while_active",
+    }
+);
+calib_enum!(
+    /// knockback.ZERO_VECTOR_DIRECTION -- the direction of a push whose victim stands
+    /// exactly on the source point.
+    KnockZeroVector {
+        /// Along the caster's forward axis (+y for Blue, -y for Red): commutes with
+        /// the seat rotation.
+        CasterForward = "caster_forward",
+        /// The shipped rule (a hypothesis: no push in the corpus lands on a unit's
+        /// centre): `dx = -1 or +1` by the parity of a per-unit id, `dy = 0`, ABSOLUTE
+        /// x -- the engine reads the parity of `team_seq` (entity.rs: the sanctioned
+        /// id-like quantity, equal for twins), so twins go the same absolute way.
+        /// Not seat-symmetric, like the search.
+        Client16402XByIdParity = "client16402_x_by_id_parity",
+        /// No push at all (nothing armed when `d == 0` under the ladder).
+        NoPush = "none",
+    }
 );
 calib_enum!(
     /// knockback.ATTACK_RESET.
@@ -493,6 +585,32 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.JUMP_WATER_HOP -- see `Calib::jump_water_hop`.
+    JumpWaterHop {
+        Client16402 = "client16402",
+        WalkPricedWater = "walk_priced_water",
+    }
+);
+calib_enum!(
+    /// match.TICK_ORDER -- see `Calib::tick_order` and lib.rs `TICK_PHASES`.
+    TickOrder {
+        /// The measured order: Target, Attack, Path, Move, the countdown after Move.
+        Client16402 = "client16402",
+        /// The earlier order: Path, Move, Attack, the countdown in Upkeep.
+        LegacyMoveBeforeAttack = "legacy_move_before_attack",
+    }
+);
+calib_enum!(
+    /// movement.DYING_UNIT_VISIBILITY -- see `Calib::dying_unit_visibility`.
+    DyingUnitVisibility {
+        /// Seen by the movers before it in creation order, dropped for the ones
+        /// after it (measured 99 : 5 / 35 : 0).
+        CreationOrderBeforeVictim = "creation_order_before_victim",
+        /// Seen by every mover for the whole pass (the earlier engine).
+        WholeTick = "whole_tick",
+    }
+);
+calib_enum!(
     /// pathfinding.TIE_BREAK -- the neighbour order path2026.rs `neighbours()`
     /// expands in. UNVERIFIED and known to be insufficient (spec 3.6). These three
     /// are the three the engine implements, so `pick` refuses any other name; the
@@ -658,6 +776,7 @@ impl Calib {
             path_cost_default: cost_of("default")?,
             path_cost_road: cost_of("road")?,
             path_cost_blocked: cost_of("blocked")?,
+            path_cost_water: cost_of("water")?,
             path_cost_building: cost_of("building")?,
             path_cost_heuristic: cost_of("defaultheuristic")?,
             diag_num,
@@ -668,6 +787,7 @@ impl Calib {
             heuristic_form: pick(&v, &["pathfinding", "HEURISTIC_FORM", "value"], HeuristicForm::from_calibration_name)?,
             tie_break: pick(&v, &["pathfinding", "TIE_BREAK", "value"], TieBreak::from_calibration_name)?,
             path_search: pick(&v, &["pathfinding", "PATH_SEARCH", "value"], PathSearch::from_calibration_name)?,
+            jump_water_hop: pick(&v, &["movement", "JUMP_WATER_HOP", "value"], JumpWaterHop::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             start_mana: int(&v, &["match", "START_MANA", "value"])?,
@@ -678,6 +798,8 @@ impl Calib {
             overtime_s: int(&v, &["match", "OVERTIME_S", "value"])?,
             three_crown_instant_win: boolean(&v, &["match", "THREE_CROWN_INSTANT_WIN", "value"])?,
             overtime_tiebreak: pick(&v, &["match", "OVERTIME_TIEBREAK", "value"], OvertimeTiebreak::from_calibration_name)?,
+            tick_order: pick(&v, &["match", "TICK_ORDER", "value"], TickOrder::from_calibration_name)?,
+            dying_unit_visibility: pick(&v, &["movement", "DYING_UNIT_VISIBILITY", "value"], DyingUnitVisibility::from_calibration_name)?,
             mana_speed_up_remaining_s,
             territory_model,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
@@ -686,6 +808,9 @@ impl Calib {
             spell_as_deploy_launch: pick(&v, &["spells", "SPELL_AS_DEPLOY_LAUNCH_MODEL", "value"], LaunchModel::from_calibration_name)?,
             rolling_hit_shape: pick(&v, &["spells", "ROLLING_HIT_SHAPE", "value"], RollHitShape::from_calibration_name)?,
             spawning_spell_water: pick(&v, &["spells", "SPAWNING_SPELL_WATER_RULE", "value"], SpawnWaterRule::from_calibration_name)?,
+            knock_law: pick(&v, &["knockback", "DISPLACEMENT_LAW", "value"], KnockLaw::from_calibration_name)?,
+            knock_stacking: pick(&v, &["knockback", "STACKING", "value"], KnockStacking::from_calibration_name)?,
+            max_pushback_length: int(&v, &["pathfinding", "MAX_PUSHBACK_LENGTH", "value"])?,
             knock_duration_ms: int(&v, &["knockback", "DURATION_MS", "value"])?,
             knock_zero_vector: pick(&v, &["knockback", "ZERO_VECTOR_DIRECTION", "value"], KnockZeroVector::from_calibration_name)?,
             knock_attack_reset: pick(&v, &["knockback", "ATTACK_RESET", "value"], KnockAttackReset::from_calibration_name)?,
@@ -733,15 +858,21 @@ impl Calib {
         only(&v, &["spells", "WAVE_AREA_MODEL", "value"], "single_disc_one_hit_per_wave")?;
         only(&v, &["spells", "ONE_SHOT_AREA_EFFECT_APPLICATION", "value"], "first_update_only")?;
         only(&v, &["spells", "PROJECTILE_SPAWN_FORMATION", "value"], "engine_grid")?;
-        only(&v, &["knockback", "DISPLACEMENT_LAW", "value"], "fixed_distance")?;
-        only(&v, &["knockback", "STACKING", "value"], "vector_sum")?;
+        // knockback.STACKING is implemented PER LAW: the ladder's gate refuses a push
+        // while a ladder runs and never sums, and the fixed-distance slide sums and
+        // never refuses. The other two pairings have no code and are refused here
+        // rather than run as the nearest thing.
+        match (c.knock_law, c.knock_stacking) {
+            (KnockLaw::Client16402, KnockStacking::FirstWinsWhileActive) | (KnockLaw::FixedDistance, KnockStacking::VectorSum) => {}
+            (law, st) => return Err(format!("knockback.STACKING = {st:?} has no engine implementation under knockback.DISPLACEMENT_LAW = {law:?}")),
+        }
         only(&v, &["knockback", "WATER_RESOLUTION", "value"], "eject_to_nearest_land")?;
         // spawner.LIMIT_RULE / DEATH_SPAWN_LAYOUT: one implemented arm each (the
         // `only()` rule); the other candidate is refused, never mapped.
         only(&v, &["spawner", "LIMIT_RULE", "value"], "skip_unit_keep_cadence")?;
         only(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], "engine_grid_within_radius")?;
-        if c.projectile_speed_to_subtiles_per_tick <= 0 || c.knock_duration_ms < 0 {
-            return Err("calibration.json: non-positive projectile speed or negative knockback duration".into());
+        if c.projectile_speed_to_subtiles_per_tick <= 0 || c.knock_duration_ms < 0 || c.max_pushback_length <= 0 {
+            return Err("calibration.json: non-positive projectile speed / pushback cap or negative knockback duration".into());
         }
         if c.tick_ms <= 0
             || c.mana_regen_ms_1x <= 0
@@ -750,7 +881,7 @@ impl Calib {
         {
             return Err("calibration.json: non-positive tick / regen / repath value".into());
         }
-        if c.diag_den <= 0 || c.diag_num <= 0 || c.path_cost_road <= 0 || c.path_cost_default <= 0 {
+        if c.diag_den <= 0 || c.diag_num <= 0 || c.path_cost_road <= 0 || c.path_cost_default <= 0 || c.path_cost_water <= 0 {
             return Err("calibration.json: non-positive pathfinding cost or diagonal ratio".into());
         }
         Ok(c)
@@ -934,9 +1065,18 @@ pub struct EntityView<'a> {
     pub stun_ms: i32,
     /// Will rescan on the first unstunned Target phase (status.STUN_RETARGET_ON_RESUME).
     pub retarget_on_resume: bool,
-    /// ms of knockback slide remaining, and the displacement still to apply.
+    /// ms of knockback slide remaining, and the displacement still to apply
+    /// (knockback.DISPLACEMENT_LAW = fixed_distance).
     pub knock_ms: i32,
     pub knock_rem: Vec2,
+    /// The knockback ladder (client16402; entity.rs): active, the speed
+    /// still to run down (native units per tick) and the target point (NATIVE units).
+    pub push_active: bool,
+    pub push_speed: i32,
+    pub push_target: Vec2,
+    /// Mid river-jump (the game's state 5; entity.rs `jumping`): the route is the
+    /// single landing node and the unit leaps at its card's JumpSpeed.
+    pub jumping: bool,
     /// Hide state (Tesla; `Up` on everything else) and its timer (entity.rs
     /// `HideState` says what the timer means in each state).
     pub hide_state: HideState,
@@ -981,9 +1121,21 @@ struct Scratch {
     /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
     /// for the charge accumulator's client16402 reading; 0 on a tick with no walk.
     walk_step: Vec<i32>,
+    /// This tick's delta of the entity is a KNOCKBACK LADDER step, not a walk
+    /// (`phase_path16402`); `charge_pass` reads it so no accumulator counts it.
+    pushed: Vec<bool>,
+    /// This tick's delta of the entity is a RIVER-JUMP step (state 5, the landing
+    /// tick included): the charge tail neither adds nor resets in state 5, so
+    /// `charge_pass` leaves the progress alone.
+    jumped: Vec<bool>,
     /// The selected pathfinder's grid, shared by every unit this tick
     /// (PATH_SEARCH = client16402).
     grid16402: Option<Grid16402>,
+    /// THE DOOMED MASK (calibration movement.DYING_UNIT_VISIBILITY): per entity,
+    /// whether the damage buffered before the move pass kills it this tick
+    /// (`doomed_mask`). A read-only derivation, rebuilt every tick; nothing
+    /// writes hp from it.
+    doomed: Vec<bool>,
 }
 
 /// The 16.402 path grid (path16402.rs): the static terrain, this tick's occlusion
@@ -1505,19 +1657,30 @@ impl BattleState {
     // -----------------------------------------------------------------------
     // the loop
 
-    /// Advance one logic tick by running TICK_PHASES in order.
+    /// THE TICK ORDER IN FORCE (calibration match.TICK_ORDER): the measured
+    /// order, or the legacy one. The regression plant `phase_order` forces the
+    /// legacy order whatever the ledger says -- Move before Attack and the deploy
+    /// countdown in Upkeep, the earlier engine -- so that
+    /// tests/tick_order.rs and every phase-traced battle go red under it.
+    #[inline]
+    fn tick_order(&self) -> TickOrder {
+        #[cfg(clash_plant = "phase_order")]
+        {
+            return TickOrder::LegacyMoveBeforeAttack; // PLANT (regression): the earlier order.
+        }
+        #[allow(unreachable_code)]
+        self.cfg.calib.tick_order
+    }
+
+    /// Advance one logic tick by running the phase list match.TICK_ORDER selects
+    /// (lib.rs `TICK_PHASES`, or `LEGACY_TICK_PHASES`) in order.
     pub fn tick(&mut self) {
         if self.outcome.is_some() {
             return;
         }
-        #[cfg(not(clash_plant = "phase_order"))]
-        let phases = TICK_PHASES;
-        #[cfg(clash_plant = "phase_order")]
-        let phases = {
-            // PLANT: attack before movement.
-            let mut p = TICK_PHASES;
-            p.swap(5, 6);
-            p
+        let phases = match self.tick_order() {
+            TickOrder::Client16402 => TICK_PHASES,
+            TickOrder::LegacyMoveBeforeAttack => LEGACY_TICK_PHASES,
         };
         #[cfg(clash_profile)]
         let mut k = 0usize;
@@ -1572,8 +1735,28 @@ impl BattleState {
         for p in self.players.iter_mut() {
             p.mana = (p.mana + rate).min(cap);
         }
-        let dt = c.tick_ms;
-        let paused_by_stun = c.stun_pauses_deploy;
+        if self.tick_order() == TickOrder::LegacyMoveBeforeAttack {
+            // the legacy order matures deploy timers here, before the walk
+            self.deploy_countdown();
+        }
+    }
+
+    /// THE DEPLOY COUNTDOWN -- the per-unit character update, which runs AFTER the
+    /// move pass as measured (calibration match.TICK_ORDER): every deploying
+    /// unit's timer loses TICK_MS, and the one
+    /// that reaches 0 is deployed (`on_deployed`: hide start state, spawner
+    /// activation). Run at the end of the Move phase under the shipped order, so
+    /// a unit whose timer ends this tick was still deploying when Path looked at it
+    /// (the 4 -> 1 transition takes effect after the move: 398 / 445 stood still)
+    /// and walks the next tick -- which is spawn + DeployTime / TICK_MS, exactly
+    /// where movement.DEPLOY_TIMING measured the first full-length step, because
+    /// the countdown now also runs on the spawn tick itself (the new unit sat out
+    /// that tick's move pass). Under the legacy order it runs in Upkeep, before the
+    /// walk, and the unit walks on the tick its timer ends. A stun pauses it
+    /// either way (status.STUN_PAUSES_DEPLOY_TIMER).
+    fn deploy_countdown(&mut self) {
+        let dt = self.cfg.calib.tick_ms;
+        let paused_by_stun = self.cfg.calib.stun_pauses_deploy;
         for i in 0..self.ents.capacity() {
             if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) {
                 self.ents.deploy_ms[i] = (self.ents.deploy_ms[i] - dt).max(0);
@@ -1893,6 +2076,47 @@ impl BattleState {
         }
     }
 
+    /// THE DOOMED MASK (calibration movement.DYING_UNIT_VISIBILITY): which troops
+    /// the damage buffered BEFORE the move pass kills this tick -- this tick's
+    /// Attack-phase hits, the Status-phase lifetime expiries and the previous
+    /// Reap's death damage, which are the hits that have landed before the move
+    /// pass in the measured order (projectile arrivals and spells land after it,
+    /// Phase::Projectile). Derived exactly as combat.rs `resolve` will apply it:
+    /// dead targets and non-positive amounts skipped, hide immunity respected,
+    /// a shield absorbs the tick's sum before hp is touched. Buildings are never
+    /// masked (a dying building is seen by every mover, 3 / 3 on the corpus: nothing
+    /// drops it inside the pass). A read: no hp is written here.
+    /// Under `whole_tick` the mask is all false.
+    fn doomed_mask(&mut self) {
+        let cap = self.ents.capacity();
+        let doomed = &mut self.scratch.doomed;
+        doomed.clear();
+        doomed.resize(cap, false);
+        if self.cfg.calib.dying_unit_visibility == DyingUnitVisibility::WholeTick || self.dmg.hits.is_empty() {
+            return;
+        }
+        let e = &self.ents;
+        let hidden_immune = self.cfg.calib.hide_hidden_immune;
+        let sums = &mut self.scratch.sums;
+        sums.clear();
+        sums.resize(cap, 0);
+        for h in &self.dmg.hits {
+            if !e.is_alive(h.target) || h.amount <= 0 {
+                continue;
+            }
+            let t = h.target.index as usize;
+            if hidden_immune && !h.ignores_hide && e.hide[t] == HideState::Hidden {
+                continue;
+            }
+            sums[t] += h.amount as i64;
+        }
+        for i in 0..cap {
+            if sums[i] > 0 && e.alive[i] && e.kind[i] == EntityKind::Troop && e.shield[i] <= 0 && (e.hp[i] as i64) - sums[i] <= 0 {
+                doomed[i] = true;
+            }
+        }
+    }
+
     /// THE 16.402 MOVEMENT UPDATE, as measured on client 16.402 (PATH_SEARCH =
     /// client16402; path16402.rs for the search and the replan gate, move16402.rs
     /// for the contact law; the evidence is in calibration.json).
@@ -1900,7 +2124,15 @@ impl BattleState {
     /// each sees the units before it already moved: the
     /// `bodies` array is that view, and the resulting
     /// displacements are handed to `phase_move` as deltas so the engine's position
-    /// write stays where it is. Per unit:
+    /// write stays where it is. The order is `Entities::creation_seq` (calibration
+    /// match.TICK_ORDER), and a troop the buffered damage kills this tick drops out
+    /// of the array view at its own place in it (movement.DYING_UNIT_VISIBILITY,
+    /// `doomed_mask`). Per unit:
+    ///   0. mid-knockback (`push_active`): the PUSHBACK TICK replaces everything
+    ///      below -- no path request, the separation scan while the speed is still
+    ///      positive (and the water ejection), the countdown, `move_towards` the
+    ///      ladder's target (move16402.rs `pushback_step`), the path dropped when it
+    ///      ends;
     ///   1. held (stunned, knocked back, frozen): nothing;
     ///   2. the replan gate: search when there is no path, the goal
     ///      cell moved, or the own side's occluder set changed (SAMEPATH retention);
@@ -1912,6 +2144,7 @@ impl BattleState {
     fn phase_path16402(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         self.build_obstacles();
+        self.doomed_mask();
         let mut g = self.scratch.grid16402.take().unwrap_or_else(|| Grid16402::new(&self.cfg.arena, &self.cfg.calib));
         g.refresh(self.scratch.occluder_epoch, &self.scratch.obstacles[0]);
         let cap = self.ents.capacity();
@@ -1921,6 +2154,12 @@ impl BattleState {
         let mut walk_step = std::mem::take(&mut self.scratch.walk_step);
         walk_step.clear();
         walk_step.resize(cap, 0);
+        let mut pushed = std::mem::take(&mut self.scratch.pushed);
+        pushed.clear();
+        pushed.resize(cap, false);
+        let mut jumped = std::mem::take(&mut self.scratch.jumped);
+        jumped.clear();
+        jumped.resize(cap, false);
         let mut routes = std::mem::take(&mut self.ents.route);
         let mut goals = std::mem::take(&mut self.ents.route_goal);
         let mut planned = std::mem::take(&mut self.ents.last_plan_tick);
@@ -1928,6 +2167,9 @@ impl BattleState {
         let mut kticks = std::mem::take(&mut self.ents.move_ticks);
         let mut facing = std::mem::take(&mut self.ents.facing);
         let mut offsets = std::mem::take(&mut self.ents.avoid_offset);
+        let mut push_speed = std::mem::take(&mut self.ents.push_speed);
+        let mut push_active = std::mem::take(&mut self.ents.push_active);
+        let mut jumping = std::mem::take(&mut self.ents.jumping);
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -1963,7 +2205,9 @@ impl BattleState {
                         air: e.flying[i],
                         mover: e.kind[i] == EntityKind::Troop,
                         alive,
-                        collidable: alive && !held,
+                        // a unit mid river-jump is skipped by every neighbour's scans
+                        // (jump16402.rs)
+                        collidable: alive && !held && !jumping[i],
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot
@@ -1974,23 +2218,152 @@ impl BattleState {
                 })
                 .collect();
             let is_water = |c: i32, r: i32| arena.cell_bits(c, r) & arena.bit_water != 0;
+            let cell_bits = |c: i32, r: i32| arena.cell_bits(c, r);
             let mut scratch: Vec<usize> = Vec::new();
-            // The update order is CREATION order: on every frame pair of the live
-            // corpus the units move in the order they were spawned. The engine's
-            // slots are reused, so order by (spawn tick, slot) instead.
+            // THE UPDATE ORDER IS CREATION ORDER: on every frame pair of the live
+            // corpus the units move in the order they were spawned (calibration
+            // match.TICK_ORDER). The engine's slots are reused, so the pass is ordered
+            // by `creation_seq`, the per-battle creation counter, not by (spawn tick,
+            // slot), which put a unit that reused a freed low slot ahead of older units
+            // spawned the same tick.
             let mut order: Vec<usize> = (0..cap).filter(|&i| e.alive[i] && e.kind[i] == EntityKind::Troop).collect();
-            order.sort_by_key(|&i| (e.spawn_tick[i], i));
+            #[cfg(not(clash_plant = "slot_order_move_pass"))]
+            order.sort_by_key(|&i| e.creation_seq[i]);
+            #[cfg(clash_plant = "slot_order_move_pass")]
+            order.sort_by_key(|&i| (e.spawn_tick[i], i)); // PLANT (regression): the pre-counter order, a reused slot jumps the queue.
+            let doomed = &self.scratch.doomed;
             for i in order {
+                if doomed.get(i).copied().unwrap_or(false) {
+                    // ---- A UNIT DYING THIS TICK (calibration movement.DYING_UNIT_VISIBILITY
+                    // = creation_order_before_victim; `doomed_mask`): the movers before it
+                    // saw it at its start-of-tick position; here, at its own place in the
+                    // pass, it is dropped -- no walk, no push of its own, and invisible to
+                    // every scan after this point (the INFERRED reading of "processed at
+                    // the victim's own place in the move pass"; the hp write and the
+                    // despawn stay in Resolve and Reap).
+                    bodies[i].collidable = false;
+                    continue;
+                }
+                let deploying = e.deploy_ms[i] > 0;
+                let flying = e.flying[i];
+                if push_active[i] {
+                    // ---- 0. THE PUSHBACK TICK (taken before any path request or walk
+                    // while the ladder is armed -- and before the stun / freeze hold
+                    // below: the ladder tests no hold and no state, so a stunned unit
+                    // is still carried by it)
+                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                    let mut rem = push_speed[i];
+                    if rem > 0 {
+                        // the separation scan while the speed is still positive (the
+                        // NO_CHECKCOLLISIONS tag is not modelled: no card here carries it)
+                        move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
+                        // a GROUND unit standing on a blocked or water cell is put on
+                        // the nearest land first (knockback.WATER_RESOLUTION =
+                        // eject_to_nearest_land)
+                        let (x, y) = (bodies[i].x, bodies[i].y);
+                        if !flying && move16402::blocked_or_water(x, y, arena.cols, arena.rows, cell_bits) {
+                            let (nx, ny) = move16402::nearest_land(x, y, arena.cols, arena.rows, is_water);
+                            bodies[i].x = nx;
+                            bodies[i].y = ny;
+                        }
+                    }
+                    let tgt = (e.push_target[i].x, e.push_target[i].y);
+                    let m = move16402::pushback_step((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), deploying && !flying, is_water, arena.cols, arena.rows);
+                    // the facing is not updated and the offset neither scanned nor
+                    // decayed: `offsets[i]` stays what it was
+                    debug_assert!(m.dir.is_none());
+                    bodies[i].x = m.x;
+                    bodies[i].y = m.y;
+                    deltas[i] = Vec2::new(m.x * K, m.y * K).sub(e.pos[i]);
+                    pushed[i] = true;
+                    push_speed[i] = rem;
+                    push_active[i] = rem >= 0;
+                    if rem < 0 {
+                        // the path is dropped the tick the ladder ends; the replan gate
+                        // finds it empty next tick
+                        routes[i].clear();
+                        goals[i] = None;
+                        segs[i] = Vec2::default();
+                    }
+                    continue;
+                }
                 if e.stun_ms[i] > 0 || e.knock_ms[i] > 0 || e.attack_phase[i] == AttackPhase::Windup {
+                    if jumping[i] {
+                        // a movement hold on a jumper: the leap is cancelled where it
+                        // stands and the unit replans when the hold ends (UNVERIFIED: no
+                        // capture has a stunned jumper; calibration movement.JUMP_WATER_HOP)
+                        jumping[i] = false;
+                        routes[i].clear();
+                        goals[i] = None;
+                        segs[i] = Vec2::default();
+                    }
                     continue; // held: the freeze holds the whole unit (battle F sc5)
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
                 let team = e.team[i];
-                let deploying = e.deploy_ms[i] > 0;
-                let flying = e.flying[i];
                 let goal_id = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i));
                 let epoch = self.scratch.occluder_epoch[team as usize];
                 let actor = (bodies[i].x, bodies[i].y);
+                let node_centre = |p: Vec2| (p.x / K, p.y / K);
+                if jumping[i] {
+                    // ---- THE LEAP (state 5 in the captures; jump16402.rs): no path
+                    // request, no avoidance scan but the offset decays, no separation
+                    // scan, then move_towards the single node's centre at JumpSpeed with
+                    // the facing set, and the landing test on the post-move position.
+                    let Some(jump) = card.jump else {
+                        debug_assert!(false, "jumping set on a card without a jump block");
+                        jumping[i] = false;
+                        continue;
+                    };
+                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                    move16402::decay_offset(&mut con); // unconditional
+                    // JumpSpeed raw -- no buff, no charge multiplier
+                    let speed = jump.speed;
+                    let aim = match routes[i].last() {
+                        Some(&p) => node_centre(p),
+                        // the list was dropped under it (a pushback's back-step tick):
+                        // it aims like a walker with no nodes
+                        None => match goal_id {
+                            Some(gid) => {
+                                let gi = gid.index as usize;
+                                if target::in_attack_range(calib, e.pos[i], card.range, e.pos[gi], e.radius[gi]) {
+                                    actor
+                                } else {
+                                    move16402::direct_aim(actor, (e.pos[gi].x / K, e.pos[gi].y / K), (card.range + e.radius[i]) / K)
+                                }
+                            }
+                            None => actor,
+                        },
+                    };
+                    walk_step[i] = 0;
+                    jumped[i] = true;
+                    if segs[i] == Vec2::default() && routes[i].last().is_some() {
+                        let sg = move16402::segment_dir(actor.0, actor.1, aim);
+                        segs[i] = Vec2::new(sg.0, sg.1);
+                    }
+                    // the ordinary step law at JumpSpeed, facing set
+                    let m = move16402::move_towards(actor, aim.0, aim.1, speed, true, &mut con, (segs[i].x, segs[i].y), false, is_water, arena.cols, arena.rows);
+                    offsets[i] = con.offset;
+                    if let Some(d) = m.dir {
+                        facing[i] = Vec2::new(d.0, d.1);
+                        bodies[i].dir = d;
+                    }
+                    bodies[i].x = m.x;
+                    bodies[i].y = m.y;
+                    bodies[i].offset = con.offset;
+                    deltas[i] = Vec2::new(m.x * K, m.y * K).sub(e.pos[i]);
+                    if jump16402::landed((m.x, m.y), aim, speed) {
+                        // landed: the path request this triggers runs in the next Path
+                        // phase here (one tick later than the capture's same-tick publish;
+                        // the first walk step falls on the same tick either way)
+                        jumping[i] = false;
+                        routes[i].clear();
+                        goals[i] = None;
+                        segs[i] = Vec2::default();
+                        bodies[i].collidable = true; // state 1 for the units updated after it
+                    }
+                    continue;
+                }
                 // ---- 2. the replan gate (walking units with a target only)
                 let mut attacking = false;
                 let mut target_abs: Option<(i32, i32)> = None;
@@ -2013,7 +2386,7 @@ impl BattleState {
                             actor,
                             target,
                             reach,
-                            path2026::AVOID_BUILDINGS_16402,
+                            path2026::avoid_buildings16402(e.flying[gi]),
                             g.costs.building,
                         );
                         let cell_v = goal_cell.map(|(c, r)| Vec2::new(c, r));
@@ -2053,7 +2426,9 @@ impl BattleState {
                                     } else {
                                         let terrain = &g.terrain;
                                         let occ = &g.occ_cur;
-                                        let cost = |c: i32, r: i32| path16402::cell_cost(terrain, occ, c, r);
+                                        // a JumpEnabled mover prices water at WATER_COST
+                                        let jumper = card.jump.is_some();
+                                        let cost = |c: i32, r: i32| path16402::cell_cost_for(terrain, occ, c, r, jumper);
                                         let chain: Vec<i32> = g.pf.find_path(sc, sr, gc, gr, true, &cost).to_vec();
                                         if chain.is_empty() {
                                             feasible = false;
@@ -2077,7 +2452,6 @@ impl BattleState {
                 }
                 // ---- 3. the contact scans
                 let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
-                let node_centre = |p: Vec2| (p.x / K, p.y / K);
                 let waypoint = if routes[i].len() >= 2 { routes[i].last().map(|&p| node_centre(p)) } else { None };
                 if !attacking {
                     // The scan runs for walking and deploying units, not for an
@@ -2161,6 +2535,28 @@ impl BattleState {
                         }
                         None => Vec2::default(),
                     };
+                    // ---- THE HOP TRIGGER (jump16402.rs): a
+                    // JumpEnabled card whose NEXT waypoint is now a water cell replaces
+                    // the rest of its list with the one landing node, refreshes the
+                    // segment from the post-move position and enters state 5
+                    if let (Some(_), JumpWaterHop::Client16402) = (card.jump, calib.jump_water_hop) {
+                        #[cfg(clash_plant = "jump_never_hops")]
+                        let hop: Option<(i32, i32)> = None; // PLANT (regression): the water walked at cost 7, no leap.
+                        #[cfg(not(clash_plant = "jump_never_hops"))]
+                        let hop = {
+                            let cells: Vec<(i32, i32)> = routes[i].iter().map(|&p| arena.subtile_to_half(p)).collect();
+                            jump16402::landing_node(&cells, is_water)
+                        };
+                        if let Some((lc, lr)) = hop {
+                            // the list becomes the one landing cell, the segment is
+                            // refreshed from the post-move position, and the leap begins
+                            routes[i] = vec![arena.half_to_subtile_center(lc, lr)];
+                            let sg = move16402::segment_dir(m.x, m.y, jump16402::cell_centre(lc, lr));
+                            segs[i] = Vec2::new(sg.0, sg.1);
+                            jumping[i] = true;
+                            bodies[i].collidable = false; // state 5 for the units updated after it
+                        }
+                    }
                 }
             }
         }
@@ -2171,8 +2567,13 @@ impl BattleState {
         self.ents.move_ticks = kticks;
         self.ents.facing = facing;
         self.ents.avoid_offset = offsets;
+        self.ents.push_speed = push_speed;
+        self.ents.push_active = push_active;
+        self.ents.jumping = jumping;
         self.scratch.deltas = deltas;
         self.scratch.walk_step = walk_step;
+        self.scratch.pushed = pushed;
+        self.scratch.jumped = jumped;
         self.scratch.grid16402 = Some(g);
     }
 
@@ -2302,6 +2703,18 @@ impl BattleState {
                     continue;
                 }
                 let Some(ch) = self.cfg.cards.get(e.card[i]).charge else { continue };
+                if client16402 && self.scratch.pushed.get(i).copied().unwrap_or(false) {
+                    // a knockback ladder step is not a walk under any accumulator (the
+                    // slide arm keeps it out by capturing `pre` after the slides)
+                    due.push((i, 0, self.charge_need(i, ch)));
+                    continue;
+                }
+                if client16402 && self.scratch.jumped.get(i).copied().unwrap_or(false) {
+                    // a river-jump tick: the charge tail neither adds (not a walking
+                    // tick) nor resets -- the run-up is held across the leap (the
+                    // Prince's hop replays under this rule)
+                    continue;
+                }
                 let walk = self.scratch.deltas.get(i).copied().unwrap_or_default();
                 let pre = self.scratch.pre.get(i).copied().unwrap_or(e.pos[i]);
                 let gain = match c.charge_accumulator {
@@ -2413,7 +2826,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knock_ms[i] > 0 || e.attack_phase[i] == AttackPhase::Windup {
+                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || e.attack_phase[i] == AttackPhase::Windup {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -2449,6 +2862,8 @@ impl BattleState {
                     // footprint edge (0/140).
                     reach: card.range + e.radius[i],
                     flying: e.flying[i],
+                    target_flying: e.flying[gi],
+                    jumper: card.jump.is_some(),
                     ignore: if e.kind[gi].is_building() { Some(goal_id) } else { None },
                 };
                 if req.flying {
@@ -2602,7 +3017,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knock_ms[i] > 0 || e.attack_phase[i] == AttackPhase::Windup {
+                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || e.attack_phase[i] == AttackPhase::Windup {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -2641,6 +3056,8 @@ impl BattleState {
                     flying: e.flying[i],
                     #[cfg(clash_plant = "air_uses_grid")]
                     flying: false, // PLANT: air units planned as ground.
+                    target_flying: e.flying[gi],
+                    jumper: card.jump.is_some(),
                     ignore: if e.kind[gi].is_building() { Some(goal_id) } else { None },
                 };
                 let moved_goal = goals[i].map_or(true, |g| g.dist2(goal_w) > (arena.cell as i64) * (arena.cell as i64));
@@ -2717,12 +3134,17 @@ impl BattleState {
 
     fn phase_move(&mut self) {
         self.step_knock_slides();
+        let client16402 = self.arm16402();
+        if !client16402 {
+            // under the 16.402 locomotion the ladder ran inside phase_path16402, in
+            // the move pass; here it runs where the slides do
+            self.step_pushback_ladders();
+        }
         // The charge accumulator's "before" (charge_pass): captured AFTER the slides,
         // so a knockback displacement never counts as a walk.
         self.scratch.pre.clear();
         self.scratch.pre.extend_from_slice(&self.ents.pos);
         let arena = &self.cfg.arena;
-        let client16402 = self.arm16402();
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
                 continue;
@@ -2752,6 +3174,10 @@ impl BattleState {
             );
         }
         self.charge_pass();
+        if self.tick_order() == TickOrder::Client16402 {
+            // the deploy countdown after the move pass, as measured
+            self.deploy_countdown();
+        }
     }
 
     fn phase_attack(&mut self) {
@@ -2766,12 +3192,17 @@ impl BattleState {
                 continue;
             }
             let e = &self.ents;
-            let held = e.stun_ms[i] > 0 || e.knock_ms[i] > 0;
+            // stunned, mid-slide or mid-ladder: the attack timers freeze (a landed
+            // push already reset a running windup in `apply_effects`)
+            let held = e.stun_ms[i] > 0 || e.knocked(i);
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing).
+            // Mid-leap (state 5): the attack component's state-5 handling is unread
+            // (jump16402.rs); the engine holds the swing and keeps the unit targetable.
             let can_act = e.deploy_ms[i] == 0
                 && !held
+                && !e.jumping[i]
                 && e.hide[i] == HideState::Up
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             let step = combat::attack_step(e, &self.cfg.cards, &self.cfg.calib, i, can_act);
@@ -2855,6 +3286,45 @@ impl BattleState {
         }
     }
 
+    /// THE KNOCKBACK LADDER UNDER THE FRAME-PLANNED PATH ARMS (knockback.DISPLACEMENT_LAW
+    /// = client16402 with pathfinding.PATH_SEARCH = trace_fitted_astar or a
+    /// pre-2026 model): the same countdown and step as `phase_path16402` runs inside
+    /// the sequential move update (move16402.rs `pushback_step`), with the
+    /// contact that those arms do not have -- no separation scan, no avoidance
+    /// rotation (their offset is always 0) -- and the position through spell.rs
+    /// `settle` instead of the grid write, so their own invariants (no water, no
+    /// footprint) keep holding. The path drop at the ladder's end is the same.
+    fn step_pushback_ladders(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let mut moved = false;
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] || !self.ents.push_active[i] {
+                continue;
+            }
+            let e = &mut self.ents;
+            let mut con = move16402::Contact::default();
+            let mut rem = e.push_speed[i];
+            let old = e.pos[i];
+            let u = (old.x / K, old.y / K);
+            let tgt = (e.push_target[i].x, e.push_target[i].y);
+            let m = move16402::pushback_step(u, tgt, &mut rem, &mut con, (0, 0), false, |_, _| false, arena.cols, arena.rows);
+            let desired = Vec2::new(m.x * K, m.y * K);
+            e.pos[i] = spell::settle(arena, &self.scratch.obstacles[0], e.team[i], e.radius[i], e.flying[i], old, desired);
+            e.push_speed[i] = rem;
+            e.push_active[i] = rem >= 0;
+            if rem < 0 {
+                e.route[i].clear();
+                e.route_goal[i] = None;
+                e.seg_dir[i] = Vec2::default();
+            }
+            moved = true;
+        }
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
     /// Advance every knockback slide (knockback.DURATION_MS > 0) by one tick: an even
     /// share of the remaining displacement, the last tick taking the remainder.
     fn step_knock_slides(&mut self) {
@@ -2888,8 +3358,11 @@ impl BattleState {
     }
 
     /// Apply this tick's stun and knockback buffers to the entities that SURVIVED
-    /// the damage pass. Both merges are commutative (max; vector sum), so the order the
-    /// buffers were filled in cannot reach the battle.
+    /// the damage pass. The stun merge is commutative (max), and so is the
+    /// fixed_distance knockback sum. THE LADDER IS NOT: a push is refused while the
+    /// unit's ladder is active, so the first `Knock::Push` of a unit in the buffer
+    /// lands and the rest are refused (knockback.STACKING = first_wins_while_active)
+    /// -- buffer order is spell order, which is cast order.
     fn apply_effects(&mut self) {
         let fx = std::mem::take(&mut self.effects);
         if fx.knocks.is_empty() && fx.stuns.is_empty() {
@@ -2943,18 +3416,33 @@ impl BattleState {
                 e.charge_progress[i] = 0;
             }
         }
-        // Knockbacks: sum per target, then one move per unit.
-        let mut sum = vec![None::<Vec2>; cap];
-        for &(id, d) in &fx.knocks {
-            if survivor(&self.ents, id) {
-                let s = sum[id.index as usize].get_or_insert(Vec2::default());
-                #[cfg(not(clash_plant = "knock_last_wins"))]
-                {
-                    *s = s.add(d);
+        // Knockbacks. fixed_distance: sum per target, then one move per unit.
+        // client16402: arm the ladder on the first push per unit (the
+        // `Some(None)` of `sum`: landed, no displacement to apply here).
+        let mut sum = vec![None::<Option<Vec2>>; cap];
+        for k in &fx.knocks {
+            let id = k.id();
+            if !survivor(&self.ents, id) {
+                continue;
+            }
+            let i = id.index as usize;
+            match *k {
+                spell::Knock::Displacement(_, d) => {
+                    let s = sum[i].get_or_insert(Some(Vec2::default()));
+                    let s = s.get_or_insert(Vec2::default());
+                    #[cfg(not(clash_plant = "knock_last_wins"))]
+                    {
+                        *s = s.add(d);
+                    }
+                    #[cfg(clash_plant = "knock_last_wins")]
+                    {
+                        *s = d; // PLANT: the last buffered push replaces the others (buffer order matters).
+                    }
                 }
-                #[cfg(clash_plant = "knock_last_wins")]
-                {
-                    *s = d; // PLANT: the last buffered push replaces the others (buffer order matters).
+                spell::Knock::Push { src, strength, caster, .. } => {
+                    if self.arm_ladder(i, src, strength, caster, sum[i].is_some()) {
+                        sum[i] = Some(None);
+                    }
                 }
             }
         }
@@ -2985,6 +3473,7 @@ impl BattleState {
                 e.target[i] = None;
                 e.target_locked[i] = false;
             }
+            let Some(d) = d else { continue }; // the ladder is armed; its steps come in the Path phase
             if c.knock_duration_ms > 0 {
                 e.knock_rem[i] = e.knock_rem[i].add(d);
                 e.knock_ms[i] = c.knock_duration_ms;
@@ -3002,6 +3491,52 @@ impl BattleState {
         fx.knocks.clear();
         fx.stuns.clear();
         self.effects = fx;
+    }
+
+    /// ARM THE KNOCKBACK LADDER on entity `i` (knockback.DISPLACEMENT_LAW =
+    /// client16402): the gate a projectile push passes, then move16402.rs
+    /// `start_pushback`. `landed_this_tick` is an earlier push of the same Resolve
+    /// on the same unit, which armed it already. Returns whether the push landed.
+    ///
+    /// THE GATE: a ladder already active -> refused (knockback.STACKING =
+    /// first_wins_while_active); IgnorePushback and no PushbackAll -> refused
+    /// (spell.rs `pushable` decided it before buffering, as it decides
+    /// AFFECTS_DEPLOYING_UNITS); the NO_PUSHBACK tag is assumed clear for every corpus
+    /// card, like the contact law's tags. The engine keeps knockback.ATTACK_RESET's
+    /// windup reset, applied by the caller when the push lands.
+    fn arm_ladder(&mut self, i: usize, src: Vec2, strength: i32, caster: Team, landed_this_tick: bool) -> bool {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let c = &self.cfg.calib;
+        let e = &mut self.ents;
+        if e.push_active[i] || landed_this_tick {
+            return false;
+        }
+        let zero_dir = match c.knock_zero_vector {
+            KnockZeroVector::CasterForward => Some((0, spell::forward_dy(caster))),
+            KnockZeroVector::Client16402XByIdParity => Some((if e.team_seq[i] & 1 == 1 { -1 } else { 1 }, 0)),
+            KnockZeroVector::NoPush => None,
+        };
+        let pos = (e.pos[i].x / K, e.pos[i].y / K);
+        let Some(start) = move16402::start_pushback(pos, (src.x, src.y), strength, c.max_pushback_length, zero_dir) else {
+            return false;
+        };
+        #[cfg(clash_plant = "knockback_instant_slide")]
+        {
+            // PLANT (regression): the earlier displacement -- the whole length at
+            // once, no ladder, no back-step, no path drop.
+            let _ = start.speed;
+            let old = e.pos[i];
+            let desired = Vec2::new(start.target.0 * K, start.target.1 * K);
+            e.pos[i] = spell::settle(&self.cfg.arena, &self.scratch.obstacles[0], e.team[i], e.radius[i], e.flying[i], old, desired);
+            return true;
+        }
+        #[allow(unreachable_code)]
+        {
+            e.push_target[i] = Vec2::new(start.target.0, start.target.1);
+            e.push_speed[i] = start.speed;
+            e.push_active[i] = true;
+            true
+        }
     }
 
     fn phase_resolve(&mut self) {
@@ -3722,6 +4257,10 @@ impl BattleState {
             retarget_on_resume: e.retarget_on_resume[i],
             knock_ms: e.knock_ms[i],
             knock_rem: e.knock_rem[i],
+            push_active: e.push_active[i],
+            push_speed: e.push_speed[i],
+            push_target: e.push_target[i],
+            jumping: e.jumping[i],
             hide_state: e.hide[i],
             hide_ms: e.hide_ms[i],
             hidden: e.hide[i] == HideState::Hidden,
@@ -3843,13 +4382,16 @@ impl BattleState {
             }
         }
         let e = &self.ents;
-        let (free, counters) = e.allocator_state();
+        let (free, counters, created) = e.allocator_state();
         h.u32(free.len() as u32);
         for f in free {
             h.u32(*f);
         }
         h.u32(counters[0]);
         h.u32(counters[1]);
+        if !legacy_v3 {
+            h.u32(created);
+        }
         h.u32(e.capacity() as u32);
         for i in 0..e.capacity() {
             h.u32(e.generation[i]);
@@ -3895,6 +4437,11 @@ impl BattleState {
                 h.bool(e.charged[i]);
                 h.vec(e.facing[i]);
                 h.i32(e.avoid_offset[i]);
+                h.vec(e.push_target[i]);
+                h.i32(e.push_speed[i]);
+                h.bool(e.push_active[i]);
+                h.bool(e.jumping[i]);
+                h.u32(e.creation_seq[i]);
             }
             h.vec(e.move_frac[i]);
             h.u32(e.route[i].len() as u32);
@@ -3968,9 +4515,15 @@ impl BattleState {
         }
         if !legacy_v3 {
             h.u32(self.effects.knocks.len() as u32);
-            for (id, d) in &self.effects.knocks {
-                h.id(*id);
-                h.vec(*d);
+            for k in &self.effects.knocks {
+                let (id, d, extra) = match *k {
+                    spell::Knock::Displacement(id, d) => (id, d, (0, 0)),
+                    spell::Knock::Push { id, src, strength, caster } => (id, src, (strength, 1 + caster as i32)),
+                };
+                h.i32(extra.0);
+                h.i32(extra.1);
+                h.id(id);
+                h.vec(d);
             }
             h.u32(self.effects.stuns.len() as u32);
             for (id, ms) in &self.effects.stuns {
@@ -4042,7 +4595,14 @@ impl BattleState {
 /// 9: the union of 6 (both readings), 7 and 8: Calib carries hide.*, spawner.*,
 ///    charge.* AND path_search; Entities carry hide, hide_ms, spawn_ms,
 ///    spawn_wave_left, spawned_by, charge_progress, charged, facing and avoid_offset.
-pub const SNAPSHOT_FORMAT: u32 = 9;
+/// 10: the knockback ladder -- Calib gained knock_law, knock_stacking and
+///    max_pushback_length; Entities gained push_target, push_speed and push_active;
+///    `EffectBuffer.knocks` became `Vec<spell::Knock>`.
+/// 11: the river jump -- Calib gained path_cost_water and jump_water_hop; Entities
+///    gained jumping; CardDef gained jump (the card fingerprint moves).
+/// 12: the tick order -- Calib gained tick_order and dying_unit_visibility; Entities
+///    gained creation_seq and the battle its creation_counter.
+pub const SNAPSHOT_FORMAT: u32 = 12;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -4143,7 +4703,9 @@ fn fingerprint_debug<T: std::fmt::Debug>(v: &T) -> u64 {
 ///      format-3 battle already consumed under another name keep format 3's
 ///      behaviour (troop projectile speed = the troop speed key; crown rounding =
 ///      Floor, the pre-registry truncation; stun expiry = one_tick_short, the old
-///      Status-phase decrement). Every other new Calib key only affects spells and
+///      Status-phase decrement; since format 12 the tick order = the legacy
+///      Move-before-Attack list with the countdown in Upkeep, and dying units seen
+///      for the whole pass). Every other new Calib key only affects spells and
 ///      takes the shipped value.
 ///   2. CARD INDICES. Format 3's CardDb refused every spell and had no summon-only
 ///      units, so its indices are this CardDb's non-spell, non-summon cards in order.
@@ -4172,9 +4734,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... wait_ms~~ -- format 6 added `hide` (card.rs declares it last).
                 // ~~... hide~~ -- format 7 added `spawner` and `death_spawn` after it.
                 // ~~... death_spawn~~ -- format 8 added `charge` after them.
+                // ~~... charge~~ -- format 11 added `jump` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -4198,6 +4761,11 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("projectile_speed_to_subtiles_per_tick".into(), troop_speed);
     sh.insert("crown_rounding".into(), serde_json::to_value(CrownRounding::Floor).map_err(|e| e.to_string())?);
     sh.insert("buff_expiry".into(), serde_json::to_value(BuffExpiry::OneTickShort).map_err(|e| e.to_string())?);
+    // FORMAT 12: a format-3 battle ran the earlier tick order (Move before Attack,
+    // the deploy countdown in Upkeep) and saw every dying unit for the whole pass;
+    // it keeps both, as it keeps the other three (the same rule as crown_rounding).
+    sh.insert("tick_order".into(), serde_json::to_value(TickOrder::LegacyMoveBeforeAttack).map_err(|e| e.to_string())?);
+    sh.insert("dying_unit_visibility".into(), serde_json::to_value(DyingUnitVisibility::WholeTick).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -4206,6 +4774,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     let n = ents.get("alive").and_then(Value::as_array).map(Vec::len).ok_or_else(|| bad("no ents.alive"))?;
     let zero = serde_json::to_value(Vec2::default()).map_err(|e| e.to_string())?;
     let zero2 = serde_json::to_value(Vec2::default()).map_err(|e| e.to_string())?;
+    let zero3 = serde_json::to_value(Vec2::default()).map_err(|e| e.to_string())?;
     for (k, fill) in [
         ("retarget_on_resume", Value::Bool(false)),
         ("knock_rem", zero),
@@ -4237,9 +4806,44 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
         // FORMAT 6 (royalegym-v2's): the avoidance offset is 0 between ticks for a
         // unit that has not met anything; the facing is filled per team below.
         ("avoid_offset", Value::from(0)),
+        // FORMAT 10: no ladder runs (format 3 had no knockback at all).
+        ("push_target", zero3),
+        ("push_speed", Value::from(0)),
+        ("push_active", Value::Bool(false)),
+        // FORMAT 11: nobody is mid-leap (format 3 walked every Hog Rider to a bridge).
+        ("jumping", Value::Bool(false)),
     ] {
         if ents.insert(k.into(), Value::Array(vec![fill; n])).is_some() {
             return Err(bad(&format!("already has ents.{k}")));
+        }
+    }
+    {
+        // FORMAT 12: the creation order (entity.rs `creation_seq`) -- format 3 never
+        // recorded it, so every slot takes its rank under the ordering the sequential
+        // move pass used before the counter existed, (spawn_tick, slot), and the
+        // counter continues from the slot count. The pass is the only reader, and
+        // the format-3 battle ran a frame-planned arm that has no such pass.
+        let ticks: Vec<u64> = ents
+            .get("spawn_tick")
+            .and_then(Value::as_array)
+            .ok_or_else(|| bad("no ents.spawn_tick"))?
+            .iter()
+            .map(|t| t.as_u64().ok_or_else(|| bad("ents.spawn_tick entry")))
+            .collect::<Result<_, _>>()?;
+        if ticks.len() != n {
+            return Err(bad("ents.spawn_tick length"));
+        }
+        let mut by_creation: Vec<usize> = (0..n).collect();
+        by_creation.sort_by_key(|&i| (ticks[i], i));
+        let mut seq = vec![Value::from(0u32); n];
+        for (rank, &i) in by_creation.iter().enumerate() {
+            seq[i] = Value::from(rank as u32);
+        }
+        if ents.insert("creation_seq".into(), Value::Array(seq)).is_some() {
+            return Err(bad("already has ents.creation_seq"));
+        }
+        if ents.insert("creation_counter".into(), Value::from(n as u32)).is_some() {
+            return Err(bad("already has ents.creation_counter"));
         }
     }
     {
@@ -4323,6 +4927,8 @@ impl BattleState {
             let mut snap = snap;
             snap.ents.knock_ms.iter_mut().for_each(|m| *m = 0);
             snap.ents.knock_rem.iter_mut().for_each(|r| *r = Vec2::default());
+            snap.ents.push_active.iter_mut().for_each(|a| *a = false);
+            snap.ents.push_speed.iter_mut().for_each(|v| *v = 0);
             snap
         };
         serde_json::to_vec(&snap).expect("snapshot serializes")

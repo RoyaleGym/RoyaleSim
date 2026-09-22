@@ -26,10 +26,15 @@
 //!    candidates implemented -- so a measurement promotes a constant instead of
 //!    triggering a rewrite.
 //!
-//! THE TICK, IN ORDER. This ordering is OURS, not recovered from the real game
-//! (none of the three public engines was verified against the client; each invented a
-//! different order). It is documented and testable rather than emergent, and
-//! it is built so that the parts nobody can verify cannot introduce a bias.
+//! THE TICK, IN ORDER. This ordering was MEASURED on the live 16.402 captures
+//! (the corpus of 2026-09-20): every attack update runs BEFORE any unit moves, the move updates
+//! then run one after the other in creation order, and the per-unit character
+//! update (state machine, deploy countdown) runs AFTER the move pass. `TICK_PHASES`
+//! is that order; `LEGACY_TICK_PHASES` is the order this engine invented before the
+//! measurement (Move before Attack, the countdown in Upkeep), kept runnable behind
+//! calibration match.TICK_ORDER. It is documented and testable rather than
+//! emergent, and it is built so that the parts nobody can verify cannot introduce a
+//! bias.
 
 pub mod fixed;
 pub mod arena;
@@ -39,6 +44,7 @@ pub mod target;
 pub mod path;
 pub mod path2026;
 pub mod path16402;
+pub mod jump16402;
 pub mod move16402;
 pub mod collide;
 pub mod combat;
@@ -82,10 +88,12 @@ pub struct EntityId {
 ///
 /// Named so that "which phase does this belong to?" is answerable, and so a
 /// future measurement of the real order changes a list here rather than the
-/// shape of the code.
+/// shape of the code -- which is what happened when the order was measured on the
+/// 16.402 captures (`TICK_PHASES`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Phase {
-    /// Elixir accrual, deploy timers maturing, card cycle.
+    /// Elixir accrual, card cycle. The deploy countdown lives here only under
+    /// match.TICK_ORDER = legacy_move_before_attack; the measured one runs after Move.
     Upkeep,
     /// Status effect timers tick down; stun/freeze/slow/rage expire.
     Status,
@@ -93,11 +101,22 @@ pub enum Phase {
     Spawn,
     /// Each unit picks or keeps a target. Hysteresis and target-lock apply here.
     Target,
-    /// Path is recomputed if due; each unit proposes a movement delta.
+    /// Path is recomputed if due; each unit proposes a movement delta. Under the
+    /// 16.402 locomotion (state.rs `phase_path16402`) this is the whole sequential
+    /// move pass: every ground troop's move update, one after the other in
+    /// CREATION order, each seeing the ones before it already moved.
     Path,
-    /// Proposed deltas are applied, then collision separation resolves overlap.
+    /// Proposed deltas are applied, then collision separation resolves overlap
+    /// (the frame-planned arms only; the 16.402 one separated inside Path).
+    /// Then, under match.TICK_ORDER = client16402, the deploy countdown, AFTER the
+    /// move pass as measured: a unit whose deploy time ends this tick stands still
+    /// this tick and walks the next.
     Move,
     /// Attack windups advance; attacks that complete write into the damage buffer.
+    /// BEFORE Path and Move under the shipped order (every attack update runs
+    /// before any move update, as the 16.402 captures show): a unit whose target is
+    /// in range at the start of the tick winds up and does not
+    /// step; a unit whose target is gone or out of range walks the same tick.
     Attack,
     /// Projectiles advance; those that arrive write into the damage buffer. Spells
     /// advance here too (spell.rs): flights land, rolls roll, one-shot area effects
@@ -113,8 +132,45 @@ pub enum Phase {
     Judge,
 }
 
-/// The canonical phase order. A test asserts the engine runs exactly this.
+/// The canonical phase order (calibration match.TICK_ORDER = client16402), as
+/// measured on the live 16.402 captures -- the attack updates for every entity,
+/// THEN the move updates in creation order, then the per-unit character update
+/// (deploy countdown) after the move pass. A test asserts the engine runs exactly
+/// this.
+///
+/// WHY THIS ORDER REPRODUCES THE THREE MEASURED TRANSITION RULES:
+///   1->2 walking -> attacking takes effect BEFORE the move (819 transition ticks,
+///       none stepped): Target then Attack run before Path, so a unit in range at
+///       the start of the tick is in Windup when Path looks at it and is skipped.
+///   2->1 attacking -> walking walks the SAME tick (412 / 413): Target drops a
+///       dead target and Attack sees an out-of-range one before Path decides, so
+///       Path walks it this tick.
+///   4->1 deploy finished takes effect AFTER the move (398 / 445 stood still): the
+///       countdown runs at the end of Move, so the tick it reaches 0 the unit was
+///       still deploying in Path; it walks the next tick, on spawn + DeployTime /
+///       TICK_MS exactly as movement.DEPLOY_TIMING measured (the countdown now
+///       starts on the spawn tick itself, after the move pass the new unit sat out).
 pub const TICK_PHASES: [Phase; 11] = [
+    Phase::Upkeep,
+    Phase::Status,
+    Phase::Spawn,
+    Phase::Target,
+    Phase::Attack,
+    Phase::Path,
+    Phase::Move,
+    Phase::Projectile,
+    Phase::Resolve,
+    Phase::Reap,
+    Phase::Judge,
+];
+
+/// The order this engine ran before the measurement (calibration match.TICK_ORDER =
+/// legacy_move_before_attack): Move before Attack -- "a unit that moves into range
+/// attacks the same tick", a guess the live captures refuted -- with the deploy
+/// countdown in Upkeep, so a unit walked on the tick its deploy time ended. Kept
+/// runnable so the refutation stays runnable; the regression plant `phase_order`
+/// forces it.
+pub const LEGACY_TICK_PHASES: [Phase; 11] = [
     Phase::Upkeep,
     Phase::Status,
     Phase::Spawn,
@@ -274,15 +330,25 @@ mod tests {
         assert_eq!(TICK_PHASES.len(), 11);
         assert_eq!(TICK_PHASES[0], Phase::Upkeep);
         assert_eq!(TICK_PHASES[3], Phase::Target);
-        // Move must precede Attack: a unit that moves into range attacks the
-        // same tick, which is what the real game visibly does.
         let pos = |p: Phase| TICK_PHASES.iter().position(|q| *q == p).unwrap();
-        assert!(pos(Phase::Move) < pos(Phase::Attack));
+        // ~~Move must precede Attack: a unit that moves into range attacks the
+        // same tick, which is what the real game visibly does.~~ -- MEASURED on the
+        // live 16.402 captures: every attack update runs before any move update, and
+        // a 1 -> 2 transition never steps (819 / 819).
+        assert!(pos(Phase::Target) < pos(Phase::Attack));
+        assert!(pos(Phase::Attack) < pos(Phase::Path));
+        assert!(pos(Phase::Path) < pos(Phase::Move));
         // Resolve must follow every writer of the damage buffer.
         assert!(pos(Phase::Attack) < pos(Phase::Resolve));
         assert!(pos(Phase::Projectile) < pos(Phase::Resolve));
         // Reap must follow Resolve, or a death effect fires before the death.
         assert!(pos(Phase::Resolve) < pos(Phase::Reap));
+        // The legacy order is the same list with Attack after Move, nothing else.
+        let legacy = |p: Phase| LEGACY_TICK_PHASES.iter().position(|q| *q == p).unwrap();
+        assert!(legacy(Phase::Move) < legacy(Phase::Attack));
+        let shipped_sans_attack: Vec<Phase> = TICK_PHASES.iter().copied().filter(|p| *p != Phase::Attack).collect();
+        let legacy_sans_attack: Vec<Phase> = LEGACY_TICK_PHASES.iter().copied().filter(|p| *p != Phase::Attack).collect();
+        assert_eq!(shipped_sans_attack, legacy_sans_attack);
     }
 
     #[test]

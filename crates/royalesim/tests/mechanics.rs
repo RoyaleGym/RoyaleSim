@@ -639,6 +639,8 @@ fn planners_agree_air_is_one_straight_leg_and_ground_is_not() {
             // construction, so "air is one straight leg" says nothing about it.
             reach: 0,
             flying: true,
+            target_flying: false,
+            jumper: false,
             ignore: None,
         };
         assert_eq!(pf.plan(&world, &req), vec![req.goal], "{model:?} air");

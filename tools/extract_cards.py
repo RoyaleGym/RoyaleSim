@@ -456,6 +456,20 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "immune_to_damage_time_ms": c["DashImmuneToDamageTime"],
             "pushback_milli": c["DashPushBack"],
         },
+        # THE RIVER JUMP (JumpEnabled / JumpHeight / JumpSpeed). Only a JumpEnabled row
+        # hops the water (its search prices water at WATER_COST, and the walk replaces
+        # the water nodes with a leap at JumpSpeed native units per tick --
+        # calibration.json movement.JUMP_WATER_HOP, measured on the live 16.402 hops).
+        # MegaKnight / Assassin carry JumpHeight / JumpSpeed WITHOUT JumpEnabled (their
+        # dash-jump, a different state) and get no block. 2018 vintage: HogRider only;
+        # the 15.535 card data adds Prince, DarkPrince, the Battle Ram's Ram and
+        # RoyalHog with the identical 4000 / 160.
+        "jump": None
+        if not c["JumpEnabled"]
+        else {
+            "height_raw": c["JumpHeight"],
+            "speed": c["JumpSpeed"],
+        },
         "hides_when_not_attacking": bool(c["HidesWhenNotAttacking"]),
         "hide_time_ms": c["HideTimeMs"],
         "up_time_ms": c["UpTimeMs"],
@@ -558,6 +572,7 @@ UNIT_FIELDS_FOR_CARD = [
     "spawner",
     "charge",
     "dash",
+    "jump",
     "hides_when_not_attacking",
     "hide_time_ms",
     "up_time_ms",

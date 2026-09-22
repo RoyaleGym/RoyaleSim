@@ -183,7 +183,8 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     assert_eq!(u.pos.x, spawn_point.x, "the {unit} left the {hut}'s forward axis");
     assert!(u.pos.y > spawn_point.y && u.pos.y - spawn_point.y <= cap, "the {unit} stands just in front of the {hut}: the spawn point plus at most one capped push ({:?} vs {spawn_point:?})", u.pos);
     assert!(u.deploying, "a spawned unit takes its own DeployTime");
-    assert_eq!(u.deploy_ms, s.cards().get(sp.unit).deploy_time_ms);
+    // less the countdown that already ran on its spawn tick (match.TICK_ORDER)
+    assert_eq!(u.deploy_ms, s.cards().get(sp.unit).deploy_time_ms - spawn_tick_countdown(&calib()));
     {
         // On a clone (the cadence below counts from here): clear of the footprint,
         // edge to edge or beyond, within ceil(unit_r / cap) + 1 further ticks and
@@ -291,7 +292,7 @@ fn golem_killed_leaves_two_golemites_inside_the_radius_next_tick_and_its_death_d
         let d2 = p.pos.dist2(death_pos);
         assert!(d2 <= (radius as i64) * (radius as i64), "{unit} at {:?} is {} subtiles from the death point {:?} (radius {radius})", p.pos, royalesim::fixed::isqrt(d2), death_pos);
         assert!(s.arena().is_passable_ground(p.pos));
-        assert_eq!(p.deploy_ms, s.cards().get(ds.unit).deploy_time_ms, "its own DeployTime");
+        assert_eq!(p.deploy_ms, s.cards().get(ds.unit).deploy_time_ms - spawn_tick_countdown(&calib()), "its own DeployTime, less the spawn tick's countdown");
         assert_eq!(p.max_hp, s.cards().scaled(ds.unit, lvl, s.cards().get(ds.unit).hitpoints).unwrap(), "the Golem's level");
         assert_eq!(p.spawned_by, None, "a death spawn owes nothing to a periodic spawner");
     }
@@ -810,10 +811,12 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     let barb = unit_name(&s, ds.unit);
     let barbs = first_seen(&mut s, 3, Team::Blue, &barb);
     assert_eq!(barbs.len(), ds.count as usize, "{barbs:?}");
-    for (_, id) in &barbs {
+    for (seen_at, id) in &barbs {
         let b = s.entity(*id).unwrap();
-        // Materialised one tick ago: one TICK_MS already counted down.
-        assert_eq!(b.deploy_ms + dt(), block, "a Barbarian took {} + {} instead of the block's {block}", b.deploy_ms, dt());
+        // One TICK_MS counted down per tick since it was first seen, plus the spawn
+        // tick's own countdown (match.TICK_ORDER).
+        let gone = dt() * (s.tick_count() - seen_at) as i32 + spawn_tick_countdown(&calib());
+        assert_eq!(b.deploy_ms + gone, block, "a Barbarian took {} + {gone} instead of the block's {block}", b.deploy_ms);
     }
 }
 

@@ -94,6 +94,15 @@ pub struct NavRequest {
     /// and both are wrong.
     pub reach: i32,
     pub flying: bool,
+    /// The TARGET flies (FlyingHeight > 0). READ BY THE 16.402 SEARCH ONLY: the
+    /// goal-cell choice ANDs KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS with the target
+    /// not flying, so a ground unit chasing a flying target takes the nearest
+    /// in-reach cell whether or not a building box covers it.
+    pub target_flying: bool,
+    /// The mover is JumpEnabled (card.rs `JumpDef`). READ BY THE 16.402 SEARCH
+    /// ONLY: its cost field prices water at WATER_COST instead of BLOCKED; the hop
+    /// itself is the walk's (state.rs `phase_path16402`, jump16402.rs).
+    pub jumper: bool,
     /// Obstacle to ignore -- the building the unit is walking up to attack.
     pub ignore: Option<EntityId>,
 }
@@ -833,6 +842,8 @@ mod tests {
             step,
             reach: 0,
             flying: false,
+            target_flying: false,
+            jumper: false,
             ignore: None,
         }
     }

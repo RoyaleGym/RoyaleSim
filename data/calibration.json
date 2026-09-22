@@ -400,7 +400,7 @@
       "provenance": "SETTLED ON THE LIVE 16.402 CAPTURES on 2026-09-19 and verified against every first path they publish (three independent reproductions of the search agree on every rule below). Every tie-break below was chosen because it reproduces the published node lists, not because a different order was ruled out by argument. The rules cover the search and the path request that enters it, the expansion and relaxation, the heuristic, the cell cost, the building box, the per-tick occlusion rebuild, and the move component's goal-cell choice. THE RULES: (1) ONE goal cell, chosen by the move component: scan rows ascending over target_cell +- (reach/500 + 1), columns ascending when the mover's x < 9000 native else descending, keep the highest category (2 = dry and outside every building box, 1 = water or boxed) and within it the strictly smallest squared distance to the MOVER (first scanned wins ties); reach = Range + own CollisionRadius. (2) the cell cost: -1 out of bounds only; water (tilemap bit 0x20) costs BLOCKED = 50 for a walker and is priced, not refused; no cell of the arena tilemap sets bit 0x40; lane bits & 3 cost ROAD = MATCHINGROAD = 5; else DEFAULT 8; then max(base, occlusion[cell]) where every building of BOTH sides stamps BUILDING = 50 over the half-open box [c - R, c + R) after snapping its centre UP to the next multiple of 500 on each axis, and a box that does not fit entirely inside the grid stamps nothing. Bit 16 plays no part in the cell cost; the king block is priced by the king's own R = 1400 box. (3) step cost = entered cell's cost x 10, x 14 on a diagonal (integer); h = 5 x (10 max(|dc|,|dr|) + 4 min(|dc|,|dr|)) (HEURISTIC_METHOD 1, times DEFAULTHEURISTIC_COST 5); f = g + h. (4) among equally cheap routes, the published route is the one an open list ordered on f alone (no g, no h, no insertion order) produces when equal keys keep their existing order. (5) neighbours in the order N, S, W, E, NW, SW, SE, NE; the start is expanded before the loop; a popped cell is closed, expanded, and the loop ends when the GOAL is closed (i.e. after it has been popped and expanded). (6) an open node reached with a strictly better f takes the new parent, g and f (REFRESH_OPENNODES); a closed node is never revisited (REOPEN_CLOSEDNODES = FALSE). (7) the published list is the parent chain from the goal, goal first, without the start cell. VERIFICATION (scored against the captures): 435/438 live 16.402 first paths and 128/128 offline 15.535 lane-sweep paths reproduce the exact published node sequence; the three live misses are Goblins chasing a MOVING target whose goal cell the trace cannot recover (the sample's target position is the previous tick's). The trace-fitted arm scored 168/345 and 15/128. Controls run on the same harness: water impassable instead of priced 306/388 and 24/128; friendly-only occlusion 336/388; KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS off 421/425. See docs/pathfinding.md.",
       "why_it_matters": "Which of several equally cheap routes a unit takes is decided by heap order, and the whole engine's positional fidelity in a crowded lane rests on it: 331 of 425 live first paths have a non-unique optimum.",
       "promotion_rules": "SETTLED. Re-open only against a new client build (re-verify); a trace disagreement is a capture or fixture problem first.",
-      "engine_contract": "path2026::plan_cells dispatches on this key: client16402 -> path16402.rs (absolute-coordinate planning, Red un-rotated; NavRequest.team). trace_fitted_astar -> the 2026-09-18 goal-set A* driven by TIE_BREAK / HEURISTIC_FORM / OCCLUDED_CELL_TREATMENT, kept runnable as the refuted arm.",
+      "engine_contract": "path2026::plan_cells dispatches on this key: client16402 -> path16402.rs (absolute-coordinate planning, Red un-rotated; NavRequest.team). trace_fitted_astar -> the 2026-09-18 goal-set A* driven by TIE_BREAK / HEURISTIC_FORM / OCCLUDED_CELL_TREATMENT, kept runnable as the refuted arm. The goal-cell scan's box demotion is passed the TARGET's flying flag (NavRequest.target_flying, path2026.rs avoid_buildings16402), and the cost field prices water at PATHFINDING_COSTS.value.water for a JumpEnabled mover (NavRequest.jumper, path16402.rs cell_cost_for) -- see movement.JUMP_WATER_HOP for what the walk then does at the water.",
       "supersedes": [
         "TIE_BREAK (heap order is the tie-break, no neighbour-order knob reproduces it)",
         "HEURISTIC_FORM (octile 14/10 to ONE goal cell, not Chebyshev over a goal set)",
@@ -410,7 +410,7 @@
         "DIAGONAL_COST_RATIO (14/10 in x10 integer units, not 1414/1000)"
       ],
       "open": [
-        "the target-side condition that gates KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS is unidentified; treating it as always true fits the corpus",
+        "the target-side condition on KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS: the engine passes the global ANDed with the TARGET not flying (FlyingHeight > 0; path2026.rs avoid_buildings16402, NavRequest.target_flying, phase_path16402 hands it the target's flying flag), so a ground unit whose target hovers over a building box takes the nearest in-reach cell, boxed or not (tests/jump16402.rs a_ground_unit_chasing_a_flying_target_takes_the_boxed_cell). No corpus case has a flying target, so the 435/438 score is unchanged by construction and the flying-target arm itself is unmeasured; regression plant goal_ignores_flying_target",
         "PATHFINDING_FRIENDLYONLY_OCCLUSIONS does not restrict the stamping (every building of both sides is stamped, measured); what the flag does gate is the replan trigger: only the own side's occluder set changing forces a new search"
       ]
     },
@@ -447,6 +447,7 @@
       },
       "status": "datamined",
       "confidence": "HIGH",
+      "water": "WATER (7) IS PAID since the river hop was measured (movement.JUMP_WATER_HOP): a JumpEnabled or hovering mover pays WATER_COST for a water cell and any other walker BLOCKED (50), both before the occlusion max. The engine reads it as Calib::path_cost_water and pays it for every mover with a card.rs JumpDef (path16402.rs cell_cost_for; NavRequest.jumper). Over the five live hops, pricing water at 7 for the jumper reproduces every published node list and pricing it at BLOCKED reproduces none of the five (regression plant jumper_pays_blocked, red on 5 of the 8 gates of tests/jump16402.rs). On the shipped arena a jumper's cheapest route still runs over a bridge from every position the corpus's hops start from (the river is four cells deep and the goal cells lie beyond the bridge columns); the cost-7 water changes which equal-cost route wins, and the HOP -- what the walk does when its next node is water -- is movement.JUMP_WATER_HOP, not this table. The `action` text above ('Does ground A* cross water at 7? NO') stands for walkers.",
       "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
       "action": "ANSWERED 2026-09-18 by the offline oracle, except one question. Per half-tile cell? YES, the cell ENTERED. Which cells are road? tilemap lane bits 1 or 2. Does ground A* cross water at 7? NO -- water is impassable to ground (WATER_RULE_GROUND). STILL OPEN: whether MATCHINGROAD means the unit's own lane, which is unmeasurable while both constants are 5. See PATHFINDING_COSTS.application.",
       "note": "This matters beyond pedantry: if these costs do not exist, then 'buildings bend paths' collapses, and the Cannon-pull behaviour is entirely a TARGETING effect (building-targeters carry 7000-9500 sight range vs the 5500 modal value). Those are two different mechanisms producing the same observation and they predict differently for the case that matters: whether a unit already locked on a tower deviates around a building placed off its path.",
@@ -624,8 +625,10 @@
       "confidence": "HIGH",
       "provenance": "globals.csv of Clash Royale 15.535.29 / versionCode 150535029 (2026-08-06 build, post every documented pathfinding change), from a verified 15.535.29 asset pack; compressed sha256 85616b49473308e2690d084bdd3618df8909f489f69c873bc6c9cf3f813574f9, decoded sha256 6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a, decoded 2026-09-18 by this repo's tools/decode_sc_assets.py.",
       "meaning": "Upper bound on a single pushback displacement, millitiles.",
-      "engine_contract": "Not yet read by royalesim; becomes load-bearing when the 2026 pathfinder is implemented from oracle measurements.",
-      "history": [],
+      "engine_contract": "READ by crates/royalesim (state.rs Calib::max_pushback_length): the cap on a push's length L in move16402.rs start_pushback.",
+      "history": [
+        "became load-bearing with knockback.DISPLACEMENT_LAW = client16402"
+      ],
       "globals_vintage": "15.535.29"
     },
     "REPLAN_TRIGGERS": {
@@ -941,6 +944,20 @@
       "engine": "state.rs Calib::overtime_tiebreak, consulted by BattleState::overtime_tiebreak from phase_judge. Motivated by 2 of 60 random-policy games that ended level on crowns after overtime with a decidable tower gap.",
       "why_it_matters": "On those episodes the only true objective term returned 0.0 to both seats; a stalling policy raises the rate."
     },
+    "TICK_ORDER": {
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on the 31 live 16.402 captures. THE ORDER: every unit's attack update runs before any unit moves; the move updates then run one unit after another in CREATION order -- unit i sees units j < i already moved and units j > i at their start-of-tick positions, against a spatial index and an occlusion grid built from the start-of-tick positions; the per-unit character update (the state machine and the DEPLOY COUNTDOWN) runs AFTER the move pass. THE EVIDENCE: (1) the creation order -- the units of every capture keep the order they were created in on 16151 consecutive frame pairs with no reorder, and the sequential pass in that order reproduces 98 % of the contact ticks against 46 % with previous-tick neighbours (collision.CONTACT_LAW); (2) a 1 -> 2 (walking -> attacking) transition takes effect BEFORE the move pass -- on 819 transition ticks the unit never took its walking step (621 stood still, 198 were only pushed), where an order with the move before the attack predicts a step on every one; (3) a 2 -> 1 unit walked in the SAME tick (412 / 413); (4) a 4 -> 1 (deploy finished) transition takes effect AFTER the move pass -- 398 / 445 stood still, the rest were pushed -- where a countdown run before the move predicts a full first step on that tick. movement.DEPLOY_TIMING's 'the movement state flips one tick early (4 -> 1 before the first displacement)' is the same fact seen in the offline 15.535 corpus.",
+      "candidates": [
+        "client16402",
+        "legacy_move_before_attack"
+      ],
+      "meaning": "client16402: lib.rs TICK_PHASES = Upkeep, Status, Spawn, Target, Attack, Path, Move, Projectile, Resolve, Reap, Judge -- Target and Attack before Path and Move, the deploy countdown at the end of Move, the sequential move pass (state.rs phase_path16402) ordered by entity.rs `creation_seq` (a monotonic per-battle counter: the six towers take 0..5 in the order Blue king / own-left / own-right, Red king / own-left / own-right, then every spawn in queue order, so ascending creation_seq is the order the captures show). legacy_move_before_attack: lib.rs LEGACY_TICK_PHASES -- Path, Move, Attack with the deploy countdown in Upkeep, the order this engine ran before the measurement ('a unit that moves into range attacks the same tick'), under which a unit entering range winds up one tick early and a unit whose deploy ends walks on that tick; kept runnable as the refuted arm. Under both, the same three rules follow for the frame-planned path arms (phase_path_2026 / phase_path skip a Windup unit and a deploying one).",
+      "promotion_rules": "SETTLED on 819 / 413 / 445 transition ticks and 16151 frame pairs. Re-open only against a new client build; one designed capture re-verifies it: a single Knight walking into a tower's range with a frame on the transition tick (no step, state 2), and a deployed unit's first two frames after its countdown ends (state 1 with no displacement, then the full first step).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum TickOrder); a candidate without an engine implementation is refused at load, never silently substituted. state.rs BattleState::tick picks TICK_PHASES or LEGACY_TICK_PHASES by it; phase_upkeep / phase_move run the deploy countdown (deploy_countdown) under the arm that owns it; tests/tick_order.rs pins the three transition rules and the creation-order visibility; the regression plant `phase_order` forces the legacy order and turns tests/tick_order.rs and every phase-traced battle red. Snapshot format 12 carries creation_seq.",
+      "not_modelled": "(1) A unit in Windup is skipped by the whole move pass (no separation push either), where the corpus's attacking unit is pushed without walking (the 198 'only pushed' transition ticks) -- the engine's Cooldown / in-range unit is pushed, its Windup unit is not. (2) The start-of-tick spatial index is `Index` in move16402.rs; the occlusion rebuild is Grid16402::refresh. (3) Projectile arrivals and spells land after the move pass here (Phase::Projectile); where they fall within the game's tick is unmeasured."
+    },
     "MANA_REGEN_MS_OVERTIME": {
       "value": 14000,
       "units": "ms to fill a 10-elixir bar",
@@ -1111,17 +1128,20 @@
       "globals.csv key of the 2018 or 2023 data sets (docs/spell-spec.md, shared mechanics)."
     ],
     "DISPLACEMENT_LAW": {
-      "value": "fixed_distance",
-      "status": "community",
-      "confidence": "LOW",
-      "provenance": "Every pushed victim is displaced by exactly Pushback, whatever its distance from the source (Supercell 2022-08-02: 'Pushback: 1.8 tile -> 1 tile' reads as a distance). No mass term: Mass is collision-only and no column gives a push-mass law.",
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH on the ladder (one live push, eight steps, each step discriminating); the candidates below all predict a different track",
+      "provenance": "MEASURED on the Giant, generation 15 of live capture 20260918-122757.b1, ticks 1216..1223, and implemented in crates/royalesim/src/move16402.rs start_pushback / pushback_step. THE LAW: a landing push does not displace the unit, it ARMS a countdown. From (dx, dy) = unit - source and d = isqrt(dx^2 + dy^2) (d == 0 -> see ZERO_VECTOR_DIRECTION), L = min(Pushback, MAX_PUSHBACK_LENGTH); the target point is unit + (tdiv(dx x L, d), tdiv(dy x L, d)) and the speed is loaded with 25n, n the smallest with 25n(n+1)/2 >= L. Every tick after, the ladder REPLACES the walk: the separation scan runs while the speed is > 0 and so does the water ejection (WATER_RESOLUTION); speed -= 25 BEFORE the move; move_towards(target, speed) with the step min(speed, dist, 250) and no lower clamp (the facing untouched; the avoidance offset rotates the step but is neither scanned nor decayed); the ladder is active while speed >= 0, and the path is dropped the tick it turns negative (a replan follows). THE MEASUREMENT: the Giant's per-tick |step| reads 150, 125, 100, 75, 50, 25, 0, then 25 BACKWARD (v0 = 175, so L in (525, 700]); its nodes and facing are unchanged during the ladder, the path is cleared on the last tick and replanned on the next; the engine reproduces all eight steps from the card data alone (tests/knockback16402.rs). fixed_distance predicts one displacement of Pushback on the hit tick and no track; linear_falloff_with_distance and half_distance_constant_speed predict no back-step and a different first step; none of the three produces the 25-per-tick ladder. Over the replay corpus the `pushback` family's unit-ticks within 250 native rose from 35.0 % to 70.4 % with the ladder (20392 unit-ticks). The unit therefore ends 25n(n-1)/2 - 25 along the line when the ladder covers L (the 2018 Fireball's 1800: v0 = 300, steps 250 250 225 ... 25 0 -25, total 1600), which is what tests/spells.rs and tests/knockback16402.rs derive. The engine arms the ladder in the Resolve of the hit tick and takes its first step in the next tick's Path phase; the eight steps are compared from the first ladder step. The hit displacement AttackPushback (a characters.csv column) is not modelled: unexercised by the replay, and no thin-slice card carries it.",
       "candidates": [
+        "client16402",
         "fixed_distance",
         "linear_falloff_with_distance",
         "half_distance_constant_speed"
       ],
-      "promotion_rules": "Frame-track Knights at 0.5 and 2.3 tiles from a Fireball impact and compare final displacements.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "promotion_rules": "SETTLED on one live ladder. Re-open only against a new client build; a second live capture of a Fireball-class push (L = 1800: v0 300, the 250 cap on the first two steps) and of a push landing on a deploying unit extends the evidence.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. The ladder runs inside state.rs phase_path16402 under pathfinding.PATH_SEARCH = client16402 (in the move pass, with the separation scan and the water ejection) and in state.rs step_pushback_ladders under the frame-planned arms (no contact, the position through settle).",
+      "superseded": "~~fixed_distance, status community, confidence LOW: 'Every pushed victim is displaced by exactly Pushback, whatever its distance from the source (Supercell 2022-08-02: Pushback: 1.8 tile -> 1 tile reads as a distance). No mass term.'~~ -- kept runnable (spell.rs settle, state.rs step_knock_slides, with DURATION_MS, STACKING = vector_sum and ZERO_VECTOR_DIRECTION = caster_forward): it is the seat-symmetric arm tests/common symmetric_config() runs the rotation-mirror gates under, and the regression plant knockback_instant_slide.",
+      "units": "native millitiles; the ladder's speeds are native units per tick"
     },
     "DURATION_MS": {
       "value": 0,
@@ -1134,51 +1154,54 @@
       ],
       "units": "ms",
       "promotion_rules": "Count 60 fps frames of a Fireball knockback slide.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. Read only under DISPLACEMENT_LAW = fixed_distance: the ladder's duration is a function of L (n + 1 ticks for v0 = 25n)."
     },
     "ZERO_VECTOR_DIRECTION": {
-      "value": "caster_forward",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "A victim exactly on a radial source's centre has no direction. caster_forward pushes it along the CASTER's forward axis (+y for a Blue cast, -y for Red), which commutes with the seat rotation. crforge's fixed (0,+1) for both teams does not.",
+      "value": "client16402_x_by_id_parity",
+      "status": "hypothesis",
+      "confidence": "LOW: no push in the corpus lands exactly on a unit's centre",
+      "provenance": "A victim exactly on the source point has no direction. client16402_x_by_id_parity: it is pushed along the ABSOLUTE x axis, dx = -1 or +1 by the parity of a per-object id, dy = 0, d = 1 -- the engine takes the parity of team_seq, its sanctioned id-like quantity (entity.rs 'IDS ARE NOT SEMANTICS'), so a unit and its rotated twin are pushed the same absolute way; not seat-symmetric, like the search. caster_forward (the earlier value: along the CASTER's forward axis, +y for Blue, -y for Red, commuting with the seat rotation) stays runnable as the arm tests/common symmetric_config() selects for the rotation-mirror gates. crforge's fixed (0,+1) for both teams is neither. Nothing recorded so far separates the two: no push in the corpus lands on a unit's centre.",
       "candidates": [
+        "client16402_x_by_id_parity",
         "caster_forward",
         "none"
       ],
-      "promotion_rules": "Fireball centred exactly on a stationary unit.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "promotion_rules": "To measured: a Fireball centred exactly on a stationary unit -- the parity rule displaces it along x, caster_forward along the caster's y; twice, with a unit created in between, also shows whether the sign flips with the id.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. Under both displacement laws (state.rs arm_ladder / spell.rs impact)."
     },
     "STACKING": {
-      "value": "vector_sum",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "Two knockbacks landing on one unit in one tick are summed (buffered and commutative, so the order sources are processed in cannot matter).",
+      "value": "first_wins_while_active",
+      "status": "hypothesis",
+      "confidence": "MEDIUM: paired with the measured ladder, but no capture lands two pushes on one unit",
+      "provenance": "first_wins_while_active: a push is refused outright while the victim's ladder is active. Two pushes on one unit in one tick therefore do not sum: the first one processed (the engine's spell order, which is cast order) lands and the second is refused, and so is any push landing during the n + 1 ticks the ladder runs. Not commutative -- tests/knockback.rs pins that the outcome equals the first-cast push alone under either order. Nothing recorded so far lands a second push on a unit whose ladder is running, so vector_sum (the fixed_distance arm's rule) is not yet separated from it by a capture.",
       "candidates": [
+        "first_wins_while_active",
         "vector_sum",
         "max_magnitude_with_mirror_invariant_tiebreak",
         "latest_replaces"
       ],
-      "promotion_rules": "Fireball and Log landing on one Knight on the same tick.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "promotion_rules": "To measured: a live capture of a Log landing on a unit mid-Fireball-ladder -- no second displacement under first_wins_while_active, a summed one under vector_sum.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. PAIRED with DISPLACEMENT_LAW in from_json: client16402 implements first_wins_while_active only and fixed_distance vector_sum only; the other two pairings are refused, not approximated.",
+      "superseded": "~~vector_sum, status guess: 'Two knockbacks landing on one unit in one tick are summed (buffered and commutative).'~~ -- the fixed_distance arm's rule, kept runnable with it."
     },
     "WATER_RESOLUTION": {
       "value": "eject_to_nearest_land",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "The river does NOT block a push (wiki The Log: pushes a unit 'over the river back to the opponent's side'), and ground units knocked into water bounce (wiki 2020: hover units 'will no longer bounce off of it'). A ground unit whose pushed centre touches water moves to the nearest passable ground point along the x or y axis (ties in its own frame: its own side, then its own left). A result inside a building footprint is pushed out as collision does; if both cannot be satisfied the unit stays where it was.",
+      "status": "hypothesis",
+      "confidence": "MEDIUM under the ladder (the timing follows from the measured law; the search grid is unmeasured); LOW under fixed_distance (its own ejection is the old guess)",
+      "provenance": "Under DISPLACEMENT_LAW = client16402: at the start of every ladder tick whose pre-decrement speed is > 0, a ground unit (neither flying nor hovering) whose position is out of the grid, on a blocked cell or on water is put at the nearest land point -- the position clamped 250 inside the grid, returned as is when its own cell is not water, else the first of the candidates (xc - 2250 + 500k, yc + 250 + 500j), j = -5..5, k = 0..10, inside the grid and off water, that minimises the octagonal length max(|dx|, |dy|) + (min(|dx|, |dy|) x 53 >> 7), rows outer from -5 and columns inner from the left, strict <: an absolute-frame tie, not a seat frame. So the river does not block a push (the old provenance: wiki The Log pushes a unit 'over the river back to the opponent's side'), a ground unit knocked onto water is put on land at the start of the NEXT ladder tick, and the back-step tick (speed 0 before its decrement) runs no check, so a unit can end the ladder on water and stays there (the walk never ejects). No push in the corpus ends on a river cell, so the candidate grid and its tie are unmeasured. Implementation: move16402.rs blocked_or_water / nearest_land, run by state.rs phase_path16402. Under the fixed_distance arm the old guess stands: a ground unit whose pushed centre touches water moves to the nearest passable ground point along the x or y axis (ties in its own frame), pushed out of footprints, else it stays put (spell.rs settle); the frame-planned path arms run the ladder through settle too, to keep their own no-water invariant.",
       "candidates": [
         "eject_to_nearest_land",
         "continue_along_push_to_far_bank",
         "clamp_at_bank"
       ],
-      "promotion_rules": "Fireball a Knight standing 0.3 tiles from the bank, off-bridge; Log a Knight on the bridge exit.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "promotion_rules": "To measured: a live capture of a push ending on a river cell (Log a Knight on the bridge exit; Fireball a Knight 0.3 tiles from the bank, off-bridge) -- the landing point settles the candidate order and its first-minimum tie.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. Two implementations of the one candidate, one per DISPLACEMENT_LAW arm (above); the other candidates have none."
     },
     "ATTACK_RESET": {
       "value": "reset_windup_keep_target",
       "status": "community",
       "confidence": "MEDIUM that the windup resets; LOW on the target",
-      "provenance": "Wiki Fireball: 'a true stun that resets the attack animations'; wiki The Log: 'will reset their attack animation'. A windup in progress returns to Idle with its timer at 0 and the target lock released; cooldown is untouched. Whether the target itself survives is unknown.",
+      "provenance": "Wiki Fireball: 'a true stun that resets the attack animations'; wiki The Log: 'will reset their attack animation'. A windup in progress returns to Idle with its timer at 0 and the target lock released; cooldown is untouched. Whether the target itself survives is unknown. The engine applies the reset when the push LANDS (a refused push resets nothing) under both displacement laws.",
       "candidates": [
         "reset_windup_keep_target",
         "reset_windup_clear_target"
@@ -1190,7 +1213,7 @@
       "value": true,
       "status": "guess",
       "confidence": "LOW",
-      "provenance": "Deploying units take spell damage (community-established: Arrows vs Goblin Barrel, Fireball-on-placement play); whether they are also displaced is not.",
+      "provenance": "Deploying units take spell damage (community-established: Arrows vs Goblin Barrel, Fireball-on-placement play); whether they are also displaced is not. Under the ladder the position write clamps a DEPLOYING ground unit at a water edge, as the walk's does; whether a deploying unit is one of the refused victims is what a capture would settle. The engine keeps true.",
       "candidates": [
         true,
         false
@@ -1209,7 +1232,7 @@
         "travel_direction"
       ],
       "promotion_rules": "The ruling settles the SIGN, not the vector, so this is not yet 'measured'. To promote: (a) a Knight standing 1 tile BEHIND the tap -- forward under travel_direction, backward under radial_from_projectile_centre (the ruling's own scenario, the cheaper recording); and (b) a Knight struck 1.5 tiles off the roll axis -- pure own-forward under travel_direction, diagonal under radial_from_projectile_centre.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. radial_from_projectile_centre therefore STAYS implemented in spell.rs although it is not shipped -- it is a listed candidate, and it is the regression plant."
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. radial_from_projectile_centre therefore STAYS implemented in spell.rs although it is not shipped -- it is a listed candidate, and it is the regression plant. Under DISPLACEMENT_LAW = client16402 the ruling composes with the ladder through the SOURCE POINT (spell.rs roll): the ladder pushes away from a point, so travel_direction hands it the point one native unit behind the victim on the roll axis -- (dx, dy) = (0, fwd), d = 1, the target exactly Pushback down the axis with no sideways component; radial_from_projectile_centre hands it the contact point."
     }
   },
   "status": {
@@ -1684,6 +1707,50 @@
       "how_to_define_isolated_2026_09_18b": "'FREE WALK' MEANS ISOLATED BY DISTANCE, NOT `avoidance_offset == 0`. This is the single easiest way to get a wrong number out of this corpus, and any regression gate written against the flags will look broken on live data for the wrong reason. Offline the traces were single units on an empty board, so the two definitions were the same thing; live they are not, because the corpus records no push of its own AND the separation impulse leaves no flag either. MEASURED on the LIVE 16.402 corpus (the live corpus; the movement analysis, step and push arms): filtering on the fields alone gives step-law exactness 0.7273; adding an isolation radius of 2000 native to the nearest OTHER MOBILE UNIT gives 0.9807; adding Rage and the Prince charge gives 0.99903. Exactness by distance to the nearest other mobile unit -- 0-499: 0.433, 500-999: 0.281, 1000-1499: 0.793, 1500-1999: 0.970, 2000-2499: 0.987, 6000-6499: 0.994. USE d > 2000 native. About 27 % of all live moving ticks are crowded, so no crowded tick can be reproduced bit-exactly until the separation magnitude is fitted.",
       "what_the_live_pass_refined": "Two of the three regimes are better understood, and neither is implemented. AVOIDANCE: on about 11 % of moving ticks (22158 of them) the step is a quantised ROTATION of the pure path heading rather than the heading itself; |step|/S has median 1.0006, so the length is unchanged and only the direction turns. The rotation is monotone in its magnitude and independent of the distance to the node (71.45 deg at d ~ 1082 and 71.60 deg at d ~ 1493 at the largest magnitude seen), so it is a rotation, not a lateral shift of the aim point -- but it is NOT linear (0.256 deg/unit at the smallest magnitude rising to 0.375 deg/unit at the largest; asin(a/256), asin(a*sqrt(2)/256), tan and 1/1024-of-a-turn were all tried and all miss somewhere), and what SETS it is still unknown -- it fires against static occluders too (one Knight of the 2026-09-18 corpus is at the largest magnitude at t3413 with the nearest mobile unit 8315 native away, walking past its own princess tower). SEPARATION: the residual that actually breaks the step law sets none of the three fields; over 24887 off-law ticks with a neighbour inside 1600 native, observed - predicted points AWAY from the nearest neighbour within 7.5 deg on 57.0 % and within 22.5 deg on 65.5 %, and at 180 deg on only 1.3 %, and it fires at a separation peaking exactly at 1.0 x (own CollisionRadius + neighbour CollisionRadius) -- bins 0.9: 4225, 1.0: 11442, 1.1: 4633. The MAGNITUDE is still unfitted (10-unit bins 0: 2893, 10: 3878, 20: 3372, 30: 2782, 40: 2169, 50: 1870, 60: 1668) and no Mass / PushMassFactor term has been tried.",
       "avoidance_offset": "UNVERIFIED, DO NOT GUESS. It is set to +-190 in one tick and then performs a +-10-per-tick walk bounded at +-190 -- 16 of 36 runs ramp back UP before coming down, and runs reach 67 ticks against the 19 a pure decay implies. Do NOT implement 'decremented by 10 per tick toward 0'. What sets it, what selects the sign, and what deflection it applies (the ratio of heading error to offset is 0.327-0.387, non-linear) are all unmeasured."
+    },
+    "JUMP_WATER_HOP": {
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED step for step on the five river hops of live capture 20260920-002736 (Hog Rider hop t220 landing t242, Prince t323 -> t345, Royal Hog 1 t514 -> t536, Royal Hog 2 t519 -> t545, Royal Hog 3 t521 -> t532; fixture tests/fixtures/oracle2026/client16402_jumps.json, tools/make_client16402_jump_fixture.py; gate tests/jump16402.rs) and implemented in crates/royalesim/src/jump16402.rs and state.rs phase_path16402. THE LAW. A JumpEnabled troop plans like a walker except that its cost field prices water at WATER_COST (PATHFINDING_COSTS); on the shipped arena that still routes it over a bridge from every placement in the corpus (the river centre (9500, 12500) included). The hop is the WALK's: on the tick a waypoint is reached and popped, if the card is JumpEnabled, at least two nodes remain and the new last node -- the next waypoint -- is a water cell, the list is replaced by ONE node, the first non-water node scanning from the node after it toward the goal, or the goal when every remaining node is water; the segment is refreshed from the POST-move position, the distance from that position to the node's centre is recorded, and the unit enters the LEAP (movement state 5 in the captures). Every leaping tick: no path request; no avoidance scan, but the offset decays; no separation scan, and every neighbour's scan skips the unit (NON-COLLIDABLE); speed = JumpSpeed raw (no buff, no charge multiplier; 0 under a movement hold); the ordinary step law toward the node's centre with the facing set; then the LANDING TEST n_rem = tdiv(dist(centre, pos'), JumpSpeed) on the post-move position: n_rem <= 1 -> the walk resumes and requests a fresh path from wherever the unit is (Royal Hog 3 lands ON water cell (9, 30) and walks off it). The reached flag is ignored during the leap; no node is popped. THE MEASUREMENT: the Hog leaps (113, 113) per tick along (181, 181)/256 from (11096, 14096) for 22 ticks and lands at (13582, 16582), 237 from the bridge node's centre (< 2 x 160); the tick before it was 397 away (>= 320) and still leaping; each of the five hops replays from its trigger frame, and the Hog Rider's and the Prince's battles replay end to end through the engine with every published node list. walk_priced_water (the jumper walks the priced water at its Speed, no leap) fails 3 of the 8 gates; a landing decided by the reached flag, as for a walk, fails 4. Over the replay corpus the `jump` family's unit-ticks within 250 native rose from 26.0 % to 52.9 % (15035 unit-ticks). The charge run-up is HELD across the leap (charge.PROGRESS_ON_STOP does not fire; state.rs charge_pass, Scratch::jumped); the Prince's battle replays under that rule. JumpHeight draws the visual arc only: no position, not modelled.",
+      "candidates": [
+        "client16402",
+        "walk_priced_water"
+      ],
+      "cards": "JumpEnabled rows: the 2018 data set has HogRider only (TRUE / JumpHeight 4000 / JumpSpeed 160 -> cards.json `jump` {height_raw, speed}, card.rs JumpDef); the 15.535 card data gives Prince, DarkPrince, the Battle Ram's Ram, RoyalHog (and VoodooHog, PrinceBuff, SuperHogRider, Prince_Chess) the identical block. MegaKnight (3000 / 250) and Assassin (JumpSpeed 500) carry the columns WITHOUT JumpEnabled: their attack jump is a movement state of its own, not modelled, and they get no block. So the engine's Prince / Dark Prince / Battle Ram walk to the bridge until cards.json is re-extracted from a post-2019 data set; tests/jump16402.rs reproduces the Prince's hop by giving the Prince the Hog's block, which is what the 15.535 data does.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum JumpWaterHop); a candidate without an engine implementation is refused at load, never silently substituted. client16402: state.rs phase_path16402 -- the trigger after the reached pop, the leap in place of the whole per-unit update while entity.rs `jumping` (snapshot format 11), jump16402.rs landing_node / landed / cell_centre; the unit is non-collidable (move16402 Body::collidable) and its attack is held (phase_attack can_act). walk_priced_water: no trigger -- the jumper walks the cost-7 water at its Speed, the naive reading of the cost field that the five live hops refute, kept runnable as the foil. Under pathfinding.PATH_SEARCH = trace_fitted_astar neither applies (water impassable, no JumpEnabled test).",
+      "open": "(1) the attack side of a leap -- whether a target in range interrupts it, and whether a leaping unit is targetable / hittable (the engine keeps it targetable and holds its own swing); (2) a movement hold (Zap / Freeze) on a jumper: the engine cancels the leap where the unit stands and replans when the hold ends (no capture has a stunned or frozen jumper); (3) a pushback landing mid-leap: the ladder runs in place of the leap and drops the path on its back-step tick, after which the leap aims like a walker with no nodes -- unexercised; (4) the engine publishes the landing's fresh path one Path phase after the capture's same-tick publish; positions agree on every tick because the first walk step falls on the same tick either way.",
+      "promotion_rules": "SETTLED on five live hops. Re-open only against a new client build; a capture of a Prince / Dark Prince leaping WHILE charged (the raw JumpSpeed, no multiplier, and the held run-up), a hop from a position whose priced-water route beats the bridge (the goal cell on the far bank within reach of a unit standing on the near bank, e.g. a jumper attacking a troop standing at the water's edge), and a Zap / Freeze landing on a leaping unit (open item 2) extend the evidence.",
+      "units": "native millitiles; JumpSpeed is native units per tick, the Speed column's unit",
+      "plant": "tests/jump16402.rs (8): jumper_pays_blocked (a jumper priced like a walker) red on 5, jump_never_hops (the cost-7 walk, no leap) red on 3, jump_never_lands (the reached flag decides, as for a walk) red on 4; goal_ignores_flying_target (the global passed unconditionally) red on the flying-target case and green on every oracle2026.rs gate"
+    },
+    "DYING_UNIT_VISIBILITY": {
+      "value": "creation_order_before_victim",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "provenance": "MEASURED on the live 16.402 captures: a unit that dies during tick t (gone in frame t) is still counted by the separation / avoidance scans of the movers BEFORE it in creation order and no longer by the movers AFTER it -- 99 : 5 versus 35 : 0 decidable cases; a building that dies during tick t is counted by every mover (3 / 3). INFERRED, the mechanism not observable in the frames: the death takes effect at the victim's own place in the creation-ordered move pass, and a building has no place in that pass.",
+      "candidates": [
+        "creation_order_before_victim",
+        "whole_tick"
+      ],
+      "meaning": "creation_order_before_victim: in state.rs phase_path16402 a per-tick DOOMED mask is derived before the pass from the damage buffer as it stands when the move pass begins (this tick's Attack-phase hits, the Status-phase lifetime expiries and the previous Reap's death damage: the hits that in the measured order have landed before the move pass) -- a troop with no shield whose hp the buffered sum takes to 0 or below, hide immunity respected; when the pass reaches a doomed troop in creation order its own update is skipped (it neither walks nor is pushed on its death tick: the 'processed at its own place' reading, unobservable in the frames) and it is removed from every later mover's scans; movers before it saw it at its start-of-tick position. Buildings are never masked. whole_tick: no mask -- every mover sees the dying unit for the whole pass, the engine's earlier behaviour, kept runnable as the foil. The mask is a read-only derivation: no entity is mutated inside the pass (the hp write stays in Resolve, the despawn in Reap).",
+      "promotion_rules": "Measured on 134 decidable live cases with the mechanism inferred. A capture with several troops dying in one tick inside a crowd (Skeleton Army under a Fireball) extends the evidence and tests whether the victim's own step runs on its death tick.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum DyingUnitVisibility); a candidate without an engine implementation is refused at load, never silently substituted. state.rs BattleState::doomed_mask and phase_path16402 (PATH_SEARCH = client16402 only: the frame-planned arms have no sequential pass, so nothing there orders on it); tests/tick_order.rs `a_unit_dying_this_tick_is_seen_by_earlier_movers_and_not_by_later_ones` constructs three overlapping Skeletons around a Knight's landing hit under both candidates.",
+      "why_it_matters": "The 655 unexplained live ticks (0.27 %) are Skeleton crowds with several dying neighbours in the same tick; the mask decides which of them still push on their death tick."
+    },
+    "SPAWN_PATHFIND_STATES": {
+      "value": "client16402_explicit_goal_no_lane_no_occlusion",
+      "status": "hypothesis",
+      "confidence": "LOW: nothing recorded exercises it",
+      "provenance": "RECORDED ahead of a card that exercises it, so the next pass has the rule to test. client16402_explicit_goal_no_lane_no_occlusion: a spawn-pathfinding unit (the Miner's and the Goblin Drill's underground walk to the tap point, the Wallbreakers' run-in) walks in movement states of its own (6 / 7 in the captures' state column) toward an EXPLICIT goal position -- the goal cell is x/500, y/500 of that point, not the goal-cell scan; its cost field prices every dry cell at DEFAULT (8): no lane bonus, no building box (water still BLOCKED / WATER); its speed is SpawnPathfindSpeed, unbuffed; its reached threshold is SpawnPathfindSpeed instead of 1000 when LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED is set; it runs no avoidance scan, and no separation scan in state 6. Also recorded, not modelled: the dash (DashDistance cards; it reuses the leap's movement state), the attack jump (MegaKnight, Assassin: JumpSpeed with sub-steps of 250 and a water-clamped landing), and a rider copying its mount's position.",
+      "candidates": [
+        "client16402_explicit_goal_no_lane_no_occlusion",
+        "not_modelled"
+      ],
+      "cards": "Which cards need it (data/derived/mechanic_register.json, tools/mechanic_register.py): spawn pathfinding (SpawnPathfindSpeed / SpawnPathfindEffect / SpawnPathfindMorph, family spawner) -- Miner and GoblinDrill (the underground walk to the tap point, state 6 / 7), Wallbreakers (the run-in), and the register's family `dash` -- Bandit (Assassin), MegaKnight's jump, Bats, DarkWitch, GoldenKnight, LittlePrince, BossBandit, SuperHogRider Terry -- for states 3 / 5. None of them is in the engine's cards.json thin slice today: no engine card carries an explicit goal, so no unit ever walks in state 6 / 7 and the cost field's state test is never reached.",
+      "engine": "RECORDED, NOT IMPLEMENTED. Not read by Calib::from_json -- like movement.BUFF_SPEED_RULE, a rule the engine records ahead of a card that exercises it; when Miner / GoblinDrill / Wallbreakers enter the thin slice the key becomes a Calib field, the cost closure in state.rs phase_path16402 gains the state test and path16402::choose_goal_cell is bypassed by the explicit goal. Until then the value names the rule and `not_modelled` is what the engine does.",
+      "promotion_rules": "To measured: a live capture of a Miner or Goblin Drill -- the published path of a spawn-pathfinding unit must ignore the lane bonus and every building box, and its per-tick step must be SpawnPathfindSpeed.",
+      "units": "native millitiles; SpawnPathfindSpeed is native units per tick"
     }
   }
 }

@@ -10,7 +10,11 @@
 //! HOW A SCENARIO IS BUILT: `cast_scenario` runs TWO battles from one seed -- the
 //! spell battle and a CONTROL with everything identical except the cast -- and stops
 //! both at the end of the spell's ARRIVAL tick (the tick whose Resolve applied it).
-//! Damage is the hp difference to the control, a knockback is the position
+//! Damage is the hp difference to the control, a knockback is the SETTLED position
+//! difference (the shipped knockback.DISPLACEMENT_LAW is the 16.402 ladder,
+//! which carries the unit over n + 1 ticks after the landing: `Cast::settle_pushes`
+//! runs both battles until every ladder is out, and the expected carry is derived
+//! from the law by tests/common `knock_carry`, never pasted) -- a knockback is the position
 //! difference, a stun is the timer. Victims that must stand still are DEPLOYING when
 //! the spell lands (spawned a few ticks before arrival; deploying units are valid
 //! spell victims), so a push is measured against an exactly stationary unit.
@@ -90,8 +94,8 @@
 mod common;
 
 use royalesim::entity::{AttackPhase, EntityKind};
-use royalesim::fixed::{milli, Vec2, SUBTILE};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError};
+use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, KnockLaw};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -254,6 +258,24 @@ impl Cast {
     fn deploying(&self, id: EntityId) -> bool {
         self.control.entity(id).unwrap().deploying
     }
+    /// Whether `id` was pushed on the arrival tick: displaced (the fixed_distance
+    /// slide) or its ladder armed (the shipped law; the first step comes next tick).
+    fn pushed(&self, id: EntityId) -> bool {
+        self.s.entity(id).unwrap().push_active || self.displacement(id) != Vec2::default()
+    }
+    /// Advance both battles until no knockback ladder runs any more (at most `max`
+    /// ticks), so `displacement` reads the whole carry of a push. Returns the ticks
+    /// run. Every deploying victim must still be deploying in the control afterwards
+    /// for the displacement to stay attributable; the callers assert that.
+    fn settle_pushes(&mut self, max: u32) -> u32 {
+        let mut k = 0;
+        while k < max && self.s.entities().any(|e| e.push_active) {
+            self.s.tick();
+            self.control.tick();
+            k += 1;
+        }
+        k
+    }
 }
 
 /// The spell stage used by most scenarios: Red half, (9, 19), out of every tower's
@@ -409,22 +431,56 @@ fn fireball_knockback_is_radial_fixed_distance_troops_only_and_respects_ignore_p
     );
     let (cannon, knight, giant, diag) = (c.ids[0], c.ids[1], c.ids[2], c.ids[3]);
     assert!(c.deploying(knight) && c.deploying(giant) && c.deploying(diag));
-    assert_eq!(c.displacement(knight), Vec2::new(push, 0), "radial along +x by exactly Pushback");
+    assert!(c.pushed(knight) && c.pushed(diag), "the Knights were not pushed on the landing tick");
+    assert!(!c.pushed(giant) && !c.pushed(cannon));
+    // The whole carry: the ladder's `25n(n-1)/2 - 25` along the line (tests/common
+    // knock_carry, from the law), Pushback itself under the fixed_distance arm.
+    let mut c = c;
+    let ticks = c.settle_pushes(40);
+    assert!(c.deploying(knight) && c.deploying(giant) && c.deploying(diag), "the victims must still be deploying after {ticks} ladder ticks");
+    let carry = knock_carry(&calib(), push);
+    assert!(carry > 0 && carry <= push, "carry {carry} for Pushback {push}");
+    assert_eq!(c.displacement(knight), Vec2::new(carry, 0), "radial along +x by exactly the carry");
     let d = c.displacement(diag);
-    // Along (-0.6, 0.8): length Pushback to within a subtile per axis.
-    assert!((d.x + push * 3 / 5).abs() <= 1 && (d.y - push * 4 / 5).abs() <= 1, "diagonal push {d:?} for pushback {push}");
+    // Along (-0.6, 0.8): the carry, to within the per-axis truncation of every ladder
+    // step (under two native units a step: the heading is a 1/256 truncation and the
+    // per-axis step a truncation of it) -- one subtile under the instant slide.
+    let tol = match calib().knock_law {
+        KnockLaw::FixedDistance => 1,
+        KnockLaw::Client16402 => 2 * ladder_ticks(push / K) * K,
+    };
+    assert!((d.x + carry * 3 / 5).abs() <= tol && (d.y - carry * 4 / 5).abs() <= tol, "diagonal push {d:?} for carry {carry} (tolerance {tol})");
     assert!(card_stat(&c.s, "Giant").ignore_pushback, "data: Giant ships IgnorePushback (2018)");
     assert_eq!(c.displacement(giant), Vec2::default(), "IgnorePushback without PushbackAll must not move the Giant");
     assert!(c.hp_loss(giant) > 0, "the Giant still takes the damage");
     assert_eq!(c.displacement(cannon), Vec2::default(), "buildings are never pushed");
-    // ZERO VECTOR: a victim exactly on the impact goes along the CASTER's forward
-    // axis (registry knockback.ZERO_VECTOR_DIRECTION = caster_forward), for both seats.
-    assert_registry("knockback.ZERO_VECTOR_DIRECTION", format!("{:?}", calib().knock_zero_vector), "CasterForward");
+    // ZERO VECTOR: a victim exactly on the impact. Shipped (registry
+    // knockback.ZERO_VECTOR_DIRECTION = client16402_x_by_id_parity):
+    // ABSOLUTE +-x by the parity of team_seq -- the same way for both seats' first
+    // Knight. The caster_forward arm (the CASTER's forward axis, +y Blue, -y Red)
+    // stays runnable and is measured under symmetric_config().
+    assert_registry("knockback.ZERO_VECTOR_DIRECTION", format!("{:?}", calib().knock_zero_vector), "Client16402XByIdParity");
+    let mut zero_way = Vec::new();
+    for caster in [Team::Blue, Team::Red] {
+        let victim_team = caster.other();
+        let at = if caster == Team::Blue { tap } else { t(900, 1300) };
+        let mut z = cast_scenario(config(), caster, "Fireball", at, None, &[], &[(victim_team, "Knight", at)]);
+        assert!(z.pushed(z.ids[0]), "{caster:?} caster: the on-centre Knight was not pushed");
+        z.settle_pushes(40);
+        assert!(z.deploying(z.ids[0]));
+        let d = z.displacement(z.ids[0]);
+        let seq = z.s.entity(z.ids[0]).unwrap().team_seq;
+        let sign = if seq & 1 == 1 { -1 } else { 1 };
+        assert_eq!(d, Vec2::new(sign * carry, 0), "{caster:?} caster: zero-vector push is +-x by team_seq parity ({seq})");
+        zero_way.push(d);
+    }
+    assert_eq!(zero_way[0], zero_way[1], "both seats' first Knight (team_seq equal) go the same ABSOLUTE way");
     for (caster, sign) in [(Team::Blue, 1), (Team::Red, -1)] {
         let victim_team = caster.other();
         let at = if caster == Team::Blue { tap } else { t(900, 1300) };
-        let z = cast_scenario(config(), caster, "Fireball", at, None, &[], &[(victim_team, "Knight", at)]);
-        assert_eq!(z.displacement(z.ids[0]), Vec2::new(0, sign * push), "{caster:?} caster: zero-vector push");
+        let mut z = cast_scenario(symmetric_config(), caster, "Fireball", at, None, &[], &[(victim_team, "Knight", at)]);
+        z.settle_pushes(40);
+        assert_eq!(z.displacement(z.ids[0]), Vec2::new(0, sign * push), "{caster:?} caster: caster_forward zero-vector push under the slide arm");
     }
 }
 
@@ -463,7 +519,7 @@ fn knockback_resets_a_windup() {
         let v = s.entity(m).unwrap();
         assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: control is in Windup at {} ms, the pushed Musketeer is not reset", cv.attack_ms);
         assert_eq!(v.target, cv.target, "delay {delay}: the target is kept (reset_windup_keep_target)");
-        assert_ne!(v.pos, cv.pos, "delay {delay}: it was not pushed");
+        assert!(v.push_active || v.pos != cv.pos, "delay {delay}: it was not pushed");
     }
     assert!(found >= 3, "vacuous: only {found} arrivals landed mid-windup");
 }
@@ -908,40 +964,15 @@ fn log_pushes_forward_and_moves_ignore_pushback_units() {
     assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "TravelDirection");
     assert!(log_roll()["pushback_all"].as_bool().unwrap(), "data: the rolling Log ships PushbackAll");
     let push = milli(int(&log_roll()["pushback_milli"]));
-    let s0 = bare(config());
-    let (air_step, min_d, _, _, _, _) = log_numbers(&s0);
-    let land = ((min_d + air_step - 1) / air_step) as u32;
+    // the ladder's whole carry down the axis (an exact per-step (0, 256) heading);
+    // Pushback itself under the fixed_distance arm
+    let carry = knock_carry(&calib(), push);
     // A tap where a 1-tile push stays on dry ground (log_tap's +1.5 would reach the river).
     let tap = t(900, 1100);
     for offset in [0, 3 * SUBTILE / 2] {
         let at = Vec2::new(tap.x, tap.y + offset);
-        let mut s = bare(config());
-        let mut control = s.clone();
-        s.spawn_unit(Team::Blue, "Log", tap, None).unwrap();
-        let mut giant = None;
-        let mut moved = Vec2::default();
-        for k in 0..land + 12 {
-            if k + 8 == land {
-                for st in [&mut s, &mut control] {
-                    st.spawn_unit(Team::Red, "Giant", at, None).unwrap();
-                }
-            }
-            s.tick();
-            control.tick();
-            if giant.is_none() {
-                giant = control.entities().find(|e| e.card == "Giant").map(|e| e.id);
-            }
-            if let Some(g) = giant {
-                let (a, b) = (s.entity(g).unwrap(), control.entity(g).unwrap());
-                assert!(b.deploying, "vacuous: the Giant stopped deploying");
-                let d = a.pos.sub(b.pos);
-                if d != Vec2::default() {
-                    moved = d;
-                    break;
-                }
-            }
-        }
-        assert_eq!(moved, Vec2::new(0, push), "Giant at along-offset {offset}: push {moved:?}");
+        let moved = log_push_on(Team::Blue, tap, "Giant", at).unwrap_or_else(|| panic!("Giant at along-offset {offset}: never pushed"));
+        assert_eq!(moved, Vec2::new(0, carry), "Giant at along-offset {offset}: push {moved:?}");
     }
     // OFF-AXIS: a deploying Red Knight 1.5 tiles to the side is pushed PURE FORWARD by
     // Pushback, with ZERO sideways component (registry travel_direction).
@@ -951,36 +982,18 @@ fn log_pushes_forward_and_moves_ignore_pushback_units() {
     // Hence the exact vector below.
     // Plant (regression): rolling_push_radial_from_centre.
     let at = Vec2::new(tap.x + 3 * SUBTILE / 2, tap.y + 3 * SUBTILE / 2);
-    let mut s = bare(config());
-    let mut control = s.clone();
-    s.spawn_unit(Team::Blue, "Log", tap, None).unwrap();
-    let mut moved = None;
-    for k in 0..land + 12 {
-        if k + 8 == land {
-            for st in [&mut s, &mut control] {
-                st.spawn_unit(Team::Red, "Knight", at, None).unwrap();
-            }
-        }
-        s.tick();
-        control.tick();
-        if let Some(kn) = control.entities().find(|e| e.card == "Knight") {
-            assert!(kn.deploying, "vacuous: the Knight stopped deploying");
-            let d = s.entity(kn.id).unwrap().pos.sub(kn.pos);
-            if d != Vec2::default() {
-                moved = Some(d);
-                break;
-            }
-        }
-    }
-    let d = moved.expect("the off-axis Knight was never pushed");
-    assert_eq!(d, Vec2::new(0, push), "off-axis push {d:?}: under travel_direction it is pure own-forward, exactly Pushback, ZERO sideways");
+    let d = log_push_on(Team::Blue, tap, "Knight", at).expect("the off-axis Knight was never pushed");
+    assert_eq!(d, Vec2::new(0, carry), "off-axis push {d:?}: under travel_direction it is pure own-forward, exactly the carry, ZERO sideways");
 }
 
-/// Run one Log cast and return the displacement `victim` suffers, or None if it was
-/// never touched. Compared against a control battle running the same script without
-/// the Log, so the only thing that can move the victim is the push; the victim is
-/// asserted to be still DEPLOYING in the control, i.e. exactly stationary, which is
-/// what makes the displacement attributable.
+/// Run one Log cast and return the SETTLED displacement `victim` suffers, or None if
+/// it was never touched. Compared against a control battle running the same script
+/// without the Log, so the only thing that can move the victim is the push; the
+/// victim is asserted to be still DEPLOYING in the control, i.e. exactly stationary,
+/// which is what makes the displacement attributable. The victims drop two ticks
+/// before the landing (~~eight~~ -- the shipped ladder needs n + 1 ticks to carry a
+/// Pushback, and the deploy window has to outlast it), and the displacement is read
+/// once the ladder is out.
 fn log_push_on(caster: Team, tap: Vec2, victim: &str, at: Vec2) -> Option<Vec2> {
     let s0 = bare(config());
     let (air_step, min_d, _, _, _, _) = log_numbers(&s0);
@@ -992,8 +1005,9 @@ fn log_push_on(caster: Team, tap: Vec2, victim: &str, at: Vec2) -> Option<Vec2> 
     let mut s = bare(config());
     let mut control = s.clone();
     s.spawn_unit(caster, "Log", tap, None).unwrap();
-    for k in 0..land + 12 {
-        if k + 8 == land {
+    let mut touched = false;
+    for k in 0..land + 40 {
+        if k + 2 == land {
             for st in [&mut s, &mut control] {
                 st.spawn_unit(foe, victim, at, None).unwrap();
             }
@@ -1001,11 +1015,13 @@ fn log_push_on(caster: Team, tap: Vec2, victim: &str, at: Vec2) -> Option<Vec2> 
         s.tick();
         control.tick();
         if let Some(v) = control.entities().find(|e| e.card == victim) {
+            let a = s.entity(v.id).unwrap();
+            let d = a.pos.sub(v.pos);
+            touched |= a.push_active || d != Vec2::default();
             if !v.deploying {
                 return None; // the window closed; see the vacuity note in the test
             }
-            let d = s.entity(v.id).unwrap().pos.sub(v.pos);
-            if d != Vec2::default() {
+            if touched && !a.push_active {
                 return Some(d);
             }
         }
@@ -1026,7 +1042,7 @@ fn log_never_pushes_a_victim_backward_or_sideways_in_either_seat() {
     // Plant (regression): rolling_push_radial_from_centre.
     assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "TravelDirection");
     let s0 = bare(config());
-    let push = milli(int(&log_roll()["pushback_milli"]));
+    let push = knock_carry(&calib(), milli(int(&log_roll()["pushback_milli"])));
     let hd = milli(int(&log_roll()["projectile_radius_y_milli"]));
     // The deepest a victim can stand behind the tap and still be touched by the
     // landing log's back edge: half-depth plus its own radius. DERIVED from the data,
@@ -1125,7 +1141,8 @@ fn barrel_releases_goblins_at_the_barrel_level_with_the_barrel_deploy_time() {
         let hp = int(&urec["hitpoints"]) * m / 100;
         for g in &seen {
             assert_eq!(g.max_hp, hp, "level {level}: Goblin hp");
-            assert_eq!(g.deploy_ms, int(&spawn["deploy_time_ms"]), "level {level}: SpawnCharacterDeployTime, not the unit's own");
+            // less the countdown that already ran on the release tick (match.TICK_ORDER)
+            assert_eq!(g.deploy_ms + spawn_tick_countdown(&calib()), int(&spawn["deploy_time_ms"]), "level {level}: SpawnCharacterDeployTime, not the unit's own");
         }
         assert_ne!(int(&spawn["deploy_time_ms"]), int(&urec["deploy_time_ms"]), "data: the override must differ or the test is vacuous");
     }

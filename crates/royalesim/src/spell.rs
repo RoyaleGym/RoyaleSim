@@ -19,7 +19,11 @@
 //!                 to the DamageBuffer; knockbacks and stuns to their own buffers;
 //!                 released units to the deferred spawn queue.
 //!     Resolve     damage first; then (state.rs) stun timers tick, new stuns merge by
-//!                 max, knockbacks sum per unit and move the survivors.
+//!                 max, knockbacks sum per unit and move the survivors (the
+//!                 fixed_distance arm) or ARM THE LADDER on them (the shipped
+//!                 client16402 arm: a `Knock::Push` carries the source point
+//!                 and the strength; move16402.rs `start_pushback` aims the target and
+//!                 `phase_path16402` walks the 25n ladder from the next tick on).
 //!     The one-shot area effect runs INSIDE the Projectile phase rather than in a new
 //!     Phase::AreaEffect (the spec's aoe.PHASE_POSITION "after projectile, before
 //!     resolve"): the observable order is identical, because nothing in a phase reads
@@ -29,7 +33,10 @@
 //!     * A spell reads only entity state (which does not change during the phase) and
 //!       its own record, and writes only to buffers. So `spells` order cannot matter.
 //!     * Knockbacks are SUMMED per unit and stuns MERGED BY MAX before anything moves
-//!       (calibration knockback.STACKING, status.SAME_BUFF_REAPPLY); both commute.
+//!       (calibration knockback.STACKING = vector_sum, status.SAME_BUFF_REAPPLY); both
+//!       commute. UNDER THE LADDER they do not sum: a push is refused while a ladder
+//!       runs (STACKING = first_wins_while_active), so the FIRST buffered push of a
+//!       tick lands and the rest are refused -- buffer order is cast order.
 //!     * Directions are world-frame RELATIVE vectors scaled by integer division that
 //!       truncates toward zero -- odd-symmetric, so the rotation of a push is the push
 //!       of the rotation. Every fallback direction is the CASTER's forward axis (+y
@@ -44,9 +51,9 @@ use crate::arena::{Arena, Rect, Shape};
 use crate::card::{CardDb, KnockbackDef, SpellHit, SpellShape};
 use crate::combat::{damage_against, DamageBuffer, Hit};
 use crate::entity::{EntityKind, Entities, SpatialHash};
-use crate::fixed::{in_range_edge, isqrt, Vec2};
+use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, Calib, KnockZeroVector, LaunchModel, RollDirection, RollHitShape};
+use crate::state::{AoeHitTest, Calib, KnockLaw, KnockZeroVector, LaunchModel, RollDirection, RollHitShape};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -88,11 +95,36 @@ pub struct Release {
     pub count: i32,
 }
 
+/// One buffered knockback. Which variant a spell writes is calibration
+/// knockback.DISPLACEMENT_LAW (`impact` / `roll`); state.rs `apply_effects` consumes
+/// it in Resolve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Knock {
+    /// fixed_distance: a displacement, WORLD subtiles, summed per unit.
+    Displacement(EntityId, Vec2),
+    /// client16402: the push as the ladder's arming receives it --
+    /// the source point in NATIVE units (the impact centre; for the Log under the
+    /// owner's ruling the point one unit behind the victim on the roll axis, so the
+    /// source-to-victim line IS the travel direction), the strength (Pushback,
+    /// native) and the caster (the forward axis of the zero-vector fallback).
+    Push { id: EntityId, src: Vec2, strength: i32, caster: Team },
+}
+
+impl Knock {
+    #[inline]
+    pub fn id(&self) -> EntityId {
+        match *self {
+            Knock::Displacement(id, _) => id,
+            Knock::Push { id, .. } => id,
+        }
+    }
+}
+
 /// Everything a tick of spells produced, applied later by state.rs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EffectBuffer {
-    /// Knockback displacements, WORLD subtiles; summed per unit in Resolve.
-    pub knocks: Vec<(EntityId, Vec2)>,
+    /// Knockbacks, in buffer order (spell order = cast order).
+    pub knocks: Vec<Knock>,
     /// Stun durations, ms; merged by max per unit in Resolve.
     pub stuns: Vec<(EntityId, i32)>,
 }
@@ -255,11 +287,14 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
 fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>) {
     let e = ctx.ents;
     ctx.hash.neighbours_within(e, centre, hit.radius + ctx.hash.max_radius(), nb);
-    let fallback = match ctx.calib.knock_zero_vector {
+    // the fixed_distance arm's zero-vector fallback, a unit axis per victim
+    let fallback = |v: usize| match ctx.calib.knock_zero_vector {
         #[cfg(not(clash_plant = "zero_vector_plus_y"))]
         KnockZeroVector::CasterForward => Some(Vec2::new(0, forward_dy(team))),
         #[cfg(clash_plant = "zero_vector_plus_y")]
         KnockZeroVector::CasterForward => Some(Vec2::new(0, 1)), // PLANT: crforge's fixed +y for both seats.
+        // absolute x by id parity (team_seq is the id)
+        KnockZeroVector::Client16402XByIdParity => Some(Vec2::new(if e.team_seq[v] & 1 == 1 { -1 } else { 1 }, 0)),
         KnockZeroVector::NoPush => None,
     };
     for &v in nb.iter() {
@@ -295,10 +330,18 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             let _ = k; // PLANT: nothing is ever pushed.
             #[cfg(not(clash_plant = "no_knockback"))]
             if pushable(ctx, v, &k) {
-                // Unit direction scaled up first: the fallback is a unit axis.
-                let dir = push_along(e.pos[v].sub(centre), k.distance, fallback.map(|f| Vec2::new(f.x * k.distance, f.y * k.distance)));
-                if let Some(d) = dir {
-                    fx.knocks.push((id, d));
+                match ctx.calib.knock_law {
+                    KnockLaw::FixedDistance => {
+                        // Unit direction scaled up first: the fallback is a unit axis.
+                        let dir = push_along(e.pos[v].sub(centre), k.distance, fallback(v).map(|f| Vec2::new(f.x * k.distance, f.y * k.distance)));
+                        if let Some(d) = dir {
+                            fx.knocks.push(Knock::Displacement(id, d));
+                        }
+                    }
+                    // the projectile's hit arms the ladder from the impact point with
+                    // Pushback; the zero-vector direction is resolved where the ladder
+                    // is armed
+                    KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team }),
                 }
             }
         }
@@ -396,6 +439,22 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                     let _ = (a_prev, a_cur, a_v, edge); // PLANT (regression): the tick-end centre.
                     cur
                 };
+                if ctx.calib.knock_law == KnockLaw::Client16402 {
+                    // THE RULING AND THE LADDER COMPOSE THROUGH THE SOURCE POINT: the
+                    // ladder pushes AWAY from a point, so under travel_direction
+                    // that point is the one one native unit BEHIND the victim on the roll
+                    // axis -- `(dx, dy) = (0, fwd)`, `d = 1`, the target exactly Pushback
+                    // down the axis, no sideways component, whatever the victim's offset
+                    // from the log's centre. Under radial_from_projectile_centre it is the
+                    // contact point itself, and a victim ON it takes the zero-vector rule.
+                    let vn = Vec2::new(e.pos[v].x / K, e.pos[v].y / K);
+                    let src = match ctx.calib.knock_direction_rolling {
+                        RollDirection::TravelDirection => Vec2::new(vn.x, vn.y - fwd),
+                        RollDirection::RadialFromCentre => Vec2::new(contact.x / K, contact.y / K),
+                    };
+                    fx.knocks.push(Knock::Push { id, src, strength: k.distance / K, caster: team });
+                    continue;
+                }
                 let d = match ctx.calib.knock_direction_rolling {
                     // NOT SELECTED. Kept implemented because it is a listed candidate
                     // of knockback.DIRECTION_ROLLING and state.rs::pick refuses a
@@ -416,7 +475,7 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                     RollDirection::TravelDirection => push_along(e.pos[v].sub(contact), k.distance, Some(along)),
                 };
                 if let Some(d) = d {
-                    fx.knocks.push((id, d));
+                    fx.knocks.push(Knock::Displacement(id, d));
                 }
             }
         }

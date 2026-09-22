@@ -708,7 +708,10 @@ fn charged_prince_hit_by(cfg: BattleConfig, spell: &str, ahead: i32) -> (bool, b
         control.tick();
         let (a, b) = (s.entity(id).unwrap(), control.entity(id).unwrap());
         if a.hp < full {
-            return (a.pos != b.pos, a.charged, true);
+            // a LANDED push: under the shipped ladder (knockback.DISPLACEMENT_LAW =
+            // client16402) the landing tick arms `push_active` and the first
+            // step comes the tick after; the fixed_distance slide shows as a displacement
+            return (a.push_active || a.pos != b.pos, a.charged, true);
         }
     }
     (false, s.entity(id).unwrap().charged, false)

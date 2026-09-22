@@ -675,6 +675,8 @@ fn the_shipped_search_is_absolute_grid_not_seat_symmetric() {
             step: 0,
             reach: 1700 * 18,
             flying: false,
+            target_flying: false,
+            jumper: false,
             ignore: None,
         };
         let (cells, ok) = path2026::plan_cells(&world, calib, &req);

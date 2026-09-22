@@ -100,6 +100,8 @@ pub struct Entities {
     pub alive: Vec<bool>,
     free: Vec<u32>,
     team_counter: [u32; 2],
+    /// The next `creation_seq`: one per battle, never reset, never reused.
+    creation_counter: u32,
 
     pub team: Vec<Team>,
     pub kind: Vec<EntityKind>,
@@ -107,6 +109,16 @@ pub struct Entities {
     pub level: Vec<i32>,
     pub team_seq: Vec<u32>,
     pub spawn_tick: Vec<u32>,
+    /// CREATION ORDER (calibration match.TICK_ORDER = client16402): the ordinal of
+    /// this entity among every entity the battle has created, towers included --
+    /// the order the live captures show the units moving in (the creation order,
+    /// kept on every frame pair of the 16.402 corpus). Monotonic
+    /// per battle and never reused, unlike the slot (LIFO free list) and unlike
+    /// `spawn_tick` (shared by everything one Spawn phase materialises); distinct
+    /// from `team_seq`, which counts within a team and is what the seat-invariant
+    /// tie-breaks read. Read by state.rs `phase_path16402` to order the sequential
+    /// move pass and by nothing that decides a tie between the two seats.
+    pub creation_seq: Vec<u32>,
 
     pub pos: Vec<Vec2>,
     pub hp: Vec<i32>,
@@ -138,6 +150,26 @@ pub struct Entities {
     pub knock_rem: Vec<Vec2>,
     /// ms of knockback slide remaining. While > 0 the unit neither walks nor attacks.
     pub knock_ms: Vec<i32>,
+    /// THE KNOCKBACK LADDER (calibration knockback.DISPLACEMENT_LAW =
+    /// client16402; move16402.rs `start_pushback` / `pushback_step`): the target
+    /// point (NATIVE units, not subtiles), the speed still to run down (native units
+    /// per tick; may be 0 while active -- the tick it goes negative is the 25-unit
+    /// back-step) and the active flag. While `push_active` the unit takes the ladder's step
+    /// instead of its walk, holds its attack like a `knock_ms` slide and stays
+    /// collidable (its separation scan runs while `push_speed > 0`). Zero / false on
+    /// every entity under the fixed_distance arm, whose slide lives in `knock_rem`
+    /// / `knock_ms` above.
+    pub push_target: Vec<Vec2>,
+    pub push_speed: Vec<i32>,
+    pub push_active: Vec<bool>,
+    /// THE RIVER JUMP (calibration movement.JUMP_WATER_HOP = client16402;
+    /// jump16402.rs; card.rs `JumpDef`): movement state 5 in the captures. While set the
+    /// unit's route is the single landing node, it moves at JumpSpeed toward that
+    /// node's centre every Path phase, requests no path, runs no contact scan and is
+    /// non-collidable for everyone; it clears itself on the landing tick (the route
+    /// is dropped with it and replanned next tick). False on every entity whose card
+    /// has no jump block.
+    pub jumping: Vec<bool>,
     /// Hide state (Tesla). `Up` for every entity whose card does not hide.
     pub hide: Vec<HideState>,
     /// The hide timer; its meaning per state is on `HideState`.
@@ -242,6 +274,14 @@ impl Entities {
         i < self.alive.len() && self.alive[i] && self.generation[i] == id.generation
     }
 
+    /// Held by a knockback: mid-slide under the fixed_distance arm (`knock_ms`), or
+    /// mid-ladder under the 16.402 one (`push_active`). The one predicate every
+    /// "does not walk, does not attack" site reads, so the two arms cannot part.
+    #[inline]
+    pub fn knocked(&self, i: usize) -> bool {
+        self.knock_ms[i] > 0 || self.push_active[i]
+    }
+
     #[inline]
     pub fn id_of(&self, index: usize) -> EntityId {
         EntityId { index: index as u32, generation: self.generation[index] }
@@ -256,9 +296,9 @@ impl Entities {
         self.alive.iter().filter(|a| **a).count()
     }
 
-    /// The free list and per-team counters, for hashing.
-    pub fn allocator_state(&self) -> (&[u32], [u32; 2]) {
-        (&self.free, self.team_counter)
+    /// The free list, the per-team counters and the creation counter, for hashing.
+    pub fn allocator_state(&self) -> (&[u32], [u32; 2], u32) {
+        (&self.free, self.team_counter, self.creation_counter)
     }
 
     /// Allocate a slot. Reuses the most recently freed slot (LIFO), so slot
@@ -266,6 +306,8 @@ impl Entities {
     pub fn spawn(&mut self, s: SpawnInit) -> EntityId {
         let seq = self.team_counter[s.team as usize];
         self.team_counter[s.team as usize] += 1;
+        let created = self.creation_counter;
+        self.creation_counter += 1;
         let idx = if let Some(i) = self.free.pop() {
             let i = i as usize;
             self.generation[i] = self.generation[i].wrapping_add(1);
@@ -276,6 +318,7 @@ impl Entities {
             self.level[i] = s.level;
             self.team_seq[i] = seq;
             self.spawn_tick[i] = s.spawn_tick;
+            self.creation_seq[i] = created;
             self.pos[i] = s.pos;
             self.hp[i] = s.hp;
             self.max_hp[i] = s.hp;
@@ -296,6 +339,10 @@ impl Entities {
             self.retarget_on_resume[i] = false;
             self.knock_rem[i] = Vec2::default();
             self.knock_ms[i] = 0;
+            self.push_target[i] = Vec2::default();
+            self.push_speed[i] = 0;
+            self.push_active[i] = false;
+            self.jumping[i] = false;
             self.hide[i] = HideState::Up;
             self.hide_ms[i] = 0;
             self.spawn_ms[i] = 0;
@@ -321,6 +368,7 @@ impl Entities {
             self.level.push(s.level);
             self.team_seq.push(seq);
             self.spawn_tick.push(s.spawn_tick);
+            self.creation_seq.push(created);
             self.pos.push(s.pos);
             self.hp.push(s.hp);
             self.max_hp.push(s.hp);
@@ -341,6 +389,10 @@ impl Entities {
             self.retarget_on_resume.push(false);
             self.knock_rem.push(Vec2::default());
             self.knock_ms.push(0);
+            self.push_target.push(Vec2::default());
+            self.push_speed.push(0);
+            self.push_active.push(false);
+            self.jumping.push(false);
             self.hide.push(HideState::Up);
             self.hide_ms.push(0);
             self.spawn_ms.push(0);

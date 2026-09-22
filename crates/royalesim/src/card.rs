@@ -231,6 +231,30 @@ pub struct ChargeDef {
     pub speed_multiplier_percent: i32,
 }
 
+/// THE RIVER JUMP (characters.csv JumpEnabled / JumpHeight / JumpSpeed; 2018: HogRider
+/// TRUE / 4000 / 160; the 15.535 card data gives Prince, DarkPrince, the Battle Ram's
+/// Ram and RoyalHog the identical block). Only a JumpEnabled row leaps the water:
+/// its search prices water at WATER_COST instead of BLOCKED (path16402.rs
+/// `cell_cost_for`), and when on a walk tick a popped waypoint leaves a WATER node
+/// next, the remaining water nodes are replaced by one landing node and the unit
+/// moves at JumpSpeed until it is within two JumpSpeeds of that node's centre
+/// (jump16402.rs; calibration.json movement.JUMP_WATER_HOP, measured on the five
+/// live hops). MegaKnight and Assassin carry JumpHeight / JumpSpeed WITHOUT
+/// JumpEnabled (their attack jump, a different state) and get no block. The state is
+/// entity.rs `jumping`, driven by state.rs `phase_path16402`.
+///
+/// `speed` is JumpSpeed RAW: native millitiles per tick, the same unit as the Speed
+/// column (the Hog's 160 is the 113-per-axis diagonal leap the live client shows).
+/// `height_raw` is JumpHeight, kept for the record only: it draws the visual arc,
+/// which touches no position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JumpDef {
+    /// JumpSpeed, native units per tick.
+    pub speed: i32,
+    /// JumpHeight, raw (the arc's height; not modelled).
+    pub height_raw: i32,
+}
+
 /// One card, in engine units. Distances are SUBTILES; times are ms.
 #[derive(Clone, Debug)]
 pub struct CardDef {
@@ -311,6 +335,10 @@ pub struct CardDef {
     /// on every card without one; a block missing any of the three is refused at
     /// load, never defaulted (a card that half-charges runs as a different card).
     pub charge: Option<ChargeDef>,
+    /// The jump block (JumpEnabled with JumpHeight / JumpSpeed). None on every card
+    /// without JumpEnabled; a JumpEnabled card missing either number is refused at
+    /// load, never defaulted.
+    pub jump: Option<JumpDef>,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else silently retires the
@@ -425,6 +453,18 @@ struct RawCard {
     /// cards.json `charge` block (ChargeRange / DamageSpecial / ChargeSpeedMultiplier);
     /// null on every card but Prince, DarkPrince and BattleRam in the 2018 data.
     charge: Option<RawCharge>,
+    /// cards.json `jump` block (JumpEnabled rows: JumpHeight / JumpSpeed); null on
+    /// every card but HogRider in the 2018 data.
+    jump: Option<RawJump>,
+}
+
+/// cards.json `jump` block, every field nullable (the extractor writes the whole
+/// block whenever JumpEnabled is set).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawJump {
+    height_raw: Option<i32>,
+    speed: Option<i32>,
 }
 
 /// cards.json `charge` block, every field nullable (the extractor writes the whole
@@ -692,6 +732,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         spawner: None,
         death_spawn: None,
         charge: None,
+        jump: None,
     }
 }
 
@@ -977,6 +1018,29 @@ fn convert_charge(raw: Option<RawCharge>, kind: CardKind) -> Result<Option<Charg
     Ok(Some(ChargeDef { range_raw, damage_special, speed_multiplier_percent }))
 }
 
+/// The JUMP half of the loader: the `jump` block is all-or-nothing. A JumpEnabled
+/// card with no JumpSpeed would leap at nothing per tick and never land (the landing
+/// test divides by it), so a missing or non-positive JumpSpeed is a data error;
+/// JumpHeight is kept as loaded (the arc is not modelled, but the column is the
+/// card's). Only a TROOP jumps: the hop is a property of the walk.
+fn convert_jump(raw: Option<RawJump>, kind: CardKind) -> Result<Option<JumpDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let speed = match b.speed {
+        Some(x) if x > 0 => x,
+        Some(x) => return Err(format!("jump: JumpSpeed {x} is not positive")),
+        None => return Err("jump: no JumpSpeed".into()),
+    };
+    let height_raw = match b.height_raw {
+        Some(x) if x >= 0 => x,
+        Some(x) => return Err(format!("jump: JumpHeight {x} is negative")),
+        None => return Err("jump: no JumpHeight".into()),
+    };
+    if kind != CardKind::Troop {
+        return Err(format!("jump block on a {kind:?}; only a troop jumps"));
+    }
+    Ok(Some(JumpDef { speed, height_raw }))
+}
+
 fn convert(raw: RawCard) -> Result<Converted, String> {
     if raw.kind == CardKind::Spell {
         let display = raw.display_name.clone();
@@ -1047,6 +1111,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
     let spawner = convert_spawner(raw.spawner)?;
     let death_spawn = convert_death_spawn(raw.death_spawn)?;
     let charge = convert_charge(raw.charge, kind)?;
+    let jump = convert_jump(raw.jump, kind)?;
     let mut units: Vec<(UnitUse, String)> = Vec::new();
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
@@ -1112,6 +1177,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         spawner: spawner.map(|(d, _)| d),
         death_spawn: death_spawn.map(|(d, _)| d),
         charge,
+        jump,
     }, display, units))
 }
 
@@ -1510,7 +1576,8 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // the named unit is loaded from "units" like a spell's). A building with no damage source may
 // omit "range_milli" (the huts). Also the "charge" block {damage_special,
 // charge_range_raw, charge_speed_multiplier_percent} (`convert_charge`; all three or the card is
-// refused; troops only). Unknown fields are ignored.
+// refused; troops only), and the "jump" block {height_raw, speed} on JumpEnabled rows
+// (`convert_jump`; both or the card is refused; troops only). Unknown fields are ignored.
 
 #[cfg(test)]
 mod tests {

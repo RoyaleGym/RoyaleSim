@@ -179,6 +179,8 @@ fn plan_with_reach(arena: &Arena, calib: &Calib, c: &Case, reach: i32) -> Vec<(i
         step: 0,
         reach,
         flying: false,
+        target_flying: false,
+        jumper: false,
         ignore: None,
     };
     let (cells, ok) = path2026::plan_cells(&world, calib, &req);
@@ -474,6 +476,8 @@ fn plan_client16402_case(arena: &Arena, calib: &Calib, c: &Client16402Case) -> (
         step: 0,
         reach: sub(c.reach_native),
         flying: false,
+        target_flying: false,
+        jumper: false,
         ignore: None,
     };
     let (cells, ok) = path2026::plan_cells(&world, calib, &req);

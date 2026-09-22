@@ -54,7 +54,8 @@
 //!     ignores (msgspec 0.21.1 drops extra array elements and unknown keys, which
 //!     this repo measures rather than assumes): per entity, two more row elements
 //!     [stun_ticks, knockback_ticks]
-//!     (ticks remaining, rounded up); and a top-level "spells" array of rows
+//!     (ticks remaining, rounded up; under the shipped knockback ladder the ticks the
+//!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array of rows
 //!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits]
 //!     motion 0 flight / 1 airborne (the Log before it lands) / 2 rolling / 3 area
 //!     effect; (x, y) the current centre; aim the landing point (flight, airborne) or
@@ -427,7 +428,7 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
             e.flying,
             ceil_div(e.deploy_ms as i64, tick_ms),
             ceil_div(e.stun_ms as i64, tick_ms),
-            ceil_div(e.knock_ms as i64, tick_ms),
+            knock_ticks_left(&e, tick_ms),
         );
     }
     o.push_str("],\"spells\":[");
@@ -482,7 +483,12 @@ impl Battle {
     /// `path_search`: None = the ledger's pathfinding.PATH_SEARCH (the measured
     /// 16.402 arm, client16402, which is NOT seat-symmetric); "trace_fitted_astar"
     /// selects the frame-planned arm whose routes are exact rotations of each
-    /// other -- what the env layer's rotation-mirror gates run under.
+    /// other -- what the env layer's rotation-mirror gates run under. That
+    /// selection ALSO puts the knockback on the fixed-distance slide
+    /// (knockback.DISPLACEMENT_LAW = fixed_distance with vector_sum and
+    /// caster_forward, tests/common `symmetric_config()`): the shipped ladder is the
+    /// game's and has two absolute-frame points (the zero-vector direction by id
+    /// parity, the water teleport's tie), so the seat-symmetric arm is the pair.
     #[new]
     #[pyo3(signature = (card_names, slot_of_k, path_search = None))]
     fn new(card_names: Option<Vec<String>>, slot_of_k: [[i32; 3]; 2], path_search: Option<String>) -> PyResult<Self> {
@@ -648,6 +654,13 @@ impl Battle {
         cfg.cards = self.cards.clone();
         if let Some(ps) = self.path_search {
             cfg.calib.path_search = ps;
+            if ps == crate::state::PathSearch::TraceFittedAstar {
+                // the seat-symmetric arm is the PAIR: the frame-planned search and the
+                // fixed-distance knockback (tests/common symmetric_config())
+                cfg.calib.knock_law = crate::state::KnockLaw::FixedDistance;
+                cfg.calib.knock_stacking = crate::state::KnockStacking::VectorSum;
+                cfg.calib.knock_zero_vector = crate::state::KnockZeroVector::CasterForward;
+            }
         }
         match shuffle {
             0 => cfg.shuffle_decks = false,
@@ -859,6 +872,18 @@ impl Battle {
     }
 }
 
+/// The ticks a knockback still holds the entity: the slide's remaining ms in ticks
+/// (knockback.DISPLACEMENT_LAW = fixed_distance), or the ladder's ticks to run --
+/// one per speed value down to 0 and the back-step tick (client16402;
+/// move16402.rs `PUSHBACK_DECEL`).
+fn knock_ticks_left(e: &crate::state::EntityView<'_>, tick_ms: i64) -> i64 {
+    if e.push_active {
+        (e.push_speed / crate::move16402::PUSHBACK_DECEL) as i64 + 1
+    } else {
+        ceil_div(e.knock_ms as i64, tick_ms)
+    }
+}
+
 /// TEST ENTRY POINT: one unit's contact-and-step update under the measured 16.402
 /// law (move16402.rs), on a world handed in as plain tuples. It exists so an
 /// independent implementation of the same law -- the reference Python one that
@@ -869,24 +894,11 @@ impl Battle {
 /// offset, dir_x, dir_y, heading_counts] (15 integers, bools as 0/1) per entity in
 /// update order, native units. Returns (x, y, dir_x, dir_y, offset, reached,
 /// popped_waypoint).
-#[pyfunction]
-#[pyo3(signature = (bodies, me, aim, speed, set_dir, seg, offset, deploying, attacking, waypoint))]
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn contact_step16402(
-    bodies: Vec<Vec<i64>>,
-    me: usize,
-    aim: (i32, i32),
-    speed: i32,
-    set_dir: bool,
-    seg: (i32, i32),
-    offset: i32,
-    deploying: bool,
-    attacking: bool,
-    waypoint: Option<(i32, i32)>,
-) -> PyResult<(i32, i32, i32, i32, i32, bool, bool)> {
+/// The body array of `contact_step16402` / `pushback_step16402`, decoded.
+fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402::Body>> {
     use crate::move16402 as ml;
     let mut out = Vec::with_capacity(bodies.len());
-    for b in &bodies {
+    for b in bodies {
         if b.len() != 15 {
             return Err(PyValueError::new_err("each body needs 15 fields"));
         }
@@ -907,10 +919,29 @@ fn contact_step16402(
             heading_counts: b[14] != 0,
         });
     }
-    let bodies = out;
-    if me >= bodies.len() {
+    if me >= out.len() {
         return Err(PyValueError::new_err("me out of range"));
     }
+    Ok(out)
+}
+
+#[pyfunction]
+#[pyo3(signature = (bodies, me, aim, speed, set_dir, seg, offset, deploying, attacking, waypoint))]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn contact_step16402(
+    bodies: Vec<Vec<i64>>,
+    me: usize,
+    aim: (i32, i32),
+    speed: i32,
+    set_dir: bool,
+    seg: (i32, i32),
+    offset: i32,
+    deploying: bool,
+    attacking: bool,
+    waypoint: Option<(i32, i32)>,
+) -> PyResult<(i32, i32, i32, i32, i32, bool, bool)> {
+    use crate::move16402 as ml;
+    let bodies = bodies16402(&bodies, me)?;
     let arena = Arena::shipped();
     let index = ml::Index::new(arena.cols, arena.rows);
     let mut scratch = Vec::new();
@@ -939,10 +970,53 @@ fn contact_step16402(
     Ok((m.x, m.y, dir.0, dir.1, con.offset, m.reached, popped))
 }
 
+/// TEST ENTRY POINT: the arming of a knockback ladder (move16402.rs
+/// `start_pushback`) on plain numbers, so an independent implementation can be
+/// diffed against it: `(pos, src, strength, max_len, zero_dir)` -> `((tx, ty), v0)`
+/// or None when nothing is armed.
+#[pyfunction]
+#[pyo3(signature = (pos, src, strength, max_len, zero_dir))]
+fn start_pushback16402(pos: (i32, i32), src: (i32, i32), strength: i32, max_len: i32, zero_dir: Option<(i32, i32)>) -> Option<((i32, i32), i32)> {
+    crate::move16402::start_pushback(pos, src, strength, max_len, zero_dir).map(|p| (p.target, p.speed))
+}
+
+/// TEST ENTRY POINT: one PUSHBACK TICK of unit `me` under the measured 16.402 law,
+/// exactly as state.rs `phase_path16402` step 0 runs it: the separation scan and
+/// the water ejection while `remaining > 0`, the countdown, the step toward
+/// `target` with the avoidance `offset` rotating it. `bodies` as for
+/// `contact_step16402`. Returns `(x, y, remaining, active, offset)`,
+/// `active = remaining >= 0` after the tick.
+#[pyfunction]
+#[pyo3(signature = (bodies, me, target, remaining, offset, deploying))]
+fn pushback_step16402(bodies: Vec<Vec<i64>>, me: usize, target: (i32, i32), remaining: i32, offset: i32, deploying: bool) -> PyResult<(i32, i32, i32, bool, i32)> {
+    use crate::move16402 as ml;
+    let mut bodies = bodies16402(&bodies, me)?;
+    let arena = Arena::shipped();
+    let index = ml::Index::new(arena.cols, arena.rows);
+    let mut scratch = Vec::new();
+    let mut con = ml::Contact { acc: (0, 0), count: 0, offset };
+    let mut rem = remaining;
+    let is_water = |c: i32, r: i32| arena.cell_bits(c, r) & arena.bit_water != 0;
+    if rem > 0 {
+        ml::separation_scan(&index, &bodies, me, &mut con, &mut scratch);
+        let (x, y) = (bodies[me].x, bodies[me].y);
+        if !bodies[me].air && ml::blocked_or_water(x, y, arena.cols, arena.rows, |c, r| arena.cell_bits(c, r)) {
+            let (nx, ny) = ml::nearest_land(x, y, arena.cols, arena.rows, is_water);
+            bodies[me].x = nx;
+            bodies[me].y = ny;
+        }
+    }
+    let u = bodies[me];
+    let m = ml::pushback_step((u.x, u.y), target, &mut rem, &mut con, (0, 0), deploying && !u.air, is_water, arena.cols, arena.rows);
+    Ok((m.x, m.y, rem, rem >= 0, con.offset))
+}
+
 /// Register the bindings on the `royalesim` module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Battle>()?;
     m.add_function(wrap_pyfunction!(contact_step16402, m)?)?;
+    m.add_function(wrap_pyfunction!(start_pushback16402, m)?)?;
+    m.add_function(wrap_pyfunction!(pushback_step16402, m)?)?;
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
     m.add("EMBEDDED_CALIBRATION_JSON", EMBEDDED_CALIBRATION_JSON)?;
     m.add("EMBEDDED_ARENA_JSON", EMBEDDED_ARENA_JSON)?;

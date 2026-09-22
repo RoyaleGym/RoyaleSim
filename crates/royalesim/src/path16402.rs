@@ -80,6 +80,10 @@ pub struct Terrain {
     /// 5 on a lane cell, 8 elsewhere, 50 on water.
     pub base: Vec<i32>,
     pub water: Vec<bool>,
+    /// WATER_COST (7 shipped): what a HOVERING or JumpEnabled mover pays for a water
+    /// cell instead of BLOCKED. Measured on the five river hops of the live 16.402
+    /// corpus: priced water reproduces every hop's published path, BLOCKED none.
+    pub water_cost: i32,
 }
 
 impl Terrain {
@@ -102,7 +106,7 @@ impl Terrain {
                 }
             }
         }
-        Terrain { cols, rows, base, water }
+        Terrain { cols, rows, base, water, water_cost: costs.water }
     }
 }
 
@@ -162,15 +166,26 @@ pub fn stamp(occ: &mut [i32], cols: i32, b: Option<(i32, i32, i32, i32)>, cost: 
     }
 }
 
-/// The price of ENTERING a cell, or -1 out of bounds (the only case that is -1).
+/// The price of ENTERING a cell, or -1 out of bounds (the only case that is -1), for
+/// a WALKER (water at BLOCKED).
 #[inline]
 pub fn cell_cost(t: &Terrain, occ: &[i32], col: i32, row: i32) -> i32 {
+    cell_cost_for(t, occ, col, row, false)
+}
+
+/// The cell cost with the mover's JumpEnabled / Hovering test: a `jumper` pays
+/// WATER_COST for a water cell, a walker BLOCKED; both return before the occlusion
+/// max.
+#[inline]
+pub fn cell_cost_for(t: &Terrain, occ: &[i32], col: i32, row: i32, jumper: bool) -> i32 {
     if col < 0 || row < 0 || t.cols <= col || t.rows <= row {
         return -1;
     }
     let i = (row * t.cols + col) as usize;
     if t.water[i] {
-        return t.base[i]; // returns before the occlusion max
+        #[cfg(clash_plant = "jumper_pays_blocked")]
+        let jumper = false; // PLANT (regression): a jumper priced like a walker.
+        return if jumper { t.water_cost } else { t.base[i] }; // returns before the occlusion max
     }
     let o = occ[i];
     if o > t.base[i] {
@@ -181,9 +196,12 @@ pub fn cell_cost(t: &Terrain, occ: &[i32], col: i32, row: i32) -> i32 {
 }
 
 /// The ONE cell the search is handed. `actor` and `target` in native units, `reach` = Range + the
-/// mover's own CollisionRadius. `avoid_buildings` follows the
-/// datamined global `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS`, and holding it true
-/// scores 435/438 on the corpus against 421/425 without it.
+/// mover's own CollisionRadius. `avoid_buildings` follows the datamined global
+/// `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS` ANDed with the TARGET not flying
+/// (path2026.rs `avoid_buildings16402`), so a ground unit chasing a flying target
+/// takes the nearest in-reach cell whether or not a building box covers it. True on
+/// the whole corpus (every target there is a ground unit or a tower): holding it true
+/// scores 435/438 against 421/425 with the global off.
 ///
 /// Scans rows ascending over `target_cell +- (reach/500 + 1)`, columns ascending
 /// when the ACTOR's x is in the left half of the arena and descending otherwise;
@@ -579,7 +597,12 @@ pub struct Request {
     pub target: (i32, i32),
     /// Range + the mover's own CollisionRadius.
     pub reach: i32,
+    /// `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS && !target->isFlying()` (see
+    /// `choose_goal_cell`).
     pub avoid_buildings: bool,
+    /// The mover is JumpEnabled (or hovering): its cost field prices water at
+    /// WATER_COST (`cell_cost_for`).
+    pub jumper: bool,
 }
 
 /// What the walking unit gets back.
@@ -617,7 +640,7 @@ pub fn plan(t: &Terrain, occ: &[i32], pf: &mut PathFinder, req: &Request, costs:
     if (scol, srow) == (gcol, grow) {
         return Plan::Arrived;
     }
-    let cost = |c: i32, r: i32| cell_cost(t, occ, c, r);
+    let cost = |c: i32, r: i32| cell_cost_for(t, occ, c, r, req.jumper);
     let cols = t.cols;
     let chain = pf.find_path(scol, srow, gcol, grow, true, &cost);
     if chain.is_empty() {
@@ -666,6 +689,11 @@ mod tests {
         assert_eq!(cell_cost(&t, &[0; 16], 0, 0), 5);
         assert_eq!(cell_cost(&t, &[0; 16], 1, 0), 8);
         assert_eq!(cell_cost(&t, &occ, 4, 0), -1);
+        // a JumpEnabled mover pays WATER_COST for the water cell -- before the
+        // occlusion max, like the walker's BLOCKED -- and the same elsewhere
+        assert_eq!(cell_cost_for(&t, &occ, 0, 1, true), Costs::GLOBALS.water);
+        assert_eq!(cell_cost_for(&t, &occ, 0, 0, true), 50);
+        assert_eq!(cell_cost_for(&t, &[0; 16], 1, 0, true), 8);
     }
 
     #[test]

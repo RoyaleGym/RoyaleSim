@@ -569,18 +569,28 @@ pub fn plan_cells(world: &FrameWorld, calib: &Calib, req: &NavRequest) -> (Vec<(
 
 /// KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS (globals.csv TRUE), as the goal-cell
 /// choice reads it: the goal prefers a cell outside every building box. The rule
-/// ANDs it with the target not flying (FlyingHeight > 0);
-/// every corpus target is a ground unit or a tower, and `true` scores 439/442
-/// against 421/425 for `false`.
+/// ANDs it with the target not flying (FlyingHeight > 0), which
+/// `avoid_buildings16402` does; every corpus target is a ground unit or a tower, and
+/// `true` scores 439/442 against 421/425 for `false`.
 pub const AVOID_BUILDINGS_16402: bool = true;
 
+/// The flag the goal-cell choice is handed for THIS target: the global, off for a
+/// flying target. A ground unit whose target hovers over a building box walks to the
+/// nearest in-reach cell, boxed or not.
+#[inline]
+pub fn avoid_buildings16402(target_flying: bool) -> bool {
+    #[cfg(clash_plant = "goal_ignores_flying_target")]
+    let target_flying = false; // PLANT (regression): the global passed unconditionally.
+    AVOID_BUILDINGS_16402 && !target_flying
+}
+
 /// The grid's five prices and heuristic weight, from the ledger (the game copies
-/// them from its pathfinding globals). WATER_COST is only paid by hovering /
-/// jumping movers, which this engine does not route; walkers pay BLOCKED for
-/// water.
+/// them from its pathfinding globals). WATER_COST is paid by hovering / JumpEnabled
+/// movers (`NavRequest.jumper`, path16402.rs `cell_cost_for`); walkers pay BLOCKED
+/// for water.
 pub fn costs16402(calib: &Calib) -> path16402::Costs {
     path16402::Costs {
-        water: 7,
+        water: calib.path_cost_water,
         blocked: calib.path_cost_blocked,
         building: calib.path_cost_building,
         default: calib.path_cost_default,
@@ -648,7 +658,8 @@ fn plan_cells16402(world: &FrameWorld, calib: &Calib, req: &NavRequest) -> (Vec<
         actor: abs(req.pos),
         target: abs(req.goal),
         reach: req.reach / K,
-        avoid_buildings: AVOID_BUILDINGS_16402,
+        avoid_buildings: avoid_buildings16402(req.target_flying),
+        jumper: req.jumper,
     };
     let back = |(c, r): (i32, i32)| -> (i32, i32) {
         match team {
@@ -885,6 +896,8 @@ mod tests {
             step: 1080,
             reach,
             flying: false,
+            target_flying: false,
+            jumper: false,
             ignore: None,
         }
     }
