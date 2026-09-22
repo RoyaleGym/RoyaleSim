@@ -5,9 +5,9 @@ traces of the real client (Clash Royale 15.535.29). This is the primary source b
 `pathfinding.*`, `time.*` and `movement.*` entries of `data/calibration.json`, and behind
 `pathfinder-spec.md`, which turns these measurements into an implementation contract.
 
-Everything here is black-box: the traces record the client's own state, one frame per tick. No
-number below comes from a community engine or from an argument. Where a claim is *not* measured —
-and several of the ones that got repeated loudest are not — it says so.
+The traces carry one frame per 50 ms tick of a real battle. No number below comes from a
+community engine or from an argument. Where a claim is *not* measured — and several of the ones
+that get repeated loudest are not — it says so.
 
 The model the engine selects today was measured a client version later, on 16.402, and is in
 `pathfinding.md`. It supersedes the search and the contact law described here; the frame, the
@@ -48,14 +48,13 @@ its true sample size. Figures below are stated over units or over first-paths, n
 ## 3. How it was measured
 
 Four independent analyses — timing and the speed law; node encoding and consumption; occlusion
-geometry and cost; the full A* fit — were each re-checked by two reviewers, and then re-measured
-from scratch by an independently written implementation, with the loaders, decoders, integer
-arithmetic and Dijkstra rewritten so that a shared bug could not hide in all four. The analysis is
-read-only and reads this repo's `data/oracle-native/` and `data/raw/` (`ROYALESIM_DATA_DIR`
-overrides).
+geometry and cost; the full A* fit — were each re-measured from scratch by an independently
+written implementation, with the loaders, decoders, integer arithmetic and Dijkstra rewritten so
+that a shared bug could not hide in all four. The analysis is read-only and reads this repo's
+`data/oracle-native/` and `data/raw/` (`ROYALESIM_DATA_DIR` overrides).
 
-That final re-measurement takes about four minutes and prints sections A-H (section 10). Every
-number in sections 4-7 below comes from it unless it is attributed to one of the four analyses.
+Every number in sections 4-7 below comes from that final re-measurement unless it is attributed
+to one of the four analyses; section 10 lists what it covers.
 
 ## 4. Frame, time and movement
 
@@ -110,9 +109,6 @@ table, leaves exactly one survivor per card. Every unit of a given card fits the
 | 26000010 | **Skeletons** | 3 | 90 | 90 | 260 / 367 = 70.84 % |
 | 26000018 | **MiniPekka** | 1 | 90 | 90 | 165 / 165 = 100 % |
 | 26000021 | HogRider | 2 | 120 | 120 | 229 / 250 = 91.60 % |
-
-(An earlier pass reported these two `card_id`s the other way round; 26000010 is Skeletons
-and 26000018 is MiniPekka.)
 
 So one `Speed` unit is one native unit per 50 ms tick, i.e. tiles/s = `Speed`/50. At
 18000 subtiles per tile the multiplier is exactly **18**, not the ledger's 15. The
@@ -261,8 +257,8 @@ flag at all**:
 No field in the corpus records the contact impulse, so any push must be inferred from the
 residual (observed step minus predicted step).
 
-Concrete witnesses. `walk/Skeletons_x3.5_y8.5_seed2.jsonl.gz` contains **three** skeletons;
-earlier passes followed only the first. Skeletons #1 and #2 fail the step law on 54/137
+Concrete witnesses. `walk/Skeletons_x3.5_y8.5_seed2.jsonl.gz` contains **three** skeletons, and
+a loader that latches the first non-tower entity sees only one of them. Skeletons #1 and #2 fail the step law on 54/137
 and 53/123 of their moving ticks and **no integer `S` in 1..400 fits either** — e.g. #1 at
 t193 steps (−23, 88) where the law predicts (4, 89), a pure lateral push of (−27, −1)
 while |step| stays 87–92 for `S = 90`. In `meet/Knight_vs_HogRider_seed15` t204–t221 the
@@ -345,12 +341,12 @@ The list is stored **goal-first**; the next waypoint is the **last** element, po
 the tail. Over ~486 000 adjacent pairs in the corpus, **zero** are not 8-neighbours — it
 is a contiguous cell chain with no smoothing or string-pulling.
 
-Paths are weakly monotone toward the goal: no published path in the corpus contains both a
+Paths are weakly monotone toward the goal: no recorded path in the corpus contains both a
 forward and a backward row step. (The 6334 apparent "southward" steps are all side-1
 walkers, whose goal is at low y.) They are *not* column-monotone — 1339 purely horizontal
 steps occur, e.g. (2,15) → (3,15) and (10,29) → (9,29).
 
-The published path is **not anchored at the unit's cell**: the first published node sits
+The recorded path is **not anchored at the unit's cell**: the first recorded node sits
 at Chebyshev distance 2 from the unit's cell in 113 of 128 lane-sweep traces and distance
 1 in the other 15. That distance is a *consequence* of the consumption rule (5.3), not a
 rule of its own — a "drop the first two cells" rule gets the Giant wrong, because both
@@ -361,7 +357,7 @@ comes close, so whether the engine truncates is untested.
 
 ### 5.3 Node consumption: a 1000-unit standoff, tested after the move
 
-This is the mechanism that earlier passes described as "the unit reaches the node". It
+The often-repeated description of this mechanism is "the unit reaches the node". It
 does not. Measuring, for every consecutive tick pair with a structurally stable list,
 the distance from the **post-move** position to the tail node's cell centre:
 
@@ -474,7 +470,7 @@ ever becomes load-bearing.
 
 ### 6.2 Costs
 
-Scored as "is the oracle's own published path exactly cost-minimal between its own
+Scored as "is the oracle's own recorded path exactly cost-minimal between its own
 endpoints", over all **150 first-paths** including the `meet/` traces and side-1 units,
 with a Dijkstra written independently of the analysis scripts:
 
@@ -536,7 +532,7 @@ cols (cx - R)//500 .. (cx + R - 1)//500
 rows (cy - R)//500 .. (cy + R - 1)//500
 ```
 
-Per-axis, never Euclidean. Scored over all 3776 published path lists, the per-axis square
+Per-axis, never Euclidean. Scored over all 3776 recorded path lists, the per-axis square
 gives 0 suboptimal / 0 infeasible, while circle-overlap at `R` gives 45 / 216,
 circle-overlap at `R + 250` gives 27 / 246, and cell-centre-within-Euclid gives 23 / 0.
 
@@ -563,8 +559,8 @@ the towers' radii 1000 and 1400 are exact multiples of the cell size.
 native unit** blocks 155 cells the oracle's own paths use, because `cx − R = 2500` lands
 exactly on a cell boundary for the princess towers and the Giant's control path runs up
 column 4 at rows 11–16. Cannon 600 + Giant 750 = 1350 would block the very column the
-`cannon_dx+0.0` detour takes. Earlier passes bracketed the pad to [0, 400] from the Cannon
-alone; including the towers pins it at 0.
+`cannon_dx+0.0` detour takes. The Cannon alone brackets the pad to [0, 400]; including the
+towers pins it at 0.
 
 **The deployer's own towers must occlude** — without any occluders, 12 first-paths are
 strictly dearer than the optimum.
@@ -577,7 +573,7 @@ equally by the goal-cell exemption below. The globals say `TRUE`; the traces are
 
 **The goal cell is exempt from occlusion.** Four of 150 first-path goal cells lie inside a
 tower box — (6, 49) for MiniPekka and Skeletons, (7, 49) for Skeletons — and across all
-published lists 81 paths end inside an occlusion box, always as the final cell and never
+recorded lists 81 paths end inside an occlusion box, always as the final cell and never
 as an interior one. A planner that refuses occluded cells without exempting the goal finds
 no path at all for the short-reach cards.
 
@@ -604,7 +600,7 @@ enemy left princess tower at (3500, 25500):
 | MiniPekka | 800 | 450 | 1250 | (6, 49) | 790.6 |
 | Skeletons | 500 | 500 | 1000 | (6, 49) | 790.6 |
 
-Two caveats the earlier write-ups did not carry:
+Two caveats that belong with the rule:
 
 1. **The constant is pinned only to about ±75 units.** A constant offset `k` added to
    `Range + CollisionRadius` fits every one of the 150 first paths for any
@@ -650,9 +646,9 @@ driven by the target's motion.
 tick 160, the Cannon entity first appears in a frame at tick 161, and the Giant's path is
 already replanned in that same frame. An engine that waits a tick would be wrong.
 
-The two `repath_Giant` ticks are the strongest occlusion witness in the corpus and were
-nearly discarded — an earlier filter looked for the list *growing*, which skipped tick 161
-(35 → 35 nodes) and picked up ticks 389 and 290 instead, by which point the Giant has
+The two `repath_Giant` ticks are the strongest occlusion witness in the corpus and are easy to
+miss: a filter that looks for the node list *growing* skips tick 161
+(35 → 35 nodes) and picks up ticks 389 and 290 instead, by which point the Giant has
 walked past the Cannon and both paths are dead-straight single columns that any model
 reproduces. At tick 161 the two traces diverge in exactly the right way: with the Cannon at
 (3500, 11500) (box cols 5–8, rows 21–24) the route detours to column 4 for those rows; with
@@ -660,7 +656,7 @@ it at (2500, 11500) (box cols 3–6) the route swings out to column 7. Each path
 own box and violates the other's.
 
 The replan is **whole-route**, not a spliced local bypass: in the `building_Giant` traces
-the detour appears in the *first* path the unit ever publishes, ten rows (5 tiles) ahead of
+the detour appears in the *first* path the unit is ever recorded with, ten rows (5 tiles) ahead of
 it, and in `repath_Giant/row11.5_dx+0.0` the replan changes rows 42–46, far beyond the
 obstacle. Which side it takes falls out of the cost, not a handedness constant — the two
 informative offsets go opposite ways (dx+0 left at 210.28 vs 217.36; dx−1 right at 202.43
@@ -753,8 +749,8 @@ fitted to the recorded node lists is missing those insertions. (The step law hol
 142 of these ticks, so movement is untouched; the defect is purely "which node was
 current".)
 
-An earlier explanation attributed a large single-tick heading swing to proximity —
-"31.57° with the unit 113.4 units from the node centre". The script's own output says
+A large single-tick heading swing is sometimes attributed to proximity —
+"31.57° with the unit 113.4 units from the node centre". The measurement's own output says
 1293.0 units for that sample, at which a 60-unit step can rotate the bearing by at most
 2.66°. The proximity story is arithmetically impossible; the cause is the mid-tick repath
 above. Across all 128 lane-sweep traces, **0 of 127** heading changes greater than 10° with
@@ -762,8 +758,9 @@ a genuinely unchanged target node are consistent with the heading law at both ti
 
 ## 7. What survived, what did not
 
-Each analysis was reviewed by two independent readers who re-implemented its tests. The verdicts
-below are from the final re-measurement over all 150 units.
+Each analysis was re-measured from scratch by an independently written implementation — loaders,
+decoders, integer arithmetic and Dijkstra rewritten — so that a shared bug could not hide in all
+four. The verdicts below are from that re-measurement, over all 150 units.
 
 ### Survived unchanged
 
@@ -781,7 +778,7 @@ below are from the final re-measurement over all 150 units.
 | Occlusion = half-open AABB at `CollisionRadius`, per-axis | 0/3776; closed box 57 blocked-but-used |
 | Goal truncation at `Range + CollisionRadius` to the target *centre* | 150/150 including moving targets and side 1 |
 | Replan is event-driven: goal cell moves, or a friendly building spawns | 137/137 predicted flips, 0 over-predictions |
-| Whole-route replan, not a local splice | Detour in the first published path, 5 tiles ahead |
+| Whole-route replan, not a local splice | Detour in the first recorded path, 5 tiles ahead |
 | `first_move = first_seen + DeployTime/TICK_MS` | 149/150 units |
 
 ### Refuted or materially corrected
@@ -811,11 +808,11 @@ below are from the final re-measurement over all 150 units.
 
 ### A corpus pitfall worth keeping
 
-The convenient loader latches the first non-tower entity of one side and follows only that one,
-and three of the four analyses used it. That hid 107 step-law failures inside one analysis's own
-`walk/Skeletons` trace, made every opposing-side unit invisible, and caused the `meet/` directory
-— the only traces with two mobile units, a moving target, or a side-1 walker — to be skipped
-entirely by two of them. Enumerate `(side, generation_key)` pairs instead; it is fifteen lines.
+The convenient loader latches the first non-tower entity of one side and follows only that one.
+It hides 107 step-law failures inside the `walk/Skeletons` trace, makes every opposing-side unit
+invisible, and skips the `meet/` directory entirely — the only traces with two mobile units, a
+moving target, or a side-1 walker. Enumerate `(side, generation_key)` pairs instead; it is fifteen
+lines.
 
 ## 8. Open questions
 
@@ -893,8 +890,8 @@ The regression gates these measurements support, in increasing strictness:
 
 ## 10. Reproducing
 
-The measurement is reproducible from the corpus. About four minutes, read-only, printing
-sections A-H:
+These figures were measured over the offline corpus, which is not distributed, so the run itself
+is not reproducible from a clone. What it covered, section by section:
 
 | Section | Content |
 |---|---|
@@ -908,4 +905,5 @@ sections A-H:
 | G, G2 | Occlusion radius brackets, box shape, mover pad, goal exemption, enemy occlusion |
 | H | Goal truncation rule and its admissible constant window |
 
-The analysis and review scripts are read-only and modify nothing under `data/`.
+The rules these sections support are gated inside this repo by `tests/oracle2026.rs` and
+`tools/oracle_diff.py`, which a reader can run against any trace in the oracle format.

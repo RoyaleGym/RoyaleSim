@@ -522,8 +522,7 @@ fn a_poison_leaves_a_crown_tower_its_own_percent() {
     assert!(poison.building_pct == 100, "the Poison row ships no BuildingDamagePercent");
 
     // AND THE BEHAVIOUR. ~~the column assertions alone~~ -- they never ran a tick, so
-    // they could not see `buff_pulse_pass` dropping the percent it had just computed
-    // (a review finding).
+    // they could not see `buff_pulse_pass` dropping the percent it had just computed.
     let s = bare(config());
     let (tower, tp) = s
         .entities()
@@ -823,8 +822,7 @@ fn the_engine_runs_the_old_arms_too() {
     // against the shipped arm -- EQUAL where the two arms provably agree on this
     // scene, DIFFERENT otherwise -- so a before / after on the harness is meaningful.
     // ~~three foils were computed and discarded with `let _ = ...`~~: that let
-    // `primary_target_only` be a no-op in spell.rs for a whole pass (a review
-    // finding).
+    // `primary_target_only` be a no-op in spell.rs for a whole pass.
     let scene = |cfg: BattleConfig| {
         let mut s = bare(cfg);
         let near = placed(&mut s, Team::Blue, "Knight", spot());

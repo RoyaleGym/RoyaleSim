@@ -41,8 +41,8 @@ pub fn config() -> BattleConfig {
 
 /// The shipped config with the FRAME-PLANNED pathfinder, the FIXED-DISTANCE
 /// knockback and the OWN-FRAME formation clamp selected. The shipped search
-/// (path16402.rs, pathfinding.PATH_SEARCH = client16402) is the client's and is NOT
-/// seat-symmetric -- its scan and
+/// (path16402.rs, pathfinding.PATH_SEARCH = client16402) reproduces the client's recorded
+/// routes and is NOT seat-symmetric -- its scan and
 /// neighbour orders are in absolute arena coordinates, so rotated twins can publish
 /// different equal-cost routes. The shipped knockback (move16402.rs, the measured
 /// ladder) is frame-free arithmetic except at two absolute-frame points the game

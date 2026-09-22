@@ -43,6 +43,7 @@ The ledger's job is to keep those two kinds of number apart, permanently and vis
 | Status | Meaning |
 |---|---|
 | `guess` | nobody has evidence; a placeholder so the engine runs |
+| `disputed_existence` | the key names something no shipped data or recording shows exists; ranked with `guess`, because nobody has evidence either way |
 | `hypothesis` | an argument from the shape of the data, not an observation |
 | `community` | multiple independent third parties agree, with no primary source |
 | `datamined` | taken from shipped game data — state the file and the vintage |
@@ -75,7 +76,7 @@ Three bodies of evidence sit behind the `measured` entries:
 | Source | Client | Where |
 |---|---|---|
 | Offline traces | 15.535.29 | `data/oracle-native/` (gitignored, large) |
-| Live captures | 16.402 | recorded by the client instrument in the private RoyaleLive repo |
+| Live captures | 16.402 | recorded from the real game by the client instrument; each entry names the capture it rests on, and the recordings are not distributed |
 | Shipped game data | 2016-2018 vendored, 2023 cross-reference | `data/raw/` |
 
 Where the two clients disagree, **the live 16.402 client wins** and the entry says so: the target
@@ -88,9 +89,11 @@ is re-measured.
 
 ## Open keys and what would settle them
 
-Everything below is at `guess`, `hypothesis` or `datamined`-but-unverified as of 2026-09-21, which
+Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unverified, which
 means the engine runs on a placeholder and the behaviour it produces is not evidence about the
-real game. Each row names what a recording would have to show.
+real game. Each row names what a recording would have to show. The ledger is the authority; this
+table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
+disagree. Of the 148 keys with a status, 48 are `measured` and one is an `owner_ruling`.
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
@@ -100,18 +103,36 @@ real game. Each row names what a recording would have to show.
 | `pathfinding.TIE_BREAK` | `ortho_first_placeholder` | guess, LOW | read only by the trace-fitted arm (`path2026.rs`); the selected arm reproduces the published node lists outright, so the key no longer gates it |
 | `combat.DAMAGE_ARITHMETIC` | `integer` | guess, LOW | hit counts to kill a tower at known levels |
 | `combat.CROWN_TOWER_DAMAGE_ROUNDING` | `ceil_kept_share` | community, MEDIUM | a crown tower's displayed hp before and after a spell at two card levels |
-| `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK` | 15 | hypothesis, LOW | a projectile's flight time over a known distance at 60 fps |
 | `targeting.LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET` | 25 | datamined, LOW | vendor the modern data, or measure a target held past its range |
 | `targeting.LOGIC_XPOS_BASED_TOWER_TARGETING` | true | datamined, LOW | a centre-column deploy: which tower it walks at |
 | `match.LOGIC_BATTLE_START_COOLDOWN_MS` | 4500 | datamined, LOW | any recording of a match start |
 | `match.KING_ACTIVATE_TIME_MS` | 3300 | datamined, MEDIUM | a recording of what the delay actually delays |
 | `arena.ARENA_SOURCE_VINTAGE` | ~2018 tilemap | datamined, MEDIUM | a calibrated screenshot of a live arena; bridge width varied by arena even in 2018 |
-| `knockback.*` (8 keys) | fixed-distance slide | guess / community, LOW | the live ladder is characterised (`mechanics.md`, "Knockback"); porting it closes these |
+| `knockback` (5 of 8 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW` and `ATTACK_RESET` are measured and `DIRECTION_ROLLING` is an `owner_ruling` |
 | `spells.*` (8 keys) | see `spell-spec.md` | guess / hypothesis, LOW | each key in `spell-spec.md` carries its own deciding observation |
 | `status.*` (stun and buff timing) | see `spell-spec.md` | community / hypothesis | likewise |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal — see `architecture.md`, Determinism |
 
 The keys that carry the measured 2026 movement and pathfinding model — `time.TICK_MS`,
-`time.SPEED_TO_SUBTILES_PER_TICK`, `pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the
-`movement.*` section, and the cost, goal and replan keys — are at `measured`/HIGH. Their evidence
-is in `pathfinding.md` and `movement-measurements.md`.
+`time.SPEED_TO_SUBTILES_PER_TICK`, `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`,
+`pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the `movement.*` section, and the cost, goal
+and replan keys — are at `measured`/HIGH. Their evidence is in `pathfinding.md` and
+`movement-measurements.md`.
+
+These keys were measured later, on the 16.402 corpus, and are `measured` too:
+
+| Key | What it settles |
+|---|---|
+| `match.TICK_ORDER` | attack updates before move updates, the move pass in creation order |
+| `movement.JUMP_WATER_HOP` | a `JumpEnabled` troop's river hop |
+| `movement.DYING_UNIT_VISIBILITY` | whether a dying neighbour is still an obstacle this tick |
+| `combat.STAT_BASE_LEVEL`, `combat.TOWER_HITPOINT_LADDER` | level scaling and the crown-tower ladder |
+| `combat.ATTACK_CYCLE`, `combat.PROJECTILE_LAUNCH`, `combat.KAMIKAZE_DEATH` | the attack cycle, the launch point, the kamikaze death |
+| `lifetime.HP_DECAY` | a building's hit-point drain over its lifetime |
+| `formation.LAYOUT`, `DEPLOY_STAGGER`, `GROUND_Y_CLAMP` | where a card's summons stand, and when each appears |
+| `spawner` (6 of 10 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout |
+| `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
+| `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
+
+The `hide.*` and `status.*` sections are community and hypothesis throughout; each key carries the
+observation that would settle it.

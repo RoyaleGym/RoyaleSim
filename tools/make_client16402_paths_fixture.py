@@ -5,16 +5,14 @@
     python tools/make_client16402_paths_fixture.py --check    # diff only (exit 1 on a difference)
 
 WHERE THE INPUTS ARE
-    The live captures and the sampler that turns them into cases come from the sibling RoyaleLive
-    checkout, the client instrument that records ground-truth traces from the real game:
-      ROYALELIVE_DIR      the RoyaleLive folder (default ../RoyaleLive next to this repo)
-      ROYALELIVE_SAMPLER  the dotted module path of the sampler inside it; when unset it is
-                          read from <ROYALELIVE_DIR>/.sampler
-      ROYALELIVE_REPORTS  the captures folder (default <ROYALELIVE_DIR>/reports)
+    The live captures come from the client instrument that records ground-truth traces from
+    the real game (CR 16.402). Two variables name them, neither with a default:
+      ROYALELIVE_REPORTS  the captures folder
+      ROYALELIVE_SAMPLER  the file that turns a capture into cases, as a filesystem path
     The offline 15.535 traces stay in this repo (data/oracle-native/, gitignored).
 
 WHAT IT HOLDS
-    Every first path the LIVE client (CR 16.402, the RoyaleLive captures) and the offline
+    Every first path the LIVE client (CR 16.402) and the offline
     oracle (CR 15.535, data/oracle-native/lane_sweep_Knight) ever published for a ground troop
     with a resolvable card row, exactly as the sampler samples them: the mover's
     position on the tick BEFORE the list appeared (the position the
@@ -28,11 +26,9 @@ WHAT IT HOLDS
     position is the previous tick's, so the goal cell the game chose is not recoverable and the
     gate skips them (they are listed by name in the test so a new one cannot hide).
 
-    CASE NAMES are `<capture>:<entity>:<Card>`. A live capture recorded from both seats
-    reaches the sampler twice; the fixture names the seats A and B, so a case name carries the
-    capture and the seat and nothing else.
-
-    The same corpus scored the same way in Python: 435/438 live, 128/128 offline.
+    CASE NAMES are `<capture>:<entity>:<Card>`, the seats named A, B, ... in sort order
+    (tools/capture_names.py), so a case name carries the capture and the seat and nothing
+    else. Names are unique: a capture reaching the sampler twice contributes its cases once.
 """
 from __future__ import annotations
 
@@ -40,45 +36,34 @@ import importlib
 import json
 import os
 import pathlib
-import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIVE_DIR = pathlib.Path(os.environ.get("ROYALELIVE_DIR")
-                        or os.path.join(os.path.dirname(ROOT), "RoyaleLive"))
-# Which module in that checkout does the sampling is the checkout's own business, so this
-# repo does not name it: take it from the environment, or from a one-line `.sampler` file
-# beside the captures.
-_sampler_file = LIVE_DIR / ".sampler"
-SAMPLER = (os.environ.get("ROYALELIVE_SAMPLER")
-           or (_sampler_file.read_text(encoding="utf-8").strip()
-               if _sampler_file.is_file() else ""))
-if not SAMPLER:
-    sys.exit(f"set ROYALELIVE_SAMPLER, or put the sampler's dotted module path in {_sampler_file}")
-if not (LIVE_DIR / pathlib.Path(*SAMPLER.split("."))).with_suffix(".py").is_file():
-    sys.exit(f"sampler {SAMPLER} not found under {LIVE_DIR} (set ROYALELIVE_DIR)")
-sys.path.insert(0, str(LIVE_DIR))
-LE = importlib.import_module(SAMPLER)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from capture_names import argv_guard, public_name, seat_letters  # noqa: E402
 
-if os.environ.get("ROYALELIVE_REPORTS"):
-    LE.LIVE = pathlib.Path(os.environ["ROYALELIVE_REPORTS"])
+LIVE = os.environ.get("ROYALELIVE_REPORTS")
+if not LIVE:
+    sys.exit("set ROYALELIVE_REPORTS to the folder holding the *.native.oracle.jsonl.gz captures")
+# Which file does the sampling is the caller's business, so this repo neither names nor
+# guesses it: it is a path, given outright. If that file sits in a package, import it under
+# the name the package gives it, so its own imports resolve.
+SAMPLER = os.environ.get("ROYALELIVE_SAMPLER")
+if not SAMPLER:
+    sys.exit("set ROYALELIVE_SAMPLER to the path of the file that samples a capture into cases")
+_file = pathlib.Path(SAMPLER).resolve()
+if not _file.is_file():
+    sys.exit(f"no sampler at {_file} (ROYALELIVE_SAMPLER)")
+_parts = [_file.stem]
+_root = _file.parent
+while (_root / "__init__.py").is_file():
+    _parts.insert(0, _root.name)
+    _root = _root.parent
+sys.path.insert(0, str(_root))
+LE = importlib.import_module(".".join(_parts))
+LE.LIVE = pathlib.Path(LIVE)
 
 OUT = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "oracle2026", "client16402_first_paths.json")
-
-# Seats. A sampler name is `<stamp>[-<seat>][.<battle>]:<entity>:<Card>`; two names from one
-# capture differ only in the `<seat>` field. The fixture rewrites it to a letter in sort order
-# (A, B, ...), so case names are stable and carry only the capture and the seat. Stamps are
-# 8+6 digits and never match.
-SEAT_TAG = re.compile(r"-(\d{5})(?=[.:])")
-
-
-def seat_letters(names: list[str]) -> dict[str, str]:
-    tags = sorted({m.group(1) for n in names for m in [SEAT_TAG.search(n)] if m})
-    return {tag: chr(ord("A") + i) for i, tag in enumerate(tags)}
-
-
-def case_name(raw: str, seats: dict[str, str]) -> str:
-    return SEAT_TAG.sub(lambda m: "-" + seats[m.group(1)], raw)
 
 # Known residuals: units chasing a moving troop (see the module docstring). Anything else that
 # fails the gate is a regression.
@@ -94,11 +79,13 @@ def build() -> dict:
     offline = LE.offline_samples("lane_sweep_Knight")
     seats = seat_letters([s.name for s in live] + [s.name for s in offline])
     cases = []
+    seen: dict[str, dict] = {}
     for group, samples in (("live_16402", live), ("offline_15535_lane_sweep", offline)):
         for s in samples:
             occl = [[x, y, r] for (x, y, r) in s.occluders] + [[x, y, r] for (x, y, r) in s.enemy_occluders]
-            cases.append({
-                "name": case_name(s.name, seats),
+            name = public_name(s.name, seats)
+            case = {
+                "name": name,
                 "group": group,
                 "card": s.card,
                 "side": s.side,
@@ -107,8 +94,18 @@ def build() -> dict:
                 "reach_native": s.reach,
                 "occluders_native": occl,
                 "oracle_cells_goal_first": [[c, r] for (c, r) in s.oracle[::-1]],
-                "moving_target": case_name(s.name, seats) in MOVING_TARGET,
-            })
+                "moving_target": name in MOVING_TARGET,
+            }
+            # One case per name. A capture the folder carries under two names reaches the
+            # sampler twice and would otherwise be scored twice by the gate; two DIFFERENT
+            # measurements under one name is a naming fault and must not be papered over.
+            if name in seen:
+                if seen[name] != case:
+                    raise SystemExit(f"two different cases named {name}")
+                continue
+            seen[name] = case
+            cases.append(case)
+    assert len({c["name"] for c in cases}) == len(cases)
     return {
         "$comment": "GENERATED by tools/make_client16402_paths_fixture.py from the live trace corpus "
                     "and the offline lane_sweep_Knight traces; do not edit by hand. oracle_cells_goal_first is the "
@@ -119,11 +116,9 @@ def build() -> dict:
 
 
 def main() -> None:
-    # Any other argument used to fall through to a rewrite (2026-09-21: `--help` regenerated
-    # the gate fixture, 570 -> 736 cases); the docstring is the help.
-    if sys.argv[1:] not in ([], ["--check"]):
-        print(__doc__)
-        sys.exit(0 if sys.argv[1:] in (["-h"], ["--help"]) else 2)
+    # Any other argument used to fall through to a rewrite of the committed gate fixture;
+    # the docstring is the help.
+    argv_guard(sys.argv[1:], __doc__)
     fixture = build()
     text = json.dumps(fixture, indent=1) + "\n"
     if "--check" in sys.argv:

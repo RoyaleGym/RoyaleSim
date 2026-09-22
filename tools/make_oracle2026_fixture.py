@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import itertools
 import json
 import re
 import sys
@@ -187,7 +188,7 @@ def case_for(path: Path, family: str) -> dict | None:
     # The tracked unit is the first MOVER: a building_Giant trace's lowest generation
     # key is the Cannon / Bomb Tower / Tesla that was dropped in front of the Giant.
     for (side, key), track in sorted(by_unit.items()):
-        first_move = next((t1 for (_t0, a), (t1, b) in zip(track, track[1:])
+        first_move = next((t1 for (_t0, a), (t1, b) in itertools.pairwise(track)
                            if (a["x"], a["y"]) != (b["x"], b["y"])), None)
         if first_move is None:
             continue

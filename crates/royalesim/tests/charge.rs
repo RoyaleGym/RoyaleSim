@@ -1072,8 +1072,8 @@ fn the_battle_ram_dies_on_its_charged_hit_and_its_barbarians_take_over() {
     assert_eq!(hits[0].1, want(special), "the one landed hit is DamageSpecial ({hits:?})");
     assert!(s.entity(ram).is_none(), "KAMIKAZE: the Ram must be gone on the tick its hit lands");
     // the death spawn materialises in the next tick's Spawn phase (the engine's
-    // deferral; the game shows the Barbarians on the hit frame itself -- the
-    // spawner / death-spawn timing of the parity report's item 3)
+    // deferral; the recording shows the Barbarians on the hit frame itself, so the
+    // engine's are one tick late)
     s.tick();
     let barbs = find_live(&s, Team::Blue, "Barbarian");
     assert_eq!(barbs.len(), 2, "the Ram's death spawn: two Barbarians ({})", barbs.len());

@@ -13,6 +13,15 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLE = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "replay", "sample.json")
+CARDS = os.path.join(ROOT, "data", "derived", "cards.json")
+# SKIPS, LOUDLY, when data/derived/cards.json is absent: it is generated, not tracked, and a
+# bare FileNotFoundError would name the missing file instead of the command that makes it.
+# A skip here is not a pass.
+needs_cards = pytest.mark.skipif(
+    not os.path.exists(CARDS),
+    reason=f"{CARDS} is absent; run python tools/extract_cards.py --vintage 2018 --out {CARDS} first"
+    " -- a skip here is not a pass",
+)
 
 
 def _load():
@@ -104,8 +113,9 @@ def test_spawn_tick_falls_back_to_first_seen_without_a_transition(m):
     assert "no transition" in why
 
 
+@needs_cards
 def test_classification_tells_a_deploy_summon_from_a_spawned_unit(m):
-    with open(os.path.join(ROOT, "data", "derived", "cards.json"), encoding="utf-8") as fh:
+    with open(CARDS, encoding="utf-8") as fh:
         doc = json.load(fh)
     cards = {c["name"]: c for c in doc["cards"]}
     # a level-11 Tombstone: its own building hp against its Skeletons'
@@ -219,6 +229,7 @@ def test_fnv1a64_matches_the_harness_known_answers(m):
     assert m.fnv1a64(b"a") == "af63dc4c8601ec8c"
 
 
+@needs_cards
 def test_the_committed_sample_is_the_documented_battle(m):
     with open(SAMPLE, encoding="utf-8") as fh:
         fx = json.load(fh)
@@ -233,7 +244,7 @@ def test_the_committed_sample_is_the_documented_battle(m):
     assert fx["unplayable_reasons"] == []
     assert fx["ticks"]["last"] == 1440
     # classified against this tree's cards.json (a mismatch is a NOTE in the harness)
-    with open(os.path.join(ROOT, "data", "derived", "cards.json"), "rb") as fh:
+    with open(CARDS, "rb") as fh:
         assert fx["cards_json_fnv1a64"] == m.fnv1a64(fh.read()), "rerun the maker on the sample"
     assert fx["capture"] == "20260920-003751-B"
     assert fx["placements"] == ["20260920-003751-A", "20260920-003751-B"]

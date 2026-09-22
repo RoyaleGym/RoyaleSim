@@ -706,8 +706,10 @@ mod tests {
         let mut con = Contact { offset: 190, ..Default::default() };
         let m = move_towards((5000, 5000), 5000, 15000, 60, false, &mut con, (0, 256), false, |_, _| false, 36, 64);
         let (sx, sy) = (m.x - 5000, m.y - 5000);
-        let ang = (sx as f64).atan2(sy as f64).to_degrees().abs();
-        assert!((ang - 70.84).abs() < 2.0, "angle {ang}");
+        // 70.84 degrees off the +y axis is a tangent of 2.857, i.e. sx/sy = 2.857.
+        // The +-2 degree window is a ratio in [2.58, 3.24], asserted in hundredths.
+        assert!(sx > 0 && sy > 0, "the step turned out of the quadrant: {sx},{sy}");
+        assert!((258..=324).contains(&(sx * 100 / sy)), "ratio {sx}/{sy}");
         assert!((58..=60).contains(&isqrt(sx * sx + sy * sy)), "length {}", isqrt(sx * sx + sy * sy));
     }
 

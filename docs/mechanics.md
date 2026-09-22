@@ -10,8 +10,10 @@ Three things are worth stating up front, because they bound everything below:
   Musketeer, Giant, Hog Rider, Minions, Baby Dragon, Valkyrie, Skeleton Army, Cannon, Tesla,
   Fireball, Zap, Arrows, The Log, Prince, Wizard, Goblin Barrel. Those are the cards the engine
   has been checked on. The catalogue is much larger and loads, but see "Cards outside the slice".
-- **Card stats are ~2018 vintage** by design (`data/raw/retroroyale-2018/`). Movement and
-  pathfinding are measured against the live 2026 client; card numbers are not.
+- **Card stats are the 15.535.29 client's own card data** (`tools/extract_cards.py`; the 2018
+  table stays beside it as `cards-2018.json`, which the format-3 snapshot fixture reads).
+  Movement, pathfinding, level scaling and the crown-tower ladder are all measured against
+  2026 recordings (`combat.STAT_BASE_LEVEL`, `combat.TOWER_HITPOINT_LADDER`).
 - **The target is behavioural fidelity plus bit-identical determinism within a build**, not a
   tick-for-tick reproduction of a real match. The real intra-tick order and the real PRNG are out
   of reach.
@@ -29,18 +31,19 @@ Three things are worth stating up front, because they bound everything below:
 | Movement and contact | `move16402.rs` (selected), `collide.rs` | the measured 16.402 separation, avoidance and step law |
 | Melee and ranged attacks | `combat.rs` | windup, cooldown, splash, `self_as_aoe_center`. Integer damage; the rounding law is a guess (`combat.DAMAGE_ARITHMETIC`) |
 | Projectiles, shields, death damage, lifetime expiry | `combat.rs`, `state.rs` | |
-| Multi-unit deploy formation | `state.rs::formation` | the formation shape is the engine's, not the game's, except where `pathfinding.md` records a measured spawn layout |
+| Multi-unit deploy formation | `formation.rs`, `state.rs::formation_members` | the ring, line and spiral the corpus shows, with the per-member deploy stagger and the ground-column clamp (`formation.LAYOUT` / `DEPLOY_STAGGER` / `GROUND_Y_CLAMP`, measured). The old square grid stays runnable as the `engine_grid` arm. `tests/formations.rs` |
 | Deploy time | `state.rs` | units are inactive while `deploy_ms > 0` |
 | Hide (Tesla) | `state.rs::hide_pass`, `entity.rs::HideState`, `target.rs`, `combat.rs::resolve` | `HidesWhenNotAttacking` / `HideTimeMs` / `UpTimeMs` from `cards.json`: under at deploy end, rising for `UpTimeMs` when a targetable enemy is in sight, under again after `HideTimeMs` without a target; hidden = untargetable and immune (except lifetime expiry), stun and knockback pass over it. Rules the columns do not settle are the `hide.*` ledger keys, community-sourced. `tests/hide.rs` |
-| Periodic spawners, death spawn | `state.rs::spawner_pass`, `state.rs::phase_reap`, `card.rs::SpawnerDef` / `DeathSpawnDef` | the `Spawn*` / `DeathSpawn*` columns (huts, Witch, Dark Witch; Tombstone, Golem, Lava Hound, Battle Ram): waves on the data's cadence, one-tick emission latency, stun pauses the timer, `SpawnLimit` counts the spawner's own live units, death spawns laid out on the engine grid around the death point. Open rules are the `spawner.*` keys, community/guess. `tests/spawner.rs` |
-| Charge (Prince, Dark Prince, Battle Ram) | `state.rs::charge_pass`, `effective_speed`, `combat.rs::fire` | `ChargeRange` / `DamageSpecial` / `ChargeSpeedMultiplier`: the run-up accumulates `tdiv(L x 1000, ChargeRange)` permille per walking tick from the requested step `L = min(S, dist, 250)`, charged at 10000; the speed doubles from the next walking tick (measured on the corpus: the Prince's 43rd walking tick) and the next landed hit deals `DamageSpecial`; consumed by the hit, reset by a stun or a landed knockback. The `charge.*` keys hold what the corpus has not yet separated. Kamikaze is not read. `tests/charge.rs` |
+| Periodic spawners, death spawn | `state.rs::spawner_pass`, `state.rs::phase_reap`, `card.rs::SpawnerDef` / `DeathSpawnDef` | the `Spawn*` / `DeathSpawn*` columns (huts, Witch, Dark Witch; Tombstone, Golem, Lava Hound, Battle Ram): waves on the data's cadence, one-tick emission latency, stun pauses the timer, `SpawnLimit` counts the spawner's own live units, death spawns on a ring of `DeathSpawnRadius` on the dying unit's facing (`spawner.DEATH_SPAWN_LAYOUT = facing_ring`, measured). Six `spawner.*` keys are measured -- EMISSION_TIMING, FIRST_WAVE, START_TIME_ORIGIN, SPAWNED_DEPLOY_TIME, DEATH_SPAWN_DEPLOY_TIME_DEFAULT, DEATH_SPAWN_LAYOUT; SPAWN_POINT, PAUSE_ANCHOR, LIMIT_RULE and DEATH_SPAWN_RADIUS_DEFAULT are still community / hypothesis / guess. `tests/spawner.rs` |
+| Charge (Prince, Dark Prince, Battle Ram) | `state.rs::charge_pass`, `effective_speed`, `combat.rs::fire` | `ChargeRange` / `DamageSpecial` / `ChargeSpeedMultiplier`: the run-up accumulates `tdiv(L x 1000, ChargeRange)` permille per walking tick from the requested step `L = min(S, dist, 250)`, charged at 10000; the speed doubles from the next walking tick (measured on the corpus: the Prince's 43rd walking tick) and the next landed hit deals `DamageSpecial`; consumed by the hit, reset by a stun or a landed knockback. The `charge.*` keys hold what the corpus has not yet separated. `Kamikaze` is read (`combat.KAMIKAZE_DEATH = at_fire`): a Battle Ram dies on the tick its one hit lands and breaks into its two Barbarians; a delayed kamikaze (`KamikazeTime`) is the named gap. `tests/charge.rs` |
 | Stun | `entity.rs`, `state.rs`, `status.*` keys | honoured by move and attack; applied by Zap. Attack reset, retarget-on-resume and the deploy-pause question are each their own ledger key |
+| Status effects | `status.rs`, `state.rs::buff_pulse_pass` | a per-entity buff list: `SpeedMultiplier` and `HitSpeedMultiplier` compose into the move and attack arithmetic (`status.BUFF_STACKING`, `status.SAME_BUFF_REAPPLY`, `movement.BUFF_SPEED_COMPOSITION`), a full-stop buff drives the hold (`status.FULL_STOP_BUFF_IS_STUN`), and damage over time and heal pulse on their own clock (`status.BUFF_PULSE_AMOUNT` / `BUFF_PULSE_TIMING`), so Poison and Earthquake load as pulsing areas. `tests/status.rs` |
 | Elixir, hand, cycle | `state.rs` | double elixir when `MANA_SPEED_UP_WHEN_REMAINING_SECONDS` remain, and in overtime |
 | Match timing | `state.rs::phase_judge` | regular time, 60 s sudden-death overtime, 3-crown instant win |
 | Post-overtime tiebreak | `state.rs::overtime_tiebreak` | when overtime runs out level on crowns, the side whose weakest standing crown tower is weaker loses (`match.OVERTIME_TIEBREAK`, community-sourced, `lowest_tower_hp_absolute`); an exact tie stays a Draw. `tests/tiebreak.rs` |
 | King activation | `state.rs` | on king damage or a lost princess tower, after `match.KING_ACTIVATE_TIME_MS` |
-| Spells: Fireball, Arrows, Zap, The Log, Goblin Barrel | `spell.rs`, `card.rs`, `state.rs` | `SpellShape` Projectile / AreaEffect / Rolling. Fed 2018 data only. Territory rules per card. Spec and sourcing: `spell-spec.md` |
-| Knockback | `spell.rs::settle` | instant (`knockback.DURATION_MS` 0); respects `IgnorePushback` / `PushbackAll`; a push ending on water, out of arena or in a footprint is resolved to the unit's own bank. See "Knockback" below |
+| Spells: Fireball, Arrows, Zap, The Log, Goblin Barrel | `spell.rs`, `card.rs`, `state.rs` | `SpellShape` Projectile / AreaEffect / Rolling. Fed the 15.535 card data. Territory rules per card. Spec and sourcing: `spell-spec.md` |
+| Knockback | `move16402.rs::start_pushback` / `pushback_step`, armed in `state.rs::arm_ladder` | the measured ladder (`knockback.DISPLACEMENT_LAW = client16402`): a speed of 25n native units per tick toward a point `min(Pushback, MAX_PUSHBACK_LENGTH)` away, falling by 25 each tick, with one 25-unit back-step at the end and the path dropped when it stops. `knockback.STACKING = first_wins_while_active`; `IgnorePushback` / `PushbackAll` are honoured; a landed push resets the attack and keeps the target (`knockback.ATTACK_RESET`, measured). The earlier fixed-distance slide stays runnable under the same key. See "Knockback" below |
 | Crown tower damage reduction | `combat.rs` | `combat.CROWN_TOWER_DAMAGE_ROUNDING`, ceil, community-sourced |
 | Determinism, save/load | `lib.rs`, `state.rs` | seeded PCG32, `state_hash` every tick, snapshot fingerprints |
 | Seat symmetry | `tests/mirror.rs` and friends | 180-degree rotation, checked every tick; see `architecture.md` |
@@ -53,20 +56,21 @@ engine is usable for your purpose.
 
 | Mechanic | What happens instead |
 |---|---|
-| Battle Ram's Kamikaze, `SpawnAngleShift`, `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: the Ram survives its charged hit and keeps hitting; every spawn wave and death spawn is gridded ahead of or around its source |
-| Dash, morph, jump, chained hits, multiple projectiles | absent. The measured jump behaviour (a `JumpEnabled` unit hopping water) is described in `pathfinding.md` but not implemented |
-| Status sources other than Zap's stun — freeze, slow, rage, heal | absent. Rocket and Freeze *load* (their data has an implemented shape) but no test covers either; Rage is refused as unsupported |
+| `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: a death spawn's units land on the facing ring and nothing pushes them apart or holds them off a minimum radius, so a crowded death point leaves them closer together than the game does |
+| Dash, morph, chained hits, multiple projectiles | absent, and so is the attack jump (Mega Knight, Assassin). The river hop IS modelled (`jump16402.rs`, `movement.JUMP_WATER_HOP`) |
+| Rage and Heal | refused by the loader, and out loud: each is a `SummonCharacter` spell whose area effect is released by the summon, which the loader does not walk. The other status sources are modelled — see the Modelled table |
 | Evolutions, champions, tower troops | post-2023; no public data |
 | The real intra-tick order and the real PRNG | out of reach, and not a goal |
 
 ### Cards outside the slice
 
-The engine loads the whole 65-card catalogue (52 troops, 6 buildings, 7 spells as of 2026-09-21;
-`Battle(card_names=None)` lists it), and **19 of those 65 carry a mechanic `card.rs` never
-parses**. Measured on the catalogue: the probability that an 8-card deck drawn uniformly
-from it contains at least one such card is **0.948**, and the probability that two such decks are
-both clean is **0.003**. If you are picking decks programmatically, draw from `cards.json`'s own
-`thin_slice` key rather than from the catalogue — and parse it, never hand-copy it.
+`data/derived/cards.json` holds **144 cards** (101 troops, 16 buildings, 27 spells) and 334
+units. The engine loads every simulable non-tower card of it;
+`Battle(card_names=None).catalogue_json()` lists what loaded and `CardDb::rejected` what did
+not, with the reason. Some of the loaded cards carry a mechanic `card.rs` never parses, so an
+8-card deck drawn uniformly from the whole catalogue is much more likely than not to hold one.
+If you are picking decks programmatically, draw from `cards.json`'s own `thin_slice` key rather
+than from the catalogue — and parse it, never hand-copy it.
 
 There is no gate that catches this class of problem. `tools/check_data.py` asserts the *data* is
 present (it even asserts Prince's `charge.damage_special > 0`) without asking whether the engine reads it;
@@ -154,16 +158,11 @@ evaluated in the mover's own frame.
 
 ### Smaller open items
 
-- **`slow_ms` is a dead field, not a mechanic.** It is declared, reset, pushed, decremented every
-  tick and hashed — and read by nothing: `grep -rn 'slow' src/path.rs src/combat.rs src/collide.rs
-  src/target.rs src/move16402.rs` comes back empty. It costs a hash field and reads like an
-  implemented timer. Either wire it to movement and attack the way stun is, or delete it.
 - `spawn_unit` / `deploy` called several times for one team within a tick assigns `team_seq` in
   call order. This is reachable only from the Rust test API; the Python surface applies at most
   one per team per step.
-- The tick still runs Attack after Move while the client resolves attacks before moves, and unit
-  updates run in an order approximated by (spawn tick, slot) rather than the client's creation
-  order. This accounts for 0.27% of live unit-ticks (`pathfinding.md`).
+- Unit updates run in an order approximated by (spawn tick, slot) rather than the order the
+  corpus shows. This accounts for 0.27% of live unit-ticks (`pathfinding.md`).
 
 ## Invariants the game does not have
 
@@ -172,8 +171,8 @@ measurement refutes it. They are listed here so nobody re-adds them as "obviousl
 
 - Troops may stand **inside a building footprint** — melee attackers do, because their goal cell
   is within reach of the building's centre.
-- Troops may stand **on a water cell** — live troops do, for up to 1070 consecutive ticks, and the
-  client never ejects them.
+- Troops may stand **on a water cell** — live troops do, for up to 1070 consecutive ticks, and
+  none is ejected anywhere in the corpus.
 - Crowds **overlap** more than the old tolerance allowed: live, more than 100% of the smaller
   radius for up to 42 consecutive ticks, and more than 50% for 207.
 
@@ -182,10 +181,12 @@ the relaxed forms.
 
 ## Knockback
 
-The engine runs a fixed-distance slide. The live behaviour is characterised but not ported: a
-speed ladder of 25n native units per tick toward a target point `L` away from the source, falling
-by 25 each tick, with one 25-unit back-step at the end; `MAX_PUSHBACK_LENGTH` caps `L`. Porting it
-closes the eight `knockback.*` ledger keys.
+The engine runs the measured ladder (`knockback.DISPLACEMENT_LAW = client16402`): a speed of
+25n native units per tick toward a target point `L = min(Pushback, MAX_PUSHBACK_LENGTH)` away
+from the source, falling by 25 each tick, with one 25-unit back-step at the end. The evidence is
+the Giant of capture 20260918-122757-A, ticks 1216..1223: steps of 150, 125, 100, 75, 50, 25, 0
+and then -25. `knockback.ATTACK_RESET` is measured with it. The earlier fixed-distance slide
+stays runnable under the same key, and the seat-symmetry gates use it.
 
 One part of the current model sits at `owner_ruling` rather than `measured` (see
 `calibration.md`). `knockback.DIRECTION_ROLLING = travel_direction` is HIGH confidence on the
@@ -219,16 +220,18 @@ These need a recording or a decision, not more code:
    settle: `DamageSpecial` is exactly 2x `Damage` on all three, matching `DashDamage` on Assassin
    and Mega Knight where replacement is unambiguous, so the charged hit **replaces** rather than
    adds; and `globals.csv` ships `CLONE_RESET_CHARGE=FALSE` and `CLONE_INHERIT_CHARGE=FALSE`, so
-   charge is a persistent per-entity variable that can be reset and inherited. The shipped data
+   the shipped data distinguishes resetting charge from inheriting it, so charge survives across
+   the events those two flags name. The shipped data
    also settles by absence that the charged hit has no special range, min-range, load time,
    post-hit pause, attack interval or knockback. Measured live on client 16.402: charge progress
    accumulates `tdiv(step * 1000, ChargeRange)` per walking tick with `step = min(S, dist, 250)`,
    which doubles the unit's speed from its 43rd walking tick.
-4. **`IgnorePushback` vintage.** The 2018 data gives Baby Dragon `IgnorePushback=true`; it lost
-   that on 2018-08-06. Every card stat here is 2018 vintage by design, so the flag stays as
-   shipped unless per-field live overrides are wanted. The same question applies to Prince's
-   collision radius: 650 in the 2018 data, 600 in 2023 — a vintage difference, not a conflict.
-5. **Card level.** The engine's default is a unified level 9, which is exactly the pre-2021
-   tournament standard under this data's rarity-relative levels (commons 9, rares 7, epics 4,
-   legendaries 1) — the standard of the data's own vintage. The live game's standard is 11. The
-   default is overridable.
+4. **Vintage differences between the two card tables.** `cards.json` is the 15.535.29 table and
+   `cards-2018.json` the older one beside it; they disagree wherever a flag or a radius changed
+   in between (Baby Dragon's `IgnorePushback` true in 2018 and false now; the Prince's collision
+   radius 650 then and 600 now). Anything loaded from the 2018 table carries the 2018 answers;
+   the shipped default is the 15.535 one.
+5. **Card level.** The engine's default is `CardDb::lowest_level_valid_for_every_rarity`, the
+   lowest unified level that exists for every rarity in the loaded table: 11 on the 15.535 table
+   (Champion's `RelativeLevel` is 10) and 9 on the 2018 one. 11 is also the live game's
+   tournament standard. The default is overridable.

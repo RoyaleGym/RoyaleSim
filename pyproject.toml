@@ -58,7 +58,10 @@ addopts = "-ra --strict-markers"
 markers = ["slow: long-running rollouts"]
 
 [tool.ruff]
-line-length = 100
+# 120, not 88 or 100: these tools carry wide data rows (per-card notes, field-name
+# regexes) and one-line diagnostics that read worse wrapped. Anything past 120 is
+# wrapped by hand.
+line-length = 120
 target-version = "py312"
 src = ["tools", "oracle", "tests"]
 extend-exclude = ["crates", "data"]

@@ -53,9 +53,9 @@ use royalesim::{jump16402, move16402, path2026, path16402, EntityId, Team};
 
 const FIXTURE: &str = include_str!("fixtures/oracle2026/client16402_jumps.json");
 // the cases the end-to-end gates run on (`<capture>:<Card>:<k>`)
-const HOG: &str = "20260920-002736-A:HogRider:0";
-const PRINCE: &str = "20260920-002736-A:Prince:0";
-const ROYAL_HOG_BRIDGE: &str = "20260920-002736-A:RoyalHog:0";
+const HOG: &str = "20260920-002736-B:HogRider:0";
+const PRINCE: &str = "20260920-002736-B:Prince:0";
+const ROYAL_HOG_BRIDGE: &str = "20260920-002736-B:RoyalHog:0";
 
 #[derive(serde::Deserialize, Clone)]
 struct Frame {

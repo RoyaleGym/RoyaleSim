@@ -35,9 +35,9 @@ What it cannot catch: a group pushed by a unit the capture does not hold on that
 or a tap the placement log recorded a tile away from where the game centred the
 formation (a deploy snapped off a footprint): the test matches those up to one shift.
 
-NAMES: a group's `fixture` is the replay fixture's `capture` name, already public
-(tools/make_replay_fixture.py NAMES: the seats are letters, A, B, ... in sort order
-within each replay fixture; the two seats of one battle are "<stamp>-A" / "<stamp>-B").
+NAMES: a group's `fixture` is the replay fixture's `capture` name
+(tools/make_replay_fixture.py NAMES: the seats are letters, A, B, ... in sort order,
+so the two seats of one battle are "<stamp>-A" and "<stamp>-B").
 
 --check: exit 1 if the committed fixture differs from what the fixtures on disk give.
 Exit 0 clean, 1 defect / stale, 2 usage.
@@ -63,7 +63,7 @@ CLEAR_NATIVE = 2500
 TOWER_MARGIN = 500
 PER_BUCKET = 2
 CENTRE_X = 9000
-# The seat letter of a public capture name ("20260920-083112-A", "20260920-074051-A.b2").
+# The seat letter of a capture name ("20260920-083112-A", "20260920-074051-A.b2").
 SEAT_LETTER = re.compile(r"-[A-Z](?=\.|$)")
 
 

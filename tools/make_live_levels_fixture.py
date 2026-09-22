@@ -30,10 +30,10 @@ WHAT IT HOLDS
     floor in level scaling. The Rust gate is tests/levels.rs: for every resolved row whose
     card the loader simulates, `CardDb::scaled(unit, level, hitpoints)` must equal max_hp.
 
-    A capture name carries the seat it was recorded from as a 5-digit tag; the fixture names
-    the seats A, B, ... in sort order within the file (tools/make_client16402_paths_fixture.py
-    `seat_letters`) and drops the frames- / frames-auto- prefix and the file suffix, so a
-    capture entry is "20260920-002736-A" and nothing else.
+    Seats are named A, B, ... in sort order over the captures read (tools/capture_names.py),
+    and the frames- / frames-auto- prefix and the file suffix are dropped, so a capture entry
+    is "20260920-002736-B" and nothing else. A folder carrying one capture under several
+    names contributes it once: a battle read twice would double every `frames` count it feeds.
 """
 from __future__ import annotations
 
@@ -42,14 +42,15 @@ import glob
 import gzip
 import json
 import os
-import re
 import sys
 from collections import Counter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from capture_names import argv_guard, distinct_captures, public_name, seat_letters  # noqa: E402
+
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 SUFFIX = ".native.oracle.jsonl.gz"
-SEAT_TAG = re.compile(r"-(\d{5})(?=[.:])")
 RAW = os.path.join(ROOT, "data", "raw", "cr-15.535.29", "csv_logic")
 CARDS = os.path.join(ROOT, "data", "derived", "cards.json")
 OUT = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "live_levels.json")
@@ -58,21 +59,19 @@ CLASSES = {26: "spells_characters.csv", 27: "spells_buildings.csv", 28: "spells_
 KNOWN_DELTAS = {
     "IceGolemite": "16.402 Ice Golem hitpoints 480 (15.535: 514): 1228 = 480 x 256 %",
     "IceSpirits": "16.402 Ice Spirit hitpoints 84 (15.535: 85): 215 = 84 x 256 %",
-    "FirespiritHut": "the Furnace's Fire Spirit: 16.402 hitpoints 84 (15.535 FireSpirits 85), released through an action graph the spawner block does not walk",
-    "Heal": "the Heal Spirit: 16.402 hitpoints 84 (15.535 HealSpirit 85); the 15.535 Heal card has no projectile and no area effect (an action graph), so no object is reached",
+    "FirespiritHut": "the Furnace's Fire Spirit: 16.402 hitpoints 84 (15.535 FireSpirits 85), "
+                     "released through an action graph the spawner block does not walk",
+    "Heal": "the Heal Spirit: 16.402 hitpoints 84 (15.535 HealSpirit 85); the 15.535 Heal card "
+            "has no projectile and no area effect (an action graph), so no object is reached",
     "GoblinCage": "16.402 Goblin Brawler hitpoints 438 (15.535: 422): 1121 = 438 x 256 %",
-    "GoblinDrill": "the drill building (max_hp 1313 at 11) and its Goblins are spawned through an action graph this schema does not walk",
+    "GoblinDrill": "the drill building (max_hp 1313 at 11) and its Goblins are spawned through "
+                   "an action graph this schema does not walk",
 }
 
 
-def seat_letters(names: list[str]) -> dict[str, str]:
-    tags = sorted({m.group(1) for n in names for m in [SEAT_TAG.search(n)] if m})
-    return {tag: chr(ord("A") + i) for i, tag in enumerate(tags)}
-
-
 def capture_name(raw: str, seats: dict[str, str]) -> str:
-    """The public name of a capture file: prefix and suffix dropped, the seat tag a letter."""
-    name = SEAT_TAG.sub(lambda m: "-" + seats[m.group(1)], raw)
+    """The capture name as the fixture records it: prefix and suffix dropped, the seat a letter."""
+    name = public_name(raw, seats)
     name = name.removesuffix(SUFFIX)
     return name.removeprefix("frames-auto-").removeprefix("frames-")
 
@@ -147,9 +146,9 @@ def build() -> dict:
     cards = {c["name"]: c for c in doc["cards"]}
     seen: Counter = Counter()
     files = []
-    raw_names = sorted(os.path.basename(f) for f in glob.glob(os.path.join(LIVE, "*" + SUFFIX)))
-    seats = seat_letters(raw_names)
-    for f in sorted(glob.glob(os.path.join(LIVE, "*" + SUFFIX))):
+    paths = distinct_captures(glob.glob(os.path.join(LIVE, "*" + SUFFIX)))
+    seats = seat_letters([os.path.basename(f) for f in paths])
+    for f in paths:
         files.append(capture_name(os.path.basename(f), seats))
         with gzip.open(f, "rt", encoding="utf-8") as fh:
             for line in fh:
@@ -165,7 +164,14 @@ def build() -> dict:
     rows = []
     for (cid, kind, level, mh), n in sorted(seen.items(), key=lambda kv: (kv[0][0], kv[0][2], kv[0][3], kv[0][1] or 0)):
         if cid < 0:
-            rows.append({"card_id": cid, "card": None, "tower": True, "kind": kind, "level": level, "max_hp": mh, "frames": n, "unit": None, "note": "a crown tower (the captures' kind 12 / 13 does not separate king from princess; the king is the larger max_hp per level: 3312 / 2030 at 6, 4824 / 3052 at 11 against the 2400 / 1400 rows) -- the tower ladder is combat.TOWER_HITPOINT_LADDER (globals *_PER_TOWER_LEVEL / *_PER_KING_LEVEL)"})
+            rows.append({
+                "card_id": cid, "card": None, "tower": True, "kind": kind, "level": level,
+                "max_hp": mh, "frames": n, "unit": None,
+                "note": "a crown tower (the captures' kind 12 / 13 does not separate king from "
+                        "princess; the king is the larger max_hp per level: 3312 / 2030 at 6, "
+                        "4824 / 3052 at 11 against the 2400 / 1400 rows) -- the tower ladder is "
+                        "combat.TOWER_HITPOINT_LADDER (globals *_PER_TOWER_LEVEL / *_PER_KING_LEVEL)",
+            })
             continue
         name = resolve_id(tables, cid)
         row = {"card_id": cid, "card": name, "level": level, "max_hp": mh, "frames": n, "unit": None}
@@ -181,16 +187,25 @@ def build() -> dict:
                     row["percent"] = pct
                     break
             if row["unit"] is None:
-                row["note"] = KNOWN_DELTAS.get(name, "no object of this card matches: a 16.402 balance change or an unreached unit")
+                row["note"] = KNOWN_DELTAS.get(
+                name, "no object of this card matches: a 16.402 balance change or an unreached unit"
+            )
         rows.append(row)
+    # One entry per capture read: a repeated name would double that battle's frame counts.
+    assert len(set(files)) == len(files), "two captures resolved to one name"
     matched = sum(1 for r in rows if r["unit"])
     return {
         "generated_by": "tools/make_live_levels_fixture.py",
-        "source": "live captures of the real game (CR 16.402), every entity's card_id / level / max_hp per frame; ids resolved against data/raw/cr-15.535.29/csv_logic/spells_*.csv row order",
+        "source": "live captures of the real game (CR 16.402), every entity's card_id / level / "
+                  "max_hp per frame; ids resolved against "
+                  "data/raw/cr-15.535.29/csv_logic/spells_*.csv row order",
         "captures": files,
         "cards_json_version": doc["version"],
         "level_base_reading": doc["provenance"].get("level_base_reading"),
-        "reading": "max_hp == floor(base_hitpoints x percent / 100) with percent = the OBJECT's rarity ladder at unified level - its RelativeLevel (cards.json level_scaling.base_level); a row with unit null is a 16.402 balance delta or an unreached object, listed in `note`",
+        "reading": "max_hp == floor(base_hitpoints x percent / 100) with percent = the OBJECT's "
+                   "rarity ladder at unified level - its RelativeLevel (cards.json "
+                   "level_scaling.base_level); a row with unit null is a 16.402 balance delta or "
+                   "an unreached object, listed in `note`",
         "rows_matched": matched,
         "rows_total": len(rows),
         "rows": rows,
@@ -198,6 +213,7 @@ def build() -> dict:
 
 
 def main() -> int:
+    argv_guard(sys.argv[1:], __doc__)
     check = "--check" in sys.argv[1:]
     if not LIVE:
         print("set ROYALELIVE_REPORTS to the folder holding the *" + SUFFIX + " captures", file=sys.stderr)

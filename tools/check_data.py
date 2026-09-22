@@ -432,7 +432,9 @@ def simulated_set(doc: dict) -> tuple[set[str], set[str], set[str]]:
         # every nested projectile / area-effect object carries a `name`
         if isinstance(o, dict):
             for k, v in o.items():
-                if k in ("projectile", "first_projectile", "spawn_projectile", "deploy_projectile") and isinstance(v, dict):
+                if isinstance(v, dict) and k in (
+                    "projectile", "first_projectile", "spawn_projectile", "deploy_projectile",
+                ):
                     projs.add(v["name"])
                 if k == "area_effect_object" and isinstance(v, dict):
                     aeos.add(v["name"])
@@ -490,8 +492,12 @@ def level_base(doc: dict) -> tuple[list[str], list[str]]:
         if ls.get("base_level") != R[ladder]["relative_level"] + 1:
             fail.append(f"level base: {c['name']} base_level {ls.get('base_level')} != {ladder}'s RelativeLevel + 1")
         if len(ls["multiplier_percent_by_level"]) != R[ladder]["level_count"]:
-            fail.append(f"level base: {c['name']} ladder has {len(ls['multiplier_percent_by_level'])} entries, {ladder} has {R[ladder]['level_count']} levels")
-        if ls["level_count"] != R[ls["rarity"]]["level_count"] or ls.get("relative_level") != R[ls["rarity"]]["relative_level"]:
+            fail.append(f"level base: {c['name']} ladder has "
+                        f"{len(ls['multiplier_percent_by_level'])} entries, "
+                        f"{ladder} has {R[ladder]['level_count']} levels")
+        card_rarity = R[ls["rarity"]]
+        if (ls["level_count"] != card_rarity["level_count"]
+                or ls.get("relative_level") != card_rarity["relative_level"]):
             fail.append(f"level base: {c['name']} card range is not {ls['rarity']}'s")
     # The live rows (tools/make_live_levels_fixture.py): the same arithmetic the
     # generator resolved them with, redone here from THIS build's blocks.
@@ -522,13 +528,16 @@ def level_base(doc: dict) -> tuple[list[str], list[str]]:
             continue
         engine = base * table[ix] // 100
         if engine != row["max_hp"]:
-            fail.append(f"live levels: {row['card']}/{unit} at level {row['level']}: this build gives {engine}, the live client {row['max_hp']}")
+            fail.append(f"live levels: {row['card']}/{unit} at level {row['level']}: "
+                        f"this build gives {engine}, the live client {row['max_hp']}")
         checked += 1
         if R[c["rarity"]]["relative_level"] > 0 and row["level"] > R[c["rarity"]]["relative_level"] + 1:
             parted += 1
     if checked < 80 or parted < 20:
-        fail.append(f"live levels: vacuous ({checked} rows checked, {parted} on a non-Common card past its first level)")
-    info.append(f"live levels: {checked} (card, level, max_hp) rows of the 16.402 captures reproduce, {parted} of them where the two readings part")
+        fail.append(f"live levels: vacuous ({checked} rows checked, {parted} on a "
+                    f"non-Common card past its first level)")
+    info.append(f"live levels: {checked} (card, level, max_hp) rows of the 16.402 captures "
+                f"reproduce, {parted} of them where the two readings part")
     return fail, info
 
 

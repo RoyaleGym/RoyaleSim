@@ -378,7 +378,9 @@ def gate_dry(rep: Report, trace: Trace) -> None:
             1
             for f in trace.frames
             for e in f.entities
-            if not e.flying and 0 <= e.y // hs < len(h.grid) and 0 <= e.x // hs < len(h.grid[e.y // hs]) and h.grid[e.y // hs][e.x // hs] & BIT_WATER
+            if (not e.flying and 0 <= e.y // hs < len(h.grid)
+                and 0 <= e.x // hs < len(h.grid[e.y // hs])
+                and h.grid[e.y // hs][e.x // hs] & BIT_WATER)
         )
         rep.summary["ground_entity_positions_wet"] = wet_all
         rep.add(
@@ -402,7 +404,7 @@ def _client16402_arm(trace: Trace) -> bool:
     try:
         cal = json.loads((ROOT / "data" / "calibration.json").read_text(encoding="utf-8"))
         return cal["pathfinding"]["PATH_SEARCH"]["value"] == "client16402"
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 

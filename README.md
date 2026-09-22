@@ -20,7 +20,7 @@ constant records which game version it was measured on.
 <table>
   <tr>
     <td width="33%" align="center"><img src="docs/media/engine-battle-viewer.png" width="100%" alt="An engine battle at 2:19, 20 units on the board, rendered by RoyaleViser"><br><b>Run a whole battle from Python</b><br><sub>One call per step: hand in your deploys, advance N ticks of 50 ms each, read the board back as JSON.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/measured-routes.svg" width="100%" alt="Image placeholder: a recorded route and the engine's route on one board"><br><b>Routes measured off real battles</b><br><sub>Of 752 routes recorded from real battles, the engine reproduces 751 node for node (2026-09-21).</sub></td>
+    <td width="33%" align="center"><img src="docs/media/measured-routes.svg" width="100%" alt="Image placeholder: a recorded route and the engine's route on one board"><br><b>Routes measured off real battles</b><br><sub>Of 744 recorded routes — 616 from real battles and 128 from an offline corpus — the engine reproduces 743 node for node.</sub></td>
     <td width="33%" align="center"><img src="docs/media/contact-law.svg" width="100%" alt="Video placeholder: Skeletons pushing apart round a Knight, recording beside engine"><br><b>Crowds that push like the real game</b><br><sub>Over 31 recorded battles, 99.24% of every unit's per-tick positions come out exact.</sub></td>
   </tr>
   <tr>
@@ -88,7 +88,7 @@ RoyaleSim is the bottom of the stack. It knows nothing about rewards, observatio
 | [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) | the environment API: observations, actions, rewards; Gymnasium, PettingZoo and self-play envs | wraps `royalesim` as `RustEngine`, reads this repo's `data/` for the arena and cards, and its test suite drives the engine from the outside |
 | [RoyaleLearn](https://github.com/RoyaleGym/RoyaleLearn) | the training harness: self-play rollouts, PPO, a ladder of frozen opponents, checkpoints | reaches the engine only through RoyaleGym |
 | [RoyaleViser](https://github.com/RoyaleGym/RoyaleViser) | the viewer: recordings, engine traces and running environments in its own window | plays engine traces (a trace is the engine's own per-tick record of a battle) and live streams; the still in the first tile is one of its screenshots |
-| RoyaleLive | the private client instrument that records real battles | its recordings are the evidence the engine's constants are measured against; nothing here imports it |
+| RoyaleLive | the client instrument that records ground-truth traces from the real game | its recordings are the evidence the engine's constants are measured against |
 
 What flows in: Supercell's card and arena tables under `data/raw/`, which `tools/extract_*.py` turn
 into `data/derived/`; and recordings of real battles, which the constants were measured against
@@ -105,12 +105,16 @@ git clone https://github.com/RoyaleGym/RoyaleViser.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
 python -m venv .venv                                                    # Python 3.12
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
-cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
+cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
 cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds the engine into the venv (~1 min, ~1.5 GB RAM)
 .venv\Scripts\python -m pip install -e RoyaleGym
 .venv\Scripts\python -m pip install -e RoyaleViser
 .venv\Scripts\python -m pip install -e RoyaleLearn
 ```
+
+`extract_cards.py` defaults to the 15.535 card table, which needs the client's own asset pack
+(`data/raw/cr-15.535.29/`, not redistributed); `--vintage 2018` builds the card table from the
+tracked 2018 files instead, which is what the line above does.
 
 For the example above you need the venv, the `extract_*.py` line (it generates `data/derived/`)
 and the `maturin develop` line (Rust 1.80+ with cargo); `tools/watch_battle.py` also needs
@@ -126,7 +130,7 @@ Working:
   multi-unit cards, fighting, Fireball, Arrows, Zap, The Log and Goblin Barrel, king activation,
   double elixir, 60 s overtime, the 3-crown win and the tiebreak.
 - Mechanics measured against recordings of the game and switchable in the constants file: route
-  choice (751 of 752 routes node for node), how units push each other (99.24% of per-tick positions
+  choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 battles), reach and the attack cycle, the charged hit, knockback, the river hop,
   spawner timing and death spawns, hiding buildings, the lifetime drain of buildings, status effects
   (rage, slow, freeze, heal and damage over time) and the order things happen within a tick.
@@ -142,17 +146,17 @@ Not modelled yet, in plain words:
 - Two known collision defects: a unit can sit inside a building's footprint for up to 47 ticks,
   almost always right after a multi-unit spawn. A unit overlapping several obstacles gets the
   push-outs summed instead of one chosen.
-- One recorded route in 752 comes out different: both routes cost the same and which one the game
+- One recorded route in 744 comes out different: both routes cost the same and which one the game
   picks is the open question.
 
 Tests:
 
 ```
-cd RoyaleSim\crates\royalesim && cargo test --release     # 338 test functions on 2026-09-21 evening; the last recorded run (176 passed + 3 ignored) predates that day's mechanics commits
-cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 88 passed (2026-09-21)
+cd RoyaleSim\crates\royalesim && cargo test --release     # 338 test functions, 3 of them #[ignore]d
+cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 101 collected
 ```
 
-RoyaleGym's suite (238 tests, 2026-09-21) drives the engine from the outside and must stay green too.
+RoyaleGym's suite drives the engine from the outside and must stay green too.
 
 Read next: [`docs/architecture.md`](docs/architecture.md) (how the engine is built),
 [`docs/pathfinding.md`](docs/pathfinding.md) (the measured routes and contact law, with the

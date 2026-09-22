@@ -60,7 +60,8 @@ def inputs(src: Path):
         with zipfile.ZipFile(src) as z:
             for name in z.namelist():
                 parts = name.split("/")
-                if len(parts) >= 3 and parts[0] == "assets" and parts[1] in SUBDIRS and name.endswith((".csv", ".toml")):
+                if (len(parts) >= 3 and parts[0] == "assets" and parts[1] in SUBDIRS
+                        and name.endswith((".csv", ".toml"))):
                     yield "/".join(parts[1:]), z.read(name)
         return
     for sub in SUBDIRS:

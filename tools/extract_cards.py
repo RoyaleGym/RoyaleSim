@@ -945,7 +945,9 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
         # (the 2018 files carry EnableStacking only; the other two read as null there)
         "building_damage_percent": b.get("BuildingDamagePercent"),
         "enable_stacking": flag(b, "EnableStacking"),
-        "hit_tick_from_source": flag(b, "HitTickFromSource") if isinstance(b, Row) or "HitTickFromSource" in b else None,
+        "hit_tick_from_source": (
+            flag(b, "HitTickFromSource") if isinstance(b, Row) or "HitTickFromSource" in b else None
+        ),
     }
 
 
@@ -1625,7 +1627,8 @@ def spell_card(t, rarities, s) -> dict:
     carrier = (
         object_rarity(t, src[0], src[1]["name"])
         if src
-        else object_rarity(t, "projectiles", s["Projectile"]) or object_rarity(t, "area_effect_objects", s["AreaEffectObject"])
+        else object_rarity(t, "projectiles", s["Projectile"])
+        or object_rarity(t, "area_effect_objects", s["AreaEffectObject"])
     )
     card["level_scaling"] = level_scaling(t, rarities, s["Rarity"], carrier)
     return card
@@ -1827,7 +1830,12 @@ def main() -> int:
         default=LEVEL_BASE_READING,
         help="calibration.json combat.STAT_BASE_LEVEL candidate to build the ladders under (15.535 only)",
     )
-    ap.add_argument("--out", type=Path, default=None, help="default: data/derived/cards.json for the default vintage, cards-<vintage>.json otherwise")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="default: data/derived/cards.json for the default vintage, cards-<vintage>.json otherwise",
+    )
     args = ap.parse_args()
     v = VINTAGES[args.vintage]
 

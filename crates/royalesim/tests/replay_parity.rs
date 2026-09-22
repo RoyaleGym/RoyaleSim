@@ -136,8 +136,9 @@ fn the_matching_is_one_to_one_on_both_sides() {
     let barbarians: Vec<&Pair> = r.pairs.iter().filter(|p| p.sim_card == "Barbarian").collect();
     assert_eq!(barbarians.len(), 2);
     assert!(barbarians.iter().all(|p| p.root == "BattleRam" && p.root_how == "death-spawn"), "{barbarians:?}");
-    // the Barbarians appear 63 ticks later in the engine (the ram dies later: the
-    // report's item 3) and still pair, inside PAIR_WINDOW_TICKS
+    // the Barbarians appear 63 ticks later in the engine (its death spawn materialises
+    // in the next tick's Spawn phase, so they appear later than the recording's) and
+    // still pair, inside PAIR_WINDOW_TICKS
     for p in &barbarians {
         assert!(p.sim_first_tick > p.truth_first_tick && p.sim_first_tick - p.truth_first_tick <= PAIR_WINDOW_TICKS, "{p:?}");
     }

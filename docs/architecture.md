@@ -25,14 +25,17 @@ multiplication fails loudly instead of producing a plausible wrong position.
 `lib.rs::TICK_PHASES` holds the eleven phases, run in order:
 
 ```
-Upkeep  Status  Spawn  Target  Path  Move  Attack  Projectile  Resolve  Reap  Judge
+Upkeep  Status  Spawn  Target  Attack  Path  Move  Projectile  Resolve  Reap  Judge
 ```
 
 Four ordering invariants are asserted by a unit test in `lib.rs`, because each one is a
 behaviour, not a preference:
 
-- **Move precedes Attack** — a unit that moves into range attacks on the same tick, which is what
-  the real game visibly does.
+- **Attack precedes Move** (`match.TICK_ORDER = client16402`, measured) — the corpus
+  discriminates the two orders and attack-before-move is the one that reproduces it: 819 ticks
+  where a unit went from walking to attacking and none of them stepped, 412 of 413 the other way
+  that walked the same tick, and 398 of 445 that stood still on the tick their deploy ended. The
+  earlier order stays runnable as `legacy_move_before_attack` (`lib.rs::LEGACY_TICK_PHASES`).
 - **Resolve follows every writer of the damage buffer** (Attack and Projectile). Damage is
   buffered during the tick and applied in one pass.
 - **Reap follows Resolve**, or a death effect would fire before the death.
@@ -83,6 +86,9 @@ stay compiled and tested. Two such choices matter today:
   refuted as a model of the client but kept runnable.
 - `collision.CONTACT_LAW` — `client16402` (`move16402.rs`, driven by `state.rs phase_path16402`)
   is selected, beside the engine's earlier separation model.
+- `match.TICK_ORDER` — `client16402` (`lib.rs::TICK_PHASES`, attack updates before move updates,
+  the move pass in `Entities::creation_seq` order) is selected; `legacy_move_before_attack`
+  (`LEGACY_TICK_PHASES`) is the refuted order, kept compiled and tested.
 
 The earlier arm is not dead code kept out of sentiment: it is seat-symmetric, and the
 seat-symmetry gates (`tests/mirror.rs`, `tests/setup_spawn_order.rs`, and the rotation tests in
@@ -114,6 +120,9 @@ measured property of the game, not an engine convenience — `pathfinding.md` gi
 | `card.rs` | card loading and level scaling |
 | `target.rs` | target selection, range, sight, target lock and hysteresis |
 | `path.rs` | the shared pathfinding interfaces and the earlier `PathModel` arms |
+| `formation.rs` | where a card's N summons stand around the tap, and the deploy stagger |
+| `jump16402.rs` | the measured river hop of a `JumpEnabled` troop |
+| `status.rs` | the per-entity buff list and the two arithmetics that read it |
 | `path2026.rs` | the trace-fitted A* arm |
 | `path16402.rs` | the search measured on client 16.402 (selected) |
 | `move16402.rs` | the 16.402 contact law: separation, avoidance and the step (selected) |
@@ -134,8 +143,9 @@ The crate itself has no Python dependency and builds alone.
   not serialised by it. Bulk state crosses as one JSON byte string (`state_json()`), which the env
   layer decodes with msgspec's typed C decoder.
 - **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
-  `cards.json` order: 65 on 2026-09-21 (52 troops, 6 buildings, 7 spells); `catalogue_json()` lists
-  them. `path_search="trace_fitted_astar"` selects the frame-planned arm (see "Selectable model
+  `cards.json` order — the 15.535.29 table holds 144 cards (101 troops, 16 buildings, 27 spells)
+  and 334 units, and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
+  the rest with the reason. `path_search="trace_fitted_astar"` selects the frame-planned arm (see "Selectable model
   arms"); the default is the ledger's `pathfinding.PATH_SEARCH`.
 - **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
@@ -161,5 +171,5 @@ The crate itself has no Python dependency and builds alone.
   ```
 
 - **Snapshots.** `save()` / `load()` round-trip a battle to a byte string and back to the identical
-  state hash: roughly 7-11 KB for a mid-game board depending on what is on it (6.7 KB at 9 live
-  entities, measured 2026-09-21). `SNAPSHOT_FORMAT` is 6.
+  state hash; the size grows with the number of live entities. `royalesim.SNAPSHOT_FORMAT` names
+  the current format, and `state.rs` lists every format and what each one changed.

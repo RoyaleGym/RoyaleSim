@@ -1,8 +1,11 @@
 # Measured performance
 
 All figures below were measured on one machine, single core, release build with overflow checks
-on, on **2026-09-13** — before the 16.402 search and contact law landed, so they describe the
-earlier path arms. They are the numbers to beat, not a promise. Re-measure with:
+on. **Every one of them predates the current engine**: the engine-throughput tables are from
+**2026-09-13**, before the 16.402 search and contact law landed, and the Python-surface figures
+from **2026-09-21**, before the 15.535 card table, the status effects and the measured tick
+order. They are the numbers to beat, not a promise, and each section says which engine it
+describes. Re-measure with:
 
 ```
 cd crates\royalesim && cargo test --release --test throughput -- --ignored --nocapture
@@ -25,7 +28,7 @@ About 1 us per entity-tick is slow for integer Rust and nobody has profiled it. 
 bottleneck: at 20 ticks per second a 3-minute match is 3,600 ticks, which is ~60 ms of engine
 time.
 
-## Through the Python surface, 2026-09-21
+## Through the Python surface, 2026-09-21 (before the mechanics work below it landed)
 
 `tools/throughput.py` runs five three-minute battles with both seats deploying at random (18,000
 ticks, 20 ticks per `step`, mean ~10 live entities) and prints the rate. On 2026-09-21, on one core

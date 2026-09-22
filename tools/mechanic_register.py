@@ -20,10 +20,11 @@ Usage (repo root):
     python tools/mechanic_register.py            # writes data/derived/mechanic_register.json
     python tools/mechanic_register.py --summary  # families -> counts, plus the "other" fields
     python tools/mechanic_register.py --card Prince --card Tesla_EV1
-    python tools/mechanic_register.py --markdown > docs/....md
+    python tools/mechanic_register.py --markdown > docs/mechanics-register.md
 """
 
-# ruff: noqa: E501  -- the field-name tables are long regexes on purpose; wrapping them hides typos
+# The field-name tables below are long regexes on purpose: wrapping them hides typos.
+# ruff: noqa: E501
 from __future__ import annotations
 
 import argparse
@@ -37,8 +38,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw" / "cr-15.535.29" / "csv_logic"
-if not RAW.is_dir():
-    sys.exit(f"needs a decoded 15.535.29 bundle at {RAW}; see tools/decode_sc_assets.py")
 OUT = ROOT / "data" / "derived" / "mechanic_register.json"
 
 # Which files feed which object table. Per-character overlays (characters/*.toml) carry
@@ -314,7 +313,9 @@ def main() -> int:
     ap.add_argument("--card", action="append", default=[])
     ap.add_argument("--out", type=Path, default=OUT)
     a = ap.parse_args()
-    if not RAW.exists():
+    # The check lives HERE and not at import: extract_cards.py imports this module for its
+    # loaders and its 2018 vintage needs no 15.535 bundle at all.
+    if not RAW.is_dir():
         print(f"missing {RAW}: decode the 15.535.29 assets first (tools/decode_sc_assets.py)", file=sys.stderr)
         return 2
     reg = build()

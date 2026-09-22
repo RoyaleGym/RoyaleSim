@@ -541,13 +541,14 @@ const KNOWN_DIVERGENCE: &str = "auto-20260920-072831-A";
 fn g6_the_client_search_reproduces_every_published_node_sequence() {
     // THE GATE THE SPEC SAID WAS OUT OF REACH (section 11: "exact node sequences are
     // NOT yet achievable"). It is, once the search is the client's: every first
-    // path the live 16.402 client published (442 in the fixture) and every offline
+    // path the live 16.402 client published (619 in the fixture) and every offline
     // 15.535 lane-sweep path (128), the exact list, goal first. The three skips are
     // the units chasing a moving troop (fixture `moving_target`), whose goal cell the
     // trace cannot recover; they are named here so a new one cannot hide behind them.
+    // So 616 live cases are scored and 615 reproduce exactly.
     //
     // KNOWN DIVERGENCE, 1 case, named so it cannot hide and so a second one fails the
-    // gate. It surfaces only on the larger fixture (755 cases, not 570).
+    // gate. It surfaces only on the larger fixture (747 cases, not 570).
     // The engine walks the lane straight where the client drifts one column sideways:
     //   auto-20260920-072831-A:8:Giant  client (6,16) (5,17) (5,18) (5,19) (5,20) (4,21)
     //                                   engine (6,16) (6,17) (6,18) (6,19) (6,20) (6,21)
@@ -589,7 +590,7 @@ fn g6_the_client_search_reproduces_every_published_node_sequence() {
 {}", failures.len(), failures.join("
 "));
     println!("exact node sequences: live {live}, offline {offline}, skipped {}, diverging 1", skipped.len());
-    assert!(live >= 439 && offline == 128, "the fixture shrank: live {live}, offline {offline}");
+    assert!(live >= 615 && offline == 128, "the fixture shrank: live {live}, offline {offline}");
 }
 
 #[test]

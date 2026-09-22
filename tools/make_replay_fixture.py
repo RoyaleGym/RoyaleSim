@@ -4,6 +4,12 @@
     python tools/make_replay_fixture.py <capture.native.oracle.jsonl.gz>
                     [--placements <p.jsonl> ...] [--out <dir>] [--truth-stride N] [--until-tick T]
     python tools/make_replay_fixture.py --all [--reports <dir>] [--out <dir>] [--truth-stride N]
+    python tools/make_replay_fixture.py <capture> --check <fixture.json>   # STALE or current
+
+    The committed sample crates/royalesim/tests/fixtures/replay/sample.json is this tool run on
+    the 20260920-003751 seat-B capture with `--until-tick 1440`; `--check` on that capture
+    answers whether the sample is still what the maker produces. `--check` ignores the `census`
+    note, which records the state of the run rather than anything about the battle.
 
     ROYALELIVE_REPORTS  the captures folder (the default for --reports; required for
                         --all when --reports is not given)
@@ -135,11 +141,11 @@ PLAYABILITY
     when absent.
 
 NAMES
-    A capture name carries the seat it was recorded from as a 5-digit tag; the fixture
-    names the seats A, B, ... in sort order within the fixture (the seat_letters rule of
-    tools/make_client16402_paths_fixture.py) and drops the frames- / frames-auto- prefix
-    and the file suffix, so `capture` is "20260920-003751-B" and the `placements` list
-    the same stamps; the fixture file is <capture>.replay.json.
+    The fixture names the seats A, B, ... in sort order over the whole run
+    (tools/capture_names.py) and drops the file prefix and suffix, so `capture` is
+    "20260920-003751-B" and the `placements` list the same stamps; the fixture file is
+    <capture>.replay.json. A folder carrying one capture under several names contributes
+    it once, and a run refuses to write two fixtures to one path.
 """
 
 from __future__ import annotations
@@ -151,12 +157,14 @@ import gzip
 import json
 import math
 import os
-import re
 import statistics
 import sys
 from collections import Counter, defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from capture_names import SEAT_TAG, distinct_captures, seat_letters  # noqa: E402
+
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 RAW = os.path.join(ROOT, "data", "raw", "cr-15.535.29", "csv_logic")
 CARDS = os.path.join(ROOT, "data", "derived", "cards.json")
@@ -166,8 +174,6 @@ CENSUS = "card_census.json"
 
 FORMAT = "replay-fixture-1"
 CAPTURE_SUFFIX = ".native.oracle.jsonl.gz"
-# The seat tag of a capture or placements-log name (module doc, NAMES).
-SEAT_TAG = re.compile(r"-(\d{5})(?=[.:])")
 # Native arena size in millitiles (18 x 32 tiles); only used to rotate a capture whose
 # side 0 sits at the top, which no capture of the corpus does.
 NATIVE_W, NATIVE_H = 18_000, 32_000
@@ -231,11 +237,6 @@ def canon_name(name: str, card_names: set[str]) -> str:
     if squashed in card_names:
         return squashed
     return name
-
-
-def seat_letters(names: list[str]) -> dict[str, str]:
-    tags = sorted({m.group(1) for n in names for m in [SEAT_TAG.search(n)] if m})
-    return {tag: chr(ord("A") + i) for i, tag in enumerate(tags)}
 
 
 def public_name(raw: str, seats: dict[str, str]) -> str:
@@ -480,8 +481,8 @@ def rle(values) -> list:
 
 
 def placement_files_for(capture: str, reports_dir: str) -> list[str]:
-    """Both sides' placement logs of the battle this capture recorded: same stamp, any
-    port; a twin recorded a couple of seconds later has a stamp within 10 s."""
+    """Both sides' placement logs of the battle this capture recorded: same stamp, either
+    seat; a twin recorded a couple of seconds later has a stamp within 10 s."""
     base = os.path.basename(capture)
     if not base.startswith("frames-"):
         return []
@@ -619,13 +620,17 @@ def build(
     register: dict,
     name_to_id: dict[str, int],
     card_names: set[str],
+    seats: dict[str, str] | None = None,
 ) -> dict:
     header, raw_frames = read_capture(capture)
     frames, dup, back = dedupe(raw_frames)
     if until_tick is not None:
         frames = [f for f in frames if f["tick"] <= until_tick]
     reasons: list[str] = []
-    seats = seat_letters([os.path.basename(capture)] + [os.path.basename(p) for p in placements])
+    # The seat map is the RUN's, so a capture's letter does not depend on which placement
+    # logs happen to sit beside it.
+    if seats is None:
+        seats = seat_letters([os.path.basename(capture)] + [os.path.basename(p) for p in placements])
     fx: dict = {
         "format": FORMAT,
         "generated_by": "tools/make_replay_fixture.py",
@@ -1116,12 +1121,26 @@ def build(
     return fx
 
 
-def write_fixture(fx: dict, out_dir: str) -> str:
+def fixture_text(fx: dict) -> str:
+    return json.dumps(fx, separators=(",", ":")) + "\n"
+
+
+def comparable(fx: dict) -> dict:
+    """The fixture without the fields that describe the RUN rather than the battle."""
+    return {k: v for k, v in fx.items() if k != "census"}
+
+
+def write_fixture(fx: dict, out_dir: str, written: dict[str, str] | None = None) -> str:
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, fx["capture"] + ".replay.json")
+    # Two captures on one path would leave one battle's fixture holding the other's
+    # content and list the same file twice in the manifest.
+    if written is not None and path in written:
+        raise SystemExit(f"{path} was already written from {written[path]}; this run would overwrite it")
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(fx, fh, separators=(",", ":"))
-        fh.write("\n")
+        fh.write(fixture_text(fx))
+    if written is not None:
+        written[path] = fx["capture"]
     return path
 
 
@@ -1160,9 +1179,17 @@ def main() -> int:
     ap.add_argument(
         "--reports", default=LIVE, help="the captures folder (default: ROYALELIVE_REPORTS)"
     )
+    ap.add_argument(
+        "--check",
+        metavar="FIXTURE",
+        default=None,
+        help="compare with this existing fixture instead of writing (exit 1 if it differs)",
+    )
     args = ap.parse_args()
     if not args.capture and not args.all:
         ap.error("a capture or --all")
+    if args.check and args.all:
+        ap.error("--check takes one capture, not --all")
     if args.all and not args.reports:
         ap.error("--all needs --reports or ROYALELIVE_REPORTS set to the captures folder")
     with open(CARDS, "rb") as fh:
@@ -1189,15 +1216,27 @@ def main() -> int:
     captures = (
         [args.capture]
         if args.capture
-        else sorted(glob.glob(os.path.join(args.reports, "*" + CAPTURE_SUFFIX)))
+        else distinct_captures(glob.glob(os.path.join(args.reports, "*" + CAPTURE_SUFFIX)))
     )
-    manifest = []
-    for cap in captures:
-        placements = (
+    jobs = [
+        (
+            cap,
             args.placements
             if args.placements is not None
-            else placement_files_for(cap, os.path.dirname(os.path.abspath(cap)))
+            else placement_files_for(cap, os.path.dirname(os.path.abspath(cap))),
         )
+        for cap in captures
+    ]
+    # ONE seat map for the run, seeded from the whole captures folder when there is one,
+    # so a capture's letter is the same whether it is built alone or with --all.
+    pool = [os.path.basename(c) for c, _ in jobs]
+    pool += [os.path.basename(p) for _, ps in jobs for p in ps]
+    if args.reports and os.path.isdir(args.reports):
+        pool += [os.path.basename(f) for f in glob.glob(os.path.join(args.reports, "*" + CAPTURE_SUFFIX))]
+    seats = seat_letters(pool)
+    manifest = []
+    written: dict[str, str] = {}
+    for cap, placements in jobs:
         fx = build(
             cap,
             placements,
@@ -1209,8 +1248,17 @@ def main() -> int:
             register,
             name_to_id,
             card_names,
+            seats,
         )
-        path = write_fixture(fx, args.out)
+        if args.check:
+            with open(args.check, encoding="utf-8") as fh:
+                have = json.load(fh)
+            if comparable(have) != comparable(fx):
+                print(f"STALE: {args.check} differs from what this capture builds")
+                return 1
+            print(f"{args.check} is current")
+            return 0
+        path = write_fixture(fx, args.out, written)
         size = os.path.getsize(path)
         row = {
             "capture": fx["capture"],
@@ -1246,6 +1294,7 @@ def main() -> int:
                     "generated_by": "tools/make_replay_fixture.py --all",
                     "cards_json_fnv1a64": doc["_fnv1a64"],
                     "census": census_state,
+                    "run_captures": [os.path.basename(c) for c, _ in jobs],
                     "playable": sum(1 for r in manifest if r["playable"]),
                     "unplayable": sum(1 for r in manifest if not r["playable"]),
                     "captures": manifest,

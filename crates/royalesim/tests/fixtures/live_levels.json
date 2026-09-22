@@ -67,8 +67,6 @@
   "20260920-082459-B",
   "20260920-083112-A",
   "20260920-083112-B",
-  "20260920-083112-A",
-  "20260920-083112-B",
   "20260920-090204-A",
   "20260920-090204-B",
   "20260920-090825-A",
@@ -135,7 +133,7 @@
    "kind": 13,
    "level": 11,
    "max_hp": 3052,
-   "frames": 646696,
+   "frames": 623326,
    "unit": null,
    "note": "a crown tower (the captures' kind 12 / 13 does not separate king from princess; the king is the larger max_hp per level: 3312 / 2030 at 6, 4824 / 3052 at 11 against the 2400 / 1400 rows) -- the tower ladder is combat.TOWER_HITPOINT_LADDER (globals *_PER_TOWER_LEVEL / *_PER_KING_LEVEL)"
   },
@@ -146,7 +144,7 @@
    "kind": 12,
    "level": 11,
    "max_hp": 4824,
-   "frames": 283859,
+   "frames": 279355,
    "unit": null,
    "note": "a crown tower (the captures' kind 12 / 13 does not separate king from princess; the king is the larger max_hp per level: 3312 / 2030 at 6, 4824 / 3052 at 11 against the 2400 / 1400 rows) -- the tower ladder is combat.TOWER_HITPOINT_LADDER (globals *_PER_TOWER_LEVEL / *_PER_KING_LEVEL)"
   },
@@ -157,7 +155,7 @@
    "kind": 13,
    "level": 11,
    "max_hp": 4824,
-   "frames": 94096,
+   "frames": 79486,
    "unit": null,
    "note": "a crown tower (the captures' kind 12 / 13 does not separate king from princess; the king is the larger max_hp per level: 3312 / 2030 at 6, 4824 / 3052 at 11 against the 2400 / 1400 rows) -- the tower ladder is combat.TOWER_HITPOINT_LADDER (globals *_PER_TOWER_LEVEL / *_PER_KING_LEVEL)"
   },
@@ -186,7 +184,7 @@
    "card": "Knight",
    "level": 11,
    "max_hp": 1766,
-   "frames": 43855,
+   "frames": 41976,
    "unit": "Knight",
    "base_hitpoints": 690,
    "percent": 256
@@ -266,7 +264,7 @@
    "card": "Minions",
    "level": 11,
    "max_hp": 230,
-   "frames": 16029,
+   "frames": 10301,
    "unit": "Minion",
    "base_hitpoints": 90,
    "percent": 256
@@ -276,7 +274,7 @@
    "card": "Balloon",
    "level": 11,
    "max_hp": 1676,
-   "frames": 1744,
+   "frames": 872,
    "unit": "Balloon",
    "base_hitpoints": 655,
    "percent": 256
@@ -356,7 +354,7 @@
    "card": "Skeletons",
    "level": 11,
    "max_hp": 81,
-   "frames": 79034,
+   "frames": 77022,
    "unit": "Skeleton",
    "base_hitpoints": 32,
    "percent": 256
@@ -436,7 +434,7 @@
    "card": "BabyDragon",
    "level": 11,
    "max_hp": 1152,
-   "frames": 1570,
+   "frames": 785,
    "unit": "BabyDragon",
    "base_hitpoints": 450,
    "percent": 256
@@ -595,7 +593,7 @@
    "card": "Miner",
    "level": 11,
    "max_hp": 1210,
-   "frames": 2476,
+   "frames": 1238,
    "unit": "Miner",
    "base_hitpoints": 473,
    "percent": 256
@@ -654,7 +652,7 @@
    "card": "MegaMinion",
    "level": 11,
    "max_hp": 837,
-   "frames": 1840,
+   "frames": 920,
    "unit": "MegaMinion",
    "base_hitpoints": 327,
    "percent": 256
@@ -744,7 +742,7 @@
    "card": "Bats",
    "level": 11,
    "max_hp": 81,
-   "frames": 8668,
+   "frames": 4334,
    "unit": "Bat",
    "base_hitpoints": 32,
    "percent": 256
@@ -884,7 +882,7 @@
    "card": "SkeletonDragons",
    "level": 11,
    "max_hp": 560,
-   "frames": 2384,
+   "frames": 1192,
    "unit": "SkeletonDragon",
    "base_hitpoints": 219,
    "percent": 256
@@ -924,7 +922,7 @@
    "card": "GoblinHut",
    "level": 11,
    "max_hp": 133,
-   "frames": 13196,
+   "frames": 11284,
    "unit": "SpearGoblin",
    "base_hitpoints": 52,
    "percent": 256
@@ -934,7 +932,7 @@
    "card": "GoblinHut",
    "level": 11,
    "max_hp": 1180,
-   "frames": 21686,
+   "frames": 20139,
    "unit": "GoblinHut_Rework",
    "base_hitpoints": 461,
    "percent": 256
@@ -1122,7 +1120,7 @@
    "card": "GoblinDrill",
    "level": 11,
    "max_hp": 202,
-   "frames": 10066,
+   "frames": 5033,
    "unit": null,
    "note": "the drill building (max_hp 1313 at 11) and its Goblins are spawned through an action graph this schema does not walk"
   },
@@ -1131,7 +1129,7 @@
    "card": "GoblinDrill",
    "level": 11,
    "max_hp": 1313,
-   "frames": 1740,
+   "frames": 870,
    "unit": null,
    "note": "the drill building (max_hp 1313 at 11) and its Goblins are spawned through an action graph this schema does not walk"
   },
@@ -1140,7 +1138,7 @@
    "card": "GoblinDrill",
    "level": 11,
    "max_hp": 2560,
-   "frames": 324,
+   "frames": 162,
    "unit": "GoblinDrillDig",
    "base_hitpoints": 1000,
    "percent": 256

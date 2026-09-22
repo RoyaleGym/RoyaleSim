@@ -196,9 +196,9 @@ impl BuffSlot {
     }
 }
 
-/// How many buffs one entity can carry at once. The game's list is unbounded; four
-/// is what the shipped data can actually stack on one unit (a slow, a damage over
-/// time, a rage and one spare), and `apply` drops a fifth rather than growing.
+/// How many buffs one entity can carry at once. Four is what the shipped data can
+/// actually stack on one unit (a slow, a damage over time, a rage and one spare), and
+/// `apply` drops a fifth rather than growing.
 pub const MAX_BUFFS_PER_ENTITY: usize = 4;
 
 /// A buff an attack, a projectile or an area effect hangs on its victim: which row,

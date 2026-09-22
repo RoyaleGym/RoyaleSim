@@ -18,14 +18,15 @@ water priced rather than refused, and every alive building of either side stampe
 a half-open box of half-width `CollisionRadius`. The path ends at the first cell within
 `Range + own CollisionRadius` of the target.
 
-Scores, all against published client data:
+A *recorded route* below is the node list a unit walked in a capture. Scores, all against
+recorded routes:
 
 | Measurement | Result |
 |---|---|
 | Cost-optimal on live 16.402 first paths | 345 / 345 (2026-09-19) |
 | Cost-optimal on offline 15.535 paths | every one |
-| **Exact published node sequence**, live 16.402 | 439 / 442 (2026-09-19) |
-| **Exact published node sequence**, offline 15.535 lane sweep | 128 / 128 |
+| **Exact recorded node sequence**, live 16.402 | 615 / 616 |
+| **Exact recorded node sequence**, offline 15.535 lane sweep | 128 / 128 |
 | Contact law: live unit-tick positions reproduced exactly | 240,389 / 242,232 = 0.99239 |
 
 The three live misses are units chasing a *moving* troop: the sample carries the previous tick's
@@ -38,9 +39,9 @@ Entered through the path request (below); implemented in `path16402.rs`.
 
 - **One goal cell**, chosen beforehand by the move component. The search stops when *that* cell
   has been popped and expanded.
-- Among equally cheap routes, the published one is reproduced by an open list ordered on **`f`
+- Among equally cheap routes, the recorded one is reproduced by an open list ordered on **`f`
   alone** — no g, no h, no insertion order — in which equal keys keep their existing order. Every
-  tie-break here was chosen because it reproduces the published node lists, not because an
+  tie-break here was chosen because it reproduces the recorded node lists, not because an
   argument ruled out the alternative.
 - Neighbours in the order **N, S, W, E, NW, SW, SE, NE**; orthogonals at factor 10, diagonals
   at 14.
@@ -53,8 +54,7 @@ Entered through the path request (below); implemented in `path16402.rs`.
 - The start cell is expanded before the loop, then closed. Each popped cell is closed and
   expanded, and the goal test runs **after** the expansion.
 - The result is the parent chain from the goal, **goal first**, stopping before the start cell.
-  The move component copies it verbatim, dropping consecutive duplicates only. There is no
-  publish-time trim: the "missing start-adjacent node" traces show is the first tick's ordinary
+  The move component copies it verbatim, dropping consecutive duplicates only. Nothing trims the list before it is recorded: the "missing start-adjacent node" traces show is the first tick's ordinary
   pop.
 
 ## The cost field
@@ -67,7 +67,7 @@ Entered through the path request (below); implemented in `path16402.rs`.
   Everything else is `DEFAULT = 8`. Then `max(base, occlusion[cell])`.
 - **Bit 16 plays no part.** The king block is priced by the king tower's own R = 1400 box, and the
   arena-edge strips cost 8.
-- **Water is priced, not refused.** No published path ever uses a water cell, because water is
+- **Water is priced, not refused.** No recorded path ever uses a water cell, because water is
   never cheaper — but pricing it still decides which of several equal-cost routes comes out.
   Refusing water instead costs 306/388 live and 24/128 offline exact sequences.
 - **The building box:** the centre is snapped **up** to the next multiple of 500 on each axis
@@ -106,7 +106,7 @@ cell-corner start pick a different goal cell for the two seats.
 there is no path, when the fresh goal cell differs from the path's head node, or when the goal is
 unchanged but the **own** side's occluder set changed this tick. Otherwise keep the path. **There
 is no periodic re-path and no distance trigger.** In the third case, with
-`PATHFINDING_SAMEPATH_EPSILON` nonzero, the published list does not change unless the same-path
+`PATHFINDING_SAMEPATH_EPSILON` nonzero, the recorded list does not change unless the same-path
 test finds an old node newly boxed or a new node newly freed.
 
 **Consumption**, per tick:
@@ -187,8 +187,9 @@ under the frame-planned arm, so they keep catching seat bias in everything else.
 
 One consequence worth knowing: `mechanics.rs::opposing_giants_pass_each_other_on_a_bridge`
 deadlocked as soon as the search became the client's, because both Giants take the *same* bridge
-column, as they do live — the earlier pass was an artefact of mirror-image planning. The measured
-contact law closes it, and the test is green again with no change to its assertion.
+column, as they do live; the two Giants passing each other was an artefact of mirror-image
+planning. The measured contact law closes it, and the test is green again with no change to its
+assertion.
 
 ## How this is gated
 
@@ -196,17 +197,17 @@ contact law closes it, and the test is green again with no change to its asserti
   client16402`. `crates/royalesim/src/move16402.rs` is the contact law, selected by
   `collision.CONTACT_LAW = client16402`; `state.rs phase_path16402` drives it in creation order.
   `Grid16402` in `Scratch` keeps the terrain, the current and previous occlusion arrays, and the
-  pathfinder shared by all units. Snapshot format is 6 (`Entities` gained `facing` and
-  `avoid_offset`).
+  pathfinder shared by all units. `Entities` carries `facing` and `avoid_offset` for this arm
+  (`architecture.md` names the current snapshot format).
 - **G6** (`tests/oracle2026.rs`) runs the whole generated fixture
-  `tests/fixtures/oracle2026/client16402_first_paths.json` — **755 cases** as of 2026-09-21: 627
+  `tests/fixtures/oracle2026/client16402_first_paths.json` — **747 cases**: 619
   first paths from the recorded 16.402 battles and 128 from the offline 15.535 lane sweep — through
   `plan_cells` and compares the exact node list, goal first. Three moving-target cases are
   skipped by name, and **one case diverges**, also named:
   `auto-20260920-072831-A:8:Giant`, where the engine walks the lane straight and the client drifts
-  one column sideways. Both reach the goal; which of the equal-cost lane routes is published is
+  one column sideways. Both reach the goal; which of the equal-cost lane routes a unit takes is
   the open expansion-order item. The assertion fails if the set of diverging cases changes at all,
-  so a second divergence cannot hide behind the first. Net of the three skipped cases, **751 of 752**
+  so a second divergence cannot hide behind the first. Net of the three skipped cases, **743 of 744**
   are reproduced exactly. `tools/make_client16402_paths_fixture.py --check` reports whether the
   fixture is in sync with the recordings; regenerating it re-scores the gate and is a deliberate
   step, not a side effect.
@@ -231,7 +232,7 @@ measurement came from.
 ### The search is deterministic
 
 Five Knights deployed from the identical cell on an empty board across one battle
-(`frames-auto-20260918-164951`) published byte-identical 30-node paths within each target group —
+(`frames-auto-20260918-164951`) walked byte-identical 30-node paths within each target group —
 three while the princess tower stood, two after it fell and the king became the target. The
 expansion order is a pure function of (start cell, goal, board).
 
@@ -245,7 +246,7 @@ optimal without it.
 
 Two earlier attempts were **not** witnesses, and are recorded because the distinction matters when
 designing a scenario: an enemy Tombstone 11 tiles out and a friendly Tesla both sat beside the
-route rather than on it, so the published path was cost-optimal with or without them.
+route rather than on it, so the recorded path was cost-optimal with or without them.
 
 ### The building box is R = CollisionRadius around a snapped centre
 
@@ -288,7 +289,7 @@ around the tap point.
 ### Card ids in the 16.402 corpus
 
 One capture contains a **hero-form Musketeer**, played as a hero rather than as an evolution,
-under card id 203000014 (the ordinary Musketeer is 26000014). Every one of its published paths
+under card id 203000014 (the ordinary Musketeer is 26000014). Every one of its recorded paths
 fits the ordinary Musketeer row — Range 6000, CollisionRadius 500 — at max hp 721 and S = 60 at
 level 11. What name string the client attaches to that id is an open 16.402 card-data question;
 nothing about its movement differs.
@@ -303,29 +304,27 @@ attacking.
 
 ## Open
 
-1. **Knockback.** The live behaviour is confirmed (a speed ladder of 25n toward a target point `L`
-   away from the source, -25 per tick, one 25-unit back-step; `MAX_PUSHBACK_LENGTH` caps `L`) but
-   the engine still runs its own fixed-distance slide.
-2. **The A\* expansion order among equally cheap routes**, which is what the one named G6
+1. **The A\* expansion order among equally cheap routes**, which is what the one named G6
    divergence turns on.
-3. **`KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS` is ANDed with "the target is not flying"**
-   (`FlyingHeight > 0`). The engine passes `true` unconditionally; a flying target needs the flag
-   off.
-4. **The three moving-target residuals** need a sample that carries the target's position on the
+2. **The three moving-target residuals** need a sample that carries the target's position on the
    planning tick.
-5. **Card data.** `cards.json` Range values for MiniPekka, Royal Giant and Knight are the 2018
-   data, so the goal cell is only right when the correct reach is supplied (the fixture passes the
-   live reach in).
-6. **Unit states 6/7/15** (no lane bonus, buildings ignored) and the `JumpEnabled` water hop
-   (a Prince pays water at 7 and skips consecutive water nodes with a jump) are known but not
-   modelled; so are the dash (5) and jump (3) states and attached characters.
-7. **The buff tags** — `NO_PUSHED_BY_*`, `DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS`,
+3. **Card data.** `cards.json` Range values for MiniPekka, Royal Giant and Knight come from a
+   table the fixture does not trust for reach, so the goal cell is only right when the correct
+   reach is supplied (the fixture passes the live reach in).
+4. **The movement states the captures show for spawn pathfinding** (6 and 7: no lane bonus,
+   buildings ignored) and for attached characters are not modelled. `movement.SPAWN_PATHFIND_STATES`
+   is the ledger key, at `hypothesis`, because nothing recorded yet exercises it.
+5. **The buff tags** — `NO_PUSHED_BY_*`, `DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS`,
    `AVOIDANCE_AS_OBSTACLE`, the facing lock — are assumed clear, because no card in the corpus
    carries them.
-8. **Tick order.** The engine runs Attack after Move (the client resolves attacks before moves)
-   and updates units in an order approximated by (spawn tick, slot) rather than creation order.
-   The 655 unexplained live unit-ticks — 0.27% — are Skeleton crowds with dying neighbours, where
-   that order decides.
+6. **Unit update order.** Units update in an order approximated by (spawn tick, slot) rather than
+   creation order. The 655 unexplained live unit-ticks — 0.27% — are Skeleton crowds with dying
+   neighbours, where that order decides.
+
+Four items that stood here are closed and are documented above and in `mechanics.md`: the
+knockback ladder (`knockback.DISPLACEMENT_LAW = client16402`), the building demotion's second
+condition (`path2026.rs avoid_buildings16402`), the river hop (`movement.JUMP_WATER_HOP`,
+`jump16402.rs`) and the tick order (`match.TICK_ORDER = client16402`).
 
 ## The earlier arms
 

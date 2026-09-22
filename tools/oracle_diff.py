@@ -38,10 +38,10 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import itertools
 import json
 import math
 import sys
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -178,7 +178,7 @@ def path_cost(cells_start_first: list[tuple[int, int]], blocked: set | None = No
     blocked = blocked or set()
     costs, num, den = cost_model()
     total = 0
-    for (c0, r0), (c1, r1) in zip(cells_start_first, cells_start_first[1:]):
+    for (c0, r0), (c1, r1) in itertools.pairwise(cells_start_first):
         if (c1, r1) in blocked:
             step = costs["building"]
         else:
@@ -352,7 +352,10 @@ class Diff:
         return sum(r[1] for r in self.rows) / len(self.rows) if self.rows else 0.0
 
     def line(self) -> str:
-        bad = "" if self.first_bad is None else f"  first divergence t{self.first_bad[0]} engine={self.first_bad[1]} oracle={self.first_bad[2]}"
+        bad = "" if self.first_bad is None else (
+            f"  first divergence t{self.first_bad[0]} "
+            f"engine={self.first_bad[1]} oracle={self.first_bad[2]}"
+        )
         short = "" if len(self.rows) == self.window_ticks else f"  TRUNCATED {len(self.rows)}/{self.window_ticks}"
         return (f"{self.family:16s} {self.name:30s} {self.card:11s} t{self.window[0]}..{self.window[1]} "
                 f"n={len(self.rows):4d} max={self.max_err:8.2f} mean={self.mean_err:7.2f}{bad}{short}{self.note}")
@@ -372,11 +375,11 @@ def diff_trace(path: Path, family: str, verbose: bool = False, all_units: bool =
     # front of the Giant, and it never moves.
     movers = []
     for (side, key), track in sorted(by_unit.items()):
-        first_move = next((t1 for (t0, a), (t1, b) in zip(track, track[1:])
+        first_move = next((t1 for (_t0, a), (t1, b) in itertools.pairwise(track)
                            if (a["x"], a["y"]) != (b["x"], b["y"])), None)
         if first_move is not None and CARD_OF_ID.get(track[0][1].get("card_id")) is not None:
             movers.append((side, key, track, first_move))
-    for idx, (side, key, track, first_move) in enumerate(movers):
+    for idx, (side, _key, track, first_move) in enumerate(movers):
         if idx > 0 and not all_units:
             continue
         card_id = track[0][1].get("card_id")
@@ -530,7 +533,7 @@ def rule_sweep() -> None:
             header, frames, _ = load(p)
             for _key, track in units_of(header, frames).items():
                 prev_tail, seg = None, (0, 0)
-                for (t0, a), (t1, b) in zip(track, track[1:]):
+                for (t0, a), (t1, b) in itertools.pairwise(track):
                     if t1 - t0 != 1:
                         prev_tail = None
                         continue
@@ -613,7 +616,8 @@ def main() -> int:
                 else:
                     verdict = "SAME COST" if mc == oc else f"COST {mc} vs {oc}"
                     d.same_cost = mc == oc
-                print(f"    first path cells {same} ({verdict}; engine {len(d.engine_cells)} cells, oracle {len(d.oracle_cells)})")
+                print(f"    first path cells {same} ({verdict}; "
+                      f"engine {len(d.engine_cells)} cells, oracle {len(d.oracle_cells)})")
                 print(f"      engine ({len(d.engine_cells)}): {d.engine_cells}")
                 print(f"      oracle ({len(d.oracle_cells)}): {d.oracle_cells}")
 

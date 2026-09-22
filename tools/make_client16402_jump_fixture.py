@@ -28,9 +28,8 @@ WHAT IT HOLDS
     shipped engine, published lists included.
 
     CASE NAMES are `<capture>:<Card>:<k>`, k the unit's ordinal among that card's units in the
-    capture (order of appearance). A capture recorded from both seats reaches this tool once per
-    seat; the fixture names the seats A, B, ... in sort order (tools/make_client16402_paths_fixture.py
-    `seat_letters`), so a case name carries the capture and the seat and nothing else.
+    capture (order of appearance). Seats are named A, B, ... in sort order within the battle
+    (tools/capture_names.py), so a case name carries the capture and the seat and nothing else.
 """
 from __future__ import annotations
 
@@ -38,11 +37,13 @@ import glob
 import gzip
 import json
 import os
-import re
 import sys
 import tomllib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from capture_names import argv_guard, distinct_captures, public_name, seat_letters  # noqa: E402
+
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 # The battle, recorded from both seats; the side-0 seat's file is the one used (its header says so).
 BATTLE = "20260920-002736"
@@ -67,19 +68,6 @@ SIDE = 0
 
 # The cases: every side-0 unit of these cards, in order of appearance (the capture's card ids).
 CARD_IDS = {"HogRider": 26000021, "Prince": 26000016, "RoyalHog": 26000059}
-
-# A capture name carries the seat it was recorded from as a 5-digit tag; the fixture
-# replaces it with a letter (A, B, ... in sort order within the file).
-SEAT_TAG = re.compile(r"-(\d{5})(?=[.:]|$)")
-
-
-def seat_letters(names: list[str]) -> dict[str, str]:
-    tags = sorted({m.group(1) for n in names for m in [SEAT_TAG.search(n)] if m})
-    return {tag: chr(ord("A") + i) for i, tag in enumerate(tags)}
-
-
-def public_name(raw: str, seats: dict[str, str]) -> str:
-    return SEAT_TAG.sub(lambda m: "-" + seats[m.group(1)], raw)
 
 
 def load(path: str) -> tuple[dict, list[dict]]:
@@ -130,26 +118,34 @@ def units_of(frames: list[dict], card_id: int) -> list[str]:
     return seen
 
 
-def find_capture() -> str:
-    """The side-0 seat's capture of the battle, by its header, from ROYALELIVE_REPORTS."""
+def find_capture() -> tuple[str, list[str]]:
+    """The side-0 seat's capture of the battle, by its header, and both seats' names.
+
+    The folder may carry one capture under several names; `distinct_captures` keeps one per
+    file, so a second name for the same bytes cannot look like a second side-0 seat.
+    """
     if not LIVE:
         sys.exit("set ROYALELIVE_REPORTS to the folder holding frames-auto-" + BATTLE + "-*" + SUFFIX)
+    paths = distinct_captures(glob.glob(os.path.join(LIVE, "frames-auto-" + BATTLE + "-*" + SUFFIX)))
     hits = []
-    for path in sorted(glob.glob(os.path.join(LIVE, "frames-auto-" + BATTLE + "-*" + SUFFIX))):
+    for path in paths:
         with gzip.open(path, "rt", encoding="utf-8") as f:
             header = json.loads(f.readline())
         if header.get("record") == "header" and header.get("local_side_native") == SIDE:
             hits.append(path)
     if len(hits) != 1:
         sys.exit(f"expected one side-{SIDE} capture of {BATTLE} under {LIVE}, found {hits}")
-    return os.path.basename(hits[0]).removesuffix(SUFFIX)
+    names = [os.path.basename(p).removesuffix(SUFFIX) for p in paths]
+    return os.path.basename(hits[0]).removesuffix(SUFFIX), names
 
 
 def build() -> dict:
-    raw = find_capture()
+    raw, battle_names = find_capture()
     header, frames = load(os.path.join(LIVE, raw + SUFFIX))
     by_id = {e["id"]: e for st in frames for e in st["entities"]}
-    capture = public_name(raw.removeprefix("frames-auto-"), seat_letters([raw]))
+    # The letter is decided over BOTH seats of the battle, so it is the seat and not a
+    # constant: a letter taken from this one file alone would always be "A".
+    capture = public_name(raw.removeprefix("frames-auto-"), seat_letters(battle_names))
     cases = []
     for card, card_id in CARD_IDS.items():
         for k, eid in enumerate(units_of(frames, card_id)):
@@ -201,6 +197,7 @@ def build() -> dict:
 
 
 def main() -> None:
+    argv_guard(sys.argv[1:], __doc__)
     fixture = build()
     text = json.dumps(fixture, indent=1) + "\n"
     if "--check" in sys.argv:
@@ -214,7 +211,8 @@ def main() -> None:
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     for c in fixture["cases"]:
-        print(f"{c['name']}: hop t{c['hop_tick']} -> node {c['hop_node']}, landing t{c['landing_tick']}, {len(c['frames'])} frames")
+        print(f"{c['name']}: hop t{c['hop_tick']} -> node {c['hop_node']}, "
+              f"landing t{c['landing_tick']}, {len(c['frames'])} frames")
     print(f"wrote {OUT}")
 
 

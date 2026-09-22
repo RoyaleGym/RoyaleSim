@@ -34,28 +34,35 @@ tooling in `tools/` and `oracle/` needs only numpy and msgspec. The two exceptio
 
 `data/derived/` (`arena.json`, `cards.json`, `globals.json`) is gitignored and generated, and it
 must exist **before** the build: the crate `include_str!`s `arena.json`, and `royalegym` reads
-`cards.json` and `globals.json`. `tools/extract_arena.py`, `extract_cards.py` and
-`extract_globals.py` read the tracked `data/raw/retroroyale-2018/` and need nothing beyond the
-standard library (verified byte-identical from a fresh venv, 2026-09-21). `data/raw/cr-15.535.29/`
-comes from `tools/decode_sc_assets.py` run on a verified asset pack (Supercell's files, not
-redistributed). The recorded traces in `data/oracle-native/` are not distributed; without them
+`cards.json` and `globals.json`. `tools/extract_arena.py` and `extract_globals.py` read the tracked
+`data/raw/retroroyale-2018/` and need nothing beyond the standard library.
+`tools/extract_cards.py` defaults to the 15.535.29 card table, which needs
+`data/raw/cr-15.535.29/` — `tools/decode_sc_assets.py` run on a verified asset pack (Supercell's
+files, not redistributed). A checkout without that pack generates the card table from the tracked
+2018 files instead:
+
+```
+python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+```
+
+The recorded traces in `data/oracle-native/` are not distributed; without them
 `tests/test_oracle_native_diff.py` skips and says so.
 
 The data directory is found by the env layer through `royalegym.protocol.data_dir()`
-(`../RoyaleSim/data` from a sibling checkout, overridable with `ROYALESIM_DATA_DIR`); the
-recorder's own tooling honours the same variable. `tools/make_client16402_paths_fixture.py` reads
-the recordings from `ROYALELIVE_REPORTS` (default `<ROYALELIVE_DIR>/reports`) and imports the
-recorder's sampler from `ROYALELIVE_DIR` (default `../RoyaleLive`).
+(`../RoyaleSim/data` from a sibling checkout, overridable with `ROYALESIM_DATA_DIR`).
+`tools/make_client16402_paths_fixture.py`, `make_client16402_jump_fixture.py`,
+`make_live_levels_fixture.py` and `make_replay_fixture.py` read the recordings from the folder
+named by `ROYALELIVE_REPORTS`; without it they exit and say so.
 
 ## Gates
 
 ```
-cd crates\royalesim && cargo test --release             # 176 passed + 3 ignored (2026-09-21)
+cd crates\royalesim && cargo test --release             # 338 test functions, 3 of them #[ignore]d
 cd crates\royalesim && cargo clippy --all-targets -- -D warnings
 cd crates\royalesim && grep -rn 'f32\|f64' src/ tests/  # must print nothing
-..\.venv\Scripts\python -m pytest -q                     # 88 passed (2026-09-21), from the repo root
+..\.venv\Scripts\python -m pytest -q                     # 101 collected, from the repo root
 ..\.venv\Scripts\ruff check tools oracle tests
-cd ..\RoyaleGym && ..\.venv\Scripts\python -m pytest -q  # 235 (2026-09-21): the env layer drives the engine
+cd ..\RoyaleGym && ..\.venv\Scripts\python -m pytest -q  # the env layer drives the engine
 ```
 
 `cargo test` also runs in debug; release is the one that matters, because release keeps overflow
@@ -124,8 +131,8 @@ RUSTFLAGS='--cfg clash_plant="id_tiebreak"' CARGO_TARGET_DIR=target/plant cargo 
 
 Use a separate `CARGO_TARGET_DIR`, or the plant build poisons the normal one.
 
-There are 86 of them as of 2026-09-21, each declared at the site it corrupts and named in the
-header of the test it is aimed at. To list them:
+There are 106 of them, each declared at the site it corrupts and named in the header of the test
+it is aimed at. To list them:
 
 ```
 grep -rho 'clash_plant *= *"[a-z_0-9]*"' src tests | sed 's/.*= *//' | tr -d '"' | sort -u
@@ -169,7 +176,7 @@ Two rules go with them, and both were learned the hard way:
 | `data/oracle-native/` | the recorded 15.535 traces (gitignored, not distributed) |
 | `oracle/` | the trace format and the calibration protocol: `scenarios.json` (the discriminating scenarios), `calibrate.py`, `synth.py`, `extract_tracks.py` (video tracks; cv2 optional) |
 | `tools/` | `extract_*.py` (data/raw -> data/derived), `check_data.py`, `oracle_diff.py` (the engine beside a trace, tick for tick), `diff_harness.py`, `watch_battle.py`, `throughput.py`, `make_*_fixture.py`, `mechanic_register.py`, `decode_sc_assets.py` |
-| `tests/` | pytest for the tooling (6 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
+| `tests/` | pytest for the tooling (8 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
 | `docs/` | this documentation; `docs/media/` holds the README's graphics |
 
 ## Test layout
@@ -180,7 +187,12 @@ Two rules go with them, and both were learned the hard way:
 | `crates/royalesim/tests/battle.rs` | scripted battles and the every-tick invariants |
 | `tests/mirror.rs`, `setup_spawn_order.rs`, `stacked_tie.rs` | seat symmetry and tie-breaks |
 | `tests/mechanics.rs`, `territory.rs`, `spells.rs`, `knockback.rs` | behaviour per mechanic |
-| `tests/oracle2026.rs` | the path gates against recorded first paths (G6) |
+| `tests/tiebreak.rs`, `hide.rs`, `spawner.rs`, `charge.rs`, `reach.rs`, `lifetime.rs`, `status.rs` | the mechanics measured on the 16.402 corpus |
+| `tests/tick_order.rs`, `knockback16402.rs`, `jump16402.rs` | the measured tick order, knockback ladder and river hop |
+| `tests/formations.rs` | the summon layouts, against `tests/fixtures/formations/measured.json` (`tools/make_formation_fixture.py --check`) |
+| `tests/levels.rs` | level scaling and the tower ladder, against `tests/fixtures/live_levels.json` (`tools/make_live_levels_fixture.py --check`, needs `ROYALELIVE_REPORTS`) |
+| `tests/replay_parity.rs`, `examples/replay_parity.rs` | a whole recorded battle replayed and scored, against `tests/fixtures/replay/sample.json` (`tools/make_replay_fixture.py ... --check`) |
+| `tests/oracle2026.rs` | the path gates against recorded first paths (G6), against `tests/fixtures/oracle2026/client16402_first_paths.json` (`tools/make_client16402_paths_fixture.py --check`) |
 | `tests/save_load.rs`, `api.rs` | snapshots and the Python-facing API |
 | `tests/throughput.rs` | timing; `#[ignore]`d, not a gate |
 | `tests/` (pytest, repo root) | the Python tooling in `tools/` and `oracle/` |

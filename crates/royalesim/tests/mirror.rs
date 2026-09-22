@@ -397,9 +397,12 @@ fn mirror_equidistant_target_tie() {
     // (11, 22) and (7, 22) -- edge distances identical to the subtile -- and the
     // rotation of all of it. The key (edge, candidate x, candidate y in the
     // attacker's frame, team_seq) sends each Giant to its OWN-LEFT Cannon: engine
-    // (7, 22) for Blue, engine (11, 10) for Red. Blue's Cannons spawn x=7 first,
-    // Red's in reverse, so a raw-slot tie-break sends the Giants to rotationally
-    // DIFFERENT Cannons: the predecessor's bug, and the `id_tiebreak` plant.
+    // (7, 22) for Blue, engine (11, 10) for Red. THE PROPERTY: the tie-break must be
+    // keyed on the candidate's position in the ATTACKER'S OWN frame, never on spawn
+    // or slot order -- Blue's Cannons spawn x=7 first and Red's in reverse, so any
+    // tie-break that falls back on slot or spawn order sends the two Giants to
+    // rotationally DIFFERENT Cannons, a seat advantage. The `id_tiebreak` plant
+    // re-keys the comparison that way and this test must go red under it.
     let units = [
         Unit { card: "Cannon", at: (700, 1000), tick: 0 },
         Unit { card: "Cannon", at: (1100, 1000), tick: 0 },

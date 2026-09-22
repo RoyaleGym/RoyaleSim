@@ -67,7 +67,7 @@ mod common;
 use common::*;
 use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind};
-use royalesim::fixed::{milli, Vec2, SUBTILE_PER_MILLITILE};
+use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor, SpawnPoint,
     SpawnedDeploy, SpawnerEmission, StartTimeOrigin,
@@ -1247,7 +1247,7 @@ fn a_death_spawn_whose_grid_reaches_past_its_radius_is_pulled_back_onto_it() {
     assert!(at.len() >= 2, "the pull-back collapsed the grid onto one point: {at:?}");
     for p in &at {
         let d2 = p.dist2(pos);
-        assert!(d2 <= (r as i64) * (r as i64), "a Statue at {p:?} is {} from the death point, radius {r}", (d2 as f64).sqrt() as i64);
+        assert!(d2 <= (r as i64) * (r as i64), "a Statue at {p:?} is {} from the death point, radius {r}", isqrt(d2));
         assert!(d2 > 0, "a Statue sits ON the death point: the pull-back did not run");
     }
 }

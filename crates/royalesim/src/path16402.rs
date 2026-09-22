@@ -1,8 +1,8 @@
 //! THE 16.402 PATHFINDER AS MEASURED, reproducing the live client node for node.
 //!
 //! WHAT IT REPRODUCES
-//!     The published first-path node lists of the live 16.402 trace corpus
-//!     (**435 of 438**) and of the offline 15.535 corpus (**128 of 128**), exactly.
+//!     The recorded first-path node lists of the live 16.402 trace corpus
+//!     (**615 of 616**) and of the offline 15.535 corpus (**128 of 128**), exactly.
 //!     The three misses are units chasing a MOVING target whose goal cell the trace
 //!     cannot recover: the sample carries the target's position from the previous
 //!     tick. The trace-fitted search in path2026.rs reproduces 168 of 345.
@@ -200,8 +200,9 @@ pub fn cell_cost_for(t: &Terrain, occ: &[i32], col: i32, row: i32, jumper: bool)
 /// `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS` ANDed with the TARGET not flying
 /// (path2026.rs `avoid_buildings16402`), so a ground unit chasing a flying target
 /// takes the nearest in-reach cell whether or not a building box covers it. True on
-/// the whole corpus (every target there is a ground unit or a tower): holding it true
-/// scores 435/438 against 421/425 with the global off.
+/// the whole corpus (every target there is a ground unit or a tower). On the corpus
+/// sample that separates the two arms, holding it true scored 435 of 438 against 421
+/// of 425 with the global off.
 ///
 /// Scans rows ascending over `target_cell +- (reach/500 + 1)`, columns ascending
 /// when the ACTOR's x is in the left half of the arena and descending otherwise;
@@ -597,8 +598,8 @@ pub struct Request {
     pub target: (i32, i32),
     /// Range + the mover's own CollisionRadius.
     pub reach: i32,
-    /// `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS && !target->isFlying()` (see
-    /// `choose_goal_cell`).
+    /// The datamined global `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS` ANDed with the TARGET
+    /// not flying (`choose_goal_cell`).
     pub avoid_buildings: bool,
     /// The mover is JumpEnabled (or hovering): its cost field prices water at
     /// WATER_COST (`cell_cost_for`).

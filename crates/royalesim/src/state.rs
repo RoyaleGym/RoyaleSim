@@ -154,7 +154,7 @@ pub struct Calib {
     /// pathfinding.PATH_SEARCH -- WHICH SEARCH `path2026::plan_cells` runs.
     /// `client16402` is the search measured on client 16.402 (path16402.rs: single
     /// goal cell, x10/x14 step costs, f-only binary heap, N S W E NW SW SE NE, water
-    /// priced 50 and pushed) -- 435/438 live node sequences. `trace_fitted_astar` is
+    /// priced 50 and pushed) -- 615/616 live node sequences. `trace_fitted_astar` is
     /// the earlier model fitted to traces (goal set, Chebyshev h, the
     /// TIE_BREAK / HEURISTIC_FORM / OCCLUDED_CELL_TREATMENT knobs), kept runnable as
     /// the refuted arm: 168/345.
@@ -1534,7 +1534,7 @@ pub struct EntityView<'a> {
     pub push_active: bool,
     pub push_speed: i32,
     pub push_target: Vec2,
-    /// Mid river-jump (the game's state 5; entity.rs `jumping`): the route is the
+    /// Mid river-jump (movement state 5 in the captures; entity.rs `jumping`): the route is the
     /// single landing node and the unit leaps at its card's JumpSpeed.
     pub jumping: bool,
     /// Hide state (Tesla; `Up` on everything else) and its timer (entity.rs
@@ -4164,7 +4164,9 @@ impl BattleState {
                 }
                 #[cfg(clash_plant = "inline_damage")]
                 for h in self.dmg.hits.drain(..) {
-                    // PLANT: the predecessor's inline damage.
+                    // PLANT (regression): apply each hit inline at the swing instead of
+                    // through the tick's hit buffer, which makes damage order-dependent
+                    // and the state hash depend on entity order.
                     if self.ents.is_alive(h.target) {
                         self.ents.hp[h.target.index as usize] -= h.amount;
                     }
@@ -4310,7 +4312,7 @@ impl BattleState {
         // its identity, and without that a Poison cloud would stack with ITSELF every
         // time its area re-applies (LifeDuration / HitSpeed = 32 copies of one Poison).
         // A unit already carrying MAX_BUFFS_PER_ENTITY distinct rows drops the new one;
-        // the game's list is unbounded and no shipped combination reaches four.
+        // no shipped combination of buffs reaches four on one unit, so the cap is never met.
         let mut stun_new = vec![0i32; cap];
         for b in &fx.buffs {
             if !survivor(&self.ents, b.target) {

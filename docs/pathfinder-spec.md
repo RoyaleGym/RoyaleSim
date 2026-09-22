@@ -42,8 +42,8 @@ against 10 238 for a rotated decode).
 
 **Rule 2.1.** The grid is **36 columns × 64 rows** of half-tile cells, **500 native units**
 (9000 subtiles) on a side. Load it from
-`data/raw/cr-15.535.29/tilemaps/tilemap.csv` — the *2026* tilemap, not
-`data/derived/arena.json`, although the two agree on every geometry bit.
+`data/derived/arena.json`, which the tracked data generates; it agrees with the 2026 tilemap
+(`data/raw/cr-15.535.29/tilemaps/tilemap.csv`, not distributed) on every geometry bit.
 
 ```
 col = x / 500                 row = y / 500
