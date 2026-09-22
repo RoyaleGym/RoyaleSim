@@ -163,7 +163,7 @@ from collections import Counter, defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import SEAT_TAG, distinct_captures, seat_letters  # noqa: E402
+from capture_names import SEAT_TAG, distinct_captures, folder_seats  # noqa: E402
 
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 RAW = os.path.join(ROOT, "data", "raw", "cr-15.535.29", "csv_logic")
@@ -627,10 +627,12 @@ def build(
     if until_tick is not None:
         frames = [f for f in frames if f["tick"] <= until_tick]
     reasons: list[str] = []
-    # The seat map is the RUN's, so a capture's letter does not depend on which placement
-    # logs happen to sit beside it.
+    # The seat map is the captures FOLDER's, so a capture's letter does not depend on which
+    # placement logs happen to sit beside it, nor on which captures this run was handed.
     if seats is None:
-        seats = seat_letters([os.path.basename(capture)] + [os.path.basename(p) for p in placements])
+        seats = folder_seats(
+            os.path.dirname(os.path.abspath(capture)), CAPTURE_SUFFIX, [capture, *placements]
+        )
     fx: dict = {
         "format": FORMAT,
         "generated_by": "tools/make_replay_fixture.py",
@@ -1227,13 +1229,11 @@ def main() -> int:
         )
         for cap in captures
     ]
-    # ONE seat map for the run, seeded from the whole captures folder when there is one,
-    # so a capture's letter is the same whether it is built alone or with --all.
-    pool = [os.path.basename(c) for c, _ in jobs]
-    pool += [os.path.basename(p) for _, ps in jobs for p in ps]
-    if args.reports and os.path.isdir(args.reports):
-        pool += [os.path.basename(f) for f in glob.glob(os.path.join(args.reports, "*" + CAPTURE_SUFFIX))]
-    seats = seat_letters(pool)
+    # ONE seat map for the run, the captures folder's (tools/capture_names.py folder_seats),
+    # so a capture's letter is the same whether it is built alone, with --all, or by another
+    # maker. The jobs' own names go in too, in case a capture was handed in from elsewhere.
+    pool = [c for c, _ in jobs] + [p for _, ps in jobs for p in ps]
+    seats = folder_seats(args.reports, CAPTURE_SUFFIX, pool)
     manifest = []
     written: dict[str, str] = {}
     for cap, placements in jobs:

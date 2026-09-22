@@ -79,7 +79,7 @@ compiles two of these files in, a build can go stale against the files on disk; 
 ## Selectable model arms
 
 Where the engine has two implementations of one law, the ledger selects which one runs, and both
-stay compiled and tested. Two such choices matter today:
+stay compiled and tested. Three such choices matter today:
 
 - `pathfinding.PATH_SEARCH` — `client16402` (`path16402.rs`, the search measured on client
   16.402) is selected; `trace_fitted_astar` (`path2026.rs`) is the earlier frame-planned arm,

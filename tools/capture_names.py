@@ -8,11 +8,19 @@ one place: four copies of it drifted apart and each drift cost a fixture.
 
 `distinct_captures` keeps one path per file: a captures folder may hold several names for
 the same bytes, and a maker that reads both counts one battle twice.
+
+`folder_seats` is the map every maker should use: computed over the whole captures folder, a
+letter belongs to the seat. Computed over a subset, A goes to whichever seat sorts first in
+that subset, so two fixtures built from different subsets can spell the same seat differently.
 """
 from __future__ import annotations
 
+import glob
 import os
 import re
+
+# What a ground-truth capture file is called.
+CAPTURE_SUFFIX = ".native.oracle.jsonl.gz"
 
 # The seat that follows a capture's stamp, in a file name or in a `<capture>:<...>` case
 # name. Anchored on the stamp so the stamp's own second field is never mistaken for it.
@@ -23,6 +31,23 @@ def seat_letters(names: list[str]) -> dict[str, str]:
     """Map every seat these names carry to a letter, A first, in sort order."""
     tags = sorted({m.group(1) for n in names for m in [SEAT_TAG.search(n)] if m})
     return {tag: chr(ord("A") + i) for i, tag in enumerate(tags)}
+
+
+def folder_seats(
+    reports: str | None, suffix: str = CAPTURE_SUFFIX, also: list[str] | None = None
+) -> dict[str, str]:
+    """The seat map of a whole captures folder -- the one map a fixture should name seats by.
+
+    `also` adds names read from outside the folder (a capture given by path, its placement
+    logs), so a run that reaches past the folder still sorts its seats together with it.
+    """
+    names = [os.path.basename(n) for n in (also or [])]
+    if reports and os.path.isdir(reports):
+        names += [
+            os.path.basename(p)
+            for p in distinct_captures(glob.glob(os.path.join(reports, "*" + suffix)))
+        ]
+    return seat_letters(names)
 
 
 def public_name(raw: str, seats: dict[str, str]) -> str:

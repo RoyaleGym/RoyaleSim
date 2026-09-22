@@ -30,7 +30,8 @@ WHAT IT HOLDS
     floor in level scaling. The Rust gate is tests/levels.rs: for every resolved row whose
     card the loader simulates, `CardDb::scaled(unit, level, hitpoints)` must equal max_hp.
 
-    Seats are named A, B, ... in sort order over the captures read (tools/capture_names.py),
+    Seats are named A, B, ... in sort order over the whole captures folder
+    (tools/capture_names.py `folder_seats`, the map every fixture names seats by),
     and the frames- / frames-auto- prefix and the file suffix are dropped, so a capture entry
     is "20260920-002736-B" and nothing else. A folder carrying one capture under several
     names contributes it once: a battle read twice would double every `frames` count it feeds.
@@ -47,7 +48,7 @@ from collections import Counter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import argv_guard, distinct_captures, public_name, seat_letters  # noqa: E402
+from capture_names import argv_guard, distinct_captures, folder_seats, public_name  # noqa: E402
 
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 SUFFIX = ".native.oracle.jsonl.gz"
@@ -147,7 +148,7 @@ def build() -> dict:
     seen: Counter = Counter()
     files = []
     paths = distinct_captures(glob.glob(os.path.join(LIVE, "*" + SUFFIX)))
-    seats = seat_letters([os.path.basename(f) for f in paths])
+    seats = folder_seats(LIVE, SUFFIX)
     for f in paths:
         files.append(capture_name(os.path.basename(f), seats))
         with gzip.open(f, "rt", encoding="utf-8") as fh:

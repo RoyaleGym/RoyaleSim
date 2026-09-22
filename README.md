@@ -21,7 +21,7 @@ constant records which game version it was measured on.
   <tr>
     <td width="33%" align="center"><img src="docs/media/engine-battle-viewer.png" width="100%" alt="An engine battle at 2:19, 20 units on the board, rendered by RoyaleViser"><br><b>Run a whole battle from Python</b><br><sub>One call per step: hand in your deploys, advance N ticks of 50 ms each, read the board back as JSON.</sub></td>
     <td width="33%" align="center"><img src="docs/media/measured-routes.svg" width="100%" alt="Image placeholder: a recorded route and the engine's route on one board"><br><b>Routes measured off real battles</b><br><sub>Of 744 recorded routes — 616 from real battles and 128 from an offline corpus — the engine reproduces 743 node for node.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/contact-law.svg" width="100%" alt="Video placeholder: Skeletons pushing apart round a Knight, recording beside engine"><br><b>Crowds that push like the real game</b><br><sub>Over 31 recorded battles, 99.24% of every unit's per-tick positions come out exact.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/contact-law.svg" width="100%" alt="Video placeholder: Skeletons pushing apart round a Knight, recording beside engine"><br><b>Crowds that push like the real game</b><br><sub>Over 31 recorded captures, 99.24% of every unit's per-tick positions come out exact.</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/media/deploy-legality.svg" width="100%" alt="Image placeholder: the arena coloured by check_deploy's answer"><br><b>Deploy legality as a query</b><br><sub>Ask if a card may go on a tile; the engine answers with one of 13 codes, such as WATER or OUT_OF_TERRITORY.</sub></td>
@@ -105,7 +105,7 @@ git clone https://github.com/RoyaleGym/RoyaleViser.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
 python -m venv .venv                                                    # Python 3.12
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
-cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
+cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
 cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds the engine into the venv (~1 min, ~1.5 GB RAM)
 .venv\Scripts\python -m pip install -e RoyaleGym
 .venv\Scripts\python -m pip install -e RoyaleViser
@@ -114,7 +114,15 @@ cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds
 
 `extract_cards.py` defaults to the 15.535 card table, which needs the client's own asset pack
 (`data/raw/cr-15.535.29/`, not redistributed); `--vintage 2018` builds the card table from the
-tracked 2018 files instead, which is what the line above does.
+tracked 2018 files instead, which is what the two `extract_cards.py` runs above do — one writes
+`data/derived/cards-2018.json` (`tests/stacked_tie.rs` loads it by that name), the other writes the
+same table over `data/derived/cards.json`, which is what the engine loads.
+
+A 2018-only checkout runs the engine, the example below and the Python suite, but it is not
+gate-green. Three checks want the 15.535 table specifically: `tests/levels.rs` scores the level
+ladder against recorded `max_hp`, `tests/jump16402.rs` wants the jump blocks of the Hog Rider,
+Prince and Dark Prince, and `tools/check_data.py`'s live-level rows go vacuous without them. Those
+need the 15.535 pack and `extract_cards.py` with no `--vintage`.
 
 For the example above you need the venv, the `extract_*.py` line (it generates `data/derived/`)
 and the `maturin develop` line (Rust 1.80+ with cargo); `tools/watch_battle.py` also needs
@@ -131,7 +139,7 @@ Working:
   double elixir, 60 s overtime, the 3-crown win and the tiebreak.
 - Mechanics measured against recordings of the game and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
-  exact over 31 battles), reach and the attack cycle, the charged hit, knockback, the river hop,
+  exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
   spawner timing and death spawns, hiding buildings, the lifetime drain of buildings, status effects
   (rage, slow, freeze, heal and damage over time) and the order things happen within a tick.
 - Determinism, snapshots, seat symmetry (Red is Blue turned 180 degrees, checked every tick) and
@@ -153,10 +161,12 @@ Tests:
 
 ```
 cd RoyaleSim\crates\royalesim && cargo test --release     # 338 test functions, 3 of them #[ignore]d
-cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 101 collected
+cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 108 collected
 ```
 
-RoyaleGym's suite drives the engine from the outside and must stay green too.
+The cargo run above assumes the 15.535 card table (see the note under the install); on a 2018-only
+checkout `levels.rs` and `jump16402.rs` go red for want of it. RoyaleGym's suite drives the engine
+from the outside and must stay green too.
 
 Read next: [`docs/architecture.md`](docs/architecture.md) (how the engine is built),
 [`docs/pathfinding.md`](docs/pathfinding.md) (the measured routes and contact law, with the

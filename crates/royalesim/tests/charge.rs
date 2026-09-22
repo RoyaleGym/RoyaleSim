@@ -8,8 +8,8 @@
 //!      client16402_progress_permille): the Prince (Speed 60,
 //!      ChargeRange 250 in cards.json) gains tdiv(60 x 1000, 250) = 240 permille per
 //!      walking tick, is charged after the 42nd (10080 >= 10000) and walks at the
-//!      doubled S from the 43RD WALKING TICK -- the measured onset (gen 26 of
-//!      capture 20260918-122757.b1: walking from tick 1258, 119..120/tick from 1300;
+//!      doubled S from the 43RD WALKING TICK -- the measured onset (capture
+//!      20260918-122757.b1: walking from tick 1258, 119..120/tick from 1300;
 //!      capture 20260920-003751-A, the Prince: state 1 at t191, the first step at
 //!      t192, 42 steps of 58..60 = 2483 native, the first 120 step at t234); and (0b)
 //!      THE LIVE ONSET OF EVERY CHARGER of that capture, the 51st walking tick for

@@ -528,7 +528,7 @@ fn knockback_resets_a_windup() {
     // A Red Musketeer (already deployed) shooting a Blue Cannon is hit by a Blue
     // Fireball on a tick where the CONTROL Musketeer is still mid-windup: the pushed
     // one is Idle with its timer at zero (registry knockback.ATTACK_RESET: the
-    // attack resets, MEASURED on the Knight gen 61 of capture 20260920-081819-A,
+    // attack resets, MEASURED on the Knight of capture 20260920-081819-B,
     // load 300 -> 700 on the hit tick 3535).
     // Plant: knockback_keeps_windup.
     assert_registry("knockback.ATTACK_RESET", format!("{:?}", calib().knock_attack_reset), "ResetAttackKeepTarget");
@@ -569,7 +569,7 @@ fn knockback_resets_a_windup() {
         found += 1;
         let v = s.entity(m).unwrap();
         assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: control is mid-swing at {} ms, the pushed Musketeer is not reset", cv.attack_ms);
-        // and its LOAD TIMER is back to a full LoadTime (the Knight gen 61's 300 ->
+        // and its LOAD TIMER is back to a full LoadTime (the Knight's 300 ->
         // 700 on the hit tick; the windup arm does not carry the column)
         if calib().attack_cycle == royalesim::state::AttackCycle::ProgressCredit {
             assert_eq!(v.attack_load_ms, load, "delay {delay}: the push did not reload the timer");
@@ -582,8 +582,8 @@ fn knockback_resets_a_windup() {
 
 #[test]
 fn knockback_interrupts_a_unit_between_shots_and_the_old_arm_freezes_its_cooldown() {
-    // THE MEASURED HALF the community reading missed (the Bomber gen 29 of capture
-    // 20260920-081819-A, between hits with its swing counter at 3500
+    // THE MEASURED HALF the community reading missed (the Bomber of capture
+    // 20260920-081819-B, between hits with its swing counter at 3500
     // when the Bandit hit it at tick 2020: counter 0 from 2021, state 1 through the
     // ladder, a FRESH LoadTime windup on re-entering range at 2037): a Fireball on a
     // Musketeer BETWEEN SHOTS (Cooldown) under the shipped reset_attack_keep_target
@@ -632,7 +632,7 @@ fn knockback_interrupts_a_unit_between_shots_and_the_old_arm_freezes_its_cooldow
             assert!(v.push_active, "{name} delay {delay}: the Fireball did not push the Musketeer");
             assert_eq!(v.target, cv.target, "{name} delay {delay}: the target is kept");
             match name {
-                "shipped" => assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: the shipped arm interrupts the cooldown (the Bomber gen 29)"),
+                "shipped" => assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: the shipped arm interrupts the cooldown (the Bomber between hits)"),
                 _ => assert_eq!((v.attack_phase, v.attack_ms), (cv.attack_phase, cv.attack_ms), "delay {delay}: the old arm leaves the cooldown as it was"),
             }
             // the next shot: ticks from the landing to the Musketeer's next FIRE (the

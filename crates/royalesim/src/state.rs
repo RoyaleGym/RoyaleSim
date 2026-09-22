@@ -502,8 +502,8 @@ calib_enum!(
     /// (state.rs `apply_effects`; the hold while the ladder runs is `phase_attack` /
     /// target.rs through `Entities::knocked`).
     KnockAttackReset {
-        /// MEASURED on the live 16.402 captures (capture 20260920-081819-A: the Bomber
-        /// gen 29 between hits at tick 2020, the Knight gen 61 mid-windup at 3535): the push
+        /// MEASURED on the live 16.402 captures (capture 20260920-081819-B: a Bomber
+        /// between hits at tick 2020, a Knight mid-windup at 3535): the push
         /// interrupts the attack whatever its phase -- state 1 through the ladder, the
         /// swing counter zeroed, the load timer back to LoadTime on the hit tick, and a
         /// FRESH LoadTime windup on re-entering range after the ladder; the target kept.
@@ -3548,9 +3548,9 @@ impl BattleState {
                     // tick (step 0 / -25), or a unit not in state 1 -- the run-up AND the
                     // charge are cleared, WHATEVER the progress was (a unit in state 5
                     // or 8 is exempt). MEASURED: the victim's state is 1 through the
-                    // ladder (the Giant gen 15 of capture 20260918-122757.b1, ticks
-                    // 1216..1223; the Bomber gen 29 and the Knight gen 61 of capture
-                    // 20260920-081819-A, attacking when hit, state 1 from the first
+                    // ladder (the Giant of capture 20260918-122757.b1, ticks
+                    // 1216..1223; the Bomber and the Knight of capture
+                    // 20260920-081819-B, attacking when hit, state 1 from the first
                     // ladder tick). The engine's state 1 stand-in for a pushed unit: not
                     // deploying (state 4) and not stunned (RESET_ON_STUN already zeroed
                     // it). charge.RESET_ON_KNOCKBACK = true is this tail; `false` skips
@@ -4429,9 +4429,9 @@ impl BattleState {
             let Some(d) = *s else { continue };
             let e = &mut self.ents;
             // ATTACK (calibration knockback.ATTACK_RESET): MEASURED on two ladders
-            // landing on attacking units (capture 20260920-081819-A:
-            // the Bomber gen 29 between hits, swing counter 3500 -> 0 at tick 2021; the
-            // Knight gen 61 mid-windup, load 300 -> 700 on the hit tick 3535): the push
+            // landing on attacking units (capture 20260920-081819-B:
+            // a Bomber between hits, swing counter 3500 -> 0 at tick 2021; a
+            // Knight mid-windup, load 300 -> 700 on the hit tick 3535): the push
             // interrupts the attack whatever its phase, the unit is state 1 through the
             // ladder and starts a FRESH LoadTime windup on re-entering range after it,
             // the target kept. reset_attack_keep_target: Windup or Cooldown -> Idle;

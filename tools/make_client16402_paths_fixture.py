@@ -27,7 +27,8 @@ WHAT IT HOLDS
     gate skips them (they are listed by name in the test so a new one cannot hide).
 
     CASE NAMES are `<capture>:<entity>:<Card>`, the seats named A, B, ... in sort order
-    (tools/capture_names.py), so a case name carries the capture and the seat and nothing
+    (tools/capture_names.py `folder_seats`, computed over the whole captures folder so that
+    every fixture spells a seat the same way), so a case name carries the capture and the seat and nothing
     else. Names are unique: a capture reaching the sampler twice contributes its cases once.
 """
 from __future__ import annotations
@@ -40,7 +41,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import argv_guard, public_name, seat_letters  # noqa: E402
+from capture_names import argv_guard, folder_seats, public_name  # noqa: E402
 
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 if not LIVE:
@@ -77,7 +78,7 @@ MOVING_TARGET = {
 def build() -> dict:
     live = LE.dedupe(LE.live_samples())
     offline = LE.offline_samples("lane_sweep_Knight")
-    seats = seat_letters([s.name for s in live] + [s.name for s in offline])
+    seats = folder_seats(LIVE)
     cases = []
     seen: dict[str, dict] = {}
     for group, samples in (("live_16402", live), ("offline_15535_lane_sweep", offline)):

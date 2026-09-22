@@ -43,9 +43,11 @@ use crate::arena::Arena;
 use crate::fixed::Vec2;
 
 /// `round(sin(d degrees) x 1024)` for d = 0..=90, the resolution the measured
-/// rings have (a 1404-native Bats ring at radius 750, a 1311 Barbarians ring at
-/// 700). tests/formations.rs re-derives every entry from an integer-only series
-/// and pins the table to it.
+/// rings have: in tests/fixtures/formations/measured.json the five Bats stand 1404
+/// native from their tap (SummonRadius 750; `scale_radius` gives the ring 1405 and
+/// the per-axis truncation of each offset lands the members at 1404) and the five
+/// Barbarians 1311 (700, ring and members alike). tests/formations.rs re-derives
+/// every entry from an integer-only series and pins the table to it.
 pub const SIN_1024: [i16; 91] = [
     0, 18, 36, 54, 71, 89, 107, 125, 143, 160, 178, 195, 213, 230, 248, 265, 282, 299, 316, 333, 350, 367, 384, 400,
     416, 433, 449, 465, 481, 496, 512, 527, 543, 558, 573, 587, 602, 616, 630, 644, 658, 672, 685, 698, 711, 724, 737,

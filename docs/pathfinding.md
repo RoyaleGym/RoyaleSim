@@ -232,13 +232,13 @@ measurement came from.
 ### The search is deterministic
 
 Five Knights deployed from the identical cell on an empty board across one battle
-(`frames-auto-20260918-164951`) walked byte-identical 30-node paths within each target group —
+(capture `20260918-164951-B`) walked byte-identical 30-node paths within each target group —
 three while the princess tower stood, two after it fell and the king became the target. The
 expansion order is a pure function of (start cell, goal, board).
 
 ### Enemy buildings occlude
 
-Two designed witnesses, one per lane (`frames-auto-20260919-182539-*`). A Knight's first path
+Two designed witnesses, one per lane (captures `20260919-182539-A` and `-B`). A Knight's first path
 bulges around an **enemy** Goblin Hut's box (cols 5-8, rows 37-40), leaving col 6 for col 4 and
 back; on the other lane a replan toward the tower bulges around an enemy Tombstone's box (cols
 27-30, rows 37-40). Both routes are cost-optimal only with the enemy building stamped, and not
@@ -257,7 +257,7 @@ is optimal only with the Tesla stamped.
 
 ### Buff and stomp interaction
 
-A raged Golem (`frames-auto-20260919-143305`) walks at exactly **S = 70 = floor(54 x 130/100)**
+A raged Golem (captures `20260919-143305-A` and `-B`) walks at exactly **S = 70 = floor(54 x 130/100)**
 over 29 unambiguous ticks: the stomp schedule is applied first, then the buff, with floor
 rounding. The other ordering, `floor(floor(45 x 1.3) x 1.2) = 69`, is excluded. The **stomp clock
 also runs 1.3x faster** under Rage — pauses every 18-19 ticks instead of 24, with the pause length
@@ -266,7 +266,7 @@ unchanged at 3 ticks. Unraged, the same Golem holds S = 54 for 300 ticks with 3-
 
 ### Freeze is a whole-unit hold, not a speed multiplier
 
-An isolated Giant hit by an Ice Spirit (`frames-auto-20260919-144043`) holds **step 0 for exactly
+An isolated Giant hit by an Ice Spirit (captures `20260919-144043-A` and `-B`) holds **step 0 for exactly
 22 ticks (1100 ms)** with its target cleared, its movement direction and its 17-node path
 untouched, and resumes at the same heading on the same path with no replan. The stomp clock
 freezes with the unit: its phase resumes exactly where it stopped. The projectile flight is
@@ -275,7 +275,7 @@ down 50 ms per tick until the hit lands.
 
 ### Spawn separation
 
-Skeletons deployed onto a Knight (`frames-auto-20260919-144043`) step exactly **150 native units
+Skeletons deployed onto a Knight (captures `20260919-144043-A` and `-B`) step exactly **150 native units
 per tick straight away from the overlapping unit** while the centre distance is below R1 + R2, and
 only the lighter unit moves: `(0, +150)` for the one directly above, `(+-130, -75)` for the two at
 +-30 degrees, which is `trunc(150 x dir / 256)` with `dir` the 256-normalised offset. The distance
@@ -317,9 +317,10 @@ attacking.
 5. **The buff tags** — `NO_PUSHED_BY_*`, `DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS`,
    `AVOIDANCE_AS_OBSTACLE`, the facing lock — are assumed clear, because no card in the corpus
    carries them.
-6. **Unit update order.** Units update in an order approximated by (spawn tick, slot) rather than
-   creation order. The 655 unexplained live unit-ticks — 0.27% — are Skeleton crowds with dying
-   neighbours, where that order decides.
+6. **The residual unit-ticks.** The move pass runs in creation order (`match.TICK_ORDER`,
+   measured). The 655 live unit-ticks still unexplained — 0.27% — are Skeleton crowds with dying
+   neighbours, where `movement.DYING_UNIT_VISIBILITY` and the order within one creation tick
+   decide.
 
 Four items that stood here are closed and are documented above and in `mechanics.md`: the
 knockback ladder (`knockback.DISPLACEMENT_LAW = client16402`), the building demotion's second

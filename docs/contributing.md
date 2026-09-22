@@ -42,8 +42,18 @@ files, not redistributed). A checkout without that pack generates the card table
 2018 files instead:
 
 ```
-python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+python tools\extract_cards.py --vintage 2018                                  # data\derived\cards-2018.json
+python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json    # and over the file the engine loads
 ```
+
+Both runs are needed: the engine reads `cards.json`, and `tests/stacked_tie.rs` loads the same
+table again by its vintage name, refusing (never skipping) when it is absent. What a 2018-only
+checkout cannot do is score the three checks that are about the 15.535 table itself —
+`tests/levels.rs` (the level ladder against recorded `max_hp`), `tests/jump16402.rs` (the jump
+blocks of the Hog Rider, Prince and Dark Prince, which the 2018 columns give to the Hog alone) and
+`tools/check_data.py`'s live-level rows, which report themselves vacuous. Those three want the
+15.535 pack and `extract_cards.py` with no `--vintage`; the rest of `cargo test --release` does not
+care which vintage is loaded.
 
 The recorded traces in `data/oracle-native/` are not distributed; without them
 `tests/test_oracle_native_diff.py` skips and says so.
@@ -60,7 +70,7 @@ named by `ROYALELIVE_REPORTS`; without it they exit and say so.
 cd crates\royalesim && cargo test --release             # 338 test functions, 3 of them #[ignore]d
 cd crates\royalesim && cargo clippy --all-targets -- -D warnings
 cd crates\royalesim && grep -rn 'f32\|f64' src/ tests/  # must print nothing
-..\.venv\Scripts\python -m pytest -q                     # 101 collected, from the repo root
+..\.venv\Scripts\python -m pytest -q                     # 108 collected, from the repo root
 ..\.venv\Scripts\ruff check tools oracle tests
 cd ..\RoyaleGym && ..\.venv\Scripts\python -m pytest -q  # the env layer drives the engine
 ```
@@ -89,6 +99,12 @@ cd crates\royalesim && cargo test --release --test throughput -- --ignored --noc
 - `tools/make_oracle2026_fixture.py --check` and `tools/make_client16402_paths_fixture.py --check`
   re-derive the generated path fixtures and report whether they are in sync. Regenerating either
   re-scores the gate that reads it, so it is a deliberate step and not a side effect of a build.
+- The other four makers need inputs a plain checkout does not have, and `--check` reports a missing
+  input rather than a stale fixture: `make_client16402_jump_fixture.py`, `make_replay_fixture.py`
+  and `make_formation_fixture.py` need the recordings under `ROYALELIVE_REPORTS`, and
+  `make_live_levels_fixture.py` needs those **and** the 15.535 pack, because it resolves card ids
+  against that pack's `spells_*.csv` row order. Their committed fixtures stand on their own; only
+  re-deriving them needs the inputs.
 
 ### `tools/watch_battle.py`
 
@@ -176,7 +192,7 @@ Two rules go with them, and both were learned the hard way:
 | `data/oracle-native/` | the recorded 15.535 traces (gitignored, not distributed) |
 | `oracle/` | the trace format and the calibration protocol: `scenarios.json` (the discriminating scenarios), `calibrate.py`, `synth.py`, `extract_tracks.py` (video tracks; cv2 optional) |
 | `tools/` | `extract_*.py` (data/raw -> data/derived), `check_data.py`, `oracle_diff.py` (the engine beside a trace, tick for tick), `diff_harness.py`, `watch_battle.py`, `throughput.py`, `make_*_fixture.py`, `mechanic_register.py`, `decode_sc_assets.py` |
-| `tests/` | pytest for the tooling (8 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
+| `tests/` | pytest for the tooling (9 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
 | `docs/` | this documentation; `docs/media/` holds the README's graphics |
 
 ## Test layout
@@ -195,4 +211,4 @@ Two rules go with them, and both were learned the hard way:
 | `tests/oracle2026.rs` | the path gates against recorded first paths (G6), against `tests/fixtures/oracle2026/client16402_first_paths.json` (`tools/make_client16402_paths_fixture.py --check`) |
 | `tests/save_load.rs`, `api.rs` | snapshots and the Python-facing API |
 | `tests/throughput.rs` | timing; `#[ignore]`d, not a gate |
-| `tests/` (pytest, repo root) | the Python tooling in `tools/` and `oracle/` |
+| `tests/` (pytest, repo root) | the Python tooling in `tools/` and `oracle/`; `test_capture_names.py` holds the one seat-naming rule the fixture makers share |

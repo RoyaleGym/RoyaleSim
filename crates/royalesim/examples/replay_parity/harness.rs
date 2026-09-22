@@ -11,8 +11,9 @@
 //! rotation). This module does not read captures.
 //!
 //! HOW A DEPLOY IS ISSUED, AND WHY THE TIMING MATCHES THE RECORDING. A truth group's
-//! tick is the first frame its entities EXIST, deploy timer running (the recording's
-//! kind 14 / behavior_state 4), and the first step follows on spawn + DeployTime / TICK_MS
+//! tick is the first frame its entities EXIST with the deploy timer running (a truth row
+//! whose `state` column is a deploy code, `TRUTH_DEPLOY_STATES`), and the first step
+//! follows on spawn + DeployTime / TICK_MS
 //! (calibration movement.DEPLOY_TIMING; tests/tick_order.rs). `BattleState::spawn_unit`
 //! enqueues a card's units -- the card's own formation, the card's own deploy timer,
 //! a per-call level, no hand and no elixir -- and they materialise in the NEXT tick's

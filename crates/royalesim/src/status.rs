@@ -138,8 +138,8 @@ impl Sel {
 /// THE COMPOSITION LAW (module doc). `value` is the unbuffed
 /// figure -- a speed in the engine's stored units, or a number of milliseconds --
 /// and the result is what the buffed unit uses this tick. With no buff on the unit
-/// the answer is `value` exactly, which is why every unbuffed corpus tick is
-/// unchanged by this pass.
+/// the answer is `value` exactly, so composing buffs cannot move an unbuffed unit:
+/// every unbuffed corpus tick scores the same with the law in as with it out.
 #[inline]
 pub fn compose<'a>(buffs: impl Iterator<Item = &'a BuffDef>, sel: Sel, value: i32) -> i32 {
     let mut maxpos: i32 = 100;

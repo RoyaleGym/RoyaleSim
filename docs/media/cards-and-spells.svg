@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="video: 65 cards, towers, spells, overtime">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="video: 144 cards, towers, spells, overtime">
 <rect width="1280" height="720" rx="18" fill="#121826"/>
 <g opacity="0.07" stroke="#ffffff" stroke-width="1">
 <line x1="0.0" y1="0.0" x2="0.0" y2="720.0"/>
@@ -82,7 +82,7 @@
 <defs><radialGradient id="v" cx="50%" cy="45%" r="70%"><stop offset="0" stop-color="#121826" stop-opacity="0.15"/><stop offset="1" stop-color="#121826" stop-opacity="0.85"/></radialGradient></defs>
 <circle cx="640.0" cy="320.0" r="66" fill="#f2b634" opacity="0.95"/>
 <polygon points="620.0,286.0 620.0,354.0 678.0,320.0" fill="#121826"/>
-<text x="640.0" y="430.0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="#e8edf5">65 cards, towers, spells, overtime</text>
+<text x="640.0" y="430.0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="#e8edf5">144 cards, towers, spells, overtime</text>
 <text x="640.0" y="490.0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#9aa7bd">a Fireball landing on a crowd beside a princess tower, the tower&#x27;s hp</text>
 <text x="640.0" y="522.0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#9aa7bd">bar dropping, then the clock entering overtime and a 3-crown finish</text>
 <rect x="28" y="28" width="205" height="38" rx="19" fill="#18202f" stroke="#3a4a63"/>

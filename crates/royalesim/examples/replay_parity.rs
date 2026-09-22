@@ -18,8 +18,9 @@
 //! THE COLUMNS. unit-ticks: matched pairs (or unmatched entities) x truth frame ticks
 //! where at least one side has the unit alive. <=250 / <=500 / <=1000: both-alive
 //! unit-ticks whose position error (native units, subtiles / 18) is within that.
-//! <=250 moving: the same with the deploy-phase frames (truth state 4 / 11 or the sim
-//! still deploying: both stationary at the spawn point) left out of numerator and
+//! <=250 moving: the same with the deploy-phase frames (the truth's `state` column in
+//! `TRUTH_DEPLOY_STATES`, or the sim still deploying: both stationary at the spawn
+//! point) left out of numerator and
 //! denominator. hp exact / target / path n: both-alive unit-ticks where hp, the
 //! target (by matched key) and the path-node count agree. alive/missing/extra:
 //! unit-ticks where exactly one side has the unit (a matched pair dead on one side; a

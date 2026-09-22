@@ -18,7 +18,7 @@ units, the movement laws and the path representation are unchanged between the t
 | Item | Value |
 |---|---|
 | Client | Clash Royale 15.535.29 |
-| Instrument | RoyaleLive (the client instrument that records ground-truth traces from the real game) |
+| Corpus | recorded traces of client 15.535.29, one frame per tick, under `data/oracle-native/` (not distributed) |
 | Step | 0.05 s per tick, one recorded frame per tick |
 
 The traces carry one frame per 50 ms tick and no wall-clock time. Every experiment starts a
@@ -111,9 +111,9 @@ table, leaves exactly one survivor per card. Every unit of a given card fits the
 | 26000021 | HogRider | 2 | 120 | 120 | 229 / 250 = 91.60 % |
 
 So one `Speed` unit is one native unit per 50 ms tick, i.e. tiles/s = `Speed`/50. At
-18000 subtiles per tile the multiplier is exactly **18**, not the ledger's 15. The
-competing "Speed is tiles/minute" reading predicts a Knight at 1.00 tiles/s against the
-measured 1.20 — a flat 20 % error on every unit in the game.
+18000 subtiles per tile the multiplier is exactly **18**. The competing "Speed is
+tiles/minute" reading is the one that gives 15, and it predicts a Knight at 1.00 tiles/s
+against the measured 1.20 — a flat 20 % error on every unit in the game.
 
 The scale check is genuine, not circular: in steady state the heading is never
 axis-aligned (the unit is steering back onto its column), so `S` is pinned by the exact

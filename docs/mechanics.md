@@ -161,8 +161,7 @@ evaluated in the mover's own frame.
 - `spawn_unit` / `deploy` called several times for one team within a tick assigns `team_seq` in
   call order. This is reachable only from the Rust test API; the Python surface applies at most
   one per team per step.
-- Unit updates run in an order approximated by (spawn tick, slot) rather than the order the
-  corpus shows. This accounts for 0.27% of live unit-ticks (`pathfinding.md`).
+- 0.27% of live unit-ticks are still not reproduced (`pathfinding.md`).
 
 ## Invariants the game does not have
 
@@ -184,7 +183,7 @@ the relaxed forms.
 The engine runs the measured ladder (`knockback.DISPLACEMENT_LAW = client16402`): a speed of
 25n native units per tick toward a target point `L = min(Pushback, MAX_PUSHBACK_LENGTH)` away
 from the source, falling by 25 each tick, with one 25-unit back-step at the end. The evidence is
-the Giant of capture 20260918-122757-A, ticks 1216..1223: steps of 150, 125, 100, 75, 50, 25, 0
+the Giant of capture 20260918-122757.b1, ticks 1216..1223: steps of 150, 125, 100, 75, 50, 25, 0
 and then -25. `knockback.ATTACK_RESET` is measured with it. The earlier fixed-distance slide
 stays runnable under the same key, and the seat-symmetry gates use it.
 
