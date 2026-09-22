@@ -11,6 +11,7 @@
 | [movement-measurements.md](movement-measurements.md) | the offline 15.535 measurements the movement laws rest on, with the corpus and the method |
 | [spell-spec.md](spell-spec.md) | the five spells card by card: data chain, behaviour in tick order, what is unsettled |
 | [spell-spec.json](spell-spec.json) | the same content as structured data |
+| [replay-parity.md](replay-parity.md) | the engine replayed against every recorded battle: the aggregate, the hardest cards, the ranked causes |
 | [performance.md](performance.md) | measured throughput, and what the bottleneck actually is |
 | `media/` | the graphics the top-level README embeds: the family diagram, one RoyaleViser still of a random-policy engine battle, and placeholders whose subtitles say what each real recording must show |
 
