@@ -60,12 +60,12 @@ a `promotion_rule` stays open for the rest.
 The status vocabulary is one claim and the provenance prose is another, and they are not
 equally well checked.
 
-An audit on 2026-09-22 re-read 24 of the 148 entries against the corpus. It moved no status and
-no value. What it found was in the evidence the statuses rest on. It recorded 87 findings, of
-which 42 are a cited number, capture name or piece of arithmetic that does not hold. Read that
-the way the audit's own author asks it to be read: six agents were told to hunt, and only a
-handful of the 42 have been checked by hand, one of which did not survive the check. The
-supported claim is that the set needs re-reading, not that 42 defects are established.
+A re-read on 2026-09-22 went through 24 of the 149 entries against the corpus. It moved no
+status and no value. What it turned up was in the evidence the statuses rest on: 42 places
+where a cited number, recording name or piece of arithmetic does not hold. Take that as a
+reason to re-derive, not as 42 established defects. Only a handful of the 42 have since been
+recomputed by hand, and one of those did not survive the recomputation. The supported claim is
+that the set needs re-reading.
 
 `formation.GROUND_Y_CLAMP` is the worked example. Its status of `measured` was defensible and
 four of its statements were wrong, including a capture whose real numbers are 31053/31057
@@ -74,16 +74,16 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-124 entries have not been re-read. So, concretely:
+125 entries have not been re-read. So, concretely:
 
-- **The status on a key is worth trusting.** No status moved in the audit.
+- **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 148 carry a status. 88 name the rivals the
-  value was chosen against and 98 state what would move it, and 85 do both. The gap is mostly
+  universal, so check rather than assume.** All 149 carry a status. 89 name the rivals the
+  value was chosen against and 99 state what would move it, and 86 do both. The gap is mostly
   the 40 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 16 of
-  the 48 `measured` entries name no rival at all, and 12 of those state no promotion criterion
+  the 49 `measured` entries name no rival at all, and 12 of those state no promotion criterion
   either. In a file whose rule is that evidence is discrimination and never origin, a measured
   key with no candidate list has recorded nothing that it was discriminated against. Some are
   harmless (`time.TICK_MS` has no plausible rival); `pathfinding.PATH_GOAL_RULE` and
@@ -98,7 +98,7 @@ than tighter, and side 0's range is pinned by nothing at all, which the entry no
   the tower's own radius, the very term that arm drops; the real sum is 8100, so the
   observation still discriminates, but eight ticks later than the entry implies.
 
-The ledger is audited against its own corpus and the audit is not finished.
+The ledger is checked against its own corpus, and that check is not finished.
 
 ## Changing a value
 
