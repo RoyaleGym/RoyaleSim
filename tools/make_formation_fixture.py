@@ -6,7 +6,7 @@ python tools/make_formation_fixture.py [--check] [--out PATH]
 WHAT IT WRITES: crates/royalesim/tests/fixtures/formations/measured.json -- for every
 multi-unit CARD of the live 16.402 replay fixtures (data/derived/replay/*.replay.json,
 tools/make_replay_fixture.py), a handful of CLEAN deploy groups per (card, side, lane
-half): the tap in native units, each member's first-frame offset from it and its
+half, TAP ROW): the tap in native units, each member's first-frame offset from it and its
 deploy-end stagger, exactly as tools/replay_formations.py reads them off the truth.
 tests/formations.rs replays each group through the engine's `formation_preview` and
 compares member by member, so the numbers the gate pins are the game's, not pasted.
@@ -16,7 +16,9 @@ from where the game lays it (the formation gap of the corpus report: 33 of 48 fi
 divergences); the layout of formation.rs was fitted to these groups and this is the
 evidence it is held to.
 
-CLEAN means: the group's tap is a placement-log tile (`tap_tile`; a `centroid` source
+CLEAN means: the group is one the capture saw ARRIVE (every member in a deploy
+state on its first frame -- a recording's opening frame reports units already
+walking and the detector groups those like a deploy), the group's tap is a placement-log tile (`tap_tile`; a `centroid` source
 is admitted for a card with no tap-tile group on that side / lane, and flagged), every
 member has a first frame and a deploy end, no OTHER unit (any side, towers and the
 group's own members excluded) stood within CLEAR_NATIVE of any member on the group's
@@ -57,9 +59,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPLAY = os.path.join(ROOT, "data", "derived", "replay")
 OUT = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "formations", "measured.json")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-from replay_formations import group_rows, rows_of  # noqa: E402
+from replay_formations import DEPLOY_STATES, group_rows, rows_of  # noqa: E402
 
 CLEAR_NATIVE = 2500
+TILE_NATIVE = 1000
 TOWER_MARGIN = 500
 PER_BUCKET = 2
 CENTRE_X = 9000
@@ -132,6 +135,49 @@ def towers_state(fx: dict, tick: int, radii: dict[str, int]) -> tuple[list[dict]
     return boxes, down
 
 
+def spawn_tick_slack(d: dict) -> int:
+    """How many ticks EARLIER than the group's recorded tick its spawn may have been.
+
+    A capture holds one frame per tick and misses frames now and then, so a group's
+    spawn tick is only bounded: it lies in (the previous recorded frame's tick, the
+    first-seen tick] -- tools/make_replay_fixture.py's own rule, which records the
+    width as `first_seen_gap` and its verdict as `tick_evidence`. Where that verdict
+    is not "exact" the range still held several ticks and the LATEST was taken, so
+    the true spawn can be that many ticks earlier and every member's deploy end then
+    looks that much earlier than the engine's. Without this the stagger gate reads a
+    capture's frame loss as an engine defect: capture 20260918-122757.b1 t2415, whose
+    own tick_evidence is "range [2414, 2415] (deploy-end transition), latest used",
+    is the one group of the corpus that needs it.
+    """
+    if str(d.get("tick_evidence", "")).startswith("exact"):
+        return 0
+    gap = d.get("first_seen_gap") or 1
+    first_seen = d.get("first_seen")
+    if first_seen is None:  # a spell cast, or a group the capture never shows arriving
+        return 0
+    return max(0, d["tick"] - (first_seen - gap + 1))
+
+
+def spawned_deploying(fx: dict, g: dict) -> bool:
+    """Is this group a DEPLOY the capture actually saw arrive?
+
+    A recording's first frame reports every unit already on the board, and the
+    deploy detector groups those by (side, card) like any other arrival: capture
+    20260918-130203.b1 t2604 is the start of a recording and its "Archer deploy"
+    stands two Archers nine tiles apart, already walking. A real deploy's members
+    are in a deploy state (4 or 11) on their first frame, so require that.
+    """
+    ents = {e["key"]: e for e in fx["truth"]["entities"]}
+    for m in g["members"]:
+        e = ents.get(m["key"])
+        if e is None:
+            return False
+        first = next((r for r in rows_of(e) if r[0] is not None), None)
+        if first is None or first[5] not in DEPLOY_STATES:
+            return False
+    return True
+
+
 def collect(paths: list[str]) -> list[dict]:
     groups = []
     radii = tower_radii()
@@ -141,10 +187,13 @@ def collect(paths: list[str]) -> list[dict]:
             fx = json.load(fh)
         if not fx.get("truth"):
             continue
+        slack_of = {(d["tick"], d["card"], d["side"]): spawn_tick_slack(d) for d in fx["deploys"]}
         for g in group_rows(fx):
             if len(g["members"]) < 2:
                 continue
             if any(m["stagger"] is None for m in g["members"]):
+                continue
+            if not spawned_deploying(fx, g):
                 continue
             present = first_frame_positions(fx, g["tick"])
             boxes, down = towers_state(fx, g["tick"], radii)
@@ -177,6 +226,7 @@ def collect(paths: list[str]) -> list[dict]:
                     "card": g["card"],
                     "source": g["source"],
                     "tap": g["pos"],
+                    "tick_slack": slack_of.get((g["tick"], g["card"], g["side"]), 0),
                     "towers_down": down,
                     "members": [
                         {"offset": m["offset"], "stagger": m["stagger"]} for m in g["members"]
@@ -187,10 +237,17 @@ def collect(paths: list[str]) -> list[dict]:
 
 
 def select(groups: list[dict]) -> list[dict]:
-    """A few per (card, side, lane half), tap-tile sources first, earliest ticks first."""
+    """A few per (card, side, lane half, TAP ROW), tap-tile sources first, earliest ticks first.
+
+    The tap ROW is in the key because the ground clamp only bites near the ends of a
+    column, so a bucket that collapsed every row kept the mid-arena deploys and threw
+    away the one group that separates a bound from its seat rotation (calibration
+    formation.GROUND_Y_CLAMP: capture 20260918-121158 t2439 is the whole corpus'
+    evidence for side 1's river bound, and a row-blind bucket dropped it).
+    """
     buckets: dict[tuple, list[dict]] = {}
     for g in sorted(groups, key=lambda g: (g["source"] != "tap_tile", g["fixture"], g["tick"])):
-        b = (g["card"], g["side"], g["tap"][0] >= CENTRE_X)
+        b = (g["card"], g["side"], g["tap"][0] >= CENTRE_X, g["tap"][1] // TILE_NATIVE)
         buckets.setdefault(b, [])
         if len(buckets[b]) < PER_BUCKET:
             # one per battle-and-tap (the twin captures of one battle repeat the same deploy)
@@ -222,7 +279,8 @@ def main() -> int:
         "source": (
             "tools/make_formation_fixture.py over data/derived/replay/*.replay.json "
             "(tools/replay_formations.py rows); native units; offsets from the tap on the "
-            "group's first truth frame; stagger = deploy-end tick - spawn tick"
+            "group's first truth frame; stagger = deploy-end tick - spawn tick; "
+            "tick_slack = how many ticks earlier the spawn may have been (frame loss)"
         ),
         "clear_native": CLEAR_NATIVE,
         "per_bucket": PER_BUCKET,

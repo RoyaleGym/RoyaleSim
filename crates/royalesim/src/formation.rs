@@ -29,7 +29,7 @@
 //! Barbarians, Minion Horde, Bats (SpawnAngleShift 45), Wall Breakers, Skeleton
 //! Dragons, Archers, Goblin Gang (3 + 3), Rascals (1 + 2), Royal Hogs (the line)
 //! and the 15-strong Skeleton Army's spiral, on both sides and both lanes -- is
-//! reproduced member by member: 150 members exact (within 3 native) on every
+//! reproduced member by member: 197 members exact (within 3 native) on every
 //! member the contact law had not yet moved. The centred square grid the engine
 //! laid before (`formation_grid`, the engine_grid arm) is 500-1500 native off on
 //! every swarm.

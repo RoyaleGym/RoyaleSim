@@ -845,7 +845,7 @@ calib_enum!(
     FormationLayout {
         /// The ring / line / spiral of formation.rs, computed in the owner's frame;
         /// measured on every clean multi-unit formation of the live 16.402 corpus
-        /// (51 groups member by member, 150 members exact).
+        /// (78 groups member by member, 197 members exact).
         Client16402 = "client16402",
         /// The earlier engine: a centred square grid of one collision diameter
         /// (`formation_grid`), the second summon on the same grid. Kept runnable as
@@ -873,10 +873,12 @@ calib_enum!(
         /// [lowest deployable row's near edge, highest one's centre] of the tap's
         /// tile column for side 0 and, for side 1, [lowest row's centre - 1, highest
         /// row's near edge] -- which is not the rotation of side 0's (one native unit
-        /// tighter at the river, half a row shorter at the back edge) -- unless the
-        /// range spans half the arena or more. Measured live on both seats (the Red
-        /// Goblins of capture 20260918-164951 hold their rear pair on 31000, not the
-        /// 31261 the rotated formula gives).
+        /// LOOSER at the river, a full row shorter at the back edge) -- unless the
+        /// range spans half the arena or more. Measured live on both of side 1's
+        /// bounds: the Red Goblins of capture 20260918-164951-B hold their rear pair
+        /// on 31000, not the 31261 the rotated formula gives, and those of capture
+        /// 20260918-121158 t2439 stand on the river bound's 17499, not the rotation's
+        /// 17500. Side 0's range is the formula's; no clean corpus group pins it.
         Client16402DeployColumnRange = "client16402_deploy_column_range",
         /// Side 0's formula in the OWNER's frame for both seats: the seat-symmetric
         /// arm (tests/common `symmetric_config`), within one native unit of the
@@ -4943,13 +4945,14 @@ impl BattleState {
     /// mask over the tile grid is scanned down the tap's tile column, keeping `lo =
     /// min(row x 1000)` and `hi = max(row x 1000 + 500)` over the deployable rows
     /// (side 0's formula; side 1's is the same range seen from the top, one native
-    /// unit and the back row's half apart, which the owner's frame does not carry:
+    /// unit and a whole back row apart, which the owner's frame does not carry:
     /// calibration formation.GROUND_Y_CLAMP). The pair is dropped once
     /// `hi - lo >= H / 2`, the range reaching past the river after a tower has
     /// fallen. Side 1 keeps `lo = min(row x 1000 + 500) - 1` and
     /// `hi = max(row x 1000)` in absolute rows under the shipped arm (the Red
-    /// Goblins of capture 20260918-164951 tapped on (3500, 30500) hold their rear
-    /// pair on 31000, not 31261). The mask
+    /// Goblins of capture 20260918-164951-B tapped on (3500, 30500) hold their rear
+    /// pair on 31000, not 31261; those of capture 20260918-121158 t2439 stand on the
+    /// river bound's 17499, not the own-frame arm's 17500). The mask
     /// is the engine's own troop TERRITORY per tile centre (arena.rs
     /// `territory_zone`: the river band and the enemy tower rects, not the
     /// tilemap's NO_DEPLOY corners -- the live Goblin Gang on (3500, 1500) stands a

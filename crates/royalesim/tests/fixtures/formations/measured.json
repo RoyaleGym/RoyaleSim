@@ -1,8 +1,71 @@
 {
- "source": "tools/make_formation_fixture.py over data/derived/replay/*.replay.json (tools/replay_formations.py rows); native units; offsets from the tap on the group's first truth frame; stagger = deploy-end tick - spawn tick",
+ "source": "tools/make_formation_fixture.py over data/derived/replay/*.replay.json (tools/replay_formations.py rows); native units; offsets from the tap on the group's first truth frame; stagger = deploy-end tick - spawn tick; tick_slack = how many ticks earlier the spawn may have been (frame loss)",
  "clear_native": 2500,
  "per_bucket": 2,
  "groups": [
+  {
+   "fixture": "20260918-115249.b1",
+   "tick": 1104,
+   "side": 0,
+   "card": "Archer",
+   "source": "centroid",
+   "tap": [
+    8499,
+    500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      501,
+      0
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -500,
+      0
+     ],
+     "stagger": 21
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-115249.b1",
+   "tick": 2392,
+   "side": 0,
+   "card": "Archer",
+   "source": "centroid",
+   "tap": [
+    8499,
+    500
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     1,
+     2
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      501,
+      0
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -500,
+      0
+     ],
+     "stagger": 21
+    }
+   ]
+  },
   {
    "fixture": "20260918-112215",
    "tick": 522,
@@ -13,7 +76,42 @@
     6499,
     6500
    ],
+   "tick_slack": 0,
    "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      501,
+      0
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -500,
+      0
+     ],
+     "stagger": 21
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-115249.b1",
+   "tick": 3382,
+   "side": 0,
+   "card": "Archer",
+   "source": "centroid",
+   "tap": [
+    6499,
+    6500
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     1,
+     2
+    ]
+   ],
    "members": [
     {
      "offset": [
@@ -41,6 +139,7 @@
     7499,
     7500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -66,14 +165,15 @@
   },
   {
    "fixture": "20260918-112751",
-   "tick": 1312,
+   "tick": 2713,
    "side": 0,
    "card": "Archer",
    "source": "centroid",
    "tap": [
-    10499,
-    7500
+    9499,
+    500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -94,14 +194,15 @@
   },
   {
    "fixture": "20260918-112751",
-   "tick": 2713,
+   "tick": 1312,
    "side": 0,
    "card": "Archer",
    "source": "centroid",
    "tap": [
-    9499,
-    500
+    10499,
+    7500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -130,6 +231,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -171,6 +273,65 @@
   },
   {
    "fixture": "20260920-083112-A",
+   "tick": 4877,
+   "side": 0,
+   "card": "Bats",
+   "source": "tap_tile",
+   "tap": [
+    3500,
+    1500
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     0,
+     2
+    ],
+    [
+     1,
+     1
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      993,
+      993
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      1251,
+      -638
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      -219,
+      -1250
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      -1387,
+      -219
+     ],
+     "stagger": 25
+    },
+    {
+     "offset": [
+      -638,
+      1251
+     ],
+     "stagger": 27
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-083112-A",
    "tick": 2012,
    "side": 0,
    "card": "Bats",
@@ -179,6 +340,7 @@
     3500,
     8500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      0,
@@ -229,64 +391,6 @@
   },
   {
    "fixture": "20260920-083112-A",
-   "tick": 4877,
-   "side": 0,
-   "card": "Bats",
-   "source": "tap_tile",
-   "tap": [
-    3500,
-    1500
-   ],
-   "towers_down": [
-    [
-     0,
-     2
-    ],
-    [
-     1,
-     1
-    ]
-   ],
-   "members": [
-    {
-     "offset": [
-      993,
-      993
-     ],
-     "stagger": 19
-    },
-    {
-     "offset": [
-      1251,
-      -638
-     ],
-     "stagger": 21
-    },
-    {
-     "offset": [
-      -219,
-      -1250
-     ],
-     "stagger": 23
-    },
-    {
-     "offset": [
-      -1387,
-      -219
-     ],
-     "stagger": 25
-    },
-    {
-     "offset": [
-      -638,
-      1251
-     ],
-     "stagger": 27
-    }
-   ]
-  },
-  {
-   "fixture": "20260920-083112-A",
    "tick": 196,
    "side": 0,
    "card": "Bats",
@@ -295,6 +399,7 @@
     14500,
     1500
    ],
+   "tick_slack": 1,
    "towers_down": [],
    "members": [
     {
@@ -344,6 +449,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -393,6 +499,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -449,6 +556,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -505,6 +613,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -552,6 +661,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -590,6 +700,49 @@
    ]
   },
   {
+   "fixture": "20260918-130203.b2",
+   "tick": 397,
+   "side": 0,
+   "card": "Goblins",
+   "source": "centroid",
+   "tap": [
+    755,
+    10500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      -505,
+      -761
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -505,
+      761
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      505,
+      761
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      505,
+      -761
+     ],
+     "stagger": 31
+    }
+   ]
+  },
+  {
    "fixture": "20260918-164951-B",
    "tick": 273,
    "side": 0,
@@ -599,6 +752,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -641,6 +795,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -674,6 +829,140 @@
    ]
   },
   {
+   "fixture": "20260918-121158",
+   "tick": 2439,
+   "side": 1,
+   "card": "Goblins",
+   "source": "centroid",
+   "tap": [
+    5499,
+    17917
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      -761,
+      493
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -761,
+      -418
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      761,
+      -418
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      761,
+      343
+     ],
+     "stagger": 32
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-115249.b1",
+   "tick": 2682,
+   "side": 1,
+   "card": "Goblins",
+   "source": "centroid",
+   "tap": [
+    755,
+    19499
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     1,
+     2
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      -505,
+      761
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -505,
+      -761
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      505,
+      -761
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      505,
+      761
+     ],
+     "stagger": 31
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-124946",
+   "tick": 865,
+   "side": 1,
+   "card": "Goblins",
+   "source": "centroid",
+   "tap": [
+    4499,
+    19499
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      -761,
+      761
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -761,
+      -761
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      761,
+      -761
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      761,
+      761
+     ],
+     "stagger": 31
+    }
+   ]
+  },
+  {
    "fixture": "20260918-164951-B",
    "tick": 2262,
    "side": 1,
@@ -683,6 +972,7 @@
     3500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -730,6 +1020,7 @@
     3500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -768,48 +1059,6 @@
    ]
   },
   {
-   "fixture": "20260920-071056-A",
-   "tick": 232,
-   "side": 1,
-   "card": "Goblins",
-   "source": "tap_tile",
-   "tap": [
-    14500,
-    30500
-   ],
-   "towers_down": [],
-   "members": [
-    {
-     "offset": [
-      761,
-      500
-     ],
-     "stagger": 20
-    },
-    {
-     "offset": [
-      761,
-      -762
-     ],
-     "stagger": 24
-    },
-    {
-     "offset": [
-      -761,
-      -762
-     ],
-     "stagger": 28
-    },
-    {
-     "offset": [
-      -761,
-      500
-     ],
-     "stagger": 32
-    }
-   ]
-  },
-  {
    "fixture": "20260918-122757.b1",
    "tick": 1676,
    "side": 1,
@@ -819,6 +1068,7 @@
     10500,
     11499
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      0,
@@ -857,6 +1107,140 @@
    ]
   },
   {
+   "fixture": "20260918-122757.b1",
+   "tick": 2415,
+   "side": 1,
+   "card": "Goblins",
+   "source": "centroid",
+   "tap": [
+    15500,
+    22499
+   ],
+   "tick_slack": 1,
+   "towers_down": [
+    [
+     0,
+     2
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      761,
+      761
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      761,
+      -761
+     ],
+     "stagger": 22
+    },
+    {
+     "offset": [
+      -761,
+      -761
+     ],
+     "stagger": 26
+    },
+    {
+     "offset": [
+      -761,
+      761
+     ],
+     "stagger": 30
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-071056-A",
+   "tick": 232,
+   "side": 1,
+   "card": "Goblins",
+   "source": "tap_tile",
+   "tap": [
+    14500,
+    30500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      761,
+      500
+     ],
+     "stagger": 20
+    },
+    {
+     "offset": [
+      761,
+      -762
+     ],
+     "stagger": 24
+    },
+    {
+     "offset": [
+      -761,
+      -762
+     ],
+     "stagger": 28
+    },
+    {
+     "offset": [
+      -761,
+      500
+     ],
+     "stagger": 32
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-133849-A",
+   "tick": 1263,
+   "side": 1,
+   "card": "Goblins",
+   "source": "centroid",
+   "tap": [
+    14500,
+    30369
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      761,
+      631
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      761,
+      -631
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      -761,
+      -631
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      -761,
+      631
+     ],
+     "stagger": 31
+    }
+   ]
+  },
+  {
    "fixture": "20260920-090825-B",
    "tick": 1252,
    "side": 0,
@@ -866,6 +1250,7 @@
     8500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -922,62 +1307,6 @@
    ]
   },
   {
-   "fixture": "20260920-090825-A",
-   "tick": 195,
-   "side": 0,
-   "card": "MinionHorde",
-   "source": "tap_tile",
-   "tap": [
-    14500,
-    8500
-   ],
-   "towers_down": [],
-   "members": [
-    {
-     "offset": [
-      0,
-      -1341
-     ],
-     "stagger": 19
-    },
-    {
-     "offset": [
-      1161,
-      -670
-     ],
-     "stagger": 21
-    },
-    {
-     "offset": [
-      1161,
-      670
-     ],
-     "stagger": 23
-    },
-    {
-     "offset": [
-      0,
-      1341
-     ],
-     "stagger": 25
-    },
-    {
-     "offset": [
-      -1161,
-      670
-     ],
-     "stagger": 27
-    },
-    {
-     "offset": [
-      -1161,
-      -670
-     ],
-     "stagger": 29
-    }
-   ]
-  },
-  {
    "fixture": "20260920-091423-A",
    "tick": 804,
    "side": 0,
@@ -987,6 +1316,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1034,37 +1364,116 @@
    ]
   },
   {
-   "fixture": "20260920-083112-A",
-   "tick": 276,
+   "fixture": "20260920-092922-B",
+   "tick": 1007,
    "side": 0,
-   "card": "Minions",
+   "card": "MinionHorde",
    "source": "tap_tile",
    "tap": [
-    3500,
-    8500
+    14500,
+    1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
      "offset": [
       0,
-      579
+      -1250
      ],
      "stagger": 19
     },
     {
      "offset": [
-      -499,
-      -288
+      1161,
+      -670
      ],
      "stagger": 21
     },
     {
      "offset": [
-      499,
-      -288
+      1161,
+      670
      ],
-     "stagger": 24
+     "stagger": 23
+    },
+    {
+     "offset": [
+      0,
+      1341
+     ],
+     "stagger": 25
+    },
+    {
+     "offset": [
+      -1161,
+      670
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      -1161,
+      -670
+     ],
+     "stagger": 29
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-090825-A",
+   "tick": 195,
+   "side": 0,
+   "card": "MinionHorde",
+   "source": "tap_tile",
+   "tap": [
+    14500,
+    8500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -1341
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      1161,
+      -670
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      1161,
+      670
+     ],
+     "stagger": 23
+    },
+    {
+     "offset": [
+      0,
+      1341
+     ],
+     "stagger": 25
+    },
+    {
+     "offset": [
+      -1161,
+      670
+     ],
+     "stagger": 27
+    },
+    {
+     "offset": [
+      -1161,
+      -670
+     ],
+     "stagger": 29
     }
    ]
   },
@@ -1078,6 +1487,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      0,
@@ -1113,6 +1523,42 @@
    ]
   },
   {
+   "fixture": "20260920-083112-A",
+   "tick": 276,
+   "side": 0,
+   "card": "Minions",
+   "source": "tap_tile",
+   "tap": [
+    3500,
+    8500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      579
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -499,
+      -288
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      499,
+      -288
+     ],
+     "stagger": 24
+    }
+   ]
+  },
+  {
    "fixture": "20260918-115249.b1",
    "tick": 602,
    "side": 0,
@@ -1122,6 +1568,7 @@
     14500,
     14501
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1148,41 +1595,6 @@
    ]
   },
   {
-   "fixture": "20260920-072148-A",
-   "tick": 867,
-   "side": 1,
-   "card": "Minions",
-   "source": "tap_tile",
-   "tap": [
-    9500,
-    30500
-   ],
-   "towers_down": [],
-   "members": [
-    {
-     "offset": [
-      0,
-      393
-     ],
-     "stagger": 19
-    },
-    {
-     "offset": [
-      499,
-      1250
-     ],
-     "stagger": 21
-    },
-    {
-     "offset": [
-      -499,
-      1250
-     ],
-     "stagger": 23
-    }
-   ]
-  },
-  {
    "fixture": "20260920-072831-A",
    "tick": 1887,
    "side": 1,
@@ -1192,6 +1604,7 @@
     14500,
     24500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1218,6 +1631,119 @@
    ]
   },
   {
+   "fixture": "20260920-083112-A",
+   "tick": 1365,
+   "side": 1,
+   "card": "Minions",
+   "source": "tap_tile",
+   "tap": [
+    14500,
+    24500
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     1,
+     1
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      0,
+      -1579
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      499,
+      -712
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      -499,
+      -712
+     ],
+     "stagger": 23
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-072148-A",
+   "tick": 867,
+   "side": 1,
+   "card": "Minions",
+   "source": "tap_tile",
+   "tap": [
+    9500,
+    30500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      393
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      499,
+      1250
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      -499,
+      1250
+     ],
+     "stagger": 23
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-082459-A",
+   "tick": 986,
+   "side": 1,
+   "card": "Minions",
+   "source": "tap_tile",
+   "tap": [
+    9500,
+    30500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      393
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      499,
+      1250
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      -499,
+      1250
+     ],
+     "stagger": 23
+    }
+   ]
+  },
+  {
    "fixture": "20260920-090825-A",
    "tick": 856,
    "side": 0,
@@ -1227,6 +1753,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1262,6 +1789,7 @@
     6500,
     12500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1304,6 +1832,7 @@
     6500,
     12500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1346,6 +1875,7 @@
     9000,
     12500
    ],
+   "tick_slack": 1,
    "towers_down": [
     [
      1,
@@ -1393,6 +1923,7 @@
     9000,
     12500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -1440,6 +1971,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1559,6 +2091,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1678,6 +2211,7 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      0,
@@ -1715,6 +2249,7 @@
     3500,
     8500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1750,6 +2285,7 @@
     3500,
     8500
    ],
+   "tick_slack": 1,
    "towers_down": [],
    "members": [
     {
@@ -1785,6 +2321,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -1825,6 +2362,7 @@
     3500,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1851,6 +2389,42 @@
    ]
   },
   {
+   "fixture": "20260918-130203.b2",
+   "tick": 1397,
+   "side": 0,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    3499,
+    14209
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      388
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -814,
+      -194
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      814,
+      -194
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
    "fixture": "20260918-164951-B",
    "tick": 1597,
    "side": 0,
@@ -1860,6 +2434,48 @@
     14500,
     1500
    ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     1,
+     1
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      0,
+      807
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      -403
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      -403
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260919-181741-A",
+   "tick": 1474,
+   "side": 0,
+   "card": "Skeletons",
+   "source": "tap_tile",
+   "tap": [
+    14500,
+    1500
+   ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -1900,6 +2516,7 @@
     9500,
     8500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1926,6 +2543,200 @@
    ]
   },
   {
+   "fixture": "20260918-122757.b1",
+   "tick": 892,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    3499,
+    17790
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -388
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -814,
+      194
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      814,
+      194
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-115249.b1",
+   "tick": 428,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    2499,
+    22498
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -806
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      404
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      404
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-122757.b2",
+   "tick": 2525,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    7499,
+    22498
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     0,
+     1
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      0,
+      -806
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      404
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      404
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-082459-A",
+   "tick": 1677,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "tap_tile",
+   "tap": [
+    3500,
+    24500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      -1,
+      -1808
+     ],
+     "stagger": 20
+    },
+    {
+     "offset": [
+      -700,
+      -598
+     ],
+     "stagger": 20
+    },
+    {
+     "offset": [
+      698,
+      -598
+     ],
+     "stagger": 20
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-082459-A",
+   "tick": 2958,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "tap_tile",
+   "tap": [
+    3500,
+    24500
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     0,
+     2
+    ],
+    [
+     1,
+     1
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      -1,
+      -808
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -700,
+      402
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      698,
+      402
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
    "fixture": "20260919-182539-A",
    "tick": 927,
    "side": 1,
@@ -1935,6 +2746,7 @@
     3500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1970,6 +2782,7 @@
     3500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -1996,6 +2809,232 @@
    ]
   },
   {
+   "fixture": "20260918-115249.b1",
+   "tick": 1363,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    11500,
+    22498
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -806
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      404
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      404
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-122757.b1",
+   "tick": 2282,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    13500,
+    22498
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     0,
+     2
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      0,
+      -806
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      404
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      404
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-115249.b1",
+   "tick": 3492,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    9500,
+    23498
+   ],
+   "tick_slack": 0,
+   "towers_down": [
+    [
+     1,
+     2
+    ]
+   ],
+   "members": [
+    {
+     "offset": [
+      0,
+      -806
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      404
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      404
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260918-124946",
+   "tick": 1655,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "centroid",
+   "tap": [
+    12500,
+    23498
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -806
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      404
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      404
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-070448-A",
+   "tick": 2908,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "tap_tile",
+   "tap": [
+    14500,
+    24500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -1808
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      -598
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      -598
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-081819-A",
+   "tick": 1596,
+   "side": 1,
+   "card": "Skeletons",
+   "source": "tap_tile",
+   "tap": [
+    14500,
+    24500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -1808
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      699,
+      -598
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -699,
+      -598
+     ],
+     "stagger": 19
+    }
+   ]
+  },
+  {
    "fixture": "20260919-145440-A",
    "tick": 175,
    "side": 1,
@@ -2005,6 +3044,7 @@
     14500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2040,6 +3080,7 @@
     14500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2066,6 +3107,78 @@
    ]
   },
   {
+   "fixture": "20260918-112751",
+   "tick": 1324,
+   "side": 1,
+   "card": "SpearGoblins",
+   "source": "centroid",
+   "tap": [
+    5499,
+    23498
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      0,
+      -922
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -799,
+      462
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      799,
+      462
+     ],
+     "stagger": 23
+    }
+   ]
+  },
+  {
+   "fixture": "20260920-072831-A",
+   "tick": 385,
+   "side": 1,
+   "card": "SpearGoblins",
+   "source": "tap_tile",
+   "tap": [
+    3500,
+    24500
+   ],
+   "tick_slack": 0,
+   "towers_down": [],
+   "members": [
+    {
+     "offset": [
+      -1,
+      -1924
+     ],
+     "stagger": 19
+    },
+    {
+     "offset": [
+      -800,
+      -540
+     ],
+     "stagger": 21
+    },
+    {
+     "offset": [
+      798,
+      -540
+     ],
+     "stagger": 23
+    }
+   ]
+  },
+  {
    "fixture": "20260920-072148-A",
    "tick": 195,
    "side": 1,
@@ -2075,6 +3188,7 @@
     3500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2110,6 +3224,7 @@
     3500,
     30500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2145,6 +3260,7 @@
     12500,
     20498
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2180,6 +3296,7 @@
     9500,
     8500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,
@@ -2224,6 +3341,7 @@
     3499,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2252,6 +3370,7 @@
     3499,
     1500
    ],
+   "tick_slack": 0,
    "towers_down": [],
    "members": [
     {
@@ -2280,6 +3399,7 @@
     14500,
     8500
    ],
+   "tick_slack": 0,
    "towers_down": [
     [
      1,

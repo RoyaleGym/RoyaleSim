@@ -10,7 +10,8 @@
 //!      re-derived by an integer-only series;
 //!   2. EVERY clean multi-unit deploy group of the live 16.402 corpus
 //!      (tests/fixtures/formations/measured.json, tools/make_formation_fixture.py:
-//!      16 cards, both seats, both lanes, 52 groups, the towers the game still had)
+//!      16 cards, both seats, both lanes, both ends of every column the corpus taps,
+//!      79 groups, the towers the game still had)
 //!      is reproduced member by member and in creation order -- exactly (within 3
 //!      native) on every member that overlaps no sibling and no tower at spawn,
 //!      within the contact law's reach on those that do -- and every member's
@@ -31,13 +32,17 @@
 //!      rotated tap are the rotations of Blue's, in the same order, with the same
 //!      timers, own-left, centre column and own-right, on the bank and on the back
 //!      row; and the SHIPPED ground clamp is the measured per-side formula, which is
-//!      not (Red's rear pair on its back row's near edge, one native unit tighter
-//!      at the river), the own-frame arm restoring the rotation;
+//!      not (Red's rear pair a full row in, on its back row's near edge, and its
+//!      river bound one native unit LOOSER than the rotation's), the own-frame arm
+//!      restoring the rotation -- and on every fixture member the two arms separate,
+//!      the corpus picks the per-side one, exactly;
 //!   6. the lane classifier is "left of the centre column" on every cell of the
 //!      shipped map and swaps under the rotation;
 //!   7. the ground clamp holds a bank deploy's forward Skeleton on the bank row and
 //!      the bounds clamp holds a back-row Bat 250 native inside the edge; the `none`
-//!      arm ejects instead;
+//!      arm ejects instead; and the clamp is DROPPED once its column reaches past
+//!      the river, so the same deploy is held on the bank with every tower standing
+//!      and left on its ring point once the far princess tower has fallen;
 //!   8. the engine_grid arm is the old square grid, the `none` stagger arm one tick
 //!      for all: every candidate moves a behaviour;
 //!   9. a whole scripted battle with swarms in both decks keeps every tests/common
@@ -84,6 +89,10 @@ struct Group {
     card: String,
     source: String,
     tap: [i32; 2],
+    /// How many ticks EARLIER than `tick` the group's spawn may have been: the
+    /// capture bounds the spawn rather than pinning it when it lost the frame
+    /// (tools/make_formation_fixture.py `spawn_tick_slack`). 0 on 76 of the 80.
+    tick_slack: i32,
     /// Crown towers (side, slot) already destroyed on the group's tick.
     towers_down: Vec<[u8; 2]>,
     members: Vec<Member>,
@@ -142,7 +151,16 @@ fn preview(group: &Group, shift: (i64, i64)) -> Vec<(String, Vec2, i32)> {
 }
 
 fn try_preview(group: &Group, shift: (i64, i64)) -> Result<Vec<(String, Vec2, i32)>, royalesim::state::DeployError> {
-    let mut s = BattleState::new(1, config());
+    try_preview_arm(group, shift, None)
+}
+
+/// The same, with formation.GROUND_Y_CLAMP forced to `arm` (None = the shipped one).
+fn try_preview_arm(group: &Group, shift: (i64, i64), arm: Option<GroundYClamp>) -> Result<Vec<(String, Vec2, i32)>, royalesim::state::DeployError> {
+    let mut cfg = config();
+    if let Some(a) = arm {
+        cfg.calib.formation_ground_y_clamp = a;
+    }
+    let mut s = BattleState::new(1, cfg);
     for [side, slot] in &group.towers_down {
         s.scenario_set_tower_hp(team_of(*side), *slot as usize, 0).expect("a princess tower can start destroyed");
     }
@@ -199,6 +217,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
     let mut shifted: Vec<String> = Vec::new();
     let mut exact_members = 0usize;
     let mut cards_seen = std::collections::BTreeSet::new();
+    let mut slack_used = 0usize;
     let mut failures: Vec<String> = Vec::new();
     for g in &f.groups {
         let label = format!("{} side {} {} at {:?} ({}, {} t{})", g.card, g.side, g.source, g.tap, g.fixture, g.source, g.tick);
@@ -224,14 +243,21 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
             }
             s.entities().filter(|e| matches!(e.kind, royalesim::entity::EntityKind::KingTower | royalesim::entity::EntityKind::PrincessTower)).map(|e| (native(e.pos), e.radius as i64 / K as i64)).collect()
         };
-        let overlaps: Vec<bool> = (0..got.len())
-            .map(|i| {
-                let me = native(got[i].1);
-                let sibling = (0..got.len()).any(|j| j != i && dist(me, native(got[j].1)) < radius_of(&got[i].0) + radius_of(&got[j].0));
-                let tower = towers.iter().any(|(c, r)| (me.0 - c.0).abs() < *r && (me.1 - c.1).abs() < *r);
-                sibling || tower
-            })
-            .collect();
+        // Which members of a PREVIEW overlap a sibling or an alive crown tower: the
+        // contact law moves those before the truth's first frame, so the tolerance
+        // follows the points actually predicted -- at the shifted tap too, where a
+        // ring the clamp had spread apart closes up again.
+        let overlaps_of = |v: &[(String, Vec2, i32)]| -> Vec<bool> {
+            (0..v.len())
+                .map(|i| {
+                    let me = native(v[i].1);
+                    let sibling = (0..v.len()).any(|j| j != i && dist(me, native(v[j].1)) < radius_of(&v[i].0) + radius_of(&v[j].0));
+                    let tower = towers.iter().any(|(c, r)| (me.0 - c.0).abs() < *r && (me.1 - c.1).abs() < *r);
+                    sibling || tower
+                })
+                .collect()
+        };
+        let overlaps = overlaps_of(&got);
         let measured: Vec<(i64, i64)> = g.members.iter().map(|m| (g.tap[0] as i64 + m.offset[0] as i64, g.tap[1] as i64 + m.offset[1] as i64)).collect();
         let errors: Vec<i64> = got.iter().zip(&measured).map(|((_, p, _), m)| dist(native(*p), *m)).collect();
         let tol = |i: usize| if overlaps[i] { PUSHED_NATIVE } else { EXACT_NATIVE };
@@ -246,7 +272,8 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
             candidates.dedup();
             let found = candidates.iter().copied().filter(|c| c.0.abs() >= 100 || c.1.abs() >= 100).find(|&c| {
                 let again = preview(g, c);
-                again.iter().zip(&measured).enumerate().all(|(i, ((_, p, _), m))| dist(native(*p), *m) <= tol(i))
+                let over = overlaps_of(&again);
+                again.iter().zip(&measured).enumerate().all(|(i, ((_, p, _), m))| dist(native(*p), *m) <= if over[i] { PUSHED_NATIVE } else { EXACT_NATIVE })
             });
             if let Some(c) = found {
                 shifted.push(format!("{label}: the game centred it {c:?} off the log's tap"));
@@ -263,13 +290,23 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
         exact_members += errors.iter().enumerate().filter(|(i, e)| !overlaps[*i] && **e <= EXACT_NATIVE).count();
         // The stagger: each member's deploy END relative to the first member's. A
         // capture skips frames, so a transition can be SEEN one tick late (never
-        // early): the measured gap is the engine's or one more.
+        // early): the measured gap is the engine's or one more. It can also be seen
+        // EARLY, by `tick_slack`, where the capture lost the spawn frame and the
+        // group's tick is the latest of a range -- then the first member's own end
+        // is the one seen late and every other member looks early against it.
         let t0 = g.members[0].stagger;
         for (k, (m, (_, _, ms))) in g.members.iter().zip(&got).enumerate() {
             let want = (ms - got[0].2) / calib.tick_ms;
             let seen = m.stagger - t0;
-            assert!(seen == want || seen == want + 1, "{label}: member {k} deploy end {} vs first {t0}: engine stagger {} ms", m.stagger, ms - got[0].2);
+            assert!(
+                seen >= want - g.tick_slack && seen <= want + 1,
+                "{label}: member {k} deploy end {} vs first {t0}: engine stagger {} ms (spawn slack {})",
+                m.stagger,
+                ms - got[0].2,
+                g.tick_slack
+            );
         }
+        slack_used += usize::from(g.tick_slack > 0);
         checked += 1;
     }
     println!("formations: {checked} groups reproduced ({} exact members), {} tap-shifted: {:#?}", exact_members, shifted.len(), shifted);
@@ -277,6 +314,9 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
     assert!(cards_seen.len() >= 12, "only {} cards covered: {cards_seen:?}", cards_seen.len());
     assert!(exact_members >= 120, "only {exact_members} exactly placed members: not evidence");
     assert!(shifted.len() * 4 <= checked, "{} of {checked} groups needed a tap shift", shifted.len());
+    // The spawn-tick slack is a property of four captures, not a loosening a
+    // systematic stagger error could hide behind.
+    assert!(slack_used <= 6, "{slack_used} groups ran on a bounded spawn tick: the stagger gate has gone soft");
 }
 
 // ---------------------------------------------------------------------------
@@ -416,8 +456,10 @@ fn the_shipped_ground_clamp_is_the_measured_per_side_formula() {
     // The measured asymmetry (calibration formation.GROUND_Y_CLAMP): side 1's rear
     // members on a back-row tap are held on the highest deployable row's NEAR edge
     // (absolute 31000 on the shipped map), side 0's on the lowest row's near edge
-    // (0, which the bounds clamp lifts); at the river the two are one native unit
-    // apart. Measured live on the Red Goblins of capture 20260918-164951.
+    // (0, which the bounds clamp lifts) -- a FULL ROW apart; at the river the two
+    // are one native unit apart, side 1's the LOOSER. Measured live on the Red
+    // Goblins of capture 20260918-164951-B (the back edge) and of capture
+    // 20260918-121158 t2439 (the river).
     let s = BattleState::new(1, config());
     assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
     let a = s.arena().clone();
@@ -437,7 +479,11 @@ fn the_shipped_ground_clamp_is_the_measured_per_side_formula() {
     let red = s.formation_preview(Team::Red, "Skeletons", a.rotate(bank)).unwrap();
     let blue_fwd = blue.iter().map(|(_, p, _)| p.y).max().unwrap();
     let red_fwd = red.iter().map(|(_, p, _)| p.y).min().unwrap();
-    assert_eq!(a.rotate(Vec2::new(0, blue_fwd)).y - red_fwd, K, "Red's river bound is one native unit tighter");
+    assert_eq!(a.rotate(Vec2::new(0, blue_fwd)).y - red_fwd, K, "Red's river bound is one native unit LOOSER than the rotation's");
+    // The back edge: Red's bound is a FULL ROW inside Blue's rotated one (own-frame
+    // lo 1000 against 0). The bounds clamp lifts Blue's rear pair to 250 native, so
+    // what the two seats' members show is that full row less those 250.
+    assert_eq!(a.rotate(Vec2::new(0, blue_rear)).y - red_rear, tile - a.cell / 2, "Red's rear pair lands a full row less the bounds clamp inside the rotation's");
     // The own-frame arm makes the two seats rotations of each other on both.
     let sym = BattleState::new(1, symmetric_config());
     for (card, tap) in [("Goblins", back_blue), ("Skeletons", bank)] {
@@ -447,6 +493,62 @@ fn the_shipped_ground_clamp_is_the_measured_per_side_formula() {
             assert_eq!(a.rotate(x.1), y.1, "{card}: own-frame arm");
         }
     }
+}
+
+#[test]
+fn every_corpus_member_the_clamp_arms_separate_is_the_per_side_one_exactly() {
+    // THE DECIDING OBSERVATION behind formation.GROUND_Y_CLAMP. On every fixture
+    // member the two surviving arms put in different places, the game's own member
+    // must be the per-side arm's, EXACTLY -- and the own-frame rotation's must not
+    // be. The corpus test above cannot say this: at the river the two arms are one
+    // native unit apart and its member tolerance is three.
+    //
+    // Only the y is compared. The clamp is a y rule, and a Red member's x sits one
+    // native unit off the measurement whether it is clamped or not.
+    let f = fixture();
+    let mut back_edge = 0usize;
+    let mut river = 0usize;
+    let mut off_bound = 0usize;
+    let mut groups = std::collections::BTreeSet::new();
+    for g in &f.groups {
+        if NOT_MODELLED.contains(&g.card.as_str()) {
+            continue;
+        }
+        let per_side = try_preview_arm(g, (0, 0), Some(GroundYClamp::Client16402DeployColumnRange)).expect("shipped arm");
+        let own_frame = try_preview_arm(g, (0, 0), Some(GroundYClamp::DeployColumnRangeOwnFrame)).expect("own-frame arm");
+        let unclamped = try_preview_arm(g, (0, 0), Some(GroundYClamp::None)).expect("none arm");
+        for (k, m) in g.members.iter().enumerate() {
+            let want = g.tap[1] as i64 + m.offset[1] as i64;
+            let (a, b, u) = (native(per_side[k].1).1, native(own_frame[k].1).1, native(unclamped[k].1).1);
+            if a == b {
+                continue; // this member is not where the two arms differ
+            }
+            let label = format!("{} t{} side {} {} member {k}", g.fixture, g.tick, g.side, g.card);
+            // A CLAMPED member's y IS the bound, whatever the tap was, so it is the
+            // one reading that survives a centroid-sourced tap and the contact law.
+            // A member standing on neither bound was moved after it was laid (the
+            // Skeletons of capture 20260918-122757.b1 t892 overlap and are pushed
+            // apart before the first recorded frame): it is evidence for nobody.
+            assert_ne!(b, want, "{label}: the own-frame arm is the game's y and the per-side arm is not");
+            if a != want {
+                off_bound += 1;
+                continue;
+            }
+            // Which bound it is: forward, toward the river, or back.
+            let forward = if g.side == 0 { a < u } else { a > u };
+            if forward {
+                river += 1
+            } else {
+                back_edge += 1
+            }
+            groups.insert(format!("{} t{}", g.fixture, g.tick));
+        }
+    }
+    println!("clamp arms separated on {back_edge} back-edge and {river} river members over {} groups ({off_bound} members off both bounds)", groups.len());
+    assert!(back_edge >= 6, "the back edge decides nothing here: {back_edge} members");
+    assert!(river >= 2, "the river bound decides nothing here: {river} members -- the corpus' only group for it has been dropped from the fixture");
+    assert!(groups.len() >= 4, "only {} group(s) separate the arms", groups.len());
+    assert!(off_bound <= 2, "{off_bound} separated members stand on neither bound: the fixture's taps have drifted");
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +627,39 @@ fn the_ground_clamp_holds_a_bank_deploy_on_the_bank_and_the_bounds_clamp_the_edg
     let min_y = bats.iter().map(|(_, p, _)| p.y).min().unwrap();
     assert_eq!(min_y, a.cell / 2, "the lowest Bat is not on the bounds clamp");
     assert!(bats.iter().any(|(_, p, _)| p.y > a.cell / 2 + a.cell), "every Bat on the edge: not a ring");
+}
+
+#[test]
+fn the_column_clamp_is_dropped_once_its_column_reaches_past_the_river() {
+    // calibration formation.GROUND_Y_CLAMP: the range is DROPPED once it spans half
+    // the arena, which is what a fallen princess tower does to the column it stood
+    // on. MEASURED: capture 20260918-122757.b1 t1676, a Red Goblins deploy in the
+    // column whose far princess tower was down, stands its forward pair on absolute
+    // 10738 -- its ring point -- where the undropped range would have held them on
+    // the bank at 11499.
+    let s = BattleState::new(1, config());
+    let a = s.arena().clone();
+    let tap = Vec2::from_tiles_100(1050, 1150); // (10500, 11500) native
+    // Every tower standing: the forward pair cannot leave Red's own half.
+    let held = s.formation_preview(Team::Red, "Goblins", tap).unwrap();
+    let forward = held.iter().map(|(_, p, _)| p.y).min().unwrap();
+    assert!(forward > a.water_y_max, "the clamp let a Red member onto the river or past it: {forward}");
+    // The Blue princess tower on that column falls: the column now reaches past the
+    // river, the pair is dropped, and the members are the ring's own points.
+    let mut open = BattleState::new(1, config());
+    open.scenario_set_tower_hp(Team::Blue, 2, 0).expect("a princess tower can start destroyed");
+    let free = open.formation_preview(Team::Red, "Goblins", tap).unwrap();
+    let mut no_clamp_cfg = config();
+    no_clamp_cfg.calib.formation_ground_y_clamp = GroundYClamp::None;
+    let mut no_clamp = BattleState::new(1, no_clamp_cfg);
+    no_clamp.scenario_set_tower_hp(Team::Blue, 2, 0).unwrap();
+    let ring = no_clamp.formation_preview(Team::Red, "Goblins", tap).unwrap();
+    assert_eq!(
+        free.iter().map(|(_, p, _)| *p).collect::<Vec<_>>(),
+        ring.iter().map(|(_, p, _)| *p).collect::<Vec<_>>(),
+        "the drop did not fire: the clamp is still holding the deploy"
+    );
+    assert_ne!(free.iter().map(|(_, p, _)| p.y).min(), held.iter().map(|(_, p, _)| p.y).min(), "the fallen tower changed nothing");
 }
 
 // ---------------------------------------------------------------------------

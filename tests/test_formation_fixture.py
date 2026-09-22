@@ -74,9 +74,10 @@ def test_the_sample_s_skeletons_hug_the_king_and_are_clean_only_without_the_marg
     assert len(g["members"]) == 3
     assert g["towers_down"] == [[1, 1]]
     assert len({mem["stagger"] for mem in g["members"]}) == 1
-    # the selection keeps at most PER_BUCKET per (card, side, lane half)
+    # the selection keeps at most PER_BUCKET per (card, side, lane half, tap row)
+    def key(h):
+        return (h["card"], h["side"], h["tap"][0] >= m.CENTRE_X, h["tap"][1] // m.TILE_NATIVE)
+
     picked = m.select(groups * 3)
-    buckets = {(h["card"], h["side"], h["tap"][0] >= m.CENTRE_X) for h in picked}
-    for b in buckets:
-        n = len([h for h in picked if (h["card"], h["side"], h["tap"][0] >= m.CENTRE_X) == b])
-        assert n <= m.PER_BUCKET
+    for b in {key(h) for h in picked}:
+        assert len([h for h in picked if key(h) == b]) <= m.PER_BUCKET
