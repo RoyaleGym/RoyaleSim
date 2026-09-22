@@ -35,6 +35,8 @@ Three things are worth stating up front, because they bound everything below:
 | Deploy time | `state.rs` | units are inactive while `deploy_ms > 0` |
 | Hide (Tesla) | `state.rs::hide_pass`, `entity.rs::HideState`, `target.rs`, `combat.rs::resolve` | `HidesWhenNotAttacking` / `HideTimeMs` / `UpTimeMs` from `cards.json`: under at deploy end, rising for `UpTimeMs` when a targetable enemy is in sight, under again after `HideTimeMs` without a target; hidden = untargetable and immune (except lifetime expiry), stun and knockback pass over it. Rules the columns do not settle are the `hide.*` ledger keys, community-sourced. `tests/hide.rs` |
 | Periodic spawners, death spawn | `state.rs::spawner_pass`, `state.rs::phase_reap`, `card.rs::SpawnerDef` / `DeathSpawnDef` | the `Spawn*` / `DeathSpawn*` columns (huts, Witch, Dark Witch; Tombstone, Golem, Lava Hound, Battle Ram): waves on the data's cadence, one-tick emission latency, stun pauses the timer, `SpawnLimit` counts the spawner's own live units, death spawns on a ring of `DeathSpawnRadius` on the dying unit's facing (`spawner.DEATH_SPAWN_LAYOUT = facing_ring`, measured). Six `spawner.*` keys are measured -- EMISSION_TIMING, FIRST_WAVE, START_TIME_ORIGIN, SPAWNED_DEPLOY_TIME, DEATH_SPAWN_DEPLOY_TIME_DEFAULT, DEATH_SPAWN_LAYOUT; SPAWN_POINT, PAUSE_ANCHOR, LIMIT_RULE and DEATH_SPAWN_RADIUS_DEFAULT are still community / hypothesis / guess. `tests/spawner.rs` |
+| Death area effect (Ice Golem) | `state.rs::phase_reap`, `spell.rs::cast`, `card.rs::convert_area_effect` | `DeathAreaEffect` names a row of `cards.json`'s `area_effect_objects`. The death leaves that area standing where the unit stood, and it runs the engine's own area-effect path — the same object, the same disc test and the same buff a Zap gets. The Ice Golem's is a 2-tile disc that hangs a 30 % slow on enemies for 2 s and carries no damage of its own. It is a **second** effect of the same death, beside the `DeathDamage` disc: the two carry their own radius, damage and crown percent, and the Super Ice Golem ships them with different values for each. Refused areas are refused card and all, with the reason (the Rage Barbarian's and the Suspicious Bush's are spawn scripts). `tests/death_area_effect.rs` |
+| Death bomb (Balloon, Giant Skeleton, Bomb Tower) | `card.rs::convert_death_bomb`, `state.rs::phase_reap`, `spell.rs::step_spells` | Their `DeathSpawnCharacter` names a row with no hitpoints, no damage, no hit speed and no LifeTime — only `DeployTime` 3000, `DeathDamage` and `DeathDamageRadius`. That is not a unit, so it is not spawned as one: the death leaves **one area hit on a timer** at the point of death, carried by the same spell object an Arrows wave waits in. It is untargetable and blocks nothing, because it is not on the board at all. The impact is the engine's ordinary `DeathDamage` disc — enemies only, air and ground per the row, crown towers at the row's percent — with a fuse. The fuse is `DeployTime` and that is measured, not read off the column name: in capture `20260920-083112` (both seats) a level-11 Balloon's bomb takes 240 off a King Tower 1987 native units away **61 ticks** after its last live frame, and 240 is `BalloonBomb`'s `DeathDamage` 94 on the Common ladder at level 11. `DeathPushBack` (Giant Skeleton, 1800) is not carried into `cards.json` and is not applied, the same gap every other `DeathDamage` row has. `tests/death_bomb.rs` |
 | Charge (Prince, Dark Prince, Battle Ram) | `state.rs::charge_pass`, `effective_speed`, `combat.rs::fire` | `ChargeRange` / `DamageSpecial` / `ChargeSpeedMultiplier`: the run-up accumulates `tdiv(L x 1000, ChargeRange)` permille per walking tick from the requested step `L = min(S, dist, 250)`, charged at 10000; the speed doubles from the next walking tick (measured on the corpus: the Prince's 43rd walking tick) and the next landed hit deals `DamageSpecial`; consumed by the hit, reset by a stun or a landed knockback. The `charge.*` keys hold what the corpus has not yet separated. `Kamikaze` is read (`combat.KAMIKAZE_DEATH = at_fire`): a Battle Ram dies on the tick its one hit lands and breaks into its two Barbarians; a delayed kamikaze (`KamikazeTime`) is the named gap. `tests/charge.rs` |
 | Stun | `entity.rs`, `state.rs`, `status.*` keys | honoured by move and attack; applied by Zap. Attack reset, retarget-on-resume and the deploy-pause question are each their own ledger key |
 | Status effects | `status.rs`, `state.rs::buff_pulse_pass` | a per-entity buff list: `SpeedMultiplier` and `HitSpeedMultiplier` compose into the move and attack arithmetic (`status.BUFF_STACKING`, `status.SAME_BUFF_REAPPLY`, `movement.BUFF_SPEED_COMPOSITION`), a full-stop buff drives the hold (`status.FULL_STOP_BUFF_IS_STUN`), and damage over time and heal pulse on their own clock (`status.BUFF_PULSE_AMOUNT` / `BUFF_PULSE_TIMING`), so Poison and Earthquake load as pulsing areas. `tests/status.rs` |
@@ -58,8 +60,10 @@ engine is usable for your purpose.
 |---|---|
 | `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: a death spawn's units land on the facing ring and nothing pushes them apart or holds them off a minimum radius, so a crowded death point leaves them closer together than the game does |
 | Dash, morph, chained hits, multiple projectiles | absent, and so is the attack jump (Mega Knight, Assassin). The river hop IS modelled (`jump16402.rs`, `movement.JUMP_WATER_HOP`) |
-| Rage and Heal | refused by the loader, and out loud: each is a `SummonCharacter` spell whose area effect is released by the summon, which the loader does not walk. The other status sources are modelled — see the Modelled table |
+| Rage and Heal | refused by the loader, and out loud: neither card row carries an area effect or a projectile at all. Each works by summoning a bottle whose death releases an own-troop area, and the bottle has no hitpoints, so the engine will not put it on the board. A death that releases an area IS modelled (see the Modelled table); an area that buffs the releaser's own side is not — `impact` has no filter for it |
 | Evolutions, champions, tower troops | post-2023; no public data |
+| A troop's own projectile knockback (`Pushback` on the projectile row) | not read: a troop's projectile is loaded as speed, damage, splash radius and a buff, and nothing else. Bowler, Zappies and the Mega Knight's landing hit push in the game and do not here. A SPELL's knockback is read (`spell.rs`, the measured ladder) |
+| The splash layer filter (`AoeToAir` / `AoeToGround` on the projectile row) | not read: the engine filters a splash by the ATTACKER's `AttacksAir` / `AttacksGround` (`combat.rs`). The two agree on every card the slice reaches; they disagree on Wall Breakers, whose blast covers air in the data and only ground here (`tools/check_card_reads.py` names every row where they part) |
 | The real intra-tick order and the real PRNG | out of reach, and not a goal |
 
 ### Cards outside the slice
@@ -72,51 +76,56 @@ not, with the reason. Some of the loaded cards carry a mechanic `card.rs` never 
 If you are picking decks programmatically, draw from `cards.json`'s own `thin_slice` key rather
 than from the catalogue — and parse it, never hand-copy it.
 
-There is no gate that catches this class of problem. `tools/check_data.py` asserts the *data* is
-present (it even asserts Prince's `charge.damage_special > 0`) without asking whether the engine reads it;
-nothing builds the set of `cards.json` fields `card.rs` actually consumes and compares it, in both
-directions, against the fields the slice's cards carry. That gate is the fix, and it does not
-exist yet.
+`tools/check_data.py` asserts the *data* is present (it even asserts Prince's
+`charge.damage_special > 0`) without asking whether the engine reads it. The gate that asks the
+other question is `tools/check_card_reads.py` (`docs/contributing.md`): it builds the set of
+`cards.json` fields `card.rs` consumes, compares it both ways against what the data carries, fails
+when a thin-slice card carries an unread mechanic and reports per card over the rest of the
+catalogue. On the 15.535 table, 2026-09-22
+(`python tools/check_card_reads.py`), **82 of the 95 loaded cards carry at least one column or key
+the loader never reads**, 69 of them outside the thin slice; a further 3 are flagged only by the
+coarser per-object pass. Inside the slice 13 of the 18 cards carry one, every one on the tool's
+named list of open gaps; the other five (Knight, Giant, Prince, Fireball, Zap) carry none, though
+the coarse pass still names Fireball's projectile deflect columns. Loading a card is
+still not the same as running it, and the gate does not make it so; what it does is stop the
+difference from being invisible.
 
 ## Known defects
 
-Two defects in the collide layer are open, both measured, both reproducible in ordinary play.
+One defect in the collide layer is open, and one entry that used to be here has been retired
+because the recordings show the game doing the same thing.
 
-### Units can sit inside a building footprint
+### A unit standing inside a building's tile box is not a defect
 
-A unit can stand with its centre inside a building's footprint for up to **47 ticks**.
+RETIRED 2026-09-22. This section used to report a defect: a unit could stand with its centre
+inside a building's footprint for up to 47 ticks. The recordings say the real game does the same
+thing, so the engine was being measured against a rule the game does not have.
 
-The mechanism is `collide::dry_position`, which resolves the *water* constraint alone: when the
-radial push-out target is river it returns the old position — still inside the footprint. There
-are two entry points, and the spawn-time one dominates: **142 of 146 measured violations begin on
-the spawn tick**, because `state.rs::formation_grid` checks water and nothing else and places a
-sibling inside the footprint; only 4 begin later, through unit separation. A second sub-case: the
-x-only fallback can move the unit part-way and leave it inside.
+What the recordings show, over 42 recorded battles. Troop centres are inside a building's TILE BOX
+constantly: inside a Cannon's on 394 of 943 nearby frames, inside a princess tower's on 11923 of
+49173, inside a king tower's on 6501 of 12953. The tile box is where a building may be PUT
+(`data/calibration.json` `placement.*`), and it never blocks a unit.
 
-Measured over legal deploys beside one riverside Cannon (0.125-tile grid, 60-70 ticks each):
+Inside the CollisionRadius CIRCLE is a different matter, and there the game is nearly strict: four
+unit-building pairs in the whole corpus, none lasting more than three frames. Three of those four
+are a building appearing on top of a unit that was already standing there, and the unit leaves at
+about 150 per tick, attackers included. The fourth is a Miner surfacing. Closest approaches, minimum
+and 5th percentile: Cannon 814 / 1141, Tesla 1139 / 1213, Tombstone 947 / 1551, princess tower
+1170 / 1580, king tower 1245 / 1904.
 
-| Card | Violating deploys | Worst run |
-|---|---|---|
-| Skeleton Army | 106 of 2166 | 23 ticks |
-| Goblins | 17 of 2166 | 23 ticks |
-| Goblin Barrel | 23 of 2424 | 22 ticks |
+The engine agrees at legal placements. Under the shipped arms, a Skeleton Army, Goblins or a Goblin
+Barrel dropped around a riverside Cannon put a unit inside the circle only while it is still
+deploying, and for at most three ticks; the old 47-tick repro no longer reproduces at all, because
+the shipped movement arm does not run the push-out that produced it. The longer runs that remain
+belong to Cannon sites whose circle reaches past the river edge, and the placement rule now refuses
+those sites.
 
-2060 single-troop deploys in the same neighbourhood produced 0 violations, so a lone unit walking
-in is not the path. The exact repro: Blue Cannon at (36000, 258000), Red Goblin Barrel at
-(36000, 267000) — the Goblin sits at the tap point from tick 49 to tick 95 and leaves only by
-dying.
-
-This breaks the engine's own every-tick invariant (`tests/common` Invariants rule 2) in legal
-play. The nearby gates are green over it for identifiable reasons, all of which come down to no
-building standing near a bank in the scenarios they build: `mechanics.rs` teleports its Knight
-into a princess tower eight tiles from the river, `spells.rs` casts its riverside barrel with no
-building but the crown towers, and the scripted battle generator places every building nine tiles
-across and ten up.
-
-The open question before a fix is a fidelity question, not a code one: **what does the real game
-do when a Goblin Barrel lands on a building that is hard against the river?** Candidate models
-(a Goblin appears on the far side, beside the building on the dry side, or the landing itself is
-displaced) predict visibly different positions, well above measurement error.
+**What is left is a real defect, and it is the opposite one.** The engine skips the whole move pass
+for an ATTACKING unit, so separation never reaches it. Place a Cannon on a Knight that is attacking
+something: with the Knight 814 from the Cannon's centre it stays at 814 for more than 58 ticks, and
+starting inside the circle at 316 it stays there for more than 80. The game pushes an attacking unit
+out. One recorded Skeleton goes 814, 955, 1104 over three ticks while attacking. So the engine is
+not too permissive here; it is too rigid, and only for units that are attacking.
 
 ### Push-outs are summed, not selected
 
