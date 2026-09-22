@@ -52,7 +52,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 95 of the 144 cards in the 15.535 client's card table (2026-09-22). A public clone builds the older 78-card table. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table (2026-09-22, after the footprint rebuild added five, Hog 2.6 among them). A public clone builds the older 78-card table. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 149 carry a status from guess to measured, and 49 are measured (2026-09-22). 89 also name the rivals they were chosen against, and 99 say what would change them.</sub></td>
   </tr>
@@ -292,7 +292,8 @@ Working:
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 60 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
 - Cards. The 15.535 client's card table holds 144 cards, 2 towers and 334 units. The engine plays
-  95 of those cards. It refuses the other 49 when it loads the table, and says why for each one.
+  100 of those cards (2026-09-22). It refuses the other 44 when it loads the table, and says why for
+  each one.
   A public clone builds the older 2018 table instead, which holds 78 cards.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
