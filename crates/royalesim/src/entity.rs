@@ -43,9 +43,13 @@ impl EntityKind {
 pub enum AttackPhase {
     /// Not attacking.
     Idle = 0,
-    /// Load time running; the hit lands when it completes.
+    /// Attacking with the swing under way: under combat.ATTACK_CYCLE =
+    /// progress_credit, attacking with progress % HitSpeed >= 50 (the target lock,
+    /// the Path phase's hold); under windup_load_time the LoadTime windup running.
     Windup = 1,
-    /// Hit landed; waiting out the rest of hit_speed.
+    /// Attacking, the hit landed this tick: under progress_credit still attacking
+    /// (the unit stands; the next tick's range test gates the next cycle); under
+    /// windup_load_time waiting out the rest of hit_speed.
     Cooldown = 2,
 }
 
@@ -134,8 +138,16 @@ pub struct Entities {
     pub target: Vec<Option<EntityId>>,
     pub target_locked: Vec<bool>,
     pub attack_phase: Vec<AttackPhase>,
-    /// ms elapsed in the current attack phase.
+    /// The attack progress counter (combat.ATTACK_CYCLE = progress_credit: the
+    /// counter the captures show running across hits -- 1400, 2800, ... on a
+    /// Prince) or the ms elapsed in the current attack phase (windup_load_time).
     pub attack_ms: Vec<i32>,
+    /// The load timer (progress_credit only: the captures' second attack counter,
+    /// set to LoadTime on every hit and every cycle entry, counting down 50 per
+    /// tick to 0 in any state; its remainder is taken off the credit a re-entering
+    /// unit gets). 0 for life under windup_load_time. Snapshot format 16
+    /// (migrate_v3 fills 0).
+    pub attack_load_ms: Vec<i32>,
 
     /// ms of deploy time remaining (0 = active).
     pub deploy_ms: Vec<i32>,
@@ -333,6 +345,7 @@ impl Entities {
             self.target_locked[i] = false;
             self.attack_phase[i] = AttackPhase::Idle;
             self.attack_ms[i] = 0;
+            self.attack_load_ms[i] = 0;
             self.deploy_ms[i] = s.deploy_ms;
             self.stun_ms[i] = 0;
             self.slow_ms[i] = 0;
@@ -383,6 +396,7 @@ impl Entities {
             self.target_locked.push(false);
             self.attack_phase.push(AttackPhase::Idle);
             self.attack_ms.push(0);
+            self.attack_load_ms.push(0);
             self.deploy_ms.push(s.deploy_ms);
             self.stun_ms.push(0);
             self.slow_ms.push(0);

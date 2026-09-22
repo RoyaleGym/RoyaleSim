@@ -126,7 +126,9 @@ fn a_knight_whose_skeleton_target_dies_walks_the_tick_after_it_is_gone() {
     // Resolve, despawned in Reap): the Knight stands on the hit tick (still
     // attacking a live target when Path looks) and on the tick the Skeleton is gone
     // Target drops it, Attack runs on in Cooldown and Path walks it -- the 2 -> 1
-    // transition and the walk in one tick (412 / 413). Same under both orders.
+    // transition and the walk in one tick (412 / 413). The LEGACY order walks one
+    // tick later under the shipped attack cycle (its Move pass runs before the
+    // Attack that leaves the cycle); the comment on `walks` below says why.
     for cfg in [config(), legacy_config()] {
         let order = cfg.calib.tick_order;
         let mut s = bare(cfg);
@@ -148,17 +150,32 @@ fn a_knight_whose_skeleton_target_dies_walks_the_tick_after_it_is_gone() {
         // per post-tick frame: the Knight's (pos, phase) and whether the Skeleton lives;
         // two more frames after the one it is first gone from
         let mut frames: Vec<(Vec2, AttackPhase, bool)> = Vec::new();
-        while frames.len() < 60 && !matches!(frames.get(frames.len().wrapping_sub(3)), Some((_, _, false))) {
+        while frames.len() < 60 && !matches!(frames.get(frames.len().wrapping_sub(4)), Some((_, _, false))) {
             s.tick();
             let e = s.entity(knight).unwrap();
             frames.push((e.pos, e.attack_phase, s.entity(skel).is_some()));
         }
         let gone = frames.iter().position(|f| !f.2).expect("the Skeleton never died");
-        assert!(gone >= 2 && gone + 2 < frames.len(), "{order:?}: death at frame {gone} of {}", frames.len());
+        assert!(gone >= 2 && gone + 3 < frames.len(), "{order:?}: death at frame {gone} of {}", frames.len());
         assert_eq!(frames[gone].1, AttackPhase::Cooldown, "{order:?}: the hit that killed it landed on that tick");
         assert!(frames[..=gone].iter().all(|f| f.0 == frames[0].0), "{order:?}: the Knight moved while it had a live target in range");
-        assert_ne!(frames[gone + 1].0, frames[gone].0, "{order:?}: the Knight did not walk on the tick after its target was gone");
-        assert!(frames[gone + 1].0.y < frames[gone].0.y, "{order:?}: a Red Knight walks -y toward Blue");
+        // WHICH TICK IT WALKS ON is the orders' own difference. Under the measured
+        // order Attack runs first, drops the dead target and leaves the cycle, and
+        // Path walks the unit in the same tick. Under the legacy order Move runs
+        // FIRST and reads the phase the previous tick left: under the shipped cycle
+        // that phase is still "attacking" on the hit tick (combat.ATTACK_CYCLE =
+        // progress_credit has no cooldown STATE -- an attacking unit stands on the
+        // hit tick too, Calib::attack_holds), so the legacy order walks one tick
+        // later; under the
+        // old windup arm its cooldown did not hold and both orders walked together.
+        let walks = match (order, s.config().calib.attack_cycle) {
+            (royalesim::state::TickOrder::LegacyMoveBeforeAttack, royalesim::state::AttackCycle::ProgressCredit) => gone + 2,
+            _ => gone + 1,
+        };
+        assert!(walks + 1 < frames.len(), "{order:?}: only {} frames after the death", frames.len() - gone);
+        assert!(frames[gone + 1..walks].iter().all(|f| f.0 == frames[gone].0), "{order:?}: the Knight walked before frame {walks}");
+        assert_ne!(frames[walks].0, frames[gone].0, "{order:?}: the Knight did not walk on frame {walks}, its first tick free of the target");
+        assert!(frames[walks].0.y < frames[gone].0.y, "{order:?}: a Red Knight walks -y toward Blue");
     }
 }
 

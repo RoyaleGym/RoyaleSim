@@ -29,10 +29,9 @@
 //!      at the live level 11 the pair is 783 / 391 on a 3052 tower, the figures of
 //!      capture 20260920-003751
 //!      (3052 -> 2269 at t328 / t329 -- the two twins part by a frame -- and 1878 at
-//!      t357); what the engine does NOT reproduce is the TIMING of the first one:
-//!      live it lands on the first attack pass after the step into reach, with no
-//!      LoadTime windup (charge.CHARGED_HIT_TIMING, recorded, not implemented), here
-//!      after the LoadTime windup;
+//!      t357); its TIMING -- the first attack pass after the step into reach, with no
+//!      LoadTime windup -- was the engine's gap and is now the shipped arm of
+//!      charge.CHARGED_HIT_TIMING (tests/reach.rs pins the tick);
 //!   3. a Zap mid-run-up zeroes the progress in the tick it lands and the Prince
 //!      walks the FULL run-up again before it charges;
 //!   4. a Knight in the lane takes the charged hit instead of the tower, its second
@@ -53,9 +52,10 @@
 //!  10. the loader refuses a charge block with any of its three
 //!      columns missing or non-positive, naming the column, and a charge block on a
 //!      building;
-//!  11. the Battle Ram's Kamikaze column is NOT implemented: the
-//!      Ram re-arms after its charged hit and keeps hitting at Damage -- pinned as a
-//!      known gap so a Kamikaze implementation flips it.
+//!  11. the Battle Ram's Kamikaze column (combat.KAMIKAZE_DEATH = at_fire): the Ram
+//!      lands ONE hit, the charged DamageSpecial, and is gone on that tick, its two
+//!      Barbarians on the board (the sample battle's king tower 2868 -> 2295 at
+//!      t1153, the Ram gone on that frame).
 //!
 //! TICK ALIGNMENT (state.rs `charge_pass`): the run-up gains at the END of the Move
 //! phase, after separation, from the step the Path phase REQUESTED in the same tick
@@ -447,9 +447,8 @@ fn the_first_landed_hit_on_the_princess_tower_is_damage_special_scaled_and_the_s
     // t328 on seat A: the twins' one-frame skew) and 1878 on the next (t357):
     // 783 = 306 x 256 % and 391 = 153 x 256 %,
     // floor; the tower's 3052 is combat.TOWER_HITPOINT_LADDER at tower level 11. The
-    // TIMING of the first hit is the engine's known gap: live it lands on the first
-    // attack pass after the step into reach with no windup, here LoadTime after
-    // (charge.CHARGED_HIT_TIMING).
+    // TIMING of the first hit is the arrival tick (charge.CHARGED_HIT_TIMING =
+    // first_attack_pass_no_windup; tests/reach.rs).
     let s = bare(config());
     assert_eq!(s.config().card_level[0], 11, "vacuous: the default level is not the live tournament level");
     assert_eq!(s.tower_hp(Team::Red)[1], 3052, "the princess tower at tower level 11 (live 16.402: 3052)");
@@ -949,9 +948,21 @@ fn every_charge_candidate_moves_a_measurable_behaviour() {
     assert!(held_progress > 0 && reset_progress == 0, "hold keeps the run-up through a stop, reset zeroes it: {held_progress} / {reset_progress}");
     assert!(held_at.unwrap() < reset_at.unwrap(), "{held_at:?} vs {reset_at:?}");
 
-    // RESET_ON_ATTACK: false keeps the charge through every hit.
+    // RESET_ON_ATTACK: false keeps the charge through every hit -- under the
+    // after_load_time_windup arm of charge.CHARGED_HIT_TIMING. Under the shipped
+    // snap the charge is consumed at the snap itself, so the foil cannot keep the
+    // charge through the snapped hit whatever it says: the first hit is special,
+    // the second plain.
+    let (hits, special, damage) = tower_hits(
+        with_calib(|c| {
+            c.charge_reset_on_attack = false;
+            c.charged_hit_timing = royalesim::state::ChargedHitTiming::AfterLoadTimeWindup;
+        }),
+        None,
+    );
+    assert_eq!((hits[0].1, hits[1].1), (special, special), "RESET_ON_ATTACK = false (no snap): every hit is DamageSpecial ({hits:?})");
     let (hits, special, _) = tower_hits(with_calib(|c| c.charge_reset_on_attack = false), None);
-    assert_eq!((hits[0].1, hits[1].1), (special, special), "RESET_ON_ATTACK = false: every hit is DamageSpecial ({hits:?})");
+    assert_eq!((hits[0].1, hits[1].1), (special, damage), "RESET_ON_ATTACK = false under the snap: the snap itself consumes the charge ({hits:?})");
 
     // RESET_ON_STUN: a Zap on a CHARGED Prince.
     for (reset, want) in [(true, false), (false, true)] {
@@ -1033,31 +1044,64 @@ fn the_loader_refuses_a_partial_or_non_positive_charge_block_and_a_charging_buil
 }
 
 // ---------------------------------------------------------------------------
-// (11): the Battle Ram's Kamikaze is a known gap
+// (11): the Battle Ram's Kamikaze (calibration combat.KAMIKAZE_DEATH = at_fire).
 
 #[test]
-fn the_battle_ram_survives_its_charged_hit_and_keeps_hitting_because_kamikaze_is_not_read() {
-    // The 2018 and 15.535 rows ship `Kamikaze = true` (the Ram dies on its hit and
-    // its two Barbarians take over); the extractor does not carry the column and
-    // nothing in the crate reads it, so the Ram re-arms every HitSpeed and hits at
-    // Damage. THIS TEST PINS THE GAP: a Kamikaze implementation must flip it (the
-    // Ram gone after the first landed hit, the Barbarians on the board).
+fn the_battle_ram_dies_on_its_charged_hit_and_its_barbarians_take_over() {
+    // The 2018 and 15.535 rows ship `Kamikaze = true`: the Ram lands ONE hit -- the
+    // charged DamageSpecial -- and is gone on that tick, its two Barbarians on the
+    // board (the sample battle: the king tower 2868 -> 2295 at t1153, the Ram gone on
+    // that frame, the Barbarians deploying). Plant charge_never_ready: the one hit is
+    // plain Damage.
     let mut s = bare(config());
     let ch = charge_of(&s, "BattleRam");
     let c = card_stat(&s, "BattleRam").clone();
+    assert!(c.kamikaze, "data: the Battle Ram ships Kamikaze");
     let level = s.config().card_level[0];
-    let db = s.cards();
-    let idx = db.index("BattleRam").unwrap();
-    let special = db.scaled(idx, level, ch.damage_special).unwrap();
-    let plain = db.scaled(idx, level, c.damage).unwrap();
+    let (special, plain) = {
+        let db = s.cards();
+        let idx = db.index("BattleRam").unwrap();
+        (db.scaled(idx, level, ch.damage_special).unwrap(), db.scaled(idx, level, c.damage).unwrap())
+    };
     let pct = c.crown_tower_damage_percent;
     let rounding = s.config().calib.crown_rounding;
     let want = |d: i32| damage_against(EntityKind::PrincessTower, d, pct, rounding);
     let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", lane_spot(), None).unwrap();
-    let hits = first_drops(&mut s, 3, 800, |s| s.tower_hp(Team::Red)[1]);
-    assert_eq!(hits.len(), 3, "vacuous: the Ram did not land three hits: {hits:?}");
-    assert_eq!(hits[0].1, want(special), "the first landed hit is DamageSpecial ({hits:?})");
-    assert_eq!((hits[1].1, hits[2].1), (want(plain), want(plain)), "the Ram keeps hitting at Damage ({hits:?})");
-    assert!(s.entity(ram).is_some(), "KAMIKAZE LANDED: the Ram died on its hit -- update this test and the mechanics.md gap row");
-    assert!(find_live(&s, Team::Blue, "Barbarian").is_empty(), "the Ram's death spawn appeared without a death");
+    let hits = first_drops(&mut s, 1, 800, |s| s.tower_hp(Team::Red)[1]);
+    assert_eq!(hits.len(), 1, "vacuous: the Ram did not land a hit: {hits:?}");
+    assert_eq!(hits[0].1, want(special), "the one landed hit is DamageSpecial ({hits:?})");
+    assert!(s.entity(ram).is_none(), "KAMIKAZE: the Ram must be gone on the tick its hit lands");
+    // the death spawn materialises in the next tick's Spawn phase (the engine's
+    // deferral; the game shows the Barbarians on the hit frame itself -- the
+    // spawner / death-spawn timing of the parity report's item 3)
+    s.tick();
+    let barbs = find_live(&s, Team::Blue, "Barbarian");
+    assert_eq!(barbs.len(), 2, "the Ram's death spawn: two Barbarians ({})", barbs.len());
+    // and the tower takes no second Ram hit: the next drops are the Barbarians', at
+    // their own damage, never the Ram's
+    let plain_ram = want(plain);
+    let later = first_drops(&mut s, 2, 200, |s| s.tower_hp(Team::Red)[1]);
+    assert!(later.iter().all(|(_, d)| *d != plain_ram), "a dead Ram kept hitting at Damage: {later:?}");
+    // THE GAP the key names (combat.KAMIKAZE_DEATH): a DELAYED kamikaze
+    // (KamikazeTime) is not modelled, so such a card LOADS with its Kamikaze column
+    // not taken -- it keeps attacking. The 2018 vintage's SkeletonBalloon is the
+    // only card in either file with one.
+    let mut delayed = 0;
+    for file in ["cards.json", "cards-2018.json"] {
+        let db = royalesim::card::CardDb::load_repo_file(file).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert!(!db.rejected.iter().any(|(_, why)| why.contains("KamikazeTime")), "{file}: a card was refused over its KamikazeTime");
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(format!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/{}"), file)).unwrap()).unwrap();
+        for row in raw["cards"].as_array().unwrap() {
+            if row["kamikaze"] != serde_json::Value::Bool(true) || row["kamikaze_time_ms"].as_i64().unwrap_or(0) <= 0 {
+                continue;
+            }
+            delayed += 1;
+            let name = row["name"].as_str().unwrap();
+            if let Some(i) = db.cards.iter().position(|c| c.name == name) {
+                assert!(!db.cards[i].kamikaze, "{file} {name}: a delayed kamikaze must not run as the immediate death");
+            }
+        }
+    }
+    assert!(delayed >= 1, "vacuous: neither vintage ships a card with a KamikazeTime");
 }

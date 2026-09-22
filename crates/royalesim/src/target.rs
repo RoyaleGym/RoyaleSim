@@ -10,7 +10,15 @@
 //!      sits exactly on the range boundary flips targets every tick.
 //!   3. Otherwise rescan: the nearest valid enemy within sight.
 //!
-//! Ranges are EDGE to EDGE when ADD_CHARACTER_RANGE_TO_RADIUS is true.
+//! Ranges are EDGE to EDGE when ADD_CHARACTER_RANGE_TO_RADIUS is true -- and edge
+//! to edge on BOTH sides (calibration targeting.ATTACK_RANGE_RULE =
+//! range_plus_both_radii): a target is in range at centre distance <= Range + the
+//! attacker's own CollisionRadius + the target's, and the sight scan sums
+//! SightRange the same way. Measured on the live 16.402 corpus: a Prince (Range
+//! 1600, R 600) stops 3135 native from a princess tower's centre (R 1000), the
+//! first step inside 3200; a Dark Prince (Range 1200) at 2776 inside 2800; the
+//! tower (Range 7500) acquires the Prince the tick after it steps inside 9100.
+//! The old arm (the target's radius only) is runnable as range_plus_target_radius.
 //!
 //! EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS -- THE READING CHOSEN
 //!     The name is ambiguous. Default reading: a UNIT's sight is extended by it
@@ -36,7 +44,7 @@ use crate::arena::{Arena, Lane};
 use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
-use crate::state::{Calib, RiseTrigger};
+use crate::state::{AttackRangeRule, Calib, RiseTrigger};
 use crate::{EntityId, Team};
 
 /// Which side EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS extends. See module doc.
@@ -71,18 +79,28 @@ pub struct TargetDecision {
 }
 
 /// Is `target` within `range` of `from`? Edge-to-edge when the shipped global
-/// says so; centre-to-centre otherwise.
+/// says so; centre-to-centre otherwise. `own_radius` is the ATTACKER's
+/// CollisionRadius, added to the range under targeting.ATTACK_RANGE_RULE =
+/// range_plus_both_radii (module doc) and ignored under range_plus_target_radius.
 #[inline]
-pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, target: Vec2, target_radius: i32) -> bool {
+pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, target: Vec2, target_radius: i32) -> bool {
     #[cfg(clash_plant = "centre_range")]
     {
-        // PLANT: centre-to-centre range, ignoring the target's radius.
-        let _ = (calib, target_radius);
+        // PLANT: centre-to-centre range, ignoring both radii.
+        let _ = (calib, target_radius, own_radius);
         return in_range_edge(from, target, range, 0);
     }
+    #[cfg(clash_plant = "reach_without_own_radius")]
+    let rule = AttackRangeRule::RangePlusTargetRadius; // PLANT (regression): the earlier reach.
+    #[cfg(not(clash_plant = "reach_without_own_radius"))]
+    let rule = calib.attack_range_rule;
     #[allow(unreachable_code)]
     if calib.add_character_range_to_radius {
-        in_range_edge(from, target, range, target_radius)
+        let reach = match rule {
+            AttackRangeRule::RangePlusBothRadii => range + own_radius,
+            AttackRangeRule::RangePlusTargetRadius => range,
+        };
+        in_range_edge(from, target, reach, target_radius)
     } else {
         in_range_edge(from, target, range, 0)
     }
@@ -177,7 +195,7 @@ pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityI
             continue;
         }
         #[cfg(not(clash_plant = "sight_ignored"))]
-        if !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, c), e.pos[c], e.radius[c]) {
+        if !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, c), e.radius[a], e.pos[c], e.radius[c]) {
             continue;
         }
         let k = key(ctx, a, c);
@@ -210,7 +228,7 @@ pub fn enemy_in_wake_range(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) ->
             RiseTrigger::EnemyInSightRange => sight_toward(ctx, a, c),
             RiseTrigger::EnemyInAttackRange => card.range,
         };
-        in_attack_range(ctx.calib, e.pos[a], reach, e.pos[c], e.radius[c])
+        in_attack_range(ctx.calib, e.pos[a], reach, e.radius[a], e.pos[c], e.radius[c])
     })
 }
 
@@ -253,13 +271,13 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             let locked = false; // PLANT: the windup lock never holds.
             if locked && ctx.calib.preserve_target_if_hit_started {
                 let hold = card.range + ctx.calib.cancel_hit_from_long_distance_range;
-                if in_attack_range(ctx.calib, e.pos[a], hold, e.pos[ti], e.radius[ti]) {
+                if in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
                 }
                 cancel = true;
             } else {
                 let keep = card.range + ctx.calib.range_extension_to_keep_target;
-                if in_attack_range(ctx.calib, e.pos[a], keep, e.pos[ti], e.radius[ti]) {
+                if in_attack_range(ctx.calib, e.pos[a], keep, e.radius[a], e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
                 }
             }

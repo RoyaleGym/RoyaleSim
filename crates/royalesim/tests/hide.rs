@@ -58,9 +58,11 @@ fn tesla_hide(s: &BattleState) -> royalesim::card::HideDef {
 /// test does not share code with the thing it measures: `from` sees `to` when
 /// centre distance <= from.sight + to.radius (targeting.ADD_CHARACTER_RANGE_TO_RADIUS).
 fn sees(s: &BattleState, from: EntityId, to: EntityId) -> bool {
+    // SightRange + the seer's own radius + the candidate's (targeting.ATTACK_RANGE_RULE
+    // = range_plus_both_radii) + the building extra.
     let (f, t) = (s.entity(from).unwrap(), s.entity(to).unwrap());
     let sight = card_stat(s, f.card).sight_range + if t.kind == EntityKind::Building { calib().extra_sight_range_to_building } else { 0 };
-    let r = (sight + t.radius) as i64;
+    let r = (sight + f.radius + t.radius) as i64;
     f.pos.dist2(t.pos) <= r * r
 }
 
@@ -151,6 +153,7 @@ fn a_knight_entering_sight_starts_the_rise_next_tick_up_after_up_time_and_the_fi
     let (mut s, tesla, knight) = approach(config());
     let h = tesla_hide(&s);
     let (load, base) = (card_stat(&s, "Tesla").load_time_ms, card_stat(&s, "Tesla").damage);
+    let hit_speed = card_stat(&s, "Tesla").hit_speed_ms;
     let full = s.entity(knight).unwrap().hp;
     let level = s.config().card_level[Team::Blue as usize];
     let db = s.cards();
@@ -181,11 +184,16 @@ fn a_knight_entering_sight_starts_the_rise_next_tick_up_after_up_time_and_the_fi
     assert_eq!(s.entity(tesla).unwrap().target, Some(knight), "post-tick {up}: the up Tesla did not target the Knight");
     assert_eq!(s.entity(knight).unwrap().target, Some(tesla), "post-tick {up}: the Knight did not re-acquire the up Tesla");
     assert_eq!(s.entity(knight).unwrap().hp, full, "post-tick {up}: a shot landed on the up tick, before any windup");
-    // First shot: the windup started in the up tick's Attack phase with TICK_MS
-    // already on the clock and lands when the clock reaches LoadTime (combat.rs
-    // attack_step): tick index (up - 1) + ceil(LoadTime / TICK_MS) - 1, observed one
-    // post-tick later.
-    let windup = ticks_of(load).max(1);
+    // First shot: the cycle started in the up tick's Attack phase with TICK_MS
+    // already on the clock and lands when the clock reaches the windup (combat.rs
+    // attack_step: HitSpeed - LoadTime under the shipped cycle, combat.ATTACK_CYCLE =
+    // progress_credit; LoadTime under the old one): tick index
+    // (up - 1) + ceil(windup / TICK_MS) - 1, observed one post-tick later.
+    let windup_ms = match s.config().calib.attack_cycle {
+        royalesim::state::AttackCycle::ProgressCredit => hit_speed - load,
+        royalesim::state::AttackCycle::WindupLoadTime => load,
+    };
+    let windup = ticks_of(windup_ms).max(1);
     let fire_post = up + windup - 1;
     while s.tick_count() < fire_post - 1 {
         s.tick();
@@ -352,17 +360,24 @@ fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacq
     let tesla = find_live(&s, Team::Blue, "Tesla")[0].id;
     let deploy = card_stat(&s, "Tesla").deploy_time_ms;
     let load = card_stat(&s, "Knight").load_time_ms;
+    let hit_speed = card_stat(&s, "Knight").hit_speed_ms;
     let h = tesla_hide(&s);
     assert!(deploy > 0 && s.entity(tesla).unwrap().deploying);
     assert_eq!(hide_of(&s, tesla).0, HideState::Up, "a deploying Tesla is Up (targetable) until its deploy time ends");
     // Deploy ends in the Upkeep of tick index ceil(DeployTime / TICK_MS) (the spawn
     // tick's Upkeep ran before the Spawn phase). A windup started in tick index W
-    // fires in tick index W + ceil(LoadTime / TICK_MS) - 1, so a Knight placed at
-    // tick index `end - ticks_of(load) + 1` (>= 1: the data guard) is still winding up
-    // when the deploy ends.
+    // fires in tick index W + ceil(windup / TICK_MS) - 1 -- the windup being HitSpeed -
+    // LoadTime under the shipped cycle (combat.ATTACK_CYCLE = progress_credit) and
+    // LoadTime under the old one -- so a Knight placed at tick index
+    // `end - ticks_of(windup) + 1` (>= 1: the data guard) is still winding up when
+    // the deploy ends.
     let end = ticks_of(deploy);
-    let windup_ticks = ticks_of(load);
-    assert!(load > 0 && windup_ticks >= 2 && end > windup_ticks, "data: LoadTime {load} / DeployTime {deploy} cannot stage a windup across the deploy end");
+    let windup = match s.config().calib.attack_cycle {
+        royalesim::state::AttackCycle::ProgressCredit => hit_speed - load,
+        royalesim::state::AttackCycle::WindupLoadTime => load,
+    };
+    let windup_ticks = ticks_of(windup);
+    assert!(windup > 0 && windup_ticks >= 2 && end > windup_ticks, "data: windup {windup} / DeployTime {deploy} cannot stage a windup across the deploy end");
     let place = end - windup_ticks + 1;
     while s.tick_count() < place {
         s.tick();

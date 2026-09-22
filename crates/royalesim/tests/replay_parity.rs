@@ -23,8 +23,13 @@
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
 //!                100 % for the Prince (92 frames, charge included),
 //!                the Giant (79), the Dark Prince (119) and the Battle Ram (98, once
-//!                the maker's first-step rule put its spawn at 936, not 937) -- each
-//!                pinned at 95 %. WHAT THE FLOOR SEES: one tick of lag in the deploy
+//!                the maker's first-step rule put its spawn at 936, not 937) -- the
+//!                first three pinned at 95 %, the Battle Ram at 98 bit-exact FRAMES
+//!                since combat.KAMIKAZE_DEATH put its two death-spawned Barbarians
+//!                into the same root-card row (118 walk
+//!                frames now; their own walk off the death point is a different
+//!                mechanic and would otherwise dilute a percentage floor).
+//!                WHAT THE FLOOR SEES: one tick of lag in the deploy
 //!                timing (the plant: 37-120 native on every walking frame, red on all
 //!                four rows), a step-law or charge-onset error of one native unit
 //!                per tick after ~20 frames, a spawn point off by a subtile. WHAT IT
@@ -230,6 +235,13 @@ fn the_engine_meets_the_isolated_walk_floor_on_the_sample() {
     for (card, sc) in &r.per_card {
         eprintln!("{card}: isolated walk {} ticks, within 250 on {}, within {WALK_TIGHT_NATIVE} on {}", sc.walk_ticks, sc.walk_within[0], sc.walk_tight);
     }
+    // at least `min_tight` of the row's isolated-walk frames are bit-exact: the form
+    // to use when the row carries more than one entity (below)
+    let floor_tight_count = |card: &str, min_tight: u64, min_ticks: u64| {
+        let sc = r.per_card.get(card).unwrap_or_else(|| panic!("no {card} row"));
+        assert!(sc.walk_ticks >= min_ticks, "{card}: only {} isolated-walk ticks (want >= {min_ticks})", sc.walk_ticks);
+        assert!(sc.walk_tight >= min_tight, "{card}: only {} of {} isolated-walk ticks within {WALK_TIGHT_NATIVE} native, floor {min_tight}", sc.walk_tight, sc.walk_ticks);
+    };
     let floor = |card: &str, min_permille: u64, min_ticks: u64| {
         let sc = r.per_card.get(card).unwrap_or_else(|| panic!("no {card} row"));
         assert!(sc.walk_ticks >= min_ticks, "{card}: only {} isolated-walk ticks (want >= {min_ticks})", sc.walk_ticks);
@@ -241,7 +253,13 @@ fn the_engine_meets_the_isolated_walk_floor_on_the_sample() {
     floor("Prince", 950, 80);
     floor("Giant", 950, 60);
     floor("DarkPrince", 950, 100);
-    floor("BattleRam", 950, 80);
+    // THE BATTLE RAM ROW IS NO LONGER THE RAM ALONE (combat.KAMIKAZE_DEATH):
+    // the engine now breaks the Ram on its hit, so the row -- keyed by the ROOT card --
+    // carries its two death-spawned Barbarians' walk as well (118 isolated-walk frames,
+    // was 98). The Ram's own 98 are still bit-exact and that is what this floor pins;
+    // the Barbarians' own walk off the death point is the death-spawn / contact work,
+    // not this row's, and is left to the corpus numbers (module doc).
+    floor_tight_count("BattleRam", 98, 98);
     // the formation row is measured, printed and NOT pinned (module doc)
     let sk = &r.per_card["Skeletons"];
     assert!(sk.walk_ticks >= 500, "the three cycled Skeletons walk {} isolated ticks", sk.walk_ticks);

@@ -78,25 +78,35 @@ fn range_is_edge_to_edge_1600_vs_radius_500() {
     let c = Calib::shipped();
     assert!(c.add_character_range_to_radius, "globals ship ADD_CHARACTER_RANGE_TO_RADIUS = TRUE");
     let a = Vec2::new(0, 0);
-    assert!(in_attack_range(&c, a, milli(1600), Vec2::from_tiles_100(210, 0), milli(500)));
-    assert!(!in_attack_range(&c, a, milli(1600), Vec2::from_tiles_100(220, 0), milli(500)));
+    // a POINT attacker (own radius 0): the target's radius alone
+    assert!(in_attack_range(&c, a, milli(1600), 0, Vec2::from_tiles_100(210, 0), milli(500)));
+    assert!(!in_attack_range(&c, a, milli(1600), 0, Vec2::from_tiles_100(220, 0), milli(500)));
     // exactly at the boundary, and one subtile past it
     let edge = milli(1600) + milli(500);
-    assert!(in_attack_range(&c, a, milli(1600), Vec2::new(edge, 0), milli(500)));
-    assert!(!in_attack_range(&c, a, milli(1600), Vec2::new(edge + 1, 0), milli(500)));
+    assert!(in_attack_range(&c, a, milli(1600), 0, Vec2::new(edge, 0), milli(500)));
+    assert!(!in_attack_range(&c, a, milli(1600), 0, Vec2::new(edge + 1, 0), milli(500)));
+    // the attacker's OWN radius is part of its reach (targeting.ATTACK_RANGE_RULE =
+    // range_plus_both_radii): a 600-radius attacker reaches 600 farther.
+    // Plant: reach_without_own_radius.
+    let both = edge + milli(600);
+    assert!(in_attack_range(&c, a, milli(1600), milli(600), Vec2::new(both, 0), milli(500)));
+    assert!(!in_attack_range(&c, a, milli(1600), milli(600), Vec2::new(both + 1, 0), milli(500)));
 }
 
 #[test]
-fn melee_unit_attacks_from_range_plus_target_radius_without_moving() {
-    // In a battle: a Knight placed exactly (range + target radius) from a Cannon
-    // centre winds up without taking a step; one subtile farther and it walks.
-    // Plant: centre_range.
+fn melee_unit_attacks_from_range_plus_both_radii_without_moving() {
+    // In a battle: a Knight placed exactly (range + its own radius + the target's
+    // radius) from a Cannon centre attacks without taking a step; one subtile
+    // farther and it walks (targeting.ATTACK_RANGE_RULE; before it the reach was
+    // range + the target's radius alone).
+    // Plants: centre_range, reach_without_own_radius.
     for extra in [0, 1] {
         let mut s = BattleState::new(1, config());
         let knight = card_stat(&s, "Knight").range;
+        let knight_r = card_stat(&s, "Knight").collision_radius;
         let cannon_r = card_stat(&s, "Cannon").collision_radius;
         let c = t(900, 2200);
-        let k = Vec2::new(c.x, c.y - knight - cannon_r - extra);
+        let k = Vec2::new(c.x, c.y - knight - knight_r - cannon_r - extra);
         s.spawn_unit(Team::Red, "Cannon", c, None).unwrap();
         s.spawn_unit(Team::Blue, "Knight", k, None).unwrap();
         let n = deploy_ticks(&s, "Knight") + 2;
@@ -157,7 +167,9 @@ fn hog_rider_retargets_to_a_cannon_exactly_when_it_enters_sight() {
     let hog0 = find_live(&base, Team::Blue, "HogRider")[0];
     assert!(hog0.target.is_none(), "precondition: Hog has no target yet (towers out of sight)");
     let calib = base.config().calib.clone();
-    let sight = card_stat(&base, "HogRider").sight_range + calib.extra_sight_range_to_building;
+    // the sight scan sums SightRange + the extra + the HOG's own radius + the
+    // candidate's (targeting.ATTACK_RANGE_RULE; `cannon_at_edge` adds the Cannon's)
+    let sight = card_stat(&base, "HogRider").sight_range + calib.extra_sight_range_to_building + hog0.radius;
     let quarter = SUBTILE / 4;
 
     // IN
@@ -179,7 +191,7 @@ fn hog_rider_retargets_to_a_cannon_exactly_when_it_enters_sight() {
     for _ in 0..40 {
         // position used by the coming Target phase = position now
         let hog_before = find_live(&s, Team::Blue, "HogRider")[0].pos;
-        let inside = in_attack_range(&calib, hog_before, sight, c_out, cannon_r);
+        let inside = in_attack_range(&calib, hog_before, sight - hog0.radius, hog0.radius, c_out, cannon_r);
         s.tick();
         let hog = find_live(&s, Team::Blue, "HogRider")[0];
         let cannon = id_of(&s, Team::Red, "Cannon");
@@ -211,7 +223,9 @@ fn target_is_locked_once_the_windup_has_started() {
     assert!(milli(25) < half && half < calib.cancel_hit_from_long_distance_range, "scenario assumes keep-ext < 0.5 tile < cancel range");
     for (beyond, expect_hit) in [(half, true), (2 * SUBTILE, false)] {
         let mut s = BattleState::new(1, config());
-        let range = card_stat(&s, "Knight").range;
+        // the reach is Range + the Knight's own radius + the target's
+        // (targeting.ATTACK_RANGE_RULE = range_plus_both_radii)
+        let range = card_stat(&s, "Knight").range + card_stat(&s, "Knight").collision_radius;
         let cr = card_stat(&s, "Cannon").collision_radius;
         let building = plain_building(&s);
         let tr = card_stat(&s, building).collision_radius;
@@ -696,9 +710,12 @@ fn ranged_damage_comes_from_the_projectile_and_lands_on_arrival() {
     let mut s = BattleState::new(1, cfg);
     let a_idx = s.cards().index("TestArcher").unwrap();
     let expected = s.cards().scaled(a_idx, s.config().card_level[0], 41).unwrap();
-    // Out of every tower's range: archer on Red's side facing a dummy on Blue's.
-    s.spawn_unit(Team::Blue, "TestArcher", t(900, 1850), None).unwrap();
-    s.spawn_unit(Team::Red, "Dummy", t(900, 1400), None).unwrap();
+    // Out of every tower's range (a princess tower reaches Range 7500 + its own
+    // 1000 + the target's radius: 9 tiles from its centre for a 500-radius unit,
+    // targeting.ATTACK_RANGE_RULE): archer on Red's side facing a dummy on Blue's,
+    // both 9.7 tiles from the nearest princess tower.
+    s.spawn_unit(Team::Blue, "TestArcher", t(900, 1750), None).unwrap();
+    s.spawn_unit(Team::Red, "Dummy", t(900, 1450), None).unwrap();
     let dummy = {
         s.tick();
         id_of(&s, Team::Red, "Dummy")

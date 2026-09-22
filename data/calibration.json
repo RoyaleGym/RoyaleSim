@@ -132,13 +132,23 @@
       }
     },
     "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK": {
-      "value": 15,
-      "status": "hypothesis",
-      "confidence": "LOW",
-      "provenance": "Mirrors time.SPEED_TO_SUBTILES_PER_TICK (Speed = tiles/min at 20 TPS). Community: the AesDragon wiki blog ASSERTS (unmeasured) that projectile Speed uses the troop unit; a Darknighture frame test (2023) measured x1.2 (Speed/50) for BOTH a Musketeer projectile and a Giant. No source was found for a 'troops /50, projectiles /60' split. crforge and legacy/ use /60 for both. Kept as its own key so a recording can split projectiles from troops without a code change (docs/spell-spec.md, projectile and rolling families).",
+      "value": 18,
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on the live 16.402 effects stream (every projectile object on every frame of the captures): the princess tower's arrow (TowerPrincessProjectile Speed 600) advances 599-600 native per tick on 293 consecutive steps of capture 20260920-003751-B and 688 of 20260920-081819-B, the king tower's (Speed 1000) 999-1000, the Musketeer's (Speed 1000) 1000, the Bomber's (Speed 400) 399-400, the Cannon's (Speed 500) 499-500 -- one projectile Speed unit is one native millitile per 50 ms tick, the troop unit (18 subtiles), not 15. History: hypothesis 15 (2026-09-13) mirrored a 'tiles/min at 20 TPS' reading; the AesDragon wiki blog's assertion and the Darknighture frame test (x1.2 for both a Musketeer projectile and a Giant) were right.",
       "candidates": [
-        15,
-        18
+        18,
+        15
+      ],
+      "history": [
+        {
+          "value": 15,
+          "status": "hypothesis",
+          "confidence": "LOW",
+          "date": "2026-09-13",
+          "provenance": "Mirrors time.SPEED_TO_SUBTILES_PER_TICK (Speed = tiles/min at 20 TPS). Community: the AesDragon wiki blog ASSERTS (unmeasured) that projectile Speed uses the troop unit; a Darknighture frame test (2023) measured x1.2 (Speed/50) for BOTH a Musketeer projectile and a Giant. No source was found for a 'troops /50, projectiles /60' split. crforge and legacy/ use /60 for both. Kept as its own key so a recording can split projectiles from troops without a code change (docs/spell-spec.md, projectile and rolling families).",
+          "overturned_by": "the live effects stream: 600 native per tick for Speed 600 on 981 arrow steps (2026-09-21)"
+        }
       ],
       "units": "subtiles per tick per raw projectile Speed unit",
       "applies_to": "EVERY projectile: troop and tower projectiles (combat.rs fire) and spell projectiles (spell.rs), including The Log's airborne and rolling phases",
@@ -188,7 +198,17 @@
       "confidence": "high",
       "provenance": "globals.csv, present in both 1.3.2 and modern data sets.",
       "meaning": "Range is measured EDGE to EDGE, not centre to centre: in_range = centre_distance <= range + target.collision_radius. The old engine used centre-to-centre only, so every melee unit under-reached.",
-      "open": "Whether the ATTACKER's own collision radius is also added. Nobody checked."
+      "open": "Whether the ATTACKER's own collision radius is also added: SETTLED by targeting.ATTACK_RANGE_RULE -- it is (measured: the live Prince, Range 1600 and CollisionRadius 600, stops 3135 native from a princess tower's centre, CollisionRadius 1000, the first step inside 3200; under Range + the target's radius alone it would walk on to 2600)."
+    },
+    "ATTACK_RANGE_RULE": {
+      "value": "range_plus_both_radii",
+      "status": "measured",
+      "confidence": "HIGH -- three independent stop distances and a tower acquisition tick of the live corpus, each one walking step wide, all inside the both-radii sum and all outside the target-radius-only sum",
+      "provenance": "MEASURED on the live 16.402 corpus (the reach gap of the corpus report): the Prince (Range 1600, CollisionRadius 600) of capture 20260920-003751 stops 3135 native from the princess tower's centre (CollisionRadius 1000) and the one of 20260920-002736 at 3133, never inside 3126 -- the first step inside 3200 = Range + own R + the tower's R, 600 short of the 2600 the target-radius-only sum gives; the Dark Prince (Range 1200) stops at 2776, inside 2800, not 2200; the princess tower (Range 7500, R 1000) acquires the Prince on the tick after it steps inside 9100 (t279 at 9009 -> attacking at t280), not at 8500. THE RULE (target.rs in_attack_range): a target is in range when the centre distance is <= Range + the ATTACKER's CollisionRadius + the TARGET's CollisionRadius; the sight scan sums SightRange the same way (with EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS / _TO_BUILDING by the candidate's kind); MinimumRange adds the lower bound (R + minRange). The goal cell of the walk stays Range + own R to the target's CENTRE (pathfinding.PATH_SEARCH), so a unit stops walking EARLIER than its goal cell: its attack sees the target in range at Range + own R + target R.",
+      "candidates": ["range_plus_both_radii", "range_plus_target_radius"],
+      "meaning": "range_plus_both_radii: a target is in range when the centre distance is <= Range + the ATTACKER's CollisionRadius + the TARGET's CollisionRadius (the same sum, with SightRange, for the sight scan and the keep-target / cancel-hit extensions). range_plus_target_radius: the earlier engine -- Range + the target's radius only, so every unit walked its own radius too far (a Prince 600 native past where the game stops it) and every tower acquired a unit its radius too late.",
+      "promotion_rules": "Measured; re-open only against a live capture whose stop distance parts from Range + both radii by more than one walking step.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json -> attack_range_rule); target.rs in_attack_range takes the attacker's radius and adds it under the shipped arm (every caller: combat.rs attack_step, the Path phase's attacking test, the sight scan, keep-target, the lock hold, the wake trigger); the goal reach was already Range + own R. The old arm stays runnable as range_plus_target_radius (the regression plant reach_without_own_radius forces it). tests/reach.rs pins the stop distances from the card data."
     },
     "EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS": {
       "value": 2000,
@@ -861,6 +881,38 @@
       "supersedes": "the unsourced TRUNCATED (floor) reduction combat.rs::damage_against used before 2026-09-13 (combat.DAMAGE_ARITHMETIC's note predates this key). In the 2018 data only spells, and the non-thin-slice Miner (40%), carry a percent below 100",
       "promotion_rules": "Read a princess tower's HP number before and after one spell impact in a recording, at a card level where the laws differ (Zap level 8 at 25%: 36.19 -> floor/round 36, ceil 37; level 12: 52.69 -> floor 52, round/ceil 53).",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ATTACK_CYCLE": {
+      "value": "progress_credit",
+      "status": "measured",
+      "confidence": "HIGH -- measured on 1690 fresh attack entries and 911 first projectile launches of the live corpus (below); the windup arm misses every one of them",
+      "provenance": "MEASURED on the whole live 16.402 corpus (73 captures): the captures carry two per-unit attack counters, and on the frame a unit starts attacking a fresh target they read LoadTime + 50 and LoadTime on 1690 of 2024 entries (the misses are spawned units filed under their spawner's card, whose LoadTime is not the spawner's); 911 of 1004 projectile units launched their first projectile exactly (HitSpeed - LoadTime) / 50 - 1 ticks after that frame (Musketeer 13, Archers 9, Bomber 3, Bowler 9, princess tower 15, king tower 9; the misses are interrupted cycles); 453 of 520 uninterrupted melee cycles dropped the target's hp on that tick (Knight 9, Barbarian 7, Skeleton 9, Goblin 11); 113 of 172 re-entries with the second counter still running show the first at LoadTime + 50 - (load - 50); every later hit HitSpeed apart, the first counter running on across hits (1400, 2800, 4200 on a Prince) and the second reset to LoadTime on every hit. The princess tower of capture 20260920-003751: attacking at t280, progress 50, the first arrow at t295 (progress 800), then t311 and t327; the engine fired on the acquisition tick. THE RULE (combat.rs attack_step_progress): every tick the LOAD TIMER counts down 50 clamped at 0, whatever the state; with a target, the unit attacks this tick when the target is in range (targeting.ATTACK_RANGE_RULE) OR a hit is already started (progress % HitSpeed >= 50), else its progress is RESET to 0 and it stops attacking; attacking, a fresh cycle (progress == 0, not charged) is CREDITED progress = LoadTime - loadTimer (with loadTimer := LoadTime) and then += 50, so a unit whose load timer has run out starts its first cycle at LoadTime + 50 and every later tick adds 50; when LoadTime > HitSpeed no credit is given and the cycle waits until the load timer is <= HitSpeed; a CHARGED entry snaps progress to the next multiple of HitSpeed instead (charge.CHARGED_HIT_TIMING). THE HIT lands on the tick progress crosses a multiple of HitSpeed, which sets loadTimer := LoadTime and leaves progress running. So the FIRST hit on a fresh target lands (HitSpeed - LoadTime) / 50 - 1 ticks after the entry frame, the cadence is HitSpeed, and a unit re-entering range within LoadTime of its last hit or entry gets only LoadTime - (remaining load) of credit.",
+      "candidates": ["progress_credit", "windup_load_time"],
+      "meaning": "progress_credit: the measured progress counter -- first hit HitSpeed - LoadTime after entering range (a princess tower, LoadTime blank = 0, waits a full HitSpeed = 16 ticks for its first arrow), HitSpeed between hits, a swing already started finishes on a target that stepped out of range, the load timer's remainder reduces the credit on re-entry. windup_load_time: the earlier engine -- a LoadTime windup after entering range, then HitSpeed - LoadTime of cooldown -- so every first hit landed 2 x LoadTime - HitSpeed later than the game's (a Knight 400 ms late, a princess tower 800 ms EARLY).",
+      "promotion_rules": "Measured; not modelled: a hit-speed buff (Rage's HitSpeedMultiplier into the 50 ms step) and LoadFirstHit (Sparky). Re-open only against a live first hit that parts from the rule on an uninterrupted cycle.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json -> attack_cycle); combat.rs attack_step runs the progress / load-timer counters (Entities::attack_ms = progress, Entities::attack_load_ms = the load timer, snapshot format 16), AttackPhase::Windup = attacking with the swing under way (the target lock), Cooldown = attacking on the hit tick, Idle = not attacking; the Path phase holds any attacking unit. The old arm stays runnable as windup_load_time. tests/reach.rs pins the tower's first arrow and the Knight's first hit from the card data."
+    },
+    "PROJECTILE_LAUNCH": {
+      "value": "start_radius_next_tick",
+      "status": "measured",
+      "confidence": "HIGH on the tower arrows (293 steps of the 16.402 corpus), MEDIUM on the start radius of troop projectiles (the column is carried; no troop projectile track has been checked against its own ProjectileStartRadius)",
+      "provenance": "MEASURED on the live 16.402 effects stream (every projectile object on every frame of the captures): a princess tower's arrow first appears on the FIRE tick 299-300 native from the tower's centre toward the target (ProjectileStartRadius 300), does not move on that frame, then advances 600 per tick (= its Speed column: 599 / 600 on 293 consecutive steps; the king's 1000, the Musketeer's 1000, the Bomber's 400 -- time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK = 18, the troop unit) toward the target's CURRENT centre, and lands (the hp drops on that frame) on the first tick its step covers the remaining distance to the centre: capture 20260920-003751, t295 launch at (3491, 25201), t304 at 316 from the Prince, the hit on t305; t311 launch, t317 at 555, the hit on t318; t327 launch, t331 at 436, the hit on t332.",
+      "candidates": ["start_radius_next_tick", "attacker_centre_same_tick"],
+      "meaning": "start_radius_next_tick: the projectile starts ProjectileStartRadius from the attacker's centre toward the target on the fire tick, takes its first step the next tick, lands the tick its step reaches the target's centre. attacker_centre_same_tick: the earlier engine -- created at the attacker's centre and stepped in the fire tick's own Projectile phase, one tick early on a tower arrow.",
+      "promotion_rules": "To HIGH on troops: a troop projectile track (Musketeer / Archers) checked against its own ProjectileStartRadius on the launch frame, the way the tower arrows were.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json -> projectile_launch); combat.rs fire places the projectile (CardDef::projectile_start_radius from cards.json projectile_start_radius_milli) and marks it fresh, step_projectiles skips a fresh projectile's first phase. The old arm stays runnable as attacker_centre_same_tick."
+    },
+    "KAMIKAZE_DEATH": {
+      "value": "at_fire",
+      "status": "measured",
+      "confidence": "HIGH for a melee kamikaze (the live Battle Ram: gone on the frame its one hit lands), LOW for a projectile one (the Spirits, Wall Breakers: no corpus death; the engine kills it at the launch, a hypothesis)",
+      "provenance": "MEASURED on the sample battle (capture 20260920-003751): the Battle Ram hits the king tower once at t1153 (2868 -> 2295 = DamageSpecial) and is gone on that frame, its two Barbarians deploying at t1153; the engine before this key kept the ram hitting every cycle (286 per 8 ticks under combat.ATTACK_CYCLE) and razed the king by t1247. The card data carries the rule: characters.csv Kamikaze (Battle Ram, the Spirits, Wall Breakers, Skeleton Barrel) and KamikazeTime (a delay; the 2018 SkeletonBalloon's 500, blank on every other row).",
+      "candidates": [
+        "at_fire"
+      ],
+      "meaning": "at_fire: a Kamikaze unit dies on the tick its hit lands (melee) or its projectile launches, a self-hit for its whole hp + shield resolved with that tick's damage, so its death spawn follows in the same tick's Reap. A KamikazeTime > 0 (the delayed death) is a NAMED GAP: the card loads and its Kamikaze column is NOT taken, so it keeps attacking as the engine did before this key -- the 2018 SkeletonBalloon is the only corpus card with one, and the 16.402 card of that name is refused for its action graph anyway. Not a refusal at load: a refusal drops a whole card over one unmodelled detail and moved the format-3 card fingerprint (tests/stacked_tie.rs).",
+      "promotion_rules": "The projectile arm: a live Ice Spirit or Wall Breakers capture with the per-frame projectile stream says whether the unit dies at the launch or at the landing; a delayed KamikazeTime needs a card that ships one in a loadable 16.402 row.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs CardDef::kamikaze from cards.json `kamikaze`, FALSE when kamikaze_time_ms > 0 (the gap above); state.rs phase_attack pushes the self-hit after combat::fire. tests/charge.rs (11) pins the Battle Ram's one hit and the gap."
     }
   },
   "match": {
@@ -1540,13 +1592,14 @@
       "engine": "state.rs Calib::death_spawn_radius_default, read by BattleState::phase_reap"
     },
     "DEATH_SPAWN_LAYOUT": {
-      "value": "engine_grid_within_radius",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "How DeathSpawnCount units are placed inside DeathSpawnRadius: the engine formation grid (state.rs formation_points, spacing one unit diameter, the same code as a deploy and a Goblin Barrel release) centred on the death point, each point pulled back onto the radius when the grid reaches past it. The community picture is a ring AT the radius; a ring needs trigonometry the integer engine does not have, so that arm is not implemented and is refused at load.",
-      "candidates": ["engine_grid_within_radius", "ring_at_radius"],
-      "promotion_rules": "A capture: the first positions of a Lava Hound's six Pups relative to the death point. The ring arm, when implemented, must honour the unread columns DeathSpawnPushback (Golem / LavaHound / DarkWitch true: the units are pushed outward from the death point) and DeathSpawnMinRadius (SkeletonContainer 100: an inner radius), and SpawnAngleShift for the periodic layout.",
-      "engine": "state.rs Calib::from_json (only() rule); BattleState::death_spawn_points"
+      "value": "facing_ring",
+      "status": "measured",
+      "confidence": "MEDIUM: measured on the corpus's two death spawns (both Battle Rams, count 2); the count-3+ rotation is the ring's natural reading and unmeasured",
+      "provenance": "MEASURED on the two Battle Ram deaths of the live 16.402 corpus (over the replay fixtures and their captures): capture 20260920-003751 (t1153, the ram at (6635, 27823) facing (239, 91): its Barbarians first seen at (+539, +263) and (-539, -263) = +-597 along the facing, 54 across) and 20260920-002736 (t5033, facing (28, 254) on its last frame, (-2, 256) the frame before: (+62, +596) / (-62, -596) = +-599 along the earlier facing, 4 across). DeathSpawnRadius is 600 on the ram; the two members sit AT the radius on the ram's facing axis, one ahead and one behind, the death point their centre -- a ring of two on the facing, not a grid. History: guess engine_grid_within_radius (the engine formation grid centred on the death point, each point pulled back onto the radius), refuted by both rams -- it laid the Barbarians side by side across the facing, 300-500 native off each.",
+      "candidates": ["facing_ring", "engine_grid_within_radius", "ring_at_radius"],
+      "meaning": "facing_ring: member k at DeathSpawnRadius from the death point in the direction of the dying unit's facing rotated by SpawnAngleShift + k x 360 / DeathSpawnCount (through formation.rs's sine table; a unit that never moved faces its seat's forward); then water-ejected like a release. engine_grid_within_radius: the old grid arm, kept runnable. ring_at_radius: the community picture without a base direction, no implementation.",
+      "promotion_rules": "To HIGH: a live capture of a Lava Hound's six Pups or a Golem's two Golemites, their first positions relative to the death point and the parent's facing, settles the base angle for counts above two. The columns DeathSpawnPushback (Golem / LavaHound / DarkWitch true) and DeathSpawnMinRadius (SkeletonContainer 100) are not modelled.",
+      "engine": "state.rs Calib::from_json -> death_spawn_layout; BattleState::death_spawn_points (the facing from Entities::facing, SpawnAngleShift from CardDef::formation); ring_at_radius is refused at load"
     },
     "DEATH_SPAWN_DEPLOY_TIME_DEFAULT": {
       "value": "unit_own_deploy_time",
@@ -1640,8 +1693,8 @@
         "contact_same_tick",
         "after_load_time_windup"
       ],
-      "promotion_rules": "A capture without frame skew (both seats agreeing on the transition frame) settles first_attack_pass_no_windup against contact_same_tick; the corpus's Prince charging into a walking Giant (charged hit at t1546) pins it on a moving target.",
-      "engine": "RECORDED, NOT IMPLEMENTED (the movement.SPAWN_PATHFIND_STATES precedent): the engine runs after_load_time_windup -- a charged unit whose target comes into reach winds up for LoadTime and then hits for DamageSpecial (state.rs phase_attack, combat.rs fire; charge.RESET_ON_ATTACK consumes the charge at that hit), so its charged hit lands LoadTime after the game's under first_attack_pass_no_windup (LoadTime plus one tick under contact_same_tick), the amounts equal. Deliberately NOT read by Calib::from_json (a read key whose shipped value the engine cannot run would refuse the ledger; the BUFF_SPEED_RULE precedent). tests/charge.rs (2) pins the 783 / 391 amounts at the live level and names this gap."
+      "promotion_rules": "A capture without frame skew (both seats agreeing on the transition frame) settles first_attack_pass_no_windup against contact_same_tick outright; the corpus's Prince charging into a walking Giant (charged hit at t1546, capture 20260920-003751) pins it on a moving target. contact_same_tick stays in the list as the refused candidate.",
+      "engine": "IMPLEMENTED (read by state.rs Calib::from_json -> charged_hit_timing): under first_attack_pass_no_windup combat.rs attack_step snaps a charged unit's progress to the next HitSpeed multiple on the attack pass that finds its target in range, so the DamageSpecial hit lands that tick (charge.RESET_ON_ATTACK then consumes the charge); after_load_time_windup is the runnable foil (no snap: the charged unit hits on the ordinary first-hit tick of combat.ATTACK_CYCLE -- under windup_load_time the LoadTime windup the engine ran before); contact_same_tick has no implementation and is refused at load. tests/reach.rs pins the arrival-tick hit on the sample's numbers; tests/charge.rs (2) the 783 / 391 amounts."
     },
     "RESET_ON_STUN": {
       "value": true,

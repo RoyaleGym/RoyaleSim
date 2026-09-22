@@ -470,6 +470,7 @@ SCALAR_STAT_COLUMNS = {
     "DashCooldown", "DashImmuneToDamageTime", "DashPushBack", "JumpEnabled", "JumpHeight",
     "JumpSpeed", "HidesWhenNotAttacking", "HideTimeMs", "UpTimeMs", "BuffOnDamage",
     "BuffOnDamageTime", "AttachedCharacter", "NoDeploySizeW", "NoDeploySizeH",
+    "ProjectileStartRadius", "Kamikaze", "KamikazeTime",
     # projectiles / area effects / buffs / spells
     "Homing", "Radius", "RadiusY", "AoeToAir", "AoeToGround", "OnlyEnemies", "Pushback",
     "PushbackAll", "MaximumTargets", "ProjectileRadius", "ProjectileRadiusY", "ProjectileRange",
@@ -1139,6 +1140,18 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # SpawnAngleShift: degrees added to the summon ring's base angle; Bat ships
         # 45 (the live Bats' ring is turned 45 degrees). Blank = 0.
         "spawn_angle_shift_deg": c.get("SpawnAngleShift"),
+        # ProjectileStartRadius: where a projectile is born -- this far from the
+        # attacker's centre toward the target (calibration.json
+        # combat.PROJECTILE_LAUNCH, measured on the live tower arrows: 299-300 from
+        # the tower's centre on the launch frame). Blank = 0 (born at the centre).
+        # Carried on every unit; only the projectile ones read it.
+        "projectile_start_radius_milli": c.get("ProjectileStartRadius"),
+        # Kamikaze: the unit dies on its own hit (calibration.json
+        # combat.KAMIKAZE_DEATH; the live Battle Ram is gone on the frame its one hit
+        # lands). KamikazeTime delays the death (SkeletonBalloon 500); blank = 0 =
+        # at once. Battle Ram, the Spirits, Wall Breakers, Skeleton Barrel.
+        "kamikaze": flag(c, "Kamikaze"),
+        "kamikaze_time_ms": c.get("KamikazeTime"),
         # ChargeRange's unit is NOT established: Prince ships 250, which is not
         # plausible as 0.25 tiles of run-up. Passed through raw on purpose.
         "charge": None
@@ -1290,6 +1303,9 @@ UNIT_FIELDS_FOR_CARD = [
     "spawner",
     "spawn_radius_milli",
     "spawn_angle_shift_deg",
+    "projectile_start_radius_milli",
+    "kamikaze",
+    "kamikaze_time_ms",
     "charge",
     "dash",
     "jump",

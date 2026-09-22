@@ -329,6 +329,34 @@ pub struct Calib {
     /// globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE (TRUE in both vintages): the
     /// lane mirror of the ring (formation.rs `member_offset`).
     pub lane_id_based_deploy_sequence: bool,
+
+    // --- the reach and the attack cycle. Each is one calibration.json key; a
+    // candidate with no implementation is refused in from_json.
+    /// targeting.ATTACK_RANGE_RULE: whether the attacker's own radius is part of
+    /// its reach (target.rs `in_attack_range`).
+    pub attack_range_rule: AttackRangeRule,
+    /// combat.ATTACK_CYCLE: the measured progress counter or the old windup.
+    pub attack_cycle: AttackCycle,
+    /// charge.CHARGED_HIT_TIMING: the charged snap.
+    pub charged_hit_timing: ChargedHitTiming,
+    /// combat.PROJECTILE_LAUNCH: where a projectile is born and when it first steps.
+    pub projectile_launch: ProjectileLaunch,
+    /// spawner.DEATH_SPAWN_LAYOUT: where a death spawn's units appear.
+    pub death_spawn_layout: DeathSpawnLayout,
+}
+
+impl Calib {
+    /// Does an entity in `phase` stand still and keep its target locked as an
+    /// attacking unit? Under the measured cycle every attacking unit (the hit tick
+    /// included) stands and the move pass skips it; under the old windup only the
+    /// windup held (a cooldown walked after a target that left range).
+    #[inline]
+    pub fn attack_holds(&self, phase: AttackPhase) -> bool {
+        match self.attack_cycle {
+            AttackCycle::ProgressCredit => phase != AttackPhase::Idle,
+            AttackCycle::WindupLoadTime => phase == AttackPhase::Windup,
+        }
+    }
 }
 
 /// The three per-level percents of one tower stat (combat.TOWER_HITPOINT_LADDER).
@@ -741,6 +769,68 @@ calib_enum!(
     }
 );
 
+calib_enum!(
+    /// spawner.DEATH_SPAWN_LAYOUT -- see `BattleState::death_spawn_points`.
+    DeathSpawnLayout {
+        /// The ring on the dying unit's FACING (measured on the live Battle Rams):
+        /// member k at DeathSpawnRadius from the death point, at the facing rotated
+        /// by SpawnAngleShift + k x 360 / count, through formation.rs's sine table;
+        /// water-ejected like a release.
+        FacingRing = "facing_ring",
+        /// The engine grid around the death point, pulled back onto the radius (the
+        /// earlier engine; refuted on the Battle Ram's Barbarians, 300-500 native off).
+        EngineGridWithinRadius = "engine_grid_within_radius",
+    }
+);
+calib_enum!(
+    /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
+    AttackRangeRule {
+        /// Range + the attacker's CollisionRadius + the target's, centre to centre
+        /// (measured: the live Prince stops 3135 native from the princess tower's
+        /// centre, the first step inside 1600 + 600 + 1000).
+        RangePlusBothRadii = "range_plus_both_radii",
+        /// The earlier engine: Range + the target's radius only (every unit walked
+        /// its own radius too far). Kept runnable as the refuted arm.
+        RangePlusTargetRadius = "range_plus_target_radius",
+    }
+);
+calib_enum!(
+    /// combat.ATTACK_CYCLE -- see combat.rs `attack_step`.
+    AttackCycle {
+        /// The measured progress counter: a fresh cycle is credited LoadTime, hits
+        /// land on every multiple of HitSpeed, the load timer's remainder is taken
+        /// off a re-entry's credit (combat.rs `attack_step_progress`).
+        ProgressCredit = "progress_credit",
+        /// The earlier engine: a LoadTime windup, the hit, then HitSpeed - LoadTime
+        /// of cooldown. Refuted on every live first hit; kept runnable.
+        WindupLoadTime = "windup_load_time",
+    }
+);
+calib_enum!(
+    /// charge.CHARGED_HIT_TIMING -- see combat.rs `attack_step_progress`.
+    ChargedHitTiming {
+        /// The progress counter snaps to the next HitSpeed multiple: the charged hit
+        /// lands on the first attack pass that finds the target in range (measured:
+        /// the live Prince's tower is already hit on its first attacking frame).
+        FirstAttackPassNoWindup = "first_attack_pass_no_windup",
+        /// No snap: the charged unit hits on the ordinary first-hit tick of
+        /// combat.ATTACK_CYCLE (the LoadTime windup under windup_load_time, the
+        /// earlier engine).
+        AfterLoadTimeWindup = "after_load_time_windup",
+    }
+);
+calib_enum!(
+    /// combat.PROJECTILE_LAUNCH -- see combat.rs `fire` / `step_projectiles`.
+    ProjectileLaunch {
+        /// Born ProjectileStartRadius from the attacker toward the target, first step
+        /// the next tick (measured on the live tower arrows).
+        StartRadiusNextTick = "start_radius_next_tick",
+        /// Born at the attacker's centre and stepped in the fire tick's own
+        /// Projectile phase (the earlier engine).
+        AttackerCentreSameTick = "attacker_centre_same_tick",
+    }
+);
+
 fn pick<T>(v: &Value, path: &[&str], parse: fn(&str) -> Option<T>) -> Result<T, String> {
     let s = string(v, path)?;
     parse(s).ok_or_else(|| format!("{} = {s} has no engine implementation", path.join(".")))
@@ -1021,6 +1111,11 @@ impl Calib {
             formation_deploy_stagger: pick(&v, &["formation", "DEPLOY_STAGGER", "value"], DeployStagger::from_calibration_name)?,
             formation_ground_y_clamp: pick(&v, &["formation", "GROUND_Y_CLAMP", "value"], GroundYClamp::from_calibration_name)?,
             lane_id_based_deploy_sequence: globals_bool("LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE")?,
+            attack_range_rule: pick(&v, &["targeting", "ATTACK_RANGE_RULE", "value"], AttackRangeRule::from_calibration_name)?,
+            attack_cycle: pick(&v, &["combat", "ATTACK_CYCLE", "value"], AttackCycle::from_calibration_name)?,
+            charged_hit_timing: pick(&v, &["charge", "CHARGED_HIT_TIMING", "value"], ChargedHitTiming::from_calibration_name)?,
+            projectile_launch: pick(&v, &["combat", "PROJECTILE_LAUNCH", "value"], ProjectileLaunch::from_calibration_name)?,
+            death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -1062,10 +1157,14 @@ impl Calib {
             (law, st) => return Err(format!("knockback.STACKING = {st:?} has no engine implementation under knockback.DISPLACEMENT_LAW = {law:?}")),
         }
         only(&v, &["knockback", "WATER_RESOLUTION", "value"], "eject_to_nearest_land")?;
-        // spawner.LIMIT_RULE / DEATH_SPAWN_LAYOUT: one implemented arm each (the
-        // `only()` rule); the other candidate is refused, never mapped.
+        // spawner.LIMIT_RULE: one implemented arm (the `only()` rule); the other
+        // candidate is refused, never mapped. (DEATH_SPAWN_LAYOUT has two arms:
+        // `death_spawn_layout` above.)
         only(&v, &["spawner", "LIMIT_RULE", "value"], "skip_unit_keep_cadence")?;
-        only(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], "engine_grid_within_radius")?;
+        // combat.KAMIKAZE_DEATH: the one implemented arm (the death at the fire,
+        // measured on the melee Battle Ram; the projectile case is a hypothesis
+        // under the same name).
+        only(&v, &["combat", "KAMIKAZE_DEATH", "value"], "at_fire")?;
         if c.projectile_speed_to_subtiles_per_tick <= 0 || c.knock_duration_ms < 0 || c.max_pushback_length <= 0 {
             return Err("calibration.json: non-positive projectile speed / pushback cap or negative knockback duration".into());
         }
@@ -1225,6 +1324,20 @@ struct PendingSpawn {
     owner: Option<EntityId>,
 }
 
+/// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
+/// block's count and radius, the spawned unit's own radius and whether it flies, and
+/// the ring's base direction (the dying unit's, `phase_reap`) with its
+/// SpawnAngleShift.
+#[derive(Clone, Copy, Debug)]
+struct DeathSpawnRing {
+    count: i32,
+    unit_radius: i32,
+    flying: bool,
+    facing: Vec2,
+    angle_shift_deg: i32,
+    radius: i32,
+}
+
 /// A read-only view of one entity, for observation builders.
 #[derive(Clone, Copy, Debug)]
 pub struct EntityView<'a> {
@@ -1244,8 +1357,11 @@ pub struct EntityView<'a> {
     pub target: Option<EntityId>,
     pub attack_phase: AttackPhase,
     pub team_seq: u32,
-    /// ms elapsed in the current attack phase.
+    /// The attack progress counter (combat.ATTACK_CYCLE = progress_credit) or the
+    /// ms elapsed in the current attack phase (windup_load_time).
     pub attack_ms: i32,
+    /// The load timer (progress_credit; entity.rs `attack_load_ms`).
+    pub attack_load_ms: i32,
     /// ms of deploy time remaining.
     pub deploy_ms: i32,
     pub target_locked: bool,
@@ -1808,27 +1924,71 @@ impl BattleState {
         self.spawn_queue.extend(emissions.into_iter().map(|(_, _, _, p)| p));
     }
 
-    /// WHERE A DEATH SPAWN'S UNITS APPEAR (calibration spawner.DEATH_SPAWN_LAYOUT =
-    /// engine_grid_within_radius): the engine formation grid around the death point
-    /// in the OWNER's frame (`formation_grid`, the same code as a deploy and a
-    /// release), each point pulled back onto `radius` when the grid reaches past it
-    /// (a frame-free radial scaling: exact under the rotation), then water-ejected
-    /// like a release. A zero radius stacks them on the point; the Move phase's
+    /// WHERE A DEATH SPAWN'S UNITS APPEAR (calibration spawner.DEATH_SPAWN_LAYOUT).
+    ///
+    /// facing_ring (shipped, MEASURED on the two live Battle Ram deaths of the
+    /// corpus: the Barbarians at +-600 = DeathSpawnRadius on the axis from the death
+    /// point to the ram's target, (539, 263) / (-539, -263) on a ram whose tower lay
+    /// at 26.5 degrees): member k at `radius` from the death point in the direction
+    /// `facing` (the caller passes the direction to the target, else the unit's
+    /// facing) rotated by SpawnAngleShift + k x 360 / count, the rotation through
+    /// formation.rs `sin1024`; a unit with neither faces its seat's forward. The
+    /// count-2 case is the measured one; the rotation for more members is the
+    /// ring's natural reading and a hypothesis (no corpus death spawn has three).
+    ///
+    /// engine_grid_within_radius (the earlier engine): the engine
+    /// formation grid around the death point in the OWNER's frame (`formation_grid`,
+    /// the same code as a deploy and a release), each point pulled back onto
+    /// `radius` when the grid reaches past it (a frame-free radial scaling: exact
+    /// under the rotation). A zero radius stacks them on the point; the Move phase's
     /// coincident-push rule spreads them in the owner's frame.
-    fn death_spawn_points(&self, team: Team, count: i32, unit_radius: i32, flying: bool, pos: Vec2, radius: i32) -> Vec<Vec2> {
+    ///
+    /// Both arms water-eject each point like a release.
+    fn death_spawn_points(&self, team: Team, pos: Vec2, ring: DeathSpawnRing) -> Vec<Vec2> {
+        let DeathSpawnRing { count, unit_radius, flying, facing, angle_shift_deg, radius } = ring;
         let arena = &self.cfg.arena;
         let r = radius.max(0) as i64;
-        self.formation_grid(team, count, unit_radius, flying, pos)
-            .into_iter()
-            .map(|p| {
-                let off = p.sub(pos);
-                let d2 = off.len2();
-                let q = if d2 > r * r {
-                    let len = isqrt(d2).max(1);
-                    pos.add(Vec2::new(((off.x as i64) * r / len) as i32, ((off.y as i64) * r / len) as i32))
+        let points: Vec<Vec2> = match self.cfg.calib.death_spawn_layout {
+            DeathSpawnLayout::FacingRing => {
+                let n = count.max(1);
+                let u = if facing == Vec2::default() {
+                    match team {
+                        Team::Blue => Vec2::new(0, 256),
+                        Team::Red => Vec2::new(0, -256),
+                    }
                 } else {
-                    p
+                    facing
                 };
+                let ulen = isqrt(u.len2()).max(1);
+                (0..n)
+                    .map(|k| {
+                        let deg = angle_shift_deg + k * 360 / n;
+                        let (sn, cs) = (crate::formation::sin1024(deg) as i64, crate::formation::sin1024(deg + 90) as i64);
+                        // rotate the unit facing by deg, scale to r: (ux cos - uy sin, ux sin + uy cos)
+                        let rx = ((u.x as i64) * cs - (u.y as i64) * sn) * r / (ulen * 1024);
+                        let ry = ((u.x as i64) * sn + (u.y as i64) * cs) * r / (ulen * 1024);
+                        pos.add(Vec2::new(rx as i32, ry as i32))
+                    })
+                    .collect()
+            }
+            DeathSpawnLayout::EngineGridWithinRadius => self
+                .formation_grid(team, count, unit_radius, flying, pos)
+                .into_iter()
+                .map(|p| {
+                    let off = p.sub(pos);
+                    let d2 = off.len2();
+                    if d2 > r * r {
+                        let len = isqrt(d2).max(1);
+                        pos.add(Vec2::new(((off.x as i64) * r / len) as i32, ((off.y as i64) * r / len) as i32))
+                    } else {
+                        p
+                    }
+                })
+                .collect(),
+        };
+        points
+            .into_iter()
+            .map(|q| {
                 if flying || arena.is_passable_ground(q) {
                     q
                 } else {
@@ -2518,7 +2678,7 @@ impl BattleState {
                     }
                     continue;
                 }
-                if e.stun_ms[i] > 0 || e.knock_ms[i] > 0 || e.attack_phase[i] == AttackPhase::Windup {
+                if e.stun_ms[i] > 0 || e.knock_ms[i] > 0 || calib.attack_holds(e.attack_phase[i]) {
                     if jumping[i] {
                         // a movement hold on a jumper: the leap is cancelled where it
                         // stands and the unit replans when the hold ends (UNVERIFIED: no
@@ -2557,7 +2717,7 @@ impl BattleState {
                         None => match goal_id {
                             Some(gid) => {
                                 let gi = gid.index as usize;
-                                if target::in_attack_range(calib, e.pos[i], card.range, e.pos[gi], e.radius[gi]) {
+                                if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                                     actor
                                 } else {
                                     move16402::direct_aim(actor, (e.pos[gi].x / K, e.pos[gi].y / K), (card.range + e.radius[i]) / K)
@@ -2601,7 +2761,7 @@ impl BattleState {
                 let mut feasible = true;
                 if let (false, Some(gid)) = (deploying, goal_id) {
                     let gi = gid.index as usize;
-                    if target::in_attack_range(calib, e.pos[i], card.range, e.pos[gi], e.radius[gi]) {
+                    if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                         // SPEC 5.3: the path is cleared on the transition to attacking
                         routes[i].clear();
                         goals[i] = None;
@@ -3106,7 +3266,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || e.attack_phase[i] == AttackPhase::Windup {
+                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -3115,7 +3275,7 @@ impl BattleState {
                     None => continue,
                 };
                 let gi = goal_id.index as usize;
-                if target::in_attack_range(calib, e.pos[i], card.range, e.pos[gi], e.radius[gi]) {
+                if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                     // SPEC 5.3: the path is cleared on the transition to attacking,
                     // without reaching the goal node. Over 46 304 oracle ticks not
                     // one has behavior_state == 2 with a live path -- the clear and
@@ -3297,7 +3457,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || e.attack_phase[i] == AttackPhase::Windup {
+                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -3306,7 +3466,7 @@ impl BattleState {
                     None => continue,
                 };
                 let gi = goal_id.index as usize;
-                if target::in_attack_range(calib, e.pos[i], card.range, e.pos[gi], e.radius[gi]) {
+                if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                     routes[i].clear();
                     continue;
                 }
@@ -3488,6 +3648,7 @@ impl BattleState {
             let step = combat::attack_step(e, &self.cfg.cards, &self.cfg.calib, i, can_act);
             self.ents.attack_phase[i] = step.phase;
             self.ents.attack_ms[i] = step.ms;
+            self.ents.attack_load_ms[i] = step.load_ms;
             // hide.HIDE_DELAY_MEANING = time_since_last_shot: a shot re-arms the hide
             // countdown (its own column, in its own iteration).
             if step.fired_at.is_some() && self.cfg.calib.hide_delay_meaning == HideDelayMeaning::TimeSinceLastShot {
@@ -3522,9 +3683,23 @@ impl BattleState {
                 // consumes the charge (`fire` read `charged` for its damage just above).
                 // `charged` and `charge_progress` are two different things: the stop
                 // rule in `charge_pass` touches only the latter.
-                if self.cfg.calib.charge_reset_on_attack && self.ents.charged[i] {
+                // The charged SNAP (charge.CHARGED_HIT_TIMING = first_attack_pass_no_windup)
+                // consumes the charge itself, so the hit it raised consumes the charge
+                // whatever RESET_ON_ATTACK says.
+                if (self.cfg.calib.charge_reset_on_attack || step.charge_snapped) && self.ents.charged[i] {
                     self.ents.charged[i] = false;
                     self.ents.charge_progress[i] = 0;
+                }
+                // KAMIKAZE (calibration combat.KAMIKAZE_DEATH = at_fire): a Kamikaze
+                // unit dies on the tick its hit lands (the live Battle Ram is gone on
+                // the frame its one hit lands, its Barbarians deploying), so a Battle
+                // Ram lands its one hit and breaks into its Barbarians. Written as a
+                // self-hit into the buffer: the death resolves with every other hit of
+                // the tick and the death spawn follows in Reap.
+                if self.cfg.cards.get(self.ents.card[i]).kamikaze {
+                    let me = self.ents.id_of(i);
+                    let all = self.ents.hp[i].max(0) + self.ents.shield[i].max(0);
+                    self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false });
                 }
                 #[cfg(clash_plant = "inline_damage")]
                 for h in self.dmg.hits.drain(..) {
@@ -3763,6 +3938,13 @@ impl BattleState {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
+                // THE LOAD TIMER with it (the same measurement): the Knight's load
+                // reads 700 = LoadTime on the hit tick itself, not the 300 it had
+                // left. Under combat.ATTACK_CYCLE = progress_credit the timer is what
+                // a re-entry's credit is taken off, so a reset that left it running
+                // would give the pushed unit a shorter windup than the capture shows.
+                // The windup arm never reads the column.
+                e.attack_load_ms[i] = self.cfg.cards.get(e.card[i]).load_time_ms.max(0);
             }
             // CHARGE (calibration charge.RESET_ON_KNOCKBACK): a push that LANDS clears
             // the charge and the run-up. A sum exists here only for a victim spell.rs
@@ -3894,7 +4076,21 @@ impl BattleState {
                 DeathSpawnDeploy::Zero => Some(0),
             });
             let team = self.ents.team[i];
-            for (k, p) in self.death_spawn_points(team, ds.count, unit.collision_radius, unit.is_flying(), self.ents.pos[i], radius).into_iter().enumerate() {
+            // THE RING'S AXIS: the direction from the death point to the dying unit's
+            // TARGET (the two live rams: the Barbarians' axis at 26.0 / 84.1 degrees
+            // against 26.5 / 83.7 to the tower they were hitting, where the last
+            // movement direction was 20.8 / 89.6), else the unit's facing, else the
+            // seat's forward.
+            let facing = match self.ents.target[i].filter(|t| self.ents.is_alive(*t)) {
+                Some(t) => {
+                    let d = self.ents.pos[t.index as usize].sub(self.ents.pos[i]);
+                    if d == Vec2::default() { self.ents.facing[i] } else { d }
+                }
+                None => self.ents.facing[i],
+            };
+            let shift = card.formation.spawn_angle_shift_deg;
+            let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing, angle_shift_deg: shift, radius };
+            for (k, p) in self.death_spawn_points(team, self.ents.pos[i], ring).into_iter().enumerate() {
                 spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None }));
             }
         }
@@ -4740,6 +4936,7 @@ impl BattleState {
             attack_phase: e.attack_phase[i],
             team_seq: e.team_seq[i],
             attack_ms: e.attack_ms[i],
+            attack_load_ms: e.attack_load_ms[i],
             deploy_ms: e.deploy_ms[i],
             target_locked: e.target_locked[i],
             speed: e.speed[i],
@@ -4934,6 +5131,7 @@ impl BattleState {
                 h.bool(e.push_active[i]);
                 h.bool(e.jumping[i]);
                 h.u32(e.creation_seq[i]);
+                h.i32(e.attack_load_ms[i]);
             }
             h.vec(e.move_frac[i]);
             h.u32(e.route[i].len() as u32);
@@ -4963,6 +5161,9 @@ impl BattleState {
             h.bool(p.hits_air);
             h.bool(p.hits_ground);
             h.vec(p.frac);
+            if !legacy_v3 {
+                h.bool(p.fresh);
+            }
         }
         #[cfg(not(clash_plant = "hash_skips_spells"))]
         if !legacy_v3 {
@@ -5110,7 +5311,15 @@ impl BattleState {
 ///    CardDef gained `formation` (the card fingerprint moves); no new Entities column
 ///    (the stagger rides the deploy timer, a second summon is its own card). A
 ///    format-3 battle keeps the engine grid on one tick (migrate_v3).
-pub const SNAPSHOT_FORMAT: u32 = 15;
+/// 16: the reach and the attack cycle -- Calib gained attack_range_rule / attack_cycle
+///    / charged_hit_timing / projectile_launch (targeting.ATTACK_RANGE_RULE,
+///    combat.ATTACK_CYCLE, charge.CHARGED_HIT_TIMING, combat.PROJECTILE_LAUNCH);
+///    Entities gained attack_load_ms; Projectile gained fresh; CardDef gained
+///    projectile_start_radius and kamikaze (the card fingerprint moves); Calib also
+///    gained death_spawn_layout (spawner.DEATH_SPAWN_LAYOUT's facing_ring arm). A
+///    format-3 battle keeps the old reach, the old windup, the LoadTime charged hit,
+///    the centre-born projectile and the grid death spawn (migrate_v3).
+pub const SNAPSHOT_FORMAT: u32 = 16;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -5245,9 +5454,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... charge~~ -- format 11 added `jump` after it.
                 // ~~... jump~~ -- format 13 added `level_base` after it.
                 // ~~... level_base~~ -- format 15 added `formation` after it.
+                // ~~... formation~~ -- format 16 added `projectile_start_radius` and `kamikaze` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -5285,6 +5495,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("formation_layout".into(), serde_json::to_value(FormationLayout::EngineGrid).map_err(|e| e.to_string())?);
     sh.insert("formation_deploy_stagger".into(), serde_json::to_value(DeployStagger::None).map_err(|e| e.to_string())?);
     sh.insert("formation_ground_y_clamp".into(), serde_json::to_value(GroundYClamp::None).map_err(|e| e.to_string())?);
+    // FORMAT 16: a format-3 battle reached Range + the target's radius, wound up for
+    // LoadTime (its charged hits too), and bore every projectile at the attacker's
+    // centre stepping at once; it keeps all four (the same rule).
+    sh.insert("attack_range_rule".into(), serde_json::to_value(AttackRangeRule::RangePlusTargetRadius).map_err(|e| e.to_string())?);
+    sh.insert("attack_cycle".into(), serde_json::to_value(AttackCycle::WindupLoadTime).map_err(|e| e.to_string())?);
+    sh.insert("charged_hit_timing".into(), serde_json::to_value(ChargedHitTiming::AfterLoadTimeWindup).map_err(|e| e.to_string())?);
+    sh.insert("projectile_launch".into(), serde_json::to_value(ProjectileLaunch::AttackerCentreSameTick).map_err(|e| e.to_string())?);
+    sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -5331,6 +5549,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
         ("push_active", Value::Bool(false)),
         // FORMAT 11: nobody is mid-leap (format 3 walked every Hog Rider to a bridge).
         ("jumping", Value::Bool(false)),
+        // FORMAT 16: no load timer runs (the windup arm never reads it).
+        ("attack_load_ms", Value::from(0)),
     ] {
         if ents.insert(k.into(), Value::Array(vec![fill; n])).is_some() {
             return Err(bad(&format!("already has ents.{k}")));

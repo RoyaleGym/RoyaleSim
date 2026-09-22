@@ -532,8 +532,18 @@ fn knockback_resets_a_windup() {
     let tap = stage();
     let musk_at = Vec2::new(tap.x + SUBTILE, tap.y);
     let cannon_at = Vec2::new(musk_at.x - milli(4000), musk_at.y);
-    let load = card_stat(&bare(config()), "Musketeer").load_time_ms;
+    let musk = card_stat(&bare(config()), "Musketeer").clone();
+    let (load, hs) = (musk.load_time_ms, musk.hit_speed_ms);
     let tick = calib().tick_ms;
+    // "MID-SWING" in the shipped cycle (combat.ATTACK_CYCLE = progress_credit):
+    // the progress counter is past the start of a cycle and will not
+    // cross the next HitSpeed multiple on the coming tick, so a reset is visible.
+    // Under the old windup arm it was "the windup is running and will not finish
+    // next tick".
+    let mid_swing = |v: &royalesim::state::EntityView<'_>| match calib().attack_cycle {
+        royalesim::state::AttackCycle::ProgressCredit => v.attack_phase == AttackPhase::Windup && v.attack_ms > 0 && v.attack_ms % hs + tick < hs,
+        royalesim::state::AttackCycle::WindupLoadTime => v.attack_phase == AttackPhase::Windup && v.attack_ms + tick < load,
+    };
     let mut found = 0;
     for delay in 0..40u32 {
         let mut s = bare(config());
@@ -550,12 +560,17 @@ fn knockback_resets_a_windup() {
             control.tick();
         }
         let cv = control.entity(m).unwrap();
-        if cv.attack_phase != AttackPhase::Windup || cv.attack_ms + tick >= load {
+        if !mid_swing(&cv) {
             continue;
         }
         found += 1;
         let v = s.entity(m).unwrap();
-        assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: control is in Windup at {} ms, the pushed Musketeer is not reset", cv.attack_ms);
+        assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: control is mid-swing at {} ms, the pushed Musketeer is not reset", cv.attack_ms);
+        // and its LOAD TIMER is back to a full LoadTime (the Knight gen 61's 300 ->
+        // 700 on the hit tick; the windup arm does not carry the column)
+        if calib().attack_cycle == royalesim::state::AttackCycle::ProgressCredit {
+            assert_eq!(v.attack_load_ms, load, "delay {delay}: the push did not reload the timer");
+        }
         assert_eq!(v.target, cv.target, "delay {delay}: the target is kept (reset_windup_keep_target)");
         assert!(v.push_active || v.pos != cv.pos, "delay {delay}: it was not pushed");
     }
@@ -787,6 +802,8 @@ fn zap_stun_pauses_windup_and_cooldown_for_exactly_ceil_duration_ticks() {
     assert_registry("status.BUFF_EXPIRY_TICK_ALIGNMENT", format!("{:?}", calib().buff_expiry), "CeilFromNextTick");
     let buff = int(&zap_aeo()["buff_time_ms"]);
     let held = ((buff + calib().tick_ms - 1) / calib().tick_ms) as u32;
+    let knight = card_stat(&bare(config()), "Knight").clone();
+    let (hs, load) = (knight.hit_speed_ms, knight.load_time_ms);
     let (ctl, ctl_trace) = knight_vs_cannon(None, 120);
     assert!(ctl.len() >= 4, "vacuous: the Knight hit the Cannon only {} times", ctl.len());
     let (mut in_windup, mut in_cooldown) = (0, 0);
@@ -803,13 +820,30 @@ fn zap_stun_pauses_windup_and_cooldown_for_exactly_ceil_duration_ticks() {
         for k in n + 1..n + held {
             assert!(!tr[k as usize].3, "tick {k}: a stunned unit was re-locked");
         }
-        match c.1 {
-            AttackPhase::Windup => in_windup += 1,
-            AttackPhase::Cooldown => in_cooldown += 1,
-            AttackPhase::Idle => {}
+        // EARLY / LATE IN THE CYCLE, the arm-independent reading of the old
+        // "windup or cooldown" split: under the shipped cycle
+        // (combat.ATTACK_CYCLE = progress_credit) there is no
+        // cooldown STATE -- one progress counter runs from the credit to the hit --
+        // so the guard asks that the application ticks cover both halves of it.
+        if c.1 != AttackPhase::Idle {
+            let into = match calib().attack_cycle {
+                royalesim::state::AttackCycle::ProgressCredit => c.2 % hs,
+                royalesim::state::AttackCycle::WindupLoadTime => {
+                    if c.1 == AttackPhase::Windup {
+                        c.2
+                    } else {
+                        load + c.2
+                    }
+                }
+            };
+            if 2 * into < hs {
+                in_windup += 1;
+            } else {
+                in_cooldown += 1;
+            }
         }
     }
-    assert!(in_windup >= 3 && in_cooldown >= 3, "vacuous: windup {in_windup} cooldown {in_cooldown} application ticks");
+    assert!(in_windup >= 3 && in_cooldown >= 3, "vacuous: {in_windup} early and {in_cooldown} late application ticks");
 }
 
 #[test]

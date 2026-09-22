@@ -1,4 +1,15 @@
-//! The attack pipeline: windup (load_time) -> hit -> cooldown (rest of hit_speed).
+//! The attack pipeline. The shipped cycle (calibration combat.ATTACK_CYCLE =
+//! progress_credit, measured on the live 16.402 corpus: 1690 fresh target entries,
+//! 911 first projectile launches): a progress counter that a fresh cycle enters at
+//! LoadTime + 50 and that fires on every multiple of HitSpeed, so the FIRST hit
+//! lands HitSpeed - LoadTime after the target came into range and every later one
+//! HitSpeed apart; a load timer that runs LoadTime -> 0 from every hit (and every
+//! entry) and whose remainder is taken off the credit of a re-entry; a swing
+//! already under way finishes on a target that stepped out of range; a charged
+//! unit's progress snaps to the next multiple, so its hit lands on the entry tick
+//! (charge.CHARGED_HIT_TIMING). The earlier arm -- windup (load_time) -> hit ->
+//! cooldown (rest of hit_speed) -- is runnable as windup_load_time
+//! (`attack_step_windup`).
 //!
 //! THE DAMAGE BUFFER
 //!     No attack, projectile or death effect ever subtracts hp. They append `Hit`s
@@ -33,7 +44,7 @@ use crate::card::CardDb;
 use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, Vec2};
 use crate::path::advance;
-use crate::state::{Calib, ChargeLevelScaling};
+use crate::state::{AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, ProjectileLaunch};
 use crate::target::in_attack_range;
 use crate::{EntityId, Team};
 
@@ -93,6 +104,11 @@ pub struct Projectile {
     pub hits_air: bool,
     pub hits_ground: bool,
     pub frac: Vec2,
+    /// Born this tick (combat.PROJECTILE_LAUNCH = start_radius_next_tick): the
+    /// Projectile phase of the fire tick skips it, its first step is the next
+    /// tick's. Snapshot format 16; absent in older snapshots = false.
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 /// Damage after the crown-tower reduction, if the victim is a crown tower. Damage
@@ -152,12 +168,124 @@ pub fn splash(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttackStep {
     pub phase: AttackPhase,
+    /// The progress counter (progress_credit) or the ms elapsed in `phase`
+    /// (windup_load_time).
     pub ms: i32,
+    /// The load timer (progress_credit only; 0 under windup_load_time).
+    pub load_ms: i32,
     pub fired_at: Option<EntityId>,
+    /// The charged snap fired this hit (charge.CHARGED_HIT_TIMING): the charge is
+    /// consumed at the snap itself, whatever charge.RESET_ON_ATTACK says about an
+    /// ordinary hit.
+    pub charge_snapped: bool,
 }
 
-/// Advance entity a's attack state by one tick, reading only.
+/// Advance entity a's attack state by one tick, reading only. Dispatches on
+/// calibration combat.ATTACK_CYCLE.
 pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
+    match calib.attack_cycle {
+        AttackCycle::ProgressCredit => attack_step_progress(ents, cards, calib, a, can_act),
+        AttackCycle::WindupLoadTime => attack_step_windup(ents, cards, calib, a, can_act),
+    }
+}
+
+/// THE SHIPPED CYCLE (combat.ATTACK_CYCLE = progress_credit; module doc), the
+/// attack pass of one tick for entity `a`:
+///
+///   load -= 50, clamped at 0
+///   no target -> progress 0, not attacking
+///   in_range = ATTACK_RANGE_RULE(target)
+///   hit_started = progress % HitSpeed >= 50
+///   attack this tick iff in_range || hit_started
+///     else: progress = 0, stop attacking
+///   attacking:
+///     progress == 0 && !charged (a fresh cycle):
+///       LoadTime <= HitSpeed: progress = LoadTime - load; load = LoadTime
+///       LoadTime >  HitSpeed: wait while load > HitSpeed (progress stays 0),
+///                             else progress = 0, load = 0
+///       then progress += 50
+///     charged: progress += HitSpeed - progress % HitSpeed, the charge consumed
+///     else: progress += 50
+///   fire iff progress / HitSpeed grew
+///     the fire sets load = LoadTime
+///
+/// The corpus shows exactly this: on the frame a unit starts attacking a fresh
+/// target its progress reads LoadTime + 50 and its load timer LoadTime (1690 of
+/// 2024 entries; the rest are spawned units filed under their spawner's card),
+/// the first projectile leaves (HitSpeed - LoadTime) / 50 - 1 ticks later (911 of
+/// 1004: Musketeer 13, Archers 9, Bomber 3, the princess tower 15, the king 9),
+/// and a re-entry within LoadTime of the last hit reads LoadTime + 50 - (load - 50)
+/// (113 of 172). `AttackPhase::Windup` = attacking with the swing under way (the
+/// target lock, the Path phase's hold), `Cooldown` = attacking on the hit tick
+/// (the unit stands; next tick the range gates the next cycle), `Idle` = not
+/// attacking. Not modelled: a hit-speed buff (Rage's HitSpeedMultiplier),
+/// SpecialRange and per-target ranges, LoadFirstHit (Sparky), the dash's hit.
+fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
+    let card = cards.get(ents.card[a]);
+    let target = ents.target[a].filter(|t| ents.is_alive(*t));
+    let tick = calib.tick_ms;
+    let hs = card.hit_speed_ms;
+    let lt = card.load_time_ms.max(0);
+    let mut load = (ents.attack_load_ms[a] - tick).max(0);
+    let phase = ents.attack_phase[a];
+    let mut progress = ents.attack_ms[a];
+    let idle = |load| AttackStep { phase: AttackPhase::Idle, ms: 0, load_ms: load, fired_at: None, charge_snapped: false };
+    if !can_act {
+        // Deploying, stunned, mid-ladder, leaping, under ground, an inactive king:
+        // the counters hold (status.STUN_ATTACK_TIMER_MODEL = pause; a landed push
+        // already reset the cycle in `apply_effects` under knockback.ATTACK_RESET).
+        return AttackStep { phase, ms: progress, load_ms: load, fired_at: None, charge_snapped: false };
+    }
+    let Some(t) = target else { return idle(load) };
+    if hs <= 0 {
+        return idle(load);
+    }
+    let ti = t.index as usize;
+    let in_range = in_attack_range(calib, ents.pos[a], card.range, ents.radius[a], ents.pos[ti], ents.radius[ti]);
+    let hit_started = progress % hs >= tick;
+    if !(in_range || hit_started) {
+        return idle(load);
+    }
+    let cycle_before = progress / hs;
+    let snap = ents.charged[a] && card.charge.is_some() && calib.charged_hit_timing == ChargedHitTiming::FirstAttackPassNoWindup;
+    let mut charge_snapped = false;
+    if progress == 0 && !snap {
+        if lt <= hs {
+            progress = lt - load;
+            load = lt;
+        } else if load > hs {
+            // LoadTime longer than a cycle: the unit stands attacking until its
+            // reload is within one cycle.
+            return AttackStep { phase: AttackPhase::Windup, ms: 0, load_ms: load, fired_at: None, charge_snapped: false };
+        } else {
+            load = 0;
+        }
+        progress += tick;
+    } else if snap {
+        progress += hs - progress % hs;
+        charge_snapped = true;
+    } else {
+        progress += tick;
+    }
+    let fired = progress / hs > cycle_before;
+    if fired {
+        load = lt;
+    }
+    AttackStep {
+        phase: if fired { AttackPhase::Cooldown } else { AttackPhase::Windup },
+        ms: progress,
+        load_ms: load,
+        fired_at: if fired { Some(t) } else { None },
+        charge_snapped,
+    }
+}
+
+/// THE EARLIER CYCLE (combat.ATTACK_CYCLE = windup_load_time): a LoadTime
+/// windup on entering range, the hit, then HitSpeed - LoadTime of cooldown; a
+/// charged unit winds up like any other (charge.CHARGED_HIT_TIMING's
+/// after_load_time_windup, whatever the key says under this arm). Refuted by the
+/// live corpus on every first hit (the key's provenance); kept runnable.
+fn attack_step_windup(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
     let card = cards.get(ents.card[a]);
     let target = ents.target[a].filter(|t| ents.is_alive(*t));
     let mut phase = ents.attack_phase[a];
@@ -166,10 +294,11 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
     let cooldown = (card.hit_speed_ms - load).max(0);
     let in_range = |t: EntityId| {
         let ti = t.index as usize;
-        in_attack_range(calib, ents.pos[a], card.range, ents.pos[ti], ents.radius[ti])
+        in_attack_range(calib, ents.pos[a], card.range, ents.radius[a], ents.pos[ti], ents.radius[ti])
     };
+    let out = |phase, ms, fired_at| AttackStep { phase, ms, load_ms: 0, fired_at, charge_snapped: false };
     if !can_act {
-        return AttackStep { phase, ms, fired_at: None };
+        return out(phase, ms, None);
     }
     let tick = calib.tick_ms;
     match phase {
@@ -184,7 +313,7 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
         AttackPhase::Windup => {
             if target.is_none() {
                 // Target died mid-windup: the swing is lost.
-                return AttackStep { phase: AttackPhase::Idle, ms: 0, fired_at: None };
+                return out(AttackPhase::Idle, 0, None);
             }
             ms += tick;
         }
@@ -196,17 +325,17 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
                         phase = AttackPhase::Windup;
                         ms -= cooldown;
                     }
-                    _ => return AttackStep { phase: AttackPhase::Idle, ms: 0, fired_at: None },
+                    _ => return out(AttackPhase::Idle, 0, None),
                 }
             }
         }
     }
     if phase == AttackPhase::Windup && ms >= load {
         if let Some(t) = target {
-            return AttackStep { phase: AttackPhase::Cooldown, ms: ms - load, fired_at: Some(t) };
+            return out(AttackPhase::Cooldown, ms - load, Some(t));
         }
     }
-    AttackStep { phase, ms, fired_at: None }
+    out(phase, ms, None)
 }
 
 /// Turn a completed windup into damage: a projectile, or an instant hit.
@@ -255,9 +384,27 @@ pub fn fire(
         card.projectile.map(|p| p.radius).unwrap_or(0)
     };
     if let Some(p) = card.projectile {
+        // combat.PROJECTILE_LAUNCH: the projectile is born ProjectileStartRadius from
+        // the attacker's centre toward the target and does not move on the fire tick
+        // (the live tower arrows: 299-300 from the centre on the launch frame, 600 per
+        // tick from the next); the old arm starts it at the centre and steps it at once.
+        let (pos, fresh) = match calib.projectile_launch {
+            ProjectileLaunch::StartRadiusNextTick => {
+                let d = ents.pos[ti].sub(ents.pos[a]);
+                let len = crate::fixed::isqrt(d.len2()) as i32;
+                let r = card.projectile_start_radius.min(len.max(0));
+                let pos = if len > 0 {
+                    Vec2::new(ents.pos[a].x + ((d.x as i64) * (r as i64) / (len as i64)) as i32, ents.pos[a].y + ((d.y as i64) * (r as i64) / (len as i64)) as i32)
+                } else {
+                    ents.pos[a]
+                };
+                (pos, true)
+            }
+            ProjectileLaunch::AttackerCentreSameTick => (ents.pos[a], false),
+        };
         projectiles.push(Projectile {
             team: ents.team[a],
-            pos: ents.pos[a],
+            pos,
             target,
             aim: ents.pos[ti],
             // Every projectile reads time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK, its
@@ -271,6 +418,7 @@ pub fn fire(
             hits_air: card.attacks_air,
             hits_ground: card.attacks_ground,
             frac: Vec2::default(),
+            fresh,
         });
         return;
     }
@@ -301,6 +449,11 @@ pub fn step_projectiles(
     scratch: &mut Vec<u32>,
 ) {
     projectiles.retain_mut(|p| {
+        if p.fresh {
+            // born this tick: its first step is next tick's (combat.PROJECTILE_LAUNCH)
+            p.fresh = false;
+            return true;
+        }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
         if alive {
             p.aim = ents.pos[p.target.index as usize];

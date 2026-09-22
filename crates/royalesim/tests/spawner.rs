@@ -9,9 +9,14 @@
 //!   2. a Goblin Hut does the same with a SpearGoblin;
 //!   3. a Witch spawns a wave of SpawnNumber Skeletons SpawnInterval apart, the first
 //!      SpawnStartTime after activation, the next wave one pause after the last;
-//!   4. a Golem killed by debug_set_hp leaves two Golemites next tick inside
-//!      DeathSpawnRadius of the death point, deploying, AND its death damage lands;
-//!   5. a Lava Hound leaves six flying Pups;
+//!   4. a Golem killed by debug_set_hp leaves two Golemites next tick ON a ring of
+//!      DeathSpawnRadius around the death point, deploying, AND its death damage lands;
+//!   5. a Lava Hound leaves six flying Pups, on its own ring of six;
+//!   6. (spawner.DEATH_SPAWN_LAYOUT = facing_ring) the ring's AXIS: a
+//!      Battle Ram that died on its own hit leaves its two Barbarians on the line
+//!      from the death point to the tower it hit, one ahead and one behind -- the
+//!      corpus's two ram deaths, the measurement the key carries; the numbering
+//!      below is one out from here on (the list is a map, not a contract);
 //!   6. a Tombstone expiring by lifetime leaves its four Skeletons;
 //!   7. a Zap on a Tombstone delays its next wave by exactly the stun's ticks;
 //!   8. SpawnLimit caps a spawner's live units (a constructed CardDb: no 2018 row sets it);
@@ -30,7 +35,8 @@
 //!      Tombstone's footprint leave it target-less and Idle;
 //!  16. no card, rejected ones included, keeps a unit block
 //!      pointing at the unresolved u16::MAX; a constructed death spawn whose grid
-//!      reaches past its radius is pulled back onto it.
+//!      reaches past its radius is pulled back onto it (the engine_grid_within_radius
+//!      arm, the foil rather than the shipped layout).
 //!
 //! TICK ALIGNMENT (state.rs `spawner_pass`): the timer is decremented in the SPAWN
 //! phase after the queue drains; a unit queued in tick index E exists from tick index
@@ -53,7 +59,7 @@ use common::*;
 use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE_PER_MILLITILE};
-use royalesim::state::{BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnRadius, FirstWave, PauseAnchor, SpawnPoint, StartTimeOrigin};
+use royalesim::state::{BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, EntityView, FirstWave, PauseAnchor, SpawnPoint, StartTimeOrigin};
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
 
@@ -305,6 +311,58 @@ fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_act
 
 /// Kill `victim` with debug_set_hp before tick k; it dies in tick k (Resolve, then
 /// Reap queues its units); its units exist from post-tick k + 1.
+/// A death spawn's members sit ON a ring of `radius` around the death point
+/// (calibration spawner.DEATH_SPAWN_LAYOUT = facing_ring, measured on the corpus's
+/// two Battle Ram deaths: the two Barbarians at +-600 = DeathSpawnRadius on
+/// the axis from the death point to the tower the ram was hitting).
+///
+/// The ring's centre is read back as the members' CENTROID -- exact for a ring of any
+/// count -- because the caller's `death_pos` is the victim's position before the tick
+/// it died in, and a victim that was walking (and being pushed off its neighbours)
+/// moved once more inside it; that gap is checked loosely and the ring itself
+/// exactly. The per-member tolerance is the sine table's rounding, about a
+/// thousandth of the radius.
+///
+/// With `axis`, the ring's base direction is pinned too: a ring of TWO must lie along
+/// it, one member ahead and one behind, which is the law's own claim.
+fn assert_on_the_ring(members: &[EntityView<'_>], death_pos: Vec2, radius: i32, axis: Option<Vec2>) {
+    assert!(members.len() >= 2, "vacuous: a ring of {}", members.len());
+    let n = members.len() as i32;
+    let centre = Vec2::new(members.iter().map(|m| m.pos.x).sum::<i32>() / n, members.iter().map(|m| m.pos.y).sum::<i32>() / n);
+    let drift = royalesim::fixed::isqrt(centre.sub(death_pos).len2()) as i32;
+    assert!(drift <= radius / 4, "the ring's centre {centre:?} is {drift} subtiles off the death point {death_pos:?} (more than the victim's last step)");
+    let tol = (radius / 100).max(4);
+    let mut seen: BTreeSet<(i32, i32)> = BTreeSet::new();
+    for m in members {
+        let d = royalesim::fixed::isqrt(m.pos.sub(centre).len2()) as i32;
+        assert!((d - radius).abs() <= tol, "a member sits {d} subtiles from the ring's centre, radius {radius} (tolerance {tol})");
+        assert!(seen.insert((m.pos.x, m.pos.y)), "two members on one point");
+    }
+    // equally spaced: no two members closer than the chord of 360 / n degrees, of
+    // which the smallest (n = 6) is the radius itself
+    for a in members {
+        for b in members {
+            if (a.pos.x, a.pos.y) < (b.pos.x, b.pos.y) {
+                let d = royalesim::fixed::isqrt(a.pos.sub(b.pos).len2()) as i32;
+                assert!(d >= radius - tol, "two members are {d} subtiles apart on a ring of {radius} with {n} on it");
+            }
+        }
+    }
+    if let Some(v) = axis {
+        assert_eq!(members.len(), 2, "the axis check is written for a ring of two");
+        let o = members[0].pos.sub(centre);
+        let cross = (o.x as i64) * (v.y as i64) - (o.y as i64) * (v.x as i64);
+        let vlen = royalesim::fixed::isqrt(v.len2()).max(1);
+        // |cross| / |v| is the member's distance from the axis line
+        let off_axis = (cross.abs() / vlen) as i32;
+        assert!(off_axis <= tol, "the pair's axis is {off_axis} subtiles off the direction to the target; the ring is not laid on the facing");
+        let dot = (o.x as i64) * (v.x as i64) + (o.y as i64) * (v.y as i64);
+        let other = members[1].pos.sub(centre);
+        let dot2 = (other.x as i64) * (v.x as i64) + (other.y as i64) * (v.y as i64);
+        assert!(dot.signum() * dot2.signum() < 0, "both members are on the same side of the death point");
+    }
+}
+
 fn kill_and_settle(s: &mut BattleState, victim: EntityId) -> (u32, Vec2) {
     let pos = s.entity(victim).unwrap().pos;
     assert!(s.debug_set_hp(victim, 0));
@@ -315,7 +373,7 @@ fn kill_and_settle(s: &mut BattleState, victim: EntityId) -> (u32, Vec2) {
 }
 
 #[test]
-fn golem_killed_leaves_two_golemites_inside_the_radius_next_tick_and_its_death_damage_lands() {
+fn golem_killed_leaves_two_golemites_on_the_radius_next_tick_and_its_death_damage_lands() {
     // Plant death_spawn_dropped: no Golemite.
     let mut s = bare(config());
     let ds = death_spawn(&s, "Golem");
@@ -340,9 +398,11 @@ fn golem_killed_leaves_two_golemites_inside_the_radius_next_tick_and_its_death_d
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize, "post-tick {}: {} {unit}s", k + 1, ds.count);
     let lvl = s.config().card_level[Team::Blue as usize];
+    // the ring only: this scene pushes the Golem off its own facing (a Red Knight
+    // stands inside its radius for the death damage), and the AXIS is pinned on the
+    // clean scene below, the one the corpus measured
+    assert_on_the_ring(&pups, death_pos, radius, None);
     for p in &pups {
-        let d2 = p.pos.dist2(death_pos);
-        assert!(d2 <= (radius as i64) * (radius as i64), "{unit} at {:?} is {} subtiles from the death point {:?} (radius {radius})", p.pos, royalesim::fixed::isqrt(d2), death_pos);
         assert!(s.arena().is_passable_ground(p.pos));
         assert_eq!(p.deploy_ms, s.cards().get(ds.unit).deploy_time_ms - spawn_tick_countdown(&calib()), "its own DeployTime, less the spawn tick's countdown");
         assert_eq!(p.max_hp, s.cards().scaled(ds.unit, lvl, s.cards().get(ds.unit).hitpoints).unwrap(), "the Golem's level");
@@ -369,11 +429,49 @@ fn lava_hound_killed_leaves_six_flying_pups() {
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize);
+    assert_on_the_ring(&pups, death_pos, radius, None);
     for p in &pups {
         assert!(p.flying, "a {unit} flies");
-        assert!(p.pos.dist2(death_pos) <= (radius as i64) * (radius as i64));
     }
     assert_eq!(pups.iter().map(|p| (p.pos.x, p.pos.y)).collect::<BTreeSet<_>>().len(), pups.len(), "six distinct points");
+}
+
+#[test]
+fn a_battle_rams_barbarians_land_on_the_axis_to_the_tower_it_hit() {
+    // THE MEASURED CASE (calibration spawner.DEATH_SPAWN_LAYOUT = facing_ring): the
+    // corpus's two Battle Ram deaths put the two Barbarians at +-DeathSpawnRadius on
+    // the axis from the death point to the tower the ram was hitting -- capture
+    // 20260920-003751 t1153: the ram at (6635, 27823) with the king tower at 26.5
+    // degrees, its Barbarians at (+539, +263) and (-539, -263), i.e. +-597 along
+    // that axis and 54 across; capture 20260920-002736 t5033 the same at 83.7
+    // degrees. The old grid arm laid them across the facing instead, 300-500 native
+    // off each.
+    //
+    // The ram is the clean scene: it dies on its own hit (combat.KAMIKAZE_DEATH), so
+    // it is standing still in the tick it dies in and the death point is exact.
+    let mut s = bare(config());
+    let ds = death_spawn(&s, "BattleRam");
+    let unit = unit_name(&s, ds.unit);
+    let radius = ds.radius.expect("data: the Battle Ram has a DeathSpawnRadius");
+    assert!(card_stat(&s, "BattleRam").kamikaze, "data: the Battle Ram is a Kamikaze");
+    let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", blue_spot(&s), None).unwrap();
+    let mut aim = None;
+    let mut death_pos = None;
+    for _ in 0..600 {
+        let seen = s.entity(ram).map(|e| (e.pos, e.target));
+        s.tick();
+        if s.entity(ram).is_none() {
+            let (pos, target) = seen.expect("the ram existed the tick before it died");
+            death_pos = Some(pos);
+            aim = target.map(|t| s.entity(t).unwrap().pos.sub(pos));
+            break;
+        }
+    }
+    let (death_pos, aim) = (death_pos.expect("the ram never died"), aim.expect("the ram died without a target"));
+    s.tick();
+    let barbs = find_live(&s, Team::Blue, &unit);
+    assert_eq!(barbs.len(), ds.count as usize, "the ram's death spawn");
+    assert_on_the_ring(&barbs, death_pos, radius, Some(aim));
 }
 
 #[test]
@@ -726,7 +824,29 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         v["spawner"][key]["value"] = serde_json::Value::from(to);
         serde_json::to_string(&v).unwrap()
     };
-    for (key, from, to) in [("LIMIT_RULE", "skip_unit_keep_cadence", "hold_until_room"), ("DEATH_SPAWN_LAYOUT", "engine_grid_within_radius", "ring_at_radius")] {
+    // DEATH_SPAWN_LAYOUT = engine_grid_within_radius (the earlier arm): the
+    // two Golemites sit on the engine's square grid across the owner's frame, not on
+    // the facing axis, so the pair's axis turns by the angle between them.
+    {
+        let ring = {
+            let mut s = bare(config());
+            let pos = blue_spot(&s);
+            let golem = s.scenario_spawn_now(Team::Blue, "Golem", pos, None).unwrap();
+            let (_, death) = kill_and_settle(&mut s, golem);
+            s.tick();
+            let g = find_live(&s, Team::Blue, "Golemite");
+            (g[0].pos.sub(death), g.len())
+        };
+        let mut s = bare(with_calib(|c| c.death_spawn_layout = DeathSpawnLayout::EngineGridWithinRadius));
+        let pos = blue_spot(&s);
+        let golem = s.scenario_spawn_now(Team::Blue, "Golem", pos, None).unwrap();
+        let (_, death) = kill_and_settle(&mut s, golem);
+        s.tick();
+        let g = find_live(&s, Team::Blue, "Golemite");
+        assert_eq!((g.len(), ring.1), (2, 2), "vacuous: the two arms did not both spawn the pair");
+        assert_ne!(g[0].pos.sub(death), ring.0, "engine_grid_within_radius: the same point as the facing ring");
+    }
+    for (key, from, to) in [("LIMIT_RULE", "skip_unit_keep_cadence", "hold_until_room"), ("DEATH_SPAWN_LAYOUT", "facing_ring", "ring_at_radius")] {
         let err = Calib::from_json(&json(key, from, to)).err().unwrap_or_else(|| panic!("{key} = {to} loaded"));
         assert!(err.contains(key) && err.contains("no engine implementation"), "{key}: {err}");
     }

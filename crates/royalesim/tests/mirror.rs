@@ -523,17 +523,35 @@ fn mirror_check_rejects_the_reflection() {
 // cast at (x, y) has a Red twin at the rotation, on the SAME tick -- both seats'
 // spells materialise in one Spawn phase and land in one Projectile phase.
 
+/// The tick call on which a Blue Fireball cast at `impact` on tick 0 lands, played
+/// on a scratch battle: the flight is distance / (Speed x
+/// time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK) and the key moved 15 -> 18 when
+/// the live arrows were measured, so the scenarios that need a unit DEPLOYING at
+/// the impact derive their deploy tick from it instead of carrying a number.
+fn fireball_arrival(impact: Vec2) -> u32 {
+    let mut s = BattleState::new(9, symmetric_config());
+    s.spawn_unit(Team::Blue, "Fireball", impact, None).unwrap();
+    for k in 1..200u32 {
+        s.tick();
+        if s.spells().is_empty() {
+            return k;
+        }
+    }
+    panic!("the Fireball never landed");
+}
+
 #[test]
 fn mirror_fireballs_land_on_each_others_troops_on_one_tick() {
     // Each seat's Fireball lands on the other seat's Knight and Minions, which deploy
     // a few ticks before; one Knight stands EXACTLY on the impact (no radial direction:
     // the zero-vector rule, which must use the caster's forward axis), and a Giant
     // (IgnorePushback) takes damage only. Plant: zero_vector_plus_y.
+    let deploy = fireball_arrival(t(900, 1900)) - 10;
     let units = [
         Unit { card: "Fireball", at: (900, 1900), tick: 0 },
-        Unit { card: "Knight", at: (900, 1300), tick: 26 },
-        Unit { card: "Minions", at: (1000, 1250), tick: 26 },
-        Unit { card: "Giant", at: (750, 1350), tick: 26 },
+        Unit { card: "Knight", at: (900, 1300), tick: deploy },
+        Unit { card: "Minions", at: (1000, 1250), tick: deploy },
+        Unit { card: "Giant", at: (750, 1350), tick: deploy },
     ];
     let (s, eng) = run_mirror("fireball_cross", &units, true, symmetric_config(), Some(400));
     assert!(eng.troop_damaged, "fireball_cross: the Fireballs hit nothing: {eng:?}");
@@ -547,10 +565,11 @@ fn fireball_cross_really_lands_on_a_deploying_knight_at_the_impact() {
     // by exactly the caster-forward push.
     let mut s = BattleState::new(9, symmetric_config());
     let impact = t(900, 1900);
+    let deploy = fireball_arrival(impact) - 10;
     s.spawn_unit(Team::Blue, "Fireball", impact, None).unwrap();
     let mut before: Option<(Vec2, bool)> = None;
     for k in 0..60u32 {
-        if k == 26 {
+        if k == deploy {
             s.spawn_unit(Team::Red, "Knight", impact, None).unwrap();
         }
         let flying = !s.spells().is_empty();

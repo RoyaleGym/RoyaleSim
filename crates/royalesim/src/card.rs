@@ -405,6 +405,16 @@ pub struct CardDef {
     /// Always present (zeros are the columns' blanks); `count` above stays the
     /// primaries' SummonNumber.
     pub formation: FormationDef,
+    /// ProjectileStartRadius, SUBTILES (0 = blank): a projectile is born this far
+    /// from the attacker's centre toward the target and takes its first step the
+    /// next tick (calibration combat.PROJECTILE_LAUNCH; the tower arrows 300, the
+    /// Musketeer's 450). Read by combat.rs `fire`.
+    pub projectile_start_radius: i32,
+    /// Kamikaze: the unit dies on its own hit -- gone on the tick a melee hit lands
+    /// or its projectile launches (calibration combat.KAMIKAZE_DEATH). Battle Ram,
+    /// the Spirits, Wall Breakers. FALSE when KamikazeTime > 0 (the delayed death
+    /// of the 2018 SkeletonBalloon): a named gap, see `convert`.
+    pub kamikaze: bool,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else silently retires the
@@ -551,6 +561,11 @@ struct RawCard {
     spawn_radius_milli: Option<i32>,
     /// characters.csv SpawnAngleShift, degrees (Bat 45).
     spawn_angle_shift_deg: Option<i32>,
+    /// characters.csv ProjectileStartRadius, millitiles (the tower arrows 300).
+    projectile_start_radius_milli: Option<i32>,
+    /// characters.csv Kamikaze / KamikazeTime.
+    kamikaze: Option<bool>,
+    kamikaze_time_ms: Option<i32>,
 }
 
 /// cards.json `second_summon` block.
@@ -905,6 +920,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         jump: None,
         level_base: None,
         formation: FormationDef::default(),
+        projectile_start_radius: 0,
+        kamikaze: false,
     }
 }
 
@@ -1370,6 +1387,15 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         spawn_angle_shift_deg: raw.spawn_angle_shift_deg.unwrap_or(0),
         second_summon,
     };
+    // KAMIKAZE (combat.KAMIKAZE_DEATH = at_fire): the death ON the fire is
+    // implemented. A DELAYED one (KamikazeTime, the 2018 SkeletonBalloon's 500 ms)
+    // is not, and the column is NOT taken for such a card: it keeps attacking,
+    // which is the behaviour the engine had before the key and is a NAMED GAP (the
+    // key's `engine` field, docs/mechanics.md), not a silent substitution. Not a
+    // refusal at load: a refusal drops the whole card over one unmodelled detail,
+    // the way building lifetime decay never did, and it would drop a card the
+    // format-3 rotation fixture is fingerprinted against (tests/stacked_tie.rs).
+    let kamikaze = raw.kamikaze.unwrap_or(false) && raw.kamikaze_time_ms.unwrap_or(0) <= 0;
     let no_deploy_size = match raw.no_deploy_size_tiles {
         Some([w, h]) if w > 0 && h > 0 => Some(Vec2::new(tiles(w), tiles(h))),
         Some(other) => return Err(format!("no_deploy_size_tiles {other:?} is not two positive tile counts")),
@@ -1431,6 +1457,8 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         jump,
         level_base,
         formation,
+        projectile_start_radius: milli(nonneg(raw.projectile_start_radius_milli, "projectile_start_radius_milli")?),
+        kamikaze,
     }, display, units))
 }
 
