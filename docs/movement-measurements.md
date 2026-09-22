@@ -6,8 +6,8 @@ traces of the real client (Clash Royale 15.535.29). This is the primary source b
 `pathfinder-spec.md`, which turns these measurements into an implementation contract.
 
 The traces carry one frame per 50 ms tick of a real battle. No number below comes from a
-community engine or from an argument. Where a claim is *not* measured — and several of the ones
-that get repeated loudest are not — it says so.
+community engine or from an argument. Where a claim is *not* measured (and several of the ones
+that get repeated loudest are not), it says so.
 
 The model the engine selects today was measured a client version later, on 16.402, and is in
 `pathfinding.md`. It supersedes the search and the contact law described here; the frame, the
@@ -47,8 +47,8 @@ its true sample size. Figures below are stated over units or over first-paths, n
 
 ## 3. How it was measured
 
-Four independent analyses — timing and the speed law; node encoding and consumption; occlusion
-geometry and cost; the full A* fit — were each re-measured from scratch by an independently
+Four independent analyses (timing and the speed law; node encoding and consumption; occlusion
+geometry and cost; the full A* fit) were each re-measured from scratch by an independently
 written implementation, with the loaders, decoders, integer arithmetic and Dijkstra rewritten so
 that a shared bug could not hide in all four. The analysis is read-only and reads this repo's
 `data/oracle-native/` and `data/raw/` (`ROYALESIM_DATA_DIR` overrides).
@@ -79,8 +79,8 @@ intermediate position and fitting the per-sub-step speed **freely** over 1..400:
 | n = 2..5 | **none, for any card** |
 
 Independently: `DeployTime / 50` equals `first_move_tick − first_seen_tick` for 149 of
-150 units (the exception is a recording-window artefact — that trace's first recorded
-frame is already tick 114), and tower-damage gaps are whole ticks at 50 ms for every card
+150 units (the exception is a recording-window artefact: that trace's first recorded
+frame is already tick 114). Tower-damage gaps are whole ticks at 50 ms for every card
 with a `HitSpeed` in the corpus (Knight 1200 → 24, MiniPekka/HogRider 1600 → 32, Giant
 1500 → 30, Golem 2500 → 50).
 
@@ -88,7 +88,7 @@ with a `HitSpeed` in the corpus (Knight 1200 → 24, MiniPekka/HogRider 1600 →
 
 **A note on the ledger's counter-argument.** `time.TICK_MS`'s `disagreement.60_TPS_16.67ms`
 says PhoenixNoRespawn's `DeployTime = 733 ms` "is 44 ticks at 60Hz (733.33) but 14.66 at
-20Hz". 733 / 16.667 = 43.98, not 44 — the argument needs 733.33 and the shipped value is
+20Hz". 733 / 16.667 = 43.98, not 44. The argument needs 733.33 and the shipped value is
 733. Scanning every millisecond duration in `csv_logic/characters/*.toml`, only 7 values
 are not multiples of 50, and one of them (Lightning `HitSpeed = 460`) is a whole number
 of ticks at *none* of 50, 33.3 or 16.67 ms. "Shipped durations are whole ticks" is void
@@ -113,11 +113,11 @@ table, leaves exactly one survivor per card. Every unit of a given card fits the
 So one `Speed` unit is one native unit per 50 ms tick, i.e. tiles/s = `Speed`/50. At
 18000 subtiles per tile the multiplier is exactly **18**. The competing "Speed is
 tiles/minute" reading is the one that gives 15, and it predicts a Knight at 1.00 tiles/s
-against the measured 1.20 — a flat 20 % error on every unit in the game.
+against the measured 1.20. That is a flat 20 % error on every unit in the game.
 
 The scale check is genuine, not circular: in steady state the heading is never
 axis-aligned (the unit is steering back onto its column), so `S` is pinned by the exact
-integer step. A direction-free cross-check agrees — the modal pure-y displacement on
+integer step. A direction-free cross-check agrees. The modal pure-y displacement on
 ticks with `dx = 0` is (0, 60), (0, 90), (0, 120), (0, 52), (0, 54) for the respective cards.
 
 **Scope.** This is the *unbuffed base* speed at level 11. `csv_logic` is full of
@@ -162,7 +162,7 @@ ticks: floored-sqrt with truncating divide 1258/1258; nearest-integer sqrt 1179;
 sqrt-after-scaling-by-256 191; ceil 173; a +1 sqrt 76.
 
 The 256 is a normalisation, not a clamp. Because each axis truncates independently,
-`|dir|` legitimately ranges over 254.678..256.236 — the rounded magnitudes are {255, 256}
+`|dir|` legitimately ranges over 254.678..256.236. The rounded magnitudes are {255, 256}
 and 257 never appears. Do not renormalise.
 
 Worked example, Knight tick 121: `pos_120 = (3499, 8500)`, node 654 → cell (col 6,
@@ -170,7 +170,7 @@ row 18) → centre (3250, 9250), `d = (−249, 750)`, `isqrt(624501) = 790`,
 `(−249·256)//790 = −80`, `(750·256)//790 = 243` → observed `movement_direction = (−80, 243)`.
 
 Heading is **stateless**: a pure function of position and current node, recomputed from
-scratch each tick. It snaps — 71.57° in a single tick on a spawn tick. There is no
+scratch each tick. It snaps: 71.57° in a single tick on a spawn tick. There is no
 turn-rate limit *that binds*: no sample anywhere exceeds 71.57°, so a hypothetical cap
 above ~72°/tick would be invisible here. Implement it stateless; do not add inertia.
 
@@ -204,7 +204,7 @@ every card Supercell ships:
 | `Speed + floor(Speed·Wait/Stop)` | 52 | 54 | 69 | 52 | 52 |
 | `Speed + Mass − 11` | 52 | 54 | — | — | — |
 
-The real evidence for the duty-cycle reading is not the arithmetic — it is that the *same*
+The real evidence for the duty-cycle reading is not the arithmetic. It is that the *same*
 `Stop`/`Wait` numbers independently predict the observed pause cadence. That coupling is
 what should be cited. The rounding mode stays undetermined; `IceGolemite` (Speed 45,
 470/80 → 52.66) is the one shipped card that would separate floor (52) from round (53),
@@ -219,7 +219,7 @@ With `k = 0` on the unit's first moving tick and never reset, the unit is statio
 ```
 
 Both free choices are pinned, not asserted. Strict `>` beats `>=` (Giant 308/308 vs
-304/308; Golem 306/306 vs 294/306 — the Golem discriminates because `Stop = 1000` lands
+304/308; Golem 306/306 vs 294/306; the Golem discriminates because `Stop = 1000` lands
 exactly on the 50 ms grid), and `(k+1)` beats `k` (Giant 268/308, Golem 282/306). Every
 phase offset 0..T/50 was brute-forced; only offset 0 fits.
 
@@ -228,7 +228,7 @@ fifth cycle (74 ticks = 5 × 740 ms). Golem 20 moving, 3 stopped, then 21/3 on a
 period. Holds 100 % on 7 of the 8 unobstructed Giant traces.
 
 Two corrections to figures that were circulating: the Giant's duty cycle is **9 stop ticks
-per 74**, duty 0.8784, long-run mean **45.68** units/tick against an observed 45.79 — so
+per 74**, duty 0.8784, long-run mean **45.68** units/tick against an observed 45.79. So
 the Giant *overshoots* `Speed = 45` by about 1.5 %, in the same direction as the Golem
 (47.25 model, 47.53 observed). The earlier "duty 0.8649 → 44.97, undershoots" figure is
 wrong. The 50 ms grid samples the pause window coarsely; the engine must reproduce `S`
@@ -241,8 +241,8 @@ and pushback still displace it during a freeze.
 
 ### 4.9 Where the movement laws stop
 
-The old domain statement — "the step law fails iff `avoidance_offset != 0`" — is **false**,
-and this is the most consequential correction in the whole pass.
+The old domain statement, "the step law fails iff `avoidance_offset != 0`", is **false**.
+This is the most consequential correction in the whole pass.
 
 Every step-law failure in the corpus is one of three regimes, and **two of them set no
 flag at all**:
@@ -259,12 +259,12 @@ residual (observed step minus predicted step).
 
 Concrete witnesses. `walk/Skeletons_x3.5_y8.5_seed2.jsonl.gz` contains **three** skeletons, and
 a loader that latches the first non-tower entity sees only one of them. Skeletons #1 and #2 fail the step law on 54/137
-and 53/123 of their moving ticks and **no integer `S` in 1..400 fits either** — e.g. #1 at
+and 53/123 of their moving ticks and **no integer `S` in 1..400 fits either**. For example, #1 at
 t193 steps (−23, 88) where the law predicts (4, 89), a pure lateral push of (−27, −1)
 while |step| stays 87–92 for `S = 90`. In `meet/Knight_vs_HogRider_seed15` t204–t221 the
 Knight is pushed at up to 46 units/tick in the direction opposite to its own
 `movement_direction`. In `meet/Giant_vs_Giant_seed15` ticks 289–301, both Giants in
-`behavior_state` 1 with every flag clear, the separation is 1465–1501 units — exactly
+`behavior_state` 1 with every flag clear, the separation is 1465–1501 units, exactly
 2 × `CollisionRadius` 750.
 
 The honest domain is: **the movement laws hold for a unit that is not in contact with
@@ -276,7 +276,7 @@ hands the collision work a dataset that was not obviously there.
 Corpus-wide, `avoidance_offset` changes by only ±10 and ±190. Onsets are always 0 → ±190
 (23 negative, 13 positive; 36 runs total). But **only 20 of 36 runs shrink monotonically**:
 runs are 19 to 67 ticks long (median 21) against the 19 a pure decay implies, and 16 runs
-ramp back *up* by 10/tick before coming down — e.g. `lane_sweep_Knight/c02_r02` goes
+ramp back *up* by 10/tick before coming down. For example, `lane_sweep_Knight/c02_r02` goes
 −190, −180, … −20, −30, −40, … −70, −60, −50, … −10.
 
 It is a ±10-per-tick walk bounded at ±190, not a decay. "Set to ±190, decremented by 10
@@ -286,9 +286,9 @@ not a simple rotation: the ratio of heading error to `|avoidance_offset|` ranges
 
 Avoidance also perturbs speed slightly, contradicting "the unit still moves at exactly `S`":
 truncation toward zero can only shorten a step and `|dir| <= 256.24`, so `|step| <= 60.06`
-for `S = 60`; the measured maximum on avoidance ticks is 61.39, and 255 of 437 lane-sweep
-avoidance ticks exceed that ceiling. The magnitude histogram is {59: 60, 60: 276, 61: 101}
-— roughly ±2.3 %.
+for `S = 60`. The measured maximum on avoidance ticks is 61.39, and 255 of 437 lane-sweep
+avoidance ticks exceed that ceiling. The magnitude histogram is {59: 60, 60: 276, 61: 101},
+roughly ±2.3 %.
 
 ### 4.11 Deploy timing
 
@@ -305,7 +305,7 @@ gates the first attack.
 
 The spawn tick, not the command tick, is the anchor. The Golem's command is accepted at
 tick 113 rather than 100 because it waits on elixir (the header's `resource_before` shows
-elixir 8 against `card_cost` 8, versus elixir 7 / cost 3 for the Knight), and it spawns at
+elixir 8 against `card_cost` 8, versus elixir 7 / cost 3 for the Knight). It spawns at
 114, targets, paths and moves at 174. A rule written against the deploy tick fits the
 other five cards perfectly and is 14 ticks wrong on the Golem.
 
@@ -328,7 +328,7 @@ every width 8..128 in both row-major and column-major, scored by trajectory dist
 puts width-36 row-major at mean 120.6 units against 4613.3 for the runner-up.
 
 (An earlier decoder score based on point-to-polyline distance is nearly blind to the row
-offset — every walker moves almost due +y, so a 500-unit row shift costs almost nothing.
+offset. Every walker moves almost due +y, so a 500-unit row shift costs almost nothing.
 Record the segment-direction identity as the evidence, not that score.)
 
 Nodes are **absolute arena cells, not per-side**. Side-1 walkers decode in the same grid:
@@ -338,18 +338,18 @@ mean trajectory distance 118.4 and 141.1 units, against 10238 and 11484 for a
 ### 5.2 Ordering and shape
 
 The list is stored **goal-first**; the next waypoint is the **last** element, popped from
-the tail. Over ~486 000 adjacent pairs in the corpus, **zero** are not 8-neighbours — it
+the tail. Over ~486 000 adjacent pairs in the corpus, **zero** are not 8-neighbours. It
 is a contiguous cell chain with no smoothing or string-pulling.
 
 Paths are weakly monotone toward the goal: no recorded path in the corpus contains both a
 forward and a backward row step. (The 6334 apparent "southward" steps are all side-1
-walkers, whose goal is at low y.) They are *not* column-monotone — 1339 purely horizontal
+walkers, whose goal is at low y.) They are *not* column-monotone: 1339 purely horizontal
 steps occur, e.g. (2,15) → (3,15) and (10,29) → (9,29).
 
 The recorded path is **not anchored at the unit's cell**: the first recorded node sits
 at Chebyshev distance 2 from the unit's cell in 113 of 128 lane-sweep traces and distance
 1 in the other 15. That distance is a *consequence* of the consumption rule (5.3), not a
-rule of its own — a "drop the first two cells" rule gets the Giant wrong, because both
+rule of its own. A "drop the first two cells" rule gets the Giant wrong, because both
 `repath_Giant` first paths drop only one.
 
 Longest list observed: **46** nodes. The trace schema caps at 115 and no experiment here
@@ -367,7 +367,7 @@ the distance from the **post-move** position to the tail node's cell centre:
 | Terminal drops (list becomes empty) | 120 | 774.1 | 1436.1 |
 | Keeps | 27 824 | **1000.6** | — |
 
-**No single Euclidean threshold exists** — the drop maximum (1074.1) exceeds the keep
+**No single Euclidean threshold exists**. The drop maximum (1074.1) exceeds the keep
 minimum (1000.6). What *is* exact is one-sided:
 
 | Predicate | Missed drops | False drops |
@@ -384,7 +384,7 @@ minimum (1000.6). What *is* exact is one-sided:
 and fires late on 148 of 3731 drops (4.0 %), by at most 74 units. 60 of the 148 carry
 `avoidance_offset != 0`; the 88 with no flag span 1000.0–1030.4. The threshold is
 card-independent (best per-card fits: Knight 1003, Giant 1003, Golem 1001, HogRider 996,
-Skeletons 993) — it is one tile, not a function of `CollisionRadius` or `Speed`.
+Skeletons 993). It is one tile, not a function of `CollisionRadius` or `Speed`.
 
 **At most one node per tick.** Zero of 3851 tail-drop ticks dropped more than one.
 
@@ -394,12 +394,12 @@ systematic error histogram {−2: 148, −1: 102, +1: 102, +6: 91, +7: 15}, agai
 live Euclid. The earlier reading that the overshoot favours the counter is backwards.
 
 **The goal node is never walked onto.** It is dropped on the tick the unit enters
-`behavior_state` 2, still 1046.7–1436.1 units from the goal cell centre; across 116
+`behavior_state` 2, still 1046.7–1436.1 units from the goal cell centre. Across 116
 terminal pops, every one has `behavior_state != 2` on the previous tick and 2 on the pop
 tick, and none was within the 1000 standoff. The census of `(behavior_state, has_path,
-has_target)` has exactly four cells over 46 304 ticks — (1, T, T) walking, (2, F, T)
-attacking with the path cleared, (4, F, F) deploying, (1, F, F) the single transition tick
-— so the path clear and the state change are the same event.
+has_target)` has exactly four cells over 46 304 ticks: (1, T, T) walking, (2, F, T)
+attacking with the path cleared, (4, F, F) deploying, (1, F, F) the single transition tick.
+So the path clear and the state change are the same event.
 
 Because the unit turns a full tile before each node, **corners are cut**: closest approach
 to a corner node averages 152.9 units and reaches 395.5. That falls out of the 1000-unit
@@ -421,7 +421,7 @@ An independent check that does not fit one derived quantity to another: the angl
 Zero exceptions on the walk traces. It is the segment heading frozen at acquisition and is
 otherwise unused.
 
-`entity.x2 / y2` is exactly the previous tick's `(x, y)` — **49 333 / 49 333**, no
+`entity.x2 / y2` is exactly the previous tick's `(x, y)`, **49 333 / 49 333**, no
 exceptions. That makes the heading law checkable inside a single frame, and gives a
 trace-diff harness a free per-tick anchor.
 
@@ -436,17 +436,17 @@ Not a one-tick latch. The census over all 150 units:
 | True | 0 | 27 828 |
 | False | 0 | **0** |
 
-It sits high for the whole deploy phase and the whole attacking phase — 4004 runs of 1s,
+It sits high for the whole deploy phase and the whole attacking phase: 4004 runs of 1s,
 373 of them longer than one tick, the longest **257 ticks**. The reading that fits every
 tick is:
 
-> `path_node_consumed == 1` iff there is no segment currently being walked — i.e. the path
+> `path_node_consumed == 1` iff there is no segment currently being walked; i.e. the path
 > is empty, **or** the segment was (re)assigned this tick.
 
 The circulating rule "a recompute that leaves the last node unchanged must NOT set it" is
 inverted by the data: such recomputes split 95 with the flag set against 2 clear. Two of
 the four supposed exceptions are path *creations* (`repath_Giant/row11.5_dx±` at tick 121,
-previous list empty), where the rule cannot even apply, and every other creation in the
+previous list empty), where the rule cannot even apply. Every other creation in the
 corpus carries 1.
 
 ## 6. The pathfinder
@@ -459,13 +459,14 @@ columns, histogram `{0: 1386, 1: 309, 2: 309, 16: 104, 17: 36, 18: 36, 32: 112, 
 `data/derived/arena.json` except 12 cells that only *gain* marker bits: 256 at the two
 bridge centres (7,32) and (28,32), 512 at the arena centre (17,41) and (18,41), and 128 on
 eight cells. Adding 256 to the road set changes nothing, so the 2026-only bits are not
-pathfinding costs. Alignment is forced by geometry, not assumed: the bit-16 block spans
-cols 15–20 × rows 3–8, centred exactly on the side-0 king at (9000, 3000), and water
-occupies rows 30–33 with non-water columns 5–8 and 27–30 at the bridges.
+pathfinding costs. Alignment is forced by geometry, not assumed. Two things fix it: the
+bit-16 block spans cols 15–20 × rows 3–8, centred exactly on the side-0 king at
+(9000, 3000), and water occupies rows 30–33 with non-water columns 5–8 and 27–30 at the
+bridges.
 
 The cost grid is invariant under 180° rotation and under independent vertical and
 horizontal flips (0 mismatching cells), so a row- or column-orientation error when parsing
-is harmless for pathfinding — though it would matter if the lane bit 1-vs-2 distinction
+is harmless for pathfinding. It would matter, though, if the lane bit 1-vs-2 distinction
 ever becomes load-bearing.
 
 ### 6.2 Costs
@@ -493,7 +494,7 @@ distinguish a unit's own lane from the other one.
 
 **Water is effectively impassable to ground units.** `PATHFINDING_WATER_COST = 7` is in
 the shipped globals but modelling it that way makes 25 first-paths strictly dearer than
-the optimum — the oracle refused water shortcuts it would have taken. Cost 50 and a hard
+the optimum. The oracle refused water shortcuts it would have taken. Cost 50 and a hard
 block are indistinguishable here, as are cost 50 and a hard block for bit-16 terrain and
 for buildings: no oracle path ever needed to cross one.
 
@@ -511,14 +512,14 @@ A diagonal step costs **√2 × the entered cell's cost**. Sweeping the multipli
 | 2.0 | 96 |
 
 In exact rational arithmetic the zero-failure window is [1.38, 1.48], which contains √2.
-(Float rounding at 1e-6 produces a spurious 116/128 failure for √2 — use `Fraction` if
+(Float rounding at 1e-6 produces a spurious 116/128 failure for √2. Use `Fraction` if
 you re-check this.) The witnesses that kill the uniform diagonal are
 `lane_sweep_Knight/c00_r06`, `c08_r04` and `c10_r06`, each of which pays one or two extra
 steps to keep its diagonals scarce.
 
 This matters beyond pedantry: with a uniform diagonal, `road 5 / plain 8` and a flat cost
 8 classify every path identically, so the road discount is *unidentifiable*. Fix the
-diagonal and flat-8 fails 96 paths. The cost model is a **joint** fit — the road discount,
+diagonal and flat-8 fails 96 paths. The cost model is a **joint** fit. The road discount,
 the √2 diagonal and the occlusion set are each load-bearing for the others, and no
 per-axis sensitivity table is meaningful outside the winner.
 
@@ -547,7 +548,7 @@ Radius brackets, from the first-path optimality and blocked-but-used tests:
 The 500-unit cell quantum is why the brackets are wide: for a building on a tile centre,
 every R in (500, 1000] blocks the same cells. `R = CollisionRadius` is therefore
 *consistent with* the data and corroborated by three different shipped radii producing the
-three observed footprints under one unfitted rule — it is not independently measured to
+three observed footprints under one unfitted rule. It is not independently measured to
 scale with `CollisionRadius`.
 
 **Half-open, not closed.** A closed box blocks 57 cells the oracle's own paths use. The
@@ -555,14 +556,14 @@ discriminator is the *tower*, not the Cannon: for all five Cannon positions the 
 and closed boxes are identical (none of `x ± 600`, `y ± 600` is a multiple of 500), while
 the towers' radii 1000 and 1400 are exact multiples of the cell size.
 
-**No mover radius, no clearance pad — the term is exactly zero.** A pad of even **1
+**No mover radius, no clearance pad: the term is exactly zero.** A pad of even **1
 native unit** blocks 155 cells the oracle's own paths use, because `cx − R = 2500` lands
 exactly on a cell boundary for the princess towers and the Giant's control path runs up
 column 4 at rows 11–16. Cannon 600 + Giant 750 = 1350 would block the very column the
 `cannon_dx+0.0` detour takes. The Cannon alone brackets the pad to [0, 400]; including the
 towers pins it at 0.
 
-**The deployer's own towers must occlude** — without any occluders, 12 first-paths are
+**The deployer's own towers must occlude**: without any occluders, 12 first-paths are
 strictly dearer than the optimum.
 
 **`FRIENDLYONLY_OCCLUSIONS` is not measured here.** Adding the enemy towers as occluders
@@ -572,7 +573,7 @@ that "goal cells sit inside the enemy box, so enemy towers cannot occlude" is an
 equally by the goal-cell exemption below. The globals say `TRUE`; the traces are silent.
 
 **The goal cell is exempt from occlusion.** Four of 150 first-path goal cells lie inside a
-tower box — (6, 49) for MiniPekka and Skeletons, (7, 49) for Skeletons — and across all
+tower box: (6, 49) for MiniPekka and Skeletons, (7, 49) for Skeletons. Across all
 recorded lists 81 paths end inside an occlusion box, always as the final cell and never
 as an interior one. A planner that refuses occluded cells without exempting the goal finds
 no path at all for the short-reach cards.
@@ -580,7 +581,7 @@ no path at all for the short-reach cards.
 ### 6.5 The goal cell
 
 The returned list ends at the first cell on the path whose **centre** is within
-`Range + CollisionRadius` of the **target's centre point** — not its footprint, and not the
+`Range + CollisionRadius` of the **target's centre point**, not its footprint, and not the
 sum of both collision radii.
 
 Verified as a two-sided condition (goal in reach *and* its predecessor out of reach) on
@@ -607,10 +608,10 @@ Two caveats that belong with the rule:
    `k ∈ [−125.2, +24.8)`. Zero is inside that window; so are several other values.
 2. **The rule is necessary, not determinative.** It is a condition on the oracle's own last
    node, not a predictor of which cell the search will stop at. Between 12 and 52 cells per
-   sample satisfy it (median 32), and the oracle's goal cell is not the *cheapest*
+   sample satisfy it (median 32). The oracle's goal cell is not the *cheapest*
    reachable in-reach cell in 114 of 140 samples, with no cost ties among them. Handing an
-   A* the oracle's goal cell raises exact-sequence reproduction from 22/140 to 43/140 —
-   the goal cell is an output of the expansion order, not an independent rule.
+   A* the oracle's goal cell raises exact-sequence reproduction from 22/140 to 43/140.
+   The goal cell is an output of the expansion order, not an independent rule.
 
 For a target that is *below* the unit, the sign flips: the standoff is on the approach
 side. In `meet/Knight_vs_HogRider` ticks 250–273 the Knight's target sits below it and the
@@ -618,8 +619,8 @@ goal row is `cell_centre_y + reach`. An unconditional minus puts the goal on the
 of the target.
 
 The goal *column* is the unit's own column clamped into the target's collision box. The
-half-width is only bracketed to **(500, 1000]** by the traces — 750, 900 and 1000 score
-identically at 98.96 % per-tick — and 1000 is corroborated by `csv_logic/buildings.csv`
+half-width is only bracketed to **(500, 1000]** by the traces (750, 900 and 1000 score
+identically at 98.96 % per-tick). 1000 is corroborated by `csv_logic/buildings.csv`
 column 91, which gives `CollisionRadius` 1000 on every PrincessTower variant and 1400 on
 KingTower. Read it per target; do not hard-code 1000.
 
@@ -630,35 +631,35 @@ Across 150 units and 31 859 path ticks there are **150 structural recomputes**, 
 0.57, repath_Giant 1.03, meet 0.69). Every one is explained by exactly two triggers, and
 the rule was tested as a *prediction*, not a post-hoc label:
 
-**Trigger 1 — the goal cell moves.** 137 / 137 predicted goal-column flips are followed by
+**Trigger 1: the goal cell moves.** 137 / 137 predicted goal-column flips are followed by
 a replan, with **0** predicted flips that produce none and **0** replans without a
 predicted flip other than the two building drops. Lag histogram {1 tick: 128, 2 ticks: 9},
 mean 1.07. The flips happen as the unit crosses x = 3000, 3500, 4000, 14000, 15000 and the
 column clamp moves. The goal *row* never moves in any of the 139 recomputes.
 
 The trigger is not specific to the unit's own motion: in `meet/Knight_vs_HogRider` a Knight
-chasing a moving HogRider recomputes at ticks 169, 172, 176, 180, 185, 189 — gaps of
-3,4,4,4,5, which looks periodic until you classify them, and all six are goal-cell moves
+chasing a moving HogRider recomputes at ticks 169, 172, 176, 180, 185, 189, gaps of
+3,4,4,4,5. That looks periodic until you classify them, and all six are goal-cell moves
 driven by the target's motion.
 
-**Trigger 2 — a friendly building comes into existence.** Lag **0 ticks from the entity**,
+**Trigger 2: a friendly building comes into existence.** Lag **0 ticks from the entity**,
 +1 from the accepted command. In both `repath_Giant` traces the command is accepted at
 tick 160, the Cannon entity first appears in a frame at tick 161, and the Giant's path is
 already replanned in that same frame. An engine that waits a tick would be wrong.
 
 The two `repath_Giant` ticks are the strongest occlusion witness in the corpus and are easy to
 miss: a filter that looks for the node list *growing* skips tick 161
-(35 → 35 nodes) and picks up ticks 389 and 290 instead, by which point the Giant has
+(35 → 35 nodes) and picks up ticks 389 and 290 instead. By that point the Giant has
 walked past the Cannon and both paths are dead-straight single columns that any model
 reproduces. At tick 161 the two traces diverge in exactly the right way: with the Cannon at
-(3500, 11500) (box cols 5–8, rows 21–24) the route detours to column 4 for those rows; with
+(3500, 11500) (box cols 5–8, rows 21–24) the route detours to column 4 for those rows. With
 it at (2500, 11500) (box cols 3–6) the route swings out to column 7. Each path avoids its
 own box and violates the other's.
 
 The replan is **whole-route**, not a spliced local bypass: in the `building_Giant` traces
 the detour appears in the *first* path the unit is ever recorded with, ten rows (5 tiles) ahead of
-it, and in `repath_Giant/row11.5_dx+0.0` the replan changes rows 42–46, far beyond the
-obstacle. Which side it takes falls out of the cost, not a handedness constant — the two
+it. In `repath_Giant/row11.5_dx+0.0` the replan changes rows 42–46, far beyond the
+obstacle. Which side it takes falls out of the cost, not a handedness constant. The two
 informative offsets go opposite ways (dx+0 left at 210.28 vs 217.36; dx−1 right at 202.43
 vs 232.54), reproduced at a second y by the `repath_Giant` pair. Note that in both cases
 the cheaper side is also the least-lateral-deviation side, so the traces do not separate
@@ -680,7 +681,7 @@ replan" is a statement about *observable* path changes.
 first_path_tick = spawn_tick + DeployTime / TICK_MS
 ```
 
-Target acquisition, the first path and the first step all land on that same tick — 149/150
+Target acquisition, the first path and the first step all land on that same tick: 149/150
 units, with zero ticks anywhere in the corpus holding a non-empty path and a null target.
 The path is computed from the unit's **pre-move** position: the first surviving node is at
 Chebyshev distance 2 from the pre-move cell on 140/140 lane-sweep and walk units, but
@@ -693,29 +694,29 @@ holds a target throughout, as it drops in and out of the attacking state. The ga
 
 ### 6.8 What we still cannot reproduce: the node sequence
 
-The cost model is right — the oracle's path is exactly cost-minimal on **150 / 150**
-first-paths — but the exact node *sequence* is not reproduced. The best configurable A*
-reaches **22 / 140** exact matches (43/140 when handed the oracle's goal cell), and once
+The cost model is right: the oracle's path is exactly cost-minimal on **150 / 150**
+first-paths. But the exact node *sequence* is not reproduced. The best configurable A*
+reaches **22 / 140** exact matches (43/140 when handed the oracle's goal cell). Once
 the corpus is deduplicated to 76 distinct experiments the ceiling is **13 / 76**, of which
 6 are the walk traces (one start, one straight column) and 6 are a single lane-sweep
 column.
 
 The search space already explored: 5 heuristics × 5 queue tie-breaks × 8 neighbour orders
 × relax-on-`<` vs `<=`, forward and backward, goal as a reach test on pop and as a fixed
-cell with truncation — 400 configurations. Plus 640 more with open lists ordered by cell
+cell with truncation (400 configurations). Plus 640 more with open lists ordered by cell
 index ascending/descending, by `g` ascending/descending, and h-then-index (plausible shapes
 for a `REFRESH_OPENNODES` linked or array open list rather than a binary heap). The ceiling
 does not move.
 
 Where the optimum is ambiguous the oracle takes the orthogonal successor on 1568 of 1672
-steps (93.8 %) — but an `ortho_first` neighbour order still scores 22/140, so this is a
+steps (93.8 %). But an `ortho_first` neighbour order still scores 22/140, so this is a
 description of the output, not the rule. With the √2 diagonal, exact ties are rare, which
 means the residual error is not a classic tie-break at all. Something structural is
 missing: most likely the real open-list discipline, or a post-processing step.
 
 A typical failure: `c00_r08` agrees for 16 nodes, then the oracle moves from column 6 to
 column 5 at row 35 while the model stays on column 6. The switch row varies with the start
-cell for the same goal (row 35, 36, 37, 44, 48 for starts c00, c02, c04, c08, c06) — the
+cell for the same goal (row 35, 36, 37, 44, 48 for starts c00, c02, c04, c08, c06), the
 signature of an expansion-order artefact.
 
 ### 6.9 `path_nodes` is a post-tick snapshot
@@ -733,14 +734,14 @@ are explained exactly by a cell **1–2 rows nearer** in the same column:
 | unexplained | 2 |
 
 The list also *grew* across 47 of those ticks. The mechanism, verified tick by tick on
-`lane_sweep_Knight/c08_r12` t226–t228: the unit repaths at the start of the tick, the new
-path inserts one or two extra half-tile nodes below the old waypoint, the unit aims at the
+`lane_sweep_Knight/c08_r12` t226–t228: the unit repaths at the start of the tick and the new
+path inserts one or two extra half-tile nodes below the old waypoint. The unit aims at the
 nearest one and consumes it **within the same tick**, so that node appears in neither the
 `t−1` nor the `t` frame. At t227, `dir = (−173, 188) = norm256((3750, 16750) − (3998,
 16481))` exactly, and (3750, 16750) is cell 1195, absent from both lists.
 
 Two consequences. First, the heading law is **100 %**, not 99.54 %, and there is no
-bridge or `KS_POS_TO_TARGET` exception to chase — these ticks cluster on the river rows
+bridge or `KS_POS_TO_TARGET` exception to chase. These ticks cluster on the river rows
 only because that is where the bridge approach forces a repath. Second, and more
 importantly for anyone fitting a pathfinder: **the recorded `path_nodes` is a post-tick
 snapshot, a repath can insert nodes that never appear in any frame, and the effective
@@ -749,7 +750,7 @@ fitted to the recorded node lists is missing those insertions. (The step law hol
 142 of these ticks, so movement is untouched; the defect is purely "which node was
 current".)
 
-A large single-tick heading swing is sometimes attributed to proximity —
+A large single-tick heading swing is sometimes attributed to proximity:
 "31.57° with the unit 113.4 units from the node centre". The measurement's own output says
 1293.0 units for that sample, at which a 60-unit step can rotate the bearing by at most
 2.66°. The proximity story is arithmetically impossible; the cause is the mid-tick repath
@@ -758,8 +759,8 @@ a genuinely unchanged target node are consistent with the heading law at both ti
 
 ## 7. What survived, what did not
 
-Each analysis was re-measured from scratch by an independently written implementation — loaders,
-decoders, integer arithmetic and Dijkstra rewritten — so that a shared bug could not hide in all
+Each analysis was re-measured from scratch by an independently written implementation (loaders,
+decoders, integer arithmetic and Dijkstra rewritten), so that a shared bug could not hide in all
 four. The verdicts below are from that re-measurement, over all 150 units.
 
 ### Survived unchanged
@@ -810,15 +811,15 @@ four. The verdicts below are from that re-measurement, over all 150 units.
 
 The convenient loader latches the first non-tower entity of one side and follows only that one.
 It hides 107 step-law failures inside the `walk/Skeletons` trace, makes every opposing-side unit
-invisible, and skips the `meet/` directory entirely — the only traces with two mobile units, a
-moving target, or a side-1 walker. Enumerate `(side, generation_key)` pairs instead; it is fifteen
+invisible, and skips the `meet/` directory entirely. Those are the only traces with two mobile
+units, a moving target, or a side-1 walker. Enumerate `(side, generation_key)` pairs instead; it is fifteen
 lines.
 
 ## 8. Open questions
 
-Open as of this corpus. Items 1 and 2 have since been settled on client 16.402 — the expansion
-order is reproduced outright and the contact law is measured — and items 5, 6 and 9 were settled
-by the same captures; `pathfinding.md` carries all of them. The rest are open, and the experiment
+Open as of this corpus. Items 1 and 2 have since been settled on client 16.402 (the expansion
+order is reproduced outright and the contact law is measured), and items 5, 6 and 9 were settled
+by the same captures. `pathfinding.md` carries all of them. The rest are open, and the experiment
 each one needs is named.
 
 1. **The tie-break / expansion order.** 13/76 distinct experiments is the ceiling of a
@@ -867,15 +868,15 @@ each one needs is named.
 12. **`PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`.** No projectile flies in these traces. The
     troop side measuring Speed/50 is weak supporting evidence for 18 on projectiles too,
     given the 2023 frame test that measured ×1.2 for both a Musketeer projectile and a
-    Giant — but it is not measured.
+    Giant. But it is not measured.
 13. **Path length cap.** The schema allows 115; the longest route these deploys can produce
     is 46. No experiment in the corpus can reach the cap.
 
 ## 9. Using this in the engine
 
-The implementation contract derived from these measurements — grid, costs, heuristic, occlusion,
-goal, per-tick update order, node consumption, replan triggers and the verification gates — is in
-`pathfinder-spec.md`, and section 10 of that file maps each rule onto the ledger key that carries
+The implementation contract derived from these measurements (grid, costs, heuristic, occlusion,
+goal, per-tick update order, node consumption, replan triggers and the verification gates) is in
+`pathfinder-spec.md`. Section 10 of that file maps each rule onto the ledger key that carries
 it.
 
 The regression gates these measurements support, in increasing strictness:
@@ -885,7 +886,7 @@ The regression gates these measurements support, in increasing strictness:
    tick (walk: 239, 307, 305, 164, 121, 106 ticks; zero drift; identical final positions).
 3. The node-consumption predicate never fires early across the 27 824 keep-ticks.
 4. Goal truncation holds two-sided on all 150 first-paths.
-5. Exact node sequences — out of reach for this model (13/76), gated on the 16.402 arm instead
+5. Exact node sequences: out of reach for this model (13/76), gated on the 16.402 arm instead
    (`pathfinding.md`).
 
 ## 10. Reproducing
