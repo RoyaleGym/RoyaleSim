@@ -162,25 +162,32 @@ The seed defaults to 1, so you get the same battle every time and only the timin
 
 ## How fast is it?
 
-**About 65,000 battles per hour on a laptop.**
+**Six worker processes get you about four times what one does, and one core is already fast
+enough that the engine is not your problem.**
 
-That laptop is a 4-core i7 with 8 GB of RAM, and other programs were running at the time.
-Battles per hour, by how many worker processes you run:
+The scaling is the durable half of this, so it goes first. Measured on a 4-core laptop:
 
-| workers | battles / hour |
-|---|---|
-| 1 | 16,100 |
-| 2 | 31,100 |
-| 4 | 49,300 |
-| 6 | 65,200 |
+| workers | speed-up over one worker | how close to perfect |
+|---|---|---|
+| 1 | 1.00x | |
+| 2 | 1.93x | 97% |
+| 4 | 3.06x | 77% |
+| 6 | 4.05x | 67% |
 
 Each worker is just a Python process with its own copy of the engine. There is nothing else in
 the loop: no phone, no copy of the game, no virtual machine, nothing to wait for over a network.
-So if your computer has more cores you get more battles. A desktop with 16 cores will go several
-times faster than the numbers above.
+That is why adding processes adds throughput at all, and the fall-off past four is the four
+cores running out.
 
-What that means in practice: a bot that needs a million battles to get good is a fifteen-hour
-run, not a fortnight. You can start one before bed and read the result at breakfast.
+Those ratios should hold roughly on your machine. The absolute rate will not, so treat this one
+as an illustration rather than a promise: on that laptop, with other programs running, one
+worker did about 16,100 three-minute battles an hour and six did about 65,200. A quiet machine
+does better and a busy one does much worse. We have watched the same measurement move by a
+factor of two on this hardware inside a single evening, which is why the table above is ratios.
+
+What that means in practice: you are looking at overnight rather than a fortnight, on a
+laptop, for a run of the size people usually reach for. Nobody has trained a bot with this yet,
+so that is arithmetic on the battle rate rather than experience of a real run.
 
 ## How accurate is it?
 
