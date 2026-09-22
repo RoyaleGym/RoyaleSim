@@ -182,8 +182,12 @@ taking different routes under this arm, against 0 under the frame-planned one. T
 reproduces that; `NavRequest.team` lets `plan_cells` un-rotate a Red request.
 
 The rotation-mirror gates (`tests/mirror.rs`, `tests/setup_spawn_order.rs`, and the env layer's
-rotation tests through `SymmetricRustEngine` / `Battle(path_search="trace_fitted_astar")`) run
-under the frame-planned arm, so they keep catching seat bias in everything else.
+rotation tests through `SymmetricRustEngine` / `Battle(path_search="trace_fitted_astar",
+ground_y_clamp="deploy_column_range_own_frame")`) run under the frame-planned arm and the
+own-frame summon clamp, so they keep catching seat bias in everything else. The clamp belongs in
+that list for the same reason the search does: `formation.GROUND_Y_CLAMP` is measured per side,
+so a multi-unit GROUND summon's members are not the rotation of their twin's under the shipped
+arm either (`architecture.md`, "Selectable model arms").
 
 One consequence worth knowing: `mechanics.rs::opposing_giants_pass_each_other_on_a_bridge`
 deadlocked as soon as the search became the client's, because both Giants take the *same* bridge

@@ -79,7 +79,7 @@ compiles two of these files in, a build can go stale against the files on disk; 
 ## Selectable model arms
 
 Where the engine has two implementations of one law, the ledger selects which one runs, and both
-stay compiled and tested. Three such choices matter today:
+stay compiled and tested. Four such choices matter today:
 
 - `pathfinding.PATH_SEARCH` — `client16402` (`path16402.rs`, the search measured on client
   16.402) is selected; `trace_fitted_astar` (`path2026.rs`) is the earlier frame-planned arm,
@@ -89,8 +89,12 @@ stay compiled and tested. Three such choices matter today:
 - `match.TICK_ORDER` — `client16402` (`lib.rs::TICK_PHASES`, attack updates before move updates,
   the move pass in `Entities::creation_seq` order) is selected; `legacy_move_before_attack`
   (`LEGACY_TICK_PHASES`) is the refuted order, kept compiled and tested.
+- `formation.GROUND_Y_CLAMP` — `client16402_deploy_column_range` is selected: a multi-unit
+  summon's GROUND members are held inside the tap column's deployable y range, and that range is
+  measured per SIDE, so side 1's is not the rotation of side 0's. `deploy_column_range_own_frame`
+  reads side 0's formula in the owner's frame for both seats, and `none` drops the clamp.
 
-The earlier arm is not dead code kept out of sentiment: it is seat-symmetric, and the
+The alternative arm is not dead code kept out of sentiment: it is seat-symmetric, and the
 seat-symmetry gates (`tests/mirror.rs`, `tests/setup_spawn_order.rs`, and the rotation tests in
 the env layer) run under it so that they keep catching seat bias in everything else. See
 `pathfinding.md`, "Seats and frames".
@@ -103,10 +107,16 @@ favour one side of the board. `tests/mirror.rs` checks this every tick over scri
 games, including multi-unit deploys, the centre column, and both seats casting the same spell on
 the same tick.
 
-The one deliberate exception is routing. The client plans in **absolute arena coordinates**, so a
-Red unit's route is not the rotation of its Blue twin's; the engine reproduces that under the
-`client16402` arm, and the rotation gates run under the frame-planned arm instead. This is a
-measured property of the game, not an engine convenience — `pathfinding.md` gives the evidence.
+Two laws are deliberate exceptions, and both are measured properties of the game rather than
+engine conveniences. Routing: the client plans in **absolute arena coordinates**, so a Red unit's
+route is not the rotation of its Blue twin's; the engine reproduces that under the `client16402`
+arm, and the rotation gates run under the frame-planned arm instead — `pathfinding.md` gives the
+evidence. The summon ground clamp (`formation.GROUND_Y_CLAMP`): the deployable y range a
+multi-unit summon's ground members are held inside is measured per side and side 1's is not the
+rotation of side 0's, so a Red multi-unit GROUND deploy is not the rotation of its Blue twin
+either. Flying members and single-unit cards are untouched by the clamp and are. The rotation
+gates select `deploy_column_range_own_frame` for the same reason they select the frame-planned
+search: so that the exception does not answer for everything else.
 
 ## Module map
 
@@ -145,8 +155,10 @@ The crate itself has no Python dependency and builds alone.
 - **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
   `cards.json` order — the 15.535.29 table holds 144 cards (101 troops, 16 buildings, 27 spells)
   and 334 units, and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
-  the rest with the reason. `path_search="trace_fitted_astar"` selects the frame-planned arm (see "Selectable model
-  arms"); the default is the ledger's `pathfinding.PATH_SEARCH`.
+  the rest with the reason. `path_search="trace_fitted_astar"` selects the frame-planned arm and
+  `ground_y_clamp="deploy_column_range_own_frame"` the own-frame summon clamp (see "Selectable
+  model arms"); each defaults to the ledger's value, `pathfinding.PATH_SEARCH` and
+  `formation.GROUND_Y_CLAMP`.
 - **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
   `tower_positions`), so a learner's action mask is the engine's own answer rather than a

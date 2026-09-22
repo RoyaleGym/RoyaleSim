@@ -163,6 +163,9 @@ pub struct Battle {
     /// An override of calibration pathfinding.PATH_SEARCH for every battle this
     /// object starts (None = the ledger's value).
     path_search: Option<crate::state::PathSearch>,
+    /// An override of calibration formation.GROUND_Y_CLAMP for every battle this
+    /// object starts (None = the ledger's value).
+    ground_y_clamp: Option<crate::state::GroundYClamp>,
     state: Option<BattleState>,
 }
 
@@ -492,14 +495,38 @@ impl Battle {
     /// caster_forward, tests/common `symmetric_config()`): the shipped ladder is the
     /// game's and has two absolute-frame points (the zero-vector direction by id
     /// parity, the water teleport's tie), so the seat-symmetric arm is the pair.
+    ///
+    /// `ground_y_clamp`: None = the ledger's formation.GROUND_Y_CLAMP, the measured
+    /// arm "client16402_deploy_column_range". It holds every GROUND member of a
+    /// multi-unit summon inside the tap column's deployable y range, and that range
+    /// is measured PER SIDE: side 1's is not the rotation of side 0's -- one native
+    /// unit tighter at the river, half a row shorter at the back edge -- which is
+    /// what the game does. The corpus settles it: a Red rear pair stands 261 native
+    /// units from where the rotated formula would put it, and only the per-side
+    /// range predicts the side it is actually on. A multi-unit ground card's members
+    /// are therefore not the rotation of their twin's, on purpose; flying members
+    /// and single-unit cards are untouched by the clamp and are.
+    /// "deploy_column_range_own_frame" reads side 0's formula in the OWNER's frame
+    /// for both seats. It is not the game's clamp; it exists so that a rotation gate
+    /// can measure the seat symmetry of EVERYTHING ELSE without the per-side range
+    /// answering for the whole battle (tests/common `symmetric_config()` selects it
+    /// for the Rust seat-symmetry gates, and the env layer's symmetric engine wants
+    /// the same). "none" drops the clamp entirely.
     #[new]
-    #[pyo3(signature = (card_names, slot_of_k, path_search = None))]
-    fn new(card_names: Option<Vec<String>>, slot_of_k: [[i32; 3]; 2], path_search: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None))]
+    fn new(card_names: Option<Vec<String>>, slot_of_k: [[i32; 3]; 2], path_search: Option<String>, ground_y_clamp: Option<String>) -> PyResult<Self> {
         let path_search = match path_search.as_deref() {
             None => None,
             Some(name) => Some(
                 crate::state::PathSearch::from_calibration_name(name)
                     .ok_or_else(|| PyValueError::new_err(format!("path_search {name:?} has no engine implementation")))?,
+            ),
+        };
+        let ground_y_clamp = match ground_y_clamp.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::GroundYClamp::from_calibration_name(name)
+                    .ok_or_else(|| PyValueError::new_err(format!("ground_y_clamp {name:?} has no engine implementation")))?,
             ),
         };
         let db = CardDb::load_repo().map_err(|e| PyRuntimeError::new_err(format!("cards.json: {e}")))?;
@@ -532,7 +559,7 @@ impl Battle {
             }
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, state: None })
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -664,6 +691,9 @@ impl Battle {
                 cfg.calib.knock_stacking = crate::state::KnockStacking::VectorSum;
                 cfg.calib.knock_zero_vector = crate::state::KnockZeroVector::CasterForward;
             }
+        }
+        if let Some(gc) = self.ground_y_clamp {
+            cfg.calib.formation_ground_y_clamp = gc;
         }
         match shuffle {
             0 => cfg.shuffle_decks = false,
