@@ -146,10 +146,13 @@ table and the `--vintage 2018` one. The run above used 15.535. If your hitpoints
 route does not, nothing is wrong.
 
 To watch a battle instead of reading numbers, run `python tools\watch_battle.py --open`. It plays a
-random three-minute match, runs five checks on it and opens a self-contained HTML page that you can
-scrub tick by tick. The five checks are: it replays hash for hash, both sides deployed and fought,
-the arena matches, ground units stayed mostly dry, and the page holds every frame. The whole thing
-takes under two seconds end to end (1.4 s on 2026-09-21).
+three-minute match with both sides deploying at random, runs five checks on it and opens a
+self-contained HTML page that you can scrub tick by tick. The five checks are: it replays hash for
+hash, both sides deployed and fought, the arena matches, ground units stayed mostly dry, and the
+page holds every frame. The whole thing takes under two seconds end to end (1.4 s on 2026-09-21).
+
+The seed defaults to 1, so you get the same battle every time and only the timings move. Pass
+`--seed N` for a different one.
 
 ## How fast is it?
 
