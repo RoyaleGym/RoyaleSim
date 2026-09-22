@@ -1,14 +1,15 @@
 # The calibration ledger
 
 `data/calibration.json` holds every physics constant the engine runs on, and each one carries how
-well it is known. Nothing in the Rust core or in the Python layer may hardcode a number that
-appears in this file.
+well it is known. Read this page before you rely on one of those constants or change one. It tells
+you what an entry means, how far to trust it, and which keys are still open. Nothing in the Rust
+core or in the Python layer may hardcode a number that appears in this file.
 
 ## Why it exists
 
 This project's predecessor spent weeks trying to make pathfinding match the real game. The cause
-was not difficulty: plausible numbers and measured numbers were stored the same way, so a wrong
-guess was indistinguishable from a fact, and later tuning absorbed the error instead of revealing
+was not difficulty. Plausible numbers and measured numbers were stored the same way, so a wrong
+guess was indistinguishable from a fact. Later tuning then absorbed the error instead of revealing
 it. A constant fitted to the one case anybody checked makes a wrong **law** read as right, on
 every board at once.
 
@@ -31,7 +32,7 @@ The ledger's job is to keep those two kinds of number apart, permanently and vis
 | Field | Meaning |
 |---|---|
 | `value` | what the engine runs on. Compiled into the crate; changing it needs a rebuild |
-| `status` | how the value is known — the vocabulary below |
+| `status` | how the value is known, from the vocabulary below |
 | `confidence` | HIGH / MEDIUM / LOW, and which *part* of a key is which when a source settles only part of it |
 | `candidates` | the other values the engine implements. `state.rs::pick` refuses a candidate string with no implementation, so a candidate is always runnable |
 | `provenance` | the evidence: the client version, the trace or capture, the counts |
@@ -46,13 +47,13 @@ The ledger's job is to keep those two kinds of number apart, permanently and vis
 | `disputed_existence` | the key names something no shipped data or recording shows exists; ranked with `guess`, because nobody has evidence either way |
 | `hypothesis` | an argument from the shape of the data, not an observation |
 | `community` | multiple independent third parties agree, with no primary source |
-| `datamined` | taken from shipped game data — state the file and the vintage |
+| `datamined` | taken from shipped game data. State the file and the vintage |
 | `measured` | observed in the real client by this project's own instruments |
 | `owner_ruling` | a maintainer's direct observation of the live client, quoted verbatim and dated |
 
 `owner_ruling` ranks **with** `measured`, not below it: a direct observation of the live client is
-a primary source, and the live client is the target. A ruling may settle only part of a key — the
-sign of a push but not its vector, say — in which case `confidence` names which half is which and
+a primary source, and the live client is the target. A ruling may settle only part of a key, the
+sign of a push but not its vector, say. In that case `confidence` names which half is which and
 a `promotion_rule` stays open for the rest.
 
 ## How far to trust the provenance
@@ -84,9 +85,9 @@ than tighter, and side 0's range is pinned by nothing at all, which the entry no
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 16 of
   the 49 `measured` entries name no rival at all, and 12 of those state no promotion criterion
-  either. In a file whose rule is that evidence is discrimination and never origin, a measured
-  key with no candidate list has recorded nothing that it was discriminated against. Some are
-  harmless (`time.TICK_MS` has no plausible rival); `pathfinding.PATH_GOAL_RULE` and
+  either. This file's rule is that evidence is discrimination and never origin. A measured key
+  with no candidate list has therefore recorded nothing that it was discriminated against. Some
+  are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
   `movement.CONTACT_DOMAIN` are exactly the kind of rule that should say what it beat. They
   are on the re-read list.
 - **Any specific number inside a provenance string is worth re-deriving before you build on
@@ -108,7 +109,7 @@ on which client version, and in which trace or capture.
 `oracle/calibrate.py` enforces the ordering. A value at `measured` or `owner_ruling` cannot be
 overwritten with a different value without `--supersede`, so a later result that disagrees with an
 earlier measurement is refused rather than applied quietly. Superseded readings stay in the
-entry's history instead of being deleted — an argument that loses to a measurement belongs beside
+entry's history instead of being deleted. An argument that loses to a measurement belongs beside
 what overturned it.
 
 After changing any `value`, rebuild: `..\.venv\Scripts\maturin develop --release`. Prose-only
@@ -125,17 +126,17 @@ Three bodies of evidence sit behind the `measured` entries:
 | Shipped game data | 2016-2018 vendored, 2023 cross-reference | `data/raw/` |
 
 Where the two clients disagree, **the live 16.402 client wins** and the entry says so: the target
-is the live game, not a frozen build. Shipped data from 2016-2018 is evidence, not spec — ground
-movement was rewritten on 2025-03-31, so anything pre-2025 about movement is archaeology until it
-is re-measured.
+is the live game, not a frozen build. Shipped data from 2016-2018 is evidence, not spec. Ground
+movement was rewritten on 2025-03-31, so anything pre-2025 about movement is archaeology until
+somebody re-measures it.
 
 `tools/oracle_diff.py` diffs the engine against a trace tick by tick;
 `crates/royalesim/tests/oracle2026.rs` gates the recorded first paths.
 
 ## Open keys and what would settle them
 
-Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unverified, which
-means the engine runs on a placeholder and the behaviour it produces is not evidence about the
+Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unverified. The
+engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
 disagree. Of the 148 keys with a status, 48 are `measured` and one is an `owner_ruling`.
@@ -156,13 +157,13 @@ disagree. Of the 148 keys with a status, 48 are `measured` and one is an `owner_
 | `knockback` (5 of 8 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW` and `ATTACK_RESET` are measured and `DIRECTION_ROLLING` is an `owner_ruling` |
 | `spells.*` (8 keys) | see `spell-spec.md` | guess / hypothesis, LOW | each key in `spell-spec.md` carries its own deciding observation |
 | `status.*` (stun and buff timing) | see `spell-spec.md` | community / hypothesis | likewise |
-| `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal — see `architecture.md`, Determinism |
+| `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
 
-The keys that carry the measured 2026 movement and pathfinding model — `time.TICK_MS`,
-`time.SPEED_TO_SUBTILES_PER_TICK`, `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`,
-`pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the `movement.*` section, and the cost, goal
-and replan keys — are at `measured`/HIGH. Their evidence is in `pathfinding.md` and
-`movement-measurements.md`.
+The keys that carry the measured 2026 movement and pathfinding model are all at `measured`/HIGH.
+They are `time.TICK_MS`, `time.SPEED_TO_SUBTILES_PER_TICK`,
+`time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`, `pathfinding.PATH_SEARCH`,
+`collision.CONTACT_LAW`, the `movement.*` section, and the cost, goal and replan keys. Their
+evidence is in `pathfinding.md` and `movement-measurements.md`.
 
 These keys were measured later, on the 16.402 corpus, and are `measured` too:
 

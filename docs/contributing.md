@@ -1,7 +1,8 @@
 # Working on the engine
 
-This file is the development loop: how to build, every gate and how to run it, how the test
-plants work, and the conventions the code follows. `README.md` has the one-time workspace setup.
+This page is for anyone changing the engine. It is the development loop: how to build, every gate
+and how to run it, how the test plants work, and the conventions the code follows. `README.md` has
+the one-time workspace setup.
 
 ## Build loop
 
@@ -13,8 +14,9 @@ cd RoyaleSim
 ..\.venv\Scripts\maturin develop --release     # ~1 min, fat LTO, ~1.5 GB RAM
 ```
 
-`maturin develop` installs into the active venv or, with none active, into a `.venv` found in the
-current or a parent directory. A venv under any other name needs `VIRTUAL_ENV` pointing at it.
+`maturin develop` installs into the active venv. With no venv active, it installs into a `.venv`
+found in the current or a parent directory. A venv under any other name needs `VIRTUAL_ENV`
+pointing at it.
 
 **Rebuild after data changes.** `data/calibration.json` and `data/derived/arena.json` are
 compiled in with `include_str!`, and the env layer's `RustEngine` refuses a build whose
@@ -37,9 +39,9 @@ must exist **before** the build: the crate `include_str!`s `arena.json`, and `ro
 `cards.json` and `globals.json`. `tools/extract_arena.py` and `extract_globals.py` read the tracked
 `data/raw/retroroyale-2018/` and need nothing beyond the standard library.
 `tools/extract_cards.py` defaults to the 15.535.29 card table, which needs
-`data/raw/cr-15.535.29/` — `tools/decode_sc_assets.py` run on a verified asset pack (Supercell's
-files, not redistributed). A checkout without that pack generates the card table from the tracked
-2018 files instead:
+`data/raw/cr-15.535.29/`. That directory comes from `tools/decode_sc_assets.py` run on a verified
+asset pack (Supercell's files, not redistributed). A checkout without that pack generates the card
+table from the tracked 2018 files instead:
 
 ```
 python tools\extract_cards.py --vintage 2018                                  # data\derived\cards-2018.json
@@ -47,8 +49,8 @@ python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json    # 
 ```
 
 Both runs are needed: the engine reads `cards.json`, and `tests/stacked_tie.rs` loads the same
-table again by its vintage name, refusing (never skipping) when it is absent. What a 2018-only
-checkout cannot do is score the three checks that are about the 15.535 table itself —
+table again by its vintage name, refusing (never skipping) when it is absent. A 2018-only
+checkout cannot score the three checks that are about the 15.535 table itself:
 `tests/levels.rs` (the level ladder against recorded `max_hp`), `tests/jump16402.rs` (the jump
 blocks of the Hog Rider, Prince and Dark Prince, which the 2018 columns give to the Hog alone) and
 `tools/check_data.py`'s live-level rows, which report themselves vacuous. Those three want the
@@ -58,7 +60,7 @@ care which vintage is loaded.
 The recorded traces in `data/oracle-native/` are not distributed; without them
 `tests/test_oracle_native_diff.py` skips and says so.
 
-The data directory is found by the env layer through `royalegym.protocol.data_dir()`
+The env layer finds the data directory through `royalegym.protocol.data_dir()`
 (`../RoyaleSim/data` from a sibling checkout, overridable with `ROYALESIM_DATA_DIR`).
 `tools/make_client16402_paths_fixture.py`, `make_client16402_jump_fixture.py`,
 `make_live_levels_fixture.py` and `make_replay_fixture.py` read the recordings from the folder
@@ -161,14 +163,15 @@ RoyaleViser plays (`python -m royaleviser battle.msgpack`). The five gates:
 It exits non-zero if any gate is red, so a green page is evidence rather than decoration.
 `--plant desync` (and five other plants: `--all-plants` runs them all) deliberately breaks the
 battle to prove each gate can still go red. With no usable extension module it prints `SKIPPED`
-and exits 2 — it never silently falls back to the
-mock engine, which is a different simulator; `--engine mock` is explicit and opt-in.
+and exits 2. It never silently falls back to the mock engine, which is a different simulator;
+`--engine mock` is explicit and opt-in.
 
-Its policy is uniform-over-legal-actions, so it says **nothing** about balance. What it cannot
-see is anything the trace does not record: troop projectiles, targets, attack timers and paths.
+Its policy is uniform-over-legal-actions: it picks each legal action as often as any other. So it
+says **nothing** about balance. What it cannot see is anything the trace does not record: troop
+projectiles, targets, attack timers and paths.
 
 Under `collision.CONTACT_LAW = client16402` the `dry` gate runs against
-`tests/common/mod.rs CLIENT16402_TOLERANCE`, because live units do stand on water cells — see
+`tests/common/mod.rs CLIENT16402_TOLERANCE`, because live units do stand on water cells. See
 "Invariants the game does not have" in `mechanics.md`.
 
 ## Plants
@@ -193,9 +196,9 @@ grep -rho 'clash_plant *= *"[a-z_0-9]*"' src tests | sed 's/.*= *//' | tr -d '"'
 Two rules go with them, and both were learned the hard way:
 
 - **A plant that lands on nothing is not a resting state.** If a plant stops failing its gate,
-  retire it out loud in the test header, naming what killed it, and replace it — do not leave it
+  retire it out loud in the test header, naming what killed it, and replace it. Do not leave it
   in place looking like proof.
-- **A checker that cannot fail is worse than no checker.** When a new gate is added, show the
+- **A checker that cannot fail is worse than no checker.** When you add a new gate, show the
   plant that reddens it *and* show that the existing gates stay green under that same plant;
   otherwise the new gate is certifying nothing the old ones did not already cover.
 
@@ -210,8 +213,8 @@ Two rules go with them, and both were learned the hard way:
   version, and in which trace.
 - **Comments carry facts and dates.** Match the surrounding style: the long-form `WHY / WHAT`
   headers on the Rust modules, sentence case in the ledger.
-- Module and tool names are referenced from the docs and from the env layer; renaming one is a
-  cross-repo change, not a local tidy-up.
+- The docs and the env layer reference module and tool names, so renaming one is a cross-repo
+  change, not a local tidy-up.
 - `data/raw/cr-*` (the decoded modern asset pack), `data/derived/` (generated) and
   `data/oracle-native/` (large traces) are gitignored and never committed.
   `data/raw/retroroyale-2018/` is tracked.

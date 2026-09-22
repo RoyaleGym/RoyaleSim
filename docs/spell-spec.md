@@ -1,9 +1,10 @@
 # Spell and knockback spec
 
-The five spells the engine implements — Fireball, Arrows, Zap, The Log and Goblin Barrel — card by
-card: where every number comes from, what the behaviour is in tick order, what is still unsettled,
-and the observation that would settle each one. `spell-spec.json` is the same content as
-structured data.
+This page is for contributors implementing or checking spell and knockback behaviour. It takes the
+five spells the engine implements (Fireball, Arrows, Zap, The Log and Goblin Barrel) card by card:
+where every number comes from, what the behaviour is in tick order, what is still unsettled, and
+the observation that would settle each one. `spell-spec.json` is the same content as structured
+data.
 
 **Verification status: partial.** Every `DATA`-tagged number was re-read mechanically against the
 vendored CSVs, by resolving the `table.Row.Column` citation carried in each source string:
@@ -12,10 +13,10 @@ vendored CSVs, by resolving the `table.Row.Column` citation carried in each sour
 |---|---|---|
 | MATCH | 29 | the cited vendored cell equals the claimed value |
 | BLANK | 8 | the cited cell is empty and the claim says blank/false/0 |
-| UNCHECKABLE | 26 | cites the 2023 cr-csv data, a wiki, or an official post — not vendored |
+| UNCHECKABLE | 26 | cites the 2023 cr-csv data, a wiki, or an official post; none of them is vendored |
 | FLAGGED | 5 | **none contradicts the vendored data.** 4 are LIVE-vintage values (Fireball pushback 1000 since 2022; Arrows damage per wave 48, per-arrow radius 1400, 10 arrows per wave) citing a 2023-data cell whose name also exists in 2018 (2018 values: 1800, 115, 4000, 15). 1 is Zap `MaximumTargets` blank = unlimited. |
 
-**The trap that exposes.** The spec tags both 2018-data and live-2026 numbers as `DATA`, and the file the engine reads is not tied to either. `CardDb::load_repo` opens `data/derived/cards.json` whatever vintage last landed there, and `data/derived/` is gitignored, so THE NAME DOES NOT CARRY THE VINTAGE. The published recipe (README) runs `extract_cards.py --vintage 2018 --out data\derived\cards.json`, so a clone without the client's asset pack has the 2018 tables under that name; `extract_cards.py` with no `--vintage` defaults to 15.535.29 and writes the LIVE 2026 tables under the same name. Read `provenance.vintage` inside the file rather than trusting its name. Note also that `globals.csv` and the fallback `rarities.csv` are `include_str!`d from `data/raw/retroroyale-2018/` unconditionally (`state.rs`, `card.rs`), so a checkout carrying the 15.535 cards is ALREADY a mix: live card stats against 2018 globals. Implement each mechanic **generally enough to express both** (e.g. Arrows as N waves of M sub-projectiles, not one 4000-millitile circle) and **feed it the 2018 data**, so a vintage mix cannot happen silently; record live values as calibration evidence, not as inputs, and carry the vintage beside every number.
+**The trap that exposes.** The spec tags both 2018-data and live-2026 numbers as `DATA`, and the file the engine reads is not tied to either. `CardDb::load_repo` opens `data/derived/cards.json` whatever vintage last landed there, and `data/derived/` is gitignored, so THE NAME DOES NOT CARRY THE VINTAGE. The published recipe (README) runs `extract_cards.py --vintage 2018 --out data\derived\cards.json`, so a clone without the client's asset pack has the 2018 tables under that name; `extract_cards.py` with no `--vintage` defaults to 15.535.29 and writes the LIVE 2026 tables under the same name. Read `provenance.vintage` inside the file rather than trusting its name. Note also that `globals.csv` and the fallback `rarities.csv` are `include_str!`d from `data/raw/retroroyale-2018/` unconditionally (`state.rs`, `card.rs`), so a checkout carrying the 15.535 cards is ALREADY a mix: live card stats against 2018 globals. Implement each mechanic **generally enough to express both** (e.g. Arrows as N waves of M sub-projectiles, not one 4000-millitile circle) and **feed it the 2018 data**, so a vintage mix cannot happen silently. Record live values as calibration evidence, not as inputs, and carry the vintage beside every number.
 
 Tags: `DATA` = shipped column (check which data), `COMMUNITY` = wiki/official post, `INFERENCE` = this spec's reading.
 

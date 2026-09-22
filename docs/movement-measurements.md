@@ -1,7 +1,8 @@
 # Movement and pathfinding: the offline measurements
 
-How the 2026 Clash Royale engine moves ground troops and plans their paths, measured on recorded
-traces of the real client (Clash Royale 15.535.29). This is the primary source behind the
+This page is for contributors who need the evidence behind the movement and pathfinding rules. It
+shows how the 2026 Clash Royale engine moves ground troops and plans their paths, measured on
+recorded traces of the real client (Clash Royale 15.535.29). It is the primary source behind the
 `pathfinding.*`, `time.*` and `movement.*` entries of `data/calibration.json`, and behind
 `pathfinder-spec.md`, which turns these measurements into an implementation contract.
 
@@ -9,8 +10,8 @@ The traces carry one frame per 50 ms tick of a real battle. No number below come
 community engine or from an argument. Where a claim is *not* measured (and several of the ones
 that get repeated loudest are not), it says so.
 
-The model the engine selects today was measured a client version later, on 16.402, and is in
-`pathfinding.md`. It supersedes the search and the contact law described here; the frame, the
+The model the engine selects today was measured on a later client version, 16.402, and is in
+`pathfinding.md`. It supersedes the search and the contact law described here. The frame, the
 units, the movement laws and the path representation are unchanged between the two.
 
 ## 1. Provenance
@@ -27,7 +28,7 @@ fresh battle and deploys after tick 100 (the game rejects a deploy before roughl
 ## 2. The corpus
 
 145 traces under `data/oracle-native/`, plus one orientation trace. Counting one unit per trace
-undercounts; enumerating **every `(side, generation_key)` pair** yields **150 units**, and the
+undercounts. Enumerating **every `(side, generation_key)` pair** yields **150 units**. The
 difference matters, because the extra units are exactly the ones that break the tidy laws.
 
 | Directory | Files | Units | What |
@@ -37,21 +38,22 @@ difference matters, because the extra units are exactly the ones that break the 
 | `building_Giant/` | 6 | 6 | Giant at (3.5, 3.5) with a friendly Cannon at (3.5+dx, 9.5), dx ∈ {−2,−1,0,+1,+2} plus control |
 | `repath_Giant/` | 2 | 2 | Giant at (3.5, 5.5); friendly Cannon dropped at (3.5+dx, 11.5) after 60 ticks |
 | `meet/` | 3 | 6 | Two mobile units. The only side-1 units and the only moving targets in the corpus |
-| `orient/` | 1 | — | Tower layout and deploy-legality probe grids |
+| `orient/` | 1 | none | Tower layout and deploy-legality probe grids |
 
 **The deploy command is clamped to the deployer's own half**, so the 128 lane-sweep files
 contain only **64 distinct experiments**: every `cNN_rRR` with `RR >= 14` lands at
 y = 14500, and nine files share the start (2499, 14500). Duplicates produce byte-identical
-paths, so no conclusion changes, but any "128/128" or "140/140" figure is roughly twice
+paths, so no conclusion changes. But any "128/128" or "140/140" figure is roughly twice
 its true sample size. Figures below are stated over units or over first-paths, not files.
 
 ## 3. How it was measured
 
-Four independent analyses (timing and the speed law; node encoding and consumption; occlusion
-geometry and cost; the full A* fit) were each re-measured from scratch by an independently
-written implementation, with the loaders, decoders, integer arithmetic and Dijkstra rewritten so
-that a shared bug could not hide in all four. The analysis is read-only and reads this repo's
-`data/oracle-native/` and `data/raw/` (`ROYALESIM_DATA_DIR` overrides).
+Four independent analyses cover timing and the speed law, node encoding and consumption,
+occlusion geometry and cost, and the full A* fit. Each one was re-measured from scratch by an
+independently written implementation. That rewrite covered the loaders, decoders, integer
+arithmetic and Dijkstra as well, so that a shared bug could not hide in all four. The analysis is
+read-only and reads this repo's `data/oracle-native/` and `data/raw/` (`ROYALESIM_DATA_DIR`
+overrides).
 
 Every number in sections 4-7 below comes from that final re-measurement unless it is attributed
 to one of the four analyses; section 10 lists what it covers.
@@ -92,7 +94,7 @@ says PhoenixNoRespawn's `DeployTime = 733 ms` "is 44 ticks at 60Hz (733.33) but 
 733. Scanning every millisecond duration in `csv_logic/characters/*.toml`, only 7 values
 are not multiples of 50, and one of them (Lightning `HitSpeed = 460`) is a whole number
 of ticks at *none* of 50, 33.3 or 16.67 ms. "Shipped durations are whole ticks" is void
-as an argument in either direction; that disagreement entry should be struck, not left
+as an argument in either direction. Strike that disagreement entry rather than leave it
 standing beside a measured value.
 
 ### 4.3 The Speed column is millitiles per tick
@@ -110,7 +112,7 @@ table, leaves exactly one survivor per card. Every unit of a given card fits the
 | 26000018 | **MiniPekka** | 1 | 90 | 90 | 165 / 165 = 100 % |
 | 26000021 | HogRider | 2 | 120 | 120 | 229 / 250 = 91.60 % |
 
-So one `Speed` unit is one native unit per 50 ms tick, i.e. tiles/s = `Speed`/50. At
+So one `Speed` unit is one native unit per 50 ms tick. That is, tiles/s = `Speed`/50. At
 18000 subtiles per tile the multiplier is exactly **18**. The competing "Speed is
 tiles/minute" reading is the one that gives 15, and it predicts a Knight at 1.00 tiles/s
 against the measured 1.20. That is a flat 20 % error on every unit in the game.
@@ -194,7 +196,7 @@ S = floor(Speed * (StopMovementAfterMS + WaitMS) / StopMovementAfterMS)
 Giant: `floor(45·740/640) = 52`. Golem: `floor(45·1200/1000) = 54`. Both correct.
 
 **But this is a two-point fit and it is not uniquely identified.** The Golem's exact
-value is 54.00000, so it discriminates no rounding mode at all; only the Giant's 52.03125
+value is 54.00000, so it discriminates no rounding mode at all. Only the Giant's 52.03125
 separates floor/trunc (52) from ceil (53). Two algebraically distinct rivals agree on
 every card Supercell ships:
 
@@ -202,7 +204,7 @@ every card Supercell ships:
 |---|---:|---:|---:|---:|---:|
 | `floor(Speed·(Stop+Wait)/Stop)` | 52 | 54 | 69 | 52 | 52 |
 | `Speed + floor(Speed·Wait/Stop)` | 52 | 54 | 69 | 52 | 52 |
-| `Speed + Mass − 11` | 52 | 54 | — | — | — |
+| `Speed + Mass − 11` | 52 | 54 | not given | not given | not given |
 
 The real evidence for the duty-cycle reading is not the arithmetic. It is that the *same*
 `Stop`/`Wait` numbers independently predict the observed pause cadence. That coupling is
@@ -252,7 +254,7 @@ flag at all**:
 | Avoidance | 1 | `avoidance_offset != 0` | ~940 | heading deflected, \|step\| within ±2.3 % of `S` |
 | Crowd separation | 1 | **none** | 137 | \|step\| ≈ `S`, lateral residual 15–28 units ⟂ to `movement_direction` |
 | Combat pushback | 2 | **none** | 36 | displacement 0.06–2.5 × `S`, can point *opposite* to `movement_direction` |
-| (one further case at `behavior_state` 4) | 4 | none | 1 | — |
+| (one further case at `behavior_state` 4) | 4 | none | 1 | not given |
 
 No field in the corpus records the contact impulse, so any push must be inferred from the
 residual (observed step minus predicted step).
@@ -357,7 +359,7 @@ comes close, so whether the engine truncates is untested.
 
 ### 5.3 Node consumption: a 1000-unit standoff, tested after the move
 
-The often-repeated description of this mechanism is "the unit reaches the node". It
+The often-repeated description of this mechanism is "the unit reaches the node". The unit
 does not. Measuring, for every consecutive tick pair with a structurally stable list,
 the distance from the **post-move** position to the tail node's cell centre:
 
@@ -365,7 +367,7 @@ the distance from the **post-move** position to the tail node's cell centre:
 |---|---:|---:|---:|
 | Ordinary drops (list still non-empty) | 3731 | 637.2 | **1074.1** |
 | Terminal drops (list becomes empty) | 120 | 774.1 | 1436.1 |
-| Keeps | 27 824 | **1000.6** | — |
+| Keeps | 27 824 | **1000.6** | not given |
 
 **No single Euclidean threshold exists**. The drop maximum (1074.1) exceeds the keep
 minimum (1000.6). What *is* exact is one-sided:
@@ -663,7 +665,7 @@ obstacle. Which side it takes falls out of the cost, not a handedness constant. 
 informative offsets go opposite ways (dx+0 left at 210.28 vs 217.36; dx−1 right at 202.43
 vs 232.54), reproduced at a second y by the `repath_Giant` pair. Note that in both cases
 the cheaper side is also the least-lateral-deviation side, so the traces do not separate
-those two hypotheses; only the *negative* claim (not a fixed handedness) is established.
+those two hypotheses. Only the *negative* claim (not a fixed handedness) is established.
 
 **Friendly troops trigger nothing.** In `meet/Knight_then_Giant_behind` a Giant walking
 directly behind a friendly Knight has 2 structural path changes in 316 path ticks. Troops
@@ -753,7 +755,7 @@ current".)
 A large single-tick heading swing is sometimes attributed to proximity:
 "31.57° with the unit 113.4 units from the node centre". The measurement's own output says
 1293.0 units for that sample, at which a 60-unit step can rotate the bearing by at most
-2.66°. The proximity story is arithmetically impossible; the cause is the mid-tick repath
+2.66°. The proximity story is arithmetically impossible. The cause is the mid-tick repath
 above. Across all 128 lane-sweep traces, **0 of 127** heading changes greater than 10° with
 a genuinely unchanged target node are consistent with the heading law at both ticks.
 
@@ -802,7 +804,7 @@ four. The verdicts below are from that re-measurement, over all 150 units.
 | "Enemy buildings demonstrably do not occlude" | **Not established.** Indistinguishable from friendly-only once the goal cell is exempt |
 | "The goal rule alone explains every observed goal cell" | **Overstated.** Necessary, not determinative: the goal cell is an output of the expansion order |
 | "The detour side is the cheaper side (5 offsets)" | **Overstated.** Only 2 of 5 offsets involve a detour at all, and in both the cost and least-deviation hypotheses agree |
-| "Giant duty 0.8649 → 44.97 units/tick, undershoots Speed 45" | **Wrong arithmetic.** 9 stop ticks per 74, duty 0.8784, mean 45.68 — it overshoots |
+| "Giant duty 0.8649 → 44.97 units/tick, undershoots Speed 45" | **Wrong arithmetic.** 9 stop ticks per 74, duty 0.8784, mean 45.68. It overshoots |
 | "The stomp schedule is exact" | **Scoped.** Exact for an unobstructed path-follower; a jostled Giant moves on 2 scheduled pause ticks |
 | "The stomp formula is solved (high confidence)" | **Scoped.** Two algebraically distinct rivals agree on every shipped card; rounding mode undetermined |
 | "117 heading failures are a river/bridge exception" | **Resolved.** All 142 are mid-tick repath insertions; the heading law is 100 % |
@@ -812,8 +814,8 @@ four. The verdicts below are from that re-measurement, over all 150 units.
 The convenient loader latches the first non-tower entity of one side and follows only that one.
 It hides 107 step-law failures inside the `walk/Skeletons` trace, makes every opposing-side unit
 invisible, and skips the `meet/` directory entirely. Those are the only traces with two mobile
-units, a moving target, or a side-1 walker. Enumerate `(side, generation_key)` pairs instead; it is fifteen
-lines.
+units, a moving target, or a side-1 walker. Enumerate `(side, generation_key)` pairs instead. It
+is fifteen lines.
 
 ## 8. Open questions
 

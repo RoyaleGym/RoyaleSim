@@ -1,5 +1,8 @@
 # Measured performance
 
+This page is for contributors who need to know how fast the engine runs. It collects the timing
+figures this repository has measured, with the conditions each one was measured under.
+
 All figures below were measured on one machine, single core, release build with overflow checks
 on. **Every one of them predates the current engine**: the engine-throughput tables are from
 **2026-09-13**, before the 16.402 search and contact law landed, and the Python-surface figures
@@ -63,4 +66,4 @@ Red 2 / Draw 1**, crowns `[0,0] [1,0] [0,1] [0,1] [3,0]`, final ticks 4800 (a dr
 overtime), 3600, 3738, 3600 and 3280 (a 3-crown instant win). Every gate green on all five.
 
 That is a smoke policy. It says nothing about balance, and nothing about whether any of it
-resembles Clash Royale — that is what the recorded traces are for.
+resembles Clash Royale. That is what the recorded traces are for.

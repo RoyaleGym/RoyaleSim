@@ -1,9 +1,10 @@
 # Pathfinding and contact on client 16.402
 
-This is the model the engine runs on: how the client chooses a route, how it prices the board, how
-often it replans, and how a unit's step is resolved against everything it touches. Every rule here
-was settled against recorded captures of client 16.402 and re-verified against the offline 15.535
-corpus; three independent reproductions of the search agree on every one of them.
+This page is for contributors working on the engine's path and contact code. It describes the
+model the engine runs on: how the client chooses a route, how it prices the board, how often it
+replans, and how it resolves a unit's step against everything that unit touches. Every rule here was settled
+against recorded captures of client 16.402 and re-verified against the offline 15.535 corpus.
+Three independent reproductions of the search agree on every one of them.
 
 Two companion files sit under it: `movement-measurements.md` is the offline evidence for the
 movement laws and the cost model, and `pathfinder-spec.md` is the implementation contract written
@@ -30,8 +31,8 @@ recorded routes:
 | Contact law: live unit-tick positions reproduced exactly | 240,389 / 242,232 = 0.99239 |
 
 The three live misses are units chasing a *moving* troop: the sample carries the previous tick's
-target position, so the goal cell the client picked is not recoverable from the trace. They are
-skipped **by name** in the gate so that a fourth one cannot hide behind them.
+target position, so the goal cell the client picked is not recoverable from the trace. The gate
+skips them **by name**, so that a fourth one cannot hide behind them.
 
 ## The search
 
@@ -54,8 +55,9 @@ Entered through the path request (below); implemented in `path16402.rs`.
 - The start cell is expanded before the loop, then closed. Each popped cell is closed and
   expanded, and the goal test runs **after** the expansion.
 - The result is the parent chain from the goal, **goal first**, stopping before the start cell.
-  The move component copies it verbatim, dropping consecutive duplicates only. Nothing trims the list before it is recorded: the "missing start-adjacent node" traces show is the first tick's ordinary
-  pop.
+  The move component copies it verbatim, dropping consecutive duplicates only. Nothing trims the
+  list before it is recorded. The "missing start-adjacent node" that traces show is the first
+  tick's ordinary pop.
 
 ## The cost field
 
@@ -126,8 +128,8 @@ The segment direction is then frozen from the new position toward the new last n
 (`normalize(..., 256)`). Flying units get a single node (the goal cell) and no search.
 
 **Building removal replans through the target change, not through the occluder flag.** When a
-building a unit was walking at dies, the target is cleared on that tick, the old path is held one
-tick with no target, and the new target (the tower) forces the new path on the next tick.
+building a unit was walking at dies, the target is cleared on that tick and the old path is held
+one tick with no target. The new target (the tower) then forces the new path on the next tick.
 
 ## The contact law
 
@@ -213,8 +215,8 @@ assertion.
   the open expansion-order item. The assertion fails if the set of diverging cases changes at all,
   so a second divergence cannot hide behind the first. Net of the three skipped cases, **743 of 744**
   are reproduced exactly. `tools/make_client16402_paths_fixture.py --check` reports whether the
-  fixture is in sync with the recordings; regenerating it re-scores the gate and is a deliberate
-  step, not a side effect.
+  fixture is in sync with the recordings. Regenerating it re-scores the gate, so it is a
+  deliberate step, not a side effect.
 - The contact law is gated by an equivalence test: 20,000 random crowded worlds stepped through
   both implementations, which must agree exactly on positions, facing, offsets, reached flags and
   dropped waypoints (20,000/20,000 on two seeds; about 16,000 of them with a nonzero offset and

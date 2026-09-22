@@ -2,9 +2,10 @@
 
 Measured 2026-09-21 on the whole corpus.
 
-The engine's claim is that it reproduces the game. This file is the measurement of that claim
-over every recorded battle the repository has. The script of what a player did is played through
-the engine, and the engine's per-tick state is scored against what the game then showed. It is a
+This page is for contributors who want to know how close the engine is to the game. The engine's
+claim is that it reproduces the game, and this file is the measurement of that claim over every
+recorded battle the repository has. The harness plays the script of what a player did through the
+engine, then scores the engine's per-tick state against what the game then showed. It is a
 property of the engine at this commit, not a record of a work pass; re-run the commands below and
 the tables come back.
 
@@ -36,12 +37,12 @@ Towers are scored too and they are easy: they do not move. Every headline number
 |---|---|
 | Client | Clash Royale 16.402 |
 | Recordings | 73 whole battles, one frame per 50 ms tick, both sides (not distributed) |
-| Card table | `data/derived/cards.json`, FNV-1a 64 `5a1dac3d2fb1b4a9` — the **15.535.29 LIVE** tables. The NAME does not carry the vintage (`data/derived/` is gitignored and `extract_cards.py` writes whichever vintage it was asked for to that one name), so the hash is what pins it: `cards-2018.json` is `2c4978693f313a1a`. |
+| Card table | `data/derived/cards.json`, FNV-1a 64 `5a1dac3d2fb1b4a9`, the **15.535.29 LIVE** tables. The NAME does not carry the vintage (`data/derived/` is gitignored and `extract_cards.py` writes whichever vintage it was asked for to that one name), so the hash is what pins it: `cards-2018.json` is `2c4978693f313a1a`. |
 | Engine card census | 97 loadable, 49 rejected, 9 summon-only, against the same card table |
 | Fixtures | 73, one per recording (a recording carrying more than one name contributes once) |
 | Whole battles playable | 25 |
-| Played as a prefix | 42 — the battle runs to its first deploy of a card the loader refuses |
-| Not played at all | 6 — every one of them a recording that begins after its battle began |
+| Played as a prefix | 42. The battle runs to its first deploy of a card the loader refuses |
+| Not played at all | 6. Every one of them is a recording that begins after its battle began |
 
 ```
 # 1. the engine's own card list, which decides a fixture's playability
@@ -59,8 +60,8 @@ cd crates/royalesim && cargo run --release --example replay_parity -- --all
 
 The fixtures and the census must be built against the card table the engine loads. A fixture
 built against another one classifies a unit as a spawn that the engine deploys, and the run
-scores the difference as the engine's error. Both carry the table's hash and both the manifest
-and the per-fixture report say when they disagree. The run below carries no such note.
+scores the difference as the engine's error. Both carry the table's hash, and the manifest and
+the per-fixture report each say when they disagree. The run below carries no such note.
 
 ## 3. The aggregate
 
@@ -125,7 +126,7 @@ does not yet place where the game places them.
 Each battle's **first divergence** is its first unit-tick past 1000 native or its first alive
 mismatch. The harness reads a cause at the onset, the first tick that unit's error passed 250.
 One cause per battle, so the table below ranks what goes wrong *first*, not what costs most
-in total; the unit-tick columns say how much of the corpus sits behind battles that begin that
+in total. The unit-tick columns say how much of the corpus sits behind battles that begin that
 way. 25 of the 67 battles never diverge at all (short prefixes, most of them).
 
 | cause | battles | no-tower unit-ticks | of them beyond 250 | share of the corpus' missed unit-ticks | within 250 |

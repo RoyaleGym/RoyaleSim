@@ -1,8 +1,9 @@
 # Mechanics: what is modelled, what is not, and what is known to be wrong
 
-A simulator is only useful if it is honest about its coverage. This file is that inventory. It is
-written against the engine as of 2026-09-21; where a number appears, it was measured, and the run
-that produced it is named.
+This page is the engine's coverage inventory. It tells you which mechanics the engine models, which
+it leaves out, and which ones are known to be wrong, so you can judge whether it fits what you are
+building. It is written against the engine as of 2026-09-21. Where a number appears, it was
+measured, and the run that produced it is named.
 
 Three things are worth stating up front, because they bound everything below:
 
@@ -23,7 +24,7 @@ Three things are worth stating up front, because they bound everything below:
 | Area | Where | Notes |
 |---|---|---|
 | Arena from the shipped 36x64 bitmask | `arena.rs` | water hard-blocks ground and is free for air under the earlier arm; priced rather than refused under the 16.402 arm (`pathfinding.md`) |
-| Troop territory | `arena.rs::deploy_zone`, `tests/territory.rs` | a troop may not be placed inside the closed rect of any **alive enemy** crown tower — King 18x16, Princess 11x21 tiles, centred on the tower (`arena.TERRITORY_MODEL`). The pocket after a princess falls is 8 half-rows past the far bank |
+| Troop territory | `arena.rs::deploy_zone`, `tests/territory.rs` | a troop may not be placed inside the closed rect of any **alive enemy** crown tower. That rect is King 18x16 tiles and Princess 11x21 tiles, centred on the tower (`arena.TERRITORY_MODEL`). The pocket after a princess falls is 8 half-rows past the far bank |
 | Entity storage, generational ids, spatial hash | `entity.rs` | the hash is verified against brute force |
 | Card loading and level scaling | `card.rs` | per-rarity multipliers from `rarities.csv`; projectile damage is authoritative over the character row |
 | Targeting | `target.rs` | edge-to-edge range, target lock once windup starts, keep-target hysteresis, lane/x default tower, building-only targeters, sight range |
@@ -34,9 +35,9 @@ Three things are worth stating up front, because they bound everything below:
 | Multi-unit deploy formation | `formation.rs`, `state.rs::formation_members` | the ring, line and spiral the corpus shows, with the per-member deploy stagger and the ground-column clamp (`formation.LAYOUT` / `DEPLOY_STAGGER` / `GROUND_Y_CLAMP`, measured). The old square grid stays runnable as the `engine_grid` arm. `tests/formations.rs` |
 | Deploy time | `state.rs` | units are inactive while `deploy_ms > 0` |
 | Hide (Tesla) | `state.rs::hide_pass`, `entity.rs::HideState`, `target.rs`, `combat.rs::resolve` | `HidesWhenNotAttacking` / `HideTimeMs` / `UpTimeMs` from `cards.json`: under at deploy end, rising for `UpTimeMs` when a targetable enemy is in sight, under again after `HideTimeMs` without a target; hidden = untargetable and immune (except lifetime expiry), stun and knockback pass over it. Rules the columns do not settle are the `hide.*` ledger keys, community-sourced. `tests/hide.rs` |
-| Periodic spawners, death spawn | `state.rs::spawner_pass`, `state.rs::phase_reap`, `card.rs::SpawnerDef` / `DeathSpawnDef` | the `Spawn*` / `DeathSpawn*` columns (huts, Witch, Dark Witch; Tombstone, Golem, Lava Hound, Battle Ram): waves on the data's cadence, one-tick emission latency, stun pauses the timer, `SpawnLimit` counts the spawner's own live units, death spawns on a ring of `DeathSpawnRadius` on the dying unit's facing (`spawner.DEATH_SPAWN_LAYOUT = facing_ring`, measured). Six `spawner.*` keys are measured -- EMISSION_TIMING, FIRST_WAVE, START_TIME_ORIGIN, SPAWNED_DEPLOY_TIME, DEATH_SPAWN_DEPLOY_TIME_DEFAULT, DEATH_SPAWN_LAYOUT; SPAWN_POINT, PAUSE_ANCHOR, LIMIT_RULE and DEATH_SPAWN_RADIUS_DEFAULT are still community / hypothesis / guess. `tests/spawner.rs` |
-| Death area effect (Ice Golem) | `state.rs::phase_reap`, `spell.rs::cast`, `card.rs::convert_area_effect` | `DeathAreaEffect` names a row of `cards.json`'s `area_effect_objects`. The death leaves that area standing where the unit stood, and it runs the engine's own area-effect path — the same object, the same disc test and the same buff a Zap gets. The Ice Golem's is a 2-tile disc that hangs a 30 % slow on enemies for 2 s and carries no damage of its own. It is a **second** effect of the same death, beside the `DeathDamage` disc: the two carry their own radius, damage and crown percent, and the Super Ice Golem ships them with different values for each. Refused areas are refused card and all, with the reason (the Rage Barbarian's and the Suspicious Bush's are spawn scripts). `tests/death_area_effect.rs` |
-| Death bomb (Balloon, Giant Skeleton, Bomb Tower) | `card.rs::convert_death_bomb`, `state.rs::phase_reap`, `spell.rs::step_spells` | Their `DeathSpawnCharacter` names a row with no hitpoints, no damage, no hit speed and no LifeTime — only `DeployTime` 3000, `DeathDamage` and `DeathDamageRadius`. That is not a unit, so it is not spawned as one: the death leaves **one area hit on a timer** at the point of death, carried by the same spell object an Arrows wave waits in. It is untargetable and blocks nothing, because it is not on the board at all. The impact is the engine's ordinary `DeathDamage` disc — enemies only, air and ground per the row, crown towers at the row's percent — with a fuse. The fuse is `DeployTime` and that is measured, not read off the column name: in capture `20260920-083112` (both seats) a level-11 Balloon's bomb takes 240 off a King Tower 1987 native units away **61 ticks** after its last live frame, and 240 is `BalloonBomb`'s `DeathDamage` 94 on the Common ladder at level 11. `DeathPushBack` (Giant Skeleton, 1800) is not carried into `cards.json` and is not applied, the same gap every other `DeathDamage` row has. `tests/death_bomb.rs` |
+| Periodic spawners, death spawn | `state.rs::spawner_pass`, `state.rs::phase_reap`, `card.rs::SpawnerDef` / `DeathSpawnDef` | the `Spawn*` / `DeathSpawn*` columns (huts, Witch, Dark Witch; Tombstone, Golem, Lava Hound, Battle Ram): waves on the data's cadence, one-tick emission latency, stun pauses the timer, `SpawnLimit` counts the spawner's own live units, death spawns on a ring of `DeathSpawnRadius` on the dying unit's facing (`spawner.DEATH_SPAWN_LAYOUT = facing_ring`, measured). Six `spawner.*` keys are measured: EMISSION_TIMING, FIRST_WAVE, START_TIME_ORIGIN, SPAWNED_DEPLOY_TIME, DEATH_SPAWN_DEPLOY_TIME_DEFAULT, DEATH_SPAWN_LAYOUT; SPAWN_POINT, PAUSE_ANCHOR, LIMIT_RULE and DEATH_SPAWN_RADIUS_DEFAULT are still community / hypothesis / guess. `tests/spawner.rs` |
+| Death area effect (Ice Golem) | `state.rs::phase_reap`, `spell.rs::cast`, `card.rs::convert_area_effect` | `DeathAreaEffect` names a row of `cards.json`'s `area_effect_objects`. The death leaves that area standing where the unit stood, and it runs the engine's own area-effect path. That is the same object, the same disc test and the same buff a Zap gets. The Ice Golem's is a 2-tile disc that hangs a 30 % slow on enemies for 2 s and carries no damage of its own. It is a **second** effect of the same death, beside the `DeathDamage` disc: the two carry their own radius, damage and crown percent, and the Super Ice Golem ships them with different values for each. Refused areas are refused card and all, with the reason (the Rage Barbarian's and the Suspicious Bush's are spawn scripts). `tests/death_area_effect.rs` |
+| Death bomb (Balloon, Giant Skeleton, Bomb Tower) | `card.rs::convert_death_bomb`, `state.rs::phase_reap`, `spell.rs::step_spells` | Their `DeathSpawnCharacter` names a row with no hitpoints, no damage, no hit speed and no LifeTime. It carries only `DeployTime` 3000, `DeathDamage` and `DeathDamageRadius`. That is not a unit, so it is not spawned as one: the death leaves **one area hit on a timer** at the point of death, carried by the same spell object an Arrows wave waits in. It is untargetable and blocks nothing, because it is not on the board at all. The impact is the engine's ordinary `DeathDamage` disc with a fuse: enemies only, air and ground per the row, crown towers at the row's percent. The fuse is `DeployTime` and that is measured, not read off the column name: in capture `20260920-083112` (both seats) a level-11 Balloon's bomb takes 240 off a King Tower 1987 native units away **61 ticks** after its last live frame, and 240 is `BalloonBomb`'s `DeathDamage` 94 on the Common ladder at level 11. `DeathPushBack` (Giant Skeleton, 1800) is not carried into `cards.json` and is not applied, the same gap every other `DeathDamage` row has. `tests/death_bomb.rs` |
 | Charge (Prince, Dark Prince, Battle Ram) | `state.rs::charge_pass`, `effective_speed`, `combat.rs::fire` | `ChargeRange` / `DamageSpecial` / `ChargeSpeedMultiplier`: the run-up accumulates `tdiv(L x 1000, ChargeRange)` permille per walking tick from the requested step `L = min(S, dist, 250)`, charged at 10000; the speed doubles from the next walking tick (measured on the corpus: the Prince's 43rd walking tick) and the next landed hit deals `DamageSpecial`; consumed by the hit, reset by a stun or a landed knockback. The `charge.*` keys hold what the corpus has not yet separated. `Kamikaze` is read (`combat.KAMIKAZE_DEATH = at_fire`): a Battle Ram dies on the tick its one hit lands and breaks into its two Barbarians; a delayed kamikaze (`KamikazeTime`) is the named gap. `tests/charge.rs` |
 | Stun | `entity.rs`, `state.rs`, `status.*` keys | honoured by move and attack; applied by Zap. Attack reset, retarget-on-resume and the deploy-pause question are each their own ledger key |
 | Status effects | `status.rs`, `state.rs::buff_pulse_pass` | a per-entity buff list: `SpeedMultiplier` and `HitSpeedMultiplier` compose into the move and attack arithmetic (`status.BUFF_STACKING`, `status.SAME_BUFF_REAPPLY`, `movement.BUFF_SPEED_COMPOSITION`), a full-stop buff drives the hold (`status.FULL_STOP_BUFF_IS_STUN`), and damage over time and heal pulse on their own clock (`status.BUFF_PULSE_AMOUNT` / `BUFF_PULSE_TIMING`), so Poison and Earthquake load as pulsing areas. `tests/status.rs` |
@@ -53,14 +54,14 @@ Three things are worth stating up front, because they bound everything below:
 
 ## Not modelled
 
-Each row says what a caller sees instead, which is what matters when you are deciding whether the
+Each row says what a caller sees instead. That is what matters when you are deciding whether the
 engine is usable for your purpose.
 
 | Mechanic | What happens instead |
 |---|---|
 | `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: a death spawn's units land on the facing ring and nothing pushes them apart or holds them off a minimum radius, so a crowded death point leaves them closer together than the game does |
 | Dash, morph, chained hits, multiple projectiles | absent, and so is the attack jump (Mega Knight, Assassin). The river hop IS modelled (`jump16402.rs`, `movement.JUMP_WATER_HOP`) |
-| Rage and Heal | refused by the loader, and out loud: neither card row carries an area effect or a projectile at all. Each works by summoning a bottle whose death releases an own-troop area, and the bottle has no hitpoints, so the engine will not put it on the board. A death that releases an area IS modelled (see the Modelled table); an area that buffs the releaser's own side is not — `impact` has no filter for it |
+| Rage and Heal | refused by the loader, and out loud: neither card row carries an area effect or a projectile at all. Each works by summoning a bottle whose death releases an own-troop area, and the bottle has no hitpoints, so the engine will not put it on the board. A death that releases an area IS modelled (see the Modelled table); an area that buffs the releaser's own side is not, because `impact` has no filter for it |
 | Evolutions, champions, tower troops | post-2023; no public data |
 | A troop's own projectile knockback (`Pushback` on the projectile row) | not read: a troop's projectile is loaded as speed, damage, splash radius and a buff, and nothing else. Bowler, Zappies and the Mega Knight's landing hit push in the game and do not here. A SPELL's knockback is read (`spell.rs`, the measured ladder) |
 | The splash layer filter (`AoeToAir` / `AoeToGround` on the projectile row) | not read: the engine filters a splash by the ATTACKER's `AttacksAir` / `AttacksGround` (`combat.rs`). The two agree on every card the slice reaches; they disagree on Wall Breakers, whose blast covers air in the data and only ground here (`tools/check_card_reads.py` names every row where they part) |
@@ -74,14 +75,14 @@ units. The engine loads every simulable non-tower card of it;
 not, with the reason. Some of the loaded cards carry a mechanic `card.rs` never parses, so an
 8-card deck drawn uniformly from the whole catalogue is much more likely than not to hold one.
 If you are picking decks programmatically, draw from `cards.json`'s own `thin_slice` key rather
-than from the catalogue — and parse it, never hand-copy it.
+than from the catalogue. Parse that key, never hand-copy it.
 
 `tools/check_data.py` asserts the *data* is present (it even asserts Prince's
 `charge.damage_special > 0`) without asking whether the engine reads it. The gate that asks the
-other question is `tools/check_card_reads.py` (`docs/contributing.md`): it builds the set of
-`cards.json` fields `card.rs` consumes, compares it both ways against what the data carries, fails
-when a thin-slice card carries an unread mechanic and reports per card over the rest of the
-catalogue. On the 15.535 table, 2026-09-22
+other question is `tools/check_card_reads.py` (`docs/contributing.md`). It builds the set of
+`cards.json` fields `card.rs` consumes and compares it both ways against what the data carries. It
+fails when a thin-slice card carries an unread mechanic, and it reports per card over the rest of
+the catalogue. On the 15.535 table, 2026-09-22
 (`python tools/check_card_reads.py`), **82 of the 95 loaded cards carry at least one column or key
 the loader never reads**, 69 of them outside the thin slice; a further 3 are flagged only by the
 coarser per-object pass. Inside the slice 13 of the 18 cards carry one, every one on the tool's
@@ -133,15 +134,16 @@ Both `spell::settle` and the static pass of `collide::separate` **add** the push
 every obstacle the unit's disc penetrates. Aligned pushes double-count; opposed pushes cancel, the
 4-round loop oscillates, and the whole knockback is dropped.
 
-The severity is smaller than "a Fireball throws a Knight across the river" and different in kind
-— the big throws reproduce identically under sum, deepest-single, clamp and sequential, so they
+The severity is smaller than "a Fireball throws a Knight across the river", and it is different in
+kind. The big throws reproduce identically under sum, deepest-single, clamp and sequential, so they
 come from the eject-fully-outside-then-iterate model chaining tower to Cannon, not from the
 summing. The summing's own measured signature, over 1,678,112 sampled pushes:
 
 - **7,040** resolve somewhere other than the deepest-single result,
 - up to **0.222 tile/tick** of static over-push (Giant between two Cannons at minimum legal
   separation),
-- **74** pushes silently cancelled — `settle` exhausts its rounds and returns the old position.
+- **74** pushes silently cancelled, because `settle` exhausts its rounds and returns the old
+  position.
 
 It happens without any scenario API: two Cannons at the minimum separation `check_deploy` allows
 leave **129** legal stand points where a Giant's disc penetrates both, and a Cannon legally placed
@@ -189,9 +191,9 @@ well because a parity run will meet it as an unexplained divergence otherwise.
 Three invariants the engine used to enforce were relaxed under the 16.402 arm, each because a
 measurement refutes it. They are listed here so nobody re-adds them as "obviously correct":
 
-- Troops may stand **inside a building footprint** — melee attackers do, because their goal cell
+- Troops may stand **inside a building footprint**. Melee attackers do, because their goal cell
   is within reach of the building's centre.
-- Troops may stand **on a water cell** — live troops do, for up to 1070 consecutive ticks, and
+- Troops may stand **on a water cell**. Live troops do, for up to 1070 consecutive ticks, and
   none is ejected anywhere in the corpus.
 - Crowds **overlap** more than the old tolerance allowed: live, more than 100% of the smaller
   radius for up to 42 consecutive ticks, and more than 50% for 207.
@@ -210,10 +212,10 @@ stays runnable under the same key, and the seat-symmetry gates use it.
 
 One part of the current model sits at `owner_ruling` rather than `measured` (see
 `calibration.md`). `knockback.DIRECTION_ROLLING = travel_direction` is HIGH confidence on the
-**sign** — no victim is ever pushed backward, toward the caster — and LOW on the **vector** for an
-off-axis victim: the
-code also asserts zero sideways component for a troop standing to the side of The Log's roll, and
-that half is unobserved. A single recording settles it.
+**sign** and LOW on the **vector** for an off-axis victim. The sign is settled: no victim is ever
+pushed backward, toward the caster. The vector is not. The code also asserts zero sideways
+component for a troop standing to the side of The Log's roll, and that half is unobserved. A
+single recording settles it.
 
 ## Open questions
 
@@ -235,13 +237,13 @@ These need a recording or a decision, not more code:
    300). Every other distance column in that file is millitiles and every time column is ms, and
    250 is neither under the file's own conventions. Worse, all three charge cards ship `Speed 60`,
    so the distance reading (250 centitiles = 2.5 tiles) and the time reading (250 centiseconds =
-   2.5 s) are algebraically degenerate in this data — both are 50 ticks. It is a calibration key
-   with candidates and a deciding observation, not a judgement call. What the shipped data *does*
-   settle: `DamageSpecial` is exactly 2x `Damage` on all three, matching `DashDamage` on Assassin
-   and Mega Knight where replacement is unambiguous, so the charged hit **replaces** rather than
-   adds; and `globals.csv` ships `CLONE_RESET_CHARGE=FALSE` and `CLONE_INHERIT_CHARGE=FALSE`, so
-   the shipped data distinguishes resetting charge from inheriting it, so charge survives across
-   the events those two flags name. The shipped data
+   2.5 s) are algebraically degenerate in this data. Both come out at 50 ticks. It is a
+   calibration key with candidates and a deciding observation, not a judgement call. What the
+   shipped data *does* settle: `DamageSpecial` is exactly 2x `Damage` on all three, matching
+   `DashDamage` on Assassin and Mega Knight where replacement is unambiguous, so the charged hit
+   **replaces** rather than adds. `globals.csv` ships `CLONE_RESET_CHARGE=FALSE` and
+   `CLONE_INHERIT_CHARGE=FALSE`, so the shipped data tells resetting charge apart from inheriting
+   it, and charge therefore survives across the events those two flags name. The shipped data
    also settles by absence that the charged hit has no special range, min-range, load time,
    post-hit pause, attack interval or knockback. Measured live on client 16.402: charge progress
    accumulates `tdiv(step * 1000, ChargeRange)` per walking tick with `step = min(S, dist, 250)`,

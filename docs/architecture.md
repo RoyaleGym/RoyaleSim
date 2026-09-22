@@ -1,5 +1,8 @@
 # Engine architecture
 
+This page is for contributors reading or changing `crates/royalesim`. It covers how one tick runs,
+where the engine's numbers come from, and which file holds what.
+
 `crates/royalesim` is a deterministic, integer-only reimplementation of the Clash Royale battle
 tick, written in Rust and exposed to Python through PyO3 as the extension module `royalesim`.
 It simulates the game and nothing else: it knows nothing about rewards, observations or training,
@@ -28,10 +31,10 @@ multiplication fails loudly instead of producing a plausible wrong position.
 Upkeep  Status  Spawn  Target  Attack  Path  Move  Projectile  Resolve  Reap  Judge
 ```
 
-Four ordering invariants are asserted by a unit test in `lib.rs`, because each one is a
-behaviour, not a preference:
+A unit test in `lib.rs` asserts four ordering invariants, because each one is a behaviour, not a
+preference:
 
-- **Attack precedes Move** (`match.TICK_ORDER = client16402`, measured) — the corpus
+- **Attack precedes Move** (`match.TICK_ORDER = client16402`, measured). The corpus
   discriminates the two orders and attack-before-move is the one that reproduces it: 819 ticks
   where a unit went from walking to attacking and none of them stepped, 412 of 413 the other way
   that walked the same tick, and 398 of 445 that stood still on the tick their deploy ended. The
@@ -72,7 +75,7 @@ Nothing in the crate hardcodes a number that belongs to data:
 | `data/derived/arena.json` | the arena grid and tower geometry | compiled in with `include_str!`; `arena.rs` |
 
 `calibration.json` is the ledger, and it is the subject of `calibration.md`. Because the crate
-compiles two of these files in, a build can go stale against the files on disk; the env layer's
+compiles two of these files in, a build can go stale against the files on disk. The env layer's
 `RustEngine` compares the compiled-in **values** with the files and refuses a stale build. See
 `contributing.md` for the rebuild rule.
 
@@ -81,15 +84,15 @@ compiles two of these files in, a build can go stale against the files on disk; 
 Where the engine has two implementations of one law, the ledger selects which one runs, and both
 stay compiled and tested. Four such choices matter today:
 
-- `pathfinding.PATH_SEARCH` — `client16402` (`path16402.rs`, the search measured on client
+- `pathfinding.PATH_SEARCH`: `client16402` (`path16402.rs`, the search measured on client
   16.402) is selected; `trace_fitted_astar` (`path2026.rs`) is the earlier frame-planned arm,
   refuted as a model of the client but kept runnable.
-- `collision.CONTACT_LAW` — `client16402` (`move16402.rs`, driven by `state.rs phase_path16402`)
+- `collision.CONTACT_LAW`: `client16402` (`move16402.rs`, driven by `state.rs phase_path16402`)
   is selected, beside the engine's earlier separation model.
-- `match.TICK_ORDER` — `client16402` (`lib.rs::TICK_PHASES`, attack updates before move updates,
+- `match.TICK_ORDER`: `client16402` (`lib.rs::TICK_PHASES`, attack updates before move updates,
   the move pass in `Entities::creation_seq` order) is selected; `legacy_move_before_attack`
   (`LEGACY_TICK_PHASES`) is the refuted order, kept compiled and tested.
-- `formation.GROUND_Y_CLAMP` — `client16402_deploy_column_range` is selected: a multi-unit
+- `formation.GROUND_Y_CLAMP`: `client16402_deploy_column_range` is selected. A multi-unit
   summon's GROUND members are held inside the tap column's deployable y range, and that range is
   measured per SIDE, so side 1's is not the rotation of side 0's. `deploy_column_range_own_frame`
   reads side 0's formula in the owner's frame for both seats, and `none` drops the clamp.
@@ -109,14 +112,14 @@ the same tick.
 
 Two laws are deliberate exceptions, and both are measured properties of the game rather than
 engine conveniences. Routing: the client plans in **absolute arena coordinates**, so a Red unit's
-route is not the rotation of its Blue twin's; the engine reproduces that under the `client16402`
-arm, and the rotation gates run under the frame-planned arm instead — `pathfinding.md` gives the
+route is not the rotation of its Blue twin's. The engine reproduces that under the `client16402`
+arm, and the rotation gates run under the frame-planned arm instead. `pathfinding.md` gives the
 evidence. The summon ground clamp (`formation.GROUND_Y_CLAMP`): the deployable y range a
-multi-unit summon's ground members are held inside is measured per side and side 1's is not the
-rotation of side 0's, so a Red multi-unit GROUND deploy is not the rotation of its Blue twin
-either. Flying members and single-unit cards are untouched by the clamp and are. The rotation
-gates select `deploy_column_range_own_frame` for the same reason they select the frame-planned
-search: so that the exception does not answer for everything else.
+multi-unit summon's ground members are held inside is measured per side, and side 1's is not the
+rotation of side 0's. So a Red multi-unit GROUND deploy is not the rotation of its Blue twin
+either. Flying members and single-unit cards are untouched by the clamp, so they are the rotation
+of their twins. The rotation gates select `deploy_column_range_own_frame` for the same reason they
+select the frame-planned search: so that the exception does not answer for everything else.
 
 ## Module map
 
@@ -153,7 +156,7 @@ The crate itself has no Python dependency and builds alone.
   not serialised by it. Bulk state crosses as one JSON byte string (`state_json()`), which the env
   layer decodes with msgspec's typed C decoder.
 - **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
-  `cards.json` order — the 15.535.29 table holds 144 cards (101 troops, 16 buildings, 27 spells)
+  `cards.json` order. The 15.535.29 table holds 144 cards (101 troops, 16 buildings, 27 spells)
   and 334 units, and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
   the rest with the reason. `path_search="trace_fitted_astar"` selects the frame-planned arm and
   `ground_y_clamp="deploy_column_range_own_frame"` the own-frame summon clamp (see "Selectable

@@ -1,5 +1,8 @@
 # RoyaleSim documentation
 
+These are the contributor reference pages for the engine. Each one goes deep on a single area, so
+pick the row that matches what you are doing.
+
 | File | What it covers |
 |---|---|
 | [architecture.md](architecture.md) | how the engine is built: representation, the tick, determinism, where the numbers come from, the module map |

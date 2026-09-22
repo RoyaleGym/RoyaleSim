@@ -1,13 +1,13 @@
 # Pathfinder and movement spec
 
-The implementation contract for the 2026 ground pathfinder and the movement laws around it,
-derived entirely from the offline traces of client 15.535.29. `movement-measurements.md` holds
-the evidence, the corpus and the provenance for every rule here; read it first if you want to
-know *why* a rule is what it is.
+This page is for contributors implementing the 2026 ground pathfinder and the movement laws
+around it. It is the implementation contract, derived entirely from the offline traces of client
+15.535.29. `movement-measurements.md` holds the evidence, the corpus and the provenance for every
+rule here. Read it first if you want to know *why* a rule is what it is.
 
 **Scope.** This spec describes the trace-fitted model (`path2026.rs`, ledger arm
 `trace_fitted_astar`). The arm the engine selects today is the search measured directly on client
-16.402, which supersedes sections 3, 4, 6 and 8 below; `pathfinding.md` is that model. The rest of
+16.402. It supersedes sections 3, 4, 6 and 8 below, and `pathfinding.md` describes it. The rest of
 this file (the grid, the units, path layout and ownership, the per-tick update and the deploy
 rules) still describes what the engine does, and the two models agree on it.
 
@@ -62,7 +62,7 @@ it to 2–3 % (x) or 74 % (y); widths 18/32/34/35/37/38/64/72 all score ≤ 0.08
 | 1 or 2 | lane / road | cost `«pathfinding.PATHFINDING_COSTS.road»` = 5 |
 | 32 | water | **impassable to ground units** |
 | 16 | arena edge + king-tower block | **impassable** |
-| 128, 256, 512 | 2026-only markers (8, 2 and 2 cells) | ignore — adding them to the road set changes nothing |
+| 128, 256, 512 | 2026-only markers (8, 2 and 2 cells) | ignore them. Adding them to the road set changes nothing |
 | otherwise | plain | cost `«…default»` = 8 |
 
 *Evidence:* histogram `{0: 1386, 1: 309, 2: 309, 16: 104, 17: 36, 18: 36, 32: 112,
@@ -119,14 +119,14 @@ Dijkstra), only the expansion order. That is exactly the thing we cannot yet rep
 **Rule 3.5. Admissibility trap.** If the goal is expressed as "any cell within reach of
 the target" (rule 6), the heuristic must point at the *goal set*, not at the target cell.
 An h computed to the target cell over-estimates the remaining cost to the actual goal by
-up to `reach/500 × 5`, which makes the first in-reach cell popped not the cheapest one.
+up to `reach/500 × 5`. The first in-reach cell popped is then not the cheapest one.
 Either subtract the reach from h, or take h as a min over the in-reach cells. One of the
 analysis scripts hit exactly this bug, and it manufactured some of its goal-cell mismatches.
 
 **Rule 3.6. Tie-breaking. UNVERIFIED, and known to be insufficient.** Where several
 successors are equally optimal, prefer the orthogonal one (1568 of 1672 ambiguous steps,
 93.8 %). **Treat this as a placeholder**: an `ortho_first` neighbour order still reproduces
-only 22/140 exact node sequences, and with the √2 diagonal exact ties are rare, so the
+only 22/140 exact node sequences. Exact ties are rare with the √2 diagonal, so the
 residual divergence is not a classic tie-break at all. Do not write a tie-break rule into
 `calibration.json` as settled. Keep the open list behind a trait so the discipline can be
 swapped (binary heap, index-ordered array, g-ordered, h-then-index have all been tried;
@@ -257,7 +257,7 @@ target's collision box, `target_x ± CollisionRadius(target)`. Read the radius f
 target's card data (PrincessTower 1000, KingTower 1400). Do **not** hardcode 1000.
 **Partly unverified:** the traces bracket the half-width only to (500, 1000]; 750, 900 and
 1000 score identically at 98.96 % per tick. The row half of the rule rests on six data
-points, one per card, all from one start and one approach direction; across all 139
+points, one per card, all from one start and one approach direction. Across all 139
 recomputes the goal row never moves.
 
 **Rule 6.5. Re-derive the goal cell every tick** and recompute the path only when the
@@ -345,8 +345,8 @@ do not record it as uniquely identified.
 
 Do **not** apply `WalkingSpeedTweakPercentage` to movement. It is animation only (the
 Golem carries both a 15 % tweak and a stop/wait, and 45 × 1.15 = 51.75 ≠ 54).
-`S` is the **unbuffed base**: `csv_logic` is full of `SpeedMultiplier` keys and the engine
-needs a multiplier entry point whose rounding is completely unmeasured.
+`S` is the **unbuffed base**. `csv_logic` is full of `SpeedMultiplier` keys, so the engine
+needs a multiplier entry point. Its rounding is completely unmeasured.
 
 **Rule 7.4. The stomp pause schedule.** Keep the unit's moving-tick index `k` (`k = 0` on
 its first moving tick, **never reset**) and skip the position update iff
@@ -490,7 +490,7 @@ insertions**. That is part of why rule 3.6 is still open.
 ## 10. The ledger keys this model carries
 
 Every rule above reaches the engine through `data/calibration.json`. The table maps each one onto
-its key and records what the measurement did to it; all of these are applied and at `measured` as
+its key and records what the measurement did to it. All of these are applied and at `measured` as
 of 2026-09-21. The ledger's promotion rules apply as always: a constant is promoted only by adding
 evidence, and a `measured` value cannot be overwritten with a different value without
 `--supersede`.
@@ -503,23 +503,23 @@ evidence, and a `measured` value cannot be overwritten with a different value wi
 | `pathfinding.REPATH_INTERVAL_TICKS` | 10, guess | `null` / event-driven, measured, HIGH | folklore constant removed |
 | `pathfinding.PATHFINDING_COSTS` | datamined | datamined + **application measured** | adds the √2 diagonal, the per-cell-entry rule, and water-impassable-for-ground |
 | `representation.SUBTILE_PER_TILE` | 18000, hypothesis, high | 18000, hypothesis, high | value and status unchanged; rationale confirmed |
-| `pathfinding.CELL_SIZE_NATIVE` | — | **new**, 500, measured, HIGH | 36 × 64 half-tile grid |
-| `pathfinding.WAYPOINT_ARRIVE_RADIUS` | — | **new**, 1000, measured, MEDIUM | one-sided exact; 4 % fire late |
-| `pathfinding.PATH_GOAL_RULE` | — | **new**, measured, MEDIUM | reach truncation; necessary not determinative |
-| `pathfinding.OCCLUSION_MODEL` | — | **new**, measured, HIGH | half-open AABB at `CollisionRadius`, no mover pad, goal exempt |
-| `pathfinding.PATH_NODE_ENCODING` | — | **new**, measured, HIGH | `row*36 + col`, centre `+250/+250` |
-| `movement.POSITION_ROUNDING` | — | **new**, measured, HIGH | per-axis truncate toward zero, remainder discarded |
-| `movement.HEADING_LAW` | — | **new**, measured, HIGH | `d*256 / floor(sqrt(|d|²))`, pre-move origin |
-| `movement.STOMP_SPEED_RULE` | — | **new**, measured, MEDIUM | rounding mode undetermined |
-| `movement.STOMP_PAUSE_SCHEDULE` | — | **new**, measured, HIGH | phase uniquely pinned |
-| `movement.DEPLOY_TIMING` | — | **new**, measured, HIGH | spawn-anchored |
-| `movement.CONTACT_DOMAIN` | — | **new**, measured, HIGH | scopes every movement law |
+| `pathfinding.CELL_SIZE_NATIVE` | not present | **new**, 500, measured, HIGH | 36 × 64 half-tile grid |
+| `pathfinding.WAYPOINT_ARRIVE_RADIUS` | not present | **new**, 1000, measured, MEDIUM | one-sided exact; 4 % fire late |
+| `pathfinding.PATH_GOAL_RULE` | not present | **new**, measured, MEDIUM | reach truncation; necessary not determinative |
+| `pathfinding.OCCLUSION_MODEL` | not present | **new**, measured, HIGH | half-open AABB at `CollisionRadius`, no mover pad, goal exempt |
+| `pathfinding.PATH_NODE_ENCODING` | not present | **new**, measured, HIGH | `row*36 + col`, centre `+250/+250` |
+| `movement.POSITION_ROUNDING` | not present | **new**, measured, HIGH | per-axis truncate toward zero, remainder discarded |
+| `movement.HEADING_LAW` | not present | **new**, measured, HIGH | `d*256 / floor(sqrt(|d|²))`, pre-move origin |
+| `movement.STOMP_SPEED_RULE` | not present | **new**, measured, MEDIUM | rounding mode undetermined |
+| `movement.STOMP_PAUSE_SCHEDULE` | not present | **new**, measured, HIGH | phase uniquely pinned |
+| `movement.DEPLOY_TIMING` | not present | **new**, measured, HIGH | spawn-anchored |
+| `movement.CONTACT_DOMAIN` | not present | **new**, measured, HIGH | scopes every movement law |
 | `collision.PUSH_MODEL` | `mass_weighted`, guess | unchanged | add a note: the fields are zero corpus-wide; fit from the residual |
 
 `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK` is untouched by this corpus: no projectile flies in
 these traces.
 
-Two readings that did **not** survive the measurement, recorded so they are not re-proposed:
+Two readings that did **not** survive the measurement, recorded so that nobody re-proposes them:
 
 1. `time.TICK_MS.disagreement.60_TPS_16.67ms` should be **struck**. Its argument
    ("PhoenixNoRespawn DeployTime 733 ms is 44 ticks at 60 Hz") is arithmetically wrong:
@@ -552,7 +552,7 @@ Wire these as tests. In increasing strictness:
    (They are *not* column-monotone: 1339 purely horizontal steps occur.)
 6. **Exact node sequences.** Out of reach for this model. Its ceiling is 13 of 76 distinct
    experiments, because rule 3.6 (the expansion order) is unsolved under it. It *is* gated on
-   the arm measured on client 16.402, by G6 in `tests/oracle2026.rs`; see `pathfinding.md`.
+   the arm measured on client 16.402, by G6 in `tests/oracle2026.rs`. See `pathfinding.md`.
 
 Corpus note for the harness: enumerate `(side, generation_key)` pairs, do not follow one
 unit per trace, and include `data/oracle-native/meet/`. The lane-sweep
