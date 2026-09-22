@@ -909,6 +909,135 @@ impl Arena {
     }
 }
 
+// BUILDING PLACEMENT: THE TILE FOOTPRINT
+//
+// A building occupies a whole number of TILES when it is placed, and that box is
+// a different thing from the CollisionRadius circle movement uses
+// (collision.BUILDING_FOOTPRINT_MODEL). Measured over 114 recorded placements:
+// troop centres sit inside a building's box routinely -- inside a Cannon's on 394
+// of 943 nearby frames and inside a princess tower's on 11923 of 49173 -- so the
+// box never blocks a unit. It decides where a building may be PUT.
+//
+// See calibration.json placement.* for the sizes, the snap, the legality rule and
+// what the recordings could not discriminate.
+
+/// Tiles on a side of a building's placement footprint, from its CollisionRadius
+/// (both in subtiles): `ceil(2R / tile) + 1`.
+///
+/// R 500 gives 2 (Tesla), R 600 gives 3 (Cannon, Bomb Tower, Inferno Tower,
+/// Mortar, X-Bow), R 1000 gives 3 (Tombstone, the huts, Goblin Cage, Elixir
+/// Collector, a princess tower) and R 1400 gives 4 (a king tower). Pinned per card
+/// on the recordings for Cannon, Tombstone, Goblin Hut, Bomb Tower, Goblin Cage,
+/// Barbarian Hut and Tesla; the others follow the rule and are not individually
+/// pinned. `floor + 1` and `round + 1` both fail on R 600.
+#[inline]
+pub fn placement_tiles(collision_radius: i32) -> i32 {
+    let t = crate::fixed::tiles(1);
+    (2 * collision_radius + t - 1) / t + 1
+}
+
+impl Rect {
+    /// Do the two rectangles share POSITIVE AREA? Touching edges and corners do
+    /// not. The recordings are unambiguous: over 191 near pairs of live boxes,
+    /// none overlaps and 93 touch exactly, and one recorded Cannon stands flush
+    /// against a princess box, a king block and a Goblin Cage at the same time.
+    #[inline]
+    pub fn overlaps_open(&self, other: &Rect) -> bool {
+        self.min.x < other.max.x && other.min.x < self.max.x && self.min.y < other.max.y && other.min.y < self.max.y
+    }
+}
+
+impl Arena {
+    /// Where a tap puts an `n`-tile building's CENTRE.
+    ///
+    /// An odd `n` lands on the centre of the tapped tile, an even `n` on one of
+    /// its corners. Every one of the 102 odd-rule placements recorded sits on a
+    /// tile centre and every one of the 24 even-rule placements on a corner.
+    ///
+    /// WHICH corner is UNMEASURED: every even-size placement in the corpus was
+    /// made by one seat, so "the arena's own lower-left corner" and "the placer's
+    /// lower-left corner" fit it equally. This takes the placer's, so the two
+    /// seats mirror; the rival arm and the observation that would separate them
+    /// are in calibration.json placement.SNAP_EVEN_CORNER.
+    pub fn snap_placement(&self, team: Team, tap: Vec2, n: i32) -> Vec2 {
+        let t = crate::fixed::tiles(1);
+        let f = self.to_frame(team, tap);
+        let half = if n % 2 == 1 { t / 2 } else { 0 };
+        let snapped = Vec2::new(f.x.div_euclid(t) * t + half, f.y.div_euclid(t) * t + half);
+        self.from_frame(team, snapped)
+    }
+
+    /// The `n` x `n` tile box centred on `centre`. Its edges land on tile
+    /// boundaries for the centres `snap_placement` produces, whatever `n`'s parity.
+    #[inline]
+    pub fn placement_box(centre: Vec2, n: i32) -> Rect {
+        let half = n * crate::fixed::tiles(1) / 2;
+        Rect { min: Vec2::new(centre.x - half, centre.y - half), max: Vec2::new(centre.x + half, centre.y + half) }
+    }
+
+    /// Bitwise OR of every half-cell the box covers with positive area. A box
+    /// flush against a cell's edge does not cover it, which is what lets a legal
+    /// box sit against the river line and the back no-deploy strip.
+    pub fn box_bits(&self, b: Rect) -> u8 {
+        let c = self.cell;
+        let col0 = b.min.x.div_euclid(c).max(0);
+        let col1 = (b.max.x - 1).div_euclid(c).min(self.cols - 1);
+        let row0 = b.min.y.div_euclid(c).max(0);
+        let row1 = (b.max.y - 1).div_euclid(c).min(self.rows - 1);
+        let mut acc = 0u8;
+        for row in row0..=row1 {
+            for col in col0..=col1 {
+                acc |= self.cell_bits(col, row);
+            }
+        }
+        acc
+    }
+
+    /// May a building of footprint `b` stand here? The checks run in `deploy_zone`'s
+    /// order so the reason a player sees does not depend on which rule is asked
+    /// first: inside the arena (flush against a wall is fine), no water half-cell,
+    /// no no-deploy half-cell, then the territory band in the placer's own frame.
+    ///
+    /// Seat symmetry: the band is judged on the box's forward edge in the team's
+    /// own frame, and the rotation maps one seat's box onto the other's.
+    pub fn box_zone(&self, b: Rect, team: Team, territory: Territory) -> Result<(), ZoneError> {
+        if b.min.x < 0 || b.min.y < 0 || b.max.x > self.width || b.max.y > self.height {
+            return Err(ZoneError::OutOfArena);
+        }
+        if territory == Territory::Anywhere {
+            return Ok(());
+        }
+        let bits = self.box_bits(b);
+        if bits & self.bit_water != 0 {
+            return Err(ZoneError::Water);
+        }
+        if territory == Territory::AnywhereButWater {
+            return Ok(());
+        }
+        if bits & self.bit_no_deploy != 0 {
+            return Err(ZoneError::NoDeploy);
+        }
+        // The forward edge in the placer's frame. `to_frame` rotates for Red, so
+        // the box's own max-y corner maps to its min-y corner and back.
+        let c0 = self.to_frame(team, b.min);
+        let c1 = self.to_frame(team, b.max);
+        let forward_y = c0.y.max(c1.y);
+        let water_lo = self.water_y_min / self.cell;
+        let water_hi = self.water_y_max / self.cell - 1;
+        // The last row the box covers with positive area.
+        let row = (forward_y - 1).div_euclid(self.cell);
+        let refused = match territory {
+            Territory::OwnHalf => row >= water_lo,
+            Territory::EnemyTowerRects => row >= water_lo && row <= water_hi,
+            Territory::Anywhere | Territory::AnywhereButWater => false,
+        };
+        if refused {
+            return Err(ZoneError::OutOfTerritory);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1092,5 +1221,103 @@ mod tests {
         assert!(b.segment_hits(Vec2::new(-5000, 0), Vec2::new(5000, 0), 0));
         assert!(!b.segment_hits(Vec2::new(-5000, 2000), Vec2::new(5000, 3000), 0));
         assert!(!b.segment_hits(Vec2::new(-5000, 0), Vec2::new(-2000, 0), 0));
+    }
+
+    /// Catches a size rule that rounds the wrong way. `floor + 1` gives a Cannon
+    /// 2 tiles and `round + 1` gives it 2 as well; the recordings pin 3.
+    #[test]
+    fn placement_size_comes_from_the_collision_radius() {
+        use crate::fixed::milli;
+        assert_eq!(placement_tiles(milli(500)), 2, "Tesla");
+        assert_eq!(placement_tiles(milli(600)), 3, "Cannon");
+        assert_eq!(placement_tiles(milli(1000)), 3, "Tombstone and a princess tower");
+        assert_eq!(placement_tiles(milli(1400)), 4, "a king tower");
+        // The rule is CEILING: R 600 is the witness, because 2R is 1.2 tiles.
+        assert_eq!(2 * milli(600) / tiles(1), 1, "floor of 2R would give 2 tiles");
+    }
+
+    /// Catches a snap that keeps the tap, or that puts an even-size building on a
+    /// tile centre, and a box whose edges miss the tile grid.
+    #[test]
+    fn placement_snaps_to_the_grid_and_the_box_is_tile_aligned() {
+        let a = Arena::shipped();
+        let t = tiles(1);
+        for (n, want) in [(3, t / 2), (2, 0)] {
+            let c = a.snap_placement(Team::Blue, Vec2::new(t * 5 + 1234, t * 9 + 17999), n);
+            assert_eq!((c.x - want) % t, 0, "n {n} x off grid: {c:?}");
+            assert_eq!((c.y - want) % t, 0, "n {n} y off grid: {c:?}");
+            let b = Arena::placement_box(c, n);
+            assert_eq!(b.max.x - b.min.x, n * t, "n {n} width");
+            assert_eq!(b.max.y - b.min.y, n * t, "n {n} height");
+            assert_eq!(b.min.x % t, 0, "n {n} box left off the tile grid");
+            assert_eq!(b.min.y % t, 0, "n {n} box bottom off the tile grid");
+        }
+    }
+
+    /// Catches an even-size snap decided in engine coordinates. The corner a 2x2
+    /// takes is the PLACER's, so one seat's answer must be the other's rotation.
+    /// An absolute `floor` puts the two seats' boxes a tile apart.
+    #[test]
+    fn the_snap_is_the_same_for_both_seats() {
+        let a = Arena::shipped();
+        for n in [2, 3] {
+            for tap in [Vec2::new(63500, 121500), Vec2::new(1, 1), Vec2::new(100_000, 240_000)] {
+                let blue = a.snap_placement(Team::Blue, tap, n);
+                let red = a.snap_placement(Team::Red, a.rotate(tap), n);
+                assert_eq!(a.rotate(blue), red, "n {n} tap {tap:?}");
+            }
+        }
+    }
+
+    /// Catches an overlap test written with `<=`, which would refuse the flush
+    /// placements the recordings show standing (93 exact touches, 0 overlaps).
+    #[test]
+    fn boxes_may_touch_but_not_overlap() {
+        let t = tiles(1);
+        let at = |x: i32, y: i32, n: i32| Arena::placement_box(Vec2::new(x * t + t / 2, y * t + t / 2), n);
+        let cannon = at(5, 5, 3);
+        assert!(!cannon.overlaps_open(&at(8, 5, 3)), "edge to edge is legal");
+        assert!(!cannon.overlaps_open(&at(8, 8, 3)), "corner to corner is legal");
+        assert!(cannon.overlaps_open(&at(7, 5, 3)), "one tile of shared area is not");
+        assert!(cannon.overlaps_open(&cannon), "a box overlaps itself");
+    }
+
+    /// Catches the P0 itself: a check that tests only the tap point. Each tap here
+    /// is a legal POINT whose 3x3 box is not.
+    #[test]
+    fn a_three_by_three_box_is_judged_whole() {
+        let a = Arena::shipped();
+        let t = tiles(1);
+        let boxed = |x: i32, y: i32| Arena::placement_box(a.snap_placement(Team::Blue, Vec2::new(x, y), 3), 3);
+        // The back wall: the tap sits in row 0, so the box would leave the arena.
+        assert_eq!(a.box_zone(boxed(t * 9 + t / 2, t / 2), Team::Blue, Territory::OwnHalf), Err(ZoneError::OutOfArena));
+        // The side wall, at mid-field where no no-deploy strip hides the defect.
+        assert_eq!(a.box_zone(boxed(t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Err(ZoneError::OutOfArena));
+        // The river bank: the box would cross into the water rows.
+        assert_eq!(a.box_zone(boxed(t * 9 + t / 2, t * 14 + t / 2), Team::Blue, Territory::OwnHalf), Err(ZoneError::Water));
+        // Open ground one tile in from each of them is legal, and so is a box
+        // sitting flush on the river line (own-frame rows up to 15).
+        assert_eq!(a.box_zone(boxed(t * 9 + t / 2, t + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
+        assert_eq!(a.box_zone(boxed(t + t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
+        assert_eq!(a.box_zone(boxed(t * 6 + t / 2, t * 13 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
+    }
+
+    /// Catches a box zone rule that reads engine y instead of the placer's.
+    #[test]
+    fn the_box_zone_gives_both_seats_the_same_verdict() {
+        let a = Arena::shipped();
+        let t = tiles(1);
+        for n in [2, 3] {
+            for (x, y) in [(9, 0), (0, 8), (9, 14), (9, 1), (6, 13), (3, 6)] {
+                let tap = Vec2::new(x * t + t / 2, y * t + t / 2);
+                let blue = a.box_zone(Arena::placement_box(a.snap_placement(Team::Blue, tap, n), n), Team::Blue, Territory::OwnHalf);
+                let red = a.box_zone(
+                    Arena::placement_box(a.snap_placement(Team::Red, a.rotate(tap), n), n),
+                    Team::Red,
+                    Territory::OwnHalf,
+                );
+                assert_eq!(blue, red, "n {n} at tile ({x}, {y})");
+            }
+        }
     }
 }

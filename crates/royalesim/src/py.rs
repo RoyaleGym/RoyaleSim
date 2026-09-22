@@ -351,7 +351,14 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
             out.push(',');
         }
         let name = serde_json::to_string(&c.name).expect("string serializes");
-        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp}]", c.elixir);
+        // The 8th element: the side of the card's placement footprint in TILES, or
+        // null for a card that is not a building. A mask can then test a tap
+        // before the building exists (calibration placement.FOOTPRINT_TILES).
+        let footprint = match c.kind {
+            CardKind::Building => crate::arena::placement_tiles(c.collision_radius).to_string(),
+            _ => "null".to_string(),
+        };
+        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint}]", c.elixir);
     }
     out.push(']');
     Ok(out)
@@ -401,12 +408,25 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
         let hp = s.tower_hp(team);
         let mut by_slot = [0i32; 3];
         let mut max_by_slot = [0i32; 3];
+        let tower_entities = s.tower_ids(team);
         for (k, tower_hp) in hp.iter().enumerate() {
             let slot = slot_of_k[ti][k] as usize;
             by_slot[slot] = *tower_hp;
-            let card = if k == 0 { KING_TOWER } else { PRINCESS_TOWER };
-            let idx = cards.index(card).expect("towers exist");
-            max_by_slot[slot] = cards.scaled(idx, tower_lvl[ti], cards.get(idx).hitpoints)?;
+            // THE TOWER'S OWN max_hp, not the card ladder's. A crown tower is
+            // spawned on the tower hitpoint ladder, so reading the card ladder
+            // here reported a maximum the tower never had: a full king came out
+            // 6144 against its real 4824, and a fraction of full read 0.829 at
+            // kickoff. A FALLEN tower has no entity left, so it keeps the ladder
+            // value, which is the maximum it had while it stood.
+            let from_entity = tower_entities[k].and_then(|id| s.entity(id)).map(|e| e.max_hp);
+            max_by_slot[slot] = match from_entity {
+                Some(m) => m,
+                None => {
+                    let card = if k == 0 { KING_TOWER } else { PRINCESS_TOWER };
+                    let idx = cards.index(card).expect("towers exist");
+                    cards.scaled(idx, tower_lvl[ti], cards.get(idx).hitpoints)?
+                }
+            };
         }
         let _ = write!(
             o,
@@ -439,9 +459,21 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
         // Never reused (team counters only grow) and equal for mirror twins up
         // to the team bit -- unlike the slot index, which is reused.
         let uid = (e.team_seq as i64) * 2 + ti as i64;
+        // The 15th element: the placement footprint as a CLOSED box
+        // [x0, y0, x1, y1] in subtiles, or null for anything that is not a
+        // building or a crown tower. It is where the thing was PUT, not a
+        // collision shape: troops stand inside these boxes routinely
+        // (calibration placement.FOOTPRINT_TILES).
+        let footprint = if e.kind.is_building() {
+            let n = crate::arena::placement_tiles(e.radius);
+            let b = crate::arena::Arena::placement_box(e.pos, n);
+            format!("[{},{},{},{}]", b.min.x, b.min.y, b.max.x, b.max.y)
+        } else {
+            "null".to_string()
+        };
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -810,6 +842,26 @@ impl Battle {
     fn check_deploy(&self, team: i64, slot: i64, x: i32, y: i32) -> PyResult<u8> {
         let s = self.s()?;
         Ok(check_command(s, team, slot, x, y))
+    }
+
+    /// PURE: where a building tapped at (x, y) would actually END UP, and the tile
+    /// box it would take. Returns `(cx, cy, [x0, y0, x1, y1])`, or None when the
+    /// tap is refused or the card is not a building.
+    ///
+    /// A building tap is snapped to the tile grid and, when its footprint does not
+    /// fit, MOVED to a nearby legal tile rather than refused (calibration
+    /// placement.ILLEGAL_TAP). So a mask that only asks "is this legal" cannot
+    /// tell the caller where the building lands; this answers that, and `deploy`
+    /// uses the same query, so the two cannot disagree.
+    fn building_placement(&self, team: i64, card_name: &str, x: i32, y: i32) -> PyResult<Option<(i32, i32, Vec<i32>)>> {
+        let s = self.s()?;
+        let t = match team {
+            0 => Team::Blue,
+            1 => Team::Red,
+            _ => return Err(PyValueError::new_err("team must be 0 or 1")),
+        };
+        let idx = self.cards.index(card_name).ok_or_else(|| PyValueError::new_err(format!("unknown card {card_name}")))?;
+        Ok(s.building_placement(t, idx, Vec2::new(x, y)).map(|(c, b)| (c.x, c.y, vec![b.min.x, b.min.y, b.max.x, b.max.y])))
     }
 
     /// `apply_commands` (validate against the current state; apply accepted

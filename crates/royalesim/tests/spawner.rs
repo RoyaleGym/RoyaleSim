@@ -1030,17 +1030,18 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     let tomb = db.get(db.index("Tombstone").unwrap());
     assert_eq!((tomb.range, tomb.sight_range, tomb.damage), (0, 0, 0));
     // Units the loader cannot run are REJECTED, naming the unit AND the reason: the
-    // bombs/bottles/containers are hitpoint-less objects, the 2018 BrokenCannon a
+    // bottles/containers are hitpoint-less objects, the 2018 BrokenCannon a
     // troop with a LifeTime, the 15.535 Lumberjack's rage a death area effect, the
     // 15.535 Cannon Cart and Skeleton Barrel action graphs. ~~SkeletonBalloon: a
     // chain~~ -- its SkeletonContainer is refused on `hitpoints` first; its
     // `SpawnCharacter = Skeleton` with blank SpawnNumber / SpawnPauseTime is read as
     // NO periodic spawner (the game's own blank), not as a partial block. Each card
     // lists the reasons either vintage's row earns.
+    // ~~Balloon, GiantSkeleton~~ -- a DEATH BOMB is no longer refused: a hitpoint-less
+    // row with DeployTime + DeathDamage + DeathDamageRadius is a timed impact, not a
+    // unit (card.rs `convert_death_bomb`; tests/death_bomb.rs).
     for (card, reasons) in [
-        ("Balloon", &["BalloonBomb: missing hitpoints"][..]),
-        ("GiantSkeleton", &["GiantSkeletonBomb: missing hitpoints"]),
-        ("RageBarbarian", &["RageBarbarianBottle: missing hitpoints", "death area effect RageBarbarianDummyForSpawn"]),
+        ("RageBarbarian", &["RageBarbarianBottle: missing hitpoints", "death area effect RageBarbarianDummyForSpawn"][..]),
         ("MovingCannon", &["BrokenCannon is a troop with a LifeTime", "action graph"]),
         ("SkeletonBalloon", &["SkeletonContainer: missing hitpoints", "action graph"]),
     ] {
@@ -1058,7 +1059,7 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
             assert!((sp.unit as usize) < db.cards.len(), "{}: spell unit unresolved", c.name);
         }
     }
-    for card in ["Balloon", "GiantSkeleton", "RageBarbarian", "SkeletonBalloon"] {
+    for card in ["RageBarbarian", "SkeletonBalloon"] {
         // Rejected after the push (an unloadable unit, a death area effect): in the
         // list, unregistered, its blocks dropped. Rejected in `convert` (an action
         // graph): never pushed at all.

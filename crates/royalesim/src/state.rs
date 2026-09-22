@@ -193,6 +193,14 @@ pub struct Calib {
     /// TERRITORY). Lives in Calib so a snapshot carries it -- a restored battle must
     /// not change its deploy rule.
     pub territory_model: TerritoryModel,
+    /// placement.SNAP_EVEN_CORNER. Added after SNAPSHOT_FORMAT 20; `default` so an
+    /// older snapshot still deserializes, into the arm that ships.
+    #[serde(default = "placement_snap_even_default")]
+    pub placement_snap_even: PlacementSnapEven,
+    /// placement.ILLEGAL_TAP. Added after SNAPSHOT_FORMAT 20. The `default` is
+    /// `Refuse`, which is what a battle saved before this key actually ran.
+    #[serde(default = "placement_illegal_tap_default")]
+    pub placement_illegal_tap: PlacementIllegalTap,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -412,6 +420,18 @@ fn ground_deploy_point_none() -> GroundDeployPoint {
     GroundDeployPoint::None
 }
 
+/// The `serde` default for `Calib::placement_snap_even`: the arm that ships.
+fn placement_snap_even_default() -> PlacementSnapEven {
+    PlacementSnapEven::PlacerFrame
+}
+
+/// The `serde` default for `Calib::placement_illegal_tap`: a snapshot saved before
+/// the footprint was modelled ran with no relocation at all, so it restores into
+/// the behaviour it actually had rather than into the one that ships now.
+fn placement_illegal_tap_default() -> PlacementIllegalTap {
+    PlacementIllegalTap::Refuse
+}
+
 macro_rules! calib_enum {
     ($(#[$m:meta])* $name:ident { $($(#[$vm:meta])* $variant:ident = $s:literal),+ $(,)? }) => {
         $(#[$m])*
@@ -461,6 +481,45 @@ calib_enum!(
         LowestTowerHpFraction = "lowest_tower_hp_fraction",
         /// The earlier engine: a level match past overtime is a Draw.
         NoneDraw = "none_draw",
+    }
+);
+calib_enum!(
+    /// placement.SNAP_EVEN_CORNER: which corner of the tapped tile an EVEN-sized
+    /// building's centre takes. Odd sizes take the tile's centre and have no such
+    /// choice.
+    ///
+    /// UNMEASURED. Every even-sized placement in the recordings was made by one
+    /// seat, so the two arms fit them equally. The seat-symmetric one ships,
+    /// because choosing the other would give a shared policy a one-tile,
+    /// seat-dependent offset on no evidence. Deciding observation: a Tesla placed
+    /// by the seat that defends high y.
+    PlacementSnapEven {
+        /// The placer's own lower-left corner, so the two seats mirror.
+        PlacerFrame = "placer_frame",
+        /// The arena's own lower-left corner, whoever places it.
+        Absolute = "absolute",
+    }
+);
+calib_enum!(
+    /// placement.ILLEGAL_TAP: what happens to a building tap whose POINT is legal
+    /// but whose footprint does not fit.
+    ///
+    /// The recordings are unambiguous that the game moves it rather than refusing:
+    /// of 64 recorded taps, 39 were relocated. They do NOT separate the two
+    /// relocating arms, because every relocation they show moves 1 or 2 rings and
+    /// the two orders agree below ring 3 (a ring-r diagonal is r * sqrt(2) away
+    /// while a ring-(r+1) axial cell is only r + 1). Deciding observation: a tap
+    /// whose only fits are 3 or more rings away, with a ring-r diagonal fit and a
+    /// ring-(r+1) axial fit both available.
+    PlacementIllegalTap {
+        /// Square rings outward from the tapped tile; inside the first ring that
+        /// holds a fit, the smallest Euclidean distance to the tap wins.
+        RelocateFirstFittingRing = "relocate_first_fitting_ring",
+        /// The smallest Euclidean distance to the tap over every fitting tile
+        /// within the search bound, whichever ring it sits in.
+        RelocateNearestOverall = "relocate_nearest_overall",
+        /// Refuse, as the engine did before the footprint was modelled.
+        Refuse = "refuse",
     }
 );
 calib_enum!(
@@ -1210,6 +1269,8 @@ impl Calib {
             dying_unit_visibility: pick(&v, &["movement", "DYING_UNIT_VISIBILITY", "value"], DyingUnitVisibility::from_calibration_name)?,
             mana_speed_up_remaining_s,
             territory_model,
+            placement_snap_even: pick(&v, &["placement", "SNAP_EVEN_CORNER", "value"], PlacementSnapEven::from_calibration_name)?,
+            placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -1690,6 +1751,28 @@ impl Grid16402 {
 /// CanDeployOnEnemySide) takes the troop territory, CanPlaceOnBuildings lifts the
 /// footprint refusal, and a unit-releasing spell (Goblin Barrel) refuses water under
 /// calibration spells.SPAWNING_SPELL_WATER_RULE.
+/// How far, in tiles, a relocated building tap may move. 30 spans the arena from
+/// any tile of it (18 x 32 tiles), so on this map the bound never decides
+/// anything; it exists so the search terminates on a map where it could.
+pub const PLACEMENT_SEARCH_RINGS: i32 = 30;
+
+/// The tile offsets of the square ring at Chebyshev distance `r`, in a fixed
+/// order. Only the ORDER is a choice: it breaks a tie between two fitting tiles
+/// at the same distance, and the recordings leave exactly one such tie. This
+/// order is symmetric about both axes, so mirroring the ring gives the ring back.
+fn ring_offsets(r: i32) -> Vec<(i32, i32)> {
+    let mut out = Vec::with_capacity((8 * r) as usize);
+    for dx in -r..=r {
+        out.push((dx, -r));
+        out.push((dx, r));
+    }
+    for dy in -r + 1..=r - 1 {
+        out.push((-r, dy));
+        out.push((r, dy));
+    }
+    out
+}
+
 pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
     let placement = card.spell.as_ref().map(|s| s.placement);
     let territory = match (card.kind, calib.territory_model) {
@@ -4626,6 +4709,10 @@ impl BattleState {
             // a spawned UNIT wakes up and would fire this bomb on the death tick. The
             // corpus separates them -- a Balloon's bomb lands 61 ticks after its last
             // live frame, not on it (card.rs `convert_death_bomb`).
+            // ONE bomb, whatever DeathSpawnCount says: all three rows leave it blank
+            // (read as 1), and a ring of N discs on one point is a layout the data
+            // does not ask for and nothing has measured. A row that asked for more
+            // would need `death_spawn_points` and its own reading.
             if let Some(fuse_ms) = unit.death_bomb_fuse_ms() {
                 let base = unit.death_damage;
                 let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
@@ -5157,16 +5244,106 @@ impl BattleState {
         #[cfg(clash_plant = "territory_ignores_king_rect")]
         let rects: Vec<Rect> = (1..3).filter_map(|k| self.tower_no_deploy_rect(team.other(), k)).collect(); // PLANT
         self.cfg.arena.deploy_zone(pos, team, territory, &rects)?;
-        let extra = if card.kind == CardKind::Building { card.collision_radius } else { 0 };
+        // A BUILDING IS JUDGED BY ITS FOOTPRINT, NOT BY THE TAP POINT. The tap
+        // above decides territory and the cell rules; the box below decides
+        // whether the building fits, and where it ends up.
+        if card.kind == CardKind::Building {
+            return match self.building_placement(team, idx, pos) {
+                Some(_) => Ok(()),
+                None => Err(DeployError::Occupied),
+            };
+        }
         #[cfg(clash_plant = "flying_ignores_buildings")]
         if card.is_flying() {
             // PLANT (regression): an air-unit exemption from the footprint check.
             return Ok(());
         }
-        if footprint_rule && self.footprint_covers(pos, extra) {
+        // A troop or a spell-released unit: no extra radius, because only a
+        // building carried one and a building no longer takes this path.
+        if footprint_rule && self.footprint_covers(pos, 0) {
             return Err(DeployError::Occupied);
         }
         Ok(())
+    }
+
+    /// Where a building tapped at `tap` actually lands, and the tile box it takes.
+    /// `None` when nothing legal is within the search bound.
+    ///
+    /// PURE. `check_deploy` asks it for the verdict and `deploy_slot` asks it for
+    /// the point, so the two cannot answer differently.
+    ///
+    /// The tap is snapped first (`Arena::snap_placement`), then the box is judged
+    /// whole: inside the arena, off water and no-deploy cells, inside the placer's
+    /// territory, and sharing no POSITIVE AREA with an alive tower or building.
+    /// Flush contact is legal. If the snapped box does not fit, the tap is
+    /// relocated under calibration placement.ILLEGAL_TAP.
+    ///
+    /// The placement box is NOT a collision shape: a troop may stand inside one,
+    /// and `collision.BUILDING_FOOTPRINT_MODEL` still decides what movement sees.
+    pub fn building_placement(&self, team: Team, idx: u16, tap: Vec2) -> Option<(Vec2, Rect)> {
+        let card = self.cfg.cards.get(idx);
+        if card.kind != CardKind::Building {
+            return None;
+        }
+        let n = crate::arena::placement_tiles(card.collision_radius);
+        let arena = &self.cfg.arena;
+        let (territory, _) = deploy_rule(&self.cfg.calib, card);
+        let snapped = match self.cfg.calib.placement_snap_even {
+            PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, n),
+            PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, tap, n),
+        };
+        let fits = |centre: Vec2| -> bool {
+            let b = Arena::placement_box(centre, n);
+            arena.box_zone(b, team, territory).is_ok() && !self.box_hits_a_building(b)
+        };
+        if fits(snapped) {
+            return Some((snapped, Arena::placement_box(snapped, n)));
+        }
+        if self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
+            return None;
+        }
+        // Square rings outward from the snapped tile. Inside a ring, the smallest
+        // squared distance to the TAP wins; ties go to the candidate found first,
+        // and the scan order is built in the placer's frame so the two seats
+        // mirror. `RelocateFirstFittingRing` stops at the end of the first ring
+        // that held a fit; `RelocateNearestOverall` keeps looking to the bound.
+        let tile = crate::fixed::tiles(1);
+        let mut best: Option<(i64, Vec2)> = None;
+        for r in 1..=PLACEMENT_SEARCH_RINGS {
+            for (dx, dy) in ring_offsets(r) {
+                let step = Vec2::new(dx * tile, dy * tile);
+                let candidate = match self.cfg.calib.placement_snap_even {
+                    PlacementSnapEven::PlacerFrame => arena.from_frame(team, arena.to_frame(team, snapped).add(step)),
+                    PlacementSnapEven::Absolute => snapped.add(step),
+                };
+                if !fits(candidate) {
+                    continue;
+                }
+                let dist = candidate.dist2(tap);
+                let better = match best {
+                    None => true,
+                    Some((b, _)) => dist < b,
+                };
+                if better {
+                    best = Some((dist, candidate));
+                }
+            }
+            if best.is_some() && self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::RelocateFirstFittingRing {
+                break;
+            }
+        }
+        best.map(|(_, c)| (c, Arena::placement_box(c, n)))
+    }
+
+    /// Does `b` share positive area with an alive tower's or building's own box?
+    fn box_hits_a_building(&self, b: Rect) -> bool {
+        let e = &self.ents;
+        e.live_indices().any(|i| {
+            e.kind[i].is_building() && {
+                let n = crate::arena::placement_tiles(e.radius[i]);
+                b.overlaps_open(&Arena::placement_box(e.pos[i], n))
+            }
+        })
     }
 
     /// Elixir half of the verdict.
@@ -5229,6 +5406,13 @@ impl BattleState {
     pub fn deploy_slot(&mut self, team: Team, slot: usize, pos: Vec2) -> Result<(), DeployError> {
         self.check_deploy_slot(team, slot, pos)?;
         let idx = self.hand_card(team, slot)?;
+        // A BUILDING STANDS WHERE ITS FOOTPRINT FITS, not on the tap. The same
+        // pure query decided the verdict above, so the two cannot disagree: if it
+        // said yes it returns a point here.
+        let pos = match self.building_placement(team, idx, pos) {
+            Some((centre, _)) => centre,
+            None => pos,
+        };
         let t = team as usize;
         let need = (self.cfg.cards.get(idx).elixir as i64) * self.mana_unit;
         let level = self.cfg.card_level[t];

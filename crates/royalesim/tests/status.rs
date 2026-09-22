@@ -192,10 +192,9 @@ fn the_composition_law_holds_on_every_walkers_speed() {
 #[test]
 fn the_composition_truncates_where_rounding_would_differ() {
     // movement.BUFF_SPEED_RULE's evidence is the raged Ice Golem (stomped 52 -> 67,
-    // where round and ceil both give 68); that card is a loader refusal (its death
-    // area effect), so the property is pinned on every walker the file DOES load,
-    // and at least one of them must separate truncation from rounding or the test
-    // would pass under either.
+    // where round and ceil both give 68). The property is pinned on every walker in
+    // the table, that one included, and at least one of them must separate
+    // truncation from rounding or the test would pass under either.
     assert_shipped_arms();
     let s = bare(config());
     let rage = 130;

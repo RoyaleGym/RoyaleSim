@@ -46,9 +46,10 @@ fn id_of(s: &BattleState, team: Team, card: &str) -> EntityId {
 
 /// A PLAIN attacking building that is not the Cannon, for scenes that need a second
 /// building target: no hide (a Tesla goes under), no spawner, no death spawn. The
-/// 2018 Bomb Tower; in 15.535 the Bomb Tower death-spawns a hitpoint-less bomb the
-/// loader refuses, so the next plain row stands in (the Inferno Tower: its damage
-/// ramp is not simulated, but here it is only a target).
+/// 2018 Bomb Tower; in 15.535 the Bomb Tower death-spawns a bomb (loaded as a timed
+/// impact, card.rs `convert_death_bomb`), so it is no longer plain and the next row
+/// stands in (the Inferno Tower: its damage ramp is not simulated, but here it is
+/// only a target).
 fn plain_building(s: &BattleState) -> &'static str {
     let db = s.cards();
     ["BombTower", "InfernoTower", "Mortar", "Xbow"]

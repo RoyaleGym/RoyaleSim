@@ -13,6 +13,11 @@
 //!                 troop's latency and both seats' same-tick casts materialise in
 //!                 the same Spawn phase.
 //!     Spawn       `cast` turns it into `Spell` objects (one per Arrows wave).
+//!     Reap        a death that carries card.rs `death_area_effect` (the Ice Golem's)
+//!                 calls the SAME `cast` at the death point, under the dying card's
+//!                 index and level, and its area applies in the next tick's
+//!                 Projectile phase -- the same tick the death damage the same death
+//!                 buffered is resolved, because Reap writes both after Resolve.
 //!     Projectile  `step_spells`, after troop projectiles: flights advance, rolls
 //!                 roll, area effects apply. Every hit test reads entity positions
 //!                 AS THEY ARE ON THE ARRIVAL TICK (post-Move), never at cast. Hits go
@@ -151,10 +156,22 @@ pub fn forward_dy(team: Team) -> i32 {
     -Arena::own_side_dy(team)
 }
 
-/// Turn one accepted cast into its spell objects. Pure; `level` already validated.
+/// The area effect / projectile / roll a card index runs: a SPELL card's own shape,
+/// or -- for a troop or building whose DEATH leaves an area effect standing (card.rs
+/// `death_area_effect`, the Ice Golem's) -- that block. A card carries at most one of
+/// the two: `convert_spell` reads no death column and `convert` builds no spell. Both
+/// `cast` and `step_spells` resolve a `Spell`'s card this way, so a death release is
+/// the SAME object, the same `impact` and the same phase a Zap gets.
+#[inline]
+fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
+    def.spell.as_ref().or(def.death_area_effect.as_ref())
+}
+
+/// Turn one accepted cast -- or one death that releases an area effect -- into its
+/// spell objects. Pure; `level` already validated.
 pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16, level: i32, tap: Vec2) -> Result<Vec<Spell>, String> {
     let def = cards.get(card);
-    let spell = def.spell.as_ref().ok_or_else(|| format!("{} is not a spell", def.name))?;
+    let spell = shape_of(def).ok_or_else(|| format!("{} is not a spell", def.name))?;
     #[cfg(not(clash_plant = "spell_damage_unscaled"))]
     let scaled = |h: &SpellHit| cards.scaled(card, level, h.damage);
     #[cfg(clash_plant = "spell_damage_unscaled")]
@@ -565,7 +582,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
     let mult = ctx.calib.projectile_speed_to_subtiles_per_tick;
     spells.retain_mut(|s| {
         let def = ctx.cards.get(s.card);
-        let Some(sdef) = def.spell.as_ref() else { return false };
+        let Some(sdef) = shape_of(def) else { return false };
         match (&mut s.motion, &sdef.shape) {
             (SpellMotion::Flight { pos, aim, frac, delay_ms }, SpellShape::Projectile { speed, hit, spawn, .. }) => {
                 if *delay_ms > 0 {

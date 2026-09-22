@@ -437,9 +437,28 @@ pub struct CardDef {
     /// characters.BuffOnDamage + BuffTime for one that does not (the Electro
     /// Wizard's ZapFreeze 500 ms). `buff` indexes `CardDb::buffs`. Applied by
     /// combat.rs `fire` to everything the hit lands on, under calibration
-    /// status.TARGET_BUFF_ON_SPLASH. DECLARED LAST: `state.rs migrate_v3` strips the
-    /// post-format-3 tail of CardDef's Debug to rebuild the old fingerprint.
+    /// status.TARGET_BUFF_ON_SPLASH.
     pub attack_buff: Option<BuffApply>,
+    /// THE AREA EFFECT THIS CARD'S DEATH LEAVES ON THE GROUND (characters /
+    /// buildings DeathAreaEffect, resolved against cards.json `area_effect_objects`
+    /// by `CardDb::from_json_str`). The Ice Golem's FreezeIceGolemite: a 2000
+    /// millitile disc that hangs IceWizardSlowDown -- 30 % off speed, hit speed and
+    /// spawn speed -- on every enemy inside it for 2000 ms, and carries no damage of
+    /// its own.
+    ///
+    /// INDEPENDENT OF `death_damage` / `death_damage_radius`, which the same death
+    /// also fires. The data settles that they are two effects of one death, not one:
+    /// the Ice Golem's area carries a blank Damage beside a 33-damage disc, and the
+    /// Super Ice Golem ships a 2000 disc of 40 next to an area of radius 40000
+    /// dealing 72 at 30 % to crown towers -- two radii, two damage columns, two crown
+    /// percents, one death. state.rs `phase_reap` releases both.
+    ///
+    /// A whole `SpellDef` so the release runs the engine's own area-effect path
+    /// (spell.rs `cast`, then `step_spells`) rather than a second one. Its
+    /// `placement` is never read: a death is not a cast and has no tap to validate.
+    /// None on every card without the column; a card whose area the loader refuses
+    /// is rejected WHOLE, never run as a card whose death does nothing.
+    pub death_area_effect: Option<SpellDef>,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else, or a changed value in a
@@ -454,6 +473,26 @@ impl CardDef {
     #[inline]
     pub fn is_flying(&self) -> bool {
         self.flying_height > 0
+    }
+
+    /// THE FUSE OF A DEATH BOMB, ms, or None on every other card.
+    ///
+    /// `convert_death_bomb` is the only thing in this file that builds a card with
+    /// BOTH `summon_only` and a `spell`, and the pair cannot arise any other way: a
+    /// playable spell card is never `summon_only` (the loader refuses a spawned unit
+    /// whose name is a card's), and a spawned unit that is a real unit never carries
+    /// a spell (`convert` writes `spell: None` on every non-spell row). So the pair
+    /// IS the bomb, and this is its whole interface: state.rs `phase_reap` asks the
+    /// death-spawn unit for a fuse and, when it gets one, leaves a timed impact
+    /// where the parent died instead of trying to spawn an entity with no
+    /// hitpoints.
+    #[inline]
+    pub fn death_bomb_fuse_ms(&self) -> Option<i32> {
+        if self.summon_only && self.spell.is_some() {
+            Some(self.deploy_time_ms)
+        } else {
+            None
+        }
     }
 
     /// The Speed the locomotion law uses, in raw Speed units
@@ -569,9 +608,12 @@ struct RawCard {
     /// cards.json `action_graph` (15.535: the scripted actions the row's *Action
     /// columns reach); absent in the 2018 file, null on a row that names none.
     action_graph: Option<RawActionGraph>,
-    /// cards.json `death_area_effect` (DeathAreaEffect: the Ice Golem's freeze, the
-    /// 15.535 Lumberjack's rage bottle). Not simulated: the card is refused AFTER its
-    /// push (`from_json_str`), which keeps the format-3 card list intact.
+    /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
+    /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
+    /// Barbarian's bottle dummy). `from_json_str` looks it up in the file's
+    /// `area_effect_objects` table and fills `CardDef::death_area_effect`; a name the
+    /// table does not carry, or an area whose mechanic the loader does not read,
+    /// refuses the card AFTER its push, which keeps the format-3 card list intact.
     death_area_effect: Option<String>,
     // --- the summon layout and stagger (`FormationDef`). Every one null in the
     // 2018 file and on most 15.535 rows; a blank stays a blank.
@@ -739,8 +781,10 @@ enum UnitUse {
     Spawner,
     /// The DeathSpawn* block.
     DeathSpawn,
-    /// DeathAreaEffect: an area effect the death releases -- never resolvable, so
-    /// the card goes the unloadable way (rejected after its push).
+    /// DeathAreaEffect: an area effect the death releases. NOT a unit -- it resolves
+    /// against the file's `area_effect_objects` table into the card's own
+    /// `death_area_effect` block, and a card whose area the loader refuses goes the
+    /// unloadable way (rejected after its push) with the area's reason.
     DeathAreaEffect,
     /// SummonCharacterSecond (Goblin Gang's Spear Goblins, the Rascals' Girls).
     SecondSummon,
@@ -759,6 +803,13 @@ struct RawCardsFile {
     /// levels, ladders). Absent: the shipped 2018 table.
     #[serde(default)]
     rarities: BTreeMap<String, RawRarity>,
+    /// cards.json `area_effect_objects`: every area_effect_objects row by name, the
+    /// same shape a spell's `area_effect_object` block carries. Only the ones a
+    /// card's DeathAreaEffect names are read (a spell carries its own inline). A
+    /// file without the table leaves this empty, and every card with a
+    /// DeathAreaEffect is then REFUSED BY NAME -- never silently run without it.
+    #[serde(default)]
+    area_effect_objects: BTreeMap<String, RawAreaEffect>,
 }
 
 /// One cards.json `rarities` entry (tools/extract_cards.py `rarity_table`).
@@ -1091,6 +1142,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_start_radius: 0,
         kamikaze: false,
         attack_buff: None,
+        death_area_effect: None,
     }
 }
 
@@ -1105,6 +1157,87 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
         Some(d) if d > 0 => Some(KnockbackDef { distance: milli(d), all: all.unwrap_or(false) }),
         _ => None,
     }
+}
+
+/// ONE AREA EFFECT, whatever puts it on the ground. Two things release one in this
+/// data: a spell card's AreaEffectObject (Zap, Freeze, Poison) and a unit's
+/// DeathAreaEffect (the Ice Golem's FreezeIceGolemite). The record is the same
+/// `area_effect_objects` row either way, so it is read once, here, and both callers
+/// get the same `SpellShape` and the same refusals -- an area the loader cannot run
+/// as a spell it cannot run as a death release either.
+///
+/// Accepts exactly the two shapes `SpellShape` implements (a one-shot disc and a
+/// pulsing one) and REFUSES every other area with the reason, so an area whose
+/// mechanic is not simulated can never run as a simpler one.
+fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<SpellShape, String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
+    // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
+    // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
+    // pulse that carries a BUFF and nothing else -- Poison and
+    // Earthquake. A pulse that deals its own Damage column every HitSpeed
+    // (RoyalDeliveryArea, DarkMagicAOE, Lightning, Tornado, WarmAOE) is a second
+    // mechanic and stays refused.
+    let pulse_ms = aeo.hit_speed_ms.filter(|h| *h > 0);
+    if pulse_ms.is_some() {
+        if aeo.damage.is_some() {
+            return Err(format!("pulsing area effect {what} deals its own Damage every HitSpeed; not simulated"));
+        }
+        if aeo.buff.is_none() {
+            return Err(format!("pulsing area effect {what} pulses no buff: its mechanic is not in the columns"));
+        }
+    }
+    if aeo.only_own_troops.unwrap_or(false) {
+        // Rage and Heal: the area buffs the RELEASER's own units, which is a target
+        // filter `impact` does not have (`only_enemies` false would hit both teams).
+        // Refused by shape, from either caller.
+        return Err(format!("own-troop area effect {what} is not simulated"));
+    }
+    if aeo.maximum_targets.is_some() || aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.spawn_character.is_some() {
+        return Err(format!("area effect {what} with targets / projectile / spawn is not simulated"));
+    }
+    // AN AREA EFFECT THAT DOES NOTHING THIS LOADER READS is an action graph
+    // (15.535 Graveyard_rework, Vines_AeO: no Damage, no Buff, no Pushback; the
+    // Skeletons / the vines are OnStartingAction scripts the extractor does not
+    // walk). Running it as a zero-damage Zap would be a different card.
+    if aeo.damage.is_none() && aeo.buff.is_none() && aeo.pushback_milli.is_none() {
+        return Err(format!("area effect {what} carries no damage, buff or pushback: its mechanic is an action graph this loader does not read"));
+    }
+    if !aeo.hits_ground.unwrap_or(false) && !aeo.hits_air.unwrap_or(false) {
+        return Err(format!("area effect {what} hits neither ground nor air"));
+    }
+    // THE AREA'S BUFF, whatever class it is: the stun-class special
+    // case is gone -- a -100 / -100 / -100 row is just a buff whose composed speed
+    // is 0, and `apply_effects` turns that into the hold every stun already used.
+    let area_buff = match &aeo.buff {
+        None => None,
+        Some(b) => Some(buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?),
+    };
+    let hit = SpellHit {
+        damage: aeo.damage.unwrap_or(0),
+        crown_pct: crown(aeo.crown_tower_damage_percent),
+        radius: milli(aeo.radius_milli.ok_or_else(|| format!("area effect {what} without radius"))?),
+        hits_air: aeo.hits_air.unwrap_or(false),
+        hits_ground: aeo.hits_ground.unwrap_or(false),
+        only_enemies: aeo.only_enemies.unwrap_or(false),
+        ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
+        no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
+        knockback: knockback(aeo.pushback_milli, None),
+        buff: area_buff,
+    };
+    Ok(match pulse_ms {
+        None => {
+            let _ = aeo.life_duration_ms; // one-shot: applied once whatever its life (see SpellShape)
+            SpellShape::AreaEffect { hit }
+        }
+        Some(hit_speed_ms) => {
+            let life_ms = aeo
+                .life_duration_ms
+                .filter(|l| *l > 0)
+                .ok_or_else(|| format!("pulsing area effect {what} without LifeDuration"))?;
+            SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }
+        }
+    })
 }
 
 /// The SPELL half of the loader. Accepts exactly the shapes `SpellShape` implements
@@ -1145,77 +1278,10 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable) -> Result<(CardDef, Option
     let mut spawn_name = None;
     let shape = if let Some(aeo) = spell.area_effect_object {
         let what = aeo.name.clone().unwrap_or_default();
-        refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
         if proj.is_some() || spell.first_projectile.is_some() {
             return Err(format!("spell with both an area effect ({what}) and a projectile is not simulated"));
         }
-        // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
-        // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
-        // pulse that carries a BUFF and nothing else -- Poison and
-        // Earthquake. A pulse that deals its own Damage column every HitSpeed
-        // (RoyalDeliveryArea, DarkMagicAOE, Lightning, Tornado, WarmAOE) is a second
-        // mechanic and stays refused.
-        let pulse_ms = aeo.hit_speed_ms.filter(|h| *h > 0);
-        if pulse_ms.is_some() {
-            if aeo.damage.is_some() {
-                return Err(format!("pulsing area effect {what} deals its own Damage every HitSpeed; not simulated"));
-            }
-            if aeo.buff.is_none() {
-                return Err(format!("pulsing area effect {what} pulses no buff: its mechanic is not in the columns"));
-            }
-        }
-        if aeo.only_own_troops.unwrap_or(false) {
-            // Rage and Heal: the area buffs the CASTER's units. The area itself is
-            // implemented; what is not is how either card gets one onto the board (both
-            // are SummonCharacter spells -- a Rage bottle, a Heal Spirit -- whose death
-            // or projectile releases it), so the loader still refuses them by shape.
-            return Err(format!("own-troop area effect {what} is not simulated"));
-        }
-        if aeo.maximum_targets.is_some() || aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.spawn_character.is_some() {
-            return Err(format!("area effect {what} with targets / projectile / spawn is not simulated"));
-        }
-        // AN AREA EFFECT THAT DOES NOTHING THIS LOADER READS is an action graph
-        // (15.535 Graveyard_rework, Vines_AeO: no Damage, no Buff, no Pushback; the
-        // Skeletons / the vines are OnStartingAction scripts the extractor does not
-        // walk). Running it as a zero-damage Zap would be a different card.
-        if aeo.damage.is_none() && aeo.buff.is_none() && aeo.pushback_milli.is_none() {
-            return Err(format!("area effect {what} carries no damage, buff or pushback: its mechanic is an action graph this loader does not read"));
-        }
-        if !aeo.hits_ground.unwrap_or(false) && !aeo.hits_air.unwrap_or(false) {
-            return Err(format!("area effect {what} hits neither ground nor air"));
-        }
-        // THE AREA'S BUFF, whatever class it is: the stun-class special
-        // case is gone -- a -100 / -100 / -100 row is just a buff whose composed speed
-        // is 0, and `apply_effects` turns that into the hold every stun already used.
-        let area_buff = match &aeo.buff {
-            None => None,
-            Some(b) => Some(buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?),
-        };
-        let hit = SpellHit {
-            damage: aeo.damage.unwrap_or(0),
-            crown_pct: crown(aeo.crown_tower_damage_percent),
-            radius: milli(aeo.radius_milli.ok_or_else(|| format!("area effect {what} without radius"))?),
-            hits_air: aeo.hits_air.unwrap_or(false),
-            hits_ground: aeo.hits_ground.unwrap_or(false),
-            only_enemies: aeo.only_enemies.unwrap_or(false),
-            ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
-            no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
-            knockback: knockback(aeo.pushback_milli, None),
-            buff: area_buff,
-        };
-        match pulse_ms {
-            None => {
-                let _ = aeo.life_duration_ms; // one-shot: applied once whatever its life (see SpellShape)
-                SpellDef { shape: SpellShape::AreaEffect { hit }, placement: placement_for(false) }
-            }
-            Some(hit_speed_ms) => {
-                let life_ms = aeo
-                    .life_duration_ms
-                    .filter(|l| *l > 0)
-                    .ok_or_else(|| format!("pulsing area effect {what} without LifeDuration"))?;
-                SpellDef { shape: SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }, placement: placement_for(false) }
-            }
-        }
+        SpellDef { shape: convert_area_effect(&aeo, buffs)?, placement: placement_for(false) }
     } else {
         // DAMAGE CARRIER (docs/spell-spec.md): CustomFirstProjectile when present (the
         // 2018 Arrows pattern -- `projectile` is then the damage-less ArrowsSpellDeco and
@@ -1468,6 +1534,130 @@ fn convert_jump(raw: Option<RawJump>, kind: CardKind) -> Result<Option<JumpDef>,
     Ok(Some(JumpDef { speed, height_raw }))
 }
 
+/// A DEATH BOMB: the thing a dying Balloon, Giant Skeleton or Bomb Tower leaves
+/// where it fell, which goes off a while later. `None` when `raw` is not one.
+///
+/// WHAT THE DATA CARRIES. `units.BalloonBomb`, `units.GiantSkeletonBomb` and
+/// `units.BombTowerBomb` are BUILDING rows with no hitpoints, no damage, no hit
+/// speed, no range, no speed and no LifeTime. Three columns are the whole row:
+/// DeployTime 3000, DeathDamage (94 / 269 / 87 at level 1) and DeathDamageRadius
+/// 3000. A row shaped like that is not a unit at all -- a unit with no hitpoints
+/// cannot be born, which is why this loader refused all three, and with them the
+/// three cards whose death leaves one. The file holds eight such rows; three are
+/// reachable from a card today.
+///
+/// WHAT IT IS INSTEAD: one area hit, at the point where the parent died, on a
+/// timer. So the row loads as an IMPACT WITH A DELAY rather than as an entity --
+/// `summon_only` plus a `spell`, the pair `CardDef::death_bomb_fuse_ms` reads --
+/// and state.rs `phase_reap` hands it to the same spell object an Arrows wave
+/// waits in (`SpellMotion::Flight` with a delay, aimed at the point it is already
+/// standing on). It is untargetable and collides with nothing because it is not on
+/// the board at all, which is what a bomb with no hitpoints and no collision
+/// behaviour can be held to.
+///
+/// THE IMPACT IS THE ENGINE'S OWN DEATH DAMAGE, DELAYED. The `SpellHit` below is
+/// exactly what `phase_reap` already passes to `combat::splash` for an ordinary
+/// DeathDamage row -- enemies only, both air and ground per the row's own columns,
+/// crown towers at the row's percent, buildings included, no knockback -- so the
+/// bomb is the same effect with a fuse on it, not a second damage law.
+///
+/// THE FUSE IS DeployTime, AND THAT IS MEASURED, not read off the column name.
+/// 16.402 capture 20260920-083112, both seats (data/derived/replay/20260920-083112-
+/// A and -B, entity key 28): a level-11 Balloon is last recorded alive on tick 1259
+/// at (7349, 27895), and the King Tower 1987 native units away loses exactly 240
+/// hitpoints on tick 1321 -- 61 ticks, 3050 ms, later -- with no unit of the
+/// Balloon's own side within 4500 native of that tower on any tick from 1315 to
+/// 1323. 240 is BalloonBomb's DeathDamage 94 on the Common ladder at unified level
+/// 11 (256 %, floored: 240.64); the Balloon's own attack is 250 x 256 % = 640, so
+/// the hit is the bomb's and nothing else's. That separates the two readings this
+/// file could have taken: DeployTime as the fuse puts the damage 3000 ms after the
+/// death, and the measured death-spawn default (calibration
+/// spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero, which is about how long a
+/// spawned UNIT takes to wake and has nothing to say about a bomb) would have put
+/// it on the death tick. The corpus says 61 ticks, so `phase_reap` takes the row's
+/// own DeployTime and never the death-spawn default.
+///
+/// NOT MODELLED, NAMED: GiantSkeletonBomb's raw row also carries DeathPushBack
+/// 1800. The extractor does not carry that column into cards.json and the engine's
+/// ordinary DeathDamage path has never applied a push either, so the Giant
+/// Skeleton's bomb damages without shoving -- the same gap every other death
+/// damage has, not a new one.
+fn convert_death_bomb(raw: &RawCard) -> Result<Option<CardDef>, String> {
+    // THE SHAPE, ALL OF IT. A row that misses one clause is not a bomb and falls
+    // through to the ordinary loader, which refuses it by name and says why: a
+    // half-recognised bomb that loaded and behaved wrongly would be worse than a
+    // refusal.
+    let (fuse_ms, damage, radius_milli) = match (raw.deploy_time_ms, raw.death_damage, raw.death_damage_radius_milli) {
+        (Some(f), Some(d), Some(r)) if f > 0 && d > 0 && r > 0 => (f, d, r),
+        _ => return Ok(None),
+    };
+    let blank = raw.kind == CardKind::Building
+        && raw.hitpoints.is_none()
+        && raw.damage.is_none()
+        && raw.hit_speed_ms.is_none()
+        && raw.range_milli.is_none()
+        && raw.lifetime_ms.is_none()
+        && raw.speed.unwrap_or(0) == 0
+        && raw.shield_hitpoints.unwrap_or(0) == 0
+        && !matches!(&raw.projectile, Some(v) if !v.is_null())
+        && raw.spawner.is_none()
+        && raw.death_spawn.is_none()
+        && raw.death_area_effect.is_none()
+        && raw.action_graph.is_none()
+        && raw.spawn_pathfind.is_none()
+        && raw.charge.is_none()
+        && raw.jump.is_none()
+        && raw.buff_on_damage.is_none()
+        && raw.second_summon.is_none()
+        && !raw.hides_when_not_attacking.unwrap_or(false)
+        && !raw.kamikaze.unwrap_or(false);
+    if !blank {
+        return Ok(None);
+    }
+    let crown_pct = crown(raw.crown_tower_damage_percent);
+    let radius = milli(radius_milli);
+    let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
+    let mut c = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, 0);
+    // The row IS a building row and says so; `summon_only` (set by the caller once
+    // the unit is registered) is what keeps it out of every catalogue.
+    c.kind = CardKind::Building;
+    c.deploy_time_ms = fuse_ms;
+    c.death_damage = damage;
+    c.death_damage_radius = radius;
+    c.crown_tower_damage_percent = crown_pct;
+    c.level_table = level_table;
+    c.level_base = level_base;
+    c.spell = Some(SpellDef {
+        // `speed` is unread: `spell::step_spells` advances from the impact point to
+        // the impact point, and `path::advance` arrives on a zero-length leg
+        // whatever the speed. `waves` / `wave_interval_ms` are the cast-time wave
+        // stagger, which no bomb has; the fuse rides on the ONE object `phase_reap`
+        // makes, as its `delay_ms`.
+        shape: SpellShape::Projectile {
+            speed: 0,
+            hit: Some(SpellHit {
+                damage,
+                crown_pct,
+                radius,
+                hits_air: raw.attacks_air.unwrap_or(true),
+                hits_ground: raw.attacks_ground.unwrap_or(true),
+                only_enemies: true,
+                ignore_buildings: false,
+                no_effect_to_crown_towers: false,
+                knockback: None,
+                buff: None,
+            }),
+            waves: 1,
+            wave_interval_ms: 0,
+            spawn: None,
+        },
+        // Unread: a bomb is never cast, so it is never placed. `Anywhere` is the
+        // inert value; `state.rs check_position` only ever sees catalogue cards.
+        placement: SpellPlacement::Anywhere,
+    });
+    Ok(Some(c))
+}
+
 fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
     if raw.kind == CardKind::Spell {
         let display = raw.display_name.clone();
@@ -1479,6 +1669,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
         }
         #[allow(unreachable_code)]
         return convert_spell(raw, buffs).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
+    }
+    // A DEATH BOMB is not a unit and is not loaded like one: no hitpoints, no hit
+    // speed and no range to require of it (`convert_death_bomb`).
+    if let Some(bomb) = convert_death_bomb(&raw)? {
+        return Ok((bomb, raw.display_name.clone(), Vec::new()));
     }
     refuse_action_mechanic(&raw.action_graph, "the unit")?;
     refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
@@ -1675,6 +1870,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
         projectile_start_radius: milli(nonneg(raw.projectile_start_radius_milli, "projectile_start_radius_milli")?),
         kamikaze,
         attack_buff,
+        // Resolved by `CardDb::from_json_str` against the file's `area_effect_objects`
+        // table, with the card's `death_area_effect` name (pushed on `units` above).
+        death_area_effect: None,
     }, display, units))
 }
 
@@ -1740,20 +1938,39 @@ impl CardDb {
         // summon_only card, after every real card so no card index moves -- one unit
         // table for all three mechanics. A card whose unit cannot be loaded is REJECTED
         // (unregistered again, with the unit's reason), never left pointing at nothing:
-        // Balloon (BalloonBomb), GiantSkeleton (GiantSkeletonBomb) and RageBarbarian
-        // (RageBarbarianBottle) go this way in the 2018 data -- their "units" are
-        // lifetime-plus-death-damage buildings with no hitpoints -- and SkeletonBalloon
-        // (SkeletonContainer: a hitpoint-less building too, refused on `hitpoints`
-        // before its own 8-Skeleton death spawn -- a chain -- is even reached)
-        // and MovingCannon (BrokenCannon, a troop with a LifeTime).
+        // SkeletonBalloon goes this way (SkeletonContainer, a building with no
+        // hitpoints, refused on `hitpoints` before its own 8-Skeleton death spawn --
+        // a chain -- is even reached), and so does MovingCannon (BrokenCannon, a troop
+        // with a LifeTime).
+        // NOT every hitpoint-less "unit" is a refusal: a DEATH BOMB (BalloonBomb,
+        // GiantSkeletonBomb, BombTowerBomb) is a timed impact rather than an entity
+        // and loads as one -- `convert_death_bomb`, and `phase_reap`, which leaves it
+        // where the parent died instead of spawning it.
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
         let mut unloadable: Vec<(u16, String)> = Vec::new();
         for (spell_idx, which, unit) in &spawns {
             if *which == UnitUse::DeathAreaEffect {
-                // The Ice Golem's FreezeIceGolemite, the 15.535 Lumberjack's rage
-                // bottle: a death that releases an area effect is not simulated, and
-                // a card run without it is a different card.
-                unloadable.push((*spell_idx, format!("death area effect {unit} is not simulated")));
+                // A DEATH AREA EFFECT IS NOT A UNIT. It is an `area_effect_objects`
+                // row the death leaves standing where the unit stood, so it is
+                // resolved here against the file's own table and stored on the card
+                // as a `SpellDef` -- the same record, the same acceptance and the
+                // same engine path a Zap goes down (`convert_area_effect`).
+                //
+                // A cards.json whose table has no row under this name is a file this
+                // loader cannot read the card from: refused BY NAME, loudly, never
+                // run as a card whose death does nothing. (The table is part of
+                // cards.json, so a clone with no raw card data still resolves it.)
+                let got = match file.area_effect_objects.get(unit) {
+                    Some(aeo) => convert_area_effect(aeo, &mut buffs).map(|shape| SpellDef { shape, placement: SpellPlacement::Anywhere }),
+                    None => Err(format!(
+                        "no area_effect_objects record in cards.json (the file lists {})",
+                        file.area_effect_objects.len()
+                    )),
+                };
+                match got {
+                    Ok(def) => db.cards[*spell_idx as usize].death_area_effect = Some(def),
+                    Err(e) => unloadable.push((*spell_idx, format!("death area effect {unit}: {e}"))),
+                }
                 continue;
             }
             let got = unit_idx
@@ -1815,6 +2032,30 @@ impl CardDb {
                 Err(e) => unloadable.push((*spell_idx, e)),
             }
         }
+        // A DEATH BOMB IS IMPLEMENTED ON THE DEATH-SPAWN PATH ALONE (state.rs
+        // `phase_reap`, which leaves a timed impact instead of a spawn). A periodic
+        // spawner, a spell release or a second summon that named one would reach
+        // `spawn_now` with a hitpoint-less record and put a thing on the board that
+        // dies the moment it is looked at. No shipped row does -- BalloonBomb,
+        // GiantSkeletonBomb and BombTowerBomb are named by DeathSpawnCharacter and by
+        // nothing else -- and a row that starts to is REFUSED rather than run wrong.
+        for idx in 0..db.cards.len() {
+            let c = &db.cards[idx];
+            let from_other_path = c
+                .spawner
+                .map(|sp| ("a periodic spawner", sp.unit))
+                .into_iter()
+                .chain(c.formation.second_summon.as_ref().map(|ss| ("a second summon", ss.unit)))
+                .chain(match &c.spell {
+                    Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) => Some(("a spell release", sp.unit)),
+                    _ => None,
+                })
+                .find(|(_, u)| db.cards.get(*u as usize).and_then(CardDef::death_bomb_fuse_ms).is_some());
+            if let Some((what, u)) = from_other_path {
+                let name = db.cards[u as usize].name.clone();
+                unloadable.push((idx as u16, format!("{name} is a death bomb, which only a death spawn releases; {what} cannot")));
+            }
+        }
         for (spell_idx, why) in unloadable {
             // Keep indices stable: the card stays in `cards` but is unregistered and
             // listed as rejected, so no name resolves to it. Its unit blocks are
@@ -1828,6 +2069,10 @@ impl CardDb {
             card.spawner = None;
             card.death_spawn = None;
             card.formation.second_summon = None;
+            // The death area effect goes with them: a card rejected for any reason
+            // runs, where it can still be reached at all, exactly as it ran before
+            // its blocks resolved.
+            card.death_area_effect = None;
             if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = card.spell.as_mut() {
                 *spawn = None;
             }
@@ -2134,7 +2379,13 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // omit "range_milli" (the huts). Also the "charge" block {damage_special,
 // charge_range_raw, charge_speed_multiplier_percent} (`convert_charge`; all three or the card is
 // refused; troops only), and the "jump" block {height_raw, speed} on JumpEnabled rows
-// (`convert_jump`; both or the card is refused; troops only). Unknown fields are ignored.
+// (`convert_jump`; both or the card is refused; troops only). Also "death_area_effect":
+// the NAME of a row in the top-level "area_effect_objects" map, whose records have the
+// shape a spell's inline "area_effect_object" block has {name, life_duration_ms,
+// radius_milli, hit_speed_ms, damage, crown_tower_damage_percent, buff, buff_time_ms,
+// only_enemies, only_own_troops, hits_ground, hits_air, ignore_buildings, pushback_milli,
+// maximum_targets, projectile, spawn_character, action_graph}; a named row the map does
+// not carry refuses the card (`convert_area_effect`). Unknown fields are ignored.
 
 #[cfg(test)]
 mod tests {

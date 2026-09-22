@@ -378,6 +378,91 @@
       "promotion_rules": "Walk a minimum-radius unit (CollisionRadius 400) along a tower edge and record closest approach. Repeat for king and princess."
     }
   },
+  "placement": {
+    "$comment": "WHERE A BUILDING MAY BE PUT, which is a different question from what its body does to movement (collision.BUILDING_FOOTPRINT_MODEL). A building occupies a whole number of TILES when it is placed, and troops walk through that box freely: over the recorded corpus a troop centre is inside a Cannon's box on 394 of 943 nearby frames and inside a princess tower's on 11923 of 49173. Settled 2026-09-22 over 114 recorded building placements.",
+    "FOOTPRINT_TILES": {
+      "value": "ceil_two_radius_plus_one",
+      "status": "measured",
+      "confidence": "HIGH for the cards the recordings pin, MEDIUM for the rest",
+      "candidates": [
+        "ceil_two_radius_plus_one",
+        "floor_two_radius_plus_one",
+        "round_two_radius_plus_one",
+        "collision_radius_circle"
+      ],
+      "provenance": "MEASURED on 114 unique building placements recorded from the real game on client 16.402 (the A/B twins of one battle deduplicated), through the client instrument that records ground-truth traces. The footprint is an N x N tile box with N = ceil(2R / tile) + 1 from CollisionRadius: R 500 gives 2, R 600 gives 3, R 1000 gives 3 and R 1400 gives 4. Pinned per card by sweeping N against every placement's legality and every relocation: Cannon 3 (N = 1 refuted by two placements, N = 5 by four), Tombstone 3, Goblin Hut 3, Bomb Tower 3, Goblin Cage 3, Barbarian Hut 3, Tesla 2, the surfaced Goblin Drill building 2. Inferno Tower, Mortar, X-Bow and Elixir Collector follow the rule and are NOT individually pinned, because no recorded placement of them discriminates. The losing arms: an all-odd N of 1 explains 31 of the 64 tapped placements and N of 5 explains 30, against 64 of 64 for the rule; floor + 1 and round + 1 both fail on R 600, which is the witness, because 2R is 1.2 tiles.",
+      "why_it_matters": "It decides whether a Cannon can be put against the arena wall or flush inside a tower, which is a large part of defensive placement.",
+      "promotion_rules": "To pin the four unpinned cards, record a placement of each whose legality differs between N = 1, 3 and 5: tapped one tile from a wall separates 3 from 1, and tapped two tiles from a tower separates 3 from 5.",
+      "engine_contract": "crates/royalesim/src/arena.rs placement_tiles; the box is built by Arena::placement_box and judged by Arena::box_zone. It is NOT a collision shape: collision.BUILDING_FOOTPRINT_MODEL still decides what movement sees."
+    },
+    "TOWER_FOOTPRINT_TILES": {
+      "value": "same_rule_as_buildings",
+      "status": "measured",
+      "confidence": "HIGH on the king, MEDIUM on the princess",
+      "candidates": [
+        "same_rule_as_buildings",
+        "princess_two_king_three",
+        "princess_three_king_three"
+      ],
+      "provenance": "MEASURED on the same 114 placements: a crown tower blocks a building the way another building does, and the same size rule gives a princess tower 3x3 and a king tower 4x4. Scoring the alternatives against every placement, a princess of 1 tile fails one placement, a princess of 4 or 5 fails at least five, and a king of 5 fails five. THE CORPUS CANNOT SEPARATE a 3x3 princess from a 2x2 one, nor a 4x4 king from a 3x3 one, because every building box has integer tile edges, so a box overlaps the closed 2.5-to-4.5 span exactly when it overlaps 2-to-5. The shipped reading is the one that needs no special case: a tile-aligned box centred on a tile centre must be odd, and one centred on a corner must be even.",
+      "why_it_matters": "It decides how close a defensive building may sit to a tower, and the viewer draws it.",
+      "promotion_rules": "Record a building tapped so that its box would overlap the disputed ring of a tower by exactly one tile, on each of the two towers.",
+      "engine_contract": "The towers take the same arena.rs path as buildings, through their own CollisionRadius."
+    },
+    "SNAP_EVEN_CORNER": {
+      "value": "placer_frame",
+      "status": "hypothesis",
+      "confidence": "LOW. The recordings do not discriminate it, and the arm that ships was chosen for its consequences rather than on evidence.",
+      "candidates": [
+        "placer_frame",
+        "absolute"
+      ],
+      "provenance": "THE SNAP ITSELF IS MEASURED and the corner is not. Of 114 recorded placements, all 102 with an odd footprint sit on a tile centre and all 24 with an even one sit on a tile corner, without exception. But every even-footprint placement in the corpus was made by ONE SEAT (18 Tesla and 6 Goblin Drill, all on the same side), so 'the arena's own lower-left corner' and 'the placer's lower-left corner' fit the corpus equally, and nothing recorded separates them.",
+      "why_it_matters": "The two arms put an even-footprint building a whole tile apart for one of the two seats. Under the absolute arm a policy shared between seats sees a seat-dependent offset, and the rotation gates fail on 2x2 buildings.",
+      "promotion_rules": "Record a Tesla placed by the seat that defends high y, at a tap whose two candidate corners differ. One placement settles it.",
+      "engine_contract": "crates/royalesim/src/arena.rs snap_placement, selected by state.rs Calib::placement_snap_even."
+    },
+    "ILLEGAL_TAP": {
+      "value": "relocate_first_fitting_ring",
+      "status": "measured",
+      "confidence": "HIGH that the tap is moved rather than refused; LOW on which of the two relocating arms",
+      "candidates": [
+        "relocate_first_fitting_ring",
+        "relocate_nearest_overall",
+        "refuse"
+      ],
+      "provenance": "MEASURED: of the 64 recorded building taps whose tap point is known, 39 ended somewhere other than the tapped tile, so the game MOVES a building whose footprint does not fit rather than refusing the play, and 'refuse' is refuted outright. The two relocating arms are NOT separated by the corpus: every relocation with a reliable tap moves 1 or 2 tiles (two at ring 1, three at ring 2), and the two orders agree below ring 3, because a ring-r diagonal is r x sqrt(2) away while a ring-(r+1) axial cell is only r + 1. Relocation is only ever observed INSIDE the placer's own half, because a player's own client never sends a tap from outside it, so the engine refuses a tap whose own point fails the cell or territory rules rather than extrapolating past what was seen.",
+      "why_it_matters": "It decides whether a building tap is a refusal or a different building, which changes what a placement mask means and what a policy can learn.",
+      "promotion_rules": "Record a building tap whose only fits are three or more rings away, with a ring-r diagonal fit and a ring-(r+1) axial fit both available. The two arms then land it on different tiles.",
+      "engine_contract": "crates/royalesim/src/state.rs building_placement, bounded by PLACEMENT_SEARCH_RINGS = 30 tiles, which spans the arena. The ring scan order is built in the placer's frame so the two seats mirror; the corpus leaves exactly one tie, so the order is the engine's choice and not a measurement."
+    },
+    "OVERLAP_TEST": {
+      "value": "positive_area",
+      "status": "measured",
+      "confidence": "HIGH",
+      "candidates": [
+        "positive_area",
+        "closed_contact"
+      ],
+      "provenance": "MEASURED over 191 near pairs of live boxes in the recordings: none overlaps and 93 touch exactly. One recorded Cannon stands flush against a princess tower's box, a king block and a Goblin Cage at the same time, so contact alone cannot be illegal. Boxes also sit flush against the side wall, the river line and the back no-deploy strip.",
+      "why_it_matters": "Whether a defensive building may be put flush against a tower is a real placement decision.",
+      "promotion_rules": "SETTLED unless a recording shows a refused flush placement.",
+      "engine_contract": "crates/royalesim/src/arena.rs Rect::overlaps_open."
+    },
+    "BUILDING_TERRITORY": {
+      "value": "own_half",
+      "status": "hypothesis",
+      "confidence": "LOW. The corpus cannot discriminate it, and the shipped arm is kept because it is the one already running.",
+      "candidates": [
+        "own_half",
+        "enemy_tower_no_deploy_rects"
+      ],
+      "provenance": "NOT SETTLED by the placement work. The two arms agree while every enemy crown tower stands, because the enemy rects then cover the whole enemy side, and no building in the corpus was tapped on the wrong half at all. They part after an enemy princess falls: own_half still refuses the opened band past the far bank, and the rect rule allows it, as it does for troops.",
+      "why_it_matters": "It decides whether a building may be put past the river once a lane is open, which is a real attacking option.",
+      "promotion_rules": "Record a building tapped past the far bank after an enemy princess has fallen. One placement settles it.",
+      "engine_contract": "crates/royalesim/src/state.rs deploy_rule returns Territory::OwnHalf for a building; arena.rs box_zone judges the BOX against it, not the tap."
+    }
+  },
   "pathfinding": {
     "ALGORITHM": {
       "value": "weighted_grid_astar",
