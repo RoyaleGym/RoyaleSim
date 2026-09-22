@@ -250,11 +250,15 @@ fn target_is_locked_once_the_windup_has_started() {
         assert!(s.debug_set_pos(cannon, Vec2::new(c.x, c.y + beyond)));
         // Run through the rest of the windup.
         let load_ticks = (card_stat(&s, "Knight").load_time_ms / calib.tick_ms) as u32 + 1;
+        // A Cannon is a LifeTime building, so its hp falls on its own every tick
+        // (lifetime.HP_DECAY = linear_drain). Only a drop bigger than the whole
+        // window's drain is the Knight's hit.
+        let drift = load_ticks as i32 * ((s.lifetime_drain(cannon) + 99) / 100);
         let mut hit = false;
         for _ in 0..load_ticks {
             s.tick();
             let kv = find_live(&s, Team::Blue, "Knight")[0];
-            if s.entity(cannon).map_or(true, |v| v.hp < hp0) {
+            if s.entity(cannon).map_or(true, |v| v.hp < hp0 - drift) {
                 hit = true;
                 break;
             }

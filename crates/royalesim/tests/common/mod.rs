@@ -316,6 +316,15 @@ pub fn spawn_tick_countdown(calib: &royalesim::state::Calib) -> i32 {
     }
 }
 
+/// The most hitpoints an entity can lose in ONE tick to its own LifeTime drain
+/// (calibration lifetime.HP_DECAY = linear_drain; 0 for anything without a LifeTime,
+/// and 0 under the expiry_hit arm). A drop BIGGER than this is damage; a drop at or
+/// below it may be a building bleeding its own life away, which most tests must not
+/// read as a hit.
+pub fn drain_step(s: &BattleState, id: royalesim::EntityId) -> i32 {
+    (s.lifetime_drain(id) + 99) / 100
+}
+
 // ---------------------------------------------------------------------------
 // mirror comparison
 

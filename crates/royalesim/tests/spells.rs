@@ -353,8 +353,11 @@ fn fireball_flight_launches_from_the_caster_king_and_lands_on_distance_over_spee
             other => panic!("Fireball is not a flight: {other:?}"),
         }
         let mut hit_at = None;
+        // a Cannon bleeds its own LifeTime away every tick (lifetime.HP_DECAY), so
+        // only a drop bigger than one tick of that is the spell
+        let step = drain_step(&s, cannon);
         for k in 1..=expect + 2 {
-            if s.entity(cannon).unwrap().hp < full {
+            if s.entity(cannon).unwrap().hp < full - step * k as i32 {
                 hit_at = Some(k);
                 break;
             }
@@ -705,15 +708,20 @@ fn arrows_waves_come_from_the_data() {
         let mut s = bare(BattleConfig::with_cards(db));
         let tap = stage();
         let cannon = s.scenario_spawn_now(Team::Red, "Cannon", tap, None).unwrap();
+        // The Cannon bleeds its own LifeTime away every tick (lifetime.HP_DECAY), so
+        // the DAMAGE is read against a control battle with no Arrows in it: the two
+        // drain in step, and every difference between them is the spell.
+        let mut ctl = s.clone();
         s.spawn_unit(Team::Blue, "Arrows", tap, None).unwrap();
-        let mut last = s.entity(cannon).unwrap().hp;
+        let mut last = 0;
         let mut drops = Vec::new();
         for k in 1..=200 {
             s.tick();
-            let hp = s.entity(cannon).unwrap().hp;
-            if hp != last {
-                drops.push((k, last - hp));
-                last = hp;
+            ctl.tick();
+            let taken = ctl.entity(cannon).map_or(0, |v| v.hp) - s.entity(cannon).map_or(0, |v| v.hp);
+            if taken != last {
+                drops.push((k, taken - last));
+                last = taken;
             }
         }
         drops
@@ -772,6 +780,8 @@ fn knight_vs_cannon(zap: Option<u32>, ticks: u32) -> (Vec<u32>, Vec<KnightTrace>
     let knight = s.scenario_spawn_now(Team::Red, "Knight", k_at, None).unwrap();
     let cannon = s.scenario_spawn_now(Team::Blue, "Cannon", Vec2::new(k_at.x, k_at.y - kr - cr - milli(200)), None).unwrap();
     let mut last = s.entity(cannon).unwrap().hp;
+    // the Cannon's own LifeTime drain (lifetime.HP_DECAY) is not a Knight hit
+    let step = drain_step(&s, cannon);
     let mut hits = Vec::new();
     let mut trace = Vec::new();
     for k in 0..ticks {
@@ -782,8 +792,10 @@ fn knight_vs_cannon(zap: Option<u32>, ticks: u32) -> (Vec<u32>, Vec<KnightTrace>
         let v = s.entity(knight).unwrap();
         trace.push((k, v.attack_phase, v.attack_ms, v.target_locked, v.retarget_on_resume, v.stun_ms));
         let hp = s.entity(cannon).map_or(0, |c| c.hp);
-        if hp != last {
+        if last - hp > step {
             hits.push(k);
+        }
+        if hp != last {
             last = hp;
         }
     }
@@ -970,18 +982,22 @@ fn log_numbers(s: &BattleState) -> (i32, i32, i32, i32, i32, i32) {
 fn log_over_cannons(cfg: BattleConfig, cannons: &[Vec2], level: Option<i32>) -> (Vec<Vec<u32>>, Vec<i32>) {
     let mut s = bare(cfg);
     let ids: Vec<EntityId> = cannons.iter().map(|p| s.scenario_spawn_now(Team::Red, "Cannon", *p, None).unwrap()).collect();
-    let mut last: Vec<i32> = ids.iter().map(|i| s.entity(*i).unwrap().hp).collect();
+    // The Cannons bleed their own LifeTime away every tick (lifetime.HP_DECAY), so
+    // the DAMAGE is read against a control battle with no Log in it.
+    let mut ctl = s.clone();
+    let mut last = vec![0; ids.len()];
     let mut hits = vec![Vec::new(); ids.len()];
     let mut loss = vec![0; ids.len()];
     s.spawn_unit(Team::Blue, "Log", log_tap(), level).unwrap();
     for k in 1..=120u32 {
         s.tick();
+        ctl.tick();
         for (j, id) in ids.iter().enumerate() {
-            let hp = s.entity(*id).map_or(0, |v| v.hp);
-            if hp != last[j] {
+            let taken = ctl.entity(*id).map_or(0, |v| v.hp) - s.entity(*id).map_or(0, |v| v.hp);
+            if taken != last[j] {
                 hits[j].push(k);
-                loss[j] += last[j] - hp;
-                last[j] = hp;
+                loss[j] += taken - last[j];
+                last[j] = taken;
             }
         }
     }
@@ -1062,10 +1078,11 @@ fn log_pierces_hits_each_victim_once_and_damage_scales() {
     s.spawn_unit(Team::Blue, "Log", Vec2::new(tower_pos.x, tower_pos.y - 3 * SUBTILE), Some(level)).unwrap();
     let mut drops = 0;
     let mut last = full;
+    let step = drain_step(&s, tower);
     for _ in 0..120 {
         s.tick();
         let hp = s.entity(tower).unwrap().hp;
-        drops += u32::from(hp != last);
+        drops += u32::from(last - hp > step);
         last = hp;
     }
     let dmg = scaled_from_json(&s, "Log", level, int(&log_roll()["damage"]));

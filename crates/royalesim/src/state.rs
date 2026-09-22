@@ -278,6 +278,17 @@ pub struct Calib {
     pub death_spawn_radius_default: DeathSpawnRadius,
     /// spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT: the deploy time when the block is blank.
     pub death_spawn_deploy_default: DeathSpawnDeploy,
+    /// spawner.EMISSION_TIMING: where `spawner_pass` runs and whether its units are
+    /// created at once or queued for the next tick. Read through
+    /// `BattleState::emission_timing`, never directly, so the regression plant can
+    /// force the old arm.
+    pub spawner_emission_timing: SpawnerEmission,
+    /// spawner.SPAWNED_DEPLOY_TIME: the deploy timer a periodic spawner's unit gets.
+    pub spawner_spawned_deploy_time: SpawnedDeploy,
+
+    // --- lifetime: calibration.json lifetime.*.
+    /// lifetime.HP_DECAY: what LifeTime does to a building's hitpoints.
+    pub lifetime_hp_decay: LifetimeDecay,
 
     // --- charge (Prince, DarkPrince, BattleRam). Each is one
     // calibration.json charge.* key; a candidate with no implementation is refused
@@ -574,6 +585,41 @@ calib_enum!(
     /// spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT -- a blank DeathSpawnDeployTime means the
     /// unit's own DeployTime, or zero.
     DeathSpawnDeploy { UnitOwnDeployTime = "unit_own_deploy_time", Zero = "zero" }
+);
+calib_enum!(
+    /// spawner.EMISSION_TIMING -- where the periodic spawner pass runs and when the
+    /// unit it emits comes into existence.
+    SpawnerEmission {
+        /// Measured (44 live Tombstone deploys, 2 BarbarianHut deploys): the pass
+        /// runs in the Move phase right after `deploy_countdown` -- the same place as
+        /// the countdown, after the move pass -- and CREATES its units in that same
+        /// tick, so a Tombstone's first Skeleton exists on the Tombstone's own
+        /// deploy-end tick, as the recordings show.
+        MovePhaseImmediate = "move_phase_immediate",
+        /// The earlier engine: the pass ran at the end of the Spawn phase and pushed
+        /// PendingSpawns that materialised in the NEXT tick's Spawn phase. Two ticks
+        /// late on every live deploy, because the activation happened after that
+        /// tick's Spawn.
+        SpawnPhaseNextTick = "spawn_phase_next_tick",
+    }
+);
+calib_enum!(
+    /// spawner.SPAWNED_DEPLOY_TIME -- whether a periodic spawner's unit serves its
+    /// own DeployTime. Measured zero on 1230 live emissions.
+    SpawnedDeploy { Zero = "zero", UnitOwnDeployTime = "unit_own_deploy_time" }
+);
+calib_enum!(
+    /// lifetime.HP_DECAY -- what a building's LifeTime does to its hitpoints.
+    LifetimeDecay {
+        /// Measured (92.2 % of 31113 live building frames exact, every residual a
+        /// hit the building took): the building bleeds
+        /// `((max_hp * 100000) / LifeTime_ms) / 20` hundredths of a hitpoint every
+        /// tick past its deploy end and dies when the pool runs out.
+        LinearDrain = "linear_drain",
+        /// The earlier engine: full hp for the whole life, then one hit for
+        /// everything it has when LifeTime is up.
+        ExpiryHit = "expiry_hit",
+    }
 );
 calib_enum!(
     /// charge.CHARGE_RANGE_UNIT -- the unit of the raw ChargeRange column (Prince 250,
@@ -1086,6 +1132,9 @@ impl Calib {
             spawner_stun_pauses: boolean(&v, &["spawner", "STUN_PAUSES_SPAWNER", "value"])?,
             death_spawn_radius_default: pick(&v, &["spawner", "DEATH_SPAWN_RADIUS_DEFAULT", "value"], DeathSpawnRadius::from_calibration_name)?,
             death_spawn_deploy_default: pick(&v, &["spawner", "DEATH_SPAWN_DEPLOY_TIME_DEFAULT", "value"], DeathSpawnDeploy::from_calibration_name)?,
+            spawner_emission_timing: pick(&v, &["spawner", "EMISSION_TIMING", "value"], SpawnerEmission::from_calibration_name)?,
+            spawner_spawned_deploy_time: pick(&v, &["spawner", "SPAWNED_DEPLOY_TIME", "value"], SpawnedDeploy::from_calibration_name)?,
+            lifetime_hp_decay: pick(&v, &["lifetime", "HP_DECAY", "value"], LifetimeDecay::from_calibration_name)?,
             charge_range_unit: pick(&v, &["charge", "CHARGE_RANGE_UNIT", "value"], ChargeRangeUnit::from_calibration_name)?,
             charge_accumulator: pick(&v, &["charge", "ACCUMULATOR", "value"], ChargeAccumulator::from_calibration_name)?,
             charge_multiplier_meaning: pick(&v, &["charge", "MULTIPLIER_MEANING", "value"], ChargeMultiplier::from_calibration_name)?,
@@ -1560,6 +1609,10 @@ pub struct BattleState {
     overtime: bool,
     outcome: Option<Outcome>,
     lifetime_ms: Vec<Option<i32>>,
+    /// The lifetime drain's remainder, in HUNDREDTHS of a hitpoint, per entity index
+    /// (`lifetime_drain_per_tick`). Meaningless (0) on
+    /// anything without a LifeTime and under lifetime.HP_DECAY = expiry_hit.
+    lifetime_acc: Vec<i32>,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -1657,6 +1710,7 @@ impl BattleState {
             overtime: false,
             outcome: None,
             lifetime_ms: Vec::new(),
+            lifetime_acc: Vec::new(),
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -1754,6 +1808,10 @@ impl BattleState {
             self.lifetime_ms.resize(i + 1, None);
         }
         self.lifetime_ms[i] = if kind == EntityKind::Building { c.lifetime_ms } else { None };
+        if self.lifetime_acc.len() <= i {
+            self.lifetime_acc.resize(i + 1, 0);
+        }
+        self.lifetime_acc[i] = 0;
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -1771,6 +1829,20 @@ impl BattleState {
     fn on_deployed(&mut self, i: usize) {
         self.hide_on_deployed(i);
         self.spawner_activate(i);
+    }
+
+    /// spawner.EMISSION_TIMING in force. The regression plant `spawner_first_wave_late`
+    /// forces the earlier arm whatever the ledger says -- the spawner pass back
+    /// in the Spawn phase, its units queued for the next tick -- so tests/spawner.rs's
+    /// tick alignment and the Tombstone rows of the replay harness go red under it.
+    #[inline]
+    fn emission_timing(&self) -> SpawnerEmission {
+        #[cfg(clash_plant = "spawner_first_wave_late")]
+        {
+            return SpawnerEmission::SpawnPhaseNextTick; // PLANT (regression): two ticks late.
+        }
+        #[allow(unreachable_code)]
+        self.cfg.calib.spawner_emission_timing
     }
 
     /// Entity `i`'s spawner block, if its card has one.
@@ -1826,13 +1898,21 @@ impl BattleState {
         }
     }
 
-    /// THE SPAWNER PASS (Spawn phase, after the queue has drained): every periodic
-    /// spawner past its deploy time ticks its timer by TICK_MS and, at <= 0, queues
-    /// the unit(s) that are due. Decided from START-OF-PHASE state (the count a
-    /// SpawnLimit compares against, the positions), collected, sorted by (team, the
-    /// spawner's team_seq, unit index) and only then pushed, so the queue order --
-    /// which is the materialisation order and therefore team_seq -- is canonical
-    /// and slot-free.
+    /// THE SPAWNER PASS: every periodic spawner past its deploy time ticks its timer
+    /// by TICK_MS and, at <= 0, emits the unit(s) that are due. Decided from
+    /// START-OF-PASS state (the count a SpawnLimit compares against, the positions),
+    /// collected, sorted by (team, the spawner's team_seq, unit index) and only then
+    /// emitted, so the creation order -- and therefore team_seq -- is canonical and
+    /// slot-free.
+    ///
+    /// WHERE IT RUNS (calibration spawner.EMISSION_TIMING): under
+    /// `move_phase_immediate` the pass runs at the end of Move, right after
+    /// `deploy_countdown` (which match.TICK_ORDER = client16402 places after the move
+    /// pass), for the first time on the tick the deploy timer reaches zero, and its
+    /// units EXIST in that tick -- a Tombstone's first Skeleton on the Tombstone's own
+    /// deploy-end tick, as the recordings show (38 of 44 exact-tick live deploys at
+    /// delta 0). Under `spawn_phase_next_tick` (the earlier engine) it ran at the end
+    /// of the Spawn phase and pushed PendingSpawns: two ticks late on every one.
     ///
     /// TIMER LAW (entity.rs `spawn_ms` / `spawn_wave_left`): with `left == 0` a
     /// wave begins (left = SpawnNumber); each emission takes one off and reloads
@@ -1843,10 +1923,15 @@ impl BattleState {
     /// most one wave starts per pass; a reload that is already due (0) fires next
     /// tick. Under spawner.STUN_PAUSES_SPAWNER a stunned spawner skips the pass.
     ///
-    /// TICK ALIGNMENT (tests/spawner.rs pins it): an activation at tick A with start
-    /// time S materialises the first unit in tick A + max(1, ceil(S / TICK_MS)); a
-    /// unit queued in tick E materialises in tick E + 1 (the one-tick latency of every
-    /// PendingSpawn); with pause P the next wave's first unit follows the last one by
+    /// TICK ALIGNMENT (tests/spawner.rs pins it): under the shipped arm an activation
+    /// at tick A with start time S creates the first unit in tick A + ceil(S / TICK_MS)
+    /// -- in tick A itself when S is blank or 0, because the pass runs after the
+    /// countdown in the same Move phase and decrements the timer once there; a live
+    /// Witch (SpawnStartTime 1000) has her first Skeletons 19 ticks after her
+    /// deploy-end tick, which is that formula. (Under `spawn_phase_next_tick` it was
+    /// A + max(1, ceil(S / TICK_MS)) + 1, the one-tick PendingSpawn latency on top of
+    /// a pass that had already run for tick A.) With pause P the next wave's first
+    /// unit follows the last one by
     /// ceil(P / TICK_MS) ticks; a SpawnInterval I separates a wave's units by
     /// ceil(I / TICK_MS) ticks. SpawnLimit (spawner.LIMIT_RULE = skip_unit_keep_cadence):
     /// a unit that would exceed the limit is skipped and the cadence keeps running.
@@ -1898,7 +1983,14 @@ impl BattleState {
                 if room.map_or(true, |r| r > 0) {
                     room = room.map(|r| r - 1);
                     let pos = grid[j.min(grid.len() - 1)];
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms: None, owner: Some(e.id_of(i)) }));
+                    // spawner.SPAWNED_DEPLOY_TIME: the game's emitted unit is born
+                    // walking (measured on 1230 live emissions), so it carries no
+                    // deploy timer; the old arm gave it the unit's own DeployTime.
+                    let deploy_ms = match self.cfg.calib.spawner_spawned_deploy_time {
+                        SpawnedDeploy::Zero => Some(0),
+                        SpawnedDeploy::UnitOwnDeployTime => None,
+                    };
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)) }));
                     k += 1;
                 }
                 left -= 1;
@@ -1921,7 +2013,35 @@ impl BattleState {
             self.ents.spawn_wave_left[i] = left;
         }
         emissions.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
-        self.spawn_queue.extend(emissions.into_iter().map(|(_, _, _, p)| p));
+        if self.emission_timing() == SpawnerEmission::SpawnPhaseNextTick {
+            self.spawn_queue.extend(emissions.into_iter().map(|(_, _, _, p)| p));
+            return;
+        }
+        // move_phase_immediate: the unit EXISTS in this tick's state (a live
+        // Tombstone's first Skeleton is on the board on the deploy-end tick). The
+        // engine still decides the whole pass from start-of-phase state and creates in
+        // the canonical (team, the spawner's team_seq, k) order rather than
+        // interleaving the creations with the pass, so the order stays slot-free.
+        if emissions.is_empty() {
+            return;
+        }
+        for (_, _, _, p) in emissions {
+            let kind = match cards.get(p.card).kind {
+                CardKind::Building => EntityKind::Building,
+                CardKind::Troop => EntityKind::Troop,
+                CardKind::Spell => continue, // a spawner's unit is never a spell (card.rs refuses it)
+            };
+            let Ok(id) = self.spawn_now(p.team, p.card, p.level, p.pos, kind) else { continue };
+            let i = id.index as usize;
+            self.ents.spawned_by[i] = p.owner;
+            if let Some(d) = p.deploy_ms {
+                self.ents.deploy_ms[i] = d;
+                if d == 0 {
+                    self.on_deployed(i);
+                }
+            }
+        }
+        self.hash.rebuild(&self.ents);
     }
 
     /// WHERE A DEATH SPAWN'S UNITS APPEAR (calibration spawner.DEATH_SPAWN_LAYOUT).
@@ -2158,6 +2278,43 @@ impl BattleState {
         }
     }
 
+    /// `lifetime_drain_per_tick` for a live entity, in HUNDREDTHS of a hitpoint: 0
+    /// when the entity is gone, its card has no LifeTime, or lifetime.HP_DECAY is not
+    /// `linear_drain`. The number every caller needs to say how long a building lives
+    /// (it empties after ceil(max_hp x 100 / drain) ticks past its deploy end).
+    pub fn lifetime_drain(&self, id: EntityId) -> i32 {
+        if self.cfg.calib.lifetime_hp_decay != LifetimeDecay::LinearDrain || !self.ents.is_alive(id) {
+            return 0;
+        }
+        self.lifetime_drain_per_tick(id.index as usize).unwrap_or(0)
+    }
+
+    /// THE PER-TICK LIFETIME DRAIN of entity `i`, in HUNDREDTHS of a hitpoint, or
+    /// None when its card has no LifeTime (lifetime.HP_DECAY = linear_drain).
+    ///
+    /// The rate is derived once from the building's max hitpoints and its LifeTime:
+    ///
+    /// > drain = ((maxHitpoints * 100000) / LifeTime_ms) / 20
+    ///
+    /// truncated to hundredths of a hitpoint BEFORE it is accumulated -- that is what
+    /// makes it fit the recordings (92.2 % of 31113 live building frames exact, where
+    /// the exact fraction max_hp x k / LifeTime_ticks recomputed every tick fits 46 %).
+    /// A level-11 Tesla (1182 hp, LifeTime 25000) gets 118200000 / 25000 = 4728, then
+    /// 4728 / 20 = 236 hundredths per tick: 2.36, not the 2.364 the exact fraction
+    /// gives, so the Tesla outlives its own column by one tick (the live Teslas die on
+    /// tick 501 of a 500-tick LifeTime). `lifetime_ms` carries the column (buildings
+    /// only; the loader refuses a troop that ships one).
+    ///
+    /// A rate of 0 (a building whose max hp is under LifeTime_ms / 5000 -- no shipped
+    /// card) never crosses a hitpoint, so nothing drains and nothing expires.
+    fn lifetime_drain_per_tick(&self, i: usize) -> Option<i32> {
+        let life = (*self.lifetime_ms.get(i)?)?;
+        if life <= 0 {
+            return None;
+        }
+        Some((self.ents.max_hp[i] as i64 * 100_000 / life as i64 / 20) as i32)
+    }
+
     fn phase_status(&mut self) {
         let dt = self.cfg.calib.tick_ms;
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
@@ -2168,6 +2325,12 @@ impl BattleState {
             self.tick_status_timers();
         }
         let lifetime_paused = self.cfg.calib.stun_pauses_building_lifetime;
+        #[cfg(not(clash_plant = "lifetime_expiry_hit"))]
+        let decay = self.cfg.calib.lifetime_hp_decay;
+        // PLANT (regression): the earlier engine, which kept a building at full hp
+        // for its whole LifeTime and killed it in one hit at the end.
+        #[cfg(clash_plant = "lifetime_expiry_hit")]
+        let decay = LifetimeDecay::ExpiryHit;
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
                 continue;
@@ -2175,20 +2338,48 @@ impl BattleState {
             if lifetime_paused && self.ents.stun_ms[i] > 0 {
                 continue;
             }
-            if let Some(Some(left)) = self.lifetime_ms.get_mut(i) {
-                *left -= dt;
-                if *left <= 0 {
-                    // Expiry is a hit for everything it has, so it goes through
-                    // the same buffer and death path as any other damage.
-                    let amount = self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1);
-                    // ignores_hide: a Tesla whose time is up dies under ground too
-                    // (combat.rs `resolve` drops every other hit on a Hidden building).
-                    #[cfg(not(clash_plant = "expiry_respects_hide"))]
-                    let ignores_hide = true;
-                    #[cfg(clash_plant = "expiry_respects_hide")]
-                    let ignores_hide = false; // PLANT: a hidden Tesla lives for ever.
-                    self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide });
-                    self.lifetime_ms[i] = None;
+            // ignores_hide: a Tesla whose time is up dies under ground too, and a
+            // hidden one drains under ground too (combat.rs `resolve` drops every
+            // other hit on a Hidden building; the live 2.36 hp/tick was measured on
+            // Teslas that spent their lives hidden).
+            #[cfg(not(clash_plant = "expiry_respects_hide"))]
+            let ignores_hide = true;
+            #[cfg(clash_plant = "expiry_respects_hide")]
+            let ignores_hide = false; // PLANT: a hidden Tesla lives for ever.
+            match decay {
+                LifetimeDecay::LinearDrain => {
+                    // THE DRAIN (lifetime.HP_DECAY = linear_drain, measured): the
+                    // hundredths accumulator gains the per-tick rate and every whole
+                    // hitpoint it crosses comes off the hp pool as a hit -- so damage
+                    // and the drain share one pool and a death by drain goes through
+                    // the normal death path (a Tombstone that runs out still spawns
+                    // its four Skeletons). It starts at the deploy end: a live
+                    // building's hp is at max on every frame of its deploy window.
+                    if self.ents.deploy_ms[i] > 0 {
+                        continue;
+                    }
+                    let Some(rate) = self.lifetime_drain_per_tick(i) else { continue };
+                    if self.lifetime_acc.len() <= i {
+                        self.lifetime_acc.resize(i + 1, 0);
+                    }
+                    let acc = self.lifetime_acc[i] + rate;
+                    let whole = acc / 100;
+                    self.lifetime_acc[i] = acc - whole * 100;
+                    if whole > 0 {
+                        self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount: whole, ignores_hide });
+                    }
+                }
+                LifetimeDecay::ExpiryHit => {
+                    if let Some(Some(left)) = self.lifetime_ms.get_mut(i) {
+                        *left -= dt;
+                        if *left <= 0 {
+                            // Expiry is a hit for everything it has, so it goes through
+                            // the same buffer and death path as any other damage.
+                            let amount = self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1);
+                            self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide });
+                            self.lifetime_ms[i] = None;
+                        }
+                    }
                 }
             }
         }
@@ -2244,8 +2435,12 @@ impl BattleState {
             }
         }
         self.hash.rebuild(&self.ents);
-        // Periodic spawners emit into the (now empty) queue: next tick's units.
-        self.spawner_pass();
+        if self.emission_timing() == SpawnerEmission::SpawnPhaseNextTick {
+            // The earlier arm: periodic spawners emit into the (now empty) queue, so
+            // their units materialise NEXT tick. The shipped arm runs the pass in
+            // Move instead (spawner.EMISSION_TIMING).
+            self.spawner_pass();
+        }
     }
 
     /// THE HIDE STATE MACHINE (entity.rs `HideState`), one step per tick for every
@@ -3617,6 +3812,12 @@ impl BattleState {
         if self.tick_order() == TickOrder::Client16402 {
             // the deploy countdown after the move pass, as measured
             self.deploy_countdown();
+        }
+        if self.emission_timing() == SpawnerEmission::MovePhaseImmediate {
+            // The spawner pass runs here, right after the countdown, for the first
+            // time on the tick the deploy timer reaches zero, and creates its units in
+            // this tick (spawner.EMISSION_TIMING, measured on 44 live Tombstones).
+            self.spawner_pass();
         }
     }
 
@@ -5147,6 +5348,9 @@ impl BattleState {
             }
             h.u32(e.last_plan_tick[i]);
             h.i32(self.lifetime_ms.get(i).copied().flatten().unwrap_or(-1));
+            if !legacy_v3 {
+                h.i32(self.lifetime_acc.get(i).copied().unwrap_or(0));
+            }
         }
         h.u32(self.projectiles.len() as u32);
         for p in &self.projectiles {
@@ -5319,7 +5523,12 @@ impl BattleState {
 ///    gained death_spawn_layout (spawner.DEATH_SPAWN_LAYOUT's facing_ring arm). A
 ///    format-3 battle keeps the old reach, the old windup, the LoadTime charged hit,
 ///    the centre-born projectile and the grid death spawn (migrate_v3).
-pub const SNAPSHOT_FORMAT: u32 = 16;
+/// 17: the lifetime drain -- BattleState gained lifetime_acc (the drain's remainder in
+///    hundredths of a hitpoint, lifetime.HP_DECAY = linear_drain) and Calib gained
+///    lifetime_hp_decay / spawner_emission_timing / spawner_spawned_deploy_time
+///    (spawner.EMISSION_TIMING, spawner.SPAWNED_DEPLOY_TIME). A format-3 battle
+///    resumes with an empty accumulator.
+pub const SNAPSHOT_FORMAT: u32 = 17;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -5396,6 +5605,10 @@ struct Snapshot {
     overtime: bool,
     outcome: Option<Outcome>,
     lifetime_ms: Vec<Option<i32>>,
+    /// Added in SNAPSHOT_FORMAT 17. `default` so the format-3 migration (which
+    /// predates it) still deserializes; `load_with` resizes it to the entity table.
+    #[serde(default)]
+    lifetime_acc: Vec<i32>,
     mana_unit: i64,
     mana_rate: [i64; 2],
     state_hash: u64,
@@ -5654,6 +5867,7 @@ impl BattleState {
             overtime: self.overtime,
             outcome: self.outcome,
             lifetime_ms: self.lifetime_ms.clone(),
+            lifetime_acc: self.lifetime_acc.clone(),
             mana_unit: self.mana_unit,
             mana_rate: self.mana_rate,
             state_hash: self.state_hash(),
@@ -5706,7 +5920,8 @@ impl BattleState {
             return Err("snapshot was saved against a different arena".into());
         }
         let n = snap.ents.capacity();
-        if snap.lifetime_ms.len() > n
+        if snap.lifetime_acc.len() > n
+            || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())
             || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).map_or(true, |c| c.spell.is_none()))
             || snap.spawn_queue.iter().any(|p| (p.card as usize) >= cards.cards.len())
@@ -5749,6 +5964,7 @@ impl BattleState {
             overtime: snap.overtime,
             outcome: snap.outcome,
             lifetime_ms: snap.lifetime_ms,
+            lifetime_acc: snap.lifetime_acc,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),

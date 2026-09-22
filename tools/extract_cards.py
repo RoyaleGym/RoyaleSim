@@ -1152,6 +1152,18 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # at once. Battle Ram, the Spirits, Wall Breakers, Skeleton Barrel.
         "kamikaze": flag(c, "Kamikaze"),
         "kamikaze_time_ms": c.get("KamikazeTime"),
+        # THE UNDERGROUND SPAWN WALK (SpawnPathfindSpeed / SpawnPathfindMorph). A
+        # row with SpawnPathfindSpeed is not born at the tap: the recordings show it
+        # appearing at its owner's king tower and travelling UNDERGROUND at that speed
+        # to the tap. With SpawnPathfindMorph it then MORPHS into the named row on
+        # arrival -- the
+        # GoblinDrillDig troop becomes the GoblinDrill building, a different hp, a
+        # different LifeTime and a spawner the dig row does not have. The engine runs
+        # neither, so card.rs REFUSES any card whose summon ships either column
+        # (Miner, GoblinDrill); carried here so the loader can see them.
+        "spawn_pathfind": None
+        if c.get("SpawnPathfindSpeed") is None and c.get("SpawnPathfindMorph") is None
+        else {"speed": c.get("SpawnPathfindSpeed"), "morph": c.get("SpawnPathfindMorph")},
         # ChargeRange's unit is NOT established: Prince ships 250, which is not
         # plausible as 0.25 tiles of run-up. Passed through raw on purpose.
         "charge": None
@@ -1306,6 +1318,7 @@ UNIT_FIELDS_FOR_CARD = [
     "projectile_start_radius_milli",
     "kamikaze",
     "kamikaze_time_ms",
+    "spawn_pathfind",
     "charge",
     "dash",
     "jump",

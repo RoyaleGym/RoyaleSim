@@ -1514,10 +1514,13 @@
       "SpawnCharacterLevelIndex (2 on every hut, Witch 5, DarkWitch 8, BattleRam 2 -- not carried",
       "into cards.json; every shipped value equals the owner's RelativeLevel and every spawned",
       "unit is Common, so the owner's unified level is exact today). Engine: state.rs",
-      "`spawner_pass` (Spawn phase, after the queue drains: the timer is decremented there and",
-      "an emission is a PendingSpawn that materialises in the NEXT tick's Spawn phase, the same",
-      "one-tick latency as a landing Goblin Barrel) and `phase_reap` (death spawn, queued the",
-      "same way). Timers run only past the deploy time; a building lifetime is unaffected. A",
+      "`spawner_pass`, which runs in the MOVE phase right after the deploy countdown",
+      "(spawner.EMISSION_TIMING = move_phase_immediate, measured: a Tombstone's first Skeleton is",
+      "on the board on the Tombstone's own deploy-end tick) and creates its units in that same",
+      "tick; the Spawn phase, after the queue drains, pushing PendingSpawns that materialised in",
+      "the NEXT tick, is the spawn_phase_next_tick arm. Death spawn is still `phase_reap`, queued the old way (it",
+      "fires from a death, not from a timer). Timers run only past the deploy time; a building",
+      "lifetime is unaffected (see the lifetime section: a building's hp DRAINS over that time). A",
       "wave's simultaneous units and every death spawn are laid out by the engine formation grid",
       "(the same code as a Goblin Barrel release, spells.PROJECTILE_SPAWN_FORMATION = engine_grid)",
       "in the OWNER's frame, water-ejected like a release; the contact law (collision.CONTACT_LAW",
@@ -1525,32 +1528,33 @@
       "included) slides them out of footprints over the following ticks as it does every unit",
       "(the Move phase's own one-tick static pass runs under the trace-fitted arm only). Spawned units",
       "carry the owner's team and the owner's unified level (card.rs `unit_level`; the 2018",
-      "SpawnCharacterLevelIndex is not carried into cards.json, see above) and their own",
-      "DeployTime unless the block overrides it."
+      "SpawnCharacterLevelIndex is not carried into cards.json, see above) and NO deploy timer",
+      "(spawner.SPAWNED_DEPLOY_TIME = zero, measured); a DEATH spawn serves DeathSpawnDeployTime",
+      "when the row sets one and otherwise none (DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero, measured)."
     ],
     "FIRST_WAVE": {
       "value": "first_wave_after_start_time_or_immediately",
-      "status": "community",
-      "confidence": "MEDIUM",
-      "provenance": "SpawnStartTime is blank on every 2018 hut (Witch 1000, DarkWitch 1500). Wiki Tombstone / Goblin Hut: the first spawn comes as soon as the building is deployed. The shipped arm reads a blank start time as 0: the first unit is queued in the activation tick's Spawn phase and materialises in the next tick's (activation = the tick the deploy timer reaches 0 in phase_upkeep, or the spawn tick for a zero deploy time). A set start time S materialises the first unit ceil(S / TICK_MS) ticks after activation. The other arm treats a blank start time as one full SpawnPauseTime.",
+      "status": "measured",
+      "confidence": "HIGH: 44 live Tombstone deploys and 2 BarbarianHut deploys, first wave on the deploy-end tick",
+      "provenance": "SpawnStartTime is blank on every 2018 hut (Witch 1000, DarkWitch 1500). MEASURED on the live 16.402 replay corpus: a Tombstone's first Skeleton exists on the Tombstone's own deploy-end tick (delta 0 on 38 of 44 exact-tick deploys, +1 on 3, the rest capture-start artefacts) and a BarbarianHut's first Barbarian likewise (2 of 2) -- a blank start time is 0. The shipped arm reads a blank start time as 0; with spawner.EMISSION_TIMING = move_phase_immediate the timer is loaded at the deploy-end tick and decremented in that same tick's pass, so a 0 fires there. A set start time S fires ceil(S / TICK_MS) ticks after activation (START_TIME_ORIGIN). The other arm treats a blank start time as one full SpawnPauseTime -- that would put the first Skeleton 70 ticks late, and no deploy of the corpus shows that.",
       "candidates": ["first_wave_after_start_time_or_immediately", "first_wave_after_one_pause"],
-      "promotion_rules": "A capture: the tick of the first Skeleton a Tombstone spawns, against its deploy-end tick (1 tick under the shipped arm; ceil(2950 / 50) = 59 under the other).",
+      "promotion_rules": "Settled by the measurement above (the losing arm is 70 ticks off on every one of the 46 deploys).",
       "engine": "state.rs Calib::spawner_first_wave, read by BattleState::spawner_activate (the timer's initial value)"
     },
     "START_TIME_ORIGIN": {
       "value": "from_activation",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "Where a set SpawnStartTime is measured from. from_activation (shipped): the timer is loaded with the raw column when the deploy timer reaches 0 -- a 2018 Witch (DeployTime 1000, SpawnStartTime 1000) placed at tick P has its first Skeleton at P + 1 + 20 + 20 = P + 41. from_placement: the deploy window already consumed that much of it, the timer is loaded with max(0, SpawnStartTime - DeployTime) -- the same Witch at P + 22. THE DATA PATTERN THAT RAISES THE FORK: every 15.535 spawning troop ships SpawnStartTime == DeployTime (witch.toml 1000 / 1000, darkwitch.toml 1000 / 1000), which is what a placement-relative 'first wave exactly at deploy end' looks like; the 2018 DarkWitch (1500 / 1000) parts the arms by 500 ms either way. Not measured; FIRST_WAVE covers the blank column only.",
+      "status": "measured",
+      "confidence": "HIGH: 3 live Witch and 2 DarkWitch deploys, first wave 19 ticks after the deploy-end tick",
+      "provenance": "Where a set SpawnStartTime is measured from. from_activation (shipped): the timer is loaded with the raw column when the deploy timer reaches 0 -- a 2018 Witch (DeployTime 1000, SpawnStartTime 1000) placed at tick P has its first Skeleton at P + 1 + 20 + 20 = P + 41. from_placement: the deploy window already consumed that much of it, the timer is loaded with max(0, SpawnStartTime - DeployTime) -- the same Witch at P + 22. THE DATA PATTERN THAT RAISES THE FORK: every 15.535 spawning troop ships SpawnStartTime == DeployTime (witch.toml 1000 / 1000, darkwitch.toml 1000 / 1000), which is what a placement-relative 'first wave exactly at deploy end' looks like; the 2018 DarkWitch (1500 / 1000) parts the arms by 500 ms either way. MEASURED on the live 16.402 corpus: a Witch (DeployTime 1000, SpawnStartTime 1000) has her first four Skeletons 19 ticks AFTER her deploy-end tick (3 of 3), and a DarkWitch her first two Bats likewise (2 of 2). from_activation predicts exactly that -- the timer is loaded with 1000 at the deploy-end tick and decremented by TICK_MS in that same tick's pass, so it reaches 0 nineteen ticks later; from_placement predicts the deploy-end tick itself and matches none of the five. SETTLED. FIRST_WAVE covers the blank column only.",
       "candidates": ["from_activation", "from_placement"],
-      "promotion_rules": "A capture: the tick of a Witch's first Skeleton against her placement tick -- 41 (from_activation) or 22 (from_placement) on the 2018 numbers; the 16.402 Witch ships 1000 / 1000 too, so the live numbers are the same.",
+      "promotion_rules": "Settled by the measurement above.",
       "engine": "state.rs Calib::spawner_start_time_origin, read by BattleState::spawner_activate"
     },
     "PAUSE_ANCHOR": {
       "value": "after_last_unit_of_wave",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "For a wave with SpawnInterval > 0 (Witch: 3 Skeletons 300 ms apart, BarbarianHut 2 x 500 ms), where SpawnPauseTime is measured from: the wave's LAST unit (shipped; the timer is simply reloaded with the pause after the last emission) or its FIRST (the pause minus the wave's own length; if that is <= 0 the next wave starts at once). Indistinguishable on a single-unit wave (Tombstone, GoblinHut).",
+      "status": "hypothesis",
+      "confidence": "MEDIUM",
+      "provenance": "For a wave with SpawnInterval > 0 (2018 Witch: 3 Skeletons 300 ms apart, BarbarianHut 2 x 500 ms), where SpawnPauseTime is measured from: the wave's LAST unit (shipped; the timer is simply reloaded with the pause after the last emission) or its FIRST (the pause minus the wave's own length; if that is <= 0 the next wave starts at once). Indistinguishable on a single-unit wave (Tombstone, GoblinHut) and on a wave with no interval. MEASURED on the live 16.402 corpus, what the corpus does show: a wave whose SpawnInterval is blank is emitted WHOLE on one tick (the live Witch: 13 groups of 4 Skeletons on one tick, 140 ticks apart), which is what the engine does under both arms. The reload is the plain column: every shipped SpawnPauseTime and SpawnInterval is a multiple of TICK_MS, so a timer that carried its (non-positive) leftover into the reload would land on the same tick, and the carry is not implemented.",
       "candidates": ["after_last_unit_of_wave", "after_first_unit_of_wave"],
       "promotion_rules": "Needs a live card that ships a SpawnInterval: the 16.402 Witch does NOT (15.535 witch.toml: SpawnNumber 4, SpawnPauseTime 7000, no SpawnInterval line -- her whole wave is simultaneous and both arms predict the same gap, so the 140-vs-128-tick Witch prediction is void). A capture of a BarbarianHut if 16.402 still ships its 2 x 500 ms wave: the tick gap between two consecutive waves' first Barbarians is ceil(pause / 50) + ceil(500 / 50) (after_last) or ceil(pause / 50) (after_first); on a hut with no interval the key is unsettleable and irrelevant.",
       "engine": "state.rs Calib::spawner_pause_anchor, read by BattleState::spawner_pass when a wave's last unit is emitted"
@@ -1568,9 +1572,9 @@
       "value": true,
       "status": "datamined",
       "confidence": "MEDIUM-HIGH",
-      "provenance": "character_buffs.csv ZapFreeze ships SpawnSpeedMultiplier -100 beside SpeedMultiplier -100 and HitSpeedMultiplier -100 (2018 and 15.535 alike), i.e. the stun class stops the spawn timer as it stops movement and attacks. The engine skips the timer's decrement on every Spawn phase the spawner is stunned in (stun_ms > 0 at that phase), so a D-ms Zap delays the next wave by exactly the number of Spawn phases the stun covers -- ceil(D / TICK_MS) under status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick. The false arm lets the timer run through a stun.",
+      "provenance": "character_buffs.csv ZapFreeze ships SpawnSpeedMultiplier -100 beside SpeedMultiplier -100 and HitSpeedMultiplier -100 (2018 and 15.535 alike), i.e. the stun class stops the spawn timer as it stops movement and attacks. The engine skips the timer's decrement on every pass the spawner is stunned in (stun_ms > 0 at that pass), so a D-ms Zap delays the next wave by exactly the number of passes the stun covers -- ceil(D / TICK_MS) under status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick. The false arm lets the timer run through a stun.",
       "candidates": [true, false],
-      "promotion_rules": "A capture: Zap a Tombstone mid-pause and compare its next Skeleton's tick with the unstunned cadence.",
+      "promotion_rules": "A capture: Zap a Tombstone mid-pause and compare its next Skeleton's tick with the unstunned cadence (ceil(D / 50) ticks late under the shipped arm, on time under the other).",
       "engine": "state.rs Calib::spawner_stun_pauses, read by BattleState::spawner_pass"
     },
     "LIMIT_RULE": {
@@ -1602,13 +1606,54 @@
       "engine": "state.rs Calib::from_json -> death_spawn_layout; BattleState::death_spawn_points (the facing from Entities::facing, SpawnAngleShift from CardDef::formation); ring_at_radius is refused at load"
     },
     "DEATH_SPAWN_DEPLOY_TIME_DEFAULT": {
-      "value": "unit_own_deploy_time",
-      "status": "community",
-      "confidence": "MEDIUM",
-      "provenance": "DeathSpawnDeployTime is blank on every 2018 death spawn but the BattleRam's (800; the 15.535 ram ships 1000). The shipped arm gives the unit its own DeployTime (Golemite 1000, LavaPups 1000, Skeleton 1000); the other arm deploys it at once (0).",
-      "candidates": ["unit_own_deploy_time", "zero"],
-      "promotion_rules": "A capture: the tick a Golemite first moves against the Golem's death tick.",
+      "value": "zero",
+      "status": "measured",
+      "confidence": "HIGH: every live death spawn whose row leaves DeathSpawnDeployTime blank is born moving, every row that sets it is born deploying",
+      "provenance": "DeathSpawnDeployTime is blank on every 2018 death spawn but the BattleRam's (800; the 15.535 ram ships 1000). MEASURED on the live 16.402 corpus -- the state of every death-spawned unit on its FIRST frame, and whether it moved on the next: blank column -> moving at once (Golem's Golemites 12 of 12, LavaHound's Pups 12 of 12, ElixirGolem's halves 6 of 6); column set -> deploying, stationary (BattleRam's Barbarians 8 of 8 with DeathSpawnDeployTime 1000, GoblinCage's Brawler 6 of 6). A blank column is therefore ZERO, not the unit's own DeployTime: the unit_own_deploy_time arm freezes a Golemite at the death point for 19 ticks that the game walks, and matches none of the 30 blank-column deaths. unit_own_deploy_time stays runnable.",
+      "candidates": ["zero", "unit_own_deploy_time"],
+      "promotion_rules": "Settled by the measurement above.",
       "engine": "state.rs Calib::death_spawn_deploy_default, read by BattleState::phase_reap"
+    },
+    "EMISSION_TIMING": {
+      "value": "move_phase_immediate",
+      "status": "measured",
+      "confidence": "HIGH: 44 live Tombstone deploys, the first Skeleton on the deploy-end tick itself",
+      "provenance": "WHERE THE SPAWNER PASS RUNS AND WHEN ITS UNIT EXISTS. MEASURED on the live 16.402 corpus: a Tombstone's first Skeleton is present in the recording on the Tombstone's own deploy-end tick (delta 0 on 38 of 44 exact-tick deploys, +1 on 3, the rest capture-start artefacts), and a BarbarianHut's first Barbarian likewise (2 of 2). move_phase_immediate (shipped): the spawner pass is not a phase of its own -- it runs in the Move phase right after the deploy countdown (match.TICK_ORDER = client16402 puts the countdown after the move pass), on the tick the deploy timer reaches zero for the first time, and its units are created in that same tick. spawn_phase_next_tick (the earlier engine, kept runnable): the pass ran at the end of the Spawn phase and pushed PendingSpawns that materialised in the NEXT tick's Spawn phase -- two ticks late on every one of the 46 deploys, because the activation itself happened after that tick's Spawn phase had already run.",
+      "candidates": ["move_phase_immediate", "spawn_phase_next_tick"],
+      "promotion_rules": "Settled. What is still unmodelled is the intra-pass ordering: the engine collects the whole pass, sorts by (team, the spawner's team_seq, k) and only then creates, where a per-entity update in creation order would interleave creations with the pass. A capture of two spawners emitting on the same tick as an entity dies would test it.",
+      "engine": "state.rs Calib::spawner_emission_timing, read by BattleState::phase_move (the pass placement) and BattleState::spawner_pass (immediate spawn_now vs PendingSpawn)"
+    },
+    "SPAWNED_DEPLOY_TIME": {
+      "value": "zero",
+      "status": "measured",
+      "confidence": "HIGH: 1230 live spawner emissions across four spawning cards, not one born in the deploying state",
+      "provenance": "WHETHER A PERIODIC SPAWNER'S UNIT SERVES ITS OWN DeployTime. MEASURED on the live 16.402 corpus -- the state of every spawner-emitted unit on its FIRST frame and whether it moved on the next: Tombstone Skeletons 1090 of 1116 moving on the next frame (the other 26 already attacking), Witch Skeletons 51 of 52, DarkWitch Bats 46 of 46, BarbarianHut Barbarians 16 of 16. Not one is deploying, although every one of those units ships DeployTime 1000. zero (shipped): the emitted unit is born with no deploy timer and walks on its first tick. unit_own_deploy_time (the earlier engine, kept runnable): it carried the unit's own DeployTime, freezing a Tombstone Skeleton at the hut for 19 ticks -- 0 of 1230 emissions show that. The DEATH spawn is a separate key (DEATH_SPAWN_DEPLOY_TIME_DEFAULT) because a row may override it with DeathSpawnDeployTime; no column overrides the periodic one.",
+      "candidates": ["zero", "unit_own_deploy_time"],
+      "promotion_rules": "Settled by the measurement above.",
+      "engine": "state.rs Calib::spawner_spawned_deploy_time, read by BattleState::spawner_pass"
+    }
+  },
+  "lifetime": {
+    "$comment": [
+      "A LIFETIME BUILDING'S HITPOINTS (characters.csv / buildings.csv LifeTime, carried into",
+      "data/derived/cards.json as `lifetime_ms` and read by card.rs `CardDef::lifetime_ms`).",
+      "The engine honours LifeTime on BUILDINGS only; the loader refuses a troop that ships one",
+      "(card.rs, `units.{unit} is a troop with a LifeTime`). Engine: state.rs `phase_status`.",
+      "The column is the building's whole life, not a timer that fires at the end: the game",
+      "bleeds the hitpoints away over it (HP_DECAY below), which is why a Tesla that nothing",
+      "ever touched is at half hp halfway through. status.STUN_PAUSES_BUILDING_LIFETIME says",
+      "whether a stun holds the clock; the hide state does not (a hidden Tesla drains: the live",
+      "corpus' Teslas lose hitpoints on frames they spend hidden)."
+    ],
+    "HP_DECAY": {
+      "value": "linear_drain",
+      "status": "measured",
+      "confidence": "HIGH: reproduced exactly on 92.2 % of 31113 live building frames, every residual a hit the building took; the exact-fraction alternative fits 46 %",
+      "provenance": "MEASURED on the live 16.402 corpus. A building with a LifeTime does not keep its hitpoints and die at the end -- its hp falls every tick from its deploy-end tick and it dies when the pool runs out. The law that fits: a per-tick rate derived ONCE from the building's max hitpoints and its LifeTime, truncated to hundredths of a hitpoint, `drain = ((maxHitpoints * 100000) / LifeTime_ms) / 20` (nested floor division makes the two truncating divisions the same integer as one: max_hp x TICK_MS / LifeTime_ms in hundredths), then accumulated tick by tick with every whole hitpoint the accumulator crosses taken off the hp field; hp <= 0 is clamped to 0 and the building dies through the normal death path, so a drained Tombstone death-spawns exactly as a killed one does. With it, hp = maxHitpoints - (k * drain) / 100 for k ticks since the deploy-end tick reproduces 92.2 % of 31113 building frames over 79 buildings exactly (BombTower 1356 hp / drain 226: 100 % of 2132 frames; GoblinCage 780 / 195: 98.5 %; Tesla 1182 / 236: 95.9 %; Tombstone 91.7 %; InfernoTower 1748 / 291: 91.3 %; Cannon 824 / 137: 84.6 %), and every residual is a building that was hit -- of the 79, 54 are exact on every frame of their life. It also predicts the death tick: 501 for a Tesla (LifeTime 25000 = 500 ticks, the drain is one tick slower than the column), 600 for a BombTower, 602 for a Cannon or a level-11 Tombstone, 400 for a GoblinCage -- all confirmed on the last frame the recording shows. The drain starts at the DEPLOY-END tick, not at landing (a Tesla's hp is at max on every frame of its deploy window). The EXACT-FRACTION alternative (maxHitpoints x k / LifeTime_ticks, recomputed every tick) matches only 46 % of the frames and drifts one hitpoint high; truncating the rate first and accumulating it is what makes the law fit. expiry_hit, what the engine did before, keeps hp at max for the whole life and matches no frame past the deploy end of any building in the corpus.",
+      "candidates": ["linear_drain", "expiry_hit"],
+      "meaning": "linear_drain (shipped): every tick past the deploy end the building's hundredths accumulator gains ((max_hp * 100000) / LifeTime_ms) / 20 and each whole hitpoint it crosses is dealt as a hit that ignores the hide state, so damage and the drain share one hp pool and a death by drain goes through the normal death path. expiry_hit (the earlier engine, kept runnable): hp is untouched and a hit for everything the building has left lands when LifeTime is up.",
+      "promotion_rules": "Settled for every building the corpus shows. Open: whether the drain rate is recomputed when a buff changes max hp, and which pool the drain takes from on a shielded building (no shipped LifeTime card carries a shield, so neither is testable on the data).",
+      "engine": "state.rs Calib::lifetime_hp_decay, read by BattleState::phase_status (`lifetime_drain_per_tick`, the accumulator BattleState::lifetime_acc); tests/lifetime.rs"
     }
   },
   "charge": {

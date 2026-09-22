@@ -38,20 +38,29 @@
 //!      reaches past its radius is pulled back onto it (the engine_grid_within_radius
 //!      arm, the foil rather than the shipped layout).
 //!
-//! TICK ALIGNMENT (state.rs `spawner_pass`): the timer is decremented in the SPAWN
-//! phase after the queue drains; a unit queued in tick index E exists from tick index
-//! E + 1. "Post-tick k" means the state after the k-th `tick()` call (`tick_count()
-//! == k`), i.e. after tick index k - 1 ran, so a unit queued in tick index E is
-//! PENDING at post-tick E + 1 and LIVE from post-tick E + 2. A scenario spawn
-//! activates at tick index 0: with a blank SpawnStartTime the first unit is queued in
-//! tick index 0, pending at post-tick 1 and live at post-tick 2; with a start time S
-//! it is live at post-tick ceil(S / TICK_MS) + 1; the n-th wave follows at
-//! (n - 1) * ceil(P / TICK_MS) post-ticks later.
+//! TICK ALIGNMENT (state.rs `spawner_pass`; spawner.EMISSION_TIMING =
+//! move_phase_immediate, measured): the timer is decremented in the MOVE phase, right
+//! after the deploy countdown, and the unit is CREATED there, in that same tick -- a
+//! live Tombstone's first Skeleton is on the board on the deploy-end tick. "Post-tick
+//! k" means the state after the k-th `tick()` call (`tick_count() == k`). A scenario
+//! spawn activates before tick 1 runs, so with a blank SpawnStartTime its first unit is
+//! live at post-tick 1 and with a start time S at post-tick max(ceil(S / TICK_MS), 1);
+//! a spawner that served a deploy timer activates INSIDE the Move phase of post-tick
+//! A = ceil(DeployTime / TICK_MS), where the pass decrements once already, so its first
+//! unit lands at A + max(ceil(S / TICK_MS), 1) - 1. The n-th wave follows
+//! (n - 1) * ceil(P / TICK_MS) post-ticks later. ~~The old arm (spawn_phase_next_tick,
+//! kept runnable): the timer ran at the end of the SPAWN phase and a unit queued in
+//! tick index E was PENDING at post-tick E + 1 and LIVE from post-tick E + 2.~~
 //!
 //! PLANTS: spawner_never_fires -- (1), (2), (3), (7), (8), (9),
 //! (10), (12) go red (8 of 13; (11) stays green because a dying Tombstone's DEATH
 //! spawn still puts Skeletons on the board); death_spawn_dropped -- (4), (5), (6),
-//! (9), (12) go red (5 of 13).
+//! (9), (12) go red (5 of 13). Run 2026-09-21: spawner_first_wave_late (the
+//! earlier emission, whatever the ledger says) -- 6 of the file's 17 tests go
+//! red, every one of them on a TICK: the Tombstone's and the hut's wave ticks, the
+//! Witch's [21, 21, 21, 21, 161, ...] against [20, 20, 20, 20, 160, ...], the Dark
+//! Witch's wave one post-tick late, the SpawnLimit refill at 62 instead of 61, and
+//! the candidate sweep's first_wave_after_one_pause row at 70 instead of 71.
 
 mod common;
 
@@ -59,7 +68,10 @@ use common::*;
 use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE_PER_MILLITILE};
-use royalesim::state::{BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, EntityView, FirstWave, PauseAnchor, SpawnPoint, StartTimeOrigin};
+use royalesim::state::{
+    BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor, SpawnPoint,
+    SpawnedDeploy, SpawnerEmission, StartTimeOrigin,
+};
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
 
@@ -114,9 +126,12 @@ fn blue_spot(s: &BattleState) -> Vec2 {
 /// per wave.
 fn first_wave_tick(sp: &royalesim::card::SpawnerDef) -> u32 {
     assert_eq!(calib().spawner_first_wave, FirstWave::AfterStartTimeOrImmediately, "the shipped arm this test pins");
-    match sp.start_time_ms {
-        Some(t) => ticks_of(t).max(1) + 1,
-        None => 2,
+    let start = sp.start_time_ms.map_or(0, ticks_of).max(1);
+    match calib().spawner_emission_timing {
+        // the unit is created in the Move phase of the tick the timer runs out
+        SpawnerEmission::MovePhaseImmediate => start,
+        // one tick to queue it, one more for the queue to drain
+        SpawnerEmission::SpawnPhaseNextTick => start + 1,
     }
 }
 
@@ -199,17 +214,20 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     let waves = (1..=3).rev().find(|&w| wave_ticks(&sp, m1, w).last().copied().unwrap() + 2 < life).unwrap_or(1);
     assert!(waves >= 2, "scene: {hut} fits only {waves} wave(s) in its lifetime");
     let want = wave_ticks(&sp, m1, waves);
-    // THE ONE-TICK LATENCY: the unit is PENDING one post-tick before it exists (the
-    // whole wave when its interval is blank, its first unit otherwise).
+    // The unit is CREATED in the pass, never queued (spawner.EMISSION_TIMING =
+    // move_phase_immediate); under the old arm it was PENDING one post-tick
+    // before it existed (the whole wave when its interval is blank, its first unit
+    // otherwise), which is what the branch below still pins.
     let first_batch = if sp.interval_ms > 0 { 1 } else { sp.number as usize };
     let pending = |s: &BattleState| s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == sp.unit).count();
     for _ in 0..m1 - 1 {
         s.tick();
     }
     assert!(find_live(&s, Team::Blue, &unit).is_empty(), "no {unit} before post-tick {m1}");
-    assert_eq!(pending(&s), first_batch, "post-tick {}: the first {unit}(s) queued", m1 - 1);
+    let queued_arm = calib().spawner_emission_timing == SpawnerEmission::SpawnPhaseNextTick;
+    assert_eq!(pending(&s), if queued_arm { first_batch } else { 0 }, "post-tick {}: what the pass left behind", m1 - 1);
     s.tick();
-    assert_eq!(pending(&s), 0, "post-tick {m1}: the queue has drained into the world");
+    assert_eq!(pending(&s), 0, "post-tick {m1}: nothing of this wave is still pending");
     let mut got = vec![(s.tick_count(), find_live(&s, Team::Blue, &unit).first().expect("the first unit exists at post-tick m1").id)];
     // The first unit, as it materialised: Blue, the hut's level, in front (at the
     // spawn point plus the first capped separation push), on dry ground, tagged
@@ -236,23 +254,36 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     let cap = 150 * SUBTILE_PER_MILLITILE;
     let spawn_point = Vec2::new(pos.x, pos.y + hut_r);
     assert_eq!(u.pos.x, spawn_point.x, "the {unit} left the {hut}'s forward axis");
-    assert!(u.pos.y > spawn_point.y && u.pos.y - spawn_point.y <= cap, "the {unit} stands just in front of the {hut}: the spawn point plus at most one capped push ({:?} vs {spawn_point:?})", u.pos);
-    assert!(u.deploying, "a spawned unit takes its own DeployTime");
-    // less the countdown that already ran on its spawn tick (match.TICK_ORDER)
-    assert_eq!(u.deploy_ms, s.cards().get(sp.unit).deploy_time_ms - spawn_tick_countdown(&calib()));
+    // Under the shipped emission the unit is created in the MOVE phase, after that
+    // tick's contact pass, so it materialises exactly AT the spawn point and the
+    // separation starts sliding it out next tick; under the queued arm it materialised
+    // in the Spawn phase and had taken one capped push by the time it was first seen.
+    let slack = if queued_arm { cap } else { 0 };
+    assert!(u.pos.y >= spawn_point.y && u.pos.y - spawn_point.y <= slack, "the {unit} stands just in front of the {hut}: the spawn point plus at most one capped push ({:?} vs {spawn_point:?})", u.pos);
+    // spawner.SPAWNED_DEPLOY_TIME: the game's emitted unit is born WALKING, with no
+    // deploy timer at all (measured on 1230 live emissions); the other arm gave it the
+    // unit's own DeployTime, less the countdown that had already run on its spawn tick
+    // under the queued emission (match.TICK_ORDER).
+    match calib().spawner_spawned_deploy_time {
+        SpawnedDeploy::Zero => assert!(!u.deploying && u.deploy_ms == 0, "zero: the {unit} is born walking, not deploying ({} ms left)", u.deploy_ms),
+        SpawnedDeploy::UnitOwnDeployTime => {
+            assert!(u.deploying, "a spawned unit takes its own DeployTime");
+            let ran = if queued_arm { spawn_tick_countdown(&calib()) } else { 0 };
+            assert_eq!(u.deploy_ms, s.cards().get(sp.unit).deploy_time_ms - ran);
+        }
+    }
     {
         // On a clone (the cadence below counts from here): clear of the footprint,
-        // edge to edge or beyond, within ceil(unit_r / cap) + 1 further ticks and
-        // still deploying -- the slide never waits for the deploy timer.
+        // edge to edge or beyond, within ceil(unit_r / cap) + 1 further ticks -- the
+        // slide never waits for the deploy timer, and it runs whether or not there is
+        // one (the contact law includes deploying units).
         let mut probe = s.clone();
         let more = (unit_r + cap - 1) / cap + 1;
         for _ in 0..more {
             probe.tick();
         }
         let v = probe.entity(id).unwrap();
-        assert_eq!(v.pos.x, spawn_point.x);
         assert!(v.pos.y >= pos.y + hut_r + unit_r, "post-tick {}: the {unit} is still inside the {hut}'s circle ({:?})", probe.tick_count(), v.pos);
-        assert!(v.deploying, "vacuous: the {unit} finished deploying before it was clear");
     }
     // The rest of the first wave and the next two waves, on the tick.
     got.extend(first_seen(&mut s, want.last().unwrap() - m1 + 2, Team::Blue, &unit));
@@ -290,7 +321,8 @@ fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_act
     assert_eq!(calib().spawner_pause_anchor, PauseAnchor::AfterLastUnit, "the shipped arm this test pins");
     let pos = blue_spot(&s);
     let witch = s.scenario_spawn_now(Team::Blue, "Witch", pos, None).unwrap();
-    let m1 = ticks_of(start) + 1;
+    assert_eq!(first_wave_tick(&sp), ticks_of(start).max(1) + if calib().spawner_emission_timing == SpawnerEmission::SpawnPhaseNextTick { 1 } else { 0 }, "the start time decides");
+    let m1 = first_wave_tick(&sp);
     // Two waves: the second one pause after the LAST unit of the first.
     let want = wave_ticks(&sp, m1, 2);
     let seen = first_seen(&mut s, *want.last().unwrap() + 2, Team::Blue, &unit);
@@ -316,6 +348,11 @@ fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_act
 /// two Battle Ram deaths: the two Barbarians at +-600 = DeathSpawnRadius on
 /// the axis from the death point to the tower the ram was hitting).
 ///
+/// The members are POSITIONS AS THE ENGINE LAID THEM: the caller reads them off the
+/// spawn queue, not off the entities a tick later, because a death spawn with no
+/// deploy timer (spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero) walks in the very
+/// tick it materialises in.
+///
 /// The ring's centre is read back as the members' CENTROID -- exact for a ring of any
 /// count -- because the caller's `death_pos` is the victim's position before the tick
 /// it died in, and a victim that was walking (and being pushed off its neighbours)
@@ -325,42 +362,48 @@ fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_act
 ///
 /// With `axis`, the ring's base direction is pinned too: a ring of TWO must lie along
 /// it, one member ahead and one behind, which is the law's own claim.
-fn assert_on_the_ring(members: &[EntityView<'_>], death_pos: Vec2, radius: i32, axis: Option<Vec2>) {
+fn assert_on_the_ring(members: &[Vec2], death_pos: Vec2, radius: i32, axis: Option<Vec2>) {
     assert!(members.len() >= 2, "vacuous: a ring of {}", members.len());
     let n = members.len() as i32;
-    let centre = Vec2::new(members.iter().map(|m| m.pos.x).sum::<i32>() / n, members.iter().map(|m| m.pos.y).sum::<i32>() / n);
+    let centre = Vec2::new(members.iter().map(|m| m.x).sum::<i32>() / n, members.iter().map(|m| m.y).sum::<i32>() / n);
     let drift = royalesim::fixed::isqrt(centre.sub(death_pos).len2()) as i32;
     assert!(drift <= radius / 4, "the ring's centre {centre:?} is {drift} subtiles off the death point {death_pos:?} (more than the victim's last step)");
     let tol = (radius / 100).max(4);
     let mut seen: BTreeSet<(i32, i32)> = BTreeSet::new();
     for m in members {
-        let d = royalesim::fixed::isqrt(m.pos.sub(centre).len2()) as i32;
+        let d = royalesim::fixed::isqrt(m.sub(centre).len2()) as i32;
         assert!((d - radius).abs() <= tol, "a member sits {d} subtiles from the ring's centre, radius {radius} (tolerance {tol})");
-        assert!(seen.insert((m.pos.x, m.pos.y)), "two members on one point");
+        assert!(seen.insert((m.x, m.y)), "two members on one point");
     }
     // equally spaced: no two members closer than the chord of 360 / n degrees, of
     // which the smallest (n = 6) is the radius itself
     for a in members {
         for b in members {
-            if (a.pos.x, a.pos.y) < (b.pos.x, b.pos.y) {
-                let d = royalesim::fixed::isqrt(a.pos.sub(b.pos).len2()) as i32;
+            if (a.x, a.y) < (b.x, b.y) {
+                let d = royalesim::fixed::isqrt(a.sub(*b).len2()) as i32;
                 assert!(d >= radius - tol, "two members are {d} subtiles apart on a ring of {radius} with {n} on it");
             }
         }
     }
     if let Some(v) = axis {
         assert_eq!(members.len(), 2, "the axis check is written for a ring of two");
-        let o = members[0].pos.sub(centre);
+        let o = members[0].sub(centre);
         let cross = (o.x as i64) * (v.y as i64) - (o.y as i64) * (v.x as i64);
         let vlen = royalesim::fixed::isqrt(v.len2()).max(1);
         // |cross| / |v| is the member's distance from the axis line
         let off_axis = (cross.abs() / vlen) as i32;
         assert!(off_axis <= tol, "the pair's axis is {off_axis} subtiles off the direction to the target; the ring is not laid on the facing");
         let dot = (o.x as i64) * (v.x as i64) + (o.y as i64) * (v.y as i64);
-        let other = members[1].pos.sub(centre);
+        let other = members[1].sub(centre);
         let dot2 = (other.x as i64) * (v.x as i64) + (other.y as i64) * (v.y as i64);
         assert!(dot.signum() * dot2.signum() < 0, "both members are on the same side of the death point");
     }
+}
+
+/// The positions the spawn queue holds for `card`'s units on Blue -- where a death
+/// spawn was LAID, before the tick that materialises it lets it walk.
+fn queued_points(s: &BattleState, unit: u16) -> Vec<Vec2> {
+    s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == unit).map(|(_, _, p)| *p).collect()
 }
 
 fn kill_and_settle(s: &mut BattleState, victim: EntityId) -> (u32, Vec2) {
@@ -382,7 +425,7 @@ fn golem_killed_leaves_two_golemites_on_the_radius_next_tick_and_its_death_damag
     let golem_card = card_stat(&s, "Golem").clone();
     assert!(golem_card.death_damage > 0 && golem_card.death_damage_radius > 0, "data: the Golem has death damage");
     assert!(ds.deploy_time_ms.is_none(), "data: the Golem's death spawn takes the unit's own deploy time");
-    assert_eq!(calib().death_spawn_deploy_default, DeathSpawnDeploy::UnitOwnDeployTime, "the shipped arm this test pins");
+    assert_eq!(calib().death_spawn_deploy_default, DeathSpawnDeploy::Zero, "the shipped arm this test pins");
     let pos = blue_spot(&s);
     let golem = s.scenario_spawn_now(Team::Blue, "Golem", pos, None).unwrap();
     // A Red Knight inside the death damage radius, deploying so it stands still.
@@ -393,7 +436,8 @@ fn golem_killed_leaves_two_golemites_on_the_radius_next_tick_and_its_death_damag
     let full = s.entity(knight).unwrap().hp;
     let (k, death_pos) = kill_and_settle(&mut s, golem);
     assert!(find_live(&s, Team::Blue, &unit).is_empty(), "post-tick {k}: the {unit}s are queued, not yet in the world");
-    assert_eq!(s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == ds.unit).count(), ds.count as usize);
+    let laid = queued_points(&s, ds.unit);
+    assert_eq!(laid.len(), ds.count as usize);
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize, "post-tick {}: {} {unit}s", k + 1, ds.count);
@@ -401,14 +445,16 @@ fn golem_killed_leaves_two_golemites_on_the_radius_next_tick_and_its_death_damag
     // the ring only: this scene pushes the Golem off its own facing (a Red Knight
     // stands inside its radius for the death damage), and the AXIS is pinned on the
     // clean scene below, the one the corpus measured
-    assert_on_the_ring(&pups, death_pos, radius, None);
+    assert_on_the_ring(&laid, death_pos, radius, None);
     for p in &pups {
         assert!(s.arena().is_passable_ground(p.pos));
-        assert_eq!(p.deploy_ms, s.cards().get(ds.unit).deploy_time_ms - spawn_tick_countdown(&calib()), "its own DeployTime, less the spawn tick's countdown");
+        // spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero (measured: every live death
+        // spawn whose row leaves the column blank is born moving).
+        assert_eq!((p.deploy_ms, p.deploying), (0, false), "a blank DeathSpawnDeployTime is no deploy timer");
         assert_eq!(p.max_hp, s.cards().scaled(ds.unit, lvl, s.cards().get(ds.unit).hitpoints).unwrap(), "the Golem's level");
         assert_eq!(p.spawned_by, None, "a death spawn owes nothing to a periodic spawner");
     }
-    assert_ne!(pups[0].pos, pups[1].pos, "two units, two points");
+    assert_ne!(laid[0], laid[1], "two units, two points");
     // BOTH effects: the death damage landed on the Knight (buffered in Reap of tick
     // k, applied in Resolve of tick k + 1).
     let golem_idx = s.cards().index("Golem").unwrap();
@@ -426,14 +472,15 @@ fn lava_hound_killed_leaves_six_flying_pups() {
     let pos = blue_spot(&s);
     let hound = s.scenario_spawn_now(Team::Blue, "LavaHound", pos, None).unwrap();
     let (_, death_pos) = kill_and_settle(&mut s, hound);
+    let laid = queued_points(&s, ds.unit);
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize);
-    assert_on_the_ring(&pups, death_pos, radius, None);
+    assert_on_the_ring(&laid, death_pos, radius, None);
     for p in &pups {
         assert!(p.flying, "a {unit} flies");
     }
-    assert_eq!(pups.iter().map(|p| (p.pos.x, p.pos.y)).collect::<BTreeSet<_>>().len(), pups.len(), "six distinct points");
+    assert_eq!(laid.iter().map(|p| (p.x, p.y)).collect::<BTreeSet<_>>().len(), laid.len(), "six distinct points");
 }
 
 #[test]
@@ -468,10 +515,11 @@ fn a_battle_rams_barbarians_land_on_the_axis_to_the_tower_it_hit() {
         }
     }
     let (death_pos, aim) = (death_pos.expect("the ram never died"), aim.expect("the ram died without a target"));
+    let laid = queued_points(&s, ds.unit);
     s.tick();
     let barbs = find_live(&s, Team::Blue, &unit);
     assert_eq!(barbs.len(), ds.count as usize, "the ram's death spawn");
-    assert_on_the_ring(&barbs, death_pos, radius, Some(aim));
+    assert_on_the_ring(&laid, death_pos, radius, Some(aim));
 }
 
 #[test]
@@ -488,15 +536,24 @@ fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     let pos = blue_spot(&s);
     let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
     let tomb_r = s.entity(tomb).unwrap().radius;
-    let died = run_until(&mut s, ticks_of(life) + 5, |s| s.entity(tomb).is_none());
-    assert!(died <= ticks_of(life) + 1, "the Tombstone expired at post-tick {died}");
+    // lifetime.HP_DECAY = linear_drain: the LifeTime is bled out of the hp pool, so the
+    // Tombstone dies when the pool empties -- ceil(max_hp x 100 / drain) ticks, one or
+    // two past ticks_of(LifeTime), never before it.
+    let drain = s.lifetime_drain(tomb);
+    let want = if drain > 0 { (s.entity(tomb).unwrap().max_hp * 100 + drain - 1) / drain } else { ticks_of(life) as i32 } as u32;
+    assert!(want >= ticks_of(life), "the drain cannot kill the Tombstone before its own LifeTime");
+    let died = run_until(&mut s, want + 5, |s| s.entity(tomb).is_none());
+    assert_eq!(died, want, "the Tombstone expired at post-tick {died}, want {want}");
     let before: BTreeSet<(u32, u32)> = find_live(&s, Team::Blue, &unit).iter().map(|e| (e.id.index, e.id.generation)).collect();
+    // As LAID (the burst has no deploy timer and walks in the tick it materialises in).
+    let laid = queued_points(&s, ds.unit);
     s.tick();
     let burst: Vec<_> = find_live(&s, Team::Blue, &unit).into_iter().filter(|e| !before.contains(&(e.id.index, e.id.generation))).collect();
     assert_eq!(burst.len(), ds.count as usize, "the expiry left {} {unit}s at once", ds.count);
-    for b in &burst {
-        assert!(b.pos.dist2(pos) <= (tomb_r as i64) * (tomb_r as i64), "{unit} at {:?} outside the Tombstone's own radius", b.pos);
-        assert!(s.arena().is_passable_ground(b.pos));
+    assert_eq!(laid.len(), ds.count as usize, "the burst was queued as one batch");
+    for b in &laid {
+        assert!(b.dist2(pos) <= (tomb_r as i64) * (tomb_r as i64), "{unit} at {b:?} outside the Tombstone's own radius");
+        assert!(s.arena().is_passable_ground(*b));
     }
     // And the periodic cadence ended with the building: no further unit for a pause.
     let more = first_seen(&mut s, ticks_of(sp.pause_time_ms) + 2, Team::Blue, &unit);
@@ -654,19 +711,26 @@ fn a_snapshot_mid_countdown_and_mid_wave_resumes_hash_for_hash() {
     let pos = blue_spot(&s);
     s.scenario_spawn_now(Team::Blue, companion, pos, None).unwrap();
     let witch = s.scenario_spawn_now(Team::Blue, timed, Vec2::new(pos.x + 3 * royalesim::fixed::SUBTILE, pos.y), None).unwrap();
-    // Into its first wave: one unit QUEUED (pending, owned by it -- so the blob
-    // carries a PendingSpawn.owner, where an earlier version saved one tick later
-    // with the queue empty), the rest of the wave still to come.
+    // Into its first wave, the rest of it still to come. Under the shipped emission
+    // (move_phase_immediate) the unit it has already emitted EXISTS and carries
+    // its owner; under spawn_phase_next_tick one unit is PENDING instead, and the blob
+    // has to carry that PendingSpawn.owner. Both are pinned.
+    let hers = |s: &BattleState| find_live(s, Team::Blue, &unit).into_iter().filter(|e| e.spawned_by == Some(witch)).count();
+    let queued_arm = calib().spawner_emission_timing == SpawnerEmission::SpawnPhaseNextTick;
+    let pending = |s: &BattleState| s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == sp.unit).count();
     let mid = run_until(&mut s, 200, |s| {
         let w = s.entity(witch).unwrap();
-        w.spawn_wave_left > 0 && w.spawn_wave_left < sp.number && s.pending_spawns().iter().any(|(t, c, _)| *t == Team::Blue && *c == sp.unit)
+        w.spawn_wave_left > 0 && w.spawn_wave_left < sp.number && if queued_arm { pending(s) > 0 } else { hers(s) > 0 }
     });
-    assert!(mid < 200, "vacuous: {timed} never reached a mid-wave state with a unit queued");
+    assert!(mid < 200, "vacuous: {timed} never reached a mid-wave state with a unit of its own");
     let w = s.entity(witch).unwrap();
     assert!(w.spawn_wave_left > 0 && w.spawn_wave_left < sp.number, "vacuous: not mid-wave ({} left)", w.spawn_wave_left);
-    assert_eq!(s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == sp.unit).count(), 1, "vacuous: no owned {unit} pending at the save");
-    let hers = |s: &BattleState| find_live(s, Team::Blue, &unit).into_iter().filter(|e| e.spawned_by == Some(witch)).count();
-    assert_eq!(hers(&s), 0, "vacuous: {timed}'s first {unit} already exists (the companion's are its own)");
+    if queued_arm {
+        assert_eq!(pending(&s), 1, "vacuous: no owned {unit} pending at the save");
+        assert_eq!(hers(&s), 0, "vacuous: {timed}'s first {unit} already exists (the companion's are its own)");
+    } else {
+        assert_eq!(hers(&s), 1, "vacuous: {timed} has not emitted its first {unit} yet (the companion's are its own)");
+    }
     let blob = s.save();
     let mut l = BattleState::load(&blob).unwrap();
     assert_eq!(l.state_hash(), s.state_hash());
@@ -678,8 +742,10 @@ fn a_snapshot_mid_countdown_and_mid_wave_resumes_hash_for_hash() {
         l.tick();
         assert_eq!(l.state_hash(), s.state_hash(), "diverged {k} ticks after the load");
         if k == 0 {
-            // The pending unit materialised in the loaded battle WITH its owner.
-            assert_eq!(hers(&l), 1, "the pending {unit} did not materialise after the load with PendingSpawn.owner intact");
+            // Under the queued arm the pending unit materialised in the loaded battle
+            // WITH its owner; under the shipped one the emitted unit was already hers
+            // and stayed hers across the save.
+            assert_eq!(hers(&l), 1, "the loaded battle lost {timed}'s own {unit} (the spawner tag did not survive the save)");
         }
     }
     assert!(find_live(&s, Team::Blue, &unit).len() > before || s.entities().filter(|e| e.card == unit).count() > 0, "vacuous: nothing spawned after the load");
@@ -733,7 +799,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         let pos = blue_spot(&s);
         s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
         let seen = first_seen(&mut s, ticks_of(sp.pause_time_ms) + 2, Team::Blue, "Skeleton");
-        assert_eq!(seen.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![ticks_of(sp.pause_time_ms) + 1], "first_wave_after_one_pause");
+        assert_eq!(seen.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![ticks_of(sp.pause_time_ms)], "first_wave_after_one_pause");
     }
     // START_TIME_ORIGIN: from_placement loads SpawnStartTime less the DeployTime, so a
     // Witch deployed WITH her deploy time (spawn_unit) fires her first wave
@@ -752,26 +818,38 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         assert!(deploy > 0 && start >= deploy, "data: Witch DeployTime {deploy} / SpawnStartTime {start} cannot part the arms");
         let activation = first_skeleton(with_calib(|c| c.spawner_start_time_origin = StartTimeOrigin::FromActivation));
         let placement = first_skeleton(with_calib(|c| c.spawner_start_time_origin = StartTimeOrigin::FromPlacement));
-        // spawn_unit: materialised in tick index 0, deploy over in tick index
-        // ceil(D / TICK_MS), then the timer: start (from_activation) or start - D.
+        // spawn_unit: materialised in tick 1, deploy over in the Move phase of
+        // post-tick ceil(D / TICK_MS), where the spawner pass then decrements once
+        // already -- so the first unit lands (start ticks - 1) later, on start
+        // (from_activation) or start - D (from_placement).
         let deploy_end = ticks_of(deploy);
-        assert_eq!(activation, 1 + deploy_end + ticks_of(start).max(1), "from_activation: {activation}");
-        assert_eq!(placement, 1 + deploy_end + ticks_of(start - deploy).max(1), "from_placement: {placement}");
+        assert_eq!(activation, deploy_end + ticks_of(start).max(1) - 1, "from_activation: {activation}");
+        assert_eq!(placement, deploy_end + ticks_of(start - deploy).max(1) - 1, "from_placement: {placement}");
         assert!(placement < activation, "the arms agree on the Witch: {placement} vs {activation}");
     }
-    // SPAWN_POINT: at the centre the unit is pushed out toward its OWN side.
+    // SPAWN_POINT: at_centre puts the unit ON the spawner's own point, where the
+    // shipped arm puts it one spawner radius ahead. Read on the tick it materialises
+    // in -- the unit has no deploy timer and walks off on its next one, and the
+    // coincident push (move16402.rs separation_scan, `d2 == 0`) starts then too.
+    // ~~pushed the whole radius sum in one tick~~ (the retired static pass).
     {
-        let mut s = bare(with_calib(|c| c.spawner_spawn_point = SpawnPoint::AtCentre));
-        let pos = blue_spot(&s);
-        let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
-        let seen = first_seen(&mut s, 2, Team::Blue, "Skeleton");
-        let u = s.entity(seen[0].1).unwrap();
-        let r = s.entity(tomb).unwrap().radius + u.radius;
-        // The coincident pair: the 16.402 separation (move16402.rs separation_scan,
-        // `d2 == 0`) pushes side 0 toward -y, its own side, one capped step per tick.
-        // ~~pushed the whole `r` in one tick~~ (the retired static pass).
-        assert_eq!(u.pos.x, pos.x, "at_centre: the coincident push left the axis");
-        assert!(u.pos.y < pos.y && u.pos.y >= pos.y - r, "at_centre: the coincident push sends it toward Blue's own side ({:?} from {pos:?})", u.pos);
+        let first_point = |cfg: BattleConfig| -> (Vec2, Vec2) {
+            let mut s = bare(cfg);
+            let pos = blue_spot(&s);
+            s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+            let m1 = first_wave_tick(&spawner(&s, "Tombstone"));
+            let seen = first_seen(&mut s, m1, Team::Blue, "Skeleton");
+            (pos, s.entity(seen[0].1).unwrap().pos)
+        };
+        let (pos, centred) = first_point(with_calib(|c| c.spawner_spawn_point = SpawnPoint::AtCentre));
+        assert_eq!(centred, pos, "at_centre: the unit materialises on the spawner's own point");
+        let (_, ahead) = first_point(config());
+        let tomb_r = {
+            let mut s = bare(config());
+            let id = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+            s.entity(id).unwrap().radius
+        };
+        assert_eq!(ahead, Vec2::new(pos.x, pos.y + tomb_r), "in_front_toward_enemy_at_own_radius: one spawner radius along Blue's forward axis");
     }
     // PAUSE_ANCHOR: the timed-wave card's second wave comes one pause after the
     // FIRST unit (the 2018 Witch; the 15.535 Tombstone -- the 15.535 Witch's wave
@@ -805,16 +883,42 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         kill_and_settle(&mut c, tomb);
         assert!(c.pending_spawns().iter().any(|(_, _, p)| *p != death_pos), "own_collision_radius: spread around it");
     }
-    // DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero: Golemites are active at once.
+    // DEATH_SPAWN_DEPLOY_TIME_DEFAULT = unit_own_deploy_time (the earlier arm):
+    // Golemites serve their own DeployTime instead of walking at once.
     {
-        let mut s = bare(with_calib(|c| c.death_spawn_deploy_default = DeathSpawnDeploy::Zero));
+        let mut s = bare(with_calib(|c| c.death_spawn_deploy_default = DeathSpawnDeploy::UnitOwnDeployTime));
         let pos = blue_spot(&s);
         let golem = s.scenario_spawn_now(Team::Blue, "Golem", pos, None).unwrap();
         kill_and_settle(&mut s, golem);
         s.tick();
         let g = find_live(&s, Team::Blue, "Golemite");
         assert_eq!(g.len(), 2);
-        assert!(g.iter().all(|e| e.deploy_ms == 0 && !e.deploying), "zero: no deploy time");
+        assert!(g.iter().all(|e| e.deploy_ms > 0 && e.deploying), "unit_own_deploy_time: the Golemites deploy");
+    }
+    // EMISSION_TIMING = spawn_phase_next_tick (the earlier arm): the first
+    // Skeleton is queued, not created, and lands two post-ticks later.
+    {
+        let sp = spawner(&bare(config()), "Tombstone");
+        let first = |cfg: BattleConfig| -> u32 {
+            let mut s = bare(cfg);
+            let pos = blue_spot(&s);
+            s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+            first_seen(&mut s, 10, Team::Blue, "Skeleton").first().expect("no Skeleton").0
+        };
+        assert!(sp.start_time_ms.is_none(), "data: the Tombstone's SpawnStartTime is blank");
+        let now = first(config());
+        let queued = first(with_calib(|c| c.spawner_emission_timing = SpawnerEmission::SpawnPhaseNextTick));
+        assert_eq!((now, queued), (1, 2), "move_phase_immediate {now} vs spawn_phase_next_tick {queued}");
+    }
+    // SPAWNED_DEPLOY_TIME = unit_own_deploy_time (the earlier arm): the
+    // Tombstone's Skeleton stands still for its own DeployTime instead of walking.
+    {
+        let mut s = bare(with_calib(|c| c.spawner_spawned_deploy_time = SpawnedDeploy::UnitOwnDeployTime));
+        let pos = blue_spot(&s);
+        s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+        let seen = first_seen(&mut s, 4, Team::Blue, "Skeleton");
+        let u = s.entity(seen[0].1).unwrap();
+        assert!(u.deploying && u.deploy_ms > 0, "unit_own_deploy_time: the Skeleton deploys ({} ms)", u.deploy_ms);
     }
     // The single-arm keys are refused for their other candidate.
     let json = |key: &str, from: &str, to: &str| {
@@ -991,29 +1095,47 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     let pos = blue_spot(&s);
     let witch = s.scenario_spawn_now(Team::Blue, "DarkWitch", pos, None).unwrap();
     let m1 = first_wave_tick(&sp);
-    // The wave is emitted in tick index m1 - 2 from the Witch's START-OF-PHASE
-    // position (she walks: a scenario spawn has no deploy time), so the anchor is
-    // her position at post-tick m1 - 2.
-    for _ in 0..m1 - 2 {
+    // She walks (a scenario spawn has no deploy time), so the spawn point moves with
+    // her: the anchor is her position at the moment the pass ran. Under the shipped
+    // emission that is the Move phase of post-tick m1, after her own step; under
+    // spawn_phase_next_tick the pass ran in the Spawn phase of post-tick m1 - 2.
+    let lag = match calib().spawner_emission_timing {
+        SpawnerEmission::MovePhaseImmediate => 0,
+        SpawnerEmission::SpawnPhaseNextTick => 2,
+    };
+    let mut anchor = s.entity(witch).unwrap().pos;
+    let mut known: BTreeSet<(u32, u32)> = find_live(&s, Team::Blue, &unit).iter().map(|e| (e.id.index, e.id.generation)).collect();
+    // (post-tick, flying, tagged, deploying, position AS IT LANDED): the Bats fly off
+    // on their next tick, so nothing here may be read a tick later.
+    let mut seen: Vec<(u32, bool, bool, bool, Vec2)> = Vec::new();
+    for _ in 0..m1 + 2 {
         s.tick();
+        if s.tick_count() + lag == m1 {
+            anchor = s.entity(witch).unwrap().pos;
+        }
+        for e in find_live(&s, Team::Blue, &unit) {
+            if known.insert((e.id.index, e.id.generation)) {
+                seen.push((s.tick_count(), e.flying, e.spawned_by == Some(witch), e.deploying, e.pos));
+            }
+        }
     }
-    let anchor = s.entity(witch).unwrap().pos;
-    let seen = first_seen(&mut s, 3, Team::Blue, &unit);
     assert_eq!(seen.len(), sp.number as usize, "{unit}s seen: {seen:?}");
-    assert!(seen.iter().all(|(k, _)| *k == m1), "the whole wave lands on post-tick {m1}: {seen:?}");
-    let bats: Vec<_> = seen.iter().map(|(_, id)| s.entity(*id).unwrap()).collect();
-    assert!(bats.iter().all(|b| b.flying && b.spawned_by == Some(witch) && b.deploying), "flying, tagged, deploying");
-    assert_ne!(bats[0].pos, bats[1].pos, "the two Bats are on one point");
+    assert!(seen.iter().all(|r| r.0 == m1), "the whole wave lands on post-tick {m1}: {seen:?}");
+    assert!(seen.iter().all(|r| r.1 && r.2), "flying and tagged");
+    let deploying = calib().spawner_spawned_deploy_time == SpawnedDeploy::UnitOwnDeployTime;
+    assert!(seen.iter().all(|r| r.3 == deploying), "spawner.SPAWNED_DEPLOY_TIME: deploying should be {deploying}");
+    let bats: Vec<Vec2> = seen.iter().map(|r| r.4).collect();
+    assert_ne!(bats[0], bats[1], "the two Bats are on one point");
     // The engine formation grid for two units: one unit diameter apart (spacing
     // 2 x unit_r, offsets -+ unit_r on the owner's lateral axis), centred on the
     // point SpawnRadius ahead. The game's separation may nudge a touching pair by
     // its minimum push (1 native = 18 subtiles) in the materialisation tick.
     let point = Vec2::new(anchor.x, anchor.y + radius);
-    let mut xs: Vec<i32> = bats.iter().map(|b| b.pos.x - point.x).collect();
+    let mut xs: Vec<i32> = bats.iter().map(|b| b.x - point.x).collect();
     xs.sort();
     let nudge = royalesim::fixed::SUBTILE_PER_MILLITILE;
     assert!((xs[0] + unit_r).abs() <= nudge && (xs[1] - unit_r).abs() <= nudge, "the Bats are not one diameter apart around the spawn point: {xs:?} vs -+{unit_r}");
-    assert!(bats.iter().all(|b| (b.pos.y - point.y).abs() <= nudge), "the Bats are not SpawnRadius ahead: {:?} vs {point:?}", bats.iter().map(|b| b.pos).collect::<Vec<_>>());
+    assert!(bats.iter().all(|b| (b.y - point.y).abs() <= nudge), "the Bats are not SpawnRadius ahead: {bats:?} vs {point:?}");
     assert_eq!(s.entity(witch).unwrap().spawn_wave_left, 0, "a simultaneous wave leaves nothing pending");
 
     // BattleRam: DeathSpawnDeployTime overrides the Barbarian's own DeployTime (the

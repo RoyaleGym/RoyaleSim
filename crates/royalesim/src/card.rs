@@ -566,6 +566,42 @@ struct RawCard {
     /// characters.csv Kamikaze / KamikazeTime.
     kamikaze: Option<bool>,
     kamikaze_time_ms: Option<i32>,
+    /// cards.json `spawn_pathfind` (characters.csv SpawnPathfindSpeed /
+    /// SpawnPathfindMorph). Present = the row is born somewhere else and travels
+    /// underground to the tap; `refuse_spawn_pathfind` refuses the card.
+    spawn_pathfind: Option<RawSpawnPathfind>,
+}
+
+/// cards.json `spawn_pathfind`: the underground spawn walk.
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+struct RawSpawnPathfind {
+    speed: Option<i32>,
+    morph: Option<String>,
+}
+
+/// Err when `sp` says the row is not born where it was tapped.
+///
+/// THE UNDERGROUND SPAWN WALK (characters.csv SpawnPathfindSpeed / SpawnPathfindMorph).
+/// A row with SpawnPathfindSpeed is NOT born at the tap: the recordings show it
+/// appearing at its owner's king tower and travelling underground at that speed to
+/// the tap. With SpawnPathfindMorph it then MORPHS into the named row on arrival,
+/// which is a different card entirely -- the 2560-hp GoblinDrillDig troop the tap
+/// answers becomes a 1313-hp GoblinDrill BUILDING with a LifeTime and a Goblin
+/// spawner the dig row does not carry. The engine runs neither the travel nor the
+/// morph, so a card that needs one is refused rather than played as its first row
+/// alone: the replay harness scored the Goblin Drill at 0.0 % within 250 native with
+/// 99.6 % of its unit-ticks an alive mismatch, because everything the game put on the
+/// board was a row the engine never loaded.
+fn refuse_spawn_pathfind(sp: &Option<RawSpawnPathfind>, what: &str) -> Result<(), String> {
+    match sp {
+        Some(p) if p.morph.is_some() || p.speed.is_some() => Err(format!(
+            "{what} is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed {}{}); not simulated",
+            p.speed.map_or_else(|| "blank".to_string(), |v| v.to_string()),
+            p.morph.as_ref().map_or(String::new(), |m| format!(", morphing into {m} on arrival")),
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// cards.json `second_summon` block.
@@ -1286,6 +1322,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         return convert_spell(raw).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
     }
     refuse_action_mechanic(&raw.action_graph, "the unit")?;
+    refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
     let projectile = match raw.projectile {

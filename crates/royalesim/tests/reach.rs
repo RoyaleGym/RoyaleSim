@@ -211,8 +211,12 @@ fn the_same_reach_holds_against_a_building_whose_radius_differs() {
         s.scenario_spawn_now(Team::Red, "Cannon", tower_free_spot(), None).unwrap();
         let cannon = find_live(&s, Team::Red, "Cannon")[0].id;
         let full = s.entity(cannon).unwrap().hp;
+        // A Cannon is a LifeTime building and bleeds its own hp away every tick past
+        // its deploy end (lifetime.HP_DECAY = linear_drain); nothing else may touch it.
+        let drain = s.lifetime_drain(cannon);
         let a = approach_from(&mut s, card, tower_free_walker_spot(), cannon, 400);
-        assert_eq!(s.entity(cannon).unwrap().hp, full, "scene: something other than the {card} is shooting the Cannon");
+        let bled = (s.tick_count() as i32 * drain) / 100;
+        assert_eq!(s.entity(cannon).unwrap().hp, full - bled, "scene: something other than the {card} is shooting the Cannon");
         assert!(a.at <= a.reach && a.before > a.reach, "{card} vs Cannon: {} / {} against reach {}", a.at, a.before, a.reach);
         assert!(a.at + a.step > a.reach, "{card} vs Cannon: stopped {} native out, more than one step ({}) inside the reach {}", a.at, a.step, a.reach);
         let cannon_r = s.entity(cannon).unwrap().radius;
@@ -350,13 +354,17 @@ fn a_melee_first_hit_lands_hit_speed_minus_load_time_after_the_target_came_into_
         let cannon = find_live(&s, Team::Red, "Cannon")[0].id;
         let knight = s.scenario_spawn_now(Team::Blue, "Knight", tower_free_walker_spot(), None).unwrap();
         let hp = s.entity(cannon).unwrap().hp;
+        // The Cannon's own LifeTime drain (lifetime.HP_DECAY) is subtracted, so only
+        // the Knight's hit counts as a hit.
+        let drain = s.lifetime_drain(cannon);
         let (mut entry, mut hit) = (None, None);
         for _ in 0..600 {
             s.tick();
+            let bled = (s.tick_count() as i32 * drain) / 100;
             if entry.is_none() && s.entity(knight).is_some_and(|e| e.attack_phase != AttackPhase::Idle) {
                 entry = Some(s.tick_count());
             }
-            if hit.is_none() && s.entity(cannon).is_some_and(|e| e.hp < hp) {
+            if hit.is_none() && s.entity(cannon).is_some_and(|e| e.hp < hp - bled) {
                 hit = Some(s.tick_count());
                 break;
             }

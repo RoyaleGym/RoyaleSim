@@ -267,7 +267,10 @@ fn a_fireball_on_a_hidden_tesla_changes_nothing_and_on_an_up_tesla_deals_the_dat
     let (s, control, damage) = fireball_on(s, at);
     assert!(damage > 0);
     assert_eq!(s.entity(tesla).unwrap().hp, control.entity(tesla).unwrap().hp, "a hidden Tesla took Fireball damage");
-    assert_eq!(s.entity(tesla).unwrap().hp, s.entity(tesla).unwrap().max_hp);
+    // Not full hp: a hidden Tesla still bleeds its LifeTime away (lifetime.HP_DECAY),
+    // which is why the control is what the hidden one is compared against.
+    let drop = s.entity(tesla).unwrap().max_hp - s.entity(tesla).unwrap().hp;
+    assert!(drop < damage, "the hidden Tesla lost more than its lifetime drain ({drop} of a {damage} Fireball)");
     assert_eq!(hide_of(&s, tesla).0, HideState::Hidden);
     // UP: a Red Knight in its sight but far from melee keeps it up for the flight;
     // the Fireball then takes exactly the level-scaled damage the spell carries.
@@ -297,7 +300,10 @@ fn a_hidden_tesla_ignores_zap_stun() {
         control.tick();
     }
     let e = s.entity(tesla).unwrap();
-    assert_eq!((e.stun_ms, e.hp, e.hide_state), (0, e.max_hp, HideState::Hidden), "a hidden Tesla was stunned or damaged by Zap");
+    let c = control.entity(tesla).unwrap();
+    // hp against the CONTROL, not against max_hp: the lifetime drain runs under ground
+    // too (lifetime.HP_DECAY), and it ran in both copies.
+    assert_eq!((e.stun_ms, e.hp, e.hide_state), (0, c.hp, HideState::Hidden), "a hidden Tesla was stunned or damaged by Zap");
     let full = s.entity(knight).unwrap().hp;
     let first_shot = |s: &mut BattleState| -> (u32, Vec<(u32, HideState, i32)>) {
         let mut states = Vec::new();
@@ -325,7 +331,13 @@ fn a_hidden_tesla_still_dies_at_lifetime_expiry() {
     let mut s = bare(config());
     let life = card_stat(&s, "Tesla").lifetime_ms.expect("Tesla has a lifetime");
     let tesla = s.scenario_spawn_now(Team::Blue, "Tesla", t(900, 1200), None).unwrap();
-    let n = ticks_of(life);
+    // The lifetime empties the hp pool rather than firing at LifeTime exactly
+    // (lifetime.HP_DECAY = linear_drain), so the tick it dies on comes from the drain:
+    // ceil(max_hp x 100 / drain), one or two ticks past ticks_of(LifeTime). Under
+    // expiry_hit the drain is 0 and the old count stands.
+    let drain = s.lifetime_drain(tesla);
+    let n = if drain > 0 { ((s.entity(tesla).unwrap().max_hp * 100 + drain - 1) / drain) as u32 } else { ticks_of(life) };
+    assert!(n >= ticks_of(life), "the drain cannot kill the Tesla before its own LifeTime");
     for k in 1..n {
         s.tick();
         assert_eq!(hide_of(&s, tesla), (HideState::Hidden, 0), "tick call {k}: the Tesla surfaced with nothing near it");
@@ -400,7 +412,11 @@ fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacq
     assert_ne!(k.target, Some(tesla), "the Knight kept a building that went under");
     assert_eq!(k.attack_phase, AttackPhase::Idle, "the cancelled windup should be Idle");
     assert!(!k.target_locked, "the lock survived the building going under");
-    assert_eq!(e.hp, hp_before, "the cancelled swing landed");
+    // Not equal: the Tesla's deploy ended last tick, so the lifetime drain has started
+    // (lifetime.HP_DECAY). One tick of drain, never a Knight's hit.
+    let drain = s.lifetime_drain(tesla);
+    assert!(hp_before - e.hp <= (drain + 99) / 100, "the cancelled swing landed ({} lost)", hp_before - e.hp);
+    let hp_before = e.hp;
     // Rising: not targetable; up after UpTimeMs; then the Knight has it again and
     // lands hits on it -- the building takes damage when it is up.
     let rise = ticks_of(h.up_time_ms);
@@ -411,7 +427,8 @@ fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacq
     s.tick();
     assert_eq!(hide_of(&s, tesla).0, HideState::Up);
     assert_eq!(s.entity(knight).unwrap().target, Some(tesla), "the Knight did not re-acquire the Tesla when it came up");
-    let hit = run_until(&mut s, 60, |s| s.entity(tesla).unwrap().hp < hp_before);
+    // Past the drain: a Knight's hit, not one more tick of LifeTime.
+    let hit = run_until(&mut s, 60, |s| hp_before - s.entity(tesla).unwrap().hp > 60 * (drain + 99) / 100);
     assert!(hit < 60, "the Knight never landed a hit on the up Tesla");
 }
 
