@@ -177,6 +177,10 @@ CAPTURE_SUFFIX = ".native.oracle.jsonl.gz"
 # Native arena size in millitiles (18 x 32 tiles); only used to rotate a capture whose
 # side 0 sits at the top, which no capture of the corpus does.
 NATIVE_W, NATIVE_H = 18_000, 32_000
+#: The grid the game publishes `path_nodes` on: half-tile cells, 500 native on a side.
+#: Derived rather than written down so a change to the arena cannot leave these stale.
+CELL_NATIVE = 500
+CELL_COLS, CELL_ROWS = NATIVE_W // CELL_NATIVE, NATIVE_H // CELL_NATIVE
 # Entity kinds in the captures: 12 building deploying/inactive, 13 building up, 14 troop
 # deploying, 15 troop active. Towers carry card_id -1.
 KIND_TROOP_DEPLOYING = 14
@@ -674,6 +678,22 @@ def build(
     def pos_of(x, y):
         return (NATIVE_W - x, NATIVE_H - y) if rotate else (x, y)
 
+    def cells_of(nodes):
+        """The published path as [col, row] cells, GOAL-FIRST, in the fixture's frame.
+
+        `path_nodes` is a flat list of indices on the CELL_COLS x CELL_ROWS grid the game
+        publishes paths on. It must be rotated with the positions or the two disagree: a
+        fixture that flips the arena and not the path would read as a pathfinder defect on
+        every rotated battle, which is the most expensive way for this to be wrong.
+        """
+        out = []
+        for n in nodes or []:
+            col, row = n % CELL_COLS, n // CELL_COLS
+            if rotate:
+                col, row = CELL_COLS - 1 - col, CELL_ROWS - 1 - row
+            out.append([col, row])
+        return out
+
     # -- entities across frames
     ticks = [f["tick"] for f in frames]
     ents: dict[int, dict] = {}
@@ -685,7 +705,8 @@ def build(
             k = e["generation_key"]
             x, y = pos_of(e["x"], e["y"])
             tgt = ptr_to_key.get(e.get("target") or "", -1) if e.get("target") else -1
-            rows[k] = (x, y, e["hp"], tgt, len(e.get("path_nodes") or []), e["behavior_state"])
+            nodes = e.get("path_nodes") or []
+            rows[k] = (x, y, e["hp"], tgt, len(nodes), e["behavior_state"], cells_of(nodes))
             rec = ents.get(k)
             if rec is None:
                 rec = ents[k] = {
@@ -1056,14 +1077,14 @@ def build(
         idx = [i for i in range(e["first_index"], e["last_index"] + 1) if i in sel_set]
         if not idx:
             continue
-        cols = [[], [], [], [], [], []]
+        cols = [[], [], [], [], [], [], []]
         gaps = 0
         for i in idx:
             row = per_tick_rows[i].get(e["key"])
             if row is None:
                 gaps += 1
-                row = (None, None, None, None, None, None)
-            for c in range(6):
+                row = (None, None, None, None, None, None, None)
+            for c in range(7):
                 cols[c].append(row[c])
         truth_entities.append(
             {
@@ -1090,6 +1111,7 @@ def build(
                 "target": rle(cols[3]),
                 "path_n": rle(cols[4]),
                 "state": rle(cols[5]),
+                "path_cells": rle(cols[6]),
             }
         )
 
@@ -1111,7 +1133,7 @@ def build(
             "spawned_groups": spawned_groups,
             "unresolved": unresolved,
             "truth": {
-                "columns": ["x", "y", "hp", "target", "path_n", "state"],
+                "columns": ["x", "y", "hp", "target", "path_n", "state", "path_cells"],
                 "encoding": "per entity, each column run-length encoded as [value, run, ...]"
                 " over its frames from index t0 for n frames of `ticks`; a null value is a"
                 " frame the entity was absent from inside its run; alive = present",
