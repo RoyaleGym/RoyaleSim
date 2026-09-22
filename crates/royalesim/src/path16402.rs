@@ -69,10 +69,9 @@ pub fn dist2_capped(x1: i32, y1: i32, x2: i32, y2: i32) -> i32 {
     }
 }
 
-/// The per-cell terrain the cost function reads: the tilemap's lane bits (`& 3`) and
-/// its water bit (`& 0x20`). No cell of the arena tilemap in `data/raw` sets bit 0x40,
-/// and bit 16 (the king block / edge strips) does not change any price -- the king
-/// block comes out of the king tower's own occlusion box.
+/// The per-cell terrain the cost function reads: the arena's lane bits and its water
+/// bit. The NO_DEPLOY bit (the king block and the edge strips) does not change any
+/// price -- the king block comes out of the king tower's own occlusion box.
 #[derive(Clone, Debug)]
 pub struct Terrain {
     pub cols: i32,

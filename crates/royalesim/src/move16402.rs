@@ -596,7 +596,7 @@ pub fn octagonal_len(a: i32, b: i32) -> i32 {
 /// CALLER'S encoding (arena.rs `cell_bits`, whose bit values are arena.json's
 /// `bits`, not the tilemap's), so the caller names the water bit and the blocked
 /// mask in that encoding: the engine passes `arena.bit_water` and an EMPTY blocked
-/// mask, since arena.json has no counterpart of the tilemap's 0x50 blocked bits
+/// mask, since arena.json marks no cell blocked for this purpose
 /// (knockback.WATER_RESOLUTION not_modelled).
 pub fn blocked_or_water(x: i32, y: i32, width_cells: i32, height_cells: i32, water_bit: u8, blocked_mask: u8, bits: impl Fn(i32, i32) -> u8) -> bool {
     if (x | y) < 0 || x >= width_cells * 500 || y >= height_cells * 500 {
@@ -794,11 +794,13 @@ mod tests {
         let (x, y) = nearest_land(9000, 15100, 36, 64, water);
         assert!(!water(tdiv(x, 500), tdiv(y, 500)));
         assert_eq!((x, y), (8750, 14850), "j = -1, k = 4: offset (-250, -250), the first octagonal minimum");
-        // in the tilemap's own encoding (water 0x20, blocked 0x50)
-        assert!(blocked_or_water(9000, 15100, 36, 64, 0x20, 0x50, |_, _| 0x20));
-        assert!(blocked_or_water(-1, 100, 36, 64, 0x20, 0x50, |_, _| 0));
-        assert!(blocked_or_water(100, 100, 36, 64, 0x20, 0x50, |_, _| 0x10), "bit 0x10 counts (the blocked mask is 0x50)");
-        assert!(!blocked_or_water(100, 100, 36, 64, 0x20, 0x50, |_, _| 0x03));
+        // an encoding of the caller's own choosing: the function must read the two
+        // masks it is handed and nothing else, so these use values the engine never
+        // passes (water 4, blocked 8 | 1)
+        assert!(blocked_or_water(9000, 15100, 36, 64, 4, 9, |_, _| 4));
+        assert!(blocked_or_water(-1, 100, 36, 64, 4, 9, |_, _| 0));
+        assert!(blocked_or_water(100, 100, 36, 64, 4, 9, |_, _| 8), "a bit of the blocked mask counts");
+        assert!(!blocked_or_water(100, 100, 36, 64, 4, 9, |_, _| 2));
         // in the engine's encoding (arena.json WATER 32, NO_DEPLOY 16, no blocked mask):
         // a NO_DEPLOY cell is not "blocked" for the teleport
         assert!(blocked_or_water(100, 100, 36, 64, 32, 0, |_, _| 32));

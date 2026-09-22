@@ -1079,8 +1079,9 @@ fn pushback_step16402(bodies: Vec<Vec<i64>>, me: usize, target: (i32, i32), rema
     if rem > 0 {
         ml::separation_scan(&index, &bodies, me, &mut con, &mut scratch);
         let (x, y) = (bodies[me].x, bodies[me].y);
-        // the engine's arena encoding: the water bit from arena.json, no blocked
-        // mask (the tilemap's 0x50 has no counterpart there; state.rs phase_path16402)
+        // the engine's arena encoding: the water bit from arena.json, and no blocked
+        // mask, because nothing there is blocked for this purpose (state.rs
+        // phase_path16402)
         if !bodies[me].air && ml::blocked_or_water(x, y, arena.cols, arena.rows, arena.bit_water, 0, |c, r| arena.cell_bits(c, r)) {
             let (nx, ny) = ml::nearest_land(x, y, arena.cols, arena.rows, is_water);
             bodies[me].x = nx;

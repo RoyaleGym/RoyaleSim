@@ -3012,10 +3012,9 @@ impl BattleState {
                 .collect();
             let is_water = |c: i32, r: i32| arena.cell_bits(c, r) & arena.bit_water != 0;
             let cell_bits = |c: i32, r: i32| arena.cell_bits(c, r);
-            // the tilemap's blocked bits (0x50 in its own encoding) have no arena.json
-            // counterpart (bits: LANE_LEFT 1, LANE_RIGHT 2, NO_DEPLOY 16, WATER 32 -- the
-            // engine's encoding, not the tilemap's); only the water bit is tested here
-            // (knockback.WATER_RESOLUTION not_modelled)
+            // arena.json marks LANE_LEFT, LANE_RIGHT, NO_DEPLOY and WATER, and none of
+            // them blocks a unit from STANDING where it already is; only the water bit is
+            // tested here (knockback.WATER_RESOLUTION not_modelled)
             let blocked_mask: u8 = 0;
             let mut scratch: Vec<usize> = Vec::new();
             // THE UPDATE ORDER IS CREATION ORDER: on every frame pair of the live
@@ -4598,8 +4597,14 @@ impl BattleState {
         // release), placed by `death_spawn_points` in the owner's frame, at the
         // owner's team and level, with the block's deploy time or the calibration
         // default. Collected and sorted by (team, the dead entity's team_seq, unit
-        // index) before the push, so the queue order is canonical. Death damage
-        // (below) lands as well: both effects, independently.
+        // index) before the push, so the queue order is canonical.
+        //
+        // A DEATH FIRES EVERY BLOCK IT CARRIES, INDEPENDENTLY: the death spawn here,
+        // the death AREA EFFECT and the death DAMAGE disc below. The Ice Golem ships
+        // the last two together (a 2000-millitile disc of 33 and a 2000-millitile
+        // area that carries a slow and no damage of its own) and the Super Ice Golem
+        // ships them with different radii, different damage and different crown
+        // percents -- two columns, one death, neither one the other's carrier.
         let mut spawned: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
         #[cfg(not(clash_plant = "death_spawn_dropped"))]
         for id in &deaths {
@@ -4608,6 +4613,33 @@ impl BattleState {
             let Some(ds) = card.death_spawn else { continue };
             let unit = self.cfg.cards.get(ds.unit);
             let level = self.cfg.cards.death_spawn_level(self.ents.card[i], self.ents.level[i]).expect("death spawn level validated at deploy");
+            // A DEATH BOMB (card.rs `convert_death_bomb`: the Balloon's, the Giant
+            // Skeleton's, the Bomb Tower's) is not spawned, because it is not a unit:
+            // it has no hitpoints, nothing can target it and it stands in nobody's
+            // way. It is one area hit on a timer, left exactly where the parent fell
+            // and released as the spell object an Arrows wave already waits in --
+            // `SpellMotion::Flight` with a delay, aimed at the point it starts from,
+            // so it arrives on the first tick after the fuse runs out and applies the
+            // same enemies-only splash `phase_reap` gives an ordinary DeathDamage row.
+            // THE FUSE IS THE BOMB ROW'S OWN DeployTime and NOT `deploy_ms` below:
+            // DEATH_SPAWN_DEPLOY_TIME_DEFAULT is measured `zero`, which says how fast
+            // a spawned UNIT wakes up and would fire this bomb on the death tick. The
+            // corpus separates them -- a Balloon's bomb lands 61 ticks after its last
+            // live frame, not on it (card.rs `convert_death_bomb`).
+            if let Some(fuse_ms) = unit.death_bomb_fuse_ms() {
+                let base = unit.death_damage;
+                let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
+                let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
+                self.spells.push(Spell {
+                    team,
+                    card: ds.unit,
+                    level,
+                    damage,
+                    pulse: 0,
+                    motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms },
+                });
+                continue;
+            }
             let radius = ds.radius.unwrap_or(match self.cfg.calib.death_spawn_radius_default {
                 DeathSpawnRadius::OwnCollisionRadius => self.ents.radius[i],
                 DeathSpawnRadius::Zero => 0,
@@ -4637,6 +4669,25 @@ impl BattleState {
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
         self.spawn_queue.extend(spawned.into_iter().map(|(_, _, _, p)| p));
+        // A death releases its area effect (card.rs `death_area_effect`) into the same
+        // spell list a cast goes into, so the disc applies in the NEXT tick's
+        // Projectile phase -- the same tick the death damage buffered below resolves,
+        // because Reap runs after Resolve. Collected first and appended once: the
+        // death queue's order is `combat::resolve`'s canonical one, and the borrow of
+        // `cfg` ends before `spells` is touched.
+        let mut released: Vec<spell::Spell> = Vec::new();
+        for id in &deaths {
+            let i = id.index as usize;
+            let idx = self.ents.card[i];
+            if self.cfg.cards.get(idx).death_area_effect.is_none() {
+                continue;
+            }
+            released.extend(
+                spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
+                    .expect("death area effect level validated at deploy"),
+            );
+        }
+        self.spells.append(&mut released);
         for id in &deaths {
             let i = id.index as usize;
             let card = self.cfg.cards.get(self.ents.card[i]);
@@ -5927,7 +5978,15 @@ impl BattleState {
 ///    fingerprint move: it changes where a summon is LAID, not what it is. The field
 ///    carries a serde default so a format-18 snapshot still deserializes, and a
 ///    format-3 battle laid every ring on the tap itself (migrate_v3).
-pub const SNAPSHOT_FORMAT: u32 = 19;
+/// 20: the death area effect -- CardDef gained `death_area_effect`, the
+///    area_effect_objects row a unit's death leaves standing (the Ice Golem's
+///    FreezeIceGolemite), so the card fingerprint moves. No new Calib key, no new
+///    Entities column and no new snapshot field: the release is an ordinary `Spell`
+///    in the list format 4 already saves, born in Reap instead of Spawn. The
+///    format-3 fingerprint is untouched: migrate_v3 strips the new field with the
+///    rest of the post-format-3 tail, and no card's index moves (a card that was
+///    rejected for its area and is now loaded stays where it sat in `cards`).
+pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -6080,9 +6139,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... level_base~~ -- format 15 added `formation` after it.
                 // ~~... formation~~ -- format 16 added `projectile_start_radius` and `kamikaze` after it.
                 // ~~... kamikaze~~ -- format 18 added `attack_buff` after them.
+                // ~~... attack_buff~~ -- format 20 added `death_area_effect` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, death_area_effect: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.death_area_effect
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))

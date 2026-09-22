@@ -60,12 +60,11 @@ Entered through the path request (below); implemented in `path16402.rs`.
 ## The cost field
 
 - A cell costs -1 only when it is out of bounds.
-- **Water** (tilemap bit 0x20): a walker pays `BLOCKED = 50`, and that cost is final before the
-  occlusion max. Hovering and `JumpEnabled` units pay `WATER = 7`.
-- No cell of the shipped arena tilemap sets bit 0x40, so nothing is priced by it.
-- Lane bits `& 3`: `ROAD = MATCHINGROAD = 5`, so the "matching road" concept changes nothing.
+- **Water**: a walker pays `BLOCKED = 50`, and that cost is final before the occlusion max.
+  Hovering and `JumpEnabled` units pay `WATER = 7`.
+- Lane cells: `ROAD = MATCHINGROAD = 5`, so the "matching road" concept changes nothing.
   Everything else is `DEFAULT = 8`. Then `max(base, occlusion[cell])`.
-- **Bit 16 plays no part.** The king block is priced by the king tower's own R = 1400 box, and the
+- **NO_DEPLOY plays no part.** The king block is priced by the king tower's own R = 1400 box, and the
   arena-edge strips cost 8.
 - **Water is priced, not refused.** No recorded path ever uses a water cell, because water is
   never cheaper. But pricing it still decides which of several equal-cost routes comes out.
@@ -220,33 +219,29 @@ assertion.
   both implementations, which must agree exactly on positions, facing, offsets, reached flags and
   dropped waypoints (20,000/20,000 on two seeds; about 16,000 of them with a nonzero offset and
   about 4,400 with units moved by separation alone).
-- The walk gate (`tools/oracle_diff.py`) stays 6/6 bit-exact against the offline traces (one of
-  the six over 105 of its 107 ticks; `oracle_diff.py` names the shortfall).
-  First-path cells are 19/21 identical to the offline corpus; the two that differ are MiniPekka
-  and Royal Giant, which pick another goal cell from the Range `cards.json` carried WHEN THAT
-  MEASUREMENT WAS TAKEN. That is card data, not the search.
+- The walk gate (`tools/oracle_diff.py`) is 6/6 bit-exact against the offline traces. Each of
+  the six is exact over its whole window, Skeletons included (107 of 107 ticks).
+- First-path cells are **19/19 identical** to the offline corpus, and 19/19 cost the same.
+  Measured 2026-09-22 with `python tools/oracle_diff.py`, which runs the default families
+  `walk`, `building_Giant` and `repath_Giant`. The card table was `data/derived/cards.json`
+  version `cards-15535.1`, the 15.535.29 tables, FNV-1a 64 `5a1dac3d2fb1b4a9`. The run reads 22
+  traces and skips 3. The engine cannot spawn GoblinGiant (one walk trace) or BombTower (two
+  building runs), so those three have no engine path to compare.
 
-  **The stated cause no longer holds on a checkout carrying the client's asset pack, so the
-  19/21 needs re-measuring against a named vintage.** `data/derived/` is gitignored and
-  `extract_cards.py` writes whichever vintage it was asked for to the single name `cards.json`,
-  so that name does not carry a vintage. Measured 2026-09-22 on this tree:
+  Name the table beside any first-path figure. The file name does not carry a vintage:
+  `data/derived/` is gitignored, and `extract_cards.py` writes whichever vintage it is asked for
+  to `cards.json`. The engine reads that file at run time (`CardDb::load_repo`), so the
+  build-digest guard that covers `calibration.json`, `arena.json` and `globals.csv` does not
+  cover it. `docs/replay-parity.md` names its table the same way.
 
-  | card | `cards.json` here (15.535.29 LIVE) | `cards-2018.json` |
-  |---|---|---|
-  | MiniPekka | 800 | 1050 |
-  | Royal Giant | 5000 | 6500 |
-  | Knight | 1200 | 1000 |
-  | Prince | 1600 | 1850 |
-
-  The two cards this line names as differing BECAUSE of their 2018 Range now load their live
-  Range instead, so the sentence's explanation is false here even if the count is still right.
-  The engine reads `cards.json` at runtime (`CardDb::load_repo`) rather than through
-  `include_str!`, so the build-digest staleness guard that covers `calibration.json`,
-  `arena.json` and `globals.csv` does not cover it, and nothing in a result records which table
-  produced it. Re-measure and state the vintage, as `docs/replay-parity.md` must also do.
+  An earlier count here was 19/21, and it blamed the 2018 table's Range for the MiniPekka and
+  Royal Giant paths. On this table both paths match. The 2018 table was not re-run.
 - Controls, so the fit is not mistaken for a free parameter: water impassable scores 306/388 live
   and 24/128 offline; friendly-only occlusion 336/388; `AVOID_BUILDINGS` off 421/425. The
-  trace-fitted arm of 2026-09-18 scored 168/345 live and 15/128 offline.
+  trace-fitted arm of 2026-09-18 scored 168/345 live and 15/128 offline. The friendly-only
+  control is also a standing arm of G6: the fixture tags each building with the side that owns
+  it, and `g6_friendly_only_occlusion_is_a_control_the_published_paths_refute` stamps only the
+  mover's own and prints its score on the current fixture.
 
 ## Evidence
 
