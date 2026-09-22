@@ -54,7 +54,7 @@ layer bots train in. Install steps are below, under "Install".
   <tr>
     <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>144 cards, towers, spells, overtime</b><br><sub>The 15.535 client's card data, 144 cards. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 13 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 13 kB and loads back to the identical state hash. Four branches off one save, three of them reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="All 148 engine constants, graded by how well each one is known"><br><b>Every number says how it is known</b><br><sub>All 148 of them carry a status from guess to measured, and name the evidence. About a third are measured; a quarter are still a hypothesis or a guess.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="All 148 engine constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 148 of them carry a status from guess to measured, name the rivals they were chosen against, and say what would change them. About a third are measured; a quarter are still a hypothesis or a guess.</sub></td>
   </tr>
 </table>
 
@@ -264,7 +264,8 @@ and RoyaleViser plays, and the `data/` folder every sibling reads. RoyaleGym fin
 
 Working:
 
-- The full match loop on the 15.535 client's own card data (144 cards, 2 towers, 334 units), with
+- The full match loop on the 15.535 client's own card data (144 cards with that table, 78 in a
+  public clone; 2 towers, 334 units), with
   card levels and the tower ladder measured on 2026 recordings: elixir, deploys, formations for
   multi-unit cards, fighting, Fireball, Arrows, Zap, The Log and Goblin Barrel, king activation,
   double elixir, 60 s overtime, the 3-crown win and the tiebreak.
@@ -279,7 +280,8 @@ Working:
 Not modelled yet, in plain words:
 
 - Only the 18 cards in `thin_slice` (`data/derived/cards.json`) are checked against recordings. The
-  rest of the 144 carry data that no test covers yet.
+  rest carry data that no test covers yet. That is 126 of the 144 on the full card table, or
+  60 of the 78 a public clone builds.
 - Dash and morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
 - Two known collision defects. A unit can sit inside a building's footprint for up to 47 ticks,
