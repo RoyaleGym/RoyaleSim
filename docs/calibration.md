@@ -61,20 +61,35 @@ The status vocabulary is one claim and the provenance prose is another, and they
 equally well checked.
 
 An audit on 2026-09-22 re-read 24 of the 148 entries against the corpus. It moved no status and
-no value. What it found was in the evidence the statuses rest on: of 87 findings it recorded,
-42 were a cited number, capture name or piece of arithmetic that does not hold.
-`formation.GROUND_Y_CLAMP` is the worked example. Its status of `measured` was defensible and
-three of its four cited facts were wrong, including a capture whose real numbers are
-31053/31057 where the entry said 31000. It has been rewritten. What is true of that key now:
-the clamp is pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
-full row apart rather than half a row, side 1's river bound is one native unit looser than the
-rotation rather than tighter, and side 0's range is pinned by nothing at all, which the entry
-now says.
+no value. What it found was in the evidence the statuses rest on. It recorded 87 findings, of
+which 42 are a cited number, capture name or piece of arithmetic that does not hold. Read that
+the way the audit's own author asks it to be read: six agents were told to hunt, and only a
+handful of the 42 have been checked by hand, one of which did not survive the check. The
+supported claim is that the set needs re-reading, not that 42 defects are established.
 
-124 entries have not been re-read. So: the status on a key is worth trusting, and the candidate
-list and the promotion criterion are worth trusting, because those are what the audit did not
-dent. A specific number quoted inside a provenance string is worth re-deriving before you build
-on it. The ledger is audited against its own corpus and the audit is not finished.
+`formation.GROUND_Y_CLAMP` is the worked example. Its status of `measured` was defensible and
+four of its statements were wrong, including a capture whose real numbers are 31053/31057
+where the entry said 31000. It has been rewritten. What is true of that key now: the clamp is
+pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a full row apart
+rather than half a row, side 1's river bound is one native unit looser than the rotation rather
+than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
+
+124 entries have not been re-read. So, concretely:
+
+- **The status on a key is worth trusting.** No status moved in the audit.
+- **The shape of the entry is worth trusting.** It will carry a status from a fixed vocabulary,
+  name the rivals the value was chosen against, and state what observation would move it. That
+  structure held everywhere the audit looked, and it is the unusual thing about this file.
+- **Any specific number inside a provenance string is worth re-deriving before you build on
+  it, and that includes a rival's score and a promotion criterion.** Those are not safer than
+  the rest. Of the 24 entries re-read, 10 findings land on a candidate list and 7 on a
+  promotion rule. `GROUND_Y_CLAMP`'s fourth error was in its `promotion_rules`, which called
+  side 1's river bound undiscriminated while a clean group stood two Goblins exactly on it.
+  `targeting.ATTACK_RANGE_RULE` states a losing candidate's sum as 8500, which is Range plus
+  the tower's own radius, the very term that arm drops; the real sum is 8100, so the
+  observation still discriminates, but eight ticks later than the entry implies.
+
+The ledger is audited against its own corpus and the audit is not finished.
 
 ## Changing a value
 
