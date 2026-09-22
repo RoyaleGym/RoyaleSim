@@ -25,6 +25,28 @@ rules) are not compared, so a prose-only edit needs no rebuild.
 Building needs about 1.5 GB of RAM; on a small machine run one release build at a time and
 nothing else heavy beside it.
 
+This repo has no Python dependency on any sibling: the crate builds alone, and the calibration
+tooling in `tools/` and `oracle/` needs only numpy and msgspec. The two exceptions are
+`tools/watch_battle.py` and `tools/oracle_diff.py`, which drive the engine through the env layer's
+`RustEngine` and so need `royalegym` installed (`pip install -e ../RoyaleGym`).
+
+### Data
+
+`data/derived/` (`arena.json`, `cards.json`, `globals.json`) is gitignored and generated, and it
+must exist **before** the build: the crate `include_str!`s `arena.json`, and `royalegym` reads
+`cards.json` and `globals.json`. `tools/extract_arena.py`, `extract_cards.py` and
+`extract_globals.py` read the tracked `data/raw/retroroyale-2018/` and need nothing beyond the
+standard library (verified byte-identical from a fresh venv, 2026-09-21). `data/raw/cr-15.535.29/`
+comes from `tools/decode_sc_assets.py` run on a verified asset pack (Supercell's files, not
+redistributed). The recorded traces in `data/oracle-native/` are not distributed; without them
+`tests/test_oracle_native_diff.py` skips and says so.
+
+The data directory is found by the env layer through `royalegym.protocol.data_dir()`
+(`../RoyaleSim/data` from a sibling checkout, overridable with `ROYALESIM_DATA_DIR`); the
+recorder's own tooling honours the same variable. `tools/make_client16402_paths_fixture.py` reads
+the recordings from `ROYALELIVE_REPORTS` (default `<ROYALELIVE_DIR>/reports`) and imports the
+recorder's sampler from `ROYALELIVE_DIR` (default `../RoyaleLive`).
+
 ## Gates
 
 ```
@@ -64,8 +86,10 @@ cd crates\royalesim && cargo test --release --test throughput -- --ignored --noc
 ### `tools/watch_battle.py`
 
 Plays a whole battle on `RustEngine` through the env layer, scores five gates over it, and writes
-a self-contained `battle.html`. A 3-minute battle takes about 5 s end to end including the
-re-simulation and the page. The five gates:
+a self-contained `battle.html`. A 3-minute battle (`--seed 7 --steps 400 --noop-prob 0.2`) took
+1.4 s end to end on 2026-09-21 including the re-simulation and the 2.8 MB, 4001-frame page (about
+5 s on the 2026-09-13 machine). `--trace-out battle.msgpack` also saves the trace, which
+RoyaleViser plays (`python -m royaleviser battle.msgpack`). The five gates:
 
 | Gate | What it checks |
 |---|---|
@@ -75,8 +99,10 @@ re-simulation and the page. The five gates:
 | `dry` | no non-flying entity centre is ever on a water half-cell (see the tolerance note below) |
 | `render` | the page is written, self-contained, and its frame count and first/last tick match the trace |
 
-It exits non-zero if any gate is red, so a green page is evidence rather than decoration. With no
-usable extension module it prints `SKIPPED` and exits 2 — it never silently falls back to the
+It exits non-zero if any gate is red, so a green page is evidence rather than decoration.
+`--plant desync` (and five other plants: `--all-plants` runs them all) deliberately breaks the
+battle to prove each gate can still go red. With no usable extension module it prints `SKIPPED`
+and exits 2 — it never silently falls back to the
 mock engine, which is a different simulator; `--engine mock` is explicit and opt-in.
 
 Its policy is uniform-over-legal-actions, so it says **nothing** about balance. What it cannot
@@ -130,6 +156,21 @@ Two rules go with them, and both were learned the hard way:
 - `data/raw/cr-*` (the decoded modern asset pack), `data/derived/` (generated) and
   `data/oracle-native/` (large traces) are gitignored and never committed.
   `data/raw/retroroyale-2018/` is tracked.
+
+## Repository layout
+
+| Path | What it holds |
+|---|---|
+| `crates/royalesim/` | the Rust crate: lib + PyO3 module, both named `royalesim`. `src/` is mapped in `architecture.md`; `tests/` are the cargo integration tests, with `fixtures/oracle2026/` (first paths, generated) |
+| `data/calibration.json` | the ledger: every constant with value, status, confidence, provenance (`calibration.md`) |
+| `data/raw/retroroyale-2018/` | vendored ~2018 csv_logic and tilemaps (Supercell's content, not MIT; tracked) |
+| `data/raw/cr-15.535.29/` | decoded modern csv_logic / tilemaps (gitignored; `tools/decode_sc_assets.py`) |
+| `data/derived/` | `arena.json`, `cards.json`, `globals.json` (gitignored; `tools/extract_*.py`) |
+| `data/oracle-native/` | the recorded 15.535 traces (gitignored, not distributed) |
+| `oracle/` | the trace format and the calibration protocol: `scenarios.json` (the discriminating scenarios), `calibrate.py`, `synth.py`, `extract_tracks.py` (video tracks; cv2 optional) |
+| `tools/` | `extract_*.py` (data/raw -> data/derived), `check_data.py`, `oracle_diff.py` (the engine beside a trace, tick for tick), `diff_harness.py`, `watch_battle.py`, `throughput.py`, `make_*_fixture.py`, `mechanic_register.py`, `decode_sc_assets.py` |
+| `tests/` | pytest for the tooling (6 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
+| `docs/` | this documentation; `docs/media/` holds the README's graphics |
 
 ## Test layout
 

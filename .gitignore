@@ -21,10 +21,11 @@ new_references/
 investigation/
 logs/
 
-# Regenerable outputs: tools/watch_battle.py rebuilds these in seconds
+# Regenerable outputs: tools/watch_battle.py rebuilds these in seconds (the README's stills in docs/media/ are kept)
 battle.html
 *.msgpack
 *.png
+!docs/media/*.png
 *.jpg
 
 # Generated data (tools/extract_*.py from data/raw; rebuild royalesim after regenerating)

@@ -12,6 +12,7 @@
 | [spell-spec.md](spell-spec.md) | the five spells card by card: data chain, behaviour in tick order, what is unsettled |
 | [spell-spec.json](spell-spec.json) | the same content as structured data |
 | [performance.md](performance.md) | measured throughput, and what the bottleneck actually is |
+| `media/` | the graphics the top-level README embeds: the family diagram, one RoyaleViser still of a random-policy engine battle, and placeholders whose subtitles say what each real recording must show |
 
 New here? [architecture.md](architecture.md) then [contributing.md](contributing.md) will get you
 building and testing; [mechanics.md](mechanics.md) tells you how far to trust the result.

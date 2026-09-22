@@ -128,3 +128,38 @@ measured property of the game, not an engine convenience — `pathfinding.md` gi
 layer's `royalegym.rust_engine.RustEngine` wraps it, and the env layer is also where the data
 directory is resolved (`royalegym.protocol.data_dir()`, overridable with `ROYALESIM_DATA_DIR`).
 The crate itself has no Python dependency and builds alone.
+
+- **One Rust call per env step.** `step(commands, ticks)` validates, applies and ticks without
+  returning to Python, with the GIL released (`py.allow_threads`), so a threaded vectorised env is
+  not serialised by it. Bulk state crosses as one JSON byte string (`state_json()`), which the env
+  layer decodes with msgspec's typed C decoder.
+- **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
+  `cards.json` order: 65 on 2026-09-21 (52 troops, 6 buildings, 7 spells); `catalogue_json()` lists
+  them. `path_search="trace_fitted_astar"` selects the frame-planned arm (see "Selectable model
+  arms"); the default is the ledger's `pathfinding.PATH_SEARCH`.
+- **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
+  occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
+  `tower_positions`), so a learner's action mask is the engine's own answer rather than a
+  reimplementation. `check_deploy(team, slot, x, y)` returns an index into `DEPLOY_REASONS`, which
+  holds thirteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
+  `OUT_OF_ARENA`, `WATER`, `NO_DEPLOY`, `OUT_OF_TERRITORY`, `OCCUPIED`, `GAME_OVER`,
+  `DUPLICATE_TEAM`, `ENGINE_ERROR`. For example, with a Giant in hand slot 0 at the start of a
+  battle (re-run 2026-09-21):
+
+  ```python
+  T, R = royalesim.SUBTILE, royalesim.DEPLOY_REASONS
+  for label, (x, y) in [("own half", (5, 10)), ("the river", (9, 16)),
+                        ("enemy half", (9, 25)), ("off the map", (40, 10))]:
+      print(f"{label:12s} {R[b.check_deploy(0, 0, x * T, y * T)]}")
+  ```
+
+  ```
+  own half     OK
+  the river    WATER
+  enemy half   OUT_OF_TERRITORY
+  off the map  OUT_OF_ARENA
+  ```
+
+- **Snapshots.** `save()` / `load()` round-trip a battle to a byte string and back to the identical
+  state hash: roughly 7-11 KB for a mid-game board depending on what is on it (6.7 KB at 9 live
+  entities, measured 2026-09-21). `SNAPSHOT_FORMAT` is 6.

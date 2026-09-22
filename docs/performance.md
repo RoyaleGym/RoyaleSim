@@ -25,7 +25,18 @@ About 1 us per entity-tick is slow for integer Rust and nobody has profiled it. 
 bottleneck: at 20 ticks per second a 3-minute match is 3,600 ticks, which is ~60 ms of engine
 time.
 
-## Through the Python layer
+## Through the Python surface, 2026-09-21
+
+`tools/throughput.py` runs five three-minute battles with both seats deploying at random (18,000
+ticks, 20 ticks per `step`, mean ~10 live entities) and prints the rate. On 2026-09-21, on one core
+with the selected 16.402 search and contact law, four consecutive runs landed at **54,870-59,898
+ticks/s** with state decoded every step (18,000 ticks in 0.31 s) and 63,025 ticks/s with state
+never decoded (`--read-every 0`). The spread between runs on the same machine is wider than the
+difference between decoding every step and never, so treat the figure your own run prints as the
+one that matters. A 3-minute match (3,600 ticks) is therefore some 60 ms of engine time at that
+density.
+
+## Through the Python layer (2026-09-13)
 
 | Scenario | Rate | Conditions |
 |---|---|---|
@@ -40,7 +51,9 @@ tick rates. Anything on the per-tick path in Python costs two orders of magnitud
 ## A whole battle, end to end
 
 `tools/watch_battle.py` plays a 3-minute battle, scores its five gates and writes a
-self-contained page in about **5 s**, including the full re-simulation and a 1.4 MB page.
+self-contained page in about **5 s** (2026-09-13), including the full re-simulation and a 1.4 MB
+page. On 2026-09-21 the same run (`--seed 7 --steps 400 --noop-prob 0.2`) took **1.4 s** end to
+end, page included (2.8 MB, 4001 frames; 119 troops, 335 hp drops, crowns 1-1 at tick 4000).
 
 Over seeds 1-5 (`--steps 800 --noop-prob 0.2`, both seats uniform-over-legal-actions): **Blue 2 /
 Red 2 / Draw 1**, crowns `[0,0] [1,0] [0,1] [0,1] [3,0]`, final ticks 4800 (a draw that went to

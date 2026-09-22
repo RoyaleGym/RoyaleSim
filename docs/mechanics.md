@@ -61,8 +61,9 @@ engine is usable for your purpose.
 
 ### Cards outside the slice
 
-The engine loads the whole 65-card catalogue, and **19 of those 65 carry a mechanic `card.rs`
-never parses**. Measured on the catalogue: the probability that an 8-card deck drawn uniformly
+The engine loads the whole 65-card catalogue (52 troops, 6 buildings, 7 spells as of 2026-09-21;
+`Battle(card_names=None)` lists it), and **19 of those 65 carry a mechanic `card.rs` never
+parses**. Measured on the catalogue: the probability that an 8-card deck drawn uniformly
 from it contains at least one such card is **0.948**, and the probability that two such decks are
 both clean is **0.003**. If you are picking decks programmatically, draw from `cards.json`'s own
 `thin_slice` key rather than from the catalogue — and parse it, never hand-copy it.

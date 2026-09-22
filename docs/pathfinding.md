@@ -199,18 +199,23 @@ contact law closes it, and the test is green again with no change to its asserti
   pathfinder shared by all units. Snapshot format is 6 (`Entities` gained `facing` and
   `avoid_offset`).
 - **G6** (`tests/oracle2026.rs`) runs the whole generated fixture
-  `tests/fixtures/oracle2026/client16402_first_paths.json` — **755 cases** as of 2026-09-21 —
-  through `plan_cells` and compares the exact node list, goal first. Three moving-target cases are
+  `tests/fixtures/oracle2026/client16402_first_paths.json` — **755 cases** as of 2026-09-21: 627
+  first paths from the recorded 16.402 battles and 128 from the offline 15.535 lane sweep — through
+  `plan_cells` and compares the exact node list, goal first. Three moving-target cases are
   skipped by name, and **one case diverges**, also named:
   `auto-20260920-072831-A:8:Giant`, where the engine walks the lane straight and the client drifts
   one column sideways. Both reach the goal; which of the equal-cost lane routes is published is
   the open expansion-order item. The assertion fails if the set of diverging cases changes at all,
-  so a second divergence cannot hide behind the first.
+  so a second divergence cannot hide behind the first. Net of the three skipped cases, **751 of 752**
+  are reproduced exactly. `tools/make_client16402_paths_fixture.py --check` reports whether the
+  fixture is in sync with the recordings; regenerating it re-scores the gate and is a deliberate
+  step, not a side effect.
 - The contact law is gated by an equivalence test: 20,000 random crowded worlds stepped through
   both implementations, which must agree exactly on positions, facing, offsets, reached flags and
   dropped waypoints (20,000/20,000 on two seeds; about 16,000 of them with a nonzero offset and
   about 4,400 with units moved by separation alone).
-- The walk gate (`tools/oracle_diff.py`) stays 6/6 bit-exact against the offline traces.
+- The walk gate (`tools/oracle_diff.py`) stays 6/6 bit-exact against the offline traces (one of
+  the six over 105 of its 107 ticks; `oracle_diff.py` names the shortfall).
   First-path cells are 19/21 identical to the offline corpus; the two that differ are MiniPekka
   and Royal Giant, which pick another goal cell because `cards.json` still carries their 2018
   Range. That is card data, not the search.
