@@ -34,6 +34,7 @@ Three things are worth stating up front, because they bound everything below:
 | Stun | `entity.rs`, `state.rs`, `status.*` keys | honoured by move and attack; applied by Zap. Attack reset, retarget-on-resume and the deploy-pause question are each their own ledger key |
 | Elixir, hand, cycle | `state.rs` | double elixir when `MANA_SPEED_UP_WHEN_REMAINING_SECONDS` remain, and in overtime |
 | Match timing | `state.rs::phase_judge` | regular time, 60 s sudden-death overtime, 3-crown instant win |
+| Post-overtime tiebreak | `state.rs::overtime_tiebreak` | when overtime runs out level on crowns, the side whose weakest standing crown tower is weaker loses (`match.OVERTIME_TIEBREAK`, community-sourced, `lowest_tower_hp_absolute`); an exact tie stays a Draw. `tests/tiebreak.rs` |
 | King activation | `state.rs` | on king damage or a lost princess tower, after `match.KING_ACTIVATE_TIME_MS` |
 | Spells: Fireball, Arrows, Zap, The Log, Goblin Barrel | `spell.rs`, `card.rs`, `state.rs` | `SpellShape` Projectile / AreaEffect / Rolling. Fed 2018 data only. Territory rules per card. Spec and sourcing: `spell-spec.md` |
 | Knockback | `spell.rs::settle` | instant (`knockback.DURATION_MS` 0); respects `IgnorePushback` / `PushbackAll`; a push ending on water, out of arena or in a footprint is resolved to the unit's own bank. See "Knockback" below |
@@ -54,7 +55,6 @@ engine is usable for your purpose.
 | Death spawn, periodic spawners | absent, except as the Goblin Barrel's release |
 | Dash, morph, jump, chained hits, multiple projectiles | absent. The measured jump behaviour (a `JumpEnabled` unit hopping water) is described in `pathfinding.md` but not implemented |
 | Status sources other than Zap's stun — freeze, slow, rage, heal | absent. Rocket and Freeze *load* (their data has an implemented shape) but no test covers either; Rage is refused as unsupported |
-| Post-overtime tiebreak | a match that survives overtime is scored a **Draw**. The real rule (lowest tower hp) is not modelled. Measured over 60 random-policy thin-slice games: 38% reached overtime and 2 were scored Draw with a decidable tower-hp gap. The rate rises with any policy that stalls, and on those episodes the only true objective term returns 0.0 to both seats. Closing it needs a `match.OVERTIME_TIEBREAK` key, compared in each team's own frame and exactly symmetric under the rotation, with an exact tie staying a Draw |
 | Evolutions, champions, tower troops | post-2023; no public data |
 | The real intra-tick order and the real PRNG | out of reach, and not a goal |
 

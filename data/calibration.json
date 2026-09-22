@@ -930,6 +930,17 @@
       "confidence": "LOW",
       "provenance": "Believed true; not established from a source."
     },
+    "OVERTIME_TIEBREAK": {
+      "value": "lowest_tower_hp_absolute",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "The in-game rule as the community documents it (the wiki's tiebreaker description, introduced with a 2018 balance/overtime update; the release note itself was not consulted for this entry): when overtime ends with the crowns level, the player whose lowest-hitpoint Crown Tower has less hitpoints loses; equal -> draw. No column in either globals.csv (2018, 15.535.29) encodes it. Not yet measured on a recorded match.",
+      "candidates": ["lowest_tower_hp_absolute", "lowest_tower_hp_fraction", "none_draw"],
+      "meaning": "Compared per side over that side's ALIVE crown towers; the side with the weaker weakest tower loses. absolute: raw hp. fraction: hp/max_hp in exact integer cross-multiplication (a princess at 50 % vs a king at 51 %). none_draw: the earlier engine, a level match past overtime is a Draw.",
+      "promotion_rules": "One recorded overtime that ends level on crowns with a king and a princess tower both damaged on the losing side settles absolute vs fraction: a capture of such a match carries every tower's hp on the final tick.",
+      "engine": "state.rs Calib::overtime_tiebreak, consulted by BattleState::overtime_tiebreak from phase_judge. Motivated by 2 of 60 random-policy games that ended level on crowns after overtime with a decidable tower gap.",
+      "why_it_matters": "On those episodes the only true objective term returned 0.0 to both seats; a stalling policy raises the rate."
+    },
     "MANA_REGEN_MS_OVERTIME": {
       "value": 14000,
       "units": "ms to fill a 10-elixir bar",

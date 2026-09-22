@@ -138,6 +138,9 @@ pub struct Calib {
     pub regular_time_s: i32,
     pub overtime_s: i32,
     pub three_crown_instant_win: bool,
+    /// match.OVERTIME_TIEBREAK -- how a match still level on crowns when overtime
+    /// runs out is decided (state.rs `overtime_tiebreak`).
+    pub overtime_tiebreak: OvertimeTiebreak,
     /// globals.csv MANA_SPEED_UP_WHEN_REMAINING_SECONDS (not in calibration.json).
     pub mana_speed_up_remaining_s: i32,
     /// calibration.json arena.TERRITORY_MODEL. There is no troop pocket depth past
@@ -227,6 +230,19 @@ calib_enum!(
 calib_enum!(
     /// spells.SPAWNING_SPELL_WATER_RULE.
     SpawnWaterRule { RefuseTouchingWater = "refuse_touching_water", Anywhere = "anywhere" }
+);
+calib_enum!(
+    /// match.OVERTIME_TIEBREAK. The rule as the community documents it (not yet measured): the side whose
+    /// weakest standing crown tower is weaker LOSES; an exact tie stays a Draw.
+    OvertimeTiebreak {
+        /// Compare each side's minimum alive crown-tower hp in absolute points.
+        LowestTowerHpAbsolute = "lowest_tower_hp_absolute",
+        /// Compare each side's minimum alive crown-tower hp as a fraction of its max,
+        /// in exact integer arithmetic (cross-multiplied, no rounding).
+        LowestTowerHpFraction = "lowest_tower_hp_fraction",
+        /// The earlier engine: a level match past overtime is a Draw.
+        NoneDraw = "none_draw",
+    }
 );
 calib_enum!(
     /// knockback.ZERO_VECTOR_DIRECTION.
@@ -484,6 +500,7 @@ impl Calib {
             regular_time_s: int(&v, &["match", "REGULAR_TIME_S", "value"])?,
             overtime_s: int(&v, &["match", "OVERTIME_S", "value"])?,
             three_crown_instant_win: boolean(&v, &["match", "THREE_CROWN_INSTANT_WIN", "value"])?,
+            overtime_tiebreak: pick(&v, &["match", "OVERTIME_TIEBREAK", "value"], OvertimeTiebreak::from_calibration_name)?,
             mana_speed_up_remaining_s,
             territory_model,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
@@ -2210,9 +2227,8 @@ impl BattleState {
             if let Some(o) = by_crowns(self.crowns) {
                 self.outcome = Some(o);
             } else if elapsed >= overtime_end {
-                // The real tie-break past overtime (lowest tower hp) is not
-                // modelled; unverified for the live game.
-                self.outcome = Some(Outcome::Draw);
+                // The tie-break past overtime: calibration match.OVERTIME_TIEBREAK.
+                self.outcome = Some(self.overtime_tiebreak());
             }
         } else if elapsed >= regular {
             if let Some(o) = by_crowns(self.crowns) {
@@ -2222,6 +2238,51 @@ impl BattleState {
             } else {
                 self.outcome = Some(Outcome::Draw);
             }
+        }
+    }
+
+    /// The verdict when overtime runs out with the crowns level (calibration
+    /// match.OVERTIME_TIEBREAK). Each side's key is its WEAKEST standing crown
+    /// tower; the side with the weaker weakest tower loses. Both keys are scalars
+    /// computed in the side's own tower table, so nothing here depends on the
+    /// frame and the rotation symmetry holds by construction (tests/mirror.rs).
+    /// An exact tie is a Draw under every candidate; `none_draw` never looks.
+    fn overtime_tiebreak(&self) -> Outcome {
+        let rule = self.cfg.calib.overtime_tiebreak;
+        if rule == OvertimeTiebreak::NoneDraw {
+            return Outcome::Draw;
+        }
+        // (hp, max_hp) of the weakest alive crown tower per side. A side with no
+        // standing tower cannot reach here (its king is down, a 3-crown win), so
+        // an empty side is treated as the weakest possible.
+        let weakest = |t: usize| -> Option<(i64, i64)> {
+            self.towers[t]
+                .iter()
+                .flatten()
+                .filter(|id| self.ents.is_alive(**id))
+                .map(|id| {
+                    let i = id.index as usize;
+                    (self.ents.hp[i].max(0) as i64, self.ents.max_hp[i].max(1) as i64)
+                })
+                .min_by(|a, b| match rule {
+                    OvertimeTiebreak::LowestTowerHpFraction => (a.0 * b.1).cmp(&(b.0 * a.1)),
+                    _ => a.0.cmp(&b.0),
+                })
+        };
+        let (blue, red) = (weakest(0), weakest(1));
+        let ord = match (blue, red) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (Some(b), Some(r)) => match rule {
+                OvertimeTiebreak::LowestTowerHpFraction => (b.0 * r.1).cmp(&(r.0 * b.1)),
+                _ => b.0.cmp(&r.0),
+            },
+        };
+        match ord {
+            std::cmp::Ordering::Greater => Outcome::Winner(Team::Blue),
+            std::cmp::Ordering::Less => Outcome::Winner(Team::Red),
+            std::cmp::Ordering::Equal => Outcome::Draw,
         }
     }
 
