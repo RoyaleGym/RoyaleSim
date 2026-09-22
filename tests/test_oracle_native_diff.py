@@ -125,6 +125,7 @@ def test_the_first_path_matches_the_oracles_published_cells(diffs):
 
     gated = [d for d in diffs if d.card in oracle_diff.WALK_GATE_CARDS and not d.note.startswith("  SKIPPED")]
     # Vacuity: an empty cell list on both sides would satisfy the equality below.
-    assert all(d.engine_cells and d.oracle_cells for d in gated), f"a first-path cell list is empty: {[(d.card, len(d.engine_cells), len(d.oracle_cells)) for d in gated]}"
+    empty = [(d.card, len(d.engine_cells), len(d.oracle_cells)) for d in gated]
+    assert all(d.engine_cells and d.oracle_cells for d in gated), f"a first-path cell list is empty: {empty}"
     same = {d.card for d in gated if d.engine_cells == d.oracle_cells}
     assert same == {"Knight", "Giant", "Golem", "HogRider", "Skeletons", "MiniPekka"}, sorted(same)
