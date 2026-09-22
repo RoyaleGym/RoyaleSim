@@ -55,6 +55,27 @@ a primary source, and the live client is the target. A ruling may settle only pa
 sign of a push but not its vector, say — in which case `confidence` names which half is which and
 a `promotion_rule` stays open for the rest.
 
+## How far to trust the provenance
+
+The status vocabulary is one claim and the provenance prose is another, and they are not
+equally well checked.
+
+An audit on 2026-09-22 re-read 24 of the 148 entries against the corpus. It moved no status and
+no value. What it found was in the evidence the statuses rest on: of 87 findings it recorded,
+42 were a cited number, capture name or piece of arithmetic that does not hold.
+`formation.GROUND_Y_CLAMP` is the worked example. Its status of `measured` was defensible and
+three of its four cited facts were wrong, including a capture whose real numbers are
+31053/31057 where the entry said 31000. It has been rewritten. What is true of that key now:
+the clamp is pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
+full row apart rather than half a row, side 1's river bound is one native unit looser than the
+rotation rather than tighter, and side 0's range is pinned by nothing at all, which the entry
+now says.
+
+124 entries have not been re-read. So: the status on a key is worth trusting, and the candidate
+list and the promotion criterion are worth trusting, because those are what the audit did not
+dent. A specific number quoted inside a provenance string is worth re-deriving before you build
+on it. The ledger is audited against its own corpus and the audit is not finished.
+
 ## Changing a value
 
 Change a value only with new evidence, and write the evidence into the entry: what was measured,

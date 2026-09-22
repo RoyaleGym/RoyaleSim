@@ -150,6 +150,15 @@ Read together with section 4:
 - **walking**, the search and the step law, heads 2 battles of 67 and 0.4 % of the missed
   unit-ticks. The path is not the problem any more. What happens when a unit arrives is.
 
+## 5a. One divergence that is known and deliberate
+
+Before reading a knockback divergence as a new defect: the engine holds a unit's target and its
+planned route for the whole of a knockback ladder, and the corpus says the game does not. A
+Golem in capture 20260920-071744-B retargets and replans mid-ladder, six steps before the
+back-step. This is recorded in `knockback.DISPLACEMENT_LAW`'s open items and in
+[`mechanics.md`](mechanics.md). It is a known gap rather than a surprise, and a run that meets
+it has found the thing that is already on the list.
+
 ## 6. What this does not say
 
 - Pairing is by group size and time, then by least total distance between members. A formation

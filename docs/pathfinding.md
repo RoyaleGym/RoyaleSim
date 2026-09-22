@@ -316,9 +316,14 @@ attacking.
 3. **Card data.** `cards.json` Range values for MiniPekka, Royal Giant and Knight come from a
    table the fixture does not trust for reach, so the goal cell is only right when the correct
    reach is supplied (the fixture passes the live reach in).
-4. **The movement states the captures show for spawn pathfinding** (6 and 7: no lane bonus,
-   buildings ignored) and for attached characters are not modelled. `movement.SPAWN_PATHFIND_STATES`
-   is the ledger key, at `hypothesis`, because nothing recorded yet exercises it.
+4. **The movement state the captures show for spawn pathfinding** (state 6: no lane bonus,
+   buildings ignored) and the states for attached characters are not modelled.
+   `movement.SPAWN_PATHFIND_STATES` is the ledger key and stays at `hypothesis`, but not
+   because nothing exercises it. The corpus holds 175 state-6 frames (capture 20260920-083112),
+   and every tick-adjacent step in them is the card's `SpawnPathfindSpeed`: 300 for the Goblin
+   Drill and 650 for the Miner, against card Speeds of 60 and 90. So the speed clause is
+   measured. The goal, lane-bonus and occlusion clauses are not, which is what holds the key at
+   `hypothesis`. No state 7 is recorded anywhere.
 5. **The buff tags** (`NO_PUSHED_BY_*`, `DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS`,
    `AVOIDANCE_AS_OBSTACLE`, the facing lock) are assumed clear, because no card in the corpus
    carries them.

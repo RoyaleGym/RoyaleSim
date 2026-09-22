@@ -156,6 +156,18 @@ obstacle list even for a Red mover, and `Obstacle.ally` in that list means "owne
 seat-asymmetric, which the 180-degree seat symmetry forbids. Selection has to be by a total order
 evaluated in the mover's own frame.
 
+### A unit keeps its target and route through a knockback, and the game does not
+
+The engine holds a unit's target and its planned route for the whole of a knockback ladder. The
+corpus says the real game does not. In capture 20260920-071744-B a Golem retargets and replans
+in the middle of a clean ten-step ladder, from t2039 to t2048: target 6, then no target at
+t2043, then target 4 at t2044, with its path node count going from 3 to 14 on that tick. That
+is six steps before the back-step.
+
+This is deliberate rather than an oversight, and the reasoning is in
+`knockback.DISPLACEMENT_LAW`'s open item 4 in `data/calibration.json`. It is written here as
+well because a parity run will meet it as an unexplained divergence otherwise.
+
 ### Smaller open items
 
 - `spawn_unit` / `deploy` called several times for one team within a tick assigns `team_seq` in
