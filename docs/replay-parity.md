@@ -36,7 +36,7 @@ Towers are scored too and they are easy: they do not move. Every headline number
 |---|---|
 | Client | Clash Royale 16.402 |
 | Recordings | 73 whole battles, one frame per 50 ms tick, both sides (not distributed) |
-| Card table | `data/derived/cards.json`, FNV-1a 64 `5a1dac3d2fb1b4a9` |
+| Card table | `data/derived/cards.json`, FNV-1a 64 `5a1dac3d2fb1b4a9` — the **15.535.29 LIVE** tables. The NAME does not carry the vintage (`data/derived/` is gitignored and `extract_cards.py` writes whichever vintage it was asked for to that one name), so the hash is what pins it: `cards-2018.json` is `2c4978693f313a1a`. |
 | Engine card census | 97 loadable, 49 rejected, 9 summon-only, against the same card table |
 | Fixtures | 73, one per recording (a recording carrying more than one name contributes once) |
 | Whole battles playable | 25 |
@@ -94,8 +94,8 @@ declared the battle over and its state stopped moving.
 
 Three of these numbers are quoted in the engine's own history as the state this tree reached:
 49.5 % of no-tower unit-ticks within 250 native, 81.4 % hitpoints exact, 31.1 % of the isolated
-walk bit-exact. Measured here, on the corpus rebuilt against this card table: 49.4 %, 81.4 %,
-31.0 %.
+walk bit-exact. Measured here, on the corpus rebuilt against card table `5a1dac3d2fb1b4a9`
+(named rather than "this", because the filename does not carry a vintage): 49.4 %, 81.4 %, 31.0 %.
 
 ## 4. Where the corpus is hardest
 
