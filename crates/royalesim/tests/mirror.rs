@@ -750,3 +750,41 @@ fn the_shipped_search_is_absolute_grid_not_seat_symmetric() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// the plumbing that keeps not coming with the asymmetry
+
+/// EVERY DELIBERATELY ASYMMETRIC KEY MUST BE SELECTABLE FROM PYTHON.
+///
+/// The engine reproduces the game's seat asymmetries on purpose, so a rotation gate
+/// can only measure anything if it can turn each of them off. `symmetric_config()` is
+/// how the Rust gates do it and `Battle::new`'s kwargs are the only way the env layer
+/// can, and twice now a key has shipped with the first and not the second: the ground
+/// clamp, and then formation.GROUND_DEPLOY_POINT. Both times the Rust gates stayed
+/// green and RoyaleGym's rotation gate went red, in another repo, hours later.
+///
+/// This asserts the property rather than auditing it once: the `Calib` fields where
+/// `symmetric_config()` differs from `config()` must be EXACTLY the fields
+/// `py::SYMMETRY_SELECTABLE_CALIB_FIELDS` declares the constructor can reach. Adding
+/// an asymmetric key without its selector fails here, in this repo, immediately.
+#[test]
+fn every_asymmetric_calib_key_is_selectable_from_python() {
+    let to_map = |c: &royalesim::state::Calib| -> serde_json::Map<String, serde_json::Value> {
+        serde_json::to_value(c).expect("Calib serializes").as_object().expect("to an object").clone()
+    };
+    let shipped = to_map(&config().calib);
+    let symmetric = to_map(&symmetric_config().calib);
+    assert_eq!(shipped.len(), symmetric.len(), "the two configs disagree on which fields exist");
+    let mut overridden: Vec<String> = shipped.iter().filter(|(k, v)| symmetric.get(*k) != Some(*v)).map(|(k, _)| k.clone()).collect();
+    overridden.sort();
+    assert!(!overridden.is_empty(), "symmetric_config() overrides nothing: this gate has gone vacuous");
+    let mut declared: Vec<String> = royalesim::py::SYMMETRY_SELECTABLE_CALIB_FIELDS.iter().map(|s| (*s).to_string()).collect();
+    declared.sort();
+    assert_eq!(
+        overridden, declared,
+        "symmetric_config() overrides {overridden:?} but Battle::new can reach {declared:?}.\n\
+         A key in the first list and not the second cannot be turned off from Python, so the env \
+         layer's rotation gate runs the asymmetric arm. Add the kwarg in py.rs and the name to \
+         SYMMETRY_SELECTABLE_CALIB_FIELDS."
+    );
+}

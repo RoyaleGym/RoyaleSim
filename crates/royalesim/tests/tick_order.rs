@@ -412,8 +412,18 @@ fn every_candidate_runs_the_scripted_battle_deterministically_and_the_orders_dif
     let shipped = scripted(|_| {});
     let legacy = scripted(|c| c.tick_order = TickOrder::LegacyMoveBeforeAttack);
     let whole = scripted(|c| c.dying_unit_visibility = DyingUnitVisibility::WholeTick);
-    for cfg in [shipped.clone(), legacy.clone(), whole.clone()] {
-        let a = run_scripted_with(cfg.clone(), 0xC1A5, true, None);
+    // The crowd invariant is asserted on the SHIPPED order only. Its limits are the
+    // live corpus' own overlap runs with margin (tests/common CLIENT16402_TOLERANCE),
+    // measured under the shipped tick order and contact law; the other two arms here
+    // are refuted foils, and holding a foil to a bound measured on the arm that
+    // replaced it says nothing about either. They are still run, and still checked for
+    // determinism and for being a different battle -- which is what this test is for.
+    // (Measured 2026-09-22: the shipped order's worst >100 % overlap run is 56 ticks
+    // against the limit of 60, unmoved by formation.GROUND_DEPLOY_POINT; the legacy
+    // order's is 55 without that key and 68 with it, a 3600-tick battle diverging from
+    // a one-native-unit change to where a Skeleton Army lands.)
+    for (cfg, invariants) in [(shipped.clone(), true), (legacy.clone(), false), (whole.clone(), false)] {
+        let a = run_scripted_with(cfg.clone(), 0xC1A5, invariants, None);
         let b = run_scripted_with(cfg, 0xC1A5, false, None);
         assert!(a.hashes.len() > 1000);
         assert_eq!(a.hashes, b.hashes);

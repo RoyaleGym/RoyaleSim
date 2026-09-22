@@ -338,6 +338,11 @@ pub struct Calib {
     /// formation.GROUND_Y_CLAMP: the ground member's y clamp to the tap column's
     /// deployable rows.
     pub formation_ground_y_clamp: GroundYClamp,
+    /// formation.GROUND_DEPLOY_POINT: the one-unit offsets a GROUND summon's deploy
+    /// point carries. Added in SNAPSHOT_FORMAT 19; `default` (`None`, the offset a
+    /// format-3 battle never had) so an older snapshot still deserializes.
+    #[serde(default = "ground_deploy_point_none")]
+    pub formation_ground_deploy_point: GroundDeployPoint,
     /// globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE (TRUE in both vintages): the
     /// lane mirror of the ring (formation.rs `member_offset`).
     pub lane_id_based_deploy_sequence: bool,
@@ -401,6 +406,12 @@ pub struct TowerPercents {
 
 /// A calibration enum: the registry string names each variant, and an unknown string
 /// is refused at load rather than run as some other candidate.
+/// The `serde` default for `Calib::formation_ground_deploy_point`: a snapshot from
+/// before SNAPSHOT_FORMAT 19 ran without the offset.
+fn ground_deploy_point_none() -> GroundDeployPoint {
+    GroundDeployPoint::None
+}
+
 macro_rules! calib_enum {
     ($(#[$m:meta])* $name:ident { $($(#[$vm:meta])* $variant:ident = $s:literal),+ $(,)? }) => {
         $(#[$m])*
@@ -891,6 +902,22 @@ calib_enum!(
 );
 
 calib_enum!(
+    /// formation.GROUND_DEPLOY_POINT -- see `BattleState::formation_members`.
+    GroundDeployPoint {
+        /// The measured one-unit offsets a GROUND summon's deploy point carries and
+        /// a flying one does not: absolute x one lower when the tap is on the
+        /// arena's LEFT half (either seat), absolute y one lower when the owner is
+        /// side 1 (either half). Applied to the point the ring is laid around, so
+        /// the column clamp's own bounds are untouched by it.
+        Client16402OneUnit = "client16402_one_unit",
+        /// No offset: the ring is laid around the tap itself, which is what a FLYING
+        /// summon measures on both seats and in both halves. The seat-symmetric arm
+        /// (tests/common `symmetric_config`).
+        None = "none",
+    }
+);
+
+calib_enum!(
     /// spawner.DEATH_SPAWN_LAYOUT -- see `BattleState::death_spawn_points`.
     DeathSpawnLayout {
         /// The ring on the dying unit's FACING (measured on the live Battle Rams):
@@ -1252,6 +1279,7 @@ impl Calib {
             formation_layout: pick(&v, &["formation", "LAYOUT", "value"], FormationLayout::from_calibration_name)?,
             formation_deploy_stagger: pick(&v, &["formation", "DEPLOY_STAGGER", "value"], DeployStagger::from_calibration_name)?,
             formation_ground_y_clamp: pick(&v, &["formation", "GROUND_Y_CLAMP", "value"], GroundYClamp::from_calibration_name)?,
+            formation_ground_deploy_point: pick(&v, &["formation", "GROUND_DEPLOY_POINT", "value"], GroundDeployPoint::from_calibration_name)?,
             lane_id_based_deploy_sequence: globals_bool("LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE")?,
             attack_range_rule: pick(&v, &["targeting", "ATTACK_RANGE_RULE", "value"], AttackRangeRule::from_calibration_name)?,
             attack_cycle: pick(&v, &["combat", "ATTACK_CYCLE", "value"], AttackCycle::from_calibration_name)?,
@@ -4914,6 +4942,20 @@ impl BattleState {
                     lane_mirror: calib.lane_id_based_deploy_sequence,
                 };
                 let tap = Vec2::new(own.x / K, own.y / K);
+                // formation.GROUND_DEPLOY_POINT: a GROUND summon's ring is laid
+                // around a point one native unit off the tap -- x when the tap is on
+                // the arena's LEFT half, y when the owner is side 1 -- and a FLYING
+                // one's is laid around the tap itself. Measured, both seats. In the
+                // OWNER's frame an absolute -1 is -1 for Blue and +1 for Red, so the
+                // two offsets are signed by the frame, not by the rule.
+                let ground_tap = match calib.formation_ground_deploy_point {
+                    GroundDeployPoint::None => tap,
+                    GroundDeployPoint::Client16402OneUnit => {
+                        let dy = if team == Team::Red { 1 } else { 0 };
+                        let dx = if pos.x < arena.width / 2 { if team == Team::Red { 1 } else { -1 } } else { 0 };
+                        Vec2::new(tap.x + dx, tap.y + dy)
+                    }
+                };
                 let y_range = match calib.formation_ground_y_clamp {
                     GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
                     GroundYClamp::None => None,
@@ -4925,7 +4967,7 @@ impl BattleState {
                     .map(|k| {
                         let unit = cards.get(unit_of(k));
                         let off = crate::formation::member_offset(layout, k);
-                        let mut p = tap.add(off);
+                        let mut p = if unit.is_flying() { tap } else { ground_tap }.add(off);
                         if let (Some((lo, hi)), false) = (y_range, unit.is_flying()) {
                             // y <= lo -> lo, else min(y, hi).
                             p.y = if p.y <= lo { lo } else { p.y.min(hi) };
@@ -5879,7 +5921,13 @@ impl BattleState {
 ///    fingerprint moves, and it now covers CardDb's buff table). A format-3 battle
 ///    keeps the tick-index stomp schedule and the unbuffed attack advance
 ///    (migrate_v3).
-pub const SNAPSHOT_FORMAT: u32 = 18;
+/// 19: the ground summon's deploy point -- Calib gained formation_ground_deploy_point
+///    (formation.GROUND_DEPLOY_POINT, the measured one-unit offsets a ground ring's
+///    centre carries and a flying one's does not). No new Entities column and no card
+///    fingerprint move: it changes where a summon is LAID, not what it is. The field
+///    carries a serde default so a format-18 snapshot still deserializes, and a
+///    format-3 battle laid every ring on the tap itself (migrate_v3).
+pub const SNAPSHOT_FORMAT: u32 = 19;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -6072,6 +6120,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("formation_layout".into(), serde_json::to_value(FormationLayout::EngineGrid).map_err(|e| e.to_string())?);
     sh.insert("formation_deploy_stagger".into(), serde_json::to_value(DeployStagger::None).map_err(|e| e.to_string())?);
     sh.insert("formation_ground_y_clamp".into(), serde_json::to_value(GroundYClamp::None).map_err(|e| e.to_string())?);
+    // FORMAT 19: a format-3 battle laid a ground ring on the tap itself, with none of
+    // the one-unit offsets the live client gives it; it keeps that (the same rule).
+    sh.insert("formation_ground_deploy_point".into(), serde_json::to_value(GroundDeployPoint::None).map_err(|e| e.to_string())?);
     // FORMAT 16: a format-3 battle reached Range + the target's radius, wound up for
     // LoadTime (its charged hits too), and bore every projectile at the attacker's
     // centre stepping at once; it keeps all four (the same rule).

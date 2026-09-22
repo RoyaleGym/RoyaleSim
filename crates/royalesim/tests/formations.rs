@@ -57,7 +57,7 @@ mod common;
 use common::*;
 use royalesim::formation::{member_offset, nearest_lane, sin1024, Layout, LANE_LEFT, LANE_RIGHT, SIN_1024};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE};
-use royalesim::state::{BattleState, DeployStagger, FormationLayout, GroundYClamp};
+use royalesim::state::{BattleState, DeployStagger, FormationLayout, GroundDeployPoint, GroundYClamp};
 use royalesim::Team;
 use std::collections::BTreeMap;
 
@@ -67,10 +67,17 @@ const FIXTURE: &str = include_str!("fixtures/formations/measured.json");
 /// SummonCharactersList offsets-table layout formation.rs does not model (the Three
 /// Musketeers, which the loader refuses on its action graph anyway).
 const NOT_MODELLED: &[&str] = &["ThreeMusketeers"];
-/// A member that overlaps no sibling at spawn must land within this many native
-/// units of the measurement (the placement log's tap tile and the game's centre
-/// differ by one on some deploys; nothing else may).
-const EXACT_NATIVE: i64 = 3;
+/// A member of a `tap_tile` group that overlaps no sibling at spawn must land
+/// EXACTLY where the game put it. The tap is the tile the player touched, and every
+/// step from there -- the deploy point (formation.GROUND_DEPLOY_POINT), the ring, the
+/// column clamp, the bounds clamp -- is modelled, so there is nothing left to round.
+const EXACT_NATIVE: i64 = 0;
+/// A `centroid` group has no logged tap: its "tap" is the members' own centroid,
+/// which is the deploy point only to within the ring's rounding (the Skeletons' three
+/// offsets sum to 1, not 0, so their centroid sits a unit off the point). Those keep a
+/// tolerance, and they are previewed with the deploy-point rule turned OFF, because a
+/// centroid IS the deploy point and applying the rule to it would count it twice.
+const CENTROID_NATIVE: i64 = 3;
 /// A member that overlaps a sibling at spawn is moved by the contact law before
 /// its first frame (the Minions' 577-ring at CollisionRadius 500 by 2, the Skeleton
 /// Army's inner spiral by up to ~300).
@@ -154,9 +161,32 @@ fn try_preview(group: &Group, shift: (i64, i64)) -> Result<Vec<(String, Vec2, i3
     try_preview_arm(group, shift, None)
 }
 
+/// What a group's recorded tap IS, and therefore whether the engine should turn it
+/// into a deploy point or take it as one (see CENTROID_NATIVE).
+fn deploy_point_arm(group: &Group) -> GroundDeployPoint {
+    if group.source == "tap_tile" {
+        royalesim::state::Calib::shipped().formation_ground_deploy_point
+    } else {
+        GroundDeployPoint::None
+    }
+}
+
+/// The per-member tolerance: exact for a logged tap tile, the ring's own rounding for
+/// a centroid, the contact law's reach for a member that overlaps at spawn.
+fn tolerance(group: &Group, overlaps: bool) -> i64 {
+    if overlaps {
+        PUSHED_NATIVE
+    } else if group.source == "tap_tile" {
+        EXACT_NATIVE
+    } else {
+        CENTROID_NATIVE
+    }
+}
+
 /// The same, with formation.GROUND_Y_CLAMP forced to `arm` (None = the shipped one).
 fn try_preview_arm(group: &Group, shift: (i64, i64), arm: Option<GroundYClamp>) -> Result<Vec<(String, Vec2, i32)>, royalesim::state::DeployError> {
     let mut cfg = config();
+    cfg.calib.formation_ground_deploy_point = deploy_point_arm(group);
     if let Some(a) = arm {
         cfg.calib.formation_ground_y_clamp = a;
     }
@@ -226,7 +256,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
             // or its ring must NOT match the corpus -- else this exception is stale.
             if let Ok(got) = try_preview(g, (0, 0)) {
                 let worst = got.iter().zip(&g.members).map(|((_, p, _), m)| dist(native(*p), (g.tap[0] as i64 + m.offset[0] as i64, g.tap[1] as i64 + m.offset[1] as i64))).max().unwrap_or(0);
-                assert!(worst > EXACT_NATIVE, "{label}: matches the corpus ({worst} native): move it out of NOT_MODELLED");
+                assert!(worst > CENTROID_NATIVE, "{label}: matches the corpus ({worst} native): move it out of NOT_MODELLED");
             }
             continue;
         }
@@ -260,7 +290,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
         let overlaps = overlaps_of(&got);
         let measured: Vec<(i64, i64)> = g.members.iter().map(|m| (g.tap[0] as i64 + m.offset[0] as i64, g.tap[1] as i64 + m.offset[1] as i64)).collect();
         let errors: Vec<i64> = got.iter().zip(&measured).map(|((_, p, _), m)| dist(native(*p), *m)).collect();
-        let tol = |i: usize| if overlaps[i] { PUSHED_NATIVE } else { EXACT_NATIVE };
+        let tol = |i: usize| tolerance(g, overlaps[i]);
         let ok = errors.iter().enumerate().all(|(i, e)| *e <= tol(i));
         if !ok {
             // A tap the game centred elsewhere (snapped off a footprint, or a touch
@@ -273,7 +303,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
             let found = candidates.iter().copied().filter(|c| c.0.abs() >= 100 || c.1.abs() >= 100).find(|&c| {
                 let again = preview(g, c);
                 let over = overlaps_of(&again);
-                again.iter().zip(&measured).enumerate().all(|(i, ((_, p, _), m))| dist(native(*p), *m) <= if over[i] { PUSHED_NATIVE } else { EXACT_NATIVE })
+                again.iter().zip(&measured).enumerate().all(|(i, ((_, p, _), m))| dist(native(*p), *m) <= tolerance(g, over[i]))
             });
             if let Some(c) = found {
                 shifted.push(format!("{label}: the game centred it {c:?} off the log's tap"));
@@ -287,7 +317,11 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
             ));
             continue;
         }
-        exact_members += errors.iter().enumerate().filter(|(i, e)| !overlaps[*i] && **e <= EXACT_NATIVE).count();
+        // Counted on the LOGGED taps only: those are the ones with nothing left to
+        // round, so the count is a claim about the model and not about the fixture.
+        if g.source == "tap_tile" {
+            exact_members += errors.iter().enumerate().filter(|(i, e)| !overlaps[*i] && **e == 0).count();
+        }
         // The stagger: each member's deploy END relative to the first member's. A
         // capture skips frames, so a transition can be SEEN one tick late (never
         // early): the measured gap is the engine's or one more. It can also be seen
@@ -312,7 +346,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
     println!("formations: {checked} groups reproduced ({} exact members), {} tap-shifted: {:#?}", exact_members, shifted.len(), shifted);
     assert!(failures.is_empty(), "{} groups off the game's layout:\n{}", failures.len(), failures.join("\n"));
     assert!(cards_seen.len() >= 12, "only {} cards covered: {cards_seen:?}", cards_seen.len());
-    assert!(exact_members >= 120, "only {exact_members} exactly placed members: not evidence");
+    assert!(exact_members >= 100, "only {exact_members} members exact on a logged tap: not evidence");
     assert!(shifted.len() * 4 <= checked, "{} of {checked} groups needed a tap shift", shifted.len());
     // The spawn-tick slack is a property of four captures, not a loosening a
     // systematic stagger error could hide behind.

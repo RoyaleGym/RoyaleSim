@@ -63,6 +63,12 @@ pub fn symmetric_config() -> BattleConfig {
     // per-side formula is the measured one and is not the rotation of itself at the
     // back edge; the own-frame arm is (tests/formations.rs pins both).
     c.calib.formation_ground_y_clamp = royalesim::state::GroundYClamp::DeployColumnRangeOwnFrame;
+    // The summon formation's deploy point (formation.GROUND_DEPLOY_POINT): the
+    // measured one-unit offsets are a SEAT asymmetry in y and an ABSOLUTE-frame one
+    // in x, on a ground summon only, so a rotation gate would be measuring them
+    // rather than the system under test. `none` lays the ring on the tap itself,
+    // which is what a flying summon measures on both seats.
+    c.calib.formation_ground_deploy_point = royalesim::state::GroundDeployPoint::None;
     c
 }
 

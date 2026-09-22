@@ -17,7 +17,7 @@ dependencies = []
 [project.optional-dependencies]
 # The calibration tooling (tools/, oracle/) and its tests. They also import the env
 # layer (the sibling RoyaleGym checkout's `royalegym`) for watch_battle / oracle_diff;
-# install that editable too (README.md, "Setup").
+# install that editable too (README.md, "Install").
 dev = [
     "numpy>=2.0",
     "msgspec>=0.19",

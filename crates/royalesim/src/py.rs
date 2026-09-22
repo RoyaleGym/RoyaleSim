@@ -90,6 +90,25 @@ use std::sync::Arc;
 /// them with the files on disk and refuses to run a stale build, because a
 /// rebuilt-later calibration is otherwise a silently different battle.
 pub const EMBEDDED_CALIBRATION_JSON: &str = include_str!("../../../data/calibration.json");
+
+/// EVERY `Calib` field a seat-symmetry gate has to be able to turn off, by its serde
+/// name. A key whose shipped arm is deliberately asymmetric -- because the game is --
+/// is useless to a rotation gate unless the gate can select the symmetric arm, and
+/// `Battle::new` is the only way a Python caller can. tests/mirror.rs
+/// `every_asymmetric_calib_key_is_selectable_from_python` diffs `symmetric_config()`
+/// against `config()` and asserts the difference is exactly this list, so a new
+/// asymmetric key cannot ship without its selector: that check has been added because
+/// the clamp shipped without one, and then the ground deploy point did it again.
+pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
+    // `path_search` selects the frame-planned search AND the fixed-distance knockback
+    // pair with it, so one kwarg reaches four fields.
+    "path_search",
+    "knock_law",
+    "knock_stacking",
+    "knock_zero_vector",
+    "formation_ground_y_clamp",
+    "formation_ground_deploy_point",
+];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
@@ -166,6 +185,7 @@ pub struct Battle {
     /// An override of calibration formation.GROUND_Y_CLAMP for every battle this
     /// object starts (None = the ledger's value).
     ground_y_clamp: Option<crate::state::GroundYClamp>,
+    ground_deploy_point: Option<crate::state::GroundDeployPoint>,
     state: Option<BattleState>,
 }
 
@@ -506,6 +526,16 @@ impl Battle {
     /// range predicts the side it is actually on. A multi-unit ground card's members
     /// are therefore not the rotation of their twin's, on purpose; flying members
     /// and single-unit cards are untouched by the clamp and are.
+    /// `ground_deploy_point`: None = the ledger's formation.GROUND_DEPLOY_POINT, the
+    /// measured arm "client16402_one_unit". A GROUND summon's ring is laid on a point
+    /// one native unit off the tap -- x when the tap is on the arena's LEFT half,
+    /// either seat; y when the owner is side 1, either half -- and a FLYING summon's
+    /// on the tap itself. Measured on the corpus, and it is why a multi-unit ground
+    /// card's members are not the rotation of their twin's even where the clamp never
+    /// bites. "none" lays every ring on the tap, which is what a flying summon
+    /// measures on both seats; a rotation gate wants it for the same reason it wants
+    /// "deploy_column_range_own_frame".
+    ///
     /// "deploy_column_range_own_frame" reads side 0's formula in the OWNER's frame
     /// for both seats. It is not the game's clamp; it exists so that a rotation gate
     /// can measure the seat symmetry of EVERYTHING ELSE without the per-side range
@@ -513,8 +543,14 @@ impl Battle {
     /// for the Rust seat-symmetry gates, and the env layer's symmetric engine wants
     /// the same). "none" drops the clamp entirely.
     #[new]
-    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None))]
-    fn new(card_names: Option<Vec<String>>, slot_of_k: [[i32; 3]; 2], path_search: Option<String>, ground_y_clamp: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None))]
+    fn new(
+        card_names: Option<Vec<String>>,
+        slot_of_k: [[i32; 3]; 2],
+        path_search: Option<String>,
+        ground_y_clamp: Option<String>,
+        ground_deploy_point: Option<String>,
+    ) -> PyResult<Self> {
         let path_search = match path_search.as_deref() {
             None => None,
             Some(name) => Some(
@@ -527,6 +563,13 @@ impl Battle {
             Some(name) => Some(
                 crate::state::GroundYClamp::from_calibration_name(name)
                     .ok_or_else(|| PyValueError::new_err(format!("ground_y_clamp {name:?} has no engine implementation")))?,
+            ),
+        };
+        let ground_deploy_point = match ground_deploy_point.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::GroundDeployPoint::from_calibration_name(name)
+                    .ok_or_else(|| PyValueError::new_err(format!("ground_deploy_point {name:?} has no engine implementation")))?,
             ),
         };
         let db = CardDb::load_repo().map_err(|e| PyRuntimeError::new_err(format!("cards.json: {e}")))?;
@@ -559,7 +602,7 @@ impl Battle {
             }
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, state: None })
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -694,6 +737,9 @@ impl Battle {
         }
         if let Some(gc) = self.ground_y_clamp {
             cfg.calib.formation_ground_y_clamp = gc;
+        }
+        if let Some(gd) = self.ground_deploy_point {
+            cfg.calib.formation_ground_deploy_point = gd;
         }
         match shuffle {
             0 => cfg.shuffle_decks = false,
