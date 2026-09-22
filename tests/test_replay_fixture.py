@@ -305,3 +305,41 @@ def test_replay_formations_reads_the_sample_s_offsets_stagger_and_reach():
     assert 3100 <= pr["reach_to_tower"] <= 3200
     # a unit that never attacked a tower has no reach
     assert rows[(1, "Giant")]["members"][0]["reach_to_tower"] is None
+
+
+class TestPathCellRotation:
+    """`path_cell` is the only part of the fixture no capture can exercise.
+
+    Measured 2026-09-22: 0 of 75 captures in the corpus meet the rotate condition (side 0
+    already defends low y in every one), so the rotated branch of the maker is dead against
+    real data and these properties are the only instrument it has.
+    """
+
+    def test_unrotated_is_the_published_index(self, m):
+        for index in (0, 1, 35, 36, 92, 2033, 2303):
+            assert m.path_cell(index, False) == [index % m.CELL_COLS, index // m.CELL_COLS]
+
+    def test_rotation_is_a_mirror_and_is_its_own_inverse(self, m):
+        for index in (0, 1, 35, 36, 92, 2033, 2303):
+            col, row = m.path_cell(index, True)
+            back = m.path_cell(row * m.CELL_COLS + col, True)
+            assert back == m.path_cell(index, False)
+
+    def test_a_rotated_cell_centre_is_where_pos_of_sends_the_centre(self, m):
+        """The property that makes the cells agree with the positions in the same fixture.
+
+        `pos_of` maps native (x, y) to (NATIVE_W - x, NATIVE_H - y). A cell centre sits at
+        500c + 250, so its image is 500(COLS-1-c) + 250 -- exactly the mirrored cell's centre.
+        A fixture that flipped the board and not the path would read as a pathfinder defect on
+        every rotated battle, so this is the assertion that has to hold.
+        """
+        half = m.CELL_NATIVE // 2
+        for index in range(0, m.CELL_COLS * m.CELL_ROWS, 67):
+            col, row = m.path_cell(index, False)
+            rcol, rrow = m.path_cell(index, True)
+            assert (m.NATIVE_W - (col * m.CELL_NATIVE + half)) == rcol * m.CELL_NATIVE + half
+            assert (m.NATIVE_H - (row * m.CELL_NATIVE + half)) == rrow * m.CELL_NATIVE + half
+
+    def test_the_grid_covers_the_arena_exactly(self, m):
+        assert m.CELL_COLS * m.CELL_NATIVE == m.NATIVE_W
+        assert m.CELL_ROWS * m.CELL_NATIVE == m.NATIVE_H

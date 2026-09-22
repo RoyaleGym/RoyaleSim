@@ -469,6 +469,22 @@ def refine_spawn_tick(
     return hi, hi, f"range [{lo}, {hi}] (frame gap, no transition seen), latest used"
 
 
+def path_cell(index: int, rotate: bool) -> list:
+    """One published `path_nodes` index as a `[col, row]` cell, rotated with the arena.
+
+    Module level and not a closure because NO CAPTURE IN THE CORPUS ROTATES -- 0 of 75 on
+    2026-09-22 -- so this branch cannot be validated against data and a unit test is the only
+    instrument there is. The property the test pins is the one that makes the cells agree with
+    the positions: a cell centre is at `500c + 250`, and `pos_of` maps it to
+    `NATIVE_W - 500c - 250 = 500(CELL_COLS-1-c) + 250`, which is exactly the centre of the
+    mirrored cell. The identity is therefore exact for centres, with no boundary case.
+    """
+    col, row = index % CELL_COLS, index // CELL_COLS
+    if rotate:
+        col, row = CELL_COLS - 1 - col, CELL_ROWS - 1 - row
+    return [col, row]
+
+
 def rle(values) -> list:
     """[v0, run0, v1, run1, ...]."""
     out: list = []
@@ -686,13 +702,7 @@ def build(
         fixture that flips the arena and not the path would read as a pathfinder defect on
         every rotated battle, which is the most expensive way for this to be wrong.
         """
-        out = []
-        for n in nodes or []:
-            col, row = n % CELL_COLS, n // CELL_COLS
-            if rotate:
-                col, row = CELL_COLS - 1 - col, CELL_ROWS - 1 - row
-            out.append([col, row])
-        return out
+        return [path_cell(n, rotate) for n in nodes or []]
 
     # -- entities across frames
     ticks = [f["tick"] for f in frames]
