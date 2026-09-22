@@ -10,21 +10,45 @@
 //! scenario in tests/mirror.rs ever puts two blockers on one point, and a mirror
 //! gate that never reaches the tie certifies nothing about it.
 //!
-//! THE CHECKS:
-//!   1. `fixture_384_*` replays the captured snapshot (tick 2970, one tick before
-//!      the divergence) with the same deploy for both seats, and holds the rotation
-//!      for 50 ticks.
-//!   2. `constructed_*` rebuild the tie from nothing -- so a snapshot-format change
-//!      cannot retire the gate -- for troops and for buildings. The tie is forced:
-//!      two blockers stacked on one point, colinear ahead of a mover, and the two
-//!      seats' blocker pairs in OPPOSITE slot order (freed tower slots are reused
-//!      LIFO), with each blocker's identity chosen so the pick changes the answer.
+//! THE CHECKS: `constructed_*` rebuild the tie from nothing -- so a
+//! snapshot-format change cannot retire the gate -- for troops and for buildings.
+//! The tie is forced: two blockers stacked on one point, colinear ahead of a mover,
+//! and the two seats' blocker pairs in OPPOSITE slot order (freed tower slots are
+//! reused LIFO), with each blocker's identity chosen so the pick changes the answer.
+//!
+//! RETIRED 2026-09-21, OUT LOUD: `fixture_384_rotation_holds_after_the_stacked_deploy`
+//! and `fixture_384_format3_migration_is_self_checked`, and with them the helpers
+//! that loaded the snapshot against the 2018 card table.
+//!   WHAT THEY COVERED. The first replayed the recorded board of game 384 from tick
+//!   2970 -- one tick before the divergence that found this tie -- issuing the same
+//!   deploy for both seats and holding the rotation for 50 ticks, over a full game
+//!   state rather than a built one. The second was the only gate on
+//!   `state.rs::migrate_v3`, the format-3 -> current snapshot migration: it tampered
+//!   with a hashed field and with the card fingerprint and required each to be
+//!   refused by name, then required the untampered load to re-save and round-trip.
+//!   WHY THEY GO. The snapshot no longer loads: it is refused on the format-3 card
+//!   fingerprint. `migrate_v3` rebuilds that fingerprint by stripping the CardDef
+//!   fields DECLARED AFTER format 3, which only reaches fields at the END of the
+//!   struct, so a change to any value format 3 also printed puts the rebuilt text
+//!   permanently out of reach of the hash saved in the file. The board cannot be
+//!   re-recorded: it came from a random-game driver that is not in this repo, and
+//!   there is no maker for it under tools/ (every tools/make_*_fixture.py writes a
+//!   different fixture). Skipping it would have left a green suite certifying
+//!   nothing, so it is deleted instead.
+//!   WHAT STILL COVERS THE TIE. `constructed_stacked_troops_keep_the_rotation` and
+//!   `constructed_stacked_buildings_keep_the_rotation`, both green. They were
+//!   written for exactly this event -- they build the tie from nothing, and they
+//!   reach both choosers the fixture reached (`YieldKey` for troops,
+//!   `path::first_blocker` for buildings). Each plant below still names one.
+//!   WHAT WENT WITH IT, unreplaced: the tie exercised inside a real board (its
+//!   entity population, elixir and cycle state), and any gate at all on
+//!   `migrate_v3`. The snapshot is still at tests/fixtures/snap_384_tick2970.bin if
+//!   the migration is ever re-pointed at it.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant
 //! cargo test --test stacked_tie`):
 //!   slot_order_blocker_tie   blocker key back to (dist2, x, y)
-//!       -> fixture_384_rotation_holds_after_the_stacked_deploy,
-//!          constructed_stacked_troops_keep_the_rotation
+//!       -> constructed_stacked_troops_keep_the_rotation
 //!   slot_order_obstacle_tie  obstacle key back to (dist2, x, y)
 //!       -> constructed_stacked_buildings_keep_the_rotation
 //!
@@ -34,102 +58,10 @@
 mod common;
 
 use royalesim::arena::FootprintModel;
-use royalesim::entity::EntityKind;
 use royalesim::fixed::Vec2;
 use royalesim::state::{BattleConfig, BattleState};
 use royalesim::{EntityId, PathModel, Team};
 use common::*;
-
-const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/snap_384_tick2970.bin");
-
-/// THE FIXTURE WAS RECORDED AGAINST THE 2018 CARD DATA. The engine's
-/// data/derived/cards.json is now the 15.535.29 vintage, whose stats (and card list) the
-/// format-3 fingerprint cannot match; the 2018 file lives beside it as
-/// data/derived/cards-2018.json (`tools/extract_cards.py --vintage 2018`, byte-identical
-/// to the file the fixture was saved against) and these two tests load through it.
-/// Missing, they REFUSE (never skip): regenerate the file.
-fn cards_2018() -> std::sync::Arc<royalesim::card::CardDb> {
-    let db = royalesim::card::CardDb::load_repo_file("cards-2018.json")
-        .unwrap_or_else(|e| panic!("the 2018 card data the format-3 fixture needs is unavailable ({e}); run tools/extract_cards.py --vintage 2018 -- refusing to skip"));
-    std::sync::Arc::new(db)
-}
-
-fn load_2018(blob: &[u8]) -> Result<BattleState, String> {
-    BattleState::load_with(blob, cards_2018(), royalesim::arena::Arena::shipped())
-}
-
-#[test]
-fn fixture_384_rotation_holds_after_the_stacked_deploy() {
-    // The snapshot is tied to SNAPSHOT_FORMAT and to the 2018 cards.json (`cards_2018`).
-    // If it no longer loads, this REFUSES rather than skipping: rebuild the fixture
-    // (the constructed tests below carry the gate meanwhile) or retire it out loud.
-    let blob = std::fs::read(FIXTURE).unwrap_or_else(|e| panic!("{FIXTURE}: {e}"));
-    let mut s = load_2018(&blob).unwrap_or_else(|e| {
-        panic!("fixture snap_384_tick2970.bin no longer loads ({e}); regenerate it or retire this test OUT LOUD -- not a skip")
-    });
-    assert_eq!(s.tick_count(), 2970);
-    check_mirror(&s).unwrap_or_else(|e| panic!("the fixture must start rotation-symmetric: {e}"));
-    // The commands from the captured game: hand slot 3 (Skeletons) at
-    // (81000, 207000) and its rotation.
-    assert_eq!(s.hand(Team::Blue)[3], "Skeletons");
-    assert_eq!(s.hand(Team::Red)[3], "Skeletons");
-    let a = s.arena().clone();
-    s.deploy_slot(Team::Blue, 3, Vec2::new(81000, 207000)).unwrap();
-    s.deploy_slot(Team::Red, 3, Vec2::new(a.width - 81000, a.height - 207000)).unwrap();
-    // Vacuity: the tie really is in this state -- a pending Skeleton lands EXACTLY
-    // on a live troop of its own team, for both seats.
-    for team in [Team::Blue, Team::Red] {
-        let stacked = s
-            .pending_spawns()
-            .iter()
-            .filter(|(t, _, p)| *t == team && s.entities().any(|e| e.team == team && e.kind == EntityKind::Troop && e.pos == *p))
-            .count();
-        assert!(stacked >= 1, "{team:?}: no pending spawn lands on a live troop; the fixture no longer reaches the tie");
-    }
-    for _ in 0..50 {
-        s.tick();
-        check_mirror(&s).unwrap_or_else(|e| panic!("game 384 replay: {e}\ncensus: {:?}", census(&s)));
-    }
-    assert_eq!(s.tick_count(), 3020);
-}
-
-/// THE FIXTURE IS SNAPSHOT FORMAT 3 and loads through `state.rs::migrate_v3`
-/// (the spell keys made the engine format 4). The migration is only evidence if
-/// its self-check can fail: the format-3 hash of the migrated state must equal the
-/// hash saved in the file, and the card fingerprint must be format 3's. Tamper each
-/// in the loaded bytes and the load must refuse, naming the format-3 check; untampered, the
-/// migrated battle must re-save as the current format and round-trip exactly.
-#[test]
-fn fixture_384_format3_migration_is_self_checked() {
-    let blob = std::fs::read(FIXTURE).unwrap_or_else(|e| panic!("{FIXTURE}: {e}"));
-    let text = String::from_utf8(blob.clone()).expect("fixture is utf-8 json");
-    assert!(text.starts_with("{\"format\":3,"), "the fixture is no longer format 3; this gate certifies the migration and must be re-pointed");
-    // A hashed field (the tick) changed: the format-3 self-check must refuse.
-    let tampered = text.replacen("\"tick\":2970", "\"tick\":2971", 1);
-    assert_ne!(tampered, text, "tamper did not apply -- a plant must verify its own edit");
-    let err = load_2018(tampered.as_bytes()).map(|_| ()).expect_err("a tampered format-3 snapshot loaded");
-    assert!(err.contains("format-3 hash"), "refused for the wrong reason: {err}");
-    // A foreign card fingerprint: refused before any state is built.
-    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let fp = v["cards_fingerprint"].as_u64().unwrap();
-    let foreign = text.replacen(&format!("\"cards_fingerprint\":{fp}"), &format!("\"cards_fingerprint\":{}", fp ^ 1), 1);
-    assert_ne!(foreign, text);
-    let err = load_2018(foreign.as_bytes()).map(|_| ()).expect_err("a foreign-card format-3 snapshot loaded");
-    assert!(err.contains("format-3 fingerprint"), "refused for the wrong reason: {err}");
-    // And against the ENGINE's own (15.535) card data the fixture is refused on its
-    // fingerprint too: a format-3 blob never runs on stats it was not saved against.
-    let err = BattleState::load(&blob).map(|_| ()).expect_err("the 2018 fixture loaded against the 15.535 card data");
-    assert!(err.contains("format-3 fingerprint"), "refused for the wrong reason: {err}");
-    // Untampered: loads, re-saves as the current format, and that round-trips.
-    let s = load_2018(&blob).unwrap();
-    let again = s.save();
-    assert!(String::from_utf8_lossy(&again).starts_with(&format!("{{\"format\":{},", royalesim::state::SNAPSHOT_FORMAT)));
-    let l = load_2018(&again).unwrap();
-    assert_eq!(l.state_hash(), s.state_hash());
-    // The remap put every card where its NAME says: Blue's hand slot 3 is still Skeletons
-    // (also asserted by the replay test), and no board unit resolved to a spell.
-    assert!(s.entities().all(|e| s.cards().get(e.card_idx).spell.is_none()), "a migrated board unit points at a spell card");
-}
 
 /// Kill all four princess towers (symmetric: 2 crowns each) so the next spawns
 /// reuse slots 5, 4, 2, 1 (LIFO), then allocate fresh ones. Spawning Blue's

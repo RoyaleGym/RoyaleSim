@@ -4944,11 +4944,12 @@ impl BattleState {
     /// min(row x 1000)` and `hi = max(row x 1000 + 500)` over the deployable rows
     /// (side 0's formula; side 1's is the same range seen from the top, one native
     /// unit and the back row's half apart, which the owner's frame does not carry:
-    /// calibration formation.GROUND_Y_CLAMP), and the pair is dropped when `hi - lo
-    /// >= H / 2` (the range reaches past the river once a tower has fallen); side 1
-    /// keeps `lo = min(row x 1000 + 500) - 1`, `hi = max(row x 1000)` in absolute
-    /// rows under the shipped arm (the Red Goblins of capture 20260918-164951
-    /// tapped on (3500, 30500) hold their rear pair on 31000, not 31261). The mask
+    /// calibration formation.GROUND_Y_CLAMP). The pair is dropped once
+    /// `hi - lo >= H / 2`, the range reaching past the river after a tower has
+    /// fallen. Side 1 keeps `lo = min(row x 1000 + 500) - 1` and
+    /// `hi = max(row x 1000)` in absolute rows under the shipped arm (the Red
+    /// Goblins of capture 20260918-164951 tapped on (3500, 30500) hold their rear
+    /// pair on 31000, not 31261). The mask
     /// is the engine's own troop TERRITORY per tile centre (arena.rs
     /// `territory_zone`: the river band and the enemy tower rects, not the
     /// tilemap's NO_DEPLOY corners -- the live Goblin Gang on (3500, 1500) stands a
@@ -5979,9 +5980,13 @@ fn cards_fingerprint(cards: &CardDb) -> u64 {
 /// card index -> current CardDb index table (applied by `load_with` AFTER the saved
 /// hash is reproduced).
 ///
-/// WHY IT EXISTS: the fixture behind tests/stacked_tie.rs is a format-3 snapshot
-/// that cannot be regenerated without the random-game driver that found it, and
-/// format 4 (spells) changed three things under it:
+/// WHY IT EXISTS: a format-3 snapshot is a battle nobody can re-record -- the
+/// state was reached by playing, not by construction -- so the loader migrates one
+/// rather than refusing it. NOTHING IN THE SUITE NOW EXERCISES THIS PATH: the
+/// format-3 fixture that did was retired on 2026-09-21 (tests/stacked_tie.rs says
+/// why and what went with it), so the self-check below is the only thing standing
+/// between a wrong migration and a battle that runs anyway. Format 4 (spells)
+/// changed three things under format 3:
 ///   1. NEW FIELDS. Filled with their NEUTRAL values -- the values under which format
 ///      4 runs a format-3 battle exactly as format 3 did: no spells, no effects, no
 ///      knockback, no resume flags, no deploy overrides; and the three Calib keys a
@@ -6510,12 +6515,19 @@ mod tests {
         // Change a value in the JSON and the loaded constant must follow.
         // REPATH_INTERVAL_TICKS is null (retired), so the probe uses the waypoint
         // arrive radius, which the 2026 locomotion law reads every tick.
-        let edited = CALIBRATION_JSON.replacen(
+        // The needle spans a line break (the value alone is not unique), so it is
+        // matched against a copy with the line endings normalised: .gitattributes
+        // checks the ledger out with LF, but a working tree carried over from a CRLF
+        // checkout compiles \r\n into the include_str! and a \n needle would then
+        // miss -- leaving the edit unmade and the assertion below the only thing
+        // between that and a silent pass.
+        let json = CALIBRATION_JSON.replace("\r\n", "\n");
+        let edited = json.replacen(
             "\"value\": 1000,\n      \"units\": \"native arena units (1 tile = 2 cells)\"",
             "\"value\": 3,\n      \"units\": \"native arena units (1 tile = 2 cells)\"",
             1,
         );
-        assert_ne!(edited, CALIBRATION_JSON, "edit did not apply; the JSON layout changed");
+        assert_ne!(edited, json, "edit did not apply; the JSON layout changed");
         assert_eq!(Calib::from_json(&edited).unwrap().waypoint_arrive_radius, crate::fixed::milli(3));
         // And the retired key still round-trips as an explicit null.
         assert_eq!(Calib::shipped().repath_interval_ticks, None);

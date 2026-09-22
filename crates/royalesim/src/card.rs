@@ -442,8 +442,12 @@ pub struct CardDef {
     pub attack_buff: Option<BuffApply>,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
-    // struct's Debug text, so a new field anywhere else silently retires the
-    // format-3 fixture (tests/stacked_tie.rs, which cannot be regenerated).
+    // struct's Debug text, so a new field anywhere else, or a changed value in a
+    // field format 3 also printed, puts that rebuild permanently out of reach of a
+    // format-3 snapshot's saved hash. The in-repo fixture that used to prove the
+    // rebuild was retired on 2026-09-21 for exactly that (tests/stacked_tie.rs says
+    // what went with it); the discipline is kept for any format-3 snapshot a caller
+    // still holds, and nothing in the suite would now catch breaking it.
 }
 
 impl CardDef {
@@ -1604,8 +1608,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
     // which is the behaviour the engine had before the key and is a NAMED GAP (the
     // key's `engine` field, docs/mechanics.md), not a silent substitution. Not a
     // refusal at load: a refusal drops the whole card over one unmodelled detail,
-    // the way building lifetime decay never did, and it would drop a card the
-    // format-3 rotation fixture is fingerprinted against (tests/stacked_tie.rs).
+    // the way building lifetime decay never did, and it would drop a card out of
+    // the format-3 card list that `state.rs migrate_v3` rebuilds.
     let kamikaze = raw.kamikaze.unwrap_or(false) && raw.kamikaze_time_ms.unwrap_or(0) <= 0;
     let no_deploy_size = match raw.no_deploy_size_tiles {
         Some([w, h]) if w > 0 && h > 0 => Some(Vec2::new(tiles(w), tiles(h))),
