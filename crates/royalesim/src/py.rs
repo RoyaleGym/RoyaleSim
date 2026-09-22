@@ -1221,7 +1221,10 @@ mod tests {
         s.tick();
         let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]]).unwrap()).unwrap();
         let ents = v["entities"].as_array().unwrap();
-        assert!(ents.iter().all(|r| r.as_array().unwrap().len() == 14));
+        // 15 since the placement footprint was added as a trailing element.
+        assert!(ents.iter().all(|r| r.as_array().unwrap().len() == 15));
+        // Only a building or a crown tower carries a box; a troop's is null.
+        assert!(ents.iter().all(|r| r[14].is_null() || r[14].as_array().map(|b| b.len()) == Some(4)));
         let gob: Vec<_> = ents.iter().filter(|r| r[3] == barrel_id).collect();
         assert_eq!(gob.len(), 3, "the barrel's Goblins report the barrel's card id");
         assert!(ents.iter().any(|r| r[12].as_i64().unwrap() > 0), "no entity reports stun ticks");

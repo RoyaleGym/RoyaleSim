@@ -1295,11 +1295,16 @@ mod tests {
         assert_eq!(a.box_zone(boxed(t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Err(ZoneError::OutOfArena));
         // The river bank: the box would cross into the water rows.
         assert_eq!(a.box_zone(boxed(t * 9 + t / 2, t * 14 + t / 2), Team::Blue, Territory::OwnHalf), Err(ZoneError::Water));
-        // Open ground one tile in from each of them is legal, and so is a box
-        // sitting flush on the river line (own-frame rows up to 15).
-        assert_eq!(a.box_zone(boxed(t * 9 + t / 2, t + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
+        // The king's own no-deploy block is a THIRD reason a box can be refused,
+        // and it sits directly in front of the king. A box that covers any of it
+        // is NoDeploy, not OutOfArena.
+        assert_eq!(a.box_zone(boxed(t * 9 + t / 2, t + t / 2), Team::Blue, Territory::OwnHalf), Err(ZoneError::NoDeploy));
+        // Open ground is legal, and so is a box sitting flush on the river line
+        // (own-frame rows up to 15). These are the controls: without them the
+        // test would pass on a box_zone that refused everything.
         assert_eq!(a.box_zone(boxed(t + t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
         assert_eq!(a.box_zone(boxed(t * 6 + t / 2, t * 13 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
+        assert_eq!(a.box_zone(boxed(t * 6 + t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
     }
 
     /// Catches a box zone rule that reads engine y instead of the placer's.
