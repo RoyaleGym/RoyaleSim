@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
-"""A live capture -> a whole-battle REPLAY FIXTURE (script + truth) for replay_parity.rs.
+r"""A live capture -> a whole-battle REPLAY FIXTURE (script + truth) for replay_parity.rs.
 
     python tools/make_replay_fixture.py <capture.native.oracle.jsonl.gz>
                     [--placements <p.jsonl> ...] [--out <dir>] [--truth-stride N] [--until-tick T]
     python tools/make_replay_fixture.py --all [--reports <dir>] [--out <dir>] [--truth-stride N]
     python tools/make_replay_fixture.py <capture> --check <fixture.json>   # STALE or current
 
-    The committed sample crates/royalesim/tests/fixtures/replay/sample.json is this tool run on
-    the 20260920-003751 seat-B capture with `--until-tick 1440`; `--check` on that capture
-    answers whether the sample is still what the maker produces. `--check` ignores the `census`
-    note, which records the state of the run rather than anything about the battle.
+    <capture> is a *.native.oracle.jsonl.gz file, or its fixture name (NAMES below), which
+    the tool looks up in --reports. `--check` ignores the `census` note, which records the
+    state of the run rather than anything about the battle.
+
+THE COMMITTED SAMPLE
+    crates/royalesim/tests/fixtures/replay/sample.json is this tool run on the capture
+    20260920-003751-B, cut at tick 1440. With ROYALELIVE_REPORTS set to the captures folder,
+    this says whether it is still current:
+
+      python tools/make_replay_fixture.py 20260920-003751-B --until-tick 1440 \
+          --check crates/royalesim/tests/fixtures/replay/sample.json
+
+    It prints "is current" and exits 0, or prints STALE and exits 1. To rebuild the sample,
+    run the same command with `--out <dir>` in place of `--check ...`, then copy
+    <dir>/20260920-003751-B.replay.json over sample.json. tests/test_replay_fixture.py runs
+    the check. Without ROYALELIVE_REPORTS that test skips, and a skip there is not a pass.
 
     ROYALELIVE_REPORTS  the captures folder (the default for --reports; required for
                         --all when --reports is not given)
@@ -29,7 +41,9 @@ WHAT A FIXTURE IS
                at that tick, plus the spell casts the capture's `effects` stream shows.
       truth    what the game then SHOWED: per frame tick, per entity, the columns the
                harness scores (side, card, x, y, hp, alive, target, path-node count,
-               behavior_state), run-length encoded per entity column.
+               behavior_state), the path's cells and the attack timers (ATTACK TIMERS
+               below), run-length encoded per entity column; and per frame, each side's
+               elixir when the capture carries it (ELIXIR below).
 
     replay_parity.rs plays the script through the engine and scores the engine's
     entities against the truth, entity by entity, tick by tick.
@@ -39,12 +53,17 @@ THE SIDE CONVENTION (written into every fixture as `frame`)
     to engine subtiles by the identity scale (x18): in every capture native side 0
     defends LOW y (its king at y 3000, the header's `towers`), which is exactly what
     Blue does in the engine (lib.rs `Team`: "Blue defends the low-y side"). So nothing
-    is rotated. If a capture ever recorded side 0 at the top, the tool ROTATES that
-    capture's every position by (W - x, H - y) in native units (18000 x 32000) and
-    swaps the sides -- the seat rotation tests/common/mod.rs `mirror()` and
-    arena.rs `to_frame` use -- and says so in `frame.transform`. The absolute frame is
-    kept on purpose: the shipped pathfinder is the game's own absolute-grid search
-    (not seat-symmetric, tests/mirror.rs), so a rotated replay would score a different
+    is rotated. If a capture ever recorded side 0 at the top, the tool takes it that the
+    capture's coordinates were turned on the way (the game always puts side 0 at the
+    bottom), turns every position of the capture back by (W - x, H - y) in native units
+    (18000 x 32000) -- entities, path cells, spell objects -- KEEPING the sides, and says
+    so in `frame.transform`. Turning AND swapping the sides would not do it: that pair is
+    the game's seat symmetry (tests/common/mod.rs `mirror()`), which maps a battle to an
+    equivalent one with side 0 still at the top (until 2026-09-22 this branch did both,
+    and put Blue's king at y 29000). The placements log's taps are not turned: the log's
+    own rule (below) already gives the game's frame. The absolute frame is kept on
+    purpose: the shipped pathfinder is the game's own absolute-grid search (not
+    seat-symmetric, tests/mirror.rs), so a rotated replay would score a different
     tie-break than the game ran.
 
 DEPLOYS VERSUS SPAWNS
@@ -116,6 +135,40 @@ DEPLOY POSITION AND TICK
     from the tap plus this capture's median tap latency, flagged `timing: estimated`; a spell tap
     with no latency measurement is listed under `unresolved` instead of guessed.
 
+SPELL OBJECTS
+    A cast from the effects stream also publishes every object of the run, in the fixture's
+    frame (`objects`, one record per object, in order of first sighting):
+
+      first      the tick of the object's first sighting
+      launch     where the object stood on the tick BEFORE that sighting (the stream's
+                 previous position on the first sighting): its launch point when the first
+                 sighting was its first tick (compare `first` with the frame before it)
+      depart     the first sighting on which it is off `launch`; null if never seen moving
+      target     the point the object flies to, as the stream gives it on the first sighting
+      last_seen  the last frame the object is on, and `end` its position there
+      arrival    the next frame of the capture (the object is gone from it): the tick it
+                 arrived, exactly when arrival = last_seen + 1; null when the capture ends first
+
+    The positions turn with the arena like every other position (`arena_point`; no capture
+    of the corpus is turned, so tests/test_replay_fixture.py TestSpellPointRotation and the
+    both-ways-up battle test are that branch's only checks). `departures` groups the
+    objects by `depart`: [[tick, objects], ...].
+    What the 73 distinct captures show (2026-09-22): each of the 23 Arrows casts has all its
+    objects first seen on one tick; 21 are 30 objects, of which 19 depart exactly 10 + 10 + 10
+    on ticks t, t + 4, t + 8 (the later waves sitting at their launch points until then) and
+    two split 10 + 10 + 10 with one gap of 3 or 5; the other two are 23 objects in broken-up
+    departures. Within a wave the arrivals spread over a few ticks with the flight distance,
+    so a wave is a departure tick, not an arrival tick. A Fireball, Rocket or Snowball is one
+    object launched from the caster's king tower centre (27 of 32, 5 of 6, 17 of 18); each of
+    the other 7 follows a frame gap and sits one or two flight steps from that centre, i.e.
+    was first seen a tick or two into its flight. The Log and the Barbarian Barrel (BarbLog)
+    are two objects (7 of 7, 8 of 8): the airborne one, then the rolling one, launched from
+    the airborne one's target. No object's target changes during its flight (0 of 770).
+    Lightning's objects are never seen off their launch point (4 of 4). arrival - last_seen is
+    1 for 544 of the 768 objects with an arrival, 2 for 214, 3 for 10. The one Fireball whose
+    damage can be told apart (20260920-072148-A, cast tick 1334) was last seen on 1367 and its
+    two victims, a princess tower and a Tesla, lost hp on 1368: its arrival.
+
 FRAMES
     A capture holds one frame per 50 ms tick; frames are missed now and then (tick
     deltas of 2-12) and, in the earliest captures, REPEATED while the game was frozen
@@ -123,6 +176,49 @@ FRAMES
     `frames_duplicate` counts the rest) and a group whose first frame follows a gap
     carries `first_seen_gap` > 1: its real spawn tick may be up to that many ticks
     earlier.
+
+ATTACK TIMERS
+    Four more truth columns, as the capture records them per entity per frame, in ms; they
+    need no transform when the arena rotates:
+
+      attack_progress_ms      the attack's own clock. It is already above zero on the frame
+                              the entity enters behavior_state 2 (2,655 of 2,729 entries),
+                              grows 50 a tick (186,023 of 190,963 one-tick steps while above
+                              zero; the rest are 0, 35, 65, 70 or 100 -- the clock stopped,
+                              slowed or sped up -- and one reset), and does NOT fall back when
+                              a hit lands: inside state 2 it fell 765 times against 5,252
+                              hits. So > 0 means the entity is inside an attack, windup AND
+                              cooldown together, not the windup alone.
+      attack_load_timer_ms    splits that cycle: it jumps up on the tick of each hit (to a
+                              per-card value, 300 to 1,600; 500 is the commonest) and on
+                              2,037 of the 2,729 entries into the attack, then counts down 50
+                              a tick to 0 and waits there for the next hit. On 2,258 of the
+                              5,252 hit ticks a new projectile from the attacker appears in the
+                              effects stream on the same tick.
+      event_timer_ms          a further per-entity countdown (50 a tick on 43,528 of 43,550
+                              one-tick decreases), re-armed to 150 to 650 at intervals while
+                              the entity walks or attacks
+      attack_component_valid  1 when the entity has an attack, else 0 (published as 0/1 so
+                              every column is an integer); 1 on all 1,713,889 entity rows of
+                              the corpus
+
+    Measured 2026-09-22 over the 73 distinct captures, reading only frame pairs one tick
+    apart; a hit here is such a pair, both frames in state 2, on which attack_load_timer_ms
+    went up. Plain run-length encoding was chosen over a (value, slope, run) encoding after
+    measuring both: 24 KB against 5 KB on the 110 KB 20260920-003751-B, 62 KB against 25 KB
+    on the 1.4 MB 20260920-010218-B, where path_cells alone is 960 KB; the plain runs keep
+    ONE decoder for every column (harness.rs decode_rle).
+
+ELIXIR
+    `truth.elixir_raw`, when the capture carries the per-frame `elixir_raw` pair: per side
+    ("0", "1"; the pair is indexed by the capture's sides, which the fixture keeps), that
+    side's elixir on each frame of `ticks`, run-length encoded like an entity column, null
+    on a frame the capture has no value for. 10,000 is one elixir: each of the 8 deploys of
+    20260920-003751-B takes its cost times 10,000 off its own side, less the regeneration over
+    the frame gap. A capture without the pair gives a fixture without the key. Measured on
+    20260920-003751-B: 14 KB run-length, 21 KB as two plain lists; a (value, slope, run)
+    encoding would be 203 bytes, and was not taken for the same one-decoder reason as the
+    timers.
 
 PLAYABILITY
     Unplayable, with the reason in the fixture and the manifest: a deploy card whose id
@@ -211,6 +307,21 @@ NEAREST_MAX_ERROR_PERCENT = 10
 # handoff is 2 ticks, the captures' frame gaps run to 12, and a second cast of the same
 # card by the same side needs the card cycled back (seconds).
 CAST_GAP_TICKS = 20
+#: The per-entity truth columns, in the order `truth.columns` lists them and every row holds
+#: them. The attack timers (module doc, ATTACK TIMERS) follow the seven the harness reads.
+TRUTH_COLUMNS = (
+    "x",
+    "y",
+    "hp",
+    "target",
+    "path_n",
+    "state",
+    "path_cells",
+    "attack_progress_ms",
+    "attack_load_timer_ms",
+    "event_timer_ms",
+    "attack_component_valid",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +362,20 @@ def public_name(raw: str, seats: dict[str, str]) -> str:
     for prefix in ("frames-auto-", "frames-", "placements-"):
         name = name.removeprefix(prefix)
     return name
+
+
+def capture_named(name: str, reports: str | None) -> str | None:
+    """The capture in `reports` whose fixture name is `name` (`20260920-003751-B`; module
+    doc, NAMES), or None when the folder has none. The seat letters are the whole folder's,
+    as in every run. Two captures under one name is an error, not a choice."""
+    if not reports or not os.path.isdir(reports):
+        return None
+    paths = distinct_captures(glob.glob(os.path.join(reports, "*" + CAPTURE_SUFFIX)))
+    seats = folder_seats(reports, CAPTURE_SUFFIX, paths)
+    hits = [p for p in paths if public_name(p, seats) == name]
+    if len(hits) > 1:
+        raise SystemExit(f"{reports} holds {len(hits)} captures named {name}: {hits}")
+    return hits[0] if hits else None
 
 
 # ---------------------------------------------------------------------------
@@ -485,6 +610,43 @@ def path_cell(index: int, rotate: bool) -> list:
     return [col, row]
 
 
+def arena_point(x: int, y: int, rotate: bool) -> list[int]:
+    """A native point in the fixture's frame: itself, or turned 180 degrees about the arena's
+    centre when the capture is rotated (module doc, THE SIDE CONVENTION). Every published
+    position goes through here, entity and spell alike, so the two cannot disagree."""
+    return [NATIVE_W - x, NATIVE_H - y] if rotate else [x, y]
+
+
+def attack_timers(e: dict) -> tuple:
+    """The entity's four attack-timer columns (module doc, ATTACK TIMERS); a field the
+    capture lacks is null. The validity flag is published as 0/1."""
+    valid = e.get("attack_component_valid")
+    return (
+        e.get("attack_progress_ms"),
+        e.get("attack_load_timer_ms"),
+        e.get("event_timer_ms"),
+        None if valid is None else int(bool(valid)),
+    )
+
+
+def elixir_columns(frames: list[dict]) -> dict | None:
+    """`truth.elixir_raw` over these frames (module doc, ELIXIR), or None when no frame
+    carries `elixir_raw`. The capture's pair is indexed by its own sides, and the fixture
+    keeps the capture's sides even when it turns the arena (module doc, THE SIDE
+    CONVENTION), so it needs no transform."""
+    if not any("elixir_raw" in f for f in frames):
+        return None
+    out = {}
+    for s in (0, 1):
+        vals = []
+        for f in frames:
+            pair = f.get("elixir_raw")
+            v = pair[s] if isinstance(pair, list) and len(pair) == 2 else None
+            vals.append(v if isinstance(v, int) and not isinstance(v, bool) else None)
+        out[str(s)] = rle(vals)
+    return out
+
+
 def rle(values) -> list:
     """[v0, run0, v1, run1, ...]."""
     out: list = []
@@ -570,7 +732,12 @@ def read_placements(paths: list[str], card_names: set[str], name_to_id: dict[str
 # spell casts
 
 
-def spell_casts(frames: list[dict], side_of=lambda s: s) -> list[dict]:
+def projectile_target(eff: dict) -> tuple[int, int]:
+    """The point an effects-stream object flies to (`projectile_x/y`, else where it is)."""
+    return eff.get("projectile_x", eff["x"]), eff.get("projectile_y", eff["y"])
+
+
+def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
     """The casts in the `effects` stream: one per run of class-28 objects of one (side,
     card) with no gap over CAST_GAP_TICKS between sightings (CAST_GAP_TICKS). Each:
     side, card_id, first_index, last_index, frames (sightings), objects (distinct
@@ -579,7 +746,13 @@ def spell_casts(frames: list[dict], side_of=lambda s: s) -> list[dict]:
     target for a point spell (Fireball: the tap exactly), the airborne object's
     landing for a rolling one (the Log: where the roll starts, which the game may have
     clamped to the caster's territory), the pattern's centre for a volley (Arrows) --
-    and aim_rule saying which."""
+    and aim_rule saying which; `tracks`, one record per object, and `departures`
+    (module doc, SPELL OBJECTS).
+
+    `rotate` puts every point in the fixture's frame (`arena_point`); sides are kept (module
+    doc, THE SIDE CONVENTION). The aim is the mean taken IN that frame, so one battle gives
+    one fixture whichever way up the capture recorded it (a mean taken before the turn
+    would round the other way)."""
     open_casts: dict[tuple, dict] = {}
     out: list[dict] = []
     for fi, f in enumerate(frames):
@@ -589,14 +762,14 @@ def spell_casts(frames: list[dict], side_of=lambda s: s) -> list[dict]:
             cid = eff.get("card_id", -1)
             if cid < 0 or cid // 1_000_000 != SPELL_CLASS:
                 continue
-            by_key[(side_of(eff["side"]), cid)].append(eff)
+            by_key[(eff["side"], cid)].append(eff)
         for key, effs in by_key.items():
             c = open_casts.get(key)
             if c is not None and tick - c["last_tick"] > CAST_GAP_TICKS:
                 out.append(c)
                 c = None
             if c is None:
-                pts = [(e.get("projectile_x", e["x"]), e.get("projectile_y", e["y"])) for e in effs]
+                pts = [arena_point(*projectile_target(e), rotate) for e in effs]
                 c = open_casts[key] = {
                     "side": key[0],
                     "card_id": key[1],
@@ -604,7 +777,7 @@ def spell_casts(frames: list[dict], side_of=lambda s: s) -> list[dict]:
                     "last_index": fi,
                     "last_tick": tick,
                     "frames": 0,
-                    "ids": set(),
+                    "ids": {},
                     "aim": [
                         sum(x for x, _ in pts) // len(pts),
                         sum(y for _, y in pts) // len(pts),
@@ -616,13 +789,54 @@ def spell_casts(frames: list[dict], side_of=lambda s: s) -> list[dict]:
             c["last_index"] = fi
             c["last_tick"] = tick
             c["frames"] += 1
-            c["ids"].update(str(e.get("id")) for e in effs)
+            for e in effs:
+                track = c["ids"].get(str(e.get("id")))
+                if track is None:
+                    track = c["ids"][str(e.get("id"))] = {
+                        "first_index": fi,
+                        "launch": (e.get("x2", e["x"]), e.get("y2", e["y"])),
+                        "target": projectile_target(e),
+                        "depart_index": None,
+                    }
+                if track["depart_index"] is None and (e["x"], e["y"]) != track["launch"]:
+                    track["depart_index"] = fi
+                track["last_index"] = fi
+                track["end"] = (e["x"], e["y"])
     out.extend(open_casts.values())
     for c in out:
-        c["objects"] = len(c.pop("ids"))
+        tracks = [
+            object_record(t, frames, rotate)
+            for t in sorted(c.pop("ids").values(), key=lambda t: t["first_index"])
+        ]
+        c["objects"] = len(tracks)
+        c["tracks"] = tracks
+        c["departures"] = departures(tracks)
         c.pop("last_tick")
     out.sort(key=lambda c: (c["first_index"], c["side"], c["card_id"]))
     return out
+
+
+def object_record(track: dict, frames: list[dict], rotate: bool) -> dict:
+    """One spell object as the fixture publishes it (module doc, SPELL OBJECTS): ticks as
+    the capture has them, every point through `arena_point`."""
+    last = track["last_index"]
+    depart = track["depart_index"]
+    return {
+        "first": frames[track["first_index"]]["tick"],
+        "launch": arena_point(*track["launch"], rotate),
+        "depart": frames[depart]["tick"] if depart is not None else None,
+        "target": arena_point(*track["target"], rotate),
+        "last_seen": frames[last]["tick"],
+        "end": arena_point(*track["end"], rotate),
+        "arrival": frames[last + 1]["tick"] if last + 1 < len(frames) else None,
+    }
+
+
+def departures(records: list[dict]) -> list[list]:
+    """[[depart tick, objects], ...] in tick order; objects never seen moving count under
+    null, last."""
+    n = Counter(r["depart"] for r in records)
+    return [[t, n[t]] for t in sorted(n, key=lambda t: (t is None, t or 0))]
 
 
 # ---------------------------------------------------------------------------
@@ -675,24 +889,22 @@ def build(
         fx["unplayable_reasons"] = ["no frames"]
         return fx
 
-    # -- side convention: side 0 must defend low y; else rotate the whole capture
+    # -- side convention: side 0 must defend low y; else turn the capture's positions back,
+    # keeping its sides (module doc, THE SIDE CONVENTION)
     towers_hdr = (header or {}).get("towers") or []
     king0 = [t for t in towers_hdr if t["side"] == 0]
     king1 = [t for t in towers_hdr if t["side"] == 1]
     rotate = bool(king0 and king1) and min(t["y"] for t in king0) > min(t["y"] for t in king1)
     if rotate:
         fx["frame"] = {
-            "blue_native_side": 1,
-            "transform": "rotate180: (W - x, H - y), sides swapped",
+            "blue_native_side": 0,
+            "transform": "rotate180: (W - x, H - y), sides kept",
             "native_per_tile": 1000,
             "subtiles_per_native": 18,
         }
 
-    def side_of(s):
-        return 1 - s if rotate else s
-
     def pos_of(x, y):
-        return (NATIVE_W - x, NATIVE_H - y) if rotate else (x, y)
+        return tuple(arena_point(x, y, rotate))
 
     def cells_of(nodes):
         """The published path as [col, row] cells, GOAL-FIRST, in the fixture's frame.
@@ -716,12 +928,22 @@ def build(
             x, y = pos_of(e["x"], e["y"])
             tgt = ptr_to_key.get(e.get("target") or "", -1) if e.get("target") else -1
             nodes = e.get("path_nodes") or []
-            rows[k] = (x, y, e["hp"], tgt, len(nodes), e["behavior_state"], cells_of(nodes))
+            # in TRUTH_COLUMNS order
+            rows[k] = (
+                x,
+                y,
+                e["hp"],
+                tgt,
+                len(nodes),
+                e["behavior_state"],
+                cells_of(nodes),
+                *attack_timers(e),
+            )
             rec = ents.get(k)
             if rec is None:
                 rec = ents[k] = {
                     "key": k,
-                    "side": side_of(e["side"]),
+                    "side": e["side"],
                     "card_id": e["card_id"],
                     "level": e["level"],
                     "max_hp": e["max_hp"],
@@ -811,13 +1033,8 @@ def build(
     for e in ents.values():
         if e["role"] == "summon":
             groups[(e["side"], e["card_id"], e["first_index"])].append(e)
+    # the taps are already in the game's frame (the log's own rule): not turned with the capture
     taps, decks = read_placements(placements, card_names, name_to_id)
-    if rotate:
-        for t in taps:
-            t["side"] = 1 - t["side"]
-            if t["native"]:
-                t["native"] = [NATIVE_W - t["native"][0], NATIVE_H - t["native"][1]]
-        decks = {1 - s: d for s, d in decks.items()}
     used_taps: set[int] = set()
     deploys = []
     latencies = []
@@ -927,14 +1144,14 @@ def build(
             )
 
     # -- spells: from the effects stream, else from taps with the measured latency
-    for cast in spell_casts(frames, side_of):
+    for cast in spell_casts(frames, rotate):
         cid, fi = cast["card_id"], cast["first_index"]
         name = id_table.get(cid)
         if name is None:
             unknown_ids.add(cid)
             reasons.append(f"spell id {cid} is not in the id table")
             continue
-        ax, ay = pos_of(*cast["aim"])
+        ax, ay = cast["aim"]  # already in the fixture's frame
         tick = ticks[fi]
         side = cast["side"]
         tap_ix = None
@@ -966,6 +1183,8 @@ def build(
             "cast_objects": cast["objects"],
             "cast_frames": cast["frames"],
             "cast_last_tick": ticks[cast["last_index"]],
+            "objects": cast["tracks"],
+            "departures": cast["departures"],
             "first_seen_gap": ticks[fi] - ticks[fi - 1] if fi > 0 else 0,
             "families": sorted(
                 (register.get("cards", {}).get(name) or {}).get("families", {}).keys()
@@ -1087,43 +1306,48 @@ def build(
         idx = [i for i in range(e["first_index"], e["last_index"] + 1) if i in sel_set]
         if not idx:
             continue
-        cols = [[], [], [], [], [], [], []]
+        cols: list[list] = [[] for _ in TRUTH_COLUMNS]
         gaps = 0
         for i in idx:
             row = per_tick_rows[i].get(e["key"])
             if row is None:
                 gaps += 1
-                row = (None, None, None, None, None, None, None)
-            for c in range(7):
-                cols[c].append(row[c])
-        truth_entities.append(
-            {
-                "key": e["key"],
-                "side": e["side"],
-                "card_id": e["card_id"],
-                "card": e.get("card")
-                if e["card_id"] >= 0
-                else (
-                    "KingTower"
-                    if any(t["key"] == e["key"] and t["slot"] == 0 for t in towers)
-                    else "PrincessTower"
-                ),
-                "role": e["role"],
-                "unit": e.get("unit"),
-                "level": e["level"],
-                "max_hp": e["max_hp"],
-                "t0": sel.index(idx[0]),
-                "n": len(idx),
-                "absent_frames": gaps,
-                "x": rle(cols[0]),
-                "y": rle(cols[1]),
-                "hp": rle(cols[2]),
-                "target": rle(cols[3]),
-                "path_n": rle(cols[4]),
-                "state": rle(cols[5]),
-                "path_cells": rle(cols[6]),
-            }
-        )
+                row = (None,) * len(TRUTH_COLUMNS)
+            for c, v in enumerate(row):
+                cols[c].append(v)
+        rec = {
+            "key": e["key"],
+            "side": e["side"],
+            "card_id": e["card_id"],
+            "card": e.get("card")
+            if e["card_id"] >= 0
+            else (
+                "KingTower"
+                if any(t["key"] == e["key"] and t["slot"] == 0 for t in towers)
+                else "PrincessTower"
+            ),
+            "role": e["role"],
+            "unit": e.get("unit"),
+            "level": e["level"],
+            "max_hp": e["max_hp"],
+            "t0": sel.index(idx[0]),
+            "n": len(idx),
+            "absent_frames": gaps,
+        }
+        rec.update({name: rle(cols[c]) for c, name in enumerate(TRUTH_COLUMNS)})
+        truth_entities.append(rec)
+    truth = {
+        "columns": list(TRUTH_COLUMNS),
+        "encoding": "per entity, each column run-length encoded as [value, run, ...]"
+        " over its frames from index t0 for n frames of `ticks`; a null value is a"
+        " frame the entity was absent from inside its run; alive = present. `elixir_raw`,"
+        " when present, is per side the same encoding over all of `ticks` (10000 = one elixir)",
+        "ticks": truth_ticks,
+        "entities": truth_entities,
+    }
+    elixir = elixir_columns([frames[i] for i in sel])
+    if elixir is not None:
+        truth["elixir_raw"] = elixir
 
     fx.update(
         {
@@ -1142,14 +1366,7 @@ def build(
             "deploys": deploys,
             "spawned_groups": spawned_groups,
             "unresolved": unresolved,
-            "truth": {
-                "columns": ["x", "y", "hp", "target", "path_n", "state", "path_cells"],
-                "encoding": "per entity, each column run-length encoded as [value, run, ...]"
-                " over its frames from index t0 for n frames of `ticks`; a null value is a"
-                " frame the entity was absent from inside its run; alive = present",
-                "ticks": truth_ticks,
-                "entities": truth_entities,
-            },
+            "truth": truth,
         }
     )
     return fx
@@ -1192,7 +1409,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("capture", nargs="?", help="a *.native.oracle.jsonl.gz live capture")
+    ap.add_argument(
+        "capture",
+        nargs="?",
+        help="a *.native.oracle.jsonl.gz capture, or its fixture name (20260920-003751-B)"
+        " looked up in --reports",
+    )
     ap.add_argument(
         "--placements",
         nargs="*",
@@ -1226,6 +1448,14 @@ def main() -> int:
         ap.error("--check takes one capture, not --all")
     if args.all and not args.reports:
         ap.error("--all needs --reports or ROYALELIVE_REPORTS set to the captures folder")
+    if args.capture and not os.path.isfile(args.capture):
+        found = capture_named(args.capture, args.reports)
+        if found is None:
+            ap.error(
+                f"{args.capture} is neither a capture file nor the name of one in"
+                f" {args.reports or '--reports (unset, and ROYALELIVE_REPORTS is not set)'}"
+            )
+        args.capture = found
     with open(CARDS, "rb") as fh:
         raw = fh.read()
     doc = json.loads(raw.decode("utf-8"))

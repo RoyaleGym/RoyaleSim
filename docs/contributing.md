@@ -72,6 +72,8 @@ cd crates\royalesim && cargo clippy --all-targets -- -D warnings
 cd crates\royalesim && grep -rn 'f32\|f64' src/ tests/  # must print nothing
 ..\.venv\Scripts\python -m pytest -q                     # 108 collected, from the repo root
 ..\.venv\Scripts\ruff check tools oracle tests
+..\.venv\Scripts\python tools\check_data.py              # is the card data what the client ships?
+..\.venv\Scripts\python tools\check_card_reads.py        # does the engine read what the cards carry?
 cd ..\RoyaleGym && ..\.venv\Scripts\python -m pytest -q  # the env layer drives the engine
 ```
 
@@ -90,6 +92,29 @@ cd crates\royalesim && cargo test --release --test throughput -- --ignored --noc
 ..\.venv\Scripts\python tools\watch_battle.py --open                                     # a battle you can watch
 ```
 
+### `tools/check_card_reads.py`
+
+The card gate asks one question the data gate does not: of the columns that reach `cards.json`,
+which ones does `card.rs` read? A column the loader has no field for is dropped in silence, so the
+card plays as a plainer card with the same name.
+
+It works out the answer rather than being told it. It reads the `Raw*` structs out of `card.rs` to
+get the keys the loader takes; it walks `norm_unit` in `extract_cards.py` with `ast` to get which
+card-table column becomes which key; and it reads `units[*].raw` in `cards.json` to get the columns
+each row ships. A column is unread when that chain ends nowhere.
+
+It **fails** when a thin-slice card carries an unread mechanic, and **reports** per card for the
+rest of the catalogue. Thin-slice gaps that are open today are listed in the tool by name, with
+what the engine does instead; the gate also fails when one of those entries goes stale.
+
+It needs `cards.json` and `card.rs` and nothing else. `--cards data/derived/cards-2018.json` scores
+the 2018 table. Two passes are optional and each says out loud when it is skipped: the engine's own
+catalogue needs the built extension module, and the per-object pass needs
+`data/derived/mechanic_register.json`. A skip is not a pass.
+
+`--all-plants` runs four plants and reports whether each one still reddens the gate.
+`tests/test_card_reads.py` drives all of it.
+
 ### Traces and generated fixtures
 
 - `tools/oracle_diff.py` runs the engine beside a recorded trace, tick for tick. The walk family
@@ -105,6 +130,17 @@ cd crates\royalesim && cargo test --release --test throughput -- --ignored --noc
   `make_live_levels_fixture.py` needs those **and** the 15.535 pack, because it resolves card ids
   against that pack's `spells_*.csv` row order. Their committed fixtures stand on their own; only
   re-deriving them needs the inputs.
+- The replay sample `crates/royalesim/tests/fixtures/replay/sample.json` is the recording
+  `20260920-003751-B`, cut at tick 1440. This line checks that it is current:
+
+  ```
+  ROYALELIVE_REPORTS=<the recordings folder> python tools/make_replay_fixture.py 20260920-003751-B --until-tick 1440 --check crates/royalesim/tests/fixtures/replay/sample.json
+  ```
+
+  It prints `is current` or `STALE`. To rebuild the sample, put `--out <dir>` in place of
+  `--check ...`, then copy `<dir>/20260920-003751-B.replay.json` over `sample.json`.
+  `tests/test_replay_fixture.py` runs the same check. Without `ROYALELIVE_REPORTS` it skips, and
+  a skip is not a pass.
 
 ### `tools/watch_battle.py`
 
@@ -191,8 +227,8 @@ Two rules go with them, and both were learned the hard way:
 | `data/derived/` | `arena.json`, `cards.json`, `globals.json` (gitignored; `tools/extract_*.py`) |
 | `data/oracle-native/` | the recorded 15.535 traces (gitignored, not distributed) |
 | `oracle/` | the trace format and the calibration protocol: `scenarios.json` (the discriminating scenarios), `calibrate.py`, `synth.py`, `extract_tracks.py` (video tracks; cv2 optional) |
-| `tools/` | `extract_*.py` (data/raw -> data/derived), `check_data.py`, `oracle_diff.py` (the engine beside a trace, tick for tick), `diff_harness.py`, `watch_battle.py`, `throughput.py`, `make_*_fixture.py`, `mechanic_register.py`, `decode_sc_assets.py` |
-| `tests/` | pytest for the tooling (9 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
+| `tools/` | `extract_*.py` (data/raw -> data/derived), `check_data.py`, `check_card_reads.py`, `oracle_diff.py` (the engine beside a trace, tick for tick), `diff_harness.py`, `watch_battle.py`, `throughput.py`, `make_*_fixture.py`, `mechanic_register.py`, `decode_sc_assets.py` |
+| `tests/` | pytest for the tooling (10 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
 | `docs/` | this documentation; `docs/media/` holds the README's graphics |
 
 ## Test layout

@@ -479,7 +479,9 @@ struct Client16402Case {
     start_native: [i32; 2],
     target_native: [i32; 2],
     reach_native: i32,
-    occluders_native: Vec<[i32; 3]>,
+    /// `[x, y, CollisionRadius, owner side]` for every building of both sides. The owner
+    /// is on the same 0/1 scale as `side`, so a building is friendly when the two match.
+    occluders_native: Vec<[i32; 4]>,
     oracle_cells_goal_first: Vec<[i32; 2]>,
     moving_target: bool,
 }
@@ -493,11 +495,19 @@ struct Client16402Fixture {
 /// exactly as state.rs builds the request (native side 1 defends high y, which is
 /// the engine's Red), and hand back the cells in ABSOLUTE arena coordinates.
 fn plan_client16402_case(arena: &Arena, calib: &Calib, c: &Client16402Case) -> (Vec<(i32, i32)>, bool) {
+    plan_client16402_occluded(arena, calib, c, false)
+}
+
+/// `plan_client16402_case` with a choice of what is stamped: every building of both
+/// sides (`friendly_only = false`, what the engine does), or only the mover's own (the
+/// control arm).
+fn plan_client16402_occluded(arena: &Arena, calib: &Calib, c: &Client16402Case, friendly_only: bool) -> (Vec<(i32, i32)>, bool) {
     use royalesim::Team;
     let team = if c.side == 1 { Team::Red } else { Team::Blue };
     let obstacles: Vec<royalesim::path::Obstacle> = c
         .occluders_native
         .iter()
+        .filter(|o| !friendly_only || o[3] == c.side)
         .enumerate()
         .map(|(i, o)| {
             let centre = arena.to_frame(team, Vec2::new(sub(o[0]), sub(o[1])));
@@ -506,7 +516,7 @@ fn plan_client16402_case(arena: &Arena, calib: &Calib, c: &Client16402Case) -> (
                 shape: royalesim::arena::Shape::Circle { c: centre, r: sub(o[2]) },
                 radius: sub(o[2]),
                 key: (0, 0, 0, 0, i as u32),
-                ally: true,
+                ally: o[3] == c.side,
             }
         })
         .collect();
@@ -591,6 +601,87 @@ fn g6_the_client_search_reproduces_every_published_node_sequence() {
 "));
     println!("exact node sequences: live {live}, offline {offline}, skipped {}, diverging 1", skipped.len());
     assert!(live >= 615 && offline == 128, "the fixture shrank: live {live}, offline {offline}");
+}
+
+#[test]
+fn g6_fixture_each_king_is_owned_by_the_side_whose_half_it_stands_in() {
+    // The friendly-only arm below filters on the owner tag, so the tag is checked
+    // against something the fixture maker never reads: where a king stands. Side 0
+    // defends low y, so its king is at (9000, 3000); side 1's is at (9000, 29000). Both
+    // kings are on the board on every published path. A swapped tag fails here, and so
+    // does every building tagged with the mover's own side.
+    let fx: Client16402Fixture = serde_json::from_str(CLIENT16402_FIXTURE).expect("client16402 fixture parses");
+    let mut movers = [0usize; 2];
+    for c in &fx.cases {
+        assert!(c.side == 0 || c.side == 1, "{}: mover side {}", c.name, c.side);
+        for o in &c.occluders_native {
+            assert!(o[3] == 0 || o[3] == 1, "{}: building {o:?} has owner side {}", c.name, o[3]);
+        }
+        for (y, owner) in [(3000, 0), (29000, 1)] {
+            let king = c
+                .occluders_native
+                .iter()
+                .find(|o| o[0] == 9000 && o[1] == y && o[2] == 1400)
+                .unwrap_or_else(|| panic!("{}: no king at (9000, {y})", c.name));
+            assert_eq!(king[3], owner, "{}: the king at (9000, {y}) is tagged side {}", c.name, king[3]);
+        }
+        movers[c.side as usize] += 1;
+    }
+    assert!(movers[0] > 0 && movers[1] > 0, "vacuous: movers of one side only {movers:?}");
+}
+
+#[test]
+fn g6_friendly_only_occlusion_is_a_control_the_published_paths_refute() {
+    // THE CONTROL ARM for the side-blind stamping (calibration
+    // pathfinding.PATHFINDING_FRIENDLYONLY_OCCLUSIONS): the gate's cases, planned
+    // twice, once with every building of both sides stamped and once with only the
+    // mover's own. If the published paths came out as well without the enemy's
+    // buildings, the corpus could not tell the two apart, and "side-blind" would be a
+    // label rather than a measurement. Scored exactly as the gate is.
+    //
+    // Three claims, each with a defect it catches:
+    //   live      friendly-only reproduces FEWER paths (the enemy's buildings matter);
+    //   offline   the lane sweep scores the same either way: its walkers never come near
+    //             an enemy building, so a filter that kept the ENEMY's instead of the
+    //             mover's own would show up here;
+    //   subset    friendly-only reproduces no path the side-blind arm misses (stamping
+    //             the enemy's buildings breaks nothing).
+    let arena = Arena::shipped();
+    let calib = Calib::shipped();
+    assert_eq!(calib.path_search, royalesim::state::PathSearch::Client16402);
+    let fx: Client16402Fixture = serde_json::from_str(CLIENT16402_FIXTURE).expect("client16402 fixture parses");
+    let (mut n_live, mut n_offline) = (0, 0);
+    let (mut blind_live, mut blind_offline) = (0, 0);
+    let (mut own_live, mut own_offline) = (0, 0);
+    let mut own_only_hits = Vec::new();
+    for c in fx.cases.iter().filter(|c| !c.moving_target) {
+        let oracle: Vec<(i32, i32)> = c.oracle_cells_goal_first.iter().map(|c| (c[0], c[1])).collect();
+        let exact = |mine: &[(i32, i32)]| mine.len() >= oracle.len() && mine[..oracle.len()] == oracle[..];
+        let (blind, _) = plan_client16402_occluded(&arena, &calib, c, false);
+        let (own, _) = plan_client16402_occluded(&arena, &calib, c, true);
+        let (b, o) = (exact(&blind[..]), exact(&own[..]));
+        let live = c.group == "live_16402";
+        if live {
+            n_live += 1;
+            blind_live += b as usize;
+            own_live += o as usize;
+        } else {
+            n_offline += 1;
+            blind_offline += b as usize;
+            own_offline += o as usize;
+        }
+        if o && !b {
+            own_only_hits.push(c.name.clone());
+        }
+    }
+    println!(
+        "friendly-only occlusion: live {own_live}/{n_live}, offline {own_offline}/{n_offline} exact \
+         (every building stamped: live {blind_live}/{n_live}, offline {blind_offline}/{n_offline})"
+    );
+    assert!(n_live > 0 && n_offline > 0, "vacuous: live {n_live}, offline {n_offline}");
+    assert!(own_live < blind_live, "friendly-only must lose on the live paths: {own_live} vs {blind_live}");
+    assert_eq!(own_offline, blind_offline, "the lane sweep cannot tell the arms apart, so they must agree there");
+    assert!(own_only_hits.is_empty(), "friendly-only reproduces paths the side-blind arm misses: {own_only_hits:?}");
 }
 
 #[test]

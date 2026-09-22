@@ -29,6 +29,7 @@ MAKERS = (
     "make_client16402_jump_fixture.py",
     "make_live_levels_fixture.py",
     "make_replay_fixture.py",
+    "make_spell_impact_fixture.py",
 )
 # <8 digits>-<6 digits>, an optional batch tag, then the seat letter.
 STAMPED = re.compile(r"\b(\d{8}-\d{6})(?:\.b\d+)?-([A-Z])\b")

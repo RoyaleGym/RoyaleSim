@@ -336,8 +336,15 @@ attacking.
    because nothing exercises it. The corpus holds 175 state-6 frames (capture 20260920-083112),
    and every tick-adjacent step in them is the card's `SpawnPathfindSpeed`: 300 for the Goblin
    Drill and 650 for the Miner, against card Speeds of 60 and 90. So the speed clause is
-   measured. The goal, lane-bonus and occlusion clauses are not, which is what holds the key at
-   `hypothesis`. No state 7 is recorded anywhere.
+   measured. Now that the fixtures publish each unit's path, the goal and lane clauses are
+   measured too. The goal is the cell that holds the point where the unit comes up, on 5 of 5
+   units. One Drill path of 39 cells is the shortest route only when every dry cell costs 8, and
+   the search returns it cell for cell that way. With road cells at 5 it is not the shortest.
+   Its river crossing uses the bridge, so water costs the walker's 50. The occlusion clause is
+   still open, because no recorded spawn path comes near a building box. That is what holds the
+   key at `hypothesis`. The same frames measure the reached radius: it is the unit's
+   `SpawnPathfindSpeed`, not the ordinary 1000 (`pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED`).
+   No state 7 is recorded anywhere.
 5. **The buff tags** (`NO_PUSHED_BY_*`, `DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS`,
    `AVOIDANCE_AS_OBSTACLE`, the facing lock) are assumed clear, because no card in the corpus
    carries them.

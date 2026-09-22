@@ -34,6 +34,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPLAY = os.path.join(ROOT, "data", "derived", "replay")
 DEPLOY_STATES = (4, 11)
 ATTACK_STATE = 2
+#: What `rows_of` returns per frame, in this order: the six columns every fixture carries,
+#: then the attack timers (tools/make_replay_fixture.py, ATTACK TIMERS), which a fixture made
+#: before they were published lacks -- those read as None. `path_cells` is not read here.
+COLUMNS = (
+    "x",
+    "y",
+    "hp",
+    "target",
+    "path_n",
+    "state",
+    "attack_progress_ms",
+    "attack_load_timer_ms",
+    "event_timer_ms",
+    "attack_component_valid",
+)
 
 
 def decode(col: list) -> list:
@@ -44,8 +59,10 @@ def decode(col: list) -> list:
 
 
 def rows_of(e: dict) -> list[tuple]:
-    """[(x, y, hp, target, path_n, state), ...] over the entity's frames (None = absent)."""
-    cols = [decode(e[c]) for c in ("x", "y", "hp", "target", "path_n", "state")]
+    """[(x, y, hp, target, path_n, state, attack_progress_ms, attack_load_timer_ms,
+    event_timer_ms, attack_component_valid), ...] over the entity's frames (None = absent,
+    or a column the fixture does not carry)."""
+    cols = [decode(e[c]) if c in e else [None] * e["n"] for c in COLUMNS]
     return list(zip(*cols, strict=True))
 
 

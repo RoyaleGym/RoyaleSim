@@ -10,6 +10,10 @@ WHY THIS EXISTS
     expectation that does NOT come from the extractor, and each gate has a plant
     that proves it can see the defect it exists for.
 
+    WHAT THIS FILE DOES NOT ASK.  Whether the engine READS a column it asserts is
+    present.  It asserts Prince's charge.damage_special > 0 without asking whether
+    card.rs has a field for it.  That question is tools/check_card_reads.py's.
+
 VINTAGE
     Two vintages (tools/extract_cards.py --vintage): the ~2018 files and the
     15.535.29 client data (the default).  A gate passing here means "the extraction

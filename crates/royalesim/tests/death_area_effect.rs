@@ -37,7 +37,9 @@
 //!      Reap writes the damage into the buffer Resolve drains next tick and puts the
 //!      area into the list the Projectile phase steps next tick;
 //!   7. seat symmetry: the whole scene rotated 180 degrees gives the mirrored
-//!      outcome, number for number.
+//!      outcome, number for number;
+//!   8. a battle SAVED on the one tick the release is in the air reloads, and the
+//!      resumed battle is the same battle.
 //!
 //! HOW TO PLANT A DEFECT AND SEE THESE FAIL (nothing here has a cfg plant of its
 //! own, so a reviewer plants by hand):
@@ -48,7 +50,13 @@
 //!   * give the missing-record arm of `CardDb::from_json_str` a silent `None`
 //!     instead of pushing to `unloadable`: the last case of (1) goes red;
 //!   * move the release above the death-damage loop's `combat::splash` and into the
-//!     PREVIOUS phase: (6)'s "nothing has landed yet" assertions go red.
+//!     PREVIOUS phase: (6)'s "nothing has landed yet" assertions go red;
+//!   * in state.rs `load_with`, ask the saved-spell guard `c.spell.is_none()` instead
+//!     of `spell::shape_of(c).is_none()`: (8) goes red with "snapshot entity tables
+//!     are inconsistent", because a death release is an ordinary `Spell` under the
+//!     DYING card's index and a troop carries no `spell` of its own. That is the
+//!     shape this suite was missing -- the defect shipped and every other test here
+//!     stayed green, because none of them saves.
 
 mod common;
 
@@ -369,6 +377,41 @@ fn the_slow_runs_out_after_its_bufftime_and_the_walk_comes_back() {
     let (_, speed2, back, gone) = probe(&s, sc.inside);
     assert_eq!(gone, None, "the slot outlived ceil(BuffTime / TICK_MS) = {want_ticks} ticks");
     assert_eq!(back, speed2, "the walk did not come back");
+}
+
+// ---------------------------------------------------------------------------
+// (8): the release survives a save
+//
+// A DEATH RELEASE IS A SPELL OBJECT WHOSE CARD IS A TROOP, which is a shape the
+// snapshot had never seen: every `Spell` saved before this change belonged to a
+// card that carries its own `spell` block. `load_with` checks that a saved spell
+// still runs SOME shape under the card data it is restored against, and that check
+// has to ask the question the same way `step_spells` does (spell.rs `shape_of`) or
+// it refuses a sound battle. One tick is the whole window -- Reap writes the object
+// and the next Projectile phase consumes it -- and no other test in this file, or
+// in save_load.rs (whose scripted decks carry no card with a death area effect),
+// saves inside it.
+
+#[test]
+fn a_battle_saved_while_the_area_is_in_the_air_reloads_and_resumes_the_same_battle() {
+    let mut s = bare(config());
+    let sc = scene(&mut s, Team::Red);
+    assert!(s.debug_set_hp(sc.golem, 0));
+    s.tick();
+    assert_eq!(s.spells().len(), 1, "vacuous: the death left no area in the air to save");
+    let blob = s.save();
+    let mut back = BattleState::load(&blob).expect("a battle saved with a death release in the air reloads");
+    assert_eq!(back.state_hash(), s.state_hash(), "the saved release is not in the hash");
+    // Past the tick the area applies on, so the resumed battle has to reproduce the
+    // impact and not merely carry the object.
+    for k in 0..4 {
+        s.tick();
+        back.tick();
+        assert_eq!(back.state_hash(), s.state_hash(), "the resumed battle diverged {} ticks after the reload", k + 1);
+    }
+    let after = probe(&s, sc.inside);
+    assert!(after.3.is_some() && after.2 < after.1, "vacuous: the slow never landed in the original run either");
+    assert_eq!(probe(&back, sc.inside), after, "the resumed victim is not the saved one");
 }
 
 // ---------------------------------------------------------------------------

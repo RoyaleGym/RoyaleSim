@@ -619,11 +619,26 @@
     },
     "LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED": {
       "value": true,
-      "status": "datamined",
-      "confidence": "medium",
-      "provenance": "globals.csv LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED (vendored 2018)",
-      "vintage": "2018 client data",
-      "meaning": "UNKNOWN beyond the name: the 'waypoint reached' radius for spawn pathfinding scales with unit speed. Relevant to the characters.csv SpawnPathfindSpeed column."
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "provenance": "MEASURED on client 16.402 from the state-6 frames of 20260920-083112-A and -B (data/derived/replay, truth.path_cells: the unit's path, goal first). They are the only state-6 frames in the corpus: 162 Goblin Drill and 13 Miner, 5 distinct units each seen from both seats. A path node is reached when the list loses its tail between two consecutive ticks; the distances below are from the unit's position after that tick's move to the node's cell centre, counted once per unit and tick. Goblin Drill (SpawnPathfindSpeed 300): the 44 reached nodes are at most 286.1 away and the 41 kept tail nodes at least 306.9 away, so the radius lies in [286.1, 306.9); 300 fits 44 of 44 and 41 of 41. Miner (SpawnPathfindSpeed 650): its 6 reached nodes are up to 580.8 away (no frame keeps a tail node), so a radius of 300 misses 4 of the 6. No single fixed radius fits both units; each unit's own SpawnPathfindSpeed fits every frame. THE RIVAL, the flag false, is the ordinary WAYPOINT_ARRIVE_RADIUS of 1000: it would have reached all 41 kept Drill nodes, 0 of 41 kept. NOT SEPARATED: a test before the move with twice the speed fits too (the Drill's window measured that way is [586.2, 605.3), which holds 600); both are a radius from speed, and the unit moves straight at its node so they agree. Also recorded, not modelled: on 1 of the Miner's 5 reaching ticks it reaches two nodes in one tick, where an ordinary walk reaches at most one. Recorded by the client instrument that records ground-truth traces from the real game.",
+      "meaning": "The 'waypoint reached' radius for spawn pathfinding is the unit's SpawnPathfindSpeed (per tick) rather than WAYPOINT_ARRIVE_RADIUS.",
+      "candidates": [
+        true,
+        false
+      ],
+      "engine": "Not read by the engine: no engine card walks in state 6 (movement.SPAWN_PATHFIND_STATES).",
+      "promotion_rules": "Measured on two speeds from one battle, and only two cards carry a SpawnPathfindSpeed in the 15.535 card files (Miner 650, GoblinDrillDig 300). A Miner track with frames that keep a tail node would bound the Miner's side from above; today it is only bounded below.",
+      "history": [
+        {
+          "value": true,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED (vendored 2018), 2018 client data; meaning unknown beyond the name",
+          "date": "2026-09-22",
+          "overturned_by": "status only, the value stands: the state-6 frames of 20260920-083112 separate a speed-derived radius from the fixed 1000"
+        }
+      ]
     },
     "NEW_PATHFINDING_CODE": {
       "value": true,
@@ -1022,32 +1037,72 @@
     "MANA_REGEN_MS_1X": {
       "value": 28000,
       "units": "ms to fill a 10-elixir bar",
-      "status": "datamined",
-      "confidence": "medium",
-      "provenance": "globals.csv (2.8 s per elixir)",
-      "vintage": "pre-2023"
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on client 16.402 from the replay corpus (data/derived/replay, truth.elixir_raw: each side's elixir on every frame, 10000 = one elixir). Below the cap, the consecutive-tick pairs from tick 1 to tick 2400 that rise rise by exactly 178 on 59,276 of 59,318, over all 30 distinct battles that carry the column (a battle recorded from both seats is counted once; 85,954 pairs counting both). 178 = floor(100000 x 50 / 28000): each 50 ms tick adds a whole number of 1/10000 elixir, rounded down. Every value from 27,933 to 28,089 ms gives 178 and no other value does, so the corpus pins the key to that window (+-0.3 %) and refutes anything outside it on every pair. The other 42 rising pairs are 37 x 356 and 2 x 535, each beside a 0 on the neighbouring pair (one frame whose elixir is a tick early or late; the two pairs sum to the step), and 3 x 10178, an Elixir Collector's elixir arriving on a regeneration tick. Recorded by the client instrument that records ground-truth traces from the real game.",
+      "promotion_rules": "SETTLED to the window 27,933..28,089 ms. Re-open only against a new client build.",
+      "not_modelled": "The engine accrues the exact rate: state.rs makes one elixir lcm(MANA_REGEN_MS_1X, MANA_REGEN_MS_2X) = 28000 units and adds 500 a tick at 1x, which is 178.571 in the game's 1/10000 elixir, where the game adds the rounded-down 178 (and 357 against the engine's 357.143 at 2x). So the engine gains one extra tick of regeneration every ~312 ticks (15.6 s) of 1x time below the cap: from 6 elixir at tick 0 it reaches 10 at tick 224, the game at tick 225. Closing it is a representation change in state.rs (a per-tick gain of floor(100000 x TICK_MS / regen_ms) in 1/10000 elixir), not a change to this value.",
+      "history": [
+        {
+          "value": 28000,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv (2.8 s per elixir), pre-2023 vintage",
+          "date": "2026-09-22",
+          "overturned_by": "status only, the value stands: the replay corpus's elixir column gains 178 on every 1x pair, which only 27,933..28,089 ms gives"
+        }
+      ]
     },
     "MANA_REGEN_MS_2X": {
       "value": 14000,
       "units": "ms to fill a 10-elixir bar",
-      "status": "datamined",
-      "confidence": "medium",
-      "provenance": "globals.csv",
-      "vintage": "pre-2023"
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on client 16.402 from the replay corpus (data/derived/replay, truth.elixir_raw; see MANA_REGEN_MS_1X). Below the cap, the consecutive-tick pairs from tick 2401 to tick 3600 that rise rise by exactly 357 on 6,278 of 6,283, over the 11 distinct battles with such pairs (9,240 counting both seats); the other 5 are 714 beside a 0 (one frame a tick late). 357 = floor(100000 x 50 / 14000), and every value from 13,967 to 14,005 ms gives it. Doubling the 1x step after rounding (2 x 178 = 356) matches 0 of the 6,278: the game doubles the rate and then rounds down. Recorded by the client instrument that records ground-truth traces from the real game.",
+      "promotion_rules": "SETTLED to the window 13,967..14,005 ms. Re-open only against a new client build.",
+      "not_modelled": "The engine's 2x step is 357.143 of the game's 1/10000 elixir against the game's 357 (see MANA_REGEN_MS_1X not_modelled).",
+      "history": [
+        {
+          "value": 14000,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv, pre-2023 vintage",
+          "date": "2026-09-22",
+          "overturned_by": "status only, the value stands: the replay corpus's elixir column gains 357 on every 2x pair, which only 13,967..14,005 ms gives"
+        }
+      ]
     },
     "START_MANA": {
       "value": 5,
+      "units": "elixir each side holds at tick 0",
       "status": "datamined",
-      "confidence": "medium",
+      "confidence": "LOW",
       "provenance": "globals.csv",
-      "vintage": "pre-2023"
+      "vintage": "pre-2023",
+      "candidates": [
+        5,
+        6
+      ],
+      "measured_2026_09_22": "REFUTED by the replay corpus of client 16.402 (data/derived/replay, truth.elixir_raw, 10000 = one elixir). Every battle starts at 60000, which is 6 elixir: 60 of 60 sides over the 30 distinct battles that carry the column (a battle recorded from both seats counted once; 112 of 112 counting both). 5 (50000) matches 0 of the 60. Where the next frame is tick 1 (6 sides) it has gained 178, the ordinary 1x step, so the sixth elixir is not the first tick's regeneration. Whether the game stores 6 or grants an elixir before its clock starts cannot be told from a tick-0 frame. The engine's tick-0 value has to be 6 either way: state.rs gives each side START_MANA at tick 0 and adds the first 1x step on the way to tick 1, and that same alignment puts the double-elixir switch exactly where the corpus has it (MANA_SPEED_UP_WHEN_REMAINING_SECONDS). Recorded by the client instrument that records ground-truth traces from the real game.",
+      "proposed_value": 6,
+      "engine": "read by crates/royalesim (state.rs Calib::from_json; PlayerState.mana at tick 0). Left at 5 here because the change alters every battle from its first tick, so it rides one announced rebuild with the replay parity score beside it."
     },
     "MAX_MANA": {
       "value": 10,
-      "status": "datamined",
-      "confidence": "medium",
-      "provenance": "globals.csv",
-      "vintage": "pre-2023"
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on client 16.402 from the replay corpus (data/derived/replay, truth.elixir_raw, 10000 = one elixir). The cap is 100000: 95,453 distinct consecutive-tick pairs hold at exactly 100000 on both frames while regeneration runs, in 29 of the 30 distinct battles that carry the column (a battle recorded from both seats counted once), and none of the 295,818 recorded side-frames is above it. A higher cap would let those frames keep climbing by 178 or 357 a tick instead of holding. 10000 is one elixir: 366 of 367 distinct elixir drops are a whole number of elixir x 10000 once the tick's regeneration is allowed for (the other is a frame a tick late). Recorded by the client instrument that records ground-truth traces from the real game.",
+      "promotion_rules": "SETTLED. Re-open only against a new client build.",
+      "history": [
+        {
+          "value": 10,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv, pre-2023 vintage",
+          "date": "2026-09-22",
+          "overturned_by": "status only, the value stands: the replay corpus's elixir column holds at exactly 100000 (10 x 10000) and never passes it"
+        }
+      ]
     },
     "KING_ACTIVATE_TIME_MS": {
       "value": 3300,
@@ -1146,20 +1201,37 @@
       "value": 14000,
       "units": "ms to fill a 10-elixir bar",
       "status": "datamined",
-      "confidence": "medium",
+      "confidence": "LOW",
       "provenance": "globals.csv MANA_REGEN_MS_OVERTIME (vendored 2018)",
       "vintage": "2018 client data",
-      "note": "14000 is the 2x rate: in 2018, overtime was DOUBLE elixir, not triple. Whether the live 2026 ladder uses triple elixir anywhere is UNVERIFIED. Added 2026-09-13; check whether the engine reads it or reuses MANA_REGEN_MS_2X."
+      "note": "14000 is the 2x rate: in 2018, overtime was DOUBLE elixir. The live game's overtime is not double from tick 4855 on (measured_2026_09_22). Added 2026-09-13.",
+      "candidates": [
+        14000,
+        9300
+      ],
+      "measured_2026_09_22": "REFUTED for late overtime by the replay corpus of client 16.402 (data/derived/replay, truth.elixir_raw, 10000 = one elixir). Three battles go past tick 3600 into overtime (20260920-002736, -081051 and -083112, each recorded from both seats; they end at ticks 5220, 5460 and 5732 to 5779). Below the cap, every consecutive-tick pair from tick 4856 to tick 4947 rises by exactly 537: 255 distinct pairs (403 counting both seats), and the elixir drops there are a whole number of elixir x 10000 less 537. 14000 predicts 357: 0 of the 255. A third of MANA_REGEN_MS_1X (9333 ms) predicts 535: 0 of the 255. Every value from 9,294 to 9,310 ms gives 537 (floor(100000 x 50 / T)); 9300 is the round value in that window, and the corpus cannot choose within it. NOT ESTABLISHED: the step over the first part of overtime. In all three battles every side sits at the cap with no card played from well before tick 3600 until tick 4855 to 4877, so no pair from 3601 to 4855 shows a step, and when in overtime the 537 begins (and whether overtime opens at the 2x step) is not in the corpus. The 177 distinct +357 pairs after tick 3600 belong to two battles whose combat stops at tick 3600 (20260920-081819 and -010218: no hit lands after it and regeneration carries on through the closing frames), not to overtime. Recorded by the client instrument that records ground-truth traces from the real game.",
+      "proposed_value": 9300,
+      "engine": "Not read by the engine: state.rs phase_upkeep uses the 2x step (MANA_REGEN_MS_2X) for the whole of overtime. Taking the proposal needs a third step there and a rule for when it starts, and the start is the part the corpus does not show."
     },
     "MANA_SPEED_UP_WHEN_REMAINING_SECONDS": {
       "value": 60,
       "units": "seconds of regular time remaining",
-      "status": "datamined",
-      "confidence": "medium",
-      "provenance": "globals.csv MANA_SPEED_UP_WHEN_REMAINING_SECONDS (vendored 2018)",
-      "vintage": "2018 client data",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on client 16.402 from the replay corpus (data/derived/replay, truth.elixir_raw). The regeneration step doubles between tick 2400 and tick 2401. Below the cap, the rising pairs ending at ticks 2381..2400 are 278 x 178 and 0 x 357, and those ending at ticks 2401..2420 are 223 x 357 and 0 x 178 (distinct pairs over the 11 battles with a rising pair in either window, 10 of them in both); the pair ending at 2400 is 178 on 13 sides and the pair ending at 2401 is 357 on 12. Two more pairs ending at 2400 read 535 = 178 + 357 and are followed by a 0: one frame a tick late. In the engine (state.rs phase_upkeep) the step that produces tick t + 1 is doubled when REGULAR_TIME_S x 1000 - 50 t <= this value x 1000, so 60 with REGULAR_TIME_S = 180 doubles exactly from the pair ending at 2401. 61 would double the 278 pairs ending at 2381..2400 (0 are doubled); 59 would leave the 223 pairs ending at 2401..2420 single (0 are). What the corpus measures is the tick, 2400 = 120.00 s of battle time; it reads as 60 s remaining only with REGULAR_TIME_S = 180, so a change to that key moves this one with it. Recorded by the client instrument that records ground-truth traces from the real game.",
       "meaning": "Double elixir begins when this many seconds of regular time remain -- i.e. at 2:00 elapsed of a 3:00 match.",
-      "note": "state.rs already reads this key when present and falls back to globals.json; mock_engine.py reads globals directly. Registered 2026-09-13 so the value has one home."
+      "note": "state.rs already reads this key when present and falls back to globals.json; mock_engine.py reads globals directly. Registered 2026-09-13 so the value has one home.",
+      "promotion_rules": "SETTLED to the tick. Re-open only against a new client build or a change to REGULAR_TIME_S.",
+      "history": [
+        {
+          "value": 60,
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "globals.csv MANA_SPEED_UP_WHEN_REMAINING_SECONDS (vendored 2018)",
+          "date": "2026-09-22",
+          "overturned_by": "status only, the value stands: the replay corpus's elixir column doubles its step between tick 2400 and 2401"
+        }
+      ]
     }
   },
   "rng": {
@@ -2079,15 +2151,16 @@
     "SPAWN_PATHFIND_STATES": {
       "value": "client16402_explicit_goal_no_lane_no_occlusion",
       "status": "hypothesis",
-      "confidence": "MEDIUM on the SPEED, which the corpus settles; LOW on the goal, the lane bonus and the occlusions, which nothing recorded separates",
-      "provenance": "RECORDED ahead of a card that exercises it, so the next pass has the rule to test. client16402_explicit_goal_no_lane_no_occlusion: a spawn-pathfinding unit (the Miner's and the Goblin Drill's underground walk to the tap point, the Wallbreakers' run-in) walks in a movement state of its own (6 in the captures' state column; no capture holds a state 7) toward an explicit goal position rather than a scanned goal cell, at SpawnPathfindSpeed. THE SPEED IS MEASURED: capture 20260920-083112, both seats, holds 175 state-6 entity-frames, and on every tick-adjacent pair of them the step is the card's SpawnPathfindSpeed -- the Goblin Drill 300 on 75 of 143 straight pairs and 297-299 on the diagonals, the Miner 650 on 6 of 10 and 646-647 on the rest -- against the card Speeds of 60 and 90, so a unit walking at its card speed is out by 5x and 7x. THE REST IS NOT: the goal, the lane bonus and the occlusions are unmeasured, because a fixture publishes a unit's path NODE COUNT and not its node list, hence hypothesis for the value as a whole. The datamined flag LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED names a reached threshold taken from SpawnPathfindSpeed rather than the fixed 1000, and nothing tests its effect. Also recorded, not modelled: the dash (DashDistance cards; it reuses the leap's movement state), the attack jump (MegaKnight, Assassin: JumpSpeed with sub-steps of 250 and a water-clamped landing), and a rider copying its mount's position.",
+      "confidence": "MEDIUM on the SPEED, the GOAL and the missing LANE BONUS, which the corpus separates (the lane bonus on one path); LOW on the occlusions, which nothing recorded separates",
+      "provenance": "RECORDED ahead of a card that exercises it, so the next pass has the rule to test. client16402_explicit_goal_no_lane_no_occlusion: a spawn-pathfinding unit (the Miner's and the Goblin Drill's underground walk to the point where it comes up, the Wallbreakers' run-in) walks in a movement state of its own (6 in the captures' state column; no capture holds a state 7) toward an explicit goal position rather than a scanned goal cell, at SpawnPathfindSpeed. THE SPEED IS MEASURED: capture 20260920-083112, both seats, holds 175 state-6 entity-frames, and on every tick-adjacent pair of them the step is the card's SpawnPathfindSpeed -- the Goblin Drill 300 on 75 of 143 straight pairs and 297-299 on the diagonals, the Miner 650 on 6 of 10 and 646-647 on the rest -- against the card Speeds of 60 and 90, so a unit walking at its card speed is out by 5x and 7x. THE GOAL AND THE LANE BONUS ARE NOW MEASURED TOO (measured_2026_09_22); THE OCCLUSIONS ARE NOT, because no recorded spawn path comes near a building box, hence hypothesis for the value as a whole. The reached threshold is taken from SpawnPathfindSpeed rather than the fixed 1000, measured on the same frames (pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED). Also recorded, not modelled: the dash (DashDistance cards; it reuses the leap's movement state), the attack jump (MegaKnight, Assassin: JumpSpeed with sub-steps of 250 and a water-clamped landing), and a rider copying its mount's position.",
       "candidates": [
         "client16402_explicit_goal_no_lane_no_occlusion",
         "not_modelled"
       ],
+      "measured_2026_09_22": "The replay fixtures now publish each unit's path (data/derived/replay, truth.path_cells, goal first), so the state-6 paths of 20260920-083112-A and -B can be scored: 5 distinct units (3 Goblin Drills, 2 Miners), each seen from both seats with the same lists. THE GOAL: the path's goal cell is the cell holding the point where the unit comes up (the Drill's building, the Miner's first position after state 6) on 5 of 5, and the tap's own cell on 1 of 5 (the game moves a tap it will not accept). For the Drill of tick 2974 that point, (3000, 23000), is a cell corner, and the goal (6, 46) is not the one of its four cells nearest the unit ((6, 45) is), so a goal chosen by the ordinary nearest-cell scan around the point would have missed it. THE LANE BONUS: one path separates the arms, that Drill's 39 cells from its king to (6, 46). With every dry cell at 8 and water at 50 it is cost-optimal (3424) and the 16.402 search returns all 39 cells from the unit's own cell (18, 7); with road cells at 5 it costs 2908 against an optimum of 2380, and no start next to it returns it. (The search was run as a line-for-line Python port of path16402.rs, which returns 615 of 616 live and 128 of 128 offline paths of crates/royalesim/tests/fixtures/oracle2026/client16402_first_paths.json exactly under the walker's costs, the engine gate's own score. With every dry cell at 8 it returns only 123 of those 616: ordinary walking has the lane bonus, spawn pathfinding does not.) The three shorter paths (4, 4 and 7 cells) fit every arm. THE WATER: the same path crosses the river on the bridge (column 8). Water at 7 makes it more expensive than a crossing through the water (3424 against 3368), and water at 8 keeps it cost-optimal but is not the route the search returns, so a spawn-pathfinding unit pays the walker's 50. THE OCCLUSIONS: not separated. No spawn path comes near a building box except its own king's, which the unit starts inside and must leave either way; stamping every building of both sides at 50 returns all four paths too. Recorded by the client instrument that records ground-truth traces from the real game.",
       "cards": "Which cards need it (data/derived/mechanic_register.json, tools/mechanic_register.py): spawn pathfinding (SpawnPathfindSpeed / SpawnPathfindEffect / SpawnPathfindMorph, family spawner) -- Miner and GoblinDrill (the underground walk to the tap point, state 6 / 7), Wallbreakers (the run-in), and the register's family `dash` -- Bandit (Assassin), MegaKnight's jump, Bats, DarkWitch, GoldenKnight, LittlePrince, BossBandit, SuperHogRider Terry -- for states 3 / 5. None of them is in the engine's cards.json thin slice today: no ENGINE card carries an explicit goal, so no engine unit ever walks in state 6 and the cost field's state test is never reached. The corpus does hold them: 175 state-6 frames, all in capture 20260920-083112 (Goblin Drill 162, Miner 13).",
-      "engine": "RECORDED, NOT IMPLEMENTED. Not read by Calib::from_json -- like movement.BUFF_SPEED_RULE, a rule the engine records ahead of a card that exercises it; when Miner / GoblinDrill / Wallbreakers enter the thin slice the key becomes a Calib field, the cost closure in state.rs phase_path16402 gains the state test and path16402::choose_goal_cell is bypassed by the explicit goal. WHAT THE ENGINE WILL THEN DO, each of these a choice awaiting the capture named in promotion_rules and not an observation: price every dry cell at DEFAULT (8), skip the lane bonus and the building boxes (water still BLOCKED / WATER), and skip the avoidance and separation scans. Until then the value names the rule and `not_modelled` is what the engine does.",
-      "promotion_rules": "The speed clause is measured (capture 20260920-083112: every state-6 step is SpawnPathfindSpeed). To measured for the value as a whole: the published PATH of a spawn-pathfinding unit, which no fixture carries today -- it must ignore the lane bonus and every building box, and run to an explicit goal rather than a scanned goal cell. That needs the fixture maker to publish the node list, not only its count.",
+      "engine": "RECORDED, NOT IMPLEMENTED. Not read by Calib::from_json -- like movement.BUFF_SPEED_RULE, a rule the engine records ahead of a card that exercises it; when Miner / GoblinDrill / Wallbreakers enter the thin slice the key becomes a Calib field, the cost closure in state.rs phase_path16402 gains the state test and path16402::choose_goal_cell is bypassed by the explicit goal. WHAT THE ENGINE WILL THEN DO: price every dry cell at DEFAULT (8) with no lane bonus and water at BLOCKED (50), and run to the cell holding the explicit goal point, all three measured (measured_2026_09_22); skip the building boxes and the avoidance and separation scans, which remain choices awaiting the capture named in promotion_rules and not observations. Until then the value names the rule and `not_modelled` is what the engine does.",
+      "promotion_rules": "The speed, goal and lane clauses are measured (capture 20260920-083112; measured_2026_09_22). To measured for the value as a whole: a spawn path that has to pass a building box other than its own king's, for example a Goblin Drill or a Miner sent to a point with a building standing on the straight line to it. A path straight through the box (every building ignored) against a detour around it (boxes stamped) settles the last clause.",
       "units": "native millitiles; SpawnPathfindSpeed is native units per tick"
     },
     "BUFF_SPEED_COMPOSITION": {

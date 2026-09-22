@@ -1,0 +1,864 @@
+{
+ "format": "spell-impact-fixture-1",
+ "generated_by": "tools/make_spell_impact_fixture.py",
+ "source": "ground-truth captures of the live client (CR 16.402): per frame, every entity's hp and every spell projectile object; spell ids resolved against the 15.535 spells_other.csv row order",
+ "rules": {
+  "cast_gap_ticks": 20,
+  "reach": 4500,
+  "roll_reach": 2500,
+  "tap_reach": 6000,
+  "tap_window": 160,
+  "splash_reach": 3500,
+  "death_reach": 4000,
+  "decay_span": 15,
+  "decay_max": 10
+ },
+ "census": {
+  "captures": 73,
+  "frames": 187716,
+  "casts_from_effects": 98,
+  "casts_from_taps": 34,
+  "casts_by_spell": {
+   "Arrows": 23,
+   "BarbLog": 8,
+   "Earthquake": 3,
+   "Fireball": 32,
+   "Freeze": 9,
+   "Heal": 2,
+   "Lightning": 2,
+   "Log": 7,
+   "Mirror": 2,
+   "Poison": 3,
+   "Rage": 13,
+   "Rocket": 6,
+   "Snowball": 18,
+   "Tornado": 4
+  },
+  "crown_tower_hits": 16,
+  "clean": 13,
+  "clean_with_full_damage": 8,
+  "ambiguous": 2,
+  "destroyed": 1
+ },
+ "captures": [
+  "20260918-112215",
+  "20260918-112751",
+  "20260918-115249.b1",
+  "20260918-121158",
+  "20260918-122757.b1",
+  "20260918-122757.b2",
+  "20260918-124946",
+  "20260918-130203.b1",
+  "20260918-130203.b2",
+  "20260918-133849-A",
+  "20260918-133849-B",
+  "20260918-134739-A",
+  "20260918-134739-B",
+  "20260918-164951-B",
+  "20260918-164953-A",
+  "20260919-143305-A",
+  "20260919-143305-B",
+  "20260919-144043-A",
+  "20260919-144043-B",
+  "20260919-145440-A",
+  "20260919-145440-B",
+  "20260919-181741-A",
+  "20260919-181741-B",
+  "20260919-182539-A",
+  "20260919-182539-B",
+  "20260919-183504-A",
+  "20260919-183504-B",
+  "20260919-184136-A",
+  "20260919-184136-B",
+  "20260920-001604-A",
+  "20260920-001604-B",
+  "20260920-002736-A",
+  "20260920-002736-B",
+  "20260920-003751-A",
+  "20260920-003751-B",
+  "20260920-004657-A",
+  "20260920-004658-B",
+  "20260920-005517-A",
+  "20260920-005517-B",
+  "20260920-010218-A.b1",
+  "20260920-010218-A.b2",
+  "20260920-010218-B",
+  "20260920-070448-A",
+  "20260920-070448-B",
+  "20260920-071056-A",
+  "20260920-071056-B",
+  "20260920-071744-A",
+  "20260920-071744-B",
+  "20260920-072148-A",
+  "20260920-072148-B",
+  "20260920-072831-A",
+  "20260920-072831-B",
+  "20260920-074051-A.b1",
+  "20260920-074051-A.b2",
+  "20260920-074051-B",
+  "20260920-080208-A",
+  "20260920-080208-B",
+  "20260920-081051-A",
+  "20260920-081051-B",
+  "20260920-081819-A",
+  "20260920-081819-B",
+  "20260920-082459-A",
+  "20260920-082459-B",
+  "20260920-083112-A",
+  "20260920-083112-B",
+  "20260920-090204-A",
+  "20260920-090204-B",
+  "20260920-090825-A",
+  "20260920-090825-B",
+  "20260920-091423-A",
+  "20260920-091423-B",
+  "20260920-092922-A",
+  "20260920-092922-B"
+ ],
+ "events": [
+  {
+   "capture": "20260918-112751",
+   "battle": "20260918-112751",
+   "spell": "Fireball",
+   "caster_side": 1,
+   "side_level_mode": 5,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 674,
+    "last_seen": 706,
+    "objects": 1
+   },
+   "tower": {
+    "side": 0,
+    "role": "princess",
+    "x": 3500,
+    "y": 6500,
+    "level": 6,
+    "max_hp": 2030
+   },
+   "reach": 3606,
+   "frames": [
+    706,
+    707
+   ],
+   "hp_before": 2030,
+   "hp_after": 1939,
+   "drop": 91,
+   "status": "clean",
+   "why": [],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": 143
+  },
+  {
+   "capture": "20260918-112751",
+   "battle": "20260918-112751",
+   "spell": "Fireball",
+   "caster_side": 1,
+   "side_level_mode": 5,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 2797,
+    "last_seen": 2836,
+    "objects": 1
+   },
+   "tower": {
+    "side": 0,
+    "role": "king",
+    "x": 9000,
+    "y": 3000,
+    "level": 6,
+    "max_hp": 3312
+   },
+   "reach": 1581,
+   "frames": [
+    2836,
+    2837
+   ],
+   "hp_before": 3312,
+   "hp_after": 3221,
+   "drop": 91,
+   "status": "clean",
+   "why": [],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260918-115249.b1",
+   "battle": "20260918-115249.b1",
+   "spell": "Fireball",
+   "caster_side": 0,
+   "side_level_mode": 3,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 2074,
+    "last_seen": 2106,
+    "objects": 1
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 14500,
+    "y": 25500,
+    "level": 6,
+    "max_hp": 2030
+   },
+   "reach": 3606,
+   "frames": [
+    2106,
+    2107
+   ],
+   "hp_before": 50,
+   "hp_after": null,
+   "drop": 50,
+   "status": "destroyed",
+   "why": [],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260918-115249.b1",
+   "battle": "20260918-115249.b1",
+   "spell": "Fireball",
+   "caster_side": 0,
+   "side_level_mode": 3,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 3183,
+    "last_seen": 3217,
+    "objects": 1
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 3500,
+    "y": 25500,
+    "level": 6,
+    "max_hp": 2030
+   },
+   "reach": 2236,
+   "frames": [
+    3217,
+    3218
+   ],
+   "hp_before": 1294,
+   "hp_after": 1211,
+   "drop": 83,
+   "status": "clean",
+   "why": [],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": 351
+  },
+  {
+   "capture": "20260920-070448-A",
+   "battle": "20260920-070448",
+   "spell": "Lightning",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 2992,
+    "last_seen": 3002,
+    "objects": 2
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 14500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 0,
+   "frames": [
+    2992,
+    2993
+   ],
+   "hp_before": 3052,
+   "hp_after": 2787,
+   "drop": 265,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    1057,
+    1057
+   ],
+   "witnesses": [
+    {
+     "victim": "Knight",
+     "building": false,
+     "frames": [
+      3002,
+      3003
+     ],
+     "x": 14735,
+     "y": 19283,
+     "hp_before": 1766,
+     "hp_after": 709,
+     "decay_per_tick": null,
+     "damage": [
+      1057,
+      1057
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-070448-B",
+   "battle": "20260920-070448",
+   "spell": "Lightning",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 2992,
+    "last_seen": 3002,
+    "objects": 2
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 14500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 0,
+   "frames": [
+    2992,
+    2994
+   ],
+   "hp_before": 3052,
+   "hp_after": 2787,
+   "drop": 265,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    1057,
+    1057
+   ],
+   "witnesses": [
+    {
+     "victim": "Knight",
+     "building": false,
+     "frames": [
+      3002,
+      3004
+     ],
+     "x": 14735,
+     "y": 19283,
+     "hp_before": 1766,
+     "hp_after": 709,
+     "decay_per_tick": null,
+     "damage": [
+      1057,
+      1057
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-072148-A",
+   "battle": "20260920-072148",
+   "spell": "Fireball",
+   "caster_side": 1,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 1334,
+    "last_seen": 1367,
+    "objects": 1
+   },
+   "tower": {
+    "side": 0,
+    "role": "princess",
+    "x": 3500,
+    "y": 6500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 3162,
+   "frames": [
+    1367,
+    1368
+   ],
+   "hp_before": 2728,
+   "hp_after": 2569,
+   "drop": 159,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    687,
+    688
+   ],
+   "witnesses": [
+    {
+     "victim": "Tesla",
+     "building": true,
+     "frames": [
+      1367,
+      1368
+     ],
+     "x": 3000,
+     "y": 10000,
+     "hp_before": 819,
+     "hp_after": 129,
+     "decay_per_tick": [
+      2,
+      3
+     ],
+     "damage": [
+      687,
+      688
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-072148-B",
+   "battle": "20260920-072148",
+   "spell": "Fireball",
+   "caster_side": 1,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 1334,
+    "last_seen": 1367,
+    "objects": 1
+   },
+   "tower": {
+    "side": 0,
+    "role": "princess",
+    "x": 3500,
+    "y": 6500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 3162,
+   "frames": [
+    1367,
+    1369
+   ],
+   "hp_before": 2728,
+   "hp_after": 2569,
+   "drop": 159,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    687,
+    689
+   ],
+   "witnesses": [
+    {
+     "victim": "Tesla",
+     "building": true,
+     "frames": [
+      1367,
+      1369
+     ],
+     "x": 3000,
+     "y": 10000,
+     "hp_before": 819,
+     "hp_after": 126,
+     "decay_per_tick": [
+      2,
+      3
+     ],
+     "damage": [
+      687,
+      689
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-081819-A",
+   "battle": "20260920-081819",
+   "spell": "Log",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 254,
+    "last_seen": 312,
+    "objects": 2
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 3500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 1400,
+   "frames": [
+    308,
+    310
+   ],
+   "hp_before": 3052,
+   "hp_after": 3017,
+   "drop": 35,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    268,
+    268
+   ],
+   "witnesses": [
+    {
+     "victim": "Knight",
+     "building": false,
+     "frames": [
+      281,
+      283
+     ],
+     "x": 4270,
+     "y": 19645,
+     "hp_before": 1766,
+     "hp_after": 1498,
+     "decay_per_tick": null,
+     "damage": [
+      268,
+      268
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-081819-A",
+   "battle": "20260920-081819",
+   "spell": "Tornado",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "over_time",
+   "cast": {
+    "source": "tap",
+    "tap_tick": 1281,
+    "tap": [
+     4500,
+     22500
+    ]
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 3500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 3162,
+   "frames": [
+    1315,
+    1317
+   ],
+   "hp_before": 3017,
+   "hp_after": 2992,
+   "drop": 25,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    84,
+    84
+   ],
+   "witnesses": [
+    {
+     "victim": "Giant",
+     "building": false,
+     "frames": [
+      1315,
+      1317
+     ],
+     "x": 3657,
+     "y": 18559,
+     "hp_before": 3774,
+     "hp_after": 3690,
+     "decay_per_tick": null,
+     "damage": [
+      84,
+      84
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-081819-A",
+   "battle": "20260920-081819",
+   "spell": "Snowball",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 2373,
+    "last_seen": 2396,
+    "objects": 1
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 14500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 3162,
+   "frames": [
+    2396,
+    2398
+   ],
+   "hp_before": 1020,
+   "hp_after": 975,
+   "drop": 45,
+   "status": "clean",
+   "why": [],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": 81
+  },
+  {
+   "capture": "20260920-081819-B",
+   "battle": "20260920-081819",
+   "spell": "Log",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 254,
+    "last_seen": 312,
+    "objects": 2
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 3500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 1400,
+   "frames": [
+    309,
+    310
+   ],
+   "hp_before": 3052,
+   "hp_after": 3017,
+   "drop": 35,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    268,
+    268
+   ],
+   "witnesses": [
+    {
+     "victim": "Knight",
+     "building": false,
+     "frames": [
+      281,
+      282
+     ],
+     "x": 4270,
+     "y": 19645,
+     "hp_before": 1766,
+     "hp_after": 1498,
+     "decay_per_tick": null,
+     "damage": [
+      268,
+      268
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-081819-B",
+   "battle": "20260920-081819",
+   "spell": "Tornado",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "over_time",
+   "cast": {
+    "source": "tap",
+    "tap_tick": 1281,
+    "tap": [
+     4500,
+     22500
+    ]
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 3500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 3162,
+   "frames": [
+    1316,
+    1317
+   ],
+   "hp_before": 3017,
+   "hp_after": 2992,
+   "drop": 25,
+   "status": "clean",
+   "why": [],
+   "full_damage": [
+    84,
+    84
+   ],
+   "witnesses": [
+    {
+     "victim": "Giant",
+     "building": false,
+     "frames": [
+      1316,
+      1317
+     ],
+     "x": 3699,
+     "y": 18690,
+     "hp_before": 3774,
+     "hp_after": 3690,
+     "decay_per_tick": null,
+     "damage": [
+      84,
+      84
+     ]
+    }
+   ],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-081819-B",
+   "battle": "20260920-081819",
+   "spell": "Snowball",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 2372,
+    "last_seen": 2396,
+    "objects": 1
+   },
+   "tower": {
+    "side": 1,
+    "role": "princess",
+    "x": 14500,
+    "y": 25500,
+    "level": 11,
+    "max_hp": 3052
+   },
+   "reach": 3162,
+   "frames": [
+    2396,
+    2397
+   ],
+   "hp_before": 1020,
+   "hp_after": 975,
+   "drop": 45,
+   "status": "clean",
+   "why": [],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": 81
+  },
+  {
+   "capture": "20260920-090204-A",
+   "battle": "20260920-090204",
+   "spell": "Heal",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 1590,
+    "last_seen": 1599,
+    "objects": 1
+   },
+   "tower": {
+    "side": 1,
+    "role": "king",
+    "x": 9000,
+    "y": 29000,
+    "level": 11,
+    "max_hp": 4824
+   },
+   "reach": 0,
+   "frames": [
+    1599,
+    1600
+   ],
+   "hp_before": 705,
+   "hp_after": 595,
+   "drop": 110,
+   "status": "ambiguous",
+   "why": [
+    "ElixirGolem attacking it without a projectile",
+    "SkeletonWarriors attacking it without a projectile"
+   ],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": null
+  },
+  {
+   "capture": "20260920-090204-B",
+   "battle": "20260920-090204",
+   "spell": "Heal",
+   "caster_side": 0,
+   "side_level_mode": 11,
+   "damage_kind": "direct",
+   "cast": {
+    "source": "effects",
+    "first_seen": 1589,
+    "last_seen": 1599,
+    "objects": 1
+   },
+   "tower": {
+    "side": 1,
+    "role": "king",
+    "x": 9000,
+    "y": 29000,
+    "level": 11,
+    "max_hp": 4824
+   },
+   "reach": 0,
+   "frames": [
+    1599,
+    1600
+   ],
+   "hp_before": 705,
+   "hp_after": 595,
+   "drop": 110,
+   "status": "ambiguous",
+   "why": [
+    "ElixirGolem attacking it without a projectile",
+    "SkeletonWarriors attacking it without a projectile"
+   ],
+   "full_damage": null,
+   "witnesses": [],
+   "damage_at_least": null
+  }
+ ]
+}

@@ -162,8 +162,13 @@ pub fn forward_dy(team: Team) -> i32 {
 /// the two: `convert_spell` reads no death column and `convert` builds no spell. Both
 /// `cast` and `step_spells` resolve a `Spell`'s card this way, so a death release is
 /// the SAME object, the same `impact` and the same phase a Zap gets.
+///
+/// CRATE-VISIBLE because the answer is also the snapshot's: state.rs `load_with`
+/// refuses a saved `Spell` whose card runs no shape, and it has to ask the question
+/// the same way the step does. Asking it as `def.spell.is_some()` refused every
+/// battle saved on the one tick a death release is in the air.
 #[inline]
-fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
+pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
     def.spell.as_ref().or(def.death_area_effect.as_ref())
 }
 
