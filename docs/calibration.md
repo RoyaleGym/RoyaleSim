@@ -77,9 +77,18 @@ than tighter, and side 0's range is pinned by nothing at all, which the entry no
 124 entries have not been re-read. So, concretely:
 
 - **The status on a key is worth trusting.** No status moved in the audit.
-- **The shape of the entry is worth trusting.** It will carry a status from a fixed vocabulary,
-  name the rivals the value was chosen against, and state what observation would move it. That
-  structure held everywhere the audit looked, and it is the unusual thing about this file.
+- **The shape of an entry is worth trusting where a judgement was made, but it is not
+  universal, so check rather than assume.** All 148 carry a status. 88 name the rivals the
+  value was chosen against and 98 state what would move it, and 85 do both. The gap is mostly
+  the 40 `datamined` keys, where the number was read out of a shipped table and no choice was
+  made, so a candidate list would be a category error; those carry a vintage and an engine
+  contract instead, which is the right shape for them. But the gap is not only those. 16 of
+  the 48 `measured` entries name no rival at all, and 12 of those state no promotion criterion
+  either. In a file whose rule is that evidence is discrimination and never origin, a measured
+  key with no candidate list has recorded nothing that it was discriminated against. Some are
+  harmless (`time.TICK_MS` has no plausible rival); `pathfinding.PATH_GOAL_RULE` and
+  `movement.CONTACT_DOMAIN` are exactly the kind of rule that should say what it beat. They
+  are on the re-read list.
 - **Any specific number inside a provenance string is worth re-deriving before you build on
   it, and that includes a rival's score and a promotion criterion.** Those are not safer than
   the rest. Of the 24 entries re-read, 10 findings land on a candidate list and 7 on a

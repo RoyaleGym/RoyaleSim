@@ -54,7 +54,7 @@ layer bots train in. Install steps are below, under "Install".
   <tr>
     <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>144 cards, towers, spells, overtime</b><br><sub>The 15.535 client's card data, 144 cards. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 13 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 13 kB and loads back to the identical state hash. Four branches off one save, three of them reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="All 148 engine constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 148 of them carry a status from guess to measured, name the rivals they were chosen against, and say what would change them. About a third are measured; a quarter are still a hypothesis or a guess.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="All 148 engine constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 148 carry a status from guess to measured. Where a judgement was made rather than a value read out of a shipped table, the entry also names the rivals it was chosen against: 88 of the 148 do, and 98 say what would change them.</sub></td>
   </tr>
 </table>
 
