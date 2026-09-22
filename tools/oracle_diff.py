@@ -633,21 +633,17 @@ def main() -> int:
     print()
     print(f"WALK GATE ({len(gate)} traces, exact = 0 native units of error for the WHOLE window):")
     # THE WINDOW IS PART OF THE GATE. A max error of 0 over a window that stopped
-    # early is not the gate anybody meant. The one allowed shortfall is Skeletons:
-    # `setup_spawn_place` materialises ONE entity per spawn, so the engine meets the
-    # princess tower with a single Skeleton where the oracle has three, takes every
-    # shot and dies one tick before the oracle's window ends. Spawning three would put
-    # the comparison in the unmodelled crowd-separation regime.
-    def short_ok(d: Diff) -> bool:
-        return d.card == "Skeletons" and d.window_ticks - len(d.rows) <= 2
-    bad = [d for d in gate if d.max_err > 0 or (len(d.rows) != d.window_ticks and not short_ok(d))]
+    # early is not the gate anybody meant, and there is no allowance for a short one.
+    # Skeletons used to be the exception -- `setup_spawn_place` materialises ONE
+    # entity per spawn, so the engine meets the princess tower with a single Skeleton
+    # where the oracle has three and takes every shot -- but that single Skeleton now
+    # outlives the window, so every trace is held to the whole of its own.
+    bad = [d for d in gate if d.max_err > 0 or len(d.rows) != d.window_ticks]
     for d in gate:
-        full = len(d.rows) == d.window_ticks
-        ok = d.max_err == 0 and (full or short_ok(d))
-        mark = "PASS" if ok and full else ("PASS*" if ok else "FAIL")
-        print(f"  {mark:5s} {d.name:34s} {d.card:12s} "
+        ok = d.max_err == 0 and len(d.rows) == d.window_ticks
+        print(f"  {'PASS' if ok else 'FAIL':5s} {d.name:34s} {d.card:12s} "
               f"ticks={len(d.rows):4d}/{d.window_ticks:4d} max={d.max_err:.2f}{d.note}")
-    print(f"  => {len(gate) - len(bad)}/{len(gate)} exact  (PASS* = the known one-unit-vs-three shortfall)")
+    print(f"  => {len(gate) - len(bad)}/{len(gate)} exact over the whole window")
     try:
         got, want, note = deploy_countdown_is_spawn_plus_deploy_time()
         print()

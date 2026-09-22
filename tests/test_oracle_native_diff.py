@@ -61,7 +61,8 @@ def test_the_walk_traces_are_reproduced_exactly(diffs):
     `len(d.rows) >= 100`: `diff_trace` stops early and leaves a note when the engine's
     unit dies or never moves, so a regression that killed a unit two thirds of the way
     through the Giant's 308-tick walk would still have left 100 rows and passed. The
-    Skeletons case was already exiting that way.
+    Skeletons case used to exit that way; it no longer does, and the pin below holds
+    all six to the whole window.
     """
     import oracle_diff
 
@@ -74,17 +75,18 @@ def test_the_walk_traces_are_reproduced_exactly(diffs):
             f"first divergence {d.first_bad}"
         )
         if d.card == "Skeletons":
-            # THE ONE KNOWN SHORT WINDOW, pinned exactly rather than waved through.
-            # state.rs `setup_spawn_place` materialises ONE entity per spawn whatever
-            # the card's summon count, so the engine faces the princess tower with a
-            # single Skeleton where the oracle has three -- it takes every shot and
-            # dies at t226, one tick before the oracle's window ends. Fixing it means
-            # spawning three, which puts the comparison in the crowd-separation regime
-            # the spec says is unmodelled, so it stays a one-unit comparison and the
-            # shortfall is pinned here instead.
-            assert d.note == "  TRACKED UNIT GONE at t226", f"{d.name}: unexpected note {d.note!r}"
-            assert (len(d.rows), d.window_ticks) == (105, 107), f"{d.name}: {len(d.rows)}/{d.window_ticks}"
-            continue
+            # THE SHORT WINDOW IS GONE, and this pins that rather than the old
+            # shortfall. state.rs `setup_spawn_place` still materialises ONE entity
+            # per spawn whatever the card's summon count, so the engine still faces
+            # the princess tower with a single Skeleton where the oracle has three
+            # and still takes every shot -- but it now survives the whole window: it
+            # is on the board on the window's last tick, t227, and goes at t228, one
+            # tick past the end. So the comparison covers all 107 of the window's
+            # ticks, the case is held to the same whole-window standard as the other
+            # five below, and what is pinned here is that the tracked unit outlives
+            # the window at all.
+            assert d.note == "", f"{d.name}: unexpected note {d.note!r}"
+            assert (len(d.rows), d.window_ticks) == (107, 107), f"{d.name}: {len(d.rows)}/{d.window_ticks}"
         assert not d.note, f"{d.name}: the comparison did not run clean --{d.note}"
         assert len(d.rows) == d.window_ticks, (
             f"{d.name} ({d.card}): compared {len(d.rows)} of the window's "
@@ -109,19 +111,20 @@ def test_the_deploy_countdown_is_the_measured_one():
 
 
 def test_the_first_path_matches_the_oracles_published_cells(diffs):
-    """Five of the six also publish the same cell list; MiniPekka does not, and the
-    reason is card DATA, not the search.
+    """ALL SIX publish the same first-path cell list as the oracle, cell for cell.
 
-    data/derived/cards.json is the 2018 data (its own `vintage_warning` says so) and
-    gives MiniPekka Range 1050 where the live 2026 build ships 800, so the goal rule
-    (Range + own CollisionRadius) stops one cell short of the oracle's. It costs
-    nothing on the trajectory -- the unit is still walking up the shared prefix when
-    the oracle starts attacking -- which is why the gate above is still exact.
+    MiniPekka used to be the one exception, and the reason was card DATA rather than
+    the search: the goal rule is Range + the unit's own CollisionRadius, and a
+    MiniPekka Range of 1050 stops the path one cell short of the oracle's goal, so
+    the engine's list was the oracle's without its first cell.
+    data/derived/cards.json now carries the 15.535.29 table, whose MiniPekka Range is
+    800, and the list is the oracle's published one. The pin is therefore the whole
+    set, with no exception left to carve out.
     """
     import oracle_diff
 
     gated = [d for d in diffs if d.card in oracle_diff.WALK_GATE_CARDS and not d.note.startswith("  SKIPPED")]
+    # Vacuity: an empty cell list on both sides would satisfy the equality below.
+    assert all(d.engine_cells and d.oracle_cells for d in gated), f"a first-path cell list is empty: {[(d.card, len(d.engine_cells), len(d.oracle_cells)) for d in gated]}"
     same = {d.card for d in gated if d.engine_cells == d.oracle_cells}
-    assert same == {"Knight", "Giant", "Golem", "HogRider", "Skeletons"}, sorted(same)
-    mini = next(d for d in gated if d.card == "MiniPekka")
-    assert mini.engine_cells == mini.oracle_cells[1:], "MiniPekka should differ only in the goal cell"
+    assert same == {"Knight", "Giant", "Golem", "HogRider", "Skeletons", "MiniPekka"}, sorted(same)
