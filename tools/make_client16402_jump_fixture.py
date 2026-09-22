@@ -50,9 +50,12 @@ LIVE = os.environ.get("ROYALELIVE_REPORTS")
 BATTLE = "20260920-002736"
 SUFFIX = ".native.oracle.jsonl.gz"
 # The live client's own rows (CR 15.535 csv_logic, the 16.402 values for these columns):
-# the engine's cards.json is the 2018 data set, whose Prince ships Range 1850 /
-# CollisionRadius 650 and no jump block, so the gate overrides the Prince from this block
-# to reproduce its hop -- data from the decoded assets, never a number in a test.
+# the engine's cards.json holds whichever vintage was last extracted into it -- the name
+# does not carry the vintage, data/derived/ is gitignored, and the README's recipe installs
+# the 2018 tables there while a run with no --vintage installs the live 15.535 ones. The
+# 2018 Prince ships Range 1850 / CollisionRadius 650 and no jump block, so the gate
+# overrides the Prince from this block to reproduce its hop under EITHER vintage -- data
+# from the decoded assets, never a number in a test.
 CHARACTERS = os.path.join(ROOT, "data", "raw", "cr-15.535.29", "csv_logic", "characters")
 TOML = {"HogRider": "hogrider", "Prince": "prince", "RoyalHog": "royalhog"}
 STAT_COLUMNS = ("Range", "CollisionRadius", "Speed", "SightRange", "JumpEnabled", "JumpHeight", "JumpSpeed",

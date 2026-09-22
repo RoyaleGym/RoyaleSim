@@ -223,8 +223,27 @@ assertion.
 - The walk gate (`tools/oracle_diff.py`) stays 6/6 bit-exact against the offline traces (one of
   the six over 105 of its 107 ticks; `oracle_diff.py` names the shortfall).
   First-path cells are 19/21 identical to the offline corpus; the two that differ are MiniPekka
-  and Royal Giant, which pick another goal cell because `cards.json` still carries their 2018
-  Range. That is card data, not the search.
+  and Royal Giant, which pick another goal cell from the Range `cards.json` carried WHEN THAT
+  MEASUREMENT WAS TAKEN. That is card data, not the search.
+
+  **The stated cause no longer holds on a checkout carrying the client's asset pack, so the
+  19/21 needs re-measuring against a named vintage.** `data/derived/` is gitignored and
+  `extract_cards.py` writes whichever vintage it was asked for to the single name `cards.json`,
+  so that name does not carry a vintage. Measured 2026-09-22 on this tree:
+
+  | card | `cards.json` here (15.535.29 LIVE) | `cards-2018.json` |
+  |---|---|---|
+  | MiniPekka | 800 | 1050 |
+  | Royal Giant | 5000 | 6500 |
+  | Knight | 1200 | 1000 |
+  | Prince | 1600 | 1850 |
+
+  The two cards this line names as differing BECAUSE of their 2018 Range now load their live
+  Range instead, so the sentence's explanation is false here even if the count is still right.
+  The engine reads `cards.json` at runtime (`CardDb::load_repo`) rather than through
+  `include_str!`, so the build-digest staleness guard that covers `calibration.json`,
+  `arena.json` and `globals.csv` does not cover it, and nothing in a result records which table
+  produced it. Re-measure and state the vintage, as `docs/replay-parity.md` must also do.
 - Controls, so the fit is not mistaken for a free parameter: water impassable scores 306/388 live
   and 24/128 offline; friendly-only occlusion 336/388; `AVOID_BUILDINGS` off 421/425. The
   trace-fitted arm of 2026-09-18 scored 168/345 live and 15/128 offline.

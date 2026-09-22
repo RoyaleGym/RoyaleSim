@@ -31,10 +31,15 @@ WHAT ONE CASE IS
                      goal is in reach of this tower and its predecessor is not.
       reach_native   Range + the mover's own CollisionRadius, read from
                      data/raw/cr-15.535.29/csv_logic (spec 6.1). NOT from
-                     data/derived/cards.json, which is the 2018 data and disagrees for
-                     MiniPekka (800 vs 1050) and Knight (1200 vs 1000) -- passing the
-                     live reach in keeps oracle2026.rs a test of the PATHFINDER rather
-                     than of the card vintage.
+                     data/derived/cards.json, WHOSE VINTAGE ITS NAME DOES NOT CARRY:
+                     data/derived/ is gitignored and extract_cards.py writes whichever
+                     vintage it was asked for to that one name, so it holds the 2018
+                     tables in a clone built by the README and the live 15.535 tables
+                     after a run with no --vintage. Read provenance.vintage inside the
+                     file. Against the 2018 tables it disagrees for MiniPekka (800 vs
+                     1050) and Knight (1200 vs 1000) -- passing the live reach in keeps
+                     oracle2026.rs a test of the PATHFINDER rather than of the card
+                     vintage, whichever vintage is installed.
       occluders      EVERY crown tower and every building standing on that tick, BOTH
                      SIDES, each at the position the recorded FRAME gives and with its
                      own csv_logic CollisionRadius (Tesla 500, not the 600 that was
@@ -250,7 +255,10 @@ COMMENT = [
     "tile), cells as [col, row] on the 36x64 half-tile grid, lists GOAL-FIRST exactly",
     "as the game publishes path_nodes. reach_native is Range + the mover's own",
     "CollisionRadius from csv_logic/characters/*.toml of 15.535.29 -- NOT from",
-    "data/derived/cards.json, which is the 2018 data and disagrees for MiniPekka",
+    "data/derived/cards.json, whose vintage its NAME DOES NOT CARRY (data/derived/ is",
+    "gitignored and extract_cards.py writes whichever vintage was asked for to that one",
+    "name; read provenance.vintage inside it). Against the 2018 tables it disagrees for",
+    "MiniPekka",
     "(800 vs 1050) and Knight (1200 vs 1000). occluders_native is [x, y,",
     "CollisionRadius] of EVERY tower and building standing on that tick, BOTH SIDES",
     "-- not only the mover's own, which the live 16.402 corpus refutes: friendly-only",
