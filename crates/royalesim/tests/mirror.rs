@@ -578,14 +578,21 @@ fn mirror_push_to_exactly_mid_river_ejects_to_each_seats_own_bank() {
     // is Blue's victim and vice versa. Plant: eject_tie_engine_frame.
     let s0 = BattleState::new(9, symmetric_config());
     let a = s0.arena().clone();
-    let push = {
-        let db = s0.cards();
-        match &db.get(db.index("Fireball").unwrap()).spell.as_ref().unwrap().shape {
-            royalesim::card::SpellShape::Projectile { hit: Some(h), .. } => h.knockback.unwrap().distance,
-            other => panic!("{other:?}"),
-        }
-    };
     let mid = (a.water_y_min + a.water_y_max) / 2;
+    // The pushing spell: the first whose Pushback carries a bank-side victim to the
+    // centre line from dry ground -- the 2018 Fireball (1800 native); the 15.535
+    // Fireball pushes 1000, one tile, exactly the half-river, so the Rocket (1800)
+    // stands in there. Read from the loaded cards, never pasted.
+    let db = s0.cards();
+    let push_of = |name: &str| match &db.get(db.index(name).unwrap()).spell.as_ref().unwrap().shape {
+        royalesim::card::SpellShape::Projectile { hit: Some(h), .. } => h.knockback.map_or(0, |k| k.distance),
+        other => panic!("{other:?}"),
+    };
+    let (spell, push) = ["Fireball", "Rocket"]
+        .into_iter()
+        .map(|n| (n, push_of(n)))
+        .find(|(_, p)| a.is_passable_ground(Vec2::new(t(900, 0).x, mid + p)))
+        .expect("no simulable spell pushes a victim from dry ground to the river's centre line");
     // Red victim on the Red bank: centre at mid + push, the impact one tile behind it.
     let victim = Vec2::new(t(900, 0).x, mid + push);
     assert!(a.is_passable_ground(victim) && !a.is_passable_ground(Vec2::new(victim.x, mid)), "geometry: victim on dry ground, centre line on water");
@@ -596,7 +603,7 @@ fn mirror_push_to_exactly_mid_river_ejects_to_each_seats_own_bank() {
     assert_eq!(Vec2::from_tiles_100(h(impact).0, h(impact).1), impact, "impact must be on the hundredth-tile grid");
     let blue_victim = mirror(&s0, victim);
     assert_eq!(Vec2::from_tiles_100(h(blue_victim).0, h(blue_victim).1), blue_victim, "victim must be on the hundredth-tile grid");
-    let units = [Unit { card: "Fireball", at: h(impact), tick: 0 }, Unit { card: "Knight", at: h(blue_victim), tick: 26 }];
+    let units = [Unit { card: spell, at: h(impact), tick: 0 }, Unit { card: "Knight", at: h(blue_victim), tick: 26 }];
     let (s, eng) = run_mirror("mid_river_eject", &units, true, symmetric_config(), Some(300));
     assert!(eng.troop_damaged, "mid_river_eject: nothing hit: {eng:?}");
     assert_draw("mid_river_eject", &s);

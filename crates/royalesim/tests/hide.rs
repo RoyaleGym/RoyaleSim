@@ -545,26 +545,45 @@ fn hide_delay_time_since_last_shot_counts_from_the_shot_not_from_the_kill() {
     // Same scene, same kill 5 ticks after the first shot lands. idle_time_without_target:
     // under ceil(HideTimeMs / TICK_MS) tick calls after the kill. time_since_last_shot:
     // under on the first Target phase MORE than HideTimeMs after the shot, which is
-    // earlier by the 5 ticks the Knight outlived the shot (and, while the Knight lives,
-    // the Tesla keeps firing every HitSpeed and never goes under).
+    // earlier by the 5 ticks the Knight outlived the shot.
+    //
+    // WHILE THE KNIGHT LIVES the two arms part on the data alone (the ledger's "LIMITS
+    // OF THE time_since_last_shot ARM"): a Tesla whose HitSpeed <= HideTimeMs (2018:
+    // 800 / 800) keeps firing every HitSpeed under both; one whose HitSpeed exceeds it
+    // (15.535: 1100 / 800) goes under between two shots with its target in range under
+    // time_since_last_shot -- the arm cannot be the live rule as written on that row,
+    // and this test pins that it does exactly what the ledger says rather than hiding
+    // the difference. Plants: none (a ledger-limit record).
     let mut got = Vec::new();
+    let (hit_speed, hide_ms) = { let s = bare(config()); (card_stat(&s, "Tesla").hit_speed_ms, tesla_hide(&s).hide_time_ms) };
     for meaning in [HideDelayMeaning::IdleTimeWithoutTarget, HideDelayMeaning::TimeSinceLastShot] {
         let cfg = with_calib(|c| c.hide_delay_meaning = meaning);
         let (mut s, tesla, knight, _) = approach_until_first_shot(cfg);
-        let hit_speed = card_stat(&s, "Tesla").hit_speed_ms;
-        // The Tesla keeps firing: a second shot lands one HitSpeed after the first.
-        let hp1 = s.entity(knight).unwrap().hp;
-        let second = run_until(&mut s, 100, |s| s.entity(knight).unwrap().hp < hp1);
-        assert_eq!(second, ticks_of(hit_speed), "{meaning:?}: the second shot is one HitSpeed after the first");
-        assert_eq!(hide_of(&s, tesla).0, HideState::Up);
+        // What the Tesla does between two shots with the Knight alive.
+        let mut probe = s.clone();
+        let hp1 = probe.entity(knight).unwrap().hp;
+        let mut went_under = false;
+        let second = run_until(&mut probe, 100, |s| {
+            went_under |= hide_of(s, tesla).0 != HideState::Up;
+            s.entity(knight).unwrap().hp < hp1
+        });
+        if meaning == HideDelayMeaning::IdleTimeWithoutTarget || hit_speed <= hide_ms {
+            assert_eq!(second, ticks_of(hit_speed), "{meaning:?}: the second shot is one HitSpeed after the first");
+            assert!(!went_under, "{meaning:?}: the Tesla went under with its target in range");
+        } else {
+            assert!(went_under && second > ticks_of(hit_speed), "{meaning:?} on a HitSpeed {hit_speed} > HideTimeMs {hide_ms} row: the ledger's limit (under between shots) did not show ({second} ticks, under {went_under})");
+        }
+        // The kill, 5 ticks after the first shot, the Tesla still Up under both arms.
         for _ in 0..5 {
             s.tick();
         }
+        assert_eq!(hide_of(&s, tesla).0, HideState::Up, "{meaning:?}: 5 ticks after its shot the Tesla is up");
         assert!(s.debug_set_hp(knight, 0));
         let k = run_until(&mut s, 100, |s| hide_of(s, tesla).0 == HideState::Hidden);
         got.push((meaning, k));
     }
-    let n = ticks_of(tesla_hide(&bare(config())).hide_time_ms) as i64;
+    let n = ticks_of(hide_ms) as i64;
+    assert!(n > 5, "scene: HideTimeMs must exceed the 5 ticks the Knight outlives the shot");
     assert_eq!(got[0].1 as i64, n, "idle_time_without_target: {n} tick calls after the kill");
     // time_since_last_shot: HideTimeMs after the shot is n ticks; the strict "more
     // than" adds one; the 5 ticks the Knight outlived the shot come off.

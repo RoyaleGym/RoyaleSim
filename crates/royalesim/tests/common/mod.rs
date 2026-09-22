@@ -329,8 +329,9 @@ pub type Canon = (
     // knockback slide (timer, and the remaining displacement -- a WORLD vector, so
     // both components flip sign under the rotation, like a projectile's carry); the
     // knockback ladder: active, speed, and the target POINT in the team's frame
-    // (native units).
-    (i32, bool, i32, (i32, i32), bool, i32, (i32, i32)),
+    // (native units); the river leap's state-5 flag (a jumper on one seat only
+    // would otherwise pass a rotation gate).
+    (i32, bool, i32, (i32, i32), bool, i32, (i32, i32), bool),
     // Hide state (Tesla): the state code and its timer, both frame-free
     // scalars.
     (u8, i32),
@@ -389,7 +390,7 @@ fn canon_entity(s: &BattleState, e: &EntityView) -> Canon {
             e.route.iter().map(|p| frame(s, e.team, *p)).collect(),
             target,
         ),
-        (e.stun_ms, e.retarget_on_resume, e.knock_ms, knock_rem, e.push_active, e.push_speed, push_target),
+        (e.stun_ms, e.retarget_on_resume, e.knock_ms, knock_rem, e.push_active, e.push_speed, push_target, e.jumping),
         (e.hide_state as u8, e.hide_ms),
         (e.spawn_ms, e.spawn_wave_left),
         (e.charged, e.charge_progress, e.effective_speed),

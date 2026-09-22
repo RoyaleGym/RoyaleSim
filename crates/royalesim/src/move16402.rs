@@ -25,7 +25,8 @@
 //! measured on the live 16.402 captures, settled step for step on the Giant of
 //! capture 20260918-122757.b1 ticks 1216..1223): a landing push does not displace
 //! the unit, it ARMS a countdown. `start_pushback` aims a target point `L` away from
-//! the source along the source-to-unit line (`L = min(strength,
+//! the UNIT, further along the source-to-unit line (`target = unit + (tdiv(dx x L, d),
+//! tdiv(dy x L, d))` with `(dx, dy) = unit - source`; `L = min(strength,
 //! MAX_PUSHBACK_LENGTH)`) and loads the speed `25n` with `n` the smallest
 //! `25n(n+1)/2 >= L`; every tick after that `pushback_step` REPLACES the walk: the
 //! separation scan still runs (the unit is pushed by and pushes its neighbours),
@@ -591,14 +592,18 @@ pub fn octagonal_len(a: i32, b: i32) -> i32 {
 }
 
 /// A position a ground unit cannot stand on: out of the grid, or its cell carries
-/// the blocked bits 0x50, or the water bit 0x20. `bits` is the raw tilemap byte of a
-/// cell (arena.rs `cell_bits`).
-pub fn blocked_or_water(x: i32, y: i32, width_cells: i32, height_cells: i32, bits: impl Fn(i32, i32) -> u8) -> bool {
+/// any of the blocked bits, or the water bit. `bits` is the cell byte in the
+/// CALLER'S encoding (arena.rs `cell_bits`, whose bit values are arena.json's
+/// `bits`, not the tilemap's), so the caller names the water bit and the blocked
+/// mask in that encoding: the engine passes `arena.bit_water` and an EMPTY blocked
+/// mask, since arena.json has no counterpart of the tilemap's 0x50 blocked bits
+/// (knockback.WATER_RESOLUTION not_modelled).
+pub fn blocked_or_water(x: i32, y: i32, width_cells: i32, height_cells: i32, water_bit: u8, blocked_mask: u8, bits: impl Fn(i32, i32) -> u8) -> bool {
     if (x | y) < 0 || x >= width_cells * 500 || y >= height_cells * 500 {
         return true;
     }
     let b = bits(tdiv(x, 500), tdiv(y, 500));
-    b & 0x50 != 0 || b & 0x20 != 0
+    b & blocked_mask != 0 || b & water_bit != 0
 }
 
 /// THE WATER EJECTION a ladder tick applies to a ground unit standing on a blocked
@@ -787,10 +792,15 @@ mod tests {
         let (x, y) = nearest_land(9000, 15100, 36, 64, water);
         assert!(!water(tdiv(x, 500), tdiv(y, 500)));
         assert_eq!((x, y), (8750, 14850), "j = -1, k = 4: offset (-250, -250), the first octagonal minimum");
-        assert!(blocked_or_water(9000, 15100, 36, 64, |_, _| 0x20));
-        assert!(blocked_or_water(-1, 100, 36, 64, |_, _| 0));
-        assert!(blocked_or_water(100, 100, 36, 64, |_, _| 0x10), "bit 0x10 counts (the blocked test is on 0x50)");
-        assert!(!blocked_or_water(100, 100, 36, 64, |_, _| 0x03));
+        // in the tilemap's own encoding (water 0x20, blocked 0x50)
+        assert!(blocked_or_water(9000, 15100, 36, 64, 0x20, 0x50, |_, _| 0x20));
+        assert!(blocked_or_water(-1, 100, 36, 64, 0x20, 0x50, |_, _| 0));
+        assert!(blocked_or_water(100, 100, 36, 64, 0x20, 0x50, |_, _| 0x10), "bit 0x10 counts (the blocked mask is 0x50)");
+        assert!(!blocked_or_water(100, 100, 36, 64, 0x20, 0x50, |_, _| 0x03));
+        // in the engine's encoding (arena.json WATER 32, NO_DEPLOY 16, no blocked mask):
+        // a NO_DEPLOY cell is not "blocked" for the teleport
+        assert!(blocked_or_water(100, 100, 36, 64, 32, 0, |_, _| 32));
+        assert!(!blocked_or_water(100, 100, 36, 64, 32, 0, |_, _| 16));
         assert_eq!(octagonal_len(3, 4), 4 + ((3 * 53) >> 7));
         assert_eq!(octagonal_len(-1000, 0), 1000);
     }

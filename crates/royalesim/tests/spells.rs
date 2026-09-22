@@ -121,13 +121,17 @@ fn int(v: &Value) -> i32 {
 }
 
 /// Level-scaled stat, computed from cards.json's OWN multiplier table for `card`
-/// (independent of card.rs `CardDb::scaled`, which is what is under test).
+/// (independent of card.rs `CardDb::scaled`, which is what is under test): the
+/// block's table entered at `base_level` (the 15.535 file: the unified level the
+/// stats hold at, calibration combat.STAT_BASE_LEVEL), else at the card rarity's
+/// local level 1 (the 2018 file).
 fn scaled_from_json(s: &BattleState, card: &str, unified_level: i32, base: i32) -> i32 {
     let c = raw_card(card);
     let rarity = c["rarity"].as_str().unwrap();
-    let rel = s.cards().rarity(rarity).unwrap().relative_level;
-    let table = c["level_scaling"]["multiplier_percent_by_level"].as_array().unwrap();
-    let m = int(&table[(unified_level - rel - 1) as usize]);
+    let ls = &c["level_scaling"];
+    let base_level = ls["base_level"].as_i64().map_or_else(|| s.cards().rarity(rarity).unwrap().relative_level + 1, |b| b as i32);
+    let table = ls["multiplier_percent_by_level"].as_array().unwrap();
+    let m = int(&table[(unified_level - base_level) as usize]);
     ((base as i64) * (m as i64) / 100) as i32
 }
 
@@ -140,8 +144,21 @@ fn crown_ceil(amount: i32, pct: i32) -> i32 {
 fn fireball_hit() -> &'static Value {
     &raw_card("Fireball")["projectile"]
 }
+/// The Arrows damage carrier: the CustomFirstProjectile when the row has one (2018:
+/// the deco `projectile` deals nothing), else the Projectile itself (15.535).
 fn arrows_hit() -> &'static Value {
-    &raw_card("Arrows")["spell"]["first_projectile"]
+    let c = raw_card("Arrows");
+    if c["spell"]["first_projectile"].is_object() { &c["spell"]["first_projectile"] } else { &c["projectile"] }
+}
+/// ProjectileWaves of the row (absent = 1: the 2018 column does not exist).
+fn arrows_waves() -> i32 {
+    raw_card("Arrows")["spell"]["projectile_waves"].as_i64().map_or(1, |w| w as i32)
+}
+/// The disc one wave hits: the SPELL's Radius for a volley (MultipleProjectiles > 1:
+/// the arrows spread over it; card.rs `convert_spell`), else the carrier's.
+fn arrows_disc_milli() -> i32 {
+    let c = raw_card("Arrows");
+    if c["spell"]["multiple_projectiles"].as_i64().unwrap_or(1) > 1 { int(&c["spell"]["radius_milli"]) } else { int(&arrows_hit()["radius_milli"]) }
 }
 fn zap_aeo() -> &'static Value {
     &raw_card("Zap")["spell"]["area_effect_object"]
@@ -185,6 +202,24 @@ fn arrival_calls(s: &BattleState) -> u32 {
     panic!("spell never arrived within 600 ticks");
 }
 
+/// Tick calls until the FIRST spell object lands (a multi-wave spell keeps flying
+/// after it): where the deploying victims of `cast_scenario` are timed from.
+fn first_impact_calls(s: &BattleState, arrival: u32) -> u32 {
+    let mut p = s.clone();
+    let mut most = p.spells().len();
+    for k in 1..arrival {
+        p.tick();
+        let n = p.spells().len();
+        if most > 0 && n < most {
+            return k;
+        }
+        most = most.max(n);
+    }
+    // One object, or one applied and gone within a tick (a one-shot area effect):
+    // the first impact is the arrival.
+    arrival
+}
+
 struct Cast {
     /// The battle with the spell, stopped at the end of its arrival tick.
     s: BattleState,
@@ -197,8 +232,9 @@ struct Cast {
 }
 
 /// See the module doc. `placed` are on the board (already deployed) before the
-/// cast; `deploying` are spawned with `spawn_unit` 6 ticks before arrival (or with
-/// the cast, if it arrives sooner), so they are stationary when it lands.
+/// cast; `deploying` are spawned with `spawn_unit` 6 ticks before the FIRST impact
+/// (or with the cast, if it arrives sooner), so they are stationary when it lands
+/// -- and still deploying when a later wave does (the 15.535 Arrows: 8 ticks).
 #[allow(clippy::type_complexity)]
 fn cast_scenario(cfg: BattleConfig, caster: Team, spell: &str, tap: Vec2, level: Option<i32>, placed: &[(Team, &str, Vec2)], deploying: &[(Team, &str, Vec2)]) -> Cast {
     let mut s = bare(cfg);
@@ -209,7 +245,7 @@ fn cast_scenario(cfg: BattleConfig, caster: Team, spell: &str, tap: Vec2, level:
     let mut control = s.clone();
     s.spawn_unit(caster, spell, tap, level).unwrap_or_else(|e| panic!("cast {spell}: {e:?}"));
     let arrival = arrival_calls(&s);
-    let spawn_at = arrival.saturating_sub(6);
+    let spawn_at = first_impact_calls(&s, arrival).saturating_sub(6);
     for k in 0..arrival {
         if k == spawn_at && !deploying.is_empty() {
             for st in [&mut s, &mut control] {
@@ -364,7 +400,7 @@ fn aoe_radius_edge_is_inclusive_to_the_subtile_under_the_registry() {
     // to dist = R. Plant: aoe_centre_to_centre.
     assert_registry("spells.AOE_HIT_TEST", format!("{:?}", calib().aoe_hit_test), "EdgeInclusive");
     let r_cannon = card_stat(&bare(config()), "Cannon").collision_radius;
-    for (spell, radius) in [("Fireball", milli(int(&fireball_hit()["radius_milli"]))), ("Arrows", milli(int(&arrows_hit()["radius_milli"]))), ("Zap", milli(int(&zap_aeo()["radius_milli"])))] {
+    for (spell, radius) in [("Fireball", milli(int(&fireball_hit()["radius_milli"]))), ("Arrows", milli(arrows_disc_milli())), ("Zap", milli(int(&zap_aeo()["radius_milli"])))] {
         let tap = stage();
         let inside = Vec2::new(tap.x + radius + r_cannon, tap.y);
         let outside = Vec2::new(tap.x - radius - r_cannon - 1, tap.y);
@@ -488,9 +524,11 @@ fn fireball_knockback_is_radial_fixed_distance_troops_only_and_respects_ignore_p
 fn knockback_resets_a_windup() {
     // A Red Musketeer (already deployed) shooting a Blue Cannon is hit by a Blue
     // Fireball on a tick where the CONTROL Musketeer is still mid-windup: the pushed
-    // one is Idle with its timer at zero (registry knockback.ATTACK_RESET: the windup
-    // resets). Plant: knockback_keeps_windup.
-    assert_registry("knockback.ATTACK_RESET", format!("{:?}", calib().knock_attack_reset), "ResetWindupKeepTarget");
+    // one is Idle with its timer at zero (registry knockback.ATTACK_RESET: the
+    // attack resets, MEASURED on the Knight gen 61 of capture 20260920-081819-A,
+    // load 300 -> 700 on the hit tick 3535).
+    // Plant: knockback_keeps_windup.
+    assert_registry("knockback.ATTACK_RESET", format!("{:?}", calib().knock_attack_reset), "ResetAttackKeepTarget");
     let tap = stage();
     let musk_at = Vec2::new(tap.x + SUBTILE, tap.y);
     let cannon_at = Vec2::new(musk_at.x - milli(4000), musk_at.y);
@@ -524,13 +562,100 @@ fn knockback_resets_a_windup() {
     assert!(found >= 3, "vacuous: only {found} arrivals landed mid-windup");
 }
 
+#[test]
+fn knockback_interrupts_a_unit_between_shots_and_the_old_arm_freezes_its_cooldown() {
+    // THE MEASURED HALF the community reading missed (the Bomber gen 29 of capture
+    // 20260920-081819-A, between hits with its swing counter at 3500
+    // when the Bandit hit it at tick 2020: counter 0 from 2021, state 1 through the
+    // ladder, a FRESH LoadTime windup on re-entering range at 2037): a Fireball on a
+    // Musketeer BETWEEN SHOTS (Cooldown) under the shipped reset_attack_keep_target
+    // leaves it Idle at 0 -- its next shot is a LoadTime windup once the ladder ends
+    // and the target is in range again -- where the superseded
+    // reset_windup_keep_target keeps the cooldown (frozen through the ladder by
+    // Entities::knocked, resumed after it), so in the engine's cooldown-then-windup
+    // cycle its next shot comes LATER by the cooldown that was left. Both arms keep
+    // the target. Plant knockback_keeps_windup: the shipped arm's Cooldown is not
+    // reset either.
+    let tap = stage();
+    let musk_at = Vec2::new(tap.x + SUBTILE, tap.y);
+    let cannon_at = Vec2::new(musk_at.x - milli(4000), musk_at.y);
+    let mut found = 0;
+    let mut sooner = 0;
+    for delay in 0..60u32 {
+        let arms = [
+            ("shipped", config()),
+            ("old", {
+                let mut c = config();
+                c.calib.knock_attack_reset = royalesim::state::KnockAttackReset::ResetWindupKeepTarget;
+                c
+            }),
+        ];
+        let mut next_shot = Vec::new();
+        for (name, cfg) in arms {
+            let mut s = bare(cfg);
+            let m = s.scenario_spawn_now(Team::Red, "Musketeer", musk_at, Some(1_000_000)).unwrap();
+            // a Cannon that outlives the sweep (its hp is the shot clock below)
+            let cannon = s.scenario_spawn_now(Team::Blue, "Cannon", cannon_at, Some(1_000_000)).unwrap();
+            for _ in 0..delay {
+                s.tick();
+            }
+            let mut control = s.clone();
+            s.spawn_unit(Team::Blue, "Fireball", tap, None).unwrap();
+            let arrival = arrival_calls(&s);
+            for _ in 0..arrival {
+                s.tick();
+                control.tick();
+            }
+            let cv = control.entity(m).unwrap();
+            if cv.attack_phase != AttackPhase::Cooldown || cv.attack_ms == 0 {
+                break; // not a between-shots landing on this delay
+            }
+            let v = s.entity(m).unwrap();
+            assert!(v.push_active, "{name} delay {delay}: the Fireball did not push the Musketeer");
+            assert_eq!(v.target, cv.target, "{name} delay {delay}: the target is kept");
+            match name {
+                "shipped" => assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: the shipped arm interrupts the cooldown (the Bomber gen 29)"),
+                _ => assert_eq!((v.attack_phase, v.attack_ms), (cv.attack_phase, cv.attack_ms), "delay {delay}: the old arm leaves the cooldown as it was"),
+            }
+            // the next shot: ticks from the landing to the Musketeer's next FIRE (the
+            // Windup -> Cooldown transition; the Cannon's hp would also show the shot
+            // already in flight when the Fireball landed)
+            let _ = cannon;
+            let mut k = 0;
+            let mut prev = s.entity(m).unwrap().attack_phase;
+            loop {
+                s.tick();
+                k += 1;
+                let now = s.entity(m).unwrap().attack_phase;
+                if prev == AttackPhase::Windup && now == AttackPhase::Cooldown {
+                    break;
+                }
+                prev = now;
+                assert!(k < 400, "{name} delay {delay}: no shot after the push");
+            }
+            next_shot.push(k);
+        }
+        if next_shot.len() == 2 {
+            found += 1;
+            if next_shot[0] < next_shot[1] {
+                sooner += 1;
+            }
+            assert!(next_shot[0] <= next_shot[1], "delay {delay}: the shipped arm's next shot ({}) is later than the old arm's ({}), which still owes its cooldown", next_shot[0], next_shot[1]);
+        }
+    }
+    assert!(found >= 3, "vacuous: only {found} arrivals landed between shots");
+    assert!(sooner >= 1, "vacuous: the two arms never parted on the next shot ({found} landings)");
+}
+
 // ---------------------------------------------------------------------------
 // ARROWS
 
 #[test]
-fn arrows_damage_scales_hits_once_and_does_not_push() {
-    // 2018 vintage: one damaging CustomFirstProjectile (ArrowsSpell), the deco
-    // projectile deals nothing, no pushback. Plants: ct_floor, crown_pct_ignored.
+fn arrows_damage_scales_hits_once_per_wave_and_does_not_push() {
+    // One damage carrier (2018: the CustomFirstProjectile, the deco projectile deals
+    // nothing; 15.535: the Projectile itself), each wave one hit per victim over the
+    // spell's disc, no pushback. The scenario ends when the last wave has landed, so a
+    // victim has taken exactly `waves` hits. Plants: ct_floor, crown_pct_ignored.
     let s0 = bare(config());
     let tower_pos = s0.arena().princess_tower_pos(Team::Red, royalesim::arena::Lane::Right);
     let tower = s0.tower_ids(Team::Red)[2].unwrap();
@@ -539,20 +664,26 @@ fn arrows_damage_scales_hits_once_and_does_not_push() {
     let level = c.s.config().card_level[0];
     let dmg = scaled_from_json(&c.s, "Arrows", level, int(&arrows_hit()["damage"]));
     let pct = int(&arrows_hit()["crown_tower_damage_percent"]);
+    let waves = arrows_waves();
     assert!((dmg * pct) % 100 != 0, "rounding not exercised");
-    assert_eq!(c.hp_loss(c.ids[0]), dmg);
-    assert_eq!(c.hp_loss(tower), crown_ceil(dmg, pct));
+    assert_eq!(c.hp_loss(c.ids[0]), dmg * waves, "{waves} wave(s) of {dmg}");
+    assert_eq!(c.hp_loss(tower), crown_ceil(dmg, pct) * waves, "{waves} wave(s) of ceil({dmg} x {pct} %)");
     assert_eq!(c.displacement(c.ids[0]), Vec2::default(), "Arrows ship no Pushback");
-    assert!(raw_card("Arrows")["projectile"]["damage"].is_null(), "data: the deco projectile carries no damage");
+    if raw_card("Arrows")["spell"]["first_projectile"].is_object() {
+        assert!(raw_card("Arrows")["projectile"]["damage"].is_null(), "data: the deco projectile carries no damage");
+    } else {
+        assert!(raw_card("Arrows")["spell"]["multiple_projectiles"].as_i64().unwrap_or(1) > 1, "data: the one carrier is a volley");
+    }
 }
 
 #[test]
 fn arrows_waves_come_from_the_data() {
-    // The 2018 row has no ProjectileWaves column (one wave). Feed the SAME engine a
-    // card whose row does (the live shape: 3 waves, 200 ms apart -- written into a
-    // copy of cards.json here as a MECHANIC probe, not as a stat the battles run on):
-    // a stationary Red Cannon loses exactly one wave's damage on each of T, T+4, T+8.
-    // Plant: waves_simultaneous.
+    // ProjectileWaves / ProjectileWaveInterval are the row's: the 15.535 Arrows fires
+    // 3 waves 200 ms apart, the 2018 row had no such column (one wave). Both shapes go
+    // through the SAME engine: the file's own row, and a copy with the columns cleared
+    // (a MECHANIC probe, not a stat the battles run on) -- a stationary Red Cannon
+    // loses exactly one wave's damage on each of T, T + gap, T + 2 gap, and once with
+    // the columns cleared. Plant: waves_simultaneous.
     let tick = calib().tick_ms;
     let run = |doc: &Value| -> Vec<(u32, i32)> {
         let db = royalesim::card::CardDb::from_json_str(&doc.to_string(), royalesim::card::CardSource::DerivedJson).unwrap();
@@ -573,19 +704,20 @@ fn arrows_waves_come_from_the_data() {
         drops
     };
     let doc = cards_doc().clone();
-    let one = run(&doc);
-    assert_eq!(one.len(), 1, "2018 Arrows must hit once: {one:?}");
-    let mut live_shape = doc.clone();
-    let arrows = live_shape["cards"].as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "Arrows").unwrap();
-    let interval = 200;
-    arrows["spell"]["projectile_waves"] = Value::from(3);
-    arrows["spell"]["projectile_wave_interval_ms"] = Value::from(interval);
-    let three = run(&live_shape);
+    let (waves, interval) = (arrows_waves(), raw_card("Arrows")["spell"]["projectile_wave_interval_ms"].as_i64().unwrap_or(0) as i32);
+    assert!(waves >= 2 && interval > 0 && interval % tick == 0, "data: the Arrows row's waves {waves} x {interval} ms do not exercise the mechanic");
+    let many = run(&doc);
+    let mut one_wave = doc.clone();
+    let arrows = one_wave["cards"].as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "Arrows").unwrap();
+    arrows["spell"]["projectile_waves"] = Value::Null;
+    arrows["spell"]["projectile_wave_interval_ms"] = Value::Null;
+    let one = run(&one_wave);
+    assert_eq!(one.len(), 1, "with the columns cleared Arrows must hit once: {one:?}");
     let gap = (interval / tick) as u32;
-    assert_eq!(three.len(), 3, "three waves: {three:?}");
-    assert_eq!(three[0].0, one[0].0, "wave 0 lands when the single wave did");
-    assert_eq!((three[1].0 - three[0].0, three[2].0 - three[1].0), (gap, gap), "waves {interval} ms apart: {three:?}");
-    assert!(three.iter().all(|w| w.1 == one[0].1), "each wave deals one wave's damage: {three:?} vs {one:?}");
+    assert_eq!(many.len(), waves as usize, "{waves} waves: {many:?}");
+    assert_eq!(many[0].0, one[0].0, "wave 0 lands when the single wave did");
+    assert!(many.windows(2).all(|w| w[1].0 - w[0].0 == gap), "waves {interval} ms apart: {many:?}");
+    assert!(many.iter().all(|w| w.1 == one[0].1), "each wave deals one wave's damage: {many:?} vs {one:?}");
 }
 
 // ---------------------------------------------------------------------------
@@ -718,7 +850,9 @@ fn zap_forces_a_retarget_on_resume() {
         let mut s = bare(config());
         let m_at = stage();
         let m = s.scenario_spawn_now(Team::Red, "Musketeer", m_at, Some(1_000_000)).unwrap();
-        let a = s.scenario_spawn_now(Team::Blue, "Cannon", Vec2::new(m_at.x, m_at.y - milli(5500)), None).unwrap();
+        // Cannon A outlives the 80 ticks whatever the vintage's numbers (the 15.535
+        // Musketeer at level 11 would fell a level-11 Cannon inside them).
+        let a = s.scenario_spawn_now(Team::Blue, "Cannon", Vec2::new(m_at.x, m_at.y - milli(5500)), Some(1_000_000)).unwrap();
         let mut b = None;
         let mut targets = Vec::new();
         for k in 0..80u32 {

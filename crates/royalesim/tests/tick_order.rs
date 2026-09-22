@@ -135,7 +135,15 @@ fn a_knight_whose_skeleton_target_dies_walks_the_tick_after_it_is_gone() {
         let k_at = t(900, 900);
         let s_at = Vec2::new(k_at.x, k_at.y - knight_card.range - skel_card.collision_radius);
         let knight = s.scenario_spawn_now(Team::Red, "Knight", k_at, None).unwrap();
-        let skel = s.scenario_spawn_now(Team::Blue, "Skeleton", s_at, Some(1)).unwrap();
+        // The Skeleton is DEPLOYING through the whole scene (its DeployTime outlasts
+        // the Knight's windup), so it stands where it was put: an active Skeleton
+        // walks at the Knight and, under the game's contact law, shoves it before the
+        // hit lands (the 15.535 Knight's 1200 reach gives it the room to do so).
+        s.spawn_unit(Team::Blue, "Skeleton", s_at, None).unwrap();
+        s.tick();
+        let skel = find_live(&s, Team::Blue, "Skeleton")[0].id;
+        assert!(s.debug_set_hp(skel, 1));
+        assert!(s.entity(skel).unwrap().deploying && skel_card.deploy_time_ms > knight_card.load_time_ms + 2 * dt(), "scene: the Skeleton must still be deploying when the hit lands");
         assert!(knight_card.damage >= s.entity(skel).unwrap().hp, "data: one Knight hit kills a Skeleton");
         // per post-tick frame: the Knight's (pos, phase) and whether the Skeleton lives;
         // two more frames after the one it is first gone from

@@ -24,7 +24,14 @@
 //!      composed with the law through the source point) where a Fireball's is radial;
 //!   7. determinism, and a save / load mid-ladder that reproduces every later tick;
 //!   8. seat symmetry: a rotation-symmetric pair of Fireballs on off-centre victims
-//!      keeps the battle its own mirror image through the whole ladder.
+//!      keeps the battle its own mirror image through the whole ladder;
+//!   9. THE CHARGE TAIL INSIDE THE LADDER (calibration charge.RESET_ON_KNOCKBACK =
+//!      true, the client16402 rule): a Prince's run-up ADVANCES by tdiv(L x 1000,
+//!      ChargeRange) on every positive-speed ladder tick (L the ladder's requested
+//!      step), reaches 10000 and charges mid-ladder, and is ZEROED -- the charge
+//!      with it -- on the zero-speed tick; a charged Prince keeps its charge through
+//!      the positive ticks and loses it on that same tick; the landing tick itself
+//!      touches neither; under the `false` foil both are held across the ladder.
 //!
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="knockback_instant_slide"' CARGO_TARGET_DIR=target/plant
 //! cargo test --test knockback16402`): the whole length at once, no ladder -- red on
@@ -184,9 +191,11 @@ fn the_live_giant_ladder_is_reproduced_step_for_step() {
 #[test]
 fn the_length_is_capped_at_max_pushback_length() {
     // The same Fireball on the same Knight: uncapped (the shipped 40000) it carries
-    // ladder_travel(1800) = 1600 native, capped at 600 it carries ladder_travel(600) = 500;
-    // both derived from the law, and the direction (+x) exact.
+    // ladder_travel(Pushback) native (the 2018 row's 1800: 1600; the 15.535 row's
+    // 1000: 875), capped at 600 it carries ladder_travel(600) = 500; both derived from
+    // the law, and the direction (+x) exact.
     let push = fireball_push_native();
+    assert!(push > 600, "scene: the Fireball's Pushback {push} must exceed the 600 cap");
     assert!(calib().max_pushback_length > push, "the shipped cap does not bind a Fireball");
     for (cap, want) in [(calib().max_pushback_length, ladder_travel(push)), (600, ladder_travel(600))] {
         let mut s = BattleState::new(3, with_calib(|c| c.max_pushback_length = cap));
@@ -209,8 +218,12 @@ fn the_length_is_capped_at_max_pushback_length() {
         assert_eq!(total, (want, 0), "cap {cap}: the carry");
         assert!(s.entity(knight).unwrap().deploying, "the Knight must still be deploying: the carry is the ladder's alone");
     }
-    assert_eq!(ladder_travel(push), 1600, "a 1800 push: v0 300, the 250 cap on the first two steps, then 225 .. 0 and -25");
-    assert_eq!(ladder_ticks(push), 13);
+    // The law on a length whose ladder starts above the 250 step cap (the 2018
+    // Fireball's 1800; the 15.535 one's 1000 starts at 225 and never meets it): v0
+    // 300, the cap on the first two steps, then 225 .. 0 and -25 -- 1600 in 13 ticks.
+    assert_eq!(ladder_speed(1800), 300);
+    assert_eq!(ladder_travel(1800), 1600, "a 1800 push: v0 300, the 250 cap on the first two steps, then 225 .. 0 and -25");
+    assert_eq!(ladder_ticks(1800), 13);
 }
 
 #[test]
@@ -520,6 +533,102 @@ fn the_log_pushes_an_off_axis_knight_forward_where_a_fireball_pushes_it_radially
     let tol = 2 * steps.len() as i32;
     let want = fb_carry * 181 / 256;
     assert!(d.0 > 0 && d.1 > 0 && (d.0 - want).abs() <= tol && (d.1 - want).abs() <= tol, "diagonal: {d:?} against {want} per axis (tolerance {tol})");
+}
+
+/// A Blue Prince walking the lane, its run-up set to `progress` (and `charged`) on
+/// the tick a Red Log lands on it: (push_speed, progress, charged) after every tick
+/// of the ladder, the landing tick first.
+fn prince_logged_mid_run_up(cfg: BattleConfig, progress: i32, charged: bool) -> (Vec<(i32, i32, bool)>, i32) {
+    let mut s = BattleState::new(7, cfg);
+    let id = s.scenario_spawn_now(Team::Blue, "Prince", t(375, 850), None).unwrap();
+    for _ in 0..12 {
+        s.tick();
+    }
+    let e = s.entity(id).unwrap();
+    assert!(!e.route.is_empty() && e.charge_progress > 0, "vacuous: the Prince is not walking its run-up");
+    let full = e.hp;
+    let tap = Vec2::new(e.pos.x, e.pos.y + 4 * SUBTILE);
+    s.spawn_unit(Team::Red, "Log", tap, None).unwrap();
+    let mut landed = false;
+    for _ in 0..80 {
+        s.tick();
+        let e = s.entity(id).unwrap();
+        if e.hp < full {
+            landed = true;
+            break;
+        }
+    }
+    assert!(landed, "vacuous: the Log never landed on the Prince");
+    assert!(s.debug_set_charge(id, progress, charged));
+    let e = s.entity(id).unwrap();
+    assert!(e.push_active, "the landing tick arms the ladder");
+    let range_raw = card_stat(&s, "Prince").charge.unwrap().range_raw;
+    let mut out = vec![(e.push_speed, e.charge_progress, e.charged)];
+    for _ in 0..40 {
+        s.tick();
+        let e = s.entity(id).unwrap();
+        out.push((e.push_speed, e.charge_progress, e.charged));
+        if !e.push_active {
+            break;
+        }
+    }
+    (out, range_raw)
+}
+
+#[test]
+fn the_charge_tail_runs_inside_the_ladder() {
+    // (9). The Log's ladder on a Prince (IgnorePushback, but the Log carries
+    // PushbackAll): every tick's speed is the ladder's, and the run-up follows the
+    // tail -- +tdiv(L x 1000, ChargeRange) while the speed is positive (L = min(speed,
+    // dist, 250) = the speed here: the target is far), 0 on the zero tick and after.
+    // Started 400 permille short of 10000 the Prince CHARGES on the first ladder tick
+    // (the game's charge event) and is un-charged on the zero tick, like a Prince
+    // that was charged when hit. Plant knockback_instant_slide: no ladder, nothing
+    // to add.
+    let (rows, range_raw) = prince_logged_mid_run_up(config(), 9600, false);
+    let (v0, p0, c0) = rows[0];
+    assert!(v0 > 0 && p0 == 9600 && !c0, "the landing tick: the ladder armed at {v0}, the run-up as set ({p0}, charged {c0})");
+    let mut speed = v0;
+    let mut progress = p0;
+    let mut charged = false;
+    let mut zero_tick = None;
+    for (k, &(v, p, c)) in rows.iter().enumerate().skip(1) {
+        speed -= PUSHBACK_DECEL;
+        assert_eq!(v, speed, "ladder tick {k}: the speed");
+        if speed > 0 {
+            if !charged {
+                progress += speed * 1000 / range_raw;
+                if progress >= 10_000 {
+                    charged = true;
+                    progress = 0;
+                }
+            }
+        } else {
+            progress = 0;
+            charged = false;
+            zero_tick.get_or_insert(k);
+        }
+        assert_eq!((p, c), (progress, charged), "ladder tick {k} (speed {speed}): the run-up and the charge");
+    }
+    assert!(rows[1].2, "the first ladder tick (speed {}) takes the run-up past 10000: charged", rows[1].0);
+    let z = zero_tick.expect("the ladder never reached its zero tick");
+    assert!(!rows[z].2 && rows[z].1 == 0, "the zero tick clears the charge and the run-up");
+    assert!(!rows.last().unwrap().2, "un-charged after the back-step");
+
+    // A CHARGED Prince keeps its charge through the positive ticks and loses it on the
+    // zero tick -- the landing itself does not clear it.
+    let (rows, _) = prince_logged_mid_run_up(config(), 0, true);
+    let z = rows.iter().position(|r| r.0 == 0).expect("no zero tick");
+    assert!(z >= 2, "vacuous: no positive ladder tick before the zero tick ({rows:?})");
+    assert!(rows[..z].iter().all(|r| r.2), "charged on the landing tick and every positive ladder tick ({rows:?})");
+    assert!(rows[z..].iter().all(|r| !r.2 && r.1 == 0), "un-charged from the zero tick on ({rows:?})");
+
+    // The foil: charge.RESET_ON_KNOCKBACK = false skips the tail on ladder ticks, the
+    // run-up and the charge held across the whole ladder.
+    let (rows, _) = prince_logged_mid_run_up(with_calib(|c| c.charge_reset_on_knockback = false), 9600, false);
+    assert!(rows.iter().all(|r| r.1 == 9600 && !r.2), "held: {rows:?}");
+    let (rows, _) = prince_logged_mid_run_up(with_calib(|c| c.charge_reset_on_knockback = false), 0, true);
+    assert!(rows.iter().all(|r| r.2), "held: {rows:?}");
 }
 
 #[test]

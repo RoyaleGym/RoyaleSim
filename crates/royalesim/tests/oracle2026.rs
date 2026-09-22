@@ -31,9 +31,11 @@
 //! NOT gated: which of several equally-cheap paths comes back (spec 3.6).
 //!
 //! The reach in the fixture is the LIVE card data's (Range + the mover's own
-//! CollisionRadius from csv_logic/characters/*.toml of 15.535.29), not
-//! data/derived/cards.json's -- that file is the 2018 data and disagrees for
-//! MiniPekka and Knight. Passing the reach in keeps this a test of the PATHFINDER.
+//! CollisionRadius from csv_logic/characters/*.toml of 15.535.29). cards.json is
+//! now the 15.535 vintage too and `the_fixtures_reach_is_the_card_datas` pins that
+//! the two agree on every card here (the 2018 file parted on the Giant, the Knight,
+//! the Mini P.E.K.K.A and the Royal Giant). Passing the reach in still keeps this a
+//! test of the PATHFINDER.
 #![allow(unexpected_cfgs)]
 
 use royalesim::arena::Arena;
@@ -180,12 +182,55 @@ fn plan_with_reach(arena: &Arena, calib: &Calib, c: &Case, reach: i32) -> Vec<(i
         reach,
         flying: false,
         target_flying: false,
-        jumper: false,
+        jumper: jumps(&c.card),
         ignore: None,
     };
     let (cells, ok) = path2026::plan_cells(&world, calib, &req);
     assert!(ok, "{}: no path at all", c.trace);
     cells
+}
+
+#[test]
+fn the_fixtures_reach_is_the_card_datas() {
+    // The fixture carries the live client's own reach; data/derived/cards.json (the
+    // 15.535 vintage) must give the same Range + CollisionRadius for every card the
+    // oracle walked -- the 2018 file disagreed on four of them, which is why the walk
+    // gate (tools/oracle_diff.py) scored 19 of 21 first-path goal cells: the Mini
+    // P.E.K.K.A (1050 + 450) and the Royal Giant (6500 + 750) aimed at other cells.
+    let db = common_cards();
+    let mut seen = std::collections::BTreeMap::new();
+    for c in cases() {
+        let idx = db.index(&c.card).unwrap_or_else(|| panic!("{}: {} is not simulable", c.trace, c.card));
+        let card = db.get(idx);
+        let mine = (card.range + card.collision_radius) / royalesim::fixed::SUBTILE_PER_MILLITILE;
+        assert_eq!(mine, c.reach_native, "{} ({}): cards.json Range + CollisionRadius {mine} vs the live reach {}", c.trace, c.card, c.reach_native);
+        seen.insert(c.card.clone(), c.reach_native);
+    }
+    assert!(seen.len() >= 6 && seen.contains_key("MiniPekka") && seen.contains_key("RoyalGiant"), "vacuous: {seen:?}");
+}
+
+fn common_cards() -> royalesim::card::CardDb {
+    let db = royalesim::card::CardDb::load_repo().expect("data/derived/cards.json (run tools/extract_cards.py)");
+    assert_eq!(db.source, royalesim::card::CardSource::DerivedJson);
+    db
+}
+
+/// Whether the mover of a case is JumpEnabled (cards.json `jump` block): the search
+/// prices water at PATHFINDING_COSTS.water for such a mover (path16402.rs
+/// `cell_cost_for`), so the request carries the card's flag exactly as state.rs
+/// builds it -- the offline corpus has one such mover, the Hog Rider of
+/// walk/HogRider_x3.5_y8.5_seed2 (its route stays on the bridge column either way,
+/// which is why the gates never saw the flag).
+fn jumps(card: &str) -> bool {
+    use std::sync::OnceLock;
+    static DB: OnceLock<royalesim::card::CardDb> = OnceLock::new();
+    let db = DB.get_or_init(common_cards);
+    match db.index(card) {
+        Some(idx) => db.get(idx).jump.is_some(),
+        // the spawned troops of the live corpus (HutSpearGoblin, TombSkeleton, the
+        // hero form) are not cards: none jumps
+        None => false,
+    }
 }
 
 #[test]
@@ -429,6 +474,7 @@ const CLIENT16402_FIXTURE: &str = include_str!("fixtures/oracle2026/client16402_
 struct Client16402Case {
     name: String,
     group: String,
+    card: String,
     side: i32,
     start_native: [i32; 2],
     target_native: [i32; 2],
@@ -477,7 +523,7 @@ fn plan_client16402_case(arena: &Arena, calib: &Calib, c: &Client16402Case) -> (
         reach: sub(c.reach_native),
         flying: false,
         target_flying: false,
-        jumper: false,
+        jumper: jumps(&c.card),
         ignore: None,
     };
     let (cells, ok) = path2026::plan_cells(&world, calib, &req);

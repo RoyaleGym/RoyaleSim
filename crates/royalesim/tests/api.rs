@@ -67,15 +67,20 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // A card that is in cards.json but whose mechanic the engine does not simulate
     // must read as UNSUPPORTED with a reason, never as "unknown".
     // It must be a card the loader genuinely refuses: Fireball no longer is, now
-    // that spells load.
-    // Rage still is -- a pulsing area effect (HitSpeed set), refused by
-    // card.rs `convert_spell`, with its reason read back from the loader.
-    match s.check_deploy(Team::Blue, "Rage", t(900, 1000)) {
+    // that spells load, and Rage no longer carries an area effect in the 15.535
+    // data at all (its buff is an action graph), so it is refused for "no mechanic
+    // in the data". Poison is a pulsing area effect (HitSpeed set) in both vintages,
+    // refused by card.rs `convert_spell`, with its reason read back from the loader.
+    match s.check_deploy(Team::Blue, "Poison", t(900, 1000)) {
         Err(DeployError::UnsupportedCard(n, why)) => {
-            assert_eq!(n, "Rage");
-            assert!(why.contains("pulsing"), "Rage refused for an unexpected reason: {why}");
+            assert_eq!(n, "Poison");
+            assert!(why.contains("pulsing"), "Poison refused for an unexpected reason: {why}");
         }
         other => panic!("expected UnsupportedCard, got {other:?}"),
+    }
+    match s.check_deploy(Team::Blue, "Rage", t(900, 1000)) {
+        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "Rage"),
+        other => panic!("expected UnsupportedCard for Rage, got {other:?}"),
     }
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never

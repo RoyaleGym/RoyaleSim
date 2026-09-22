@@ -44,6 +44,19 @@ fn id_of(s: &BattleState, team: Team, card: &str) -> EntityId {
     v[0].id
 }
 
+/// A PLAIN attacking building that is not the Cannon, for scenes that need a second
+/// building target: no hide (a Tesla goes under), no spawner, no death spawn. The
+/// 2018 Bomb Tower; in 15.535 the Bomb Tower death-spawns a hitpoint-less bomb the
+/// loader refuses, so the next plain row stands in (the Inferno Tower: its damage
+/// ramp is not simulated, but here it is only a target).
+fn plain_building(s: &BattleState) -> &'static str {
+    let db = s.cards();
+    ["BombTower", "InfernoTower", "Mortar", "Xbow"]
+        .into_iter()
+        .find(|n| db.index(n).is_some_and(|i| { let c = db.get(i); c.hide.is_none() && c.spawner.is_none() && c.death_spawn.is_none() && c.damage > 0 }))
+        .expect("no plain building loads from cards.json")
+}
+
 fn tick_n(s: &mut BattleState, n: u32) {
     for _ in 0..n {
         s.tick();
@@ -200,13 +213,14 @@ fn target_is_locked_once_the_windup_has_started() {
         let mut s = BattleState::new(1, config());
         let range = card_stat(&s, "Knight").range;
         let cr = card_stat(&s, "Cannon").collision_radius;
-        let tr = card_stat(&s, "BombTower").collision_radius;
+        let building = plain_building(&s);
+        let tr = card_stat(&s, building).collision_radius;
         let k = t(900, 2000);
         let c = Vec2::new(k.x, k.y + range + cr);
-        // Bomb Tower nearer than the moved Cannon will be, but out of range now.
+        // The plain building nearer than the moved Cannon will be, but out of range now.
         let tesla = Vec2::new(k.x + range + tr + SUBTILE * 3 / 10, k.y);
         s.spawn_unit(Team::Red, "Cannon", c, None).unwrap();
-        s.spawn_unit(Team::Red, "BombTower", tesla, None).unwrap();
+        s.spawn_unit(Team::Red, building, tesla, None).unwrap();
         s.spawn_unit(Team::Blue, "Knight", k, None).unwrap();
         let cannon = {
             s.tick();
@@ -750,7 +764,8 @@ fn valkyrie_splash_is_centred_on_the_valkyrie_not_her_target() {
     let v = card_stat(&s, "Valkyrie");
     assert!(v.self_as_aoe_center, "data: Valkyrie self_as_aoe_center");
     let (range, splash) = (v.range, v.area_damage_radius);
-    let tr = card_stat(&s, "BombTower").collision_radius;
+    let building = plain_building(&s);
+    let tr = card_stat(&s, building).collision_radius;
     let cr = card_stat(&s, "Cannon").collision_radius;
     let valk = t(900, 1900);
     let tesla = Vec2::new(valk.x, valk.y - range - tr); // exactly in edge range, toward the river
@@ -759,11 +774,11 @@ fn valkyrie_splash_is_centred_on_the_valkyrie_not_her_target() {
     // from the Bomb Tower the Cannon is out of splash reach:
     assert!(tesla.dist(cannon) > splash + cr, "geometry: Cannon must be out of a target-centred splash");
     assert!(s.arena().is_passable_ground(tesla));
-    s.spawn_unit(Team::Red, "BombTower", tesla, None).unwrap();
+    s.spawn_unit(Team::Red, building, tesla, None).unwrap();
     s.spawn_unit(Team::Red, "Cannon", cannon, None).unwrap();
     s.spawn_unit(Team::Blue, "Valkyrie", valk, None).unwrap();
     s.tick();
-    let (tid, cid) = (id_of(&s, Team::Red, "BombTower"), id_of(&s, Team::Red, "Cannon"));
+    let (tid, cid) = (id_of(&s, Team::Red, building), id_of(&s, Team::Red, "Cannon"));
     let cmax = s.entity(cid).unwrap().max_hp;
     let tmax = s.entity(tid).unwrap().max_hp;
     let hit = run_until(&mut s, 200, |s| s.entity(tid).map_or(true, |t| t.hp < tmax));

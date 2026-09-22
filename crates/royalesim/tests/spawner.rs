@@ -114,6 +114,47 @@ fn first_wave_tick(sp: &royalesim::card::SpawnerDef) -> u32 {
     }
 }
 
+/// The appearance post-ticks of `waves` waves of `sp` whose first unit lands at `m1`:
+/// the units of a wave `SpawnInterval` apart (a blank interval: all on one tick), the
+/// next wave one pause after the LAST unit (the shipped PauseAnchor::AfterLastUnit).
+fn wave_ticks(sp: &royalesim::card::SpawnerDef, m1: u32, waves: u32) -> Vec<u32> {
+    let step = ticks_of(sp.interval_ms);
+    let mut out = Vec::new();
+    let mut base = m1;
+    for _ in 0..waves {
+        for j in 0..sp.number as u32 {
+            out.push(base + j * step);
+        }
+        base = *out.last().unwrap() + ticks_of(sp.pause_time_ms);
+    }
+    out
+}
+
+/// The first simulable card of `prefer` whose spawner block satisfies `ok` -- the
+/// data decides which row exercises a shape (2018 and 15.535 differ: the reworked
+/// Goblin Hut and the Furnace spawn from action graphs the loader refuses, the
+/// 15.535 Witch's wave is instantaneous where the 2018 one was 300 ms apart, the
+/// 15.535 Tombstone's is two Skeletons 500 ms apart where the 2018 one was one).
+fn spawner_card(s: &BattleState, prefer: &[&'static str], ok: impl Fn(&royalesim::card::SpawnerDef) -> bool) -> &'static str {
+    let db = s.cards();
+    prefer
+        .iter()
+        .copied()
+        .find(|n| db.index(n).is_some_and(|i| db.get(i).spawner.is_some_and(|sp| ok(&sp))))
+        .unwrap_or_else(|| panic!("no simulable card among {prefer:?} has the spawner shape this test needs"))
+}
+
+/// A hut with a column spawner (2018: the Goblin Hut; 15.535: the Barbarian Hut).
+fn plain_hut(s: &BattleState) -> &'static str {
+    spawner_card(s, &["GoblinHut", "BarbarianHut"], |_| true)
+}
+
+/// A card whose wave is TIMED: several units, SpawnInterval apart (2018: the Witch;
+/// 15.535: the Tombstone).
+fn timed_wave_card(s: &BattleState) -> &'static str {
+    spawner_card(s, &["Witch", "Tombstone", "BarbarianHut"], |sp| sp.number >= 2 && sp.interval_ms > 0)
+}
+
 /// Run `n` ticks and record, per unit of `card` on `team` NOT already alive, the
 /// post-tick index it first existed at (in order of appearance).
 fn first_seen(s: &mut BattleState, n: u32, team: Team, card: &str) -> Vec<(u32, EntityId)> {
@@ -137,7 +178,6 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     let mut s = bare(config());
     let sp = spawner(&s, hut);
     let unit = unit_name(&s, sp.unit);
-    assert_eq!(sp.number, 1, "data: {hut} spawns one unit per wave");
     assert!(sp.start_time_ms.is_none(), "data: {hut} has a blank SpawnStartTime");
     let pos = blue_spot(&s);
     let hut_id = s.scenario_spawn_now(Team::Blue, hut, pos, None).unwrap();
@@ -145,14 +185,23 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     let unit_r = s.cards().get(sp.unit).collision_radius;
     let m1 = first_wave_tick(&sp);
     let period = ticks_of(sp.pause_time_ms);
-    let want: Vec<u32> = (0..3).map(|k| m1 + k * period).collect();
-    // THE ONE-TICK LATENCY: the unit is PENDING one post-tick before it exists.
+    // Up to three waves within the hut's LifeTime (the 15.535 Barbarian Hut's 14 s
+    // pause fits two in its 30 s): one unit per wave in the 2018 rows, the 15.535
+    // Tombstone's two Skeletons 500 ms apart, the Barbarian Hut's three -- the data's
+    // own shape.
+    let life = card_stat(&s, hut).lifetime_ms.map_or(u32::MAX, ticks_of);
+    let waves = (1..=3).rev().find(|&w| wave_ticks(&sp, m1, w).last().copied().unwrap() + 2 < life).unwrap_or(1);
+    assert!(waves >= 2, "scene: {hut} fits only {waves} wave(s) in its lifetime");
+    let want = wave_ticks(&sp, m1, waves);
+    // THE ONE-TICK LATENCY: the unit is PENDING one post-tick before it exists (the
+    // whole wave when its interval is blank, its first unit otherwise).
+    let first_batch = if sp.interval_ms > 0 { 1 } else { sp.number as usize };
     let pending = |s: &BattleState| s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == sp.unit).count();
     for _ in 0..m1 - 1 {
         s.tick();
     }
     assert!(find_live(&s, Team::Blue, &unit).is_empty(), "no {unit} before post-tick {m1}");
-    assert_eq!(pending(&s), 1, "post-tick {}: the first {unit} is queued", m1 - 1);
+    assert_eq!(pending(&s), first_batch, "post-tick {}: the first {unit}(s) queued", m1 - 1);
     s.tick();
     assert_eq!(pending(&s), 0, "post-tick {m1}: the queue has drained into the world");
     let mut got = vec![(s.tick_count(), find_live(&s, Team::Blue, &unit).first().expect("the first unit exists at post-tick m1").id)];
@@ -199,21 +248,25 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
         assert!(v.pos.y >= pos.y + hut_r + unit_r, "post-tick {}: the {unit} is still inside the {hut}'s circle ({:?})", probe.tick_count(), v.pos);
         assert!(v.deploying, "vacuous: the {unit} finished deploying before it was clear");
     }
-    // The next two waves, on the tick.
-    got.extend(first_seen(&mut s, want[2] - m1 + 2, Team::Blue, &unit));
+    // The rest of the first wave and the next two waves, on the tick.
+    got.extend(first_seen(&mut s, want.last().unwrap() - m1 + 2, Team::Blue, &unit));
     let ticks: Vec<u32> = got.iter().map(|(k, _)| *k).collect();
-    assert_eq!(ticks, want, "{hut}: {unit} first-appearance ticks (pause {} ms = {period} ticks)", sp.pause_time_ms);
+    assert_eq!(ticks, want, "{hut}: {unit} first-appearance ticks ({} per wave {} ms apart, pause {} ms = {period} ticks)", sp.number, sp.interval_ms, sp.pause_time_ms);
 }
 
 #[test]
-fn tombstone_spawns_one_skeleton_per_pause_on_the_predicted_ticks() {
+fn tombstone_spawns_its_wave_of_skeletons_per_pause_on_the_predicted_ticks() {
     // Plant spawner_never_fires: no Skeleton ever exists.
     hut_spawns_on_the_predicted_ticks("Tombstone");
 }
 
 #[test]
-fn goblin_hut_spawns_one_spear_goblin_per_pause_on_the_predicted_ticks() {
-    hut_spawns_on_the_predicted_ticks("GoblinHut");
+fn a_hut_spawns_its_wave_per_pause_on_the_predicted_ticks() {
+    // The 2018 Goblin Hut (one Spear Goblin per pause); in 15.535 the reworked hut
+    // spawns from an action graph the loader refuses, and the Barbarian Hut (three
+    // Barbarians 500 ms apart per pause) stands in.
+    let hut = plain_hut(&bare(config()));
+    hut_spawns_on_the_predicted_ticks(hut);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,16 +278,15 @@ fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_act
     let mut s = bare(config());
     let sp = spawner(&s, "Witch");
     let unit = unit_name(&s, sp.unit);
-    assert!(sp.number >= 2 && sp.interval_ms > 0, "data: the Witch's wave is timed ({} units {} ms apart)", sp.number, sp.interval_ms);
+    // 2018: 3 Skeletons 300 ms apart; 15.535: 4 on one tick (a blank SpawnInterval).
+    assert!(sp.number >= 2, "data: the Witch's wave is several units ({} units {} ms apart)", sp.number, sp.interval_ms);
     let start = sp.start_time_ms.expect("data: the Witch has a SpawnStartTime");
     assert_eq!(calib().spawner_pause_anchor, PauseAnchor::AfterLastUnit, "the shipped arm this test pins");
     let pos = blue_spot(&s);
     let witch = s.scenario_spawn_now(Team::Blue, "Witch", pos, None).unwrap();
     let m1 = ticks_of(start) + 1;
-    let step = ticks_of(sp.interval_ms);
-    let mut want: Vec<u32> = (0..sp.number as u32).map(|k| m1 + k * step).collect();
-    // The next wave: one pause after the LAST unit of this one.
-    want.push(*want.last().unwrap() + ticks_of(sp.pause_time_ms));
+    // Two waves: the second one pause after the LAST unit of the first.
+    let want = wave_ticks(&sp, m1, 2);
     let seen = first_seen(&mut s, *want.last().unwrap() + 2, Team::Blue, &unit);
     let ticks: Vec<u32> = seen.iter().map(|(k, _)| *k).collect();
     assert_eq!(ticks, want, "Witch: {unit} first-appearance ticks");
@@ -495,38 +547,44 @@ fn a_snapshot_mid_countdown_and_mid_wave_resumes_hash_for_hash() {
     // Plant spawner_never_fires: the resumed battle never spawns (the test then
     // fails on vacuity, which is the point).
     let mut s = bare(config());
-    let sp = spawner(&s, "Witch");
+    // The timed-wave card (2018: the Witch; 15.535: the Tombstone) beside a companion
+    // spawner whose units are its own.
+    let timed = timed_wave_card(&s);
+    let companion = if timed == "Witch" { "Tombstone" } else { "Witch" };
+    let sp = spawner(&s, timed);
+    let unit = unit_name(&s, sp.unit);
     let pos = blue_spot(&s);
-    s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
-    let witch = s.scenario_spawn_now(Team::Blue, "Witch", Vec2::new(pos.x + 3 * royalesim::fixed::SUBTILE, pos.y), None).unwrap();
-    // Into the Witch's first wave: one unit QUEUED (pending, owned by her -- so the
-    // blob carries a PendingSpawn.owner, where an earlier version saved one tick
-    // later with the queue empty), the rest of the wave still to come.
-    let start = ticks_of(sp.start_time_ms.unwrap());
-    for _ in 0..start {
-        s.tick();
-    }
+    s.scenario_spawn_now(Team::Blue, companion, pos, None).unwrap();
+    let witch = s.scenario_spawn_now(Team::Blue, timed, Vec2::new(pos.x + 3 * royalesim::fixed::SUBTILE, pos.y), None).unwrap();
+    // Into its first wave: one unit QUEUED (pending, owned by it -- so the blob
+    // carries a PendingSpawn.owner, where an earlier version saved one tick later
+    // with the queue empty), the rest of the wave still to come.
+    let mid = run_until(&mut s, 200, |s| {
+        let w = s.entity(witch).unwrap();
+        w.spawn_wave_left > 0 && w.spawn_wave_left < sp.number && s.pending_spawns().iter().any(|(t, c, _)| *t == Team::Blue && *c == sp.unit)
+    });
+    assert!(mid < 200, "vacuous: {timed} never reached a mid-wave state with a unit queued");
     let w = s.entity(witch).unwrap();
     assert!(w.spawn_wave_left > 0 && w.spawn_wave_left < sp.number, "vacuous: not mid-wave ({} left)", w.spawn_wave_left);
-    assert_eq!(s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == sp.unit).count(), 1, "vacuous: no owned Skeleton pending at the save");
-    let hers = |s: &BattleState| find_live(s, Team::Blue, "Skeleton").into_iter().filter(|e| e.spawned_by == Some(witch)).count();
-    assert_eq!(hers(&s), 0, "vacuous: the Witch's first Skeleton already exists (the Tombstone's are its own)");
+    assert_eq!(s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == sp.unit).count(), 1, "vacuous: no owned {unit} pending at the save");
+    let hers = |s: &BattleState| find_live(s, Team::Blue, &unit).into_iter().filter(|e| e.spawned_by == Some(witch)).count();
+    assert_eq!(hers(&s), 0, "vacuous: {timed}'s first {unit} already exists (the companion's are its own)");
     let blob = s.save();
     let mut l = BattleState::load(&blob).unwrap();
     assert_eq!(l.state_hash(), s.state_hash());
     let lw = l.entity(witch).unwrap();
     assert_eq!((lw.spawn_ms, lw.spawn_wave_left), (w.spawn_ms, w.spawn_wave_left));
-    let before = find_live(&s, Team::Blue, "Skeleton").len();
+    let before = find_live(&s, Team::Blue, &unit).len();
     for k in 0..200 {
         s.tick();
         l.tick();
         assert_eq!(l.state_hash(), s.state_hash(), "diverged {k} ticks after the load");
         if k == 0 {
-            // The pending Skeleton materialised in the loaded battle WITH its owner.
-            assert_eq!(hers(&l), 1, "the pending Skeleton did not materialise after the load with PendingSpawn.owner intact");
+            // The pending unit materialised in the loaded battle WITH its owner.
+            assert_eq!(hers(&l), 1, "the pending {unit} did not materialise after the load with PendingSpawn.owner intact");
         }
     }
-    assert!(find_live(&s, Team::Blue, "Skeleton").len() > before || s.entities().filter(|e| e.card == "Skeleton").count() > 0, "vacuous: nothing spawned after the load");
+    assert!(find_live(&s, Team::Blue, &unit).len() > before || s.entities().filter(|e| e.card == unit).count() > 0, "vacuous: nothing spawned after the load");
 }
 
 // ---------------------------------------------------------------------------
@@ -617,17 +675,21 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         assert_eq!(u.pos.x, pos.x, "at_centre: the coincident push left the axis");
         assert!(u.pos.y < pos.y && u.pos.y >= pos.y - r, "at_centre: the coincident push sends it toward Blue's own side ({:?} from {pos:?})", u.pos);
     }
-    // PAUSE_ANCHOR: the Witch's second wave comes one pause after the FIRST unit.
+    // PAUSE_ANCHOR: the timed-wave card's second wave comes one pause after the
+    // FIRST unit (the 2018 Witch; the 15.535 Tombstone -- the 15.535 Witch's wave
+    // is instantaneous and cannot part the arms).
     {
         let mut s = bare(with_calib(|c| c.spawner_pause_anchor = PauseAnchor::AfterFirstUnit));
-        let sp = spawner(&s, "Witch");
+        let timed = timed_wave_card(&s);
+        let sp = spawner(&s, timed);
+        let unit = unit_name(&s, sp.unit);
         let pos = blue_spot(&s);
-        s.scenario_spawn_now(Team::Blue, "Witch", pos, None).unwrap();
-        let m1 = ticks_of(sp.start_time_ms.unwrap()) + 1;
+        s.scenario_spawn_now(Team::Blue, timed, pos, None).unwrap();
+        let m1 = first_wave_tick(&sp);
         let want = m1 + ticks_of(sp.pause_time_ms - (sp.number - 1) * sp.interval_ms) + (sp.number as u32 - 1) * ticks_of(sp.interval_ms);
-        let seen = first_seen(&mut s, want + 2, Team::Blue, "Skeleton");
+        let seen = first_seen(&mut s, want + 2, Team::Blue, &unit);
         assert_eq!(seen[sp.number as usize].0, want, "after_first_unit_of_wave: waves {:?}", seen.iter().map(|(k, _)| *k).collect::<Vec<_>>());
-        assert!(want < m1 + ticks_of(sp.pause_time_ms) + (sp.number as u32 - 1) * ticks_of(sp.interval_ms), "the arms differ on the Witch");
+        assert!(want < m1 + ticks_of(sp.pause_time_ms) + (sp.number as u32 - 1) * ticks_of(sp.interval_ms), "the arms differ on {timed}");
     }
     // DEATH_SPAWN_RADIUS_DEFAULT = zero: every Tombstone Skeleton is queued ON the point.
     {
@@ -680,7 +742,18 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     let db = cards();
     let raw = |n: &str| doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == n).unwrap().clone();
     let int = |v: &serde_json::Value| v.as_i64().map(|x| x as i32);
-    for hut in ["Tombstone", "GoblinHut", "BarbarianHut", "Witch", "DarkWitch"] {
+    // Every card of the file with a periodic-spawner block the loader took (the
+    // 2018 Goblin Hut and Furnace; in 15.535 both are refused for their action
+    // graphs and their blocks are cleared rows).
+    let with_block: Vec<String> = doc["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["spawner"]["character"].is_string() && c["spawner"]["number"].is_number() && db.index(c["name"].as_str().unwrap()).is_some())
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(with_block.len() >= 4 && ["Tombstone", "Witch", "DarkWitch", "BarbarianHut"].iter().all(|n| with_block.iter().any(|w| w == n)), "vacuous: spawner rows {with_block:?}");
+    for hut in with_block.iter().map(String::as_str) {
         let idx = db.index(hut).unwrap_or_else(|| panic!("{hut} rejected: {:?}", db.rejected.iter().find(|(n, _)| n == hut)));
         let sp = db.get(idx).spawner.unwrap_or_else(|| panic!("{hut}: no spawner read"));
         let j = &raw(hut)["spawner"];
@@ -707,29 +780,49 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     assert_eq!(db.get(db.index("Tombstone").unwrap()).death_spawn.unwrap().unit, skel);
     assert!(db.get(skel).summon_only && db.get(skel).kind == CardKind::Troop);
     assert_eq!(db.cards.iter().filter(|c| c.summon_only && c.name == "Skeleton").count(), 1, "the Skeleton record is loaded once");
-    // A unit that IS a card (FireSpirits) resolves to that card, not a duplicate.
-    let hut = db.get(db.index("FirespiritHut").unwrap_or_else(|| panic!("FirespiritHut rejected: {:?}", db.rejected))).spawner.unwrap();
-    assert_eq!(hut.unit, db.index("FireSpirits").unwrap());
-    assert!(!db.get(hut.unit).summon_only);
+    // A unit that IS a card resolves to that card, not a duplicate: the 2018
+    // Furnace's FireSpirits (in 15.535 the reworked Furnace is refused for its
+    // action graph and no loaded spawner names a card -- the Goblins card summons
+    // Goblin_Stab -- so the rule is checked over every loaded block and holds
+    // vacuously there).
+    let mut shared = 0;
+    for c in db.cards.iter().filter(|c| !c.summon_only) {
+        for unit in c.spawner.map(|sp| sp.unit).into_iter().chain(c.death_spawn.map(|ds| ds.unit)) {
+            let u = db.get(unit);
+            // A playable card of the unit's name (a summon-only record is registered
+            // under its name too, so the playable one is the non-summon-only card).
+            if let Some(as_card) = db.cards.iter().position(|x| !x.summon_only && x.spell.is_none() && x.name == u.name) {
+                assert_eq!(as_card as u16, unit, "{}: its unit {} is a playable card but loaded twice", c.name, u.name);
+                assert!(!u.summon_only, "{}: {} is a card and must not be summon-only", c.name, u.name);
+                shared += 1;
+            }
+        }
+    }
+    if let Some(hut) = db.index("FirespiritHut") {
+        assert_eq!(db.get(hut).spawner.unwrap().unit, db.index("FireSpirits").unwrap());
+        assert!(shared >= 1);
+    }
     // The huts are non-attacking buildings: range 0, no damage, never a target decision.
     let tomb = db.get(db.index("Tombstone").unwrap());
     assert_eq!((tomb.range, tomb.sight_range, tomb.damage), (0, 0, 0));
     // Units the loader cannot run are REJECTED, naming the unit AND the reason: the
-    // four bombs/bottles/containers are hitpoint-less objects, the BrokenCannon a
-    // troop with a LifeTime. ~~SkeletonBalloon: a chain~~ -- its SkeletonContainer
-    // is refused on `hitpoints` first; its `SpawnCharacter =
-    // Skeleton` with blank SpawnNumber / SpawnPauseTime is read as NO periodic
-    // spawner (the game's own blank), not as a partial block.
-    for (card, unit, reason) in [
-        ("Balloon", "BalloonBomb", "hitpoints"),
-        ("GiantSkeleton", "GiantSkeletonBomb", "hitpoints"),
-        ("RageBarbarian", "RageBarbarianBottle", "hitpoints"),
-        ("MovingCannon", "BrokenCannon", "LifeTime"),
-        ("SkeletonBalloon", "SkeletonContainer", "hitpoints"),
+    // bombs/bottles/containers are hitpoint-less objects, the 2018 BrokenCannon a
+    // troop with a LifeTime, the 15.535 Lumberjack's rage a death area effect, the
+    // 15.535 Cannon Cart and Skeleton Barrel action graphs. ~~SkeletonBalloon: a
+    // chain~~ -- its SkeletonContainer is refused on `hitpoints` first; its
+    // `SpawnCharacter = Skeleton` with blank SpawnNumber / SpawnPauseTime is read as
+    // NO periodic spawner (the game's own blank), not as a partial block. Each card
+    // lists the reasons either vintage's row earns.
+    for (card, reasons) in [
+        ("Balloon", &["BalloonBomb: missing hitpoints"][..]),
+        ("GiantSkeleton", &["GiantSkeletonBomb: missing hitpoints"]),
+        ("RageBarbarian", &["RageBarbarianBottle: missing hitpoints", "death area effect RageBarbarianDummyForSpawn"]),
+        ("MovingCannon", &["BrokenCannon is a troop with a LifeTime", "action graph"]),
+        ("SkeletonBalloon", &["SkeletonContainer: missing hitpoints", "action graph"]),
     ] {
         assert!(db.index(card).is_none(), "{card} must not be simulable");
         let (_, why) = db.rejected.iter().find(|(n, _)| n == card).unwrap_or_else(|| panic!("{card} not listed as rejected"));
-        assert!(why.contains(unit) && why.contains(reason), "{card}: {why}");
+        assert!(reasons.iter().any(|r| why.contains(r)), "{card}: {why} (expected one of {reasons:?})");
         assert!(!why.contains("SpawnNumber"), "{card}: the pair-blank spawner block was read as a partial block: {why}");
     }
     // (16) Nothing points at the unresolved unit: a rejected card's blocks are dropped
@@ -742,8 +835,12 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
         }
     }
     for card in ["Balloon", "GiantSkeleton", "RageBarbarian", "SkeletonBalloon"] {
-        let c = db.cards.iter().find(|c| c.name == card).unwrap();
-        assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{card}: a rejected card kept a unit block");
+        // Rejected after the push (an unloadable unit, a death area effect): in the
+        // list, unregistered, its blocks dropped. Rejected in `convert` (an action
+        // graph): never pushed at all.
+        if let Some(c) = db.cards.iter().find(|c| c.name == card) {
+            assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{card}: a rejected card kept a unit block");
+        }
     }
     // A partial block is refused with its column named.
     let broken = LIMITED_CARDS.replacen("\"pause_time_ms\":500", "\"pause_time_ms\":null", 1);
@@ -799,25 +896,46 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     assert!(bats.iter().all(|b| (b.pos.y - point.y).abs() <= nudge), "the Bats are not SpawnRadius ahead: {:?} vs {point:?}", bats.iter().map(|b| b.pos).collect::<Vec<_>>());
     assert_eq!(s.entity(witch).unwrap().spawn_wave_left, 0, "a simultaneous wave leaves nothing pending");
 
-    // BattleRam: DeathSpawnDeployTime 800 overrides the Barbarian's own DeployTime.
-    let mut s = bare(config());
-    let ds = death_spawn(&s, "BattleRam");
-    let own = s.cards().get(ds.unit).deploy_time_ms;
-    let block = ds.deploy_time_ms.expect("data: the BattleRam ships a DeathSpawnDeployTime");
-    assert_ne!(own, block, "vacuous: the override equals the unit's own deploy time");
-    let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", pos, None).unwrap();
-    s.tick();
-    assert!(s.debug_set_hp(ram, 0));
-    let barb = unit_name(&s, ds.unit);
-    let barbs = first_seen(&mut s, 3, Team::Blue, &barb);
-    assert_eq!(barbs.len(), ds.count as usize, "{barbs:?}");
-    for (seen_at, id) in &barbs {
-        let b = s.entity(*id).unwrap();
-        // One TICK_MS counted down per tick since it was first seen, plus the spawn
-        // tick's own countdown (match.TICK_ORDER).
-        let gone = dt() * (s.tick_count() - seen_at) as i32 + spawn_tick_countdown(&calib());
-        assert_eq!(b.deploy_ms + gone, block, "a Barbarian took {} + {gone} instead of the block's {block}", b.deploy_ms);
-    }
+    // BattleRam: DeathSpawnDeployTime overrides the Barbarian's own DeployTime (the
+    // 2018 row: 800 against 1000, which parts the override from the unit's own; the
+    // 15.535 row ships 1000 = the Barbarian's, so on the shipped data only the VALUE
+    // is pinned and the two readings coincide -- no other 15.535 death spawn ships a
+    // DeathSpawnDeployTime at all). So the MECHANISM is pinned on a synthetic row
+    // too: the shipped file with the block's deploy time moved
+    // 200 ms off the Barbarian's own, where the Barbarians must take the block's.
+    let ram_barbarians = |cfg: BattleConfig| -> (i32, i32, Vec<i32>) {
+        let mut s = bare(cfg);
+        let ds = death_spawn(&s, "BattleRam");
+        let own = s.cards().get(ds.unit).deploy_time_ms;
+        let block = ds.deploy_time_ms.expect("data: the BattleRam ships a DeathSpawnDeployTime");
+        let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", pos, None).unwrap();
+        s.tick();
+        assert!(s.debug_set_hp(ram, 0));
+        let barb = unit_name(&s, ds.unit);
+        let barbs = first_seen(&mut s, 3, Team::Blue, &barb);
+        assert_eq!(barbs.len(), ds.count as usize, "{barbs:?}");
+        let took = barbs
+            .iter()
+            .map(|(seen_at, id)| {
+                let b = s.entity(*id).unwrap();
+                // One TICK_MS counted down per tick since it was first seen, plus the
+                // spawn tick's own countdown (match.TICK_ORDER).
+                b.deploy_ms + dt() * (s.tick_count() - seen_at) as i32 + spawn_tick_countdown(&calib())
+            })
+            .collect();
+        (own, block, took)
+    };
+    let (own, block, took) = ram_barbarians(config());
+    assert!(took.iter().all(|t| *t == block), "the Barbarians took {took:?} instead of the block's {block} (the shipped data: the unit's own is {own})");
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).unwrap();
+    let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let ram = doc["cards"].as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "BattleRam").unwrap();
+    let moved = own + 200;
+    ram["death_spawn"]["deploy_time_ms"] = serde_json::Value::from(moved);
+    let db = CardDb::from_json_str(&doc.to_string(), CardSource::DerivedJson).unwrap();
+    let (own2, block2, took) = ram_barbarians(BattleConfig::with_cards(db));
+    assert_eq!((own2, block2), (own, moved), "the synthetic row");
+    assert!(took.iter().all(|t| *t == moved), "synthetic DeathSpawnDeployTime {moved}: the Barbarians took {took:?} (their own is {own2}) -- the column is not read");
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,14 @@
 //!      takes the boxed cell when it is nearer; a ground target keeps the demotion;
 //!   6. a jumper whose next node is a bridge cell never hops (the first Royal Hog);
 //!   7. determinism and a save / load mid-leap that reproduces every later tick;
-//!   8. the walk_priced_water foil walks the water at Speed and never enters state 5.
+//!   8. the walk_priced_water foil walks the water at Speed and never enters state 5;
+//!   9. THE SHIPPED DATA carries the jump blocks: every test above
+//!      writes the fixture's row over the card, so a cards.json regenerated without
+//!      the `jump` block (the main tree's, until it re-runs the extractor) would pass
+//!      them while the shipped Hog Rider walked to the bridge -- this one reads
+//!      data/derived/cards.json's own Hog Rider and Prince through the loader, and
+//!      the Hog's block against the fixture's 15.535 row, and the Hog leaps from the
+//!      fixture's Hog Rider placement on the SHIPPED card alone.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="<name>"' CARGO_TARGET_DIR=target/plant cargo test
 //! --test jump16402`): goal_ignores_flying_target red on (5) and green on every
@@ -523,4 +530,34 @@ fn the_walk_priced_water_foil_walks_the_river_at_speed() {
     let speed = stat(c, "Speed");
     assert!(wet_ticks >= 10, "the foil walks through the water cells: {wet_ticks} wet ticks");
     assert!(max_step <= speed, "at its Speed, never JumpSpeed: max step {max_step}");
+}
+
+#[test]
+fn the_shipped_cards_json_carries_the_jump_blocks_and_the_shipped_hog_leaps() {
+    // (9). No fixture row written over the card here: the loader's own view of
+    // data/derived/cards.json (tools/extract_cards.py --vintage 15.535.29). The
+    // fixture's 15.535 Hog Rider row is the reference the block must equal.
+    let db: CardDb = cards();
+    let fx = fixture();
+    let c = fx.cases.iter().find(|c| c.name == HOG).unwrap();
+    for name in ["HogRider", "Prince", "DarkPrince"] {
+        let idx = db.index(name).unwrap_or_else(|| panic!("{name} is not simulable: {:?}", db.rejected));
+        let jump = db.get(idx).jump.unwrap_or_else(|| panic!("the shipped cards.json {name} has no `jump` block: regenerate it (tools/extract_cards.py --vintage 15.535.29)"));
+        assert!(jump.speed > 0 && jump.height_raw > 0, "{name}: {jump:?}");
+    }
+    let hog = db.get(db.index("HogRider").unwrap()).jump.unwrap();
+    assert_eq!(hog, JumpDef { speed: stat(c, "JumpSpeed"), height_raw: stat(c, "JumpHeight") }, "the shipped Hog Rider's block against the 15.535 row of the fixture");
+    // And the shipped card leaps: from the fixture's placement (the river centre), with
+    // nothing written over it.
+    let mut s = BattleState::new(3, BattleConfig::with_cards(db));
+    let id = s.scenario_spawn_now(Team::Blue, "HogRider", Vec2::new(sub(c.spawn_native[0]), sub(c.spawn_native[1])), None).unwrap();
+    let mut leapt = false;
+    for _ in 0..200 {
+        s.tick();
+        if s.entity(id).unwrap().jumping {
+            leapt = true;
+            break;
+        }
+    }
+    assert!(leapt, "the shipped Hog Rider never entered state 5 from the river centre");
 }

@@ -12,11 +12,31 @@
 //!     ladder 800 -> 880, 968, 1064, 1168, 1280, 1408, 1544 exactly. The old
 //!     engine's 1.1^(level-1) drifts from level 4 on (1065, 1171, ...).
 //!     ROUNDING: truncation toward zero (all inputs are non-negative, so this is
-//!     floor). UNVERIFIED -- calibration combat.DAMAGE_ARITHMETIC is a guess; the
-//!     Hog ladder is exact under every rounding mode, so it cannot decide.
+//!     floor). MEASURED for hitpoints on the 16.402 live captures (tests/levels.rs:
+//!     Musketeer 282 x 256 % = 721.92 -> 721, Hog Rider 663 x 256 % = 1697.28 ->
+//!     1697); the composition with crown-tower percent and shields is still
+//!     calibration combat.DAMAGE_ARITHMETIC.
+//! WHICH RARITY'S TABLE, AND FROM WHICH LEVEL (calibration.json
+//!     combat.STAT_BASE_LEVEL = object_rarity_local_1, measured live): the table
+//!     is the one of the OBJECT that carries the stat -- the character / projectile
+//!     row's own Rarity column -- entered at unified `level - RelativeLevel(that
+//!     rarity)`; the CARD's rarity only bounds the levels the card can be played at.
+//!     In the 2018 files the character row carried the card's rarity, so the two
+//!     coincide (Hog Rider Rare, 800 at unified 3). In the 15.535 files every base
+//!     object says Common with the unified level-1 value (Hog Rider 663 at 1, 1697
+//!     at 11 on the Common table; the Rare table at local 9 would give 1405, which
+//!     no live Hog has). cards.json carries the decision as
+//!     `level_scaling.base_level` (unified) with the ladder rarity's table and
+//!     `level_scaling.reading` naming the ledger candidate; absent (the 2018 file,
+//!     the fallback set, a hand-written record) means the card's own rarity from
+//!     its local level 1, and a reading this loader does not implement refuses the
+//!     card. The rarities themselves (level counts, relative levels, ladders) come
+//!     from cards.json `rarities` when the file carries the block (15.535: five
+//!     rarities plus Champion), else from the shipped 2018 rarities.csv.
 //!
 //! LEVEL NUMBERING
-//!     `level` arguments are the unified "king-level" scale (Common 1..13).
+//!     `level` arguments are the unified "king-level" scale (Common 1..13 on the
+//!     2018 table, 1..16 on the 15.535 one).
 //!     A Rare at unified level 11 is rarity-local level 11 - RelativeLevel(2) = 9.
 //!
 //! FALLBACK
@@ -339,6 +359,11 @@ pub struct CardDef {
     /// without JumpEnabled; a JumpEnabled card missing either number is refused at
     /// load, never defaulted.
     pub jump: Option<JumpDef>,
+    /// cards.json `level_scaling.base_level`: the UNIFIED level the record's base
+    /// stats hold at, from which `level_table` is entered (module doc, LEVEL
+    /// SCALING). None: the card's own rarity's local level 1 (RelativeLevel + 1),
+    /// the 2018 convention.
+    pub level_base: Option<i32>,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else silently retires the
@@ -456,6 +481,40 @@ struct RawCard {
     /// cards.json `jump` block (JumpEnabled rows: JumpHeight / JumpSpeed); null on
     /// every card but HogRider in the 2018 data.
     jump: Option<RawJump>,
+    /// cards.json `action_graph` (15.535: the scripted actions the row's *Action
+    /// columns reach); absent in the 2018 file, null on a row that names none.
+    action_graph: Option<RawActionGraph>,
+    /// cards.json `death_area_effect` (DeathAreaEffect: the Ice Golem's freeze, the
+    /// 15.535 Lumberjack's rage bottle). Not simulated: the card is refused AFTER its
+    /// push (`from_json_str`), which keeps the format-3 card list intact.
+    death_area_effect: Option<String>,
+}
+
+/// cards.json `action_graph` (tools/extract_cards.py `action_graph`): the
+/// ClassTypes a row's actions reach and whether any is a MECHANIC (not an effect,
+/// sound, animation or health-bar decoration). A reworked card keeps its rule
+/// there -- the 15.535 GoblinHut_Rework clears SpawnNumber and spawns its Spear
+/// Goblins from an ActionGoblinHutLifeState, the Furnace from an ActionInterval --
+/// so a mechanic graph REFUSES the card: run as its columns alone it would be a
+/// different, plainer card.
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+struct RawActionGraph {
+    class_types: Vec<String>,
+    spawns: Vec<String>,
+    mechanic: Option<bool>,
+}
+
+/// Err when `graph` scripts a mechanic this loader does not read.
+fn refuse_action_mechanic(graph: &Option<RawActionGraph>, what: &str) -> Result<(), String> {
+    match graph {
+        Some(g) if g.mechanic.unwrap_or(false) => Err(format!(
+            "{what} runs an action graph this loader does not read ({}{})",
+            g.class_types.join(", "),
+            if g.spawns.is_empty() { String::new() } else { format!("; spawns {}", g.spawns.join(", ")) }
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// cards.json `jump` block, every field nullable (the extractor writes the whole
@@ -510,6 +569,9 @@ enum UnitUse {
     Spawner,
     /// The DeathSpawn* block.
     DeathSpawn,
+    /// DeathAreaEffect: an area effect the death releases -- never resolvable, so
+    /// the card goes the unloadable way (rejected after its push).
+    DeathAreaEffect,
 }
 
 #[derive(Deserialize)]
@@ -521,7 +583,36 @@ struct RawCardsFile {
     /// are loaded (as `summon_only` cards).
     #[serde(default)]
     units: BTreeMap<String, serde_json::Value>,
+    /// cards.json `rarities`: the file's own rarities.csv (level counts, relative
+    /// levels, ladders). Absent: the shipped 2018 table.
+    #[serde(default)]
+    rarities: BTreeMap<String, RawRarity>,
 }
+
+/// One cards.json `rarities` entry (tools/extract_cards.py `rarity_table`).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawRarity {
+    level_count: Option<i32>,
+    relative_level: Option<i32>,
+    /// Entry L-1 is the percent at rarity-local level L (entry 0 is 100).
+    multiplier_percent_by_level: Option<Vec<i32>>,
+}
+
+/// cards.json `level_scaling` block, the fields this loader reads.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawLevelScaling {
+    multiplier_percent_by_level: Option<Vec<i32>>,
+    base_level: Option<i32>,
+    reading: Option<String>,
+}
+
+/// The calibration.json combat.STAT_BASE_LEVEL candidates this loader implements
+/// (`level_table_of`): the object's own rarity from its local level 1 (the block
+/// then carries `base_level`) and the card's rarity from its local level 1 (what an
+/// absent `reading` means: the 2018 file, the fallback set).
+const LEVEL_BASE_READINGS: [&str; 2] = ["object_rarity_local_1", "card_rarity_local_1"];
 
 /// cards.json projectile object, the fields a SPELL reads (troop attacks read
 /// `RawProjectileObj`).
@@ -550,6 +641,7 @@ struct RawSpellProjectile {
     spawn_area_effect_object: Option<String>,
     target_buff: Option<serde_json::Value>,
     spawn_projectile: Option<Box<RawSpellProjectile>>,
+    action_graph: Option<RawActionGraph>,
 }
 
 #[derive(Deserialize, Default)]
@@ -587,6 +679,7 @@ struct RawAreaEffect {
     maximum_targets: Option<i32>,
     projectile: Option<serde_json::Value>,
     spawn_character: Option<String>,
+    action_graph: Option<RawActionGraph>,
 }
 
 #[derive(Deserialize, Default)]
@@ -600,6 +693,10 @@ struct RawSpell {
     projectile_waves: Option<i32>,
     projectile_wave_interval_ms: Option<i32>,
     duration_seconds: Option<i32>,
+    /// spells_other Radius: the spell's own area (the volley's coverage).
+    radius_milli: Option<i32>,
+    /// spells_other MultipleProjectiles: arrows per wave (Arrows: 15 in 2018, 10 in 15.535).
+    multiple_projectiles: Option<i32>,
 }
 
 /// One row group of rarities.csv.
@@ -733,6 +830,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_spawn: None,
         charge: None,
         jump: None,
+        level_base: None,
     }
 }
 
@@ -766,7 +864,7 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
     let spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
-    def.level_table = level_table_of(raw.level_scaling)?;
+    (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
     if spell.duration_seconds.is_some() {
         return Err("spell DurationSeconds is not simulated".into());
     }
@@ -787,6 +885,7 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
     let mut spawn_name = None;
     let shape = if let Some(aeo) = spell.area_effect_object {
         let what = aeo.name.clone().unwrap_or_default();
+        refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
         if proj.is_some() || spell.first_projectile.is_some() {
             return Err(format!("spell with both an area effect ({what}) and a projectile is not simulated"));
         }
@@ -798,6 +897,16 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
         }
         if aeo.maximum_targets.is_some() || aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.spawn_character.is_some() {
             return Err(format!("area effect {what} with targets / projectile / spawn is not simulated"));
+        }
+        // AN AREA EFFECT THAT DOES NOTHING THIS LOADER READS is an action graph
+        // (15.535 Graveyard_rework, Vines_AeO: no Damage, no Buff, no Pushback; the
+        // Skeletons / the vines are OnStartingAction scripts the extractor does not
+        // walk). Running it as a zero-damage Zap would be a different card.
+        if aeo.damage.is_none() && aeo.buff.is_none() && aeo.pushback_milli.is_none() {
+            return Err(format!("area effect {what} carries no damage, buff or pushback: its mechanic is an action graph this loader does not read"));
+        }
+        if !aeo.hits_ground.unwrap_or(false) && !aeo.hits_air.unwrap_or(false) {
+            return Err(format!("area effect {what} hits neither ground nor air"));
         }
         let stun_ms = match aeo.buff {
             None => 0,
@@ -842,6 +951,10 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
             (None, None) => return Err("spell with no projectile and no area effect: no mechanic in the data".into()),
         };
         let what = carrier.name.clone().unwrap_or_default();
+        refuse_action_mechanic(&carrier.action_graph, &format!("projectile {what}"))?;
+        if let Some(roll) = &carrier.spawn_projectile {
+            refuse_action_mechanic(&roll.action_graph, &format!("rolling projectile {}", roll.name.clone().unwrap_or_default()))?;
+        }
         if carrier.maximum_targets.is_some() || carrier.spawn_area_effect_object.is_some() || carrier.target_buff.as_ref().is_some_and(|b| !b.is_null()) {
             return Err(format!("projectile {what} with target cap / area effect / target buff is not simulated"));
         }
@@ -883,12 +996,30 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
                 placement: placement_for(false),
             }
         } else {
+            // THE WAVE'S DISC (calibration spells.WAVE_AREA_MODEL = single_disc_one_hit_
+            // per_wave). A VOLLEY -- MultipleProjectiles > 1 -- spreads its arrows over
+            // the SPELL's Radius, so that is the disc each wave hits once: the 15.535
+            // Arrows fires 10 homing 1400-radius arrows per wave over a 3500 spell
+            // radius (the 2018 row's carrier radius equalled the spell's, 4000, so
+            // that file reads the same either way). A single projectile's disc is its
+            // own radius. The ten_subareas_* candidates would model each arrow.
+            let volley = spell.multiple_projectiles.unwrap_or(1);
+            if volley < 1 {
+                return Err(format!("MultipleProjectiles {volley} out of range"));
+            }
+            let disc = || -> Result<i32, String> {
+                if volley > 1 {
+                    spell.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("projectile {what}: a volley of {volley} with no spell Radius to spread over"))
+                } else {
+                    carrier.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("projectile {what} deals damage but has no radius"))
+                }
+            };
             let hit = match carrier.damage {
                 None => None,
                 Some(d) => Some(SpellHit {
                     damage: d,
                     crown_pct: crown(carrier.crown_tower_damage_percent),
-                    radius: milli(carrier.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("projectile {what} deals damage but has no radius"))?),
+                    radius: milli(disc()?),
                     hits_air: carrier.aoe_to_air.unwrap_or(false),
                     hits_ground: carrier.aoe_to_ground.unwrap_or(false),
                     only_enemies: carrier.only_enemies.unwrap_or(false),
@@ -927,14 +1058,24 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
     Ok((def, spawn_name))
 }
 
-fn level_table_of(v: Option<serde_json::Value>) -> Result<Option<Vec<i32>>, String> {
-    Ok(match v {
-        Some(serde_json::Value::Object(o)) => match o.get("multiplier_percent_by_level") {
-            Some(v) => Some(serde_json::from_value::<Vec<i32>>(v.clone()).map_err(|e| format!("level_scaling: {e}"))?),
-            None => None,
-        },
-        _ => None,
-    })
+/// (the ladder, the unified level it is entered from) of a cards.json
+/// `level_scaling` block (module doc, LEVEL SCALING). A `reading` this loader does
+/// not implement refuses the card; `object_rarity_local_1` needs its `base_level`.
+fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Option<i32>), String> {
+    let Some(v) = v.filter(|v| !v.is_null()) else { return Ok((None, None)) };
+    let ls: RawLevelScaling = serde_json::from_value(v).map_err(|e| format!("level_scaling: {e}"))?;
+    let base = match ls.reading.as_deref() {
+        None => None,
+        Some("card_rarity_local_1") => None,
+        Some("object_rarity_local_1") => Some(ls.base_level.filter(|b| *b >= 1).ok_or("level_scaling: object_rarity_local_1 without a base_level >= 1")?),
+        Some(other) => return Err(format!("level_scaling reading {other:?} is not implemented (candidates: {LEVEL_BASE_READINGS:?})")),
+    };
+    if let (Some(t), Some(_)) = (&ls.multiplier_percent_by_level, base) {
+        if t.is_empty() {
+            return Err("level_scaling: an empty ladder".into());
+        }
+    }
+    Ok((ls.multiplier_percent_by_level, base))
 }
 
 /// (card, display name, the units it needs loaded: which mechanic, unit name).
@@ -1053,6 +1194,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         #[allow(unreachable_code)]
         return convert_spell(raw).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
     }
+    refuse_action_mechanic(&raw.action_graph, "the unit")?;
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
     let projectile = match raw.projectile {
@@ -1085,7 +1227,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         }
         Some(other) => return Err(format!("projectile given as {other} carries no speed; need an object")),
     };
-    let level_table = level_table_of(raw.level_scaling)?;
+    let (level_table, level_base) = level_table_of(raw.level_scaling)?;
     let kind = raw.kind;
     // Spells do not reach here: `convert_spell` above handles them
     // (plant: spells_rejected).
@@ -1118,6 +1260,9 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
     }
     if let Some((_, u)) = &death_spawn {
         units.push((UnitUse::DeathSpawn, u.clone()));
+    }
+    if let Some(aeo) = &raw.death_area_effect {
+        units.push((UnitUse::DeathAreaEffect, aeo.clone()));
     }
     let no_deploy_size = match raw.no_deploy_size_tiles {
         Some([w, h]) if w > 0 && h > 0 => Some(Vec2::new(tiles(w), tiles(h))),
@@ -1178,6 +1323,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         death_spawn: death_spawn.map(|(d, _)| d),
         charge,
         jump,
+        level_base,
     }, display, units))
 }
 
@@ -1185,7 +1331,28 @@ impl CardDb {
     /// Parse a cards.json document (schema at the bottom of this file).
     pub fn from_json_str(s: &str, source: CardSource) -> Result<CardDb, String> {
         let file: RawCardsFile = serde_json::from_str(s).map_err(|e| format!("cards.json: {e}"))?;
-        let rarities = shipped_rarities().to_vec();
+        // THE FILE'S OWN RARITIES when it carries them (15.535: Champion exists, a
+        // Rare has 14 levels), else the shipped 2018 table. Never mixed.
+        let rarities = if file.rarities.is_empty() {
+            shipped_rarities().to_vec()
+        } else {
+            file.rarities
+                .iter()
+                .map(|(name, r)| {
+                    let table = r.multiplier_percent_by_level.clone().ok_or_else(|| format!("rarities.{name}: no multiplier_percent_by_level"))?;
+                    let level_count = r.level_count.filter(|n| *n >= 1).ok_or_else(|| format!("rarities.{name}: no level_count"))?;
+                    if table.len() < level_count as usize || table.first() != Some(&(PERCENT as i32)) {
+                        return Err(format!("rarities.{name}: ladder {table:?} does not start at 100 and cover {level_count} levels"));
+                    }
+                    Ok(RarityRow {
+                        name: name.clone(),
+                        level_count,
+                        relative_level: r.relative_level.filter(|l| *l >= 0).ok_or_else(|| format!("rarities.{name}: no relative_level"))?,
+                        multipliers: table[1..].to_vec(),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        };
         let mut db = CardDb {
             cards: Vec::new(),
             by_name: BTreeMap::new(),
@@ -1227,6 +1394,13 @@ impl CardDb {
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
         let mut unloadable: Vec<(u16, String)> = Vec::new();
         for (spell_idx, which, unit) in &spawns {
+            if *which == UnitUse::DeathAreaEffect {
+                // The Ice Golem's FreezeIceGolemite, the 15.535 Lumberjack's rage
+                // bottle: a death that releases an area effect is not simulated, and
+                // a card run without it is a different card.
+                unloadable.push((*spell_idx, format!("death area effect {unit} is not simulated")));
+                continue;
+            }
             let got = unit_idx
                 .entry(unit.clone())
                 .or_insert_with(|| {
@@ -1279,6 +1453,7 @@ impl CardDb {
                         }
                         UnitUse::Spawner => card.spawner.as_mut().expect("spawner block present").unit = u,
                         UnitUse::DeathSpawn => card.death_spawn.as_mut().expect("death_spawn block present").unit = u,
+                        UnitUse::DeathAreaEffect => unreachable!("never resolved: pushed to `unloadable` above"),
                     }
                 }
                 Err(e) => unloadable.push((*spell_idx, e)),
@@ -1417,8 +1592,15 @@ impl CardDb {
 
     /// Read data/derived/cards.json from the repository this crate was built in.
     pub fn load_repo() -> Result<CardDb, String> {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json");
-        let s = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        CardDb::load_repo_file("cards.json")
+    }
+
+    /// Read another vintage's file from data/derived/ (tools/extract_cards.py
+    /// `--vintage 2018` writes cards-2018.json beside cards.json): what a fixture
+    /// recorded against that vintage loads (tests/stacked_tie.rs).
+    pub fn load_repo_file(name: &str) -> Result<CardDb, String> {
+        let path = format!("{}/../../data/derived/{name}", env!("CARGO_MANIFEST_DIR"));
+        let s = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
         CardDb::from_json_str(&s, CardSource::DerivedJson)
     }
 
@@ -1470,6 +1652,7 @@ impl CardDb {
     pub fn level_multiplier(&self, idx: u16, level: i32) -> Result<i32, String> {
         let c = self.get(idx);
         let r = self.rarity(&c.rarity).ok_or_else(|| format!("{}: unknown rarity", c.name))?;
+        // The CARD's rarity bounds the playable levels...
         let local = level - r.relative_level;
         if local < 1 || local > r.level_count {
             return Err(format!(
@@ -1477,13 +1660,26 @@ impl CardDb {
                 c.name, c.rarity, r.level_count
             ));
         }
-        if local == 1 {
+        // ...and the ladder is entered from the record's base level: the OBJECT's
+        // rarity's local 1 when cards.json says so (`level_base`), else the card's
+        // (module doc, LEVEL SCALING; calibration combat.STAT_BASE_LEVEL).
+        #[cfg(not(clash_plant = "level_card_rarity_local"))]
+        let base = c.level_base.unwrap_or(r.relative_level + 1);
+        #[cfg(clash_plant = "level_card_rarity_local")]
+        // PLANT: the earlier arithmetic, the card's rarity from its local 1
+        // whatever the block says (a 15.535 Rare Hog Rider at 11 = 663 x 212 %).
+        let base = r.relative_level + 1;
+        let step = level - base;
+        if step < 0 {
+            return Err(format!("{}: level {level} is below its base level {base}", c.name));
+        }
+        if step == 0 && c.level_table.is_none() {
             return Ok(PERCENT as i32);
         }
-        let short = || format!("{}: multiplier table too short for local level {local}", c.name);
+        let short = || format!("{}: multiplier table too short for level {level} (base {base})", c.name);
         match c.level_table.as_deref() {
-            Some(by_level) => by_level.get((local - 1) as usize).copied().ok_or_else(short),
-            None => r.multipliers.get((local - 2) as usize).copied().ok_or_else(short),
+            Some(by_level) => by_level.get(step as usize).copied().ok_or_else(short),
+            None => r.multipliers.get((step - 1) as usize).copied().ok_or_else(short),
         }
     }
 
@@ -1584,6 +1780,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_volley_disc_is_the_spells_radius_and_the_single_carriers_its_own() {
+        // calibration spells.WAVE_AREA_MODEL = single_disc_one_hit_per_wave, pinned on a
+        // synthetic row whose two radii are APART (the shipped 2018 Arrows had them
+        // equal, 4000 = 4000, so no shipped-data test could tell the readings apart):
+        // a volley (MultipleProjectiles > 1) hits the SPELL's
+        // radius per wave, a single projectile its carrier's, and a volley with no
+        // spell radius to spread over is refused.
+        let row = |multiple: &str, spell_radius: &str| {
+            format!(
+                r#"{{"cards":[{{"name":"Volley","kind":"spell","elixir":3,"rarity":"Common",
+                "spell":{{"radius_milli":{spell_radius},"multiple_projectiles":{multiple},"projectile_waves":3,"projectile_wave_interval_ms":200}},
+                "projectile":{{"name":"VolleyArrow","speed":1100,"damage":48,"homing":true,"radius_milli":1400,"aoe_to_air":true,"aoe_to_ground":true,"only_enemies":true}}}}]}}"#
+            )
+        };
+        let disc = |text: &str| -> Result<i32, String> {
+            let db = CardDb::from_json_str(text, CardSource::DerivedJson).unwrap();
+            let idx = db.index("Volley").ok_or_else(|| format!("{:?}", db.rejected))?;
+            match &db.get(idx).spell.as_ref().unwrap().shape {
+                SpellShape::Projectile { hit: Some(h), waves, .. } => {
+                    assert_eq!(*waves, 3);
+                    Ok(h.radius)
+                }
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(disc(&row("10", "3500")), Ok(milli(3500)), "a volley: the spell's radius");
+        assert_eq!(disc(&row("1", "3500")), Ok(milli(1400)), "a single projectile: the carrier's radius");
+        assert_eq!(disc(&row("null", "3500")), Ok(milli(1400)), "no column: one projectile");
+        let refused = disc(&row("10", "null")).unwrap_err();
+        assert!(refused.contains("no spell Radius"), "{refused}");
+    }
+
+    #[test]
     fn rarity_table_parses_from_supercell_csv() {
         let r = shipped_rarities();
         let common = r.iter().find(|x| x.name == "Common").unwrap();
@@ -1673,13 +1902,22 @@ mod tests {
             }
             other => panic!("Fireball: {other:?}"),
         }
-        // Arrows: the damage carrier is the CustomFirstProjectile, not the deco.
+        // Arrows: the damage carrier is the CustomFirstProjectile when the row has one
+        // (2018: the deco `projectile` carries no damage), else the Projectile (15.535);
+        // the waves are the row's (2018: none = 1; 15.535: 3 x 200 ms); the disc is the
+        // SPELL's Radius for a volley (MultipleProjectiles > 1, both vintages), which
+        // in 2018 equals the carrier's 4000 and in 15.535 is 3500 over 1400 arrows.
         let ar = card("Arrows");
+        let carrier = if ar["spell"]["first_projectile"].is_object() { ar["spell"]["first_projectile"].clone() } else { ar["projectile"].clone() };
+        let want_waves = ar["spell"]["projectile_waves"].as_i64().map_or(1, |w| w as i32);
+        let want_interval = ar["spell"]["projectile_wave_interval_ms"].as_i64().map_or(0, |w| w as i32);
+        let want_disc = if ar["spell"]["multiple_projectiles"].as_i64().unwrap_or(1) > 1 { int(&ar["spell"]["radius_milli"]) } else { int(&carrier["radius_milli"]) };
         match spell("Arrows") {
-            SpellDef { shape: SpellShape::Projectile { speed, hit: Some(h), waves: 1, spawn: None, .. }, placement: SpellPlacement::Anywhere } => {
-                assert_eq!(speed, int(&ar["spell"]["first_projectile"]["speed"]));
-                assert_eq!(h.damage, int(&ar["spell"]["first_projectile"]["damage"]));
-                assert_eq!(h.radius, milli(int(&ar["spell"]["first_projectile"]["radius_milli"])));
+            SpellDef { shape: SpellShape::Projectile { speed, hit: Some(h), waves, wave_interval_ms, spawn: None }, placement: SpellPlacement::Anywhere } => {
+                assert_eq!(speed, int(&carrier["speed"]));
+                assert_eq!(h.damage, int(&carrier["damage"]));
+                assert_eq!(h.radius, milli(want_disc));
+                assert_eq!((waves, wave_interval_ms), (want_waves, want_interval));
                 assert_eq!(h.knockback, None);
             }
             other => panic!("Arrows: {other:?}"),

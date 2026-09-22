@@ -42,13 +42,29 @@ use common::*;
 
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/snap_384_tick2970.bin");
 
+/// THE FIXTURE WAS RECORDED AGAINST THE 2018 CARD DATA. The engine's
+/// data/derived/cards.json is now the 15.535.29 vintage, whose stats (and card list) the
+/// format-3 fingerprint cannot match; the 2018 file lives beside it as
+/// data/derived/cards-2018.json (`tools/extract_cards.py --vintage 2018`, byte-identical
+/// to the file the fixture was saved against) and these two tests load through it.
+/// Missing, they REFUSE (never skip): regenerate the file.
+fn cards_2018() -> std::sync::Arc<royalesim::card::CardDb> {
+    let db = royalesim::card::CardDb::load_repo_file("cards-2018.json")
+        .unwrap_or_else(|e| panic!("the 2018 card data the format-3 fixture needs is unavailable ({e}); run tools/extract_cards.py --vintage 2018 -- refusing to skip"));
+    std::sync::Arc::new(db)
+}
+
+fn load_2018(blob: &[u8]) -> Result<BattleState, String> {
+    BattleState::load_with(blob, cards_2018(), royalesim::arena::Arena::shipped())
+}
+
 #[test]
 fn fixture_384_rotation_holds_after_the_stacked_deploy() {
-    // The snapshot is tied to SNAPSHOT_FORMAT and to data/derived/cards.json. If it
-    // no longer loads, this REFUSES rather than skipping: rebuild the fixture (the
-    // constructed tests below carry the gate meanwhile) or retire it out loud.
+    // The snapshot is tied to SNAPSHOT_FORMAT and to the 2018 cards.json (`cards_2018`).
+    // If it no longer loads, this REFUSES rather than skipping: rebuild the fixture
+    // (the constructed tests below carry the gate meanwhile) or retire it out loud.
     let blob = std::fs::read(FIXTURE).unwrap_or_else(|e| panic!("{FIXTURE}: {e}"));
-    let mut s = BattleState::load(&blob).unwrap_or_else(|e| {
+    let mut s = load_2018(&blob).unwrap_or_else(|e| {
         panic!("fixture snap_384_tick2970.bin no longer loads ({e}); regenerate it or retire this test OUT LOUD -- not a skip")
     });
     assert_eq!(s.tick_count(), 2970);
@@ -91,20 +107,24 @@ fn fixture_384_format3_migration_is_self_checked() {
     // A hashed field (the tick) changed: the format-3 self-check must refuse.
     let tampered = text.replacen("\"tick\":2970", "\"tick\":2971", 1);
     assert_ne!(tampered, text, "tamper did not apply -- a plant must verify its own edit");
-    let err = BattleState::load(tampered.as_bytes()).map(|_| ()).expect_err("a tampered format-3 snapshot loaded");
+    let err = load_2018(tampered.as_bytes()).map(|_| ()).expect_err("a tampered format-3 snapshot loaded");
     assert!(err.contains("format-3 hash"), "refused for the wrong reason: {err}");
     // A foreign card fingerprint: refused before any state is built.
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();
     let fp = v["cards_fingerprint"].as_u64().unwrap();
     let foreign = text.replacen(&format!("\"cards_fingerprint\":{fp}"), &format!("\"cards_fingerprint\":{}", fp ^ 1), 1);
     assert_ne!(foreign, text);
-    let err = BattleState::load(foreign.as_bytes()).map(|_| ()).expect_err("a foreign-card format-3 snapshot loaded");
+    let err = load_2018(foreign.as_bytes()).map(|_| ()).expect_err("a foreign-card format-3 snapshot loaded");
+    assert!(err.contains("format-3 fingerprint"), "refused for the wrong reason: {err}");
+    // And against the ENGINE's own (15.535) card data the fixture is refused on its
+    // fingerprint too: a format-3 blob never runs on stats it was not saved against.
+    let err = BattleState::load(&blob).map(|_| ()).expect_err("the 2018 fixture loaded against the 15.535 card data");
     assert!(err.contains("format-3 fingerprint"), "refused for the wrong reason: {err}");
     // Untampered: loads, re-saves as the current format, and that round-trips.
-    let s = BattleState::load(&blob).unwrap();
+    let s = load_2018(&blob).unwrap();
     let again = s.save();
     assert!(String::from_utf8_lossy(&again).starts_with(&format!("{{\"format\":{},", royalesim::state::SNAPSHOT_FORMAT)));
-    let l = BattleState::load(&again).unwrap();
+    let l = load_2018(&again).unwrap();
     assert_eq!(l.state_hash(), s.state_hash());
     // The remap put every card where its NAME says: Blue's hand slot 3 is still Skeletons
     // (also asserted by the replay test), and no board unit resolved to a spell.

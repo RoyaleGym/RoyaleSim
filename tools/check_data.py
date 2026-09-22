@@ -11,9 +11,25 @@ WHY THIS EXISTS
     that proves it can see the defect it exists for.
 
 VINTAGE
-    The data is ~2018 game data; the target is the live 2026 game.  A gate passing
-    here means "the extraction is faithful to the 2018 files", never "the number
-    is right for the live game".
+    Two vintages (tools/extract_cards.py --vintage): the ~2018 files and the
+    15.535.29 client data (the default).  A gate passing here means "the extraction
+    is faithful to THAT vintage's files", never "the number is right for the live
+    game" -- for 15.535 the files ARE the live build family's, but what the engine
+    does with a column is still calibration.json's business.  `--vintage` selects
+    which files are rebuilt and which expectations apply; the on-disk cards.json
+    must be that vintage's or the freshness gate is red.
+
+BANDS (reshaped for the 15.535 roster)
+    The 2018 roster was tame enough for a per-row band on every unit; the 15.535
+    files carry whole-arena event effects (radius 40000), dummies (radius 1,
+    HitSpeed -1), permanent objects (LifeTime 999999) and the Magic Archer's
+    250-millitile arrow.  A per-row band on all of them would be a list of
+    exceptions.  So the per-row band now covers the SIMULATED set -- every
+    thin-slice card and tower, every unit / projectile / area effect they reach --
+    and every row of every table is gated by its COLUMN MEDIAN instead: a column
+    read as tiles, subtiles, seconds or ticks moves the median outside the band
+    (the confusion the gate exists for), while a legitimate extreme row cannot.
+    Rows outside the band are reported as INFO with a count.
 
 USAGE
     python tools/check_data.py                 # run every gate
@@ -48,6 +64,7 @@ import argparse
 import copy
 import json
 import re
+import statistics
 import sys
 from collections import Counter
 from fractions import Fraction
@@ -60,6 +77,13 @@ import extract_globals as eg
 ROOT = ec.ROOT
 CARDS = ec.OUT
 GLOBALS = eg.OUT
+CALIBRATION = ROOT / "data" / "calibration.json"
+LIVE_LEVELS = ROOT / "crates" / "royalesim" / "tests" / "fixtures" / "live_levels.json"
+
+
+def cards_path(vintage: str) -> Path:
+    """The on-disk file of a vintage (cards.json for the default, cards-<v>.json else)."""
+    return ec.default_out(vintage)
 ARENA = ROOT / "data" / "derived" / "arena.json"
 ARENA_RS = ROOT / "crates" / "royalesim" / "src" / "arena.rs"
 
@@ -134,21 +158,40 @@ KNOWN_RADII = {
     "KingTower": 1400,
 }
 MODAL_TROOP_RADIUS = 500
-# Table entries with no row in the 2018 data: skipped with a note, not failed.
-ABSENT_FROM_DATA = {"Wall Breakers": "no row in this ~2018 data (the card post-dates it)"}
+# Table entries with no row in a vintage's data: skipped with a note, not failed.
+ABSENT_FROM_DATA = {
+    "2018": {"Wall Breakers": "no row in this ~2018 data (the card post-dates it)"},
+    "15.535.29": {},
+}
 # A disagreement between the reference table and the data that is NOT resolved.
 # It is pinned to the exact shipped value so the gate still fires if the data
 # moves; it is printed as a WARNING on every run so nobody forgets it exists.
 KNOWN_DISAGREEMENTS = {
-    "Prince": {
-        "table": 600,
-        "ships": 650,
-        "why": "2018 characters.csv ships 650. Either the reference table is a later "
-        "value or it is wrong; nothing in this repo settles which.",
+    "2018": {
+        "Prince": {
+            "table": 600,
+            "ships": 650,
+            "why": "2018 characters.csv ships 650. Either the reference table is a later "
+            "value or it is wrong; nothing in this repo settles which.",
+        },
+    },
+    "15.535.29": {
+        # The 15.535 data ships the table's 600 for the Prince (settling the 2018
+        # entry above in the table's favour) and 750 for the Giant Skeleton, where the
+        # 2018 data agreed with the table's 1000: a vintage change, not an extraction
+        # error, pinned so a move away from 750 is still seen.
+        "GiantSkeleton": {
+            "table": 1000,
+            "ships": 750,
+            "why": "15.535 characters/giantskeleton.toml ships CollisionRadius 750; the "
+            "reference table (and the 2018 data) say 1000. A vintage change.",
+        },
     },
 }
 
-ALLOWED_SPEEDS = {0, 30, 45, 60, 90, 120}
+# The raw Speed values a vintage may carry. 15.535 adds 40 (PhoenixEgg, the
+# Phoenix's egg form), a real row, not a unit confusion.
+ALLOWED_SPEEDS = {"2018": {0, 30, 45, 60, 90, 120}, "15.535.29": {0, 30, 40, 45, 60, 90, 120}}
 
 # (field, lo, hi, allow_zero).  Bands are chosen so that, for the typical row of
 # each field, the classic unit confusions land outside them: a distance read as
@@ -251,7 +294,8 @@ def dig(obj, path: str):
 
 
 # Mechanic archetypes: each thin-slice card must carry the data for the thing it
-# is IN the slice to exercise.  (display, dotted path, predicate description, predicate)
+# is IN the slice to exercise.  (display, dotted path, predicate description,
+# predicate[, the set of vintages the claim holds for -- absent = every vintage])
 ARCHETYPE = [
     ("Knight", "projectile", "melee: no projectile", lambda v: v is None),
     ("Archers", "count", "two archers", lambda v: v == 2),
@@ -282,9 +326,13 @@ ARCHETYPE = [
         "stun duration",
         lambda v: isinstance(v, int) and v > 0,
     ),
+    # The SPELL's own radius (2018: 4000, 15.535: 3500). The damage carrier's radius
+    # equals it in 2018; in 15.535 the carrier ArrowsSpell is a 1400-radius HOMING
+    # arrow fired MultipleProjectiles = 10 times per wave over the spell radius --
+    # a shape the engine does not run yet (card.rs reads one projectile per wave).
     (
         "Arrows",
-        "area_damage_radius_milli",
+        "spell.radius_milli",
         "wide (> Fireball)",
         lambda v: isinstance(v, int) and v > 2500,
     ),
@@ -306,8 +354,33 @@ ARCHETYPE = [
         "spell.first_projectile.damage",
         "damage carrier is the CustomFirstProjectile",
         lambda v: isinstance(v, int) and v > 0,
+        {"2018"},
     ),
-    ("Arrows", "projectile.damage", "deco projectile carries no damage", lambda v: v is None),
+    ("Arrows", "projectile.damage", "deco projectile carries no damage", lambda v: v is None, {"2018"}),
+    # 15.535: no CustomFirstProjectile; the Projectile itself carries the damage,
+    # in ProjectileWaves (3) of MultipleProjectiles (10) homing arrows.
+    (
+        "Arrows",
+        "projectile.damage",
+        "damage carrier is the Projectile (no CustomFirstProjectile)",
+        lambda v: isinstance(v, int) and v > 0,
+        {"15.535.29"},
+    ),
+    ("Arrows", "spell.first_projectile", "no CustomFirstProjectile", lambda v: v is None, {"15.535.29"}),
+    (
+        "Arrows",
+        "spell.projectile_waves",
+        "volleys in waves (ProjectileWaves)",
+        lambda v: isinstance(v, int) and v >= 2,
+        {"15.535.29"},
+    ),
+    (
+        "Arrows",
+        "projectile.homing",
+        "each arrow is homing (MultipleProjectiles volley)",
+        lambda v: v is True,
+        {"15.535.29"},
+    ),
     (
         "Fireball",
         "projectile.pushback_milli",
@@ -334,8 +407,129 @@ ARCHETYPE = [
         "spawn deploy-time override",
         lambda v: isinstance(v, int) and v > 0,
     ),
-    ("Giant", "ignore_pushback", "IgnorePushback (2018 data)", lambda v: v is True),
+    ("Giant", "ignore_pushback", "IgnorePushback (2018 and 15.535 alike)", lambda v: v is True),
+    # 15.535 only: the JumpEnabled block the river hop reads (2018: Hog Rider alone).
+    ("Prince", "jump.speed", "JumpEnabled river hop (15.535)", lambda v: isinstance(v, int) and v > 0, {"15.535.29"}),
+    ("Hog Rider", "jump.speed", "JumpEnabled river hop", lambda v: isinstance(v, int) and v > 0),
 ]
+
+
+
+# What the vintage_warning of each vintage's cards.json must say.
+VINTAGE_MARKER = {"2018": "PRE-2025", "15.535.29": "15.535.29"}
+
+
+def simulated_set(doc: dict) -> tuple[set[str], set[str], set[str]]:
+    """The units, projectiles and area effects the thin-slice cards and the towers
+    reach: their own rows, the units they release (spell spawn, spawner, death
+    spawn, second summon) and, recursively, what THOSE reach."""
+    U = doc["units"]
+    units: set[str] = set()
+    projs: set[str] = set()
+    aeos: set[str] = set()
+
+    def walk_obj(o) -> None:
+        # every nested projectile / area-effect object carries a `name`
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("projectile", "first_projectile", "spawn_projectile", "deploy_projectile") and isinstance(v, dict):
+                    projs.add(v["name"])
+                if k == "area_effect_object" and isinstance(v, dict):
+                    aeos.add(v["name"])
+                walk_obj(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk_obj(v)
+
+    def walk_unit(name: str | None) -> None:
+        if not name or name in units or name not in U:
+            return
+        units.add(name)
+        u = U[name]
+        walk_obj(u)
+        if u.get("death_area_effect"):
+            aeos.add(u["death_area_effect"])
+        for ref in (dig(u, "death_spawn.character"), dig(u, "spawner.character")):
+            walk_unit(ref)
+
+    by = {c["name"]: c for c in doc["cards"]}
+    for internal in ec.THIN_SLICE.values():
+        c = by.get(internal)
+        if c is None:
+            continue
+        walk_obj(c)
+        for ref in (
+            c.get("summon_character"),
+            dig(c, "second_summon.character"),
+            dig(c, "spell.spawn.character"),
+            dig(c, "death_spawn.character"),
+            dig(c, "spawner.character"),
+        ):
+            walk_unit(ref)
+    for name in ec.TOWERS:
+        walk_unit(name)
+    return units, projs, aeos
+
+
+def level_base(doc: dict) -> tuple[list[str], list[str]]:
+    """The 15.535 level ladders against the ledger and the live captures."""
+    fail: list[str] = []
+    info: list[str] = []
+    cal = json.loads(CALIBRATION.read_text(encoding="utf-8"))
+    want = cal["combat"]["STAT_BASE_LEVEL"]["value"]
+    got = doc["provenance"].get("level_base_reading")
+    if got != want:
+        fail.append(f"level base: cards.json was built under {got!r}, the ledger says {want!r}")
+    R = doc["rarities"]
+    for c in [*doc["cards"], *doc["towers"]]:
+        ls = c["level_scaling"]
+        ladder = ls.get("ladder_rarity")
+        if ls.get("reading") != want or ladder not in R:
+            fail.append(f"level base: {c['name']} block reads {ls.get('reading')!r} on ladder {ladder!r}")
+            continue
+        if ls.get("base_level") != R[ladder]["relative_level"] + 1:
+            fail.append(f"level base: {c['name']} base_level {ls.get('base_level')} != {ladder}'s RelativeLevel + 1")
+        if len(ls["multiplier_percent_by_level"]) != R[ladder]["level_count"]:
+            fail.append(f"level base: {c['name']} ladder has {len(ls['multiplier_percent_by_level'])} entries, {ladder} has {R[ladder]['level_count']} levels")
+        if ls["level_count"] != R[ls["rarity"]]["level_count"] or ls.get("relative_level") != R[ls["rarity"]]["relative_level"]:
+            fail.append(f"level base: {c['name']} card range is not {ls['rarity']}'s")
+    # The live rows (tools/make_live_levels_fixture.py): the same arithmetic the
+    # generator resolved them with, redone here from THIS build's blocks.
+    if not LIVE_LEVELS.exists():
+        fail.append(f"level base: {LIVE_LEVELS} missing (tools/make_live_levels_fixture.py)")
+        return fail, info
+    live = json.loads(LIVE_LEVELS.read_text(encoding="utf-8"))
+    by = {c["name"]: c for c in doc["cards"]}
+    checked = parted = 0
+    for row in live["rows"]:
+        unit = row.get("unit")
+        c = by.get(row.get("card") or "")
+        if not unit or c is None:
+            continue
+        if unit == c.get("summon_character", c["name"]) and c.get("hitpoints") is not None:
+            ls = c["level_scaling"]
+            base_level, table, base = ls["base_level"], ls["multiplier_percent_by_level"], c["hitpoints"]
+        else:
+            u = doc["units"].get(unit)
+            if u is None or u["hitpoints"] is None:
+                fail.append(f"live levels: {row['card']} row names unit {unit!r} this build lacks")
+                continue
+            r = R[u["rarity"]]
+            base_level, table, base = r["relative_level"] + 1, r["multiplier_percent_by_level"], u["hitpoints"]
+        ix = row["level"] - base_level
+        if not 0 <= ix < len(table):
+            fail.append(f"live levels: {row['card']}/{unit} level {row['level']} outside the ladder")
+            continue
+        engine = base * table[ix] // 100
+        if engine != row["max_hp"]:
+            fail.append(f"live levels: {row['card']}/{unit} at level {row['level']}: this build gives {engine}, the live client {row['max_hp']}")
+        checked += 1
+        if R[c["rarity"]]["relative_level"] > 0 and row["level"] > R[c["rarity"]]["relative_level"] + 1:
+            parted += 1
+    if checked < 80 or parted < 20:
+        fail.append(f"live levels: vacuous ({checked} rows checked, {parted} on a non-Common card past its first level)")
+    info.append(f"live levels: {checked} (card, level, max_hp) rows of the 16.402 captures reproduce, {parted} of them where the two readings part")
+    return fail, info
 
 
 # --- the gate -----------------------------------------------------------------------
@@ -348,6 +542,7 @@ def gate(
     fail: list[str] = []
     warn: list[str] = []
     info: list[str] = []
+    vk = t.vintage.key
 
     # 1. references resolve ------------------------------------------------------
     units = set(t["characters"].records) | set(t["buildings"].records)
@@ -376,7 +571,7 @@ def gate(
             fail.append(f"collision radius: {name} has no row (expected {want})")
             continue
         got = U[name]["collision_radius_milli"]
-        dis = KNOWN_DISAGREEMENTS.get(name)
+        dis = KNOWN_DISAGREEMENTS[vk].get(name)
         if got == want:
             continue
         if dis and dis["table"] == want and dis["ships"] == got:
@@ -386,7 +581,7 @@ def gate(
             )
             continue
         fail.append(f"collision radius: {name} expected {want}, got {got}")
-    for disp, why in ABSENT_FROM_DATA.items():
+    for disp, why in ABSENT_FROM_DATA[vk].items():
         info.append(f"collision radius: {disp} skipped -- {why}")
     bandit = t["characters"].get("Assassin")
     if not bandit or "bandit" not in str(bandit.get("FileName", "")).lower():
@@ -407,52 +602,49 @@ def gate(
     for tbl in ("characters", "buildings"):
         for name, rec in t[tbl].records.items():
             sp = rec.get("Speed")
-            if (0 if sp is None else sp) not in ALLOWED_SPEEDS:
+            if (0 if sp is None else sp) not in ALLOWED_SPEEDS[vk]:
                 fail.append(f"speed in allowed set: {tbl}.{name}.Speed = {sp}")
 
     # 4/5. magnitude bands --------------------------------------------------------------
-    def band(prefix: str, where: str, field: str, v, lo, hi, zero_ok):
+    # Per row on the SIMULATED set (the thin slice, the towers and everything they
+    # reach), by column median on every row (module doc, BANDS).
+    sim_units, sim_projs, sim_aeos = simulated_set(doc)
+    outside: Counter = Counter()
+
+    def band(prefix: str, where: str, field: str, v, lo, hi, zero_ok, gated: bool):
         if v is None or (zero_ok and v == 0):
             return
         if not isinstance(v, int) or not (lo <= v <= hi):
-            fail.append(f"{prefix}: {where}.{field} = {v!r} outside [{lo}, {hi}]")
+            if gated:
+                fail.append(f"{prefix}: {where}.{field} = {v!r} outside [{lo}, {hi}]")
+            else:
+                outside[f"{where.split('.')[0]}.{field}"] += 1
+
+    columns: dict[tuple[str, str, int, int, bool], list[int]] = {}
+
+    def collect(table: str, field: str, v, lo, hi, zero_ok):
+        if isinstance(v, int) and not isinstance(v, bool) and not (zero_ok and v == 0):
+            columns.setdefault((table, field, lo, hi, zero_ok), []).append(v)
 
     for name, u in U.items():
         for f, lo, hi, z in DIST_BANDS:
-            band("distance band", f"units.{name}", f, u[f], lo, hi, z)
+            band("distance band", f"units.{name}", f, u[f], lo, hi, z, name in sim_units)
+            collect("units", f, u[f], lo, hi, z)
         for f, lo, hi, z in DUR_BANDS:
-            band("duration band", f"units.{name}", f, u[f], lo, hi, z)
+            band("duration band", f"units.{name}", f, u[f], lo, hi, z, name in sim_units)
+            collect("units", f, u[f], lo, hi, z)
     for name, p in doc["projectiles"].items():
         for f, lo, hi, z in PROJ_DIST_BANDS:
-            band("distance band", f"projectiles.{name}", f, p[f], lo, hi, z)
+            band("distance band", f"projectiles.{name}", f, p[f], lo, hi, z, name in sim_projs)
+            collect("projectiles", f, p[f], lo, hi, z)
     for name, a in doc["area_effect_objects"].items():
-        band(
-            "distance band",
-            f"area_effect_objects.{name}",
-            "radius_milli",
-            a["radius_milli"],
-            300,
-            6000,
-            False,
-        )
-        band(
-            "duration band",
-            f"area_effect_objects.{name}",
-            "hit_speed_ms",
-            a["hit_speed_ms"],
-            50,
-            5000,
-            False,
-        )
-        band(
-            "duration band",
-            f"area_effect_objects.{name}",
-            "buff_time_ms",
-            a["buff_time_ms"],
-            100,
-            20000,
-            False,
-        )
+        for prefix, f, lo, hi in (
+            ("distance band", "radius_milli", 300, 6000),
+            ("duration band", "hit_speed_ms", 50, 5000),
+            ("duration band", "buff_time_ms", 100, 20000),
+        ):
+            band(prefix, f"area_effect_objects.{name}", f, a[f], lo, hi, False, name in sim_aeos)
+            collect("area_effect_objects", f, a[f], lo, hi, False)
     for c in doc["cards"]:
         if c["kind"] == "spell":
             band(
@@ -463,7 +655,21 @@ def gate(
                 300,
                 6000,
                 False,
+                c["name"] in ec.THIN_SLICE.values(),
             )
+            collect("cards", "area_damage_radius_milli", c["area_damage_radius_milli"], 300, 6000, False)
+    for (table, f, lo, hi, _), vals in sorted(columns.items()):
+        med = int(statistics.median_low(vals))
+        if not (lo <= med <= hi):
+            fail.append(
+                f"column median: {table}.{f} median {med} over {len(vals)} rows outside [{lo}, {hi}] "
+                f"-- a whole-column unit confusion"
+            )
+    info.append(
+        f"bands: per-row on {len(sim_units)} units / {len(sim_projs)} projectiles / "
+        f"{len(sim_aeos)} area effects the thin slice reaches; rows outside a band elsewhere: "
+        + (", ".join(f"{k} x{n}" for k, n in sorted(outside.items())) or "none")
+    )
     # Tick-rate evidence, reported not gated: durations off the 50 ms grid.
     off = sorted(
         {
@@ -501,7 +707,9 @@ def gate(
         missing = [f for f in REQUIRED["tower"] if tw.get(f) is None]
         if missing:
             fail.append(f"completeness: tower {name} missing {missing}")
-    for disp, path, desc, pred in ARCHETYPE:
+    for disp, path, desc, pred, *only in ARCHETYPE:
+        if only and vk not in only[0]:
+            continue
         c = by.get(ec.THIN_SLICE[disp])
         v = dig(c, path) if c else None
         if not pred(v):
@@ -526,6 +734,13 @@ def gate(
     lf, ln = ec.check_hog_ladder(doc["rarities"], doc["units"], doc["cards"])
     fail += lf
     info += ln
+    # 7b. the level base (calibration combat.STAT_BASE_LEVEL), 15.535 only: the file
+    # was built under the ledger's reading, every card's block is that reading's
+    # arithmetic, and the live captures' (card, level, max_hp) rows reproduce.
+    if not t.vintage.is_2018:
+        fail_l, info_l = level_base(doc)
+        fail += fail_l
+        info += info_l
 
     # 8. invariants on the artefact --------------------------------------------------------
     def floats(o, p="$"):
@@ -547,9 +762,13 @@ def gate(
             fl = list(floats(d))
             if fl:
                 fail.append(f"no floats: {label} has {len(fl)} float(s), first at {fl[0]}")
-    for label, d in (("cards.json", doc), ("globals.json on disk", file_globals)):
-        if d is not None and "PRE-2025" not in d.get("vintage_warning", ""):
-            fail.append(f"vintage marked: {label} lacks a PRE-2025 vintage_warning")
+    marker = VINTAGE_MARKER[vk]
+    if marker not in doc.get("vintage_warning", ""):
+        fail.append(f"vintage marked: cards.json lacks a {marker} vintage_warning")
+    if file_globals is not None and "PRE-2025" not in file_globals.get("vintage_warning", ""):
+        # globals.json is still the 2018 extraction (tools/extract_globals.py has no
+        # --vintage); the 15.535 globals are cross-checked there per key instead.
+        fail.append("vintage marked: globals.json on disk lacks a PRE-2025 vintage_warning")
 
     # 10. territory landmarks ---------------------------------------------------------------
     fail_t, info_t = territory_landmarks(doc)
@@ -559,10 +778,15 @@ def gate(
     # 9. the file on disk is what the extractor produces now ----------------------------
     if file_doc is None:
         fail.append("derived cards.json fresh: file missing -- run tools/extract_cards.py")
+    elif file_doc.get("version") != doc["version"]:
+        fail.append(
+            f"derived cards.json fresh: file on disk is {file_doc.get('version')!r}, this gate "
+            f"rebuilt {doc['version']!r} -- run tools/extract_cards.py --vintage {vk}"
+        )
     elif file_doc != json.loads(ec.render(doc)):
         fail.append(
-            "derived cards.json fresh: file on disk differs from a rebuild of the raw CSVs "
-            "-- run tools/extract_cards.py"
+            "derived cards.json fresh: file on disk differs from a rebuild of the raw files "
+            f"-- run tools/extract_cards.py --vintage {vk}"
         )
     if file_globals is None:
         fail.append("derived globals.json fresh: file missing -- run tools/extract_globals.py")
@@ -666,6 +890,13 @@ def _raw(t, tbl, name, col, value):
     t[tbl].records[name][col] = value
 
 
+def _scale_column(t, tables, col, divisor):
+    for tbl in tables:
+        for rec in t[tbl].records.values():
+            if isinstance(rec.get(col), int):
+                rec[col] = rec[col] // divisor
+
+
 PLANTS = {
     # name: (aimed-at gate prefix, where it mutates, mutation)
     "ref": (
@@ -713,10 +944,12 @@ PLANTS = {
         "tables",
         lambda t: _raw(t, "area_effect_objects", "Zap", "BuffTime", None),
     ),
+    # The Hog Rider's ladder: the Rare one in 2018 (the character row carried the
+    # card's rarity), the Common one in 15.535 (the object's own row) -- both bent.
     "ladder": (
         "hog ladder",
         "tables",
-        lambda t: t["rarities"].arrays["Rare"]["PowerLevelMultiplier"].__setitem__(2, 134),
+        lambda t: [t["rarities"].arrays[r]["PowerLevelMultiplier"].__setitem__(2, 134) for r in ("Rare", "Common")],
     ),
     "float": (
         "no floats: cards.json",
@@ -742,6 +975,29 @@ PLANTS = {
         "archetype: Arrows deco projectile carries no damage",
         "tables",
         lambda t: _raw(t, "projectiles", "ArrowsSpellDeco", "Damage", 115),
+        {"2018"},
+    ),
+    # 15.535: the one Arrows projectile is the carrier; losing its damage must be seen.
+    "arrows_carrier": (
+        "archetype: Arrows damage carrier is the Projectile",
+        "tables",
+        lambda t: _raw(t, "projectiles", "ArrowsSpell", "Damage", None),
+        {"15.535.29"},
+    ),
+    # A whole column read as tiles (every unit's SightRange / 1000) must move the
+    # median out of band even though no thin-slice row is touched per se.
+    "column_tiles": (
+        "column median: units.sight_range_milli",
+        "tables",
+        lambda t: _scale_column(t, ("characters", "buildings"), "SightRange", 1000),
+    ),
+    # A row outside the band that is NOT in the simulated set must NOT fail the gate
+    # (it is INFO): this plant proves the per-row band is scoped by making a
+    # thin-slice row absurd instead, which MUST fail.
+    "row_in_slice": (
+        "distance band: units.Valkyrie.area_damage_radius_milli",
+        "tables",
+        lambda t: _raw(t, "characters", "Valkyrie", "AreaDamageRadius", 20),
     ),
     "log_pushback_all": (
         "archetype: The Log pushes all ground troops",
@@ -763,6 +1019,21 @@ PLANTS = {
         "file",
         lambda f: f["units"]["Knight"].__setitem__("hitpoints", 661),
     ),
+    # The other combat.STAT_BASE_LEVEL candidate: the ladders shift by the card's
+    # RelativeLevel and the live rows of every non-Common card stop reproducing.
+    "level_card_rarity": (
+        "live levels: HogRider",
+        "tables",
+        lambda t: setattr(t, "level_base", ec.LEVEL_BASE_READINGS[1]),
+        {"15.535.29"},
+    ),
+    # One card's base level moved: its live rows go red on their own.
+    "hog_base_level": (
+        "live levels: HogRider",
+        "doc",
+        lambda d: next(c for c in d["cards"] if c["name"] == "HogRider")["level_scaling"].__setitem__("base_level", 3),
+        {"15.535.29"},
+    ),
 }
 
 
@@ -770,10 +1041,13 @@ def load_json(p: Path):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
 
-def run_plant(name: str) -> bool:
-    aimed_at, where, mutate = PLANTS[name]
-    t = ec.load_tables()
-    base_fail, _, _ = gate(t, ec.build(t), load_json(CARDS), load_json(GLOBALS))
+def run_plant(name: str, vintage: str) -> bool | None:
+    aimed_at, where, mutate, *only = PLANTS[name]
+    if only and vintage not in only[0]:
+        print(f"PLANT '{name}' SKIPPED -- a {sorted(only[0])} claim, not {vintage}'s")
+        return None
+    t = ec.load_tables(vintage)
+    base_fail, _, _ = gate(t, ec.build(t), load_json(cards_path(vintage)), load_json(GLOBALS))
     if base_fail:
         print(
             f"PLANT '{name}' INCONCLUSIVE -- the tree is already red without the plant, so "
@@ -784,8 +1058,8 @@ def run_plant(name: str) -> bool:
             print(f"   {f}", file=sys.stderr)
         return False
 
-    t = ec.load_tables()
-    file_doc = load_json(CARDS)
+    t = ec.load_tables(vintage)
+    file_doc = load_json(cards_path(vintage))
     if where == "tables":
         mutate(t)
     doc = ec.build(t)
@@ -818,27 +1092,30 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--plant", choices=sorted(PLANTS))
     ap.add_argument("--all-plants", action="store_true")
+    ap.add_argument("--vintage", choices=sorted(ec.VINTAGES), default=ec.DEFAULT_VINTAGE)
     args = ap.parse_args()
 
-    print("*** " + ec.VINTAGE_WARNING)
+    print("*** " + ec.VINTAGES[args.vintage].warning)
     if args.plant:
-        return 0 if run_plant(args.plant) else 1
+        return 0 if run_plant(args.plant, args.vintage) is not False else 1
     if args.all_plants:
-        results = {p: run_plant(p) for p in PLANTS}
-        landed = sum(results.values())
+        results = {p: run_plant(p, args.vintage) for p in PLANTS}
+        applicable = {p: ok for p, ok in results.items() if ok is not None}
+        landed = sum(applicable.values())
         print(
-            f"\n{landed}/{len(results)} plants landed"
+            f"\n{landed}/{len(applicable)} applicable plants landed "
+            f"({len(results) - len(applicable)} skipped as another vintage's)"
             + (
                 ""
-                if landed == len(results)
-                else f"; NOT landed: {[p for p, ok in results.items() if not ok]}"
+                if landed == len(applicable)
+                else f"; NOT landed: {[p for p, ok in applicable.items() if not ok]}"
             )
         )
-        return 0 if landed == len(results) else 1
+        return 0 if landed == len(applicable) else 1
 
-    t = ec.load_tables()
+    t = ec.load_tables(args.vintage)
     doc = ec.build(t)
-    fail, warn, info = gate(t, doc, load_json(CARDS), load_json(GLOBALS))
+    fail, warn, info = gate(t, doc, load_json(cards_path(args.vintage)), load_json(GLOBALS))
     for i in info:
         print("  INFO " + i)
     for w in warn:

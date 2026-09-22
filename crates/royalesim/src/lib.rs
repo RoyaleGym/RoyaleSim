@@ -115,8 +115,12 @@ pub enum Phase {
     /// Attack windups advance; attacks that complete write into the damage buffer.
     /// BEFORE Path and Move under the shipped order (every attack update runs
     /// before any move update, as the 16.402 captures show): a unit whose target is
-    /// in range at the start of the tick winds up and does not
-    /// step; a unit whose target is gone or out of range walks the same tick.
+    /// in range at the start of the tick winds up and does not step; a unit whose
+    /// target is gone, or a unit BETWEEN SWINGS whose target is out of range, walks
+    /// the same tick. A unit mid-windup keeps its swing whatever its target does
+    /// (status.PRESERVE_TARGET_IF_HIT_STARTED; combat.rs `attack_step` tests no
+    /// range in Windup) and Path skips it -- that case is the attack rule's, not
+    /// the order's (match.TICK_ORDER `not_modelled`).
     Attack,
     /// Projectiles advance; those that arrive write into the damage buffer. Spells
     /// advance here too (spell.rs): flights land, rolls roll, one-shot area effects

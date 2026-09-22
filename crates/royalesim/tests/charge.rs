@@ -9,7 +9,15 @@
 //!      ChargeRange 250 in cards.json) gains tdiv(60 x 1000, 250) = 240 permille per
 //!      walking tick, is charged after the 42nd (10080 >= 10000) and walks at the
 //!      doubled S from the 43RD WALKING TICK -- the measured onset (gen 26 of
-//!      frames-20260918-122757.b1: walking from tick 1258, 119..120/tick from 1300);
+//!      capture 20260918-122757.b1: walking from tick 1258, 119..120/tick from 1300;
+//!      capture 20260920-003751-A, the Prince: state 1 at t191, the first step at
+//!      t192, 42 steps of 58..60 = 2483 native, the first 120 step at t234); and (0b)
+//!      THE LIVE ONSET OF EVERY CHARGER of that capture, the 51st walking tick for
+//!      ChargeRange 300 (Dark Prince t292 -> t342, Battle Ram t956 -> t1006) and the
+//!      43rd for 250 (Prince, Ram Rider t1462 -> t1504) -- exactly `>= 10000` with
+//!      the doubling from the tick AFTER the run-up completes, nothing to fix (a
+//!      first look's '41 ticks' counted from t193 because the seat-B twin dropped the
+//!      t192 frame);
 //!   1. a Prince alone on a straight lane walks at its base step for exactly
 //!      ceil(10000 / gain) ticks, is charged at that post-tick, and from then on
 //!      walks at floor(S x mult / 100) x spt -- every per-tick delta equal to the
@@ -17,7 +25,14 @@
 //!      which path2026::step_delta gives too);
 //!   2. its FIRST landed hit on the enemy princess tower removes DamageSpecial
 //!      scaled to its level and the SECOND removes Damage (at the default level and
-//!      at rarity-local level 1, where DamageSpecial == 2 x Damage in the data);
+//!      at rarity-local level 1, where DamageSpecial == 2 x Damage in the data) --
+//!      at the live level 11 the pair is 783 / 391 on a 3052 tower, the figures of
+//!      capture 20260920-003751
+//!      (3052 -> 2269 at t328 / t329 -- the two twins part by a frame -- and 1878 at
+//!      t357); what the engine does NOT reproduce is the TIMING of the first one:
+//!      live it lands on the first attack pass after the step into reach, with no
+//!      LoadTime windup (charge.CHARGED_HIT_TIMING, recorded, not implemented), here
+//!      after the LoadTime windup;
 //!   3. a Zap mid-run-up zeroes the progress in the tick it lands and the Prince
 //!      walks the FULL run-up again before it charges;
 //!   4. a Knight in the lane takes the charged hit instead of the tower, its second
@@ -268,13 +283,19 @@ fn the_prince_walks_42_ticks_at_speed_60_and_doubles_from_the_43rd_walking_tick_
     let c = card_stat(&s, "Prince");
     let ch = charge_of(&s, "Prince");
     let native_s = c.move_speed();
-    assert_eq!((native_s, ch.range_raw, ch.speed_multiplier_percent), (60, 250, 200), "data: the 2018 Prince row the live onset was measured against (16.402 ships the same three)");
+    assert_eq!((native_s, ch.range_raw, ch.speed_multiplier_percent), (60, 250, 200), "data: the Prince row the live onset was measured against (2018 and 15.535 ship the same three; 16.402 walks it)");
     let gain = tdiv16402(native_s * 1000, ch.range_raw);
     assert_eq!(gain, 240, "tdiv(60 x 1000, 250)");
     let charged_after = ((10_000 + gain - 1) / gain) as u32;
     assert_eq!(charged_after, 42, "42 x 240 = 10080 >= 10000, 41 x 240 = 9840 < 10000");
     let first_doubled = charged_after + 1;
-    assert_eq!(first_doubled, 43, "the 43rd walking tick is the first at S 120");
+    // LIVE (capture 20260920-003751-A, the Prince tapped at t150 on (3499, 8500)):
+    // state 1 at t191, the first step at t192
+    // (58, then 59 / 60 per tick), ticks 192..233 at S 60 = 42 walking ticks and 2483
+    // native from the spawn point, the first 120 step at t234 = 234 - 192 + 1 = the
+    // 43rd walking tick.
+    assert_eq!(first_doubled, 43, "the 43rd walking tick is the first at S 120 (live: t234 - t192 + 1)");
+    assert_eq!(234 - 192 + 1, first_doubled, "the capture's own count");
     let id = s.scenario_spawn_now(Team::Blue, "Prince", lane_spot(), None).unwrap();
     // Walking ticks are counted from the unit's own first moving tick, as the
     // capture measurement counts them.
@@ -304,6 +325,63 @@ fn the_prince_walks_42_ticks_at_speed_60_and_doubles_from_the_43rd_walking_tick_
         }
     }
     assert!(seen_doubled >= 20, "vacuous: {seen_doubled} doubled walking ticks seen ({walking} walking ticks)");
+}
+
+#[test]
+fn every_charger_doubles_on_the_walking_tick_the_captures_measured() {
+    // Plant charge_never_ready: nobody doubles. THE LIVE ONSETS (capture
+    // 20260920-003751, seats A and B, every charger placed alone at
+    // (3499 | 14500, 8500) and walking the lane): the tick of the first step and
+    // the tick of the first doubled step, taken from the captures, give the
+    // walking-tick index of the doubling -- ChargeRange 250 (gain 240): the 43rd;
+    // ChargeRange 300 (gain 200): 50 x 200 = 10000 reached on the 50th, the 51st
+    // doubles. The engine's onset for each card, computed from ITS data, must be
+    // the live one; the table itself must agree with the law (the two are
+    // independent checks: a wrong comparison (> for >=) moves the 300s to the 52nd
+    // and leaves the 250s alone).
+    // (The fourth charger of the capture, the Ram Rider -- first step t1462, first
+    // 120 step t1504 = the 43rd for its ChargeRange 250 -- is not simulable: the
+    // loader refuses its attached-rider `spawner` block; it stands in the ledger,
+    // charge.ACCUMULATOR provenance.)
+    let live: [(&str, u32, u32, &str); 3] = [
+        ("Prince", 192, 234, "seat A (the seat-B twin dropped t192)"),
+        ("DarkPrince", 292, 342, "seat B"),
+        ("BattleRam", 956, 1006, "seat A (heading change at ~t977, nothing lost)"),
+    ];
+    let mut seen_300 = 0;
+    for (name, first_step, first_doubled_tick, witness) in live {
+        let live_index = first_doubled_tick - first_step + 1;
+        let mut s = bare(config());
+        let c = card_stat(&s, name);
+        let ch = charge_of(&s, name);
+        let gain = tdiv16402(c.move_speed() * 1000, ch.range_raw);
+        let predicted = ((10_000 + gain - 1) / gain) as u32 + 1;
+        assert_eq!(predicted, live_index, "{name} ({witness}): the law predicts the {predicted}th walking tick, live doubled on the {live_index}th (ChargeRange {}, gain {gain})", ch.range_raw);
+        if ch.range_raw == 300 {
+            seen_300 += 1;
+        }
+        let id = s.scenario_spawn_now(Team::Blue, name, lane_spot(), None).unwrap();
+        let base = s.entity(id).unwrap().speed;
+        let mut walking = 0u32;
+        let mut pos = s.entity(id).unwrap().pos;
+        let mut first = None;
+        for _ in 0..live_index + 10 {
+            s.tick();
+            let e = s.entity(id).unwrap();
+            let d = e.pos.sub(pos);
+            pos = e.pos;
+            if d == Vec2::default() {
+                continue;
+            }
+            walking += 1;
+            if d.len() > base && first.is_none() {
+                first = Some(walking);
+            }
+        }
+        assert_straight_lane(&s, id);
+        assert_eq!(first, Some(live_index), "{name} ({witness}): the engine's first doubled step is walking tick {first:?}, live the {live_index}th");
+    }
+    assert!(seen_300 >= 2, "vacuous: the 300 run-up (the >= vs > case) was not exercised");
 }
 
 /// The 16.402 `tdiv` (truncating division), spelled out so the test does not depend
@@ -364,6 +442,19 @@ fn the_first_landed_hit_on_the_princess_tower_is_damage_special_scaled_and_the_s
         assert_eq!(hits[1].1, plain, "level {level:?}: the second landed hit is Damage ({hits:?})");
         assert!(hits[1].0 > hits[0].0);
     }
+    // THE LIVE FIGURES (capture 20260920-003751, both seats, card level 11 = the
+    // default): the princess tower 3052 -> 2269 on the charged hit (t329 on seat B,
+    // t328 on seat A: the twins' one-frame skew) and 1878 on the next (t357):
+    // 783 = 306 x 256 % and 391 = 153 x 256 %,
+    // floor; the tower's 3052 is combat.TOWER_HITPOINT_LADDER at tower level 11. The
+    // TIMING of the first hit is the engine's known gap: live it lands on the first
+    // attack pass after the step into reach with no windup, here LoadTime after
+    // (charge.CHARGED_HIT_TIMING).
+    let s = bare(config());
+    assert_eq!(s.config().card_level[0], 11, "vacuous: the default level is not the live tournament level");
+    assert_eq!(s.tower_hp(Team::Red)[1], 3052, "the princess tower at tower level 11 (live 16.402: 3052)");
+    let (hits, _, _) = tower_hits(config(), None);
+    assert_eq!((hits[0].1, hits[1].1), (783, 391), "live: the charged hit 783 and the plain hit 391 on the level-11 tower ({hits:?})");
 }
 
 // ---------------------------------------------------------------------------
@@ -478,10 +569,12 @@ fn dark_prince_and_battle_ram_load_with_charge_and_charge_on_their_own_run_up() 
         assert_eq!(c.kind, CardKind::Troop);
         assert_eq!(ch.damage_special, 2 * c.damage, "data: {name} DamageSpecial is 2 x Damage");
         assert!(ch.range_raw > 0 && ch.speed_multiplier_percent > 100, "data: {name} {ch:?}");
-        assert!(c.ignore_pushback, "data: {name} ships IgnorePushback (the Fireball asymmetry in (9) rests on it)");
     }
+    // The Fireball asymmetry in (9) rests on the PRINCE's IgnorePushback (2018 and
+    // 15.535 alike); the 2018 Battle Ram shipped it too, the 15.535 one does not.
+    assert!(card_stat(&s0, "Prince").ignore_pushback, "data: the Prince ships IgnorePushback");
     let mut seen = Vec::new();
-    for name in ["DarkPrince", "BattleRam"] {
+    for name in ["Prince", "DarkPrince", "BattleRam"] {
         let mut s = bare(config());
         let ch = charge_of(&s, name);
         let need = need_permille();
@@ -494,8 +587,9 @@ fn dark_prince_and_battle_ram_load_with_charge_and_charge_on_their_own_run_up() 
         assert_eq!(s.entity(id).unwrap().effective_speed, charged_step(base, ch), "{name}: the charged speed");
         seen.push((name, n));
     }
-    // The two run-ups differ in the data (250 vs 300), so the tick is the card's own.
-    assert_ne!(seen[0].1, seen[1].1, "vacuous: {seen:?}");
+    // The run-ups differ in the data (2018: 250 / 250 / 300; 15.535: 250 / 300 / 300),
+    // so a charge tick is the card's own, not one number for every charger.
+    assert!(seen.iter().any(|(_, n)| *n != seen[0].1), "vacuous: every charger charged on the same tick {seen:?}");
 }
 
 // ---------------------------------------------------------------------------
@@ -542,7 +636,9 @@ fn every_unit_without_a_charge_block_has_effective_speed_equal_to_speed_on_every
         }
         checked += 1;
     }
-    assert!(checked >= 20 && chargers == 3, "vacuous: {checked} cards checked, {chargers} chargers");
+    // 2018: Prince, DarkPrince, BattleRam; 15.535 adds the event card PrinceBuff
+    // (RamRider's row is refused for its spawner block).
+    assert!(checked >= 20 && chargers >= 3, "vacuous: {checked} cards checked, {chargers} chargers");
     // A scripted battle with no charge card: the hook is the identity on every entity
     // of every tick and no charge column ever moves -- the analytic statement that
     // such a battle is bit-identical to the engine before this mechanic (the only
@@ -711,7 +807,19 @@ fn charged_prince_hit_by(cfg: BattleConfig, spell: &str, ahead: i32) -> (bool, b
             // a LANDED push: under the shipped ladder (knockback.DISPLACEMENT_LAW =
             // client16402) the landing tick arms `push_active` and the first
             // step comes the tick after; the fixed_distance slide shows as a displacement
-            return (a.push_active || a.pos != b.pos, a.charged, true);
+            let pushed = a.push_active || a.pos != b.pos;
+            // `charged` is tested AFTER the ladder: the client16402 charge tail clears
+            // it on the ladder's zero-speed tick, not on the landing tick (calibration
+            // charge.RESET_ON_KNOCKBACK), so the landing tick still shows the charge
+            // under the shipped arm.
+            for _ in 0..40 {
+                if !s.entity(id).unwrap().push_active {
+                    break;
+                }
+                s.tick();
+            }
+            assert!(!s.entity(id).unwrap().push_active, "vacuous: the ladder did not end");
+            return (pushed, s.entity(id).unwrap().charged, true);
         }
     }
     (false, s.entity(id).unwrap().charged, false)
@@ -866,14 +974,22 @@ fn every_charge_candidate_moves_a_measurable_behaviour() {
     assert!(charged_after_retarget(config()), "RESET_ON_RETARGET = false (shipped): a switch keeps the charge");
     assert!(!charged_after_retarget(with_calib(|c| c.charge_reset_on_retarget = true)), "RESET_ON_RETARGET = true: a switch between live targets clears it");
 
-    // SPECIAL_LEVEL_SCALING: at Epic local level 2 the two truncations part by one point.
+    // SPECIAL_LEVEL_SCALING: the first Prince level where the two truncations part
+    // (the 2018 Prince at Epic local level 2; the 15.535 one, on the unified ladder,
+    // at 6: 306 x 160 % = 489 against 2 x floor(153 x 1.6) = 488), searched from the
+    // data, never pasted.
     let db = s0.cards();
     let idx = db.index("Prince").unwrap();
-    let level2 = db.rarity("Epic").unwrap().relative_level + 2;
+    let epic = db.rarity("Epic").unwrap();
     let plain = card_stat(&s0, "Prince").damage;
-    let scaled_special = db.scaled(idx, level2, ch.damage_special).unwrap();
-    let twice = (db.scaled(idx, level2, plain).unwrap() as i64 * ch.damage_special as i64 / plain as i64) as i32;
-    assert_ne!(scaled_special, twice, "vacuous: the two scalings agree at local level 2");
+    let (level2, scaled_special, twice) = (epic.relative_level + 1..=epic.relative_level + epic.level_count)
+        .map(|l| {
+            let sp = db.scaled(idx, l, ch.damage_special).unwrap();
+            let tw = (db.scaled(idx, l, plain).unwrap() as i64 * ch.damage_special as i64 / plain as i64) as i32;
+            (l, sp, tw)
+        })
+        .find(|(_, sp, tw)| sp != tw)
+        .expect("vacuous: the two scalings agree at every Prince level");
     let (hits, _, _) = tower_hits(with_calib(|c| c.charge_special_level_scaling = ChargeLevelScaling::ScaleSpecialBase), Some(level2));
     assert_eq!(hits[0].1, scaled_special, "scale_special_base at level {level2}: {hits:?}");
     let (hits, _, _) = tower_hits(with_calib(|c| c.charge_special_level_scaling = ChargeLevelScaling::TwiceScaledDamage), Some(level2));

@@ -301,6 +301,28 @@ pub struct Calib {
     pub charge_reset_on_retarget: bool,
     /// charge.SPECIAL_LEVEL_SCALING: how DamageSpecial scales with level.
     pub charge_special_level_scaling: ChargeLevelScaling,
+    // --- crown towers. combat.TOWER_HITPOINT_LADDER:
+    // how the two tower records scale with the TOWER level (`BattleState::new` ->
+    // `spawn_now`, the only site; `tower_multiplier_percent`).
+    /// combat.TOWER_HITPOINT_LADDER: the regime.
+    pub tower_ladder: TowerLadder,
+    /// combat.TOWER_HITPOINT_LADDER value.cap_level: the last tower level stepped at
+    /// the per-KING/TOWER rate; every level above it steps at the AT/AFTER_TOURNAMENTCAP
+    /// rate (2018 globals TOURNAMENT_MAX_EXP_LEVEL = 9; 15.535 TOWER_SCALING_START_EXP_LEVEL = 9).
+    pub tower_ladder_cap_level: i32,
+    /// globals.csv HITPOINT_INCREASE_PERCENT_PER_KING_LEVEL / _PER_TOWER_LEVEL /
+    /// _AT_TOURNAMENTCAP (the two AT/AFTER king and tower rates are one number in both
+    /// vintages) and the three DAMAGE_ counterparts, read from the embedded globals.csv.
+    pub tower_hp_pct: TowerPercents,
+    pub tower_dmg_pct: TowerPercents,
+}
+
+/// The three per-level percents of one tower stat (combat.TOWER_HITPOINT_LADDER).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TowerPercents {
+    pub king: i32,
+    pub princess: i32,
+    pub after_cap: i32,
 }
 
 /// A calibration enum: the registry string names each variant, and an unknown string
@@ -402,8 +424,43 @@ calib_enum!(
     }
 );
 calib_enum!(
-    /// knockback.ATTACK_RESET.
-    KnockAttackReset { ResetWindupKeepTarget = "reset_windup_keep_target", ResetWindupClearTarget = "reset_windup_clear_target" }
+    /// knockback.ATTACK_RESET -- what a LANDED push does to the victim's attack
+    /// (state.rs `apply_effects`; the hold while the ladder runs is `phase_attack` /
+    /// target.rs through `Entities::knocked`).
+    KnockAttackReset {
+        /// MEASURED on the live 16.402 captures (capture 20260920-081819-A: the Bomber
+        /// gen 29 between hits at tick 2020, the Knight gen 61 mid-windup at 3535): the push
+        /// interrupts the attack whatever its phase -- state 1 through the ladder, the
+        /// swing counter zeroed, the load timer back to LoadTime on the hit tick, and a
+        /// FRESH LoadTime windup on re-entering range after the ladder; the target kept.
+        /// Windup or Cooldown -> Idle here.
+        ResetAttackKeepTarget = "reset_attack_keep_target",
+        /// The community reading this file shipped before the captures: a windup in
+        /// progress returns to Idle, a cooldown is untouched (it freezes through the
+        /// ladder and resumes). Kept runnable as the foil.
+        ResetWindupKeepTarget = "reset_windup_keep_target",
+        /// The windup reset with the target dropped as well.
+        ResetWindupClearTarget = "reset_windup_clear_target",
+    }
+);
+calib_enum!(
+    /// combat.TOWER_HITPOINT_LADDER -- how the KingTower / PrincessTower records scale
+    /// with the tower level (`BattleState::new` -> `spawn_now` -> `tower_multiplier_percent`).
+    TowerLadder {
+        /// MEASURED on the live 16.402 captures (tests/fixtures/live_levels.json:
+        /// king 3312 / 4824 and princess 2030 / 3052 at tower levels 6 / 11; the princess
+        /// hit for 109 = 50 x 218 % on the Prince of capture 20260920-003751): the percent
+        /// steps ONE LEVEL AT A
+        /// TIME with an integer floor after each step, `pct(1) = 100`,
+        /// `pct(L) = floor(pct(L-1) x (100 + rate) / 100)`, rate = the per-KING (7) or
+        /// per-TOWER (8) globals percent up to `cap_level` and the AT/AFTER_TOURNAMENTCAP
+        /// percent (10) above it; the stat is `base x pct / 100`. Reproduces the known
+        /// king table 2400, 2568, 2736, 2904, 3096, 3312, ..., 4824, ..., 7032 exactly.
+        GlobalsPercentPerLevelCompoundFloor = "globals_percent_per_level_compound_floor",
+        /// The card ladder of the record's rarity (Common: x 256 % at 11 -> 6144 / 3584),
+        /// what the engine ran before the towers were measured. Kept runnable as the foil.
+        CommonCardLadder = "common_card_ladder",
+    }
 );
 calib_enum!(
     /// knockback.DIRECTION_ROLLING.
@@ -672,6 +729,33 @@ fn globals_number(name: &str) -> Result<i32, String> {
         .ok_or_else(|| format!("globals.csv: {name} missing"))
 }
 
+/// THE TOWER LEVEL MULTIPLIER (calibration combat.TOWER_HITPOINT_LADDER =
+/// globals_percent_per_level_compound_floor): `pct(1) = 100` and, for every level
+/// up to `level`, `pct(L) = floor(pct(L - 1) x (100 + rate(L)) / 100)` with
+/// `rate(L)` the record's own per-level percent (`pct.king` for the KingTower,
+/// `pct.princess` for the PrincessTower) while `L <= cap_level` and `pct.after_cap`
+/// above it. Integer all the way (a 64-bit product); the caller applies it as
+/// `base x pct / 100` (`CardDb::scale`). MEASURED on the live 16.402 towers (the
+/// four hitpoint rows of tests/fixtures/live_levels.json and the princess tower's
+/// 109 damage on the Prince of capture 20260920-003751) and equal to the
+/// known king table at every level 1..15 (tests/levels.rs).
+pub fn tower_multiplier_percent(calib: &Calib, kind: EntityKind, level: i32, pct: TowerPercents) -> Result<i32, String> {
+    let per_level = match kind {
+        EntityKind::KingTower => pct.king,
+        EntityKind::PrincessTower => pct.princess,
+        other => return Err(format!("tower_multiplier_percent on a {other:?}")),
+    };
+    if level < 1 {
+        return Err(format!("tower level {level} is not a level"));
+    }
+    let mut p: i64 = 100;
+    for l in 2..=level {
+        let rate = if l <= calib.tower_ladder_cap_level { per_level } else { pct.after_cap };
+        p = p * (100 + rate as i64) / 100;
+    }
+    i32::try_from(p).map_err(|_| format!("tower level {level}: multiplier overflow"))
+}
+
 impl Calib {
     pub fn from_json(s: &str) -> Result<Calib, String> {
         let v: Value = serde_json::from_str(s).map_err(|e| format!("calibration.json: {e}"))?;
@@ -845,7 +929,38 @@ impl Calib {
             charge_reset_on_knockback: boolean(&v, &["charge", "RESET_ON_KNOCKBACK", "value"])?,
             charge_reset_on_retarget: boolean(&v, &["charge", "RESET_ON_RETARGET", "value"])?,
             charge_special_level_scaling: pick(&v, &["charge", "SPECIAL_LEVEL_SCALING", "value"], ChargeLevelScaling::from_calibration_name)?,
+            tower_ladder: pick(&v, &["combat", "TOWER_HITPOINT_LADDER", "value", "regime"], TowerLadder::from_calibration_name)?,
+            tower_ladder_cap_level: int(&v, &["combat", "TOWER_HITPOINT_LADDER", "value", "cap_level"])?,
+            tower_hp_pct: TowerPercents {
+                king: globals_number("HITPOINT_INCREASE_PERCENT_PER_KING_LEVEL")?,
+                princess: globals_number("HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL")?,
+                after_cap: globals_number("HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL_AFTER_TOURNAMENTCAP")?,
+            },
+            tower_dmg_pct: TowerPercents {
+                king: globals_number("DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL")?,
+                princess: globals_number("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL")?,
+                after_cap: globals_number("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL_AFTER_TOURNAMENTCAP")?,
+            },
         };
+        // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
+        // number in the shipped globals (10); the engine reads the one it names above
+        // and refuses a globals.csv where they part rather than pick silently.
+        for (name, want) in [
+            ("HITPOINT_INCREASE_PERCENT_PER_KING_LEVEL_AFTER_TOURNAMENTCAP", c.tower_hp_pct.after_cap),
+            ("HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL_AT_TOURNAMENTCAP", c.tower_hp_pct.after_cap),
+            ("HITPOINT_INCREASE_PERCENT_PER_KING_LEVEL_AT_TOURNAMENTCAP", c.tower_hp_pct.after_cap),
+            ("DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL_AFTER_TOURNAMENTCAP", c.tower_dmg_pct.after_cap),
+            ("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL_AT_TOURNAMENTCAP", c.tower_dmg_pct.after_cap),
+            ("DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL_AT_TOURNAMENTCAP", c.tower_dmg_pct.after_cap),
+        ] {
+            let got = globals_number(name)?;
+            if got != want {
+                return Err(format!("globals.csv: {name} = {got} parts from the one AT/AFTER_TOURNAMENTCAP rate {want} the tower ladder reads (combat.TOWER_HITPOINT_LADDER)"));
+            }
+        }
+        if c.tower_ladder_cap_level < 1 {
+            return Err(format!("combat.TOWER_HITPOINT_LADDER.value.cap_level = {} is not a tower level", c.tower_ladder_cap_level));
+        }
         // hide.HIDDEN_OCCLUDES_PATH: the one implemented candidate is `true` (a hidden
         // footprint still occludes the path grid and blocks deploys -- the grid never
         // looks at the hide state). `false` needs the pathfinder's code and is refused,
@@ -1390,15 +1505,34 @@ impl BattleState {
         let cards = self.cfg.cards.clone();
         let c = cards.get(card);
         let scaled = |b: i32| cards.scaled(card, level, b);
+        // CROWN TOWERS (calibration combat.TOWER_HITPOINT_LADDER): the two tower
+        // records scale with the TOWER level on the game's own per-level regime, not
+        // the card ladder of their (Common) rarity -- measured 4824 / 3052 at tower
+        // level 11 against the ladder's 6144 / 3584. Hitpoints and damage each on
+        // their globals percent (`tower_multiplier_percent`).
+        #[cfg(not(clash_plant = "tower_card_ladder"))]
+        let tower = matches!(kind, EntityKind::KingTower | EntityKind::PrincessTower)
+            && self.cfg.calib.tower_ladder == TowerLadder::GlobalsPercentPerLevelCompoundFloor;
+        #[cfg(clash_plant = "tower_card_ladder")]
+        let tower = false; // PLANT (regression): the earlier engine's towers on the card ladder (6144 / 3584 at 11).
+        let (hp, damage) = if tower {
+            let calib = &self.cfg.calib;
+            (
+                CardDb::scale(c.hitpoints, tower_multiplier_percent(calib, kind, level, calib.tower_hp_pct)?),
+                CardDb::scale(c.damage, tower_multiplier_percent(calib, kind, level, calib.tower_dmg_pct)?),
+            )
+        } else {
+            (scaled(c.hitpoints)?, scaled(c.damage)?)
+        };
         let id = self.ents.spawn(SpawnInit {
             team,
             kind,
             card,
             level,
             pos,
-            hp: scaled(c.hitpoints)?,
+            hp,
             shield: scaled(c.shield_hitpoints)?,
-            damage: scaled(c.damage)?,
+            damage,
             death_damage: scaled(c.death_damage)?,
             radius: c.collision_radius,
             mass: c.mass,
@@ -1432,9 +1566,12 @@ impl BattleState {
     }
 
     /// THE MOMENT AN ENTITY'S DEPLOY TIME ENDS: the hide machinery takes its start
-    /// state and a spawner is ACTIVATED. Called from phase_upkeep on the tick
-    /// deploy_ms reaches 0, from `spawn_now` / phase_spawn for a zero deploy time,
-    /// and from the scenario setup path, which skips the deploy timer.
+    /// state and a spawner is ACTIVATED. Called from `deploy_countdown` on the tick
+    /// deploy_ms reaches 0 -- which runs at the END of Move under match.TICK_ORDER =
+    /// client16402 (the deploy countdown after the move pass, as the captures show) and
+    /// in Upkeep under legacy_move_before_attack -- from `spawn_now` / phase_spawn for a
+    /// zero deploy time, and from the scenario setup path, which skips the deploy
+    /// timer.
     fn on_deployed(&mut self, i: usize) {
         self.hide_on_deployed(i);
         self.spawner_activate(i);
@@ -2219,6 +2356,11 @@ impl BattleState {
                 .collect();
             let is_water = |c: i32, r: i32| arena.cell_bits(c, r) & arena.bit_water != 0;
             let cell_bits = |c: i32, r: i32| arena.cell_bits(c, r);
+            // the tilemap's blocked bits (0x50 in its own encoding) have no arena.json
+            // counterpart (bits: LANE_LEFT 1, LANE_RIGHT 2, NO_DEPLOY 16, WATER 32 -- the
+            // engine's encoding, not the tilemap's); only the water bit is tested here
+            // (knockback.WATER_RESOLUTION not_modelled)
+            let blocked_mask: u8 = 0;
             let mut scratch: Vec<usize> = Vec::new();
             // THE UPDATE ORDER IS CREATION ORDER: on every frame pair of the live
             // corpus the units move in the order they were spawned (calibration
@@ -2250,7 +2392,10 @@ impl BattleState {
                     // ---- 0. THE PUSHBACK TICK (taken before any path request or walk
                     // while the ladder is armed -- and before the stun / freeze hold
                     // below: the ladder tests no hold and no state, so a stunned unit
-                    // is still carried by it)
+                    // is still carried by it; whether the real game carries a stunned
+                    // or frozen unit through its ladder is the engine's guess, recorded
+                    // on knockback.DISPLACEMENT_LAW's open list -- no capture has a
+                    // stunned unit mid-ladder)
                     let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
                     let mut rem = push_speed[i];
                     if rem > 0 {
@@ -2261,14 +2406,20 @@ impl BattleState {
                         // the nearest land first (knockback.WATER_RESOLUTION =
                         // eject_to_nearest_land)
                         let (x, y) = (bodies[i].x, bodies[i].y);
-                        if !flying && move16402::blocked_or_water(x, y, arena.cols, arena.rows, cell_bits) {
+                        if !flying && move16402::blocked_or_water(x, y, arena.cols, arena.rows, arena.bit_water, blocked_mask, cell_bits) {
                             let (nx, ny) = move16402::nearest_land(x, y, arena.cols, arena.rows, is_water);
                             bodies[i].x = nx;
                             bodies[i].y = ny;
                         }
                     }
                     let tgt = (e.push_target[i].x, e.push_target[i].y);
+                    // the requested step handed to the charge tail (`charge_pass`):
+                    // `d = max(1, dist)`, `min(speed, d, 250)` from the PRE-move position
+                    // and the post-decrement speed (no lower clamp: the back-step tick
+                    // hands it -25)
+                    let d_pre = move16402::distance(bodies[i].x, bodies[i].y, tgt.0, tgt.1).max(1);
                     let m = move16402::pushback_step((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), deploying && !flying, is_water, arena.cols, arena.rows);
+                    walk_step[i] = rem.min(d_pre).min(250);
                     // the facing is not updated and the offset neither scanned nor
                     // decayed: `offsets[i]` stays what it was
                     debug_assert!(m.dir.is_none());
@@ -2686,6 +2837,8 @@ impl BattleState {
         let client16402 = self.arm16402();
         let cap = self.ents.capacity();
         let mut due: Vec<(usize, i32, i32)> = Vec::new();
+        // the ladder's zero-speed and back-step ticks: progress AND charge cleared
+        let mut ladder_reset: Vec<usize> = Vec::new();
         {
             let e = &self.ents;
             let ctx = TargetCtx {
@@ -2699,14 +2852,57 @@ impl BattleState {
                 king_active: self.king_active,
             };
             for i in 0..cap {
-                if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.charged[i] {
+                if !e.alive[i] || e.kind[i] != EntityKind::Troop {
                     continue;
                 }
                 let Some(ch) = self.cfg.cards.get(e.card[i]).charge else { continue };
-                if client16402 && self.scratch.pushed.get(i).copied().unwrap_or(false) {
-                    // a knockback ladder step is not a walk under any accumulator (the
-                    // slide arm keeps it out by capturing `pre` after the slides)
-                    due.push((i, 0, self.charge_need(i, ch)));
+                if self.scratch.pushed.get(i).copied().unwrap_or(false) {
+                    // ---- A PUSHBACK TICK: the charge tail runs on the ladder's
+                    // requested step (`walk_step`, min(speed, dist, 250)). A step > 0 on
+                    // a unit in state 1 adds tdiv(step x 1000, ChargeRange) to a run-up
+                    // below 10000, and reaching 10000 fires the charge; a charged unit
+                    // stays charged. Otherwise -- the ZERO-speed tick and the BACK-STEP
+                    // tick (step 0 / -25), or a unit not in state 1 -- the run-up AND the
+                    // charge are cleared, WHATEVER the progress was (a unit in state 5
+                    // or 8 is exempt). MEASURED: the victim's state is 1 through the
+                    // ladder (the Giant gen 15 of capture 20260918-122757.b1, ticks
+                    // 1216..1223; the Bomber gen 29 and the Knight gen 61 of capture
+                    // 20260920-081819-A, attacking when hit, state 1 from the first
+                    // ladder tick). The engine's state 1 stand-in for a pushed unit: not
+                    // deploying (state 4) and not stunned (RESET_ON_STUN already zeroed
+                    // it). charge.RESET_ON_KNOCKBACK = true is this tail; `false` skips
+                    // it on ladder ticks (the run-up and the charge held across the
+                    // ladder, the foil).
+                    if !c.charge_reset_on_knockback {
+                        continue;
+                    }
+                    if e.jumping[i] {
+                        // a ladder running in place of a leap: the unit is still state 5,
+                        // and the tail neither adds (state != 1) nor resets (states 5 and
+                        // 8 are exempt) -- no capture exercises this branch
+                        continue;
+                    }
+                    let l = self.scratch.walk_step.get(i).copied().unwrap_or(0);
+                    let state1 = e.deploy_ms[i] == 0 && e.stun_ms[i] == 0;
+                    if l > 0 && state1 {
+                        if !e.charged[i] {
+                            // the tail's own unit under the client16402 accumulator; the
+                            // displacement foils count the ladder's requested step in
+                            // THEIR unit (subtiles of walk, or a tick of moving), so a
+                            // ladder tick reads to them as a walk of that length
+                            let gain = match c.charge_accumulator {
+                                ChargeAccumulator::Client16402ProgressPermille => move16402::tdiv(l.saturating_mul(1000), ch.range_raw.max(1)),
+                                ChargeAccumulator::TimeMoving => c.tick_ms,
+                                ChargeAccumulator::WalkDeltaLength | ChargeAccumulator::WalkDeltaTowardTarget | ChargeAccumulator::NetMoveLength => l.saturating_mul(K),
+                            };
+                            due.push((i, gain, self.charge_need(i, ch)));
+                        }
+                    } else {
+                        ladder_reset.push(i);
+                    }
+                    continue;
+                }
+                if e.charged[i] {
                     continue;
                 }
                 if client16402 && self.scratch.jumped.get(i).copied().unwrap_or(false) {
@@ -2758,6 +2954,10 @@ impl BattleState {
             }
         }
         let stop = c.charge_progress_on_stop;
+        for i in ladder_reset {
+            self.ents.charged[i] = false;
+            self.ents.charge_progress[i] = 0;
+        }
         for (i, gain, need) in due {
             let e = &mut self.ents;
             if gain <= 0 {
@@ -3198,7 +3398,7 @@ impl BattleState {
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing).
-            // Mid-leap (state 5): the attack component's state-5 handling is unread
+            // Mid-leap (state 5): the attack side of a leap is unmeasured
             // (jump16402.rs); the engine holds the swing and keeps the unit targetable.
             let can_act = e.deploy_ms[i] == 0
                 && !held
@@ -3298,7 +3498,17 @@ impl BattleState {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let arena = &self.cfg.arena;
         let mut moved = false;
-        for i in 0..self.ents.capacity() {
+        let cap = self.ents.capacity();
+        // the charge tail's inputs (`charge_pass`): which units took a ladder tick
+        // and the requested step of each -- the frame-planned arms' counterpart of
+        // what phase_path16402 records
+        let pushed = &mut self.scratch.pushed;
+        pushed.clear();
+        pushed.resize(cap, false);
+        let walk_step = &mut self.scratch.walk_step;
+        walk_step.clear();
+        walk_step.resize(cap, 0);
+        for i in 0..cap {
             if !self.ents.alive[i] || !self.ents.push_active[i] {
                 continue;
             }
@@ -3308,7 +3518,10 @@ impl BattleState {
             let old = e.pos[i];
             let u = (old.x / K, old.y / K);
             let tgt = (e.push_target[i].x, e.push_target[i].y);
+            let d_pre = move16402::distance(u.0, u.1, tgt.0, tgt.1).max(1);
             let m = move16402::pushback_step(u, tgt, &mut rem, &mut con, (0, 0), false, |_, _| false, arena.cols, arena.rows);
+            pushed[i] = true;
+            walk_step[i] = rem.min(d_pre).min(250);
             let desired = Vec2::new(m.x * K, m.y * K);
             e.pos[i] = spell::settle(arena, &self.scratch.obstacles[0], e.team[i], e.radius[i], e.flying[i], old, desired);
             e.push_speed[i] = rem;
@@ -3450,8 +3663,20 @@ impl BattleState {
         for (i, s) in sum.iter().enumerate() {
             let Some(d) = *s else { continue };
             let e = &mut self.ents;
+            // ATTACK (calibration knockback.ATTACK_RESET): MEASURED on two ladders
+            // landing on attacking units (capture 20260920-081819-A:
+            // the Bomber gen 29 between hits, swing counter 3500 -> 0 at tick 2021; the
+            // Knight gen 61 mid-windup, load 300 -> 700 on the hit tick 3535): the push
+            // interrupts the attack whatever its phase, the unit is state 1 through the
+            // ladder and starts a FRESH LoadTime windup on re-entering range after it,
+            // the target kept. reset_attack_keep_target: Windup or Cooldown -> Idle;
+            // the two reset_windup_* foils leave a cooldown running (frozen by
+            // `Entities::knocked` while the ladder runs, resumed after).
             #[cfg(not(clash_plant = "knockback_keeps_windup"))]
-            let resets = e.attack_phase[i] == AttackPhase::Windup;
+            let resets = match c.knock_attack_reset {
+                KnockAttackReset::ResetAttackKeepTarget => e.attack_phase[i] != AttackPhase::Idle,
+                KnockAttackReset::ResetWindupKeepTarget | KnockAttackReset::ResetWindupClearTarget => e.attack_phase[i] == AttackPhase::Windup,
+            };
             #[cfg(clash_plant = "knockback_keeps_windup")]
             let resets = false; // PLANT: a push leaves the windup running.
             if resets {
@@ -3465,7 +3690,15 @@ impl BattleState {
             // so a Fireball never reaches a Prince, DarkPrince or BattleRam (all three
             // ship IgnorePushback) and only The Log does. That asymmetry is a
             // PREDICTION of the shipped data, not a defect.
-            if c.charge_reset_on_knockback {
+            //
+            // UNDER THE client16402 LAW the landing itself touches no charge field: the
+            // clearing is the charge tail's own, run inside every pushback tick -- the
+            // run-up ADVANCES on the positive-speed ladder ticks (state 1, step > 0) and
+            // the zero-speed tick and the back-step tick zero it and clear the charge
+            // whatever the progress was -- and every projectile ladder has both, so the
+            // charge is gone when the ladder ends (`charge_pass`). The slide arm keeps
+            // the landing-tick clear.
+            if c.charge_reset_on_knockback && d.is_some() {
                 e.charged[i] = false;
                 e.charge_progress[i] = 0;
             }
@@ -4601,8 +4834,19 @@ impl BattleState {
 /// 11: the river jump -- Calib gained path_cost_water and jump_water_hop; Entities
 ///    gained jumping; CardDef gained jump (the card fingerprint moves).
 /// 12: the tick order -- Calib gained tick_order and dying_unit_visibility; Entities
-///    gained creation_seq and the battle its creation_counter.
-pub const SNAPSHOT_FORMAT: u32 = 12;
+///    gained creation_seq; the snapshot gained creation_counter.
+/// 13: the 15.535.29 card data -- CardDb takes its rarities from cards.json (a
+///    Champion exists, a Rare has 14 levels) and CardDef gained level_base (the card
+///    fingerprint moves; every snapshot saved against the 2018 cards.json is stale
+///    on the stats alone).
+/// 14: the tower ladder and the knockback attack reset -- Calib gained tower_ladder /
+///    tower_ladder_cap_level / tower_hp_pct / tower_dmg_pct
+///    (combat.TOWER_HITPOINT_LADDER) and the knockback.ATTACK_RESET candidate
+///    reset_attack_keep_target; no new Entities column (a format-3 battle keeps its
+///    towers' saved hitpoints: the ladder is read at BattleState::new only, and
+///    migrate_v3 gives it the old attack reset and the card-ladder regime it ran
+///    under).
+pub const SNAPSHOT_FORMAT: u32 = 14;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -4735,9 +4979,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... hide~~ -- format 7 added `spawner` and `death_spawn` after it.
                 // ~~... death_spawn~~ -- format 8 added `charge` after them.
                 // ~~... charge~~ -- format 11 added `jump` after it.
+                // ~~... jump~~ -- format 13 added `level_base` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -4766,6 +5011,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // it keeps both, as it keeps the other three (the same rule as crown_rounding).
     sh.insert("tick_order".into(), serde_json::to_value(TickOrder::LegacyMoveBeforeAttack).map_err(|e| e.to_string())?);
     sh.insert("dying_unit_visibility".into(), serde_json::to_value(DyingUnitVisibility::WholeTick).map_err(|e| e.to_string())?);
+    // FORMAT 14: a format-3 battle scaled its towers on the card ladder and reset a
+    // windup only on a landed push; it keeps both (the same rule).
+    sh.insert("tower_ladder".into(), serde_json::to_value(TowerLadder::CommonCardLadder).map_err(|e| e.to_string())?);
+    sh.insert("knock_attack_reset".into(), serde_json::to_value(KnockAttackReset::ResetWindupKeepTarget).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

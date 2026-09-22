@@ -276,17 +276,29 @@ fn sweep_building_footprints() {
     let a = s.arena().clone();
     let mut items = Vec::new();
     let towers = [
-        (a.princess_tower_pos(Team::Red, Lane::Left), card_stat(&s, "PrincessTower").collision_radius),
-        (a.princess_tower_pos(Team::Blue, Lane::Right), card_stat(&s, "PrincessTower").collision_radius),
-        (a.king_tower_pos(Team::Red), card_stat(&s, "KingTower").collision_radius),
+        (a.princess_tower_pos(Team::Red, Lane::Left), s.tower_ids(Team::Red)[1].unwrap()),
+        (a.princess_tower_pos(Team::Blue, Lane::Right), s.tower_ids(Team::Blue)[2].unwrap()),
+        (a.king_tower_pos(Team::Red), s.tower_ids(Team::Red)[0].unwrap()),
     ];
+    // The push both arms land (the ladder's settled carry, the slide's distance). The
+    // victim stands its radius plus a fifth of that push beyond the SHIPPED footprint's
+    // edge along the push line, so the destination is inside the footprint whatever
+    // the vintage's Pushback column (2018 Fireball 1800, 15.535 1000: a Knight pushed
+    // 875 native from beyond a 1.5-tile box candidate would not reach the princess
+    // tower's 1000 circle, which is why the ring is measured on the shape itself).
+    let carry = knock_carry(&config().calib, pushbacks()[0]).min(pushbacks()[0]);
     for victim in ["Knight", "Giant"] {
         let r = card_stat(&s, victim).collision_radius;
-        for (c, big) in towers {
-            // Beyond the largest footprint candidate (a box of half-size ~1.5 tiles).
-            let ring = big.max(3 * SUBTILE / 2) + r + milli(200);
+        for (c, id) in towers {
+            let shape = footprint_of(&s, id).unwrap();
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (3, 4), (-3, 4), (3, -4), (-3, -4)] {
                 let n = if dx != 0 && dy != 0 { 5 } else { 1 };
+                // The footprint's extent along this line, to the subtile.
+                let edge = (1..)
+                    .map(|k| k * SUBTILE / 18)
+                    .find(|&k| !shape.penetrates(Vec2::new(c.x + dx * k / n, c.y + dy * k / n), 0))
+                    .unwrap();
+                let ring = edge + r + (carry / 5).min(milli(200));
                 let at = Vec2::new(c.x + dx * ring / n, c.y + dy * ring / n);
                 if a.is_passable_ground(at) && at.x > r && at.x < a.width - r {
                     items.push(Item { victim, at, dir: (-dx, -dy) });
