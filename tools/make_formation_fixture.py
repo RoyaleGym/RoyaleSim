@@ -18,8 +18,9 @@ evidence it is held to.
 
 CLEAN means: the group is one the capture saw ARRIVE (every member in a deploy
 state on its first frame -- a recording's opening frame reports units already
-walking and the detector groups those like a deploy), the group's tap is a placement-log tile (`tap_tile`; a `centroid` source
-is admitted for a card with no tap-tile group on that side / lane, and flagged), every
+walking and the detector groups those like a deploy), the group's tap is a
+placement-log tile (`tap_tile`; a `centroid` source is admitted for a card with
+no tap-tile group on that side / lane, and flagged), every
 member has a first frame and a deploy end, no OTHER unit (any side, towers and the
 group's own members excluded) stood within CLEAR_NATIVE of any member on the group's
 first frame, and no GROUND member stands within a crown tower's collision box widened
