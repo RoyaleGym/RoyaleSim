@@ -67,7 +67,6 @@ fn a_cannon_never_stands_where_its_footprint_does_not_fit() {
         (Vec2::new(17 * t + 19 * t / 20, 8 * t + t / 2), "0.05 tiles from the far side wall"),
         (tile_centre(9, 14), "on the river bank"),
         (tile_centre(3, 6), "on the left princess tower"),
-        (tile_centre(9, 3), "on the king tower"),
     ];
     for (tap, what) in taps {
         let (centre, b) = place(&s, Team::Blue, "Cannon", tap).unwrap_or_else(|| panic!("{what}: refused outright"));
@@ -76,6 +75,14 @@ fn a_cannon_never_stands_where_its_footprint_does_not_fit() {
         assert!(b.max.x <= 18 * t && b.max.y <= 32 * t, "{what}: box leaves the arena at {b:?}");
         assert!(b.max.y <= 15 * t, "{what}: box crosses the river at {b:?}");
     }
+    // A tap on a NO-DEPLOY cell is a different case and must still be refused
+    // outright: relocation rescues a legal point whose box does not fit, and every
+    // recorded relocation is inside the placer's own half. The king block is the
+    // one no-deploy area a player can tap on their own side.
+    assert!(
+        place(&s, Team::Blue, "Cannon", tile_centre(9, 3)).is_none(),
+        "a tap on the king block was relocated instead of refused"
+    );
 }
 
 /// Catches a relocation that refuses instead of moving. The recordings show 39 of
@@ -84,10 +91,12 @@ fn a_cannon_never_stands_where_its_footprint_does_not_fit() {
 #[test]
 fn an_unfittable_tap_moves_rather_than_being_refused() {
     let s = board();
-    let tap = Vec2::new(9 * tiles(1) + tiles(1) / 2, tiles(1) / 20);
-    let (centre, _) = place(&s, Team::Blue, "Cannon", tap).expect("the back wall tap must still build a Cannon");
-    assert_eq!(centre.y, tiles(1) + tiles(1) / 2, "it moves exactly far enough to fit, one tile in");
-    assert_eq!(centre.x, tap.x - tap.x % tiles(1) + tiles(1) / 2, "and does not drift sideways");
+    // The river bank is the clean case: dry ground to tap on, a box that would
+    // cross the water, and nothing else near enough to decide where it goes.
+    let tap = tile_centre(9, 14);
+    let (centre, b) = place(&s, Team::Blue, "Cannon", tap).expect("the river bank tap must still build a Cannon");
+    assert_eq!(centre, tile_centre(9, 13), "it steps back one row, off the water");
+    assert!(b.max.y <= 15 * tiles(1), "its box still crosses the river: {b:?}");
 }
 
 /// Catches an overlap test written with `<=`. The recordings hold 93 exactly
@@ -150,8 +159,7 @@ fn the_refuse_arm_still_refuses() {
     let mut cfg = config();
     cfg.calib.placement_illegal_tap = PlacementIllegalTap::Refuse;
     let s = BattleState::new(7, cfg);
-    let tap = Vec2::new(9 * tiles(1) + tiles(1) / 2, tiles(1) / 20);
-    assert!(place(&s, Team::Blue, "Cannon", tap).is_none(), "the refuse arm placed a building anyway");
+    assert!(place(&s, Team::Blue, "Cannon", tile_centre(9, 14)).is_none(), "the refuse arm placed a building anyway");
     assert!(place(&s, Team::Blue, "Cannon", tile_centre(6, 8)).is_some(), "and it must still allow open ground");
 }
 

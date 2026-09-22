@@ -78,15 +78,23 @@ def test_an_even_sized_building_takes_a_tile_corner(battle):
 
 
 def test_a_cannon_at_the_wall_does_not_stay_there(battle):
-    """THE REPORTED DEFECT. The tap is a legal point 0.05 tiles from the back wall;
-    a 3x3 Cannon cannot stand there, so it must be moved."""
-    x = 9 * TILE + TILE // 2
-    tap_y = TILE // 20
+    """THE REPORTED DEFECT: a legal tap POINT whose 3x3 box is not legal.
+
+    The river bank is the clean case. A tap on tile (9, 14) is dry ground, but a
+    3x3 box centred there would cross into the water rows, and nothing else is
+    near enough to decide where it goes instead, so it steps back exactly one row.
+    """
+    x, tap_y = tile_centre(9, 14)
     cx, cy, box = battle.building_placement(0, "Cannon", x, tap_y)
-    assert cy != tap_y, "the Cannon stayed on the tap"
-    assert box[1] >= 0, f"its box left the arena: {box}"
-    assert cy == TILE + TILE // 2, "it moves exactly far enough to fit"
-    assert cx == x, "and does not drift sideways"
+    assert (cx, cy) == tile_centre(9, 13), "it steps back one row, off the water"
+    assert box[3] <= 15 * TILE, f"its box still crosses the river: {box}"
+
+    # The side walls are the same defect and move further, because a tower box can
+    # be what decides the landing. Here only "it moved, and it is legal" is pinned.
+    for tap in [(TILE // 20, 8 * TILE + TILE // 2), (17 * TILE + 19 * TILE // 20, 8 * TILE + TILE // 2)]:
+        cx, cy, box = battle.building_placement(0, "Cannon", *tap)
+        assert (cx, cy) != tap, f"the Cannon stayed on the tap at {tap}"
+        assert 0 <= box[0] and box[2] <= 18 * TILE, f"its box left the arena: {box}"
 
 
 def test_a_troop_tap_is_unaffected(battle):

@@ -5288,6 +5288,16 @@ impl BattleState {
         let n = crate::arena::placement_tiles(card.collision_radius);
         let arena = &self.cfg.arena;
         let (territory, _) = deploy_rule(&self.cfg.calib, card);
+        // THE TAP POINT'S OWN RULES FIRST. Relocation rescues a tap whose POINT is
+        // legal and whose BOX does not fit; a tap that is out of the arena, on
+        // water, on a no-deploy cell or outside the placer's territory is refused,
+        // and every recorded relocation is inside the placer's own half. Without
+        // this the query answers for taps `check_deploy` refuses, and a caller
+        // that trusts it would show a landing the engine will not build.
+        let rects = self.enemy_no_deploy_rects(team);
+        if arena.deploy_zone(tap, team, territory, &rects).is_err() {
+            return None;
+        }
         let snapped = match self.cfg.calib.placement_snap_even {
             PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, n),
             PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, tap, n),
@@ -6599,7 +6609,12 @@ impl BattleState {
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())
-            || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).map_or(true, |c| c.spell.is_none()))
+            // A saved spell must run SOME shape under this card data. Asked through
+            // spell.rs `shape_of`, the one resolution `cast` and `step_spells` use,
+            // so a death's area release -- an ordinary `Spell` under the DYING
+            // card's index, which carries no `spell` of its own -- is not read as a
+            // corrupt snapshot on the tick it is in the air.
+            || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).is_none()))
             || snap.spawn_queue.iter().any(|p| (p.card as usize) >= cards.cards.len())
         {
             return Err("snapshot entity tables are inconsistent".into());
