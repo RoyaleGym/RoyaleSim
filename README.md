@@ -18,7 +18,7 @@
 **A Clash Royale battle engine you drive from Python. It plays the whole match: elixir, hands,
 deploys, walking, targeting, fighting, spells, towers, overtime and the crowns.**
 
-<p align="center"><img src="docs/media/battle-page.gif" width="100%" alt="The busiest minute of an engine battle in RoyaleViser, 23 units on the board, one frame per tick"></p>
+<p align="center"><img src="docs/media/battle-page.gif" width="100%" alt="The busiest stretch of an engine battle in RoyaleViser, 19 units on the board, one frame per tick"></p>
 
 If you are training a bot, this is the thing your bot plays in. There is no game to run and nothing
 to connect to. You install a Python module, `royalesim`, and call it.
@@ -53,7 +53,7 @@ layer bots train in. Install steps are below, under "Install".
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>144 cards, towers, spells, overtime</b><br><sub>The 15.535 client's card data, 144 cards. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 13 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 13 kB and loads back to the identical state hash. Four branches off one save, three of them reaching a different board.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="All 148 engine constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 148 carry a status from guess to measured. 88 also name the rivals they were chosen against, and 98 say what would change them.</sub></td>
   </tr>
 </table>
