@@ -1110,9 +1110,19 @@
       "Spell mechanics that NO shipped column settles (docs/spell-spec.md, PARTIALLY VERIFIED).",
       "Card STATS for spells (damage, radius, pushback distance, crown percent, waves, roll",
       "range, stun time, spawn count) are NOT here: they are card data, read from",
-      "data/derived/cards.json (the 2018 data). The live-2026 values the spec",
-      "quotes (Fireball pushback 1000, Arrows 3 x 48 at r 3500, Log range 10100, ...) are",
-      "evidence for a data-vintage decision, not engine inputs."
+      "data/derived/cards.json. WHICH VINTAGE THAT FILE HOLDS IS NOT FIXED: it is a",
+      "generated name, gitignored, and tools/extract_cards.py writes whichever vintage it",
+      "was asked for to it -- the published README's --vintage 2018 gives a clone the 2018",
+      "table under that name, a run with no flag gives the 15.535 one. Only the file's own",
+      "provenance.vintage says which is on disk, and the engine reads it at RUNTIME through",
+      "CardDb::load_repo rather than compiling it in, so the stale-build guard that covers",
+      "calibration.json, arena.json, globals.csv and rarities.csv does not cover the card",
+      "table. Anything comparing two engine results has to carry the table's hash: the",
+      "replay harness does (each report's cards_json_fixture / cards_json_engine, and",
+      "data/derived/replay/card_census.json), and that is what makes two runs comparable.",
+      "The live-2026 values the spec quotes (Fireball pushback 1000, Arrows 3 x 48 at",
+      "r 3500, Log range 10100, ...) are evidence for a data-vintage decision, not engine",
+      "inputs."
     ],
     "LAUNCH_POINT": {
       "value": "caster_king_tower_centre",
