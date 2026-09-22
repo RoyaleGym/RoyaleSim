@@ -112,7 +112,7 @@ the arena) and left alone for 24 seconds of game time. Nobody tells it where to 
 ```python
 import json, royalesim
 
-deck = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Goblins"]
+deck = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"]
 b = royalesim.Battle(card_names=deck, slot_of_k=[[0, 1, 2], [0, 1, 2]])
 b.reset(seed=1, decks=[list(range(8))] * 2, shuffle=0, start_tick=0,
         elixir_milli=[10_000, 10_000], tower_hp=None, spawns=[])
@@ -140,6 +140,11 @@ Nobody steered the Giant. It picked its own route on the measured route-finder. 
 the bridge column, crossed the river around t=160, walked into princess-tower fire, stopped within
 its own reach of the tower at t=320 and started hitting it. Run it again with the same seed and the
 numbers are the same.
+
+The eight cards are an example rather than a recommendation, and all eight are from the 18 whose
+behaviour is checked against recordings. Only the Giant is ever played here, so the other seven
+change nothing: swapping one of them out and re-running gives the same six lines. `Archers` is
+the display name for the card the data calls `Archer`, and the engine takes either.
 
 The positions and the timing above will be the same on your machine. The hitpoints may not. Card
 levels come from the card table you built, so the two right-hand columns move between the 15.535
