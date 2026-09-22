@@ -16,6 +16,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::fixed::Vec2;
+use crate::status::{BuffDef, BuffSlot, Sel, MAX_BUFFS_PER_ENTITY};
 use crate::{EntityId, Team};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
@@ -151,8 +152,20 @@ pub struct Entities {
 
     /// ms of deploy time remaining (0 = active).
     pub deploy_ms: Vec<i32>,
+    /// THE HOLD TIMER. ms of stun / freeze left; while it runs the unit neither
+    /// walks, attacks nor advances its stomp clock. It is DERIVED, not applied
+    /// directly: every stun the data ships is a buff whose three
+    /// multiplier columns are -100, and `apply_effects` sets this from such a buff
+    /// under status.FULL_STOP_BUFF_IS_STUN -- so a Zap, a Freeze spell, an Ice
+    /// Spirit's projectile and an Electro Wizard's hit all reach one hold.
     pub stun_ms: Vec<i32>,
-    pub slow_ms: Vec<i32>,
+    /// THE BUFF LIST (status.rs; calibration status.*), `MAX_BUFFS_PER_ENTITY` slots
+    /// per entity in one flat column: slot `k` of entity `i` is
+    /// `buffs[i * MAX_BUFFS_PER_ENTITY + k]`, and an empty slot has `id == 0`. Read
+    /// by `state.rs effective_speed` and `combat.rs attack_step` through
+    /// `status::compose`, and by the Status phase for the damage / heal pulses.
+    /// It replaced `slow_ms`, a timer nothing read.
+    pub buffs: Vec<BuffSlot>,
     /// Set when a stun lands (calibration status.STUN_RETARGET_ON_RESUME): on the
     /// first Target phase with stun_ms == 0 the unit rescans ignoring target lock and
     /// keep-target hysteresis, then clears it.
@@ -249,6 +262,14 @@ pub struct Entities {
     /// or attacking (no trace has a stomp card do either mid-walk), so this counts
     /// ticks the unit spends WALKING, which is the reading the name carries.
     pub move_ticks: Vec<u32>,
+    /// THE STOMP CLOCK, milliseconds (movement.STOMP_PAUSE_SCHEDULE = ms_clock). It
+    /// advances by `tdiv(compose(Speed, 100), 2)` on every tick the unit WALKS -- 50
+    /// unbuffed, 65 under Rage -- and carries its remainder when it passes
+    /// StopMovementAfterMS + WaitMS, so a buffed unit's pause group drifts. Unbuffed
+    /// it equals `(move_ticks + 1) * TICK_MS` reduced mod the period, which is why
+    /// the two candidates of that key agree on every unbuffed corpus tick. 0 for
+    /// life on a card with no StopMovementAfterMS, and under the `k_plus_1...` arm.
+    pub stomp_clock: Vec<i32>,
     /// PATH_SEARCH = client16402 only: the unit's FACING, a length-256
     /// integer vector in NATIVE orientation. Set by the
     /// step from the pre-move heading; read by the avoidance scan as the
@@ -292,6 +313,48 @@ impl Entities {
     #[inline]
     pub fn knocked(&self, i: usize) -> bool {
         self.knock_ms[i] > 0 || self.push_active[i]
+    }
+
+    /// Entity `i`'s buff slots, empty ones included.
+    #[inline]
+    pub fn buff_slots(&self, i: usize) -> &[BuffSlot] {
+        let a = i * MAX_BUFFS_PER_ENTITY;
+        &self.buffs[a..a + MAX_BUFFS_PER_ENTITY]
+    }
+
+    #[inline]
+    pub fn buff_slots_mut(&mut self, i: usize) -> &mut [BuffSlot] {
+        let a = i * MAX_BUFFS_PER_ENTITY;
+        &mut self.buffs[a..a + MAX_BUFFS_PER_ENTITY]
+    }
+
+    /// Empty every slot of entity `i` (both spawn arms; a reused slot must not
+    /// inherit the buffs of whoever stood there before).
+    #[inline]
+    pub fn clear_buffs(&mut self, i: usize) {
+        for slot in self.buff_slots_mut(i) {
+            *slot = BuffSlot::default();
+        }
+    }
+
+    /// The `BuffDef`s entity `i` is carrying, for `status::compose`. `table` is
+    /// `CardDb::buffs`.
+    #[inline]
+    pub fn buffs_of<'a>(&'a self, table: &'a [BuffDef], i: usize) -> impl Iterator<Item = &'a BuffDef> + 'a {
+        self.buff_slots(i).iter().filter(|s| !s.is_empty()).filter_map(move |s| table.get(s.id as usize - 1))
+    }
+
+    /// `value` put through entity `i`'s buffs on column `sel` (status.rs `compose`).
+    #[inline]
+    pub fn buffed(&self, table: &[BuffDef], i: usize, sel: Sel, value: i32) -> i32 {
+        crate::status::compose(self.buffs_of(table, i), sel, value)
+    }
+
+    /// Is entity `i` HELD -- stunned, or frozen by a buff whose composed speed is 0?
+    /// The one predicate the walk, the attack and the stomp clock read.
+    #[inline]
+    pub fn held(&self, table: &[BuffDef], i: usize) -> bool {
+        self.stun_ms[i] > 0 || self.buffed(table, i, Sel::Speed, 100) == 0
     }
 
     #[inline]
@@ -348,7 +411,7 @@ impl Entities {
             self.attack_load_ms[i] = 0;
             self.deploy_ms[i] = s.deploy_ms;
             self.stun_ms[i] = 0;
-            self.slow_ms[i] = 0;
+            self.clear_buffs(i);
             self.retarget_on_resume[i] = false;
             self.knock_rem[i] = Vec2::default();
             self.knock_ms[i] = 0;
@@ -369,6 +432,7 @@ impl Entities {
             self.last_plan_tick[i] = s.spawn_tick;
             self.seg_dir[i] = Vec2::default();
             self.move_ticks[i] = 0;
+            self.stomp_clock[i] = 0;
             self.facing[i] = initial_facing(s.team);
             self.avoid_offset[i] = 0;
             i
@@ -399,7 +463,9 @@ impl Entities {
             self.attack_load_ms.push(0);
             self.deploy_ms.push(s.deploy_ms);
             self.stun_ms.push(0);
-            self.slow_ms.push(0);
+            for _ in 0..MAX_BUFFS_PER_ENTITY {
+                self.buffs.push(BuffSlot::default());
+            }
             self.retarget_on_resume.push(false);
             self.knock_rem.push(Vec2::default());
             self.knock_ms.push(0);
@@ -420,6 +486,7 @@ impl Entities {
             self.last_plan_tick.push(s.spawn_tick);
             self.seg_dir.push(Vec2::default());
             self.move_ticks.push(0);
+            self.stomp_clock.push(0);
             self.facing.push(initial_facing(s.team));
             self.avoid_offset.push(0);
             self.alive.len() - 1

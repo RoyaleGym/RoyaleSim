@@ -179,7 +179,7 @@ fn assert_straight_lane(s: &BattleState, id: EntityId) {
 
 fn zap_stun_ms(s: &BattleState) -> i32 {
     match card_stat(s, "Zap").spell.clone().unwrap().shape {
-        SpellShape::AreaEffect { hit } => hit.stun_ms,
+        SpellShape::AreaEffect { hit } => hit.buff.map(|b| b.time_ms).unwrap_or(0),
         other => panic!("Zap is not an area effect: {other:?}"),
     }
 }

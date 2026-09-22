@@ -62,6 +62,7 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash, S
 use crate::fixed::{isqrt, Vec2, SUBTILE};
 use crate::path::{self, FrameWorld, NavRequest, Obstacle, UnitBlocker};
 use crate::path2026;
+use crate::status::{BuffSlot, Sel};
 use crate::move16402;
 use crate::path16402;
 use crate::jump16402;
@@ -354,6 +355,26 @@ pub struct Calib {
     pub projectile_launch: ProjectileLaunch,
     /// spawner.DEATH_SPAWN_LAYOUT: where a death spawn's units appear.
     pub death_spawn_layout: DeathSpawnLayout,
+
+    // --- status effects (status.rs). Each is one calibration.json
+    // key; a candidate with no implementation is refused in from_json.
+    /// movement.BUFF_SPEED_COMPOSITION: how several SpeedMultipliers combine.
+    pub buff_speed_composition: BuffComposition,
+    /// combat.HIT_SPEED_BUFF: whether the attack progress counter is scaled by the
+    /// HitSpeedMultiplier composition.
+    pub hit_speed_buff: HitSpeedBuff,
+    /// status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 drives `stun_ms`.
+    pub full_stop_buff_is_stun: FullStopBuff,
+    /// status.BUFF_PULSE_AMOUNT: what one DamagePerSecond / HealPerSecond pulse is worth.
+    pub buff_pulse_amount: PulseAmount,
+    /// status.BUFF_PULSE_TIMING: when a pulsing buff's first pulse falls.
+    pub buff_pulse_timing: PulseTiming,
+    /// status.TARGET_BUFF_ON_SPLASH: who a projectile's TargetBuff lands on.
+    pub target_buff_on_splash: TargetBuffScope,
+    /// spells.PULSING_AREA_EFFECT: when a standing area effect applies.
+    pub pulsing_area_effect: PulsingArea,
+    /// movement.STOMP_PAUSE_SCHEDULE: the buffable millisecond clock, or the tick index.
+    pub stomp_schedule: StompSchedule,
 }
 
 impl Calib {
@@ -530,6 +551,58 @@ calib_enum!(
 calib_enum!(
     /// status.BUFF_EXPIRY_TICK_ALIGNMENT.
     BuffExpiry { CeilFromNextTick = "ceil_from_next_tick", OneTickShort = "one_tick_short" }
+);
+calib_enum!(
+    /// movement.BUFF_SPEED_COMPOSITION -- how the SpeedMultipliers a unit is carrying
+    /// combine (status.rs `compose`).
+    BuffComposition {
+        /// The strongest speed-up and the strongest slow, in that order, each a
+        /// truncating percent (the single-buff case measured on the live raged Ice
+        /// Golem, 52 -> 67).
+        StrongestUpAndDown = "strongest_up_and_down",
+        /// movement.BUFF_SPEED_RULE's single-buff reading: floor(S x m / 100) for the
+        /// FIRST multiplier found. Identical with at most one buff on the unit.
+        SingleMultiplierFloor = "single_multiplier_floor",
+    }
+);
+calib_enum!(
+    /// combat.HIT_SPEED_BUFF -- whether the attack progress counter advances by the
+    /// composed HitSpeedMultiplier or by TICK_MS.
+    HitSpeedBuff { ProgressScaled = "progress_scaled", None = "none" }
+);
+calib_enum!(
+    /// status.FULL_STOP_BUFF_IS_STUN -- a buff whose composed speed is 0 (all three
+    /// -100 columns) sets the engine's one hold timer, so every existing
+    /// status.STUN_* key keeps its meaning.
+    FullStopBuff { StunTimer = "stun_timer", BuffOnly = "buff_only" }
+);
+calib_enum!(
+    /// status.BUFF_PULSE_AMOUNT -- what one pulse of a DamagePerSecond / HealPerSecond
+    /// buff is worth (status.rs `BuffDef::pulse_base`).
+    PulseAmount { PerSecondTimesFrequency = "per_second_times_frequency", PerPulse = "per_pulse" }
+);
+calib_enum!(
+    /// status.BUFF_PULSE_TIMING -- when a pulsing buff's FIRST pulse falls.
+    PulseTiming { AfterFirstPeriod = "after_first_period", OnApplication = "on_application" }
+);
+calib_enum!(
+    /// status.TARGET_BUFF_ON_SPLASH -- who a projectile's TargetBuff lands on.
+    TargetBuffScope { WholeSplash = "whole_splash", PrimaryTargetOnly = "primary_target_only" }
+);
+calib_enum!(
+    /// spells.PULSING_AREA_EFFECT -- when a standing area effect applies.
+    PulsingArea { FromLanding = "hit_speed_period_from_landing", Delayed = "hit_speed_period_delayed" }
+);
+calib_enum!(
+    /// movement.STOMP_PAUSE_SCHEDULE -- the stomp pause's clock.
+    StompSchedule {
+        /// A millisecond clock (entity.rs `stomp_clock`), whose per-tick advance is
+        /// the composed speed buff: 50 unbuffed, 65 under Rage (measured on the live
+        /// raged Golem, 168 of 169 walking ticks).
+        MsClock = "ms_clock",
+        /// The measured tick-index form (entity.rs `move_ticks`), identical unbuffed.
+        TickIndexMod = "k_plus_1_times_tick_ms_mod_period_strictly_greater_than_stop",
+    }
 );
 calib_enum!(
     /// status.SAME_BUFF_REAPPLY.
@@ -1017,8 +1090,18 @@ impl Calib {
         only(&v, &["movement", "HEADING_LAW", "value"], "norm256_floored_isqrt_pre_move")?;
         only(&v, &["movement", "POSITION_ROUNDING", "value"], "truncate_toward_zero_per_axis_no_carry")?;
         only(&v, &["movement", "STOMP_SPEED_RULE", "value"], "speed_times_stop_plus_wait_over_stop")?;
-        only(&v, &["movement", "STOMP_PAUSE_SCHEDULE", "value"], "k_plus_1_times_tick_ms_mod_period_strictly_greater_than_stop")?;
         only(&v, &["movement", "DEPLOY_TIMING", "value"], "spawn_anchored_full_first_step")?;
+        // status.FULL_STOP_BUFF_IS_STUN: `buff_only` would re-attach every
+        // status.STUN_PAUSES_* key to the composition instead of the timer, and is
+        // not implemented -- refused rather than run as `stun_timer`.
+        only(&v, &["status", "FULL_STOP_BUFF_IS_STUN", "value"], "stun_timer")?;
+        // status.BUFF_PULSE_AMOUNT / spells.PULSING_AREA_EFFECT: only one arm each
+        // is written (status.rs `BuffDef::pulse_base`, spell.rs `SpellMotion::Pulsing`).
+        only(&v, &["status", "BUFF_PULSE_AMOUNT", "value"], "per_second_times_frequency")?;
+        // status.BUFF_STACKING: `per_source_slot` needs the buff's source as part of
+        // its identity, which no entity column carries.
+        only(&v, &["status", "BUFF_STACKING", "value"], "one_slot_per_buff_row")?;
+        only(&v, &["spells", "PULSING_AREA_EFFECT", "value"], "hit_speed_period_from_landing")?;
         only(&v, &["movement", "CONTACT_DOMAIN", "value"], "isolated_unit_only")?;
         {
             // REPLAN_TRIGGERS is a SET, and the engine implements exactly this set.
@@ -1117,6 +1200,14 @@ impl Calib {
             resume_retarget_windup: pick(&v, &["status", "RESUME_RETARGET_WINDUP", "value"], ResumeWindup::from_calibration_name)?,
             buff_expiry: pick(&v, &["status", "BUFF_EXPIRY_TICK_ALIGNMENT", "value"], BuffExpiry::from_calibration_name)?,
             same_buff_reapply: pick(&v, &["status", "SAME_BUFF_REAPPLY", "value"], BuffReapply::from_calibration_name)?,
+            buff_speed_composition: pick(&v, &["movement", "BUFF_SPEED_COMPOSITION", "value"], BuffComposition::from_calibration_name)?,
+            hit_speed_buff: pick(&v, &["combat", "HIT_SPEED_BUFF", "value"], HitSpeedBuff::from_calibration_name)?,
+            full_stop_buff_is_stun: pick(&v, &["status", "FULL_STOP_BUFF_IS_STUN", "value"], FullStopBuff::from_calibration_name)?,
+            buff_pulse_amount: pick(&v, &["status", "BUFF_PULSE_AMOUNT", "value"], PulseAmount::from_calibration_name)?,
+            buff_pulse_timing: pick(&v, &["status", "BUFF_PULSE_TIMING", "value"], PulseTiming::from_calibration_name)?,
+            target_buff_on_splash: pick(&v, &["status", "TARGET_BUFF_ON_SPLASH", "value"], TargetBuffScope::from_calibration_name)?,
+            pulsing_area_effect: pick(&v, &["spells", "PULSING_AREA_EFFECT", "value"], PulsingArea::from_calibration_name)?,
+            stomp_schedule: pick(&v, &["movement", "STOMP_PAUSE_SCHEDULE", "value"], StompSchedule::from_calibration_name)?,
             stun_pauses_deploy: boolean(&v, &["status", "STUN_PAUSES_DEPLOY_TIMER", "value"])?,
             stun_pauses_building_lifetime: boolean(&v, &["status", "STUN_PAUSES_BUILDING_LIFETIME", "value"])?,
             stun_pauses_king_activation: boolean(&v, &["status", "STUN_PAUSES_KING_ACTIVATION", "value"])?,
@@ -1423,6 +1514,15 @@ pub struct EntityView<'a> {
     pub route: &'a [Vec2],
     /// ms of stun remaining.
     pub stun_ms: i32,
+    /// THE BUFF LIST (status.rs): every slot, empty ones included. `id` is the index
+    /// into `BattleState::cards().buffs` plus one.
+    pub buffs: &'a [crate::status::BuffSlot],
+    /// The stomp clock in ms (movement.STOMP_PAUSE_SCHEDULE = ms_clock).
+    pub stomp_clock: i32,
+    /// This entity's speed THROUGH its buffs and its charge, subtiles per tick -- the
+    /// figure the Path phase steps with (`effective_speed`), against `speed`, the
+    /// unbuffed column.
+    pub speed_now: i32,
     /// Will rescan on the first unstunned Target phase (status.STUN_RETARGET_ON_RESUME).
     pub retarget_on_resume: bool,
     /// ms of knockback slide remaining, and the displacement still to apply
@@ -2264,16 +2364,102 @@ impl BattleState {
         }
     }
 
-    /// Stun and slow timers tick down by one tick. Where this runs is calibration
-    /// status.BUFF_EXPIRY_TICK_ALIGNMENT: in Resolve just before new stuns land
-    /// (ceil_from_next_tick: a D-ms stun applied in tick N holds ticks N+1..N+ceil(D/dt))
-    /// or at the start of Status (one_tick_short).
+    /// The hold timer and every buff slot tick down by one tick. Where this runs is
+    /// calibration status.BUFF_EXPIRY_TICK_ALIGNMENT: in Resolve just before new
+    /// buffs land (ceil_from_next_tick: a D-ms buff applied in tick N holds ticks
+    /// N+1..N+ceil(D/dt)) or at the start of Status (one_tick_short). ONE alignment for both, because `stun_ms` is now
+    /// derived from a full-stop buff (status.FULL_STOP_BUFF_IS_STUN) and the two
+    /// would part if they expired on different ticks.
     fn tick_status_timers(&mut self) {
         let dt = self.cfg.calib.tick_ms;
         for i in 0..self.ents.capacity() {
-            if self.ents.alive[i] {
-                self.ents.stun_ms[i] = (self.ents.stun_ms[i] - dt).max(0);
-                self.ents.slow_ms[i] = (self.ents.slow_ms[i] - dt).max(0);
+            if !self.ents.alive[i] {
+                continue;
+            }
+            self.ents.stun_ms[i] = (self.ents.stun_ms[i] - dt).max(0);
+            for slot in self.ents.buff_slots_mut(i) {
+                if slot.is_empty() {
+                    continue;
+                }
+                slot.ms -= dt;
+                if slot.ms <= 0 {
+                    *slot = BuffSlot::default();
+                }
+            }
+        }
+    }
+
+    /// THE DAMAGE-OVER-TIME AND HEAL PULSES of every buff on the board, into this
+    /// tick's damage buffer (Status phase, so they resolve with the tick's other
+    /// damage rather than a tick late). Each slot carries its own clock and its own
+    /// already-level-scaled amount; the amount is negative for a heal, and a heal
+    /// never takes a unit above its max hp.
+    ///
+    /// The per-pulse figure is `BuffDef::pulse_base` scaled by the caster
+    /// (status.BUFF_PULSE_AMOUNT); the crown-tower percent and BuildingDamagePercent
+    /// of the BUFF apply to it, not the spell's. A pulse that would deal 0 after
+    /// those percents still consumes its period.
+    fn buff_pulse_pass(&mut self) {
+        let dt = self.cfg.calib.tick_ms;
+        let rounding = self.cfg.calib.crown_rounding;
+        let table = &self.cfg.cards.buffs;
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] || self.ents.hp[i] <= 0 {
+                continue;
+            }
+            let kind = self.ents.kind[i];
+            let id = self.ents.id_of(i);
+            let a = i * crate::status::MAX_BUFFS_PER_ENTITY;
+            for k in 0..crate::status::MAX_BUFFS_PER_ENTITY {
+                let slot = self.ents.buffs[a + k];
+                if slot.is_empty() || slot.pulse_amount == 0 {
+                    continue;
+                }
+                let Some(def) = table.get(slot.id as usize - 1) else { continue };
+                if def.no_effect_to_crown_towers && kind.is_crown_tower() {
+                    continue;
+                }
+                let mut left = slot.pulse_ms - dt;
+                let mut fired = 0;
+                while left <= 0 {
+                    fired += 1;
+                    left += def.hit_frequency_ms.max(dt);
+                }
+                self.ents.buffs[a + k].pulse_ms = left;
+                if fired == 0 {
+                    continue;
+                }
+                let amount = slot.pulse_amount * fired;
+                if amount > 0 {
+                    // A BUILDING takes BuildingDamagePercent (Earthquake 350) and a
+                    // crown tower CrownTowerDamagePercent (Poison 23); a crown tower is
+                    // a building too, and the percent for it is the crown one, so it
+                    // wins. THE TWO PERCENTS TAKE DIFFERENT ROUTES: `damage_against`
+                    // is the CROWN-TOWER reduction and returns `amount` untouched for
+                    // anything else, so an ordinary building's percent has to be
+                    // applied here. An earlier version let one call handle both,
+                    // which silently dropped the Earthquake's 350 and dealt a Cannon
+                    // a Poison-sized 32 a pulse
+                    // (`tests/status.rs::an_earthquake_deals_a_building_its_own_percent`).
+                    // Buff damage is non-negative and the percent is non-negative, so
+                    // the building scale is a plain truncating division.
+                    let dealt = if kind.is_crown_tower() {
+                        crate::combat::damage_against(kind, amount, def.crown_pct, rounding)
+                    } else if kind == EntityKind::Building {
+                        (amount as i64 * def.building_pct as i64 / 100) as i32
+                    } else {
+                        amount
+                    };
+                    if dealt > 0 {
+                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: false });
+                    }
+                } else {
+                    // A HEAL, capped at the missing hitpoints. It is applied here rather
+                    // than buffered, because the damage buffer is a buffer of DAMAGE and
+                    // a negative hit would make every shield and death test read a sign.
+                    let room = (self.ents.max_hp[i] - self.ents.hp[i]).max(0);
+                    self.ents.hp[i] += room.min(-amount);
+                }
             }
         }
     }
@@ -2324,6 +2510,7 @@ impl BattleState {
         if short {
             self.tick_status_timers();
         }
+        self.buff_pulse_pass();
         let lifetime_paused = self.cfg.calib.stun_pauses_building_lifetime;
         #[cfg(not(clash_plant = "lifetime_expiry_hit"))]
         let decay = self.cfg.calib.lifetime_hp_decay;
@@ -2737,6 +2924,10 @@ impl BattleState {
         let mut planned = std::mem::take(&mut self.ents.last_plan_tick);
         let mut segs = std::mem::take(&mut self.ents.seg_dir);
         let mut kticks = std::mem::take(&mut self.ents.move_ticks);
+        let mut clocks = std::mem::take(&mut self.ents.stomp_clock);
+        // This tick's stomp-clock advance per entity, taken before `ents` is
+        // borrowed: it reads the buff list and the calibration, not the walk.
+        let advances: Vec<i32> = (0..cap).map(|i| self.stomp_advance(i)).collect();
         let mut facing = std::mem::take(&mut self.ents.facing);
         let mut offsets = std::mem::take(&mut self.ents.avoid_offset);
         let mut push_speed = std::mem::take(&mut self.ents.push_speed);
@@ -2765,7 +2956,7 @@ impl BattleState {
                 .map(|i| {
                     let alive = e.alive[i];
                     let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
-                    let held = e.stun_ms[i] > 0 || e.knock_ms[i] > 0;
+                    let held = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0;
                     move16402::Body {
                         x,
                         y,
@@ -2873,7 +3064,7 @@ impl BattleState {
                     }
                     continue;
                 }
-                if e.stun_ms[i] > 0 || e.knock_ms[i] > 0 || calib.attack_holds(e.attack_phase[i]) {
+                if e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || calib.attack_holds(e.attack_phase[i]) {
                     if jumping[i] {
                         // a movement hold on a jumper: the leap is cancelled where it
                         // stands and the unit replans when the hold ends (UNVERIFIED: no
@@ -3056,9 +3247,20 @@ impl BattleState {
                 move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
                 // ---- 4. the step (move16402::move_towards)
                 let paused = if !deploying && !attacking && !routes[i].is_empty() {
+                    // THE STOMP CLOCK (movement.STOMP_PAUSE_SCHEDULE). Both arms run
+                    // here and both counters advance, so the key is switchable on one
+                    // tree; only the chosen one decides the pause. The clock's advance
+                    // is the composed SPEED buff (`stomp_advance`): 50 unbuffed, 65
+                    // under Rage, 0 while frozen -- and a frozen unit never reaches
+                    // this line anyway (it is held above).
                     let k = kticks[i];
                     kticks[i] = k.saturating_add(1);
-                    path2026::stomp_paused(calib.tick_ms, card.stop_movement_after_ms, card.wait_ms, k)
+                    let (clock, hit) = path2026::stomp_clock_step(clocks[i], advances[i], card.stop_movement_after_ms, card.wait_ms);
+                    clocks[i] = clock;
+                    match calib.stomp_schedule {
+                        StompSchedule::MsClock => hit,
+                        StompSchedule::TickIndexMod => path2026::stomp_paused(calib.tick_ms, card.stop_movement_after_ms, card.wait_ms, k),
+                    }
                 } else {
                     false
                 };
@@ -3151,6 +3353,7 @@ impl BattleState {
         self.ents.last_plan_tick = planned;
         self.ents.seg_dir = segs;
         self.ents.move_ticks = kticks;
+        self.ents.stomp_clock = clocks;
         self.ents.facing = facing;
         self.ents.avoid_offset = offsets;
         self.ents.push_speed = push_speed;
@@ -3199,7 +3402,7 @@ impl BattleState {
     /// is turned into subtiles only at the very end, exactly as done below.
     #[inline]
     pub(crate) fn effective_speed(&self, i: usize) -> i32 {
-        let base = self.ents.speed[i];
+        let base = self.buffed_speed(i);
         let Some(ch) = self.cfg.cards.get(self.ents.card[i]).charge else { return base };
         let on = match self.cfg.calib.charge_multiplier_meaning {
             ChargeMultiplier::MovementWhenCharged => self.ents.charged[i],
@@ -3213,6 +3416,51 @@ impl BattleState {
         debug_assert_eq!(base % spt, 0, "a stored speed is S x SPEED_TO_SUBTILES_PER_TICK exactly");
         let native = (base / spt) as i64;
         ((native * (ch.speed_multiplier_percent as i64) / 100) as i32) * spt
+    }
+
+    /// ENTITY `i`'s SPEED THROUGH ITS BUFFS, before the charge multiplier
+    /// (movement.BUFF_SPEED_COMPOSITION: the composition runs on the Speed column
+    /// and the ChargeSpeedMultiplier applies to its result). The composition works
+    /// on the NATIVE speed
+    /// S, not on the stored subtiles-per-tick figure, because the truncation is the
+    /// whole point: a raged Ice Golem walks at tdiv(130 x 52, 100) = 67, and
+    /// composing the stored 52 x SPEED_TO_SUBTILES_PER_TICK would round somewhere
+    /// else. An unbuffed unit gets its own speed back, exactly.
+    fn buffed_speed(&self, i: usize) -> i32 {
+        let base = self.ents.speed[i];
+        if self.ents.buff_slots(i).iter().all(|s| s.is_empty()) {
+            return base;
+        }
+        let spt = self.cfg.calib.speed_to_subtiles_per_tick.max(1);
+        debug_assert_eq!(base % spt, 0, "a stored speed is S x SPEED_TO_SUBTILES_PER_TICK exactly");
+        let native = base / spt;
+        let table = &self.cfg.cards.buffs;
+        let out = match self.cfg.calib.buff_speed_composition {
+            BuffComposition::StrongestUpAndDown => self.ents.buffed(table, i, Sel::Speed, native),
+            // movement.BUFF_SPEED_RULE's single-buff reading: floor(S x m / 100) for
+            // the FIRST non-zero multiplier on the unit, with the column's own
+            // convention (a positive is the absolute percent, Rage 130; a negative is
+            // the delta, IceWizardSlowDown -30 = 70 %). Identical to the composition
+            // while a unit carries at most one buff, which is every corpus frame.
+            BuffComposition::SingleMultiplierFloor => match self.ents.buffs_of(table, i).map(|b| b.speed_pct).find(|m| *m != 0) {
+                Some(m) => native * if m > 0 { m } else { (100 + m).max(0) } / 100,
+                None => native,
+            },
+        };
+        out * spt
+    }
+
+    /// THE STOMP CLOCK'S ADVANCE for entity `i` on a tick it walks, in ms
+    /// (movement.STOMP_PAUSE_SCHEDULE = ms_clock): `tdiv(compose(Speed, 100), 2)`
+    /// -- 50 unbuffed, 65 under
+    /// Rage, 0 while frozen. The buff scales the CLOCK, not the period table, which
+    /// is why a raged stomp card's pause group drifts and can run four ticks long.
+    fn stomp_advance(&self, i: usize) -> i32 {
+        let dt = self.cfg.calib.tick_ms;
+        if self.ents.buff_slots(i).iter().all(|s| s.is_empty()) {
+            return dt;
+        }
+        self.ents.buffed(&self.cfg.cards.buffs, i, Sel::Speed, 2 * dt) / 2
     }
 
     /// The run-up threshold of entity `i`'s charge, in the ACCUMULATOR's own unit
@@ -3443,6 +3691,10 @@ impl BattleState {
         let mut planned = std::mem::take(&mut self.ents.last_plan_tick);
         let mut segs = std::mem::take(&mut self.ents.seg_dir);
         let mut kticks = std::mem::take(&mut self.ents.move_ticks);
+        let mut clocks = std::mem::take(&mut self.ents.stomp_clock);
+        // This tick's stomp-clock advance per entity, taken before `ents` is
+        // borrowed: it reads the buff list and the calibration, not the walk.
+        let advances: Vec<i32> = (0..cap).map(|i| self.stomp_advance(i)).collect();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -3461,7 +3713,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
+                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -3583,7 +3835,13 @@ impl BattleState {
                 // and the Giant's are period 740 ms with 13-tick runs.
                 let k = kticks[i];
                 kticks[i] = k.saturating_add(1);
-                if path2026::stomp_paused(calib.tick_ms, card.stop_movement_after_ms, card.wait_ms, k) {
+                let (clock, hit) = path2026::stomp_clock_step(clocks[i], advances[i], card.stop_movement_after_ms, card.wait_ms);
+                clocks[i] = clock;
+                let paused = match calib.stomp_schedule {
+                    StompSchedule::MsClock => hit,
+                    StompSchedule::TickIndexMod => path2026::stomp_paused(calib.tick_ms, card.stop_movement_after_ms, card.wait_ms, k),
+                };
+                if paused {
                     continue;
                 }
                 let dir = path2026::norm256(node.sub(pos));
@@ -3613,6 +3871,7 @@ impl BattleState {
         self.ents.last_plan_tick = planned;
         self.ents.seg_dir = segs;
         self.ents.move_ticks = kticks;
+        self.ents.stomp_clock = clocks;
         self.scratch.deltas = deltas;
     }
 
@@ -3652,7 +3911,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
+                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -3835,7 +4094,7 @@ impl BattleState {
             let e = &self.ents;
             // stunned, mid-slide or mid-ladder: the attack timers freeze (a landed
             // push already reset a running windup in `apply_effects`)
-            let held = e.stun_ms[i] > 0 || e.knocked(i);
+            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i);
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing).
@@ -3876,6 +4135,7 @@ impl BattleState {
                     i,
                     t,
                     &mut self.dmg,
+                    &mut self.effects,
                     &mut self.projectiles,
                     &mut self.scratch.nb,
                 );
@@ -3914,7 +4174,7 @@ impl BattleState {
     }
 
     fn phase_projectile(&mut self) {
-        combat::step_projectiles(&self.ents, &self.hash, self.cfg.calib.crown_rounding, &mut self.projectiles, &mut self.dmg, &mut self.scratch.nb);
+        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb);
         if self.spells.is_empty() {
             return;
         }
@@ -4034,7 +4294,7 @@ impl BattleState {
     /// -- buffer order is spell order, which is cast order.
     fn apply_effects(&mut self) {
         let fx = std::mem::take(&mut self.effects);
-        if fx.knocks.is_empty() && fx.stuns.is_empty() {
+        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() {
             self.effects = fx;
             return;
         }
@@ -4043,9 +4303,56 @@ impl BattleState {
         // A HIDDEN building is out of reach of every effect too (knockback never moved
         // a building; a stun on it is a no-op).
         let survivor = |e: &Entities, id: EntityId| e.is_alive(id) && e.hp[id.index as usize] > 0 && e.hide[id.index as usize] != HideState::Hidden;
+        // BUFFS (status.rs), before the stun merge, because a FULL-STOP buff feeds
+        // it. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): an application either
+        // refreshes the slot that already holds that row or takes a free one, and
+        // EnableStacking is a NAMED GAP -- stacking needs the buff's SOURCE as part of
+        // its identity, and without that a Poison cloud would stack with ITSELF every
+        // time its area re-applies (LifeDuration / HitSpeed = 32 copies of one Poison).
+        // A unit already carrying MAX_BUFFS_PER_ENTITY distinct rows drops the new one;
+        // the game's list is unbounded and no shipped combination reaches four.
+        let mut stun_new = vec![0i32; cap];
+        for b in &fx.buffs {
+            if !survivor(&self.ents, b.target) {
+                continue;
+            }
+            let i = b.target.index as usize;
+            let Some(def) = self.cfg.cards.buffs.get(b.buff as usize).copied() else { continue };
+            // status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 (the
+            // -100 / -100 / -100 rows: ZapFreeze, Freeze, ContinueFreeze) also drives
+            // the engine's one hold timer, so every status.STUN_* key keeps its
+            // meaning and a Zap, a Freeze spell and an Ice Spirit all hold alike.
+            if c.full_stop_buff_is_stun == FullStopBuff::StunTimer && crate::status::compose([def].iter(), Sel::Speed, 100) == 0 {
+                stun_new[i] = stun_new[i].max(b.time_ms);
+            }
+            // status.BUFF_PULSE_TIMING: the pulse clock starts a whole period out, so
+            // an area that refreshes its buff four times a second still pulses once a
+            // second.
+            let pulse_ms = match c.buff_pulse_timing {
+                PulseTiming::AfterFirstPeriod => def.hit_frequency_ms.max(0),
+                PulseTiming::OnApplication => 0,
+            };
+            let slots = self.ents.buff_slots_mut(i);
+            let id = b.buff + 1;
+            let existing = slots.iter().position(|s| s.id == id);
+            let at = match existing {
+                Some(k) => {
+                    // A REFRESH keeps the pulse clock running: the buff did not restart,
+                    // it was extended (status.SAME_BUFF_REAPPLY).
+                    slots[k].ms = match c.same_buff_reapply {
+                        BuffReapply::RefreshMax => slots[k].ms.max(b.time_ms),
+                        BuffReapply::Replace => b.time_ms,
+                    };
+                    slots[k].pulse_amount = b.pulse_amount;
+                    continue;
+                }
+                None => slots.iter().position(|s| s.is_empty()),
+            };
+            let Some(k) = at else { continue };
+            slots[k] = BuffSlot { id, ms: b.time_ms, pulse_ms, pulse_amount: b.pulse_amount };
+        }
         // Stuns: max per target. Replace vs refresh decides only what the EXISTING timer
         // contributes; several new stuns in one tick always merge by max.
-        let mut stun_new = vec![0i32; cap];
         for &(id, ms) in &fx.stuns {
             if survivor(&self.ents, id) {
                 let i = id.index as usize;
@@ -4186,6 +4493,7 @@ impl BattleState {
         let mut fx = fx;
         fx.knocks.clear();
         fx.stuns.clear();
+        fx.buffs.clear();
         self.effects = fx;
     }
 
@@ -5144,6 +5452,9 @@ impl BattleState {
             move_frac: e.move_frac[i],
             route: &e.route[i],
             stun_ms: e.stun_ms[i],
+            buffs: e.buff_slots(i),
+            stomp_clock: e.stomp_clock[i],
+            speed_now: self.effective_speed(i),
             retarget_on_resume: e.retarget_on_resume[i],
             knock_ms: e.knock_ms[i],
             knock_rem: e.knock_rem[i],
@@ -5311,8 +5622,23 @@ impl BattleState {
             h.i32(e.attack_ms[i]);
             h.i32(e.deploy_ms[i]);
             h.i32(e.stun_ms[i]);
-            h.i32(e.slow_ms[i]);
+            // `slow_ms`, a timer nothing ever set, was replaced by the buff list
+            // below. The format-3 hash still needs the zero it always
+            // contributed in this position, or `legacy_v3` stops reproducing.
+            if legacy_v3 {
+                h.i32(0);
+            }
             if !legacy_v3 {
+                // THE BUFF LIST (status.rs): every slot, empty ones included, so a
+                // buff landing in a different slot is a different state. The stomp
+                // clock rides with it.
+                for slot in e.buff_slots(i) {
+                    h.u32(slot.id as u32);
+                    h.i32(slot.ms);
+                    h.i32(slot.pulse_ms);
+                    h.i32(slot.pulse_amount);
+                }
+                h.i32(e.stomp_clock[i]);
                 h.bool(e.retarget_on_resume[i]);
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
@@ -5377,7 +5703,14 @@ impl BattleState {
                 h.u32(s.card as u32);
                 h.i32(s.level);
                 h.i32(s.damage);
+                h.i32(s.pulse);
                 match &s.motion {
+                    spell::SpellMotion::Pulsing(p) => {
+                        h.u32(4);
+                        h.vec(p.pos);
+                        h.i32(p.life_ms);
+                        h.i32(p.next_ms);
+                    }
                     spell::SpellMotion::Flight { pos, aim, frac, delay_ms } => {
                         h.u32(0);
                         h.vec(*pos);
@@ -5528,7 +5861,19 @@ impl BattleState {
 ///    lifetime_hp_decay / spawner_emission_timing / spawner_spawned_deploy_time
 ///    (spawner.EMISSION_TIMING, spawner.SPAWNED_DEPLOY_TIME). A format-3 battle
 ///    resumes with an empty accumulator.
-pub const SNAPSHOT_FORMAT: u32 = 17;
+/// 18: status effects -- Calib gained buff_speed_composition / hit_speed_buff /
+///    full_stop_buff_is_stun / buff_pulse_amount / buff_pulse_timing /
+///    target_buff_on_splash / pulsing_area_effect / stomp_schedule
+///    (movement.BUFF_SPEED_COMPOSITION, combat.HIT_SPEED_BUFF, the four status.* keys,
+///    spells.PULSING_AREA_EFFECT, movement.STOMP_PAUSE_SCHEDULE); Entities LOST
+///    `slow_ms` (a timer nothing read) and gained `buffs` (MAX_BUFFS_PER_ENTITY slots
+///    each) and `stomp_clock`; `Projectile` gained buff / pulse; `EffectBuffer` gained
+///    `buffs`; `Spell` gained `pulse` and `SpellMotion` gained `Pulsing`; CardDef
+///    gained `attack_buff` and `SpellHit` swapped `stun_ms` for `buff` (the card
+///    fingerprint moves, and it now covers CardDb's buff table). A format-3 battle
+///    keeps the tick-index stomp schedule and the unbuffed attack advance
+///    (migrate_v3).
+pub const SNAPSHOT_FORMAT: u32 = 18;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -5620,6 +5965,14 @@ fn fingerprint_debug<T: std::fmt::Debug>(v: &T) -> u64 {
     h.finish()
 }
 
+/// The card fingerprint a snapshot carries: the cards AND the buff table they index.
+/// Without the table a snapshot saved against a Freeze of 4000 ms and
+/// one saved against a Freeze of 400 ms would agree, because a `BuffApply` prints an
+/// index, not the row.
+fn cards_fingerprint(cards: &CardDb) -> u64 {
+    fingerprint_debug(&(&cards.cards, &cards.buffs))
+}
+
 /// MIGRATE A FORMAT-3 SNAPSHOT TO FORMAT 4, in place, as JSON. Returns the format-3
 /// card index -> current CardDb index table (applied by `load_with` AFTER the saved
 /// hash is reproduced).
@@ -5668,9 +6021,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... jump~~ -- format 13 added `level_base` after it.
                 // ~~... level_base~~ -- format 15 added `formation` after it.
                 // ~~... formation~~ -- format 16 added `projectile_start_radius` and `kamikaze` after it.
+                // ~~... kamikaze~~ -- format 18 added `attack_buff` after them.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -5685,7 +6039,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     }
     let o = v.as_object_mut().ok_or_else(|| bad("not an object"))?;
     o.insert("format".into(), Value::from(SNAPSHOT_FORMAT));
-    o.insert("cards_fingerprint".into(), Value::from(fingerprint_debug(&cards.cards)));
+    o.insert("cards_fingerprint".into(), Value::from(cards_fingerprint(cards)));
     // 1. Calib.
     let calib = o.get_mut("calib").and_then(Value::as_object_mut).ok_or_else(|| bad("no calib"))?;
     let troop_speed = calib.get("speed_to_subtiles_per_tick").cloned().ok_or_else(|| bad("no speed_to_subtiles_per_tick"))?;
@@ -5764,10 +6118,27 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
         ("jumping", Value::Bool(false)),
         // FORMAT 16: no load timer runs (the windup arm never reads it).
         ("attack_load_ms", Value::from(0)),
+        // FORMAT 18: nobody carries a buff and no stomp clock has started. Format 3
+        // had neither, and both fills are what "not buffed yet" means -- an empty
+        // slot has id 0, and the clock is the one a fresh walker starts with. The
+        // format-3 hash self-check below proves the state is unchanged (`legacy_v3`
+        // hashes neither column and keeps the zero `slow_ms` used to contribute).
+        ("stomp_clock", Value::from(0)),
     ] {
         if ents.insert(k.into(), Value::Array(vec![fill; n])).is_some() {
             return Err(bad(&format!("already has ents.{k}")));
         }
+    }
+    // FORMAT 18: the buff list is MAX_BUFFS_PER_ENTITY slots PER entity in one flat
+    // column, so its length is a multiple of the slot count, not the slot count.
+    {
+        let empty = serde_json::to_value(crate::status::BuffSlot::default()).map_err(|e| e.to_string())?;
+        if ents.insert("buffs".into(), Value::Array(vec![empty; n * crate::status::MAX_BUFFS_PER_ENTITY])).is_some() {
+            return Err(bad("already has ents.buffs"));
+        }
+        // ~~`slow_ms`~~ -- the column is gone (format 18); a format-3 snapshot still
+        // carries it and serde ignores what no field claims.
+        ents.remove("slow_ms");
     }
     {
         // FORMAT 12: the creation order (entity.rs `creation_seq`) -- format 3 never
@@ -5834,7 +6205,7 @@ impl BattleState {
         let c = &self.cfg;
         let snap = Snapshot {
             format: SNAPSHOT_FORMAT,
-            cards_fingerprint: fingerprint_debug(&c.cards.cards),
+            cards_fingerprint: cards_fingerprint(&c.cards),
             arena_fingerprint: fingerprint_debug(&c.arena),
             calib: c.calib.clone(),
             path_model: c.path_model,
@@ -5913,7 +6284,7 @@ impl BattleState {
             }
             other => return Err(format!("snapshot format {other} != engine format {SNAPSHOT_FORMAT}")),
         };
-        if remap.is_none() && snap.cards_fingerprint != fingerprint_debug(&cards.cards) {
+        if remap.is_none() && snap.cards_fingerprint != cards_fingerprint(&cards) {
             return Err("snapshot was saved against different card data".into());
         }
         if snap.arena_fingerprint != fingerprint_debug(&arena) {

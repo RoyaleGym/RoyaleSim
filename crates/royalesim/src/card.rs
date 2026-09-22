@@ -47,6 +47,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::fixed::{milli, tiles, Vec2};
+use crate::status::{BuffApply, BuffDef};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -55,6 +56,7 @@ const RARITIES_CSV: &str = include_str!("../../../data/raw/retroroyale-2018/csv_
 
 /// Multipliers in rarities.csv are percentages.
 const PERCENT: i64 = 100;
+const PERCENT_I32: i32 = 100;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -108,8 +110,15 @@ pub struct SpellHit {
     /// NoEffectToCrownTowers (area effects).
     pub no_effect_to_crown_towers: bool,
     pub knockback: Option<KnockbackDef>,
-    /// A STUN-class buff's duration in ms (0 = no stun). See `SpellShape::AreaEffect`.
-    pub stun_ms: i32,
+    /// THE BUFF THIS IMPACT HANGS ON EACH VICTIM (it replaced `stun_ms`, a
+    /// stun-class special case). An area effect's Buff + BuffTime (Zap's
+    /// ZapFreeze 500 ms, Freeze's Freeze 4000 ms, Poison's Poison 1000 ms) or a
+    /// projectile's TargetBuff + BuffTime (the Snowball's IceWizardSlowDown 3000 ms).
+    /// A buff whose composed speed is 0 -- all three -100 columns -- IS the engine's
+    /// stun, and `apply_effects` drives `stun_ms` from it under
+    /// status.FULL_STOP_BUFF_IS_STUN, so Zap and Freeze keep the one hold path they
+    /// always had and every other buff joins it.
+    pub buff: Option<BuffApply>,
 }
 
 /// Units a spell releases where it lands (Goblin Barrel).
@@ -151,6 +160,13 @@ pub enum SpellShape {
     /// A one-shot area effect at the tap (HitSpeed blank), applied on its first
     /// update (calibration spells.ONE_SHOT_AREA_EFFECT_APPLICATION).
     AreaEffect { hit: SpellHit },
+    /// A PULSING area effect at the tap (HitSpeed set): it stands on the ground for
+    /// LifeDuration and applies `hit` to everything inside it every `hit_speed_ms`,
+    /// starting with the tick it lands (Poison 8000 / 250, Earthquake 3000 / 100).
+    /// Its damage is the BUFF's DamagePerSecond, not the area's own Damage column,
+    /// which every pulsing row of the corpus leaves blank; calibration
+    /// spells.PULSING_AREA_EFFECT says when the pulses fall.
+    PulsingAreaEffect { hit: SpellHit, life_ms: i32, hit_speed_ms: i32 },
     /// SpellAsDeploy airborne projectile that releases a rolling projectile (The Log).
     /// All distances SUBTILES; speeds raw.
     Rolling { airborne_speed: i32, airborne_min_distance: i32, speed: i32, range: i32, half_width: i32, half_depth: i32, hit: SpellHit },
@@ -415,6 +431,15 @@ pub struct CardDef {
     /// the Spirits, Wall Breakers. FALSE when KamikazeTime > 0 (the delayed death
     /// of the 2018 SkeletonBalloon): a named gap, see `convert`.
     pub kamikaze: bool,
+    /// THE BUFF THIS CARD'S ATTACK APPLIES:
+    /// projectiles.TargetBuff + BuffTime for a unit that shoots (the Ice Spirit's
+    /// Freeze 1100 ms, the Ice Wizard's IceWizardSlowDown 2500 ms), or
+    /// characters.BuffOnDamage + BuffTime for one that does not (the Electro
+    /// Wizard's ZapFreeze 500 ms). `buff` indexes `CardDb::buffs`. Applied by
+    /// combat.rs `fire` to everything the hit lands on, under calibration
+    /// status.TARGET_BUFF_ON_SPLASH. DECLARED LAST: `state.rs migrate_v3` strips the
+    /// post-format-3 tail of CardDef's Debug to rebuild the old fingerprint.
+    pub attack_buff: Option<BuffApply>,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else silently retires the
@@ -478,6 +503,11 @@ struct RawProjectileObj {
     damage: Option<i32>,
     #[serde(alias = "radius")]
     radius_milli: Option<i32>,
+    /// TargetBuff + BuffTime: the buff this troop's projectile hangs on what it hits
+    /// (IceSpiritsProjectile -> Freeze 1100 ms, ice_wizardProjectile ->
+    /// IceWizardSlowDown 2500 ms). Loaded onto `CardDef::attack_buff`.
+    target_buff: Option<RawBuff>,
+    buff_time_ms: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -570,6 +600,20 @@ struct RawCard {
     /// SpawnPathfindMorph). Present = the row is born somewhere else and travels
     /// underground to the tap; `refuse_spawn_pathfind` refuses the card.
     spawn_pathfind: Option<RawSpawnPathfind>,
+    /// cards.json `buff_on_damage` (characters.csv BuffOnDamage / BuffTime): the buff
+    /// this unit's own hit hangs on its victim, for a unit whose attack is not a
+    /// projectile (the Electro Wizard's ZapFreeze, 500 ms). Loaded onto
+    /// `CardDef::attack_buff`, the same field the projectile's TargetBuff uses --
+    /// a card ships one or the other, never both.
+    buff_on_damage: Option<RawBuffOnDamage>,
+}
+
+/// cards.json `buff_on_damage`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawBuffOnDamage {
+    buff: Option<RawBuff>,
+    time_ms: Option<i32>,
 }
 
 /// cards.json `spawn_pathfind`: the underground spawn walk.
@@ -764,6 +808,7 @@ struct RawSpellProjectile {
     spawn_character_level_index: Option<i32>,
     spawn_area_effect_object: Option<String>,
     target_buff: Option<serde_json::Value>,
+    buff_time_ms: Option<i32>,
     spawn_projectile: Option<Box<RawSpellProjectile>>,
     action_graph: Option<RawActionGraph>,
 }
@@ -776,10 +821,87 @@ struct RawBuff {
     hit_speed_multiplier_raw: Option<i32>,
     spawn_speed_multiplier_raw: Option<i32>,
     damage_per_second: Option<i32>,
+    hit_frequency_ms: Option<i32>,
     heal_per_second: Option<i32>,
     damage_reduction: Option<i32>,
     damage_multiplier: Option<i32>,
+    crown_tower_damage_percent: Option<i32>,
+    no_effect_to_crown_towers: Option<bool>,
+    building_damage_percent: Option<i32>,
+    enable_stacking: Option<bool>,
     attract_percentage: Option<i32>,
+}
+
+impl RawBuff {
+    /// The columns the engine runs, or the reason it will not run this row. A buff
+    /// whose mechanic is DamageReduction / DamageMultiplier / AttractPercentage is
+    /// REFUSED rather than loaded without them, so a card can never run as a
+    /// weaker card (the loader's rule everywhere else).
+    fn convert(&self, what: &str) -> Result<BuffDef, String> {
+        let name = self.name.clone().unwrap_or_default();
+        for (col, set) in [
+            ("DamageReduction", self.damage_reduction.is_some()),
+            ("DamageMultiplier", self.damage_multiplier.is_some()),
+            ("AttractPercentage", self.attract_percentage.is_some()),
+        ] {
+            if set {
+                return Err(format!("{what}: buff {name} carries {col}, which is not simulated"));
+            }
+        }
+        let def = BuffDef {
+            speed_pct: self.speed_multiplier_raw.unwrap_or(0),
+            hit_speed_pct: self.hit_speed_multiplier_raw.unwrap_or(0),
+            spawn_speed_pct: self.spawn_speed_multiplier_raw.unwrap_or(0),
+            damage_per_second: self.damage_per_second.unwrap_or(0),
+            heal_per_second: self.heal_per_second.unwrap_or(0),
+            hit_frequency_ms: self.hit_frequency_ms.unwrap_or(0),
+            crown_pct: crown(self.crown_tower_damage_percent),
+            building_pct: self.building_damage_percent.unwrap_or(PERCENT_I32),
+            no_effect_to_crown_towers: self.no_effect_to_crown_towers.unwrap_or(false),
+            enable_stacking: self.enable_stacking.unwrap_or(false),
+        };
+        if def.is_inert() {
+            // A row with no multiplier, no damage and no heal is a MARKER (Invisible,
+            // Clone, a filter) whose mechanic lives in an action graph.
+            return Err(format!("{what}: buff {name} has no multiplier, damage or heal: its mechanic is not in the columns"));
+        }
+        if def.pulses() && def.hit_frequency_ms <= 0 {
+            return Err(format!("{what}: buff {name} pulses damage or healing with no HitFrequency"));
+        }
+        Ok(def)
+    }
+}
+
+/// A buff table built while the cards load: every distinct `BuffDef` the file uses,
+/// once. `CardDb::buffs` is this vector, and every `BuffApply` (on a card, a
+/// projectile or a spell) is an index into it.
+#[derive(Default)]
+pub(crate) struct BuffTable {
+    defs: Vec<BuffDef>,
+}
+
+impl BuffTable {
+    fn into_defs(self) -> Vec<BuffDef> {
+        self.defs
+    }
+
+    fn intern(&mut self, def: BuffDef) -> Result<u16, String> {
+        if let Some(i) = self.defs.iter().position(|d| *d == def) {
+            return Ok(i as u16);
+        }
+        if self.defs.len() >= u16::MAX as usize {
+            return Err("more distinct buffs than the table can index".into());
+        }
+        self.defs.push(def);
+        Ok((self.defs.len() - 1) as u16)
+    }
+
+    /// Intern `raw` with `time_ms` as a `BuffApply`, refusing a buff with no time.
+    fn apply(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
+        let def = raw.convert(what)?;
+        let time_ms = time_ms.filter(|t| *t > 0).ok_or_else(|| format!("{what}: buff {} without BuffTime", raw.name.clone().unwrap_or_default()))?;
+        Ok(BuffApply { buff: self.intern(def)?, time_ms })
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -899,6 +1021,12 @@ pub fn shipped_rarities() -> &'static [RarityRow] {
 #[derive(Clone, Debug)]
 pub struct CardDb {
     pub cards: Vec<CardDef>,
+    /// EVERY DISTINCT BUFF the file uses, once (status.rs `BuffDef`); a `BuffApply`
+    /// anywhere -- `CardDef::attack_buff`, `SpellHit::buff` -- is an index into it,
+    /// and so is `BuffSlot::id` minus one. Part of the card fingerprint
+    /// (`state.rs fingerprint_debug`): a snapshot saved against different buff
+    /// numbers is stale, exactly as one saved against different card numbers is.
+    pub buffs: Vec<BuffDef>,
     by_name: BTreeMap<String, u16>,
     pub source: CardSource,
     /// Cards present in the input the engine cannot simulate, with why.
@@ -958,6 +1086,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         formation: FormationDef::default(),
         projectile_start_radius: 0,
         kamikaze: false,
+        attack_buff: None,
     }
 }
 
@@ -988,7 +1117,7 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 ///
 /// Returns the card, and the name of the unit it spawns (resolved to an index by
 /// `CardDb::from_json_str`, which loads that unit).
-fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
+fn convert_spell(raw: RawCard, buffs: &mut BuffTable) -> Result<(CardDef, Option<String>), String> {
     let spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
     (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
@@ -1016,10 +1145,26 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
         if proj.is_some() || spell.first_projectile.is_some() {
             return Err(format!("spell with both an area effect ({what}) and a projectile is not simulated"));
         }
-        if aeo.hit_speed_ms.is_some() {
-            return Err(format!("pulsing area effect {what} (HitSpeed set) is not simulated"));
+        // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
+        // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
+        // pulse that carries a BUFF and nothing else -- Poison and
+        // Earthquake. A pulse that deals its own Damage column every HitSpeed
+        // (RoyalDeliveryArea, DarkMagicAOE, Lightning, Tornado, WarmAOE) is a second
+        // mechanic and stays refused.
+        let pulse_ms = aeo.hit_speed_ms.filter(|h| *h > 0);
+        if pulse_ms.is_some() {
+            if aeo.damage.is_some() {
+                return Err(format!("pulsing area effect {what} deals its own Damage every HitSpeed; not simulated"));
+            }
+            if aeo.buff.is_none() {
+                return Err(format!("pulsing area effect {what} pulses no buff: its mechanic is not in the columns"));
+            }
         }
         if aeo.only_own_troops.unwrap_or(false) {
+            // Rage and Heal: the area buffs the CASTER's units. The area itself is
+            // implemented; what is not is how either card gets one onto the board (both
+            // are SummonCharacter spells -- a Rage bottle, a Heal Spirit -- whose death
+            // or projectile releases it), so the loader still refuses them by shape.
             return Err(format!("own-troop area effect {what} is not simulated"));
         }
         if aeo.maximum_targets.is_some() || aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.spawn_character.is_some() {
@@ -1035,24 +1180,12 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
         if !aeo.hits_ground.unwrap_or(false) && !aeo.hits_air.unwrap_or(false) {
             return Err(format!("area effect {what} hits neither ground nor air"));
         }
-        let stun_ms = match aeo.buff {
-            None => 0,
-            Some(b) => {
-                // STUN class: all three raw multipliers -100 (docs/spell-spec.md, STUN
-                // CLASS). Anything else needs buff machinery that does not exist.
-                let stun = b.speed_multiplier_raw == Some(-100)
-                    && b.hit_speed_multiplier_raw == Some(-100)
-                    && b.spawn_speed_multiplier_raw == Some(-100)
-                    && b.damage_per_second.is_none()
-                    && b.heal_per_second.is_none()
-                    && b.damage_reduction.is_none()
-                    && b.damage_multiplier.is_none()
-                    && b.attract_percentage.is_none();
-                if !stun {
-                    return Err(format!("area effect {what}: buff {} is not a stun-class buff", b.name.unwrap_or_default()));
-                }
-                aeo.buff_time_ms.filter(|t| *t > 0).ok_or_else(|| format!("area effect {what}: stun buff without BuffTime"))?
-            }
+        // THE AREA'S BUFF, whatever class it is: the stun-class special
+        // case is gone -- a -100 / -100 / -100 row is just a buff whose composed speed
+        // is 0, and `apply_effects` turns that into the hold every stun already used.
+        let area_buff = match &aeo.buff {
+            None => None,
+            Some(b) => Some(buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?),
         };
         let hit = SpellHit {
             damage: aeo.damage.unwrap_or(0),
@@ -1064,10 +1197,21 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
             ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
             no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
             knockback: knockback(aeo.pushback_milli, None),
-            stun_ms,
+            buff: area_buff,
         };
-        let _ = aeo.life_duration_ms; // one-shot: applied once whatever its life (see SpellShape)
-        SpellDef { shape: SpellShape::AreaEffect { hit }, placement: placement_for(false) }
+        match pulse_ms {
+            None => {
+                let _ = aeo.life_duration_ms; // one-shot: applied once whatever its life (see SpellShape)
+                SpellDef { shape: SpellShape::AreaEffect { hit }, placement: placement_for(false) }
+            }
+            Some(hit_speed_ms) => {
+                let life_ms = aeo
+                    .life_duration_ms
+                    .filter(|l| *l > 0)
+                    .ok_or_else(|| format!("pulsing area effect {what} without LifeDuration"))?;
+                SpellDef { shape: SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }, placement: placement_for(false) }
+            }
+        }
     } else {
         // DAMAGE CARRIER (docs/spell-spec.md): CustomFirstProjectile when present (the
         // 2018 Arrows pattern -- `projectile` is then the damage-less ArrowsSpellDeco and
@@ -1082,9 +1226,20 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
         if let Some(roll) = &carrier.spawn_projectile {
             refuse_action_mechanic(&roll.action_graph, &format!("rolling projectile {}", roll.name.clone().unwrap_or_default()))?;
         }
-        if carrier.maximum_targets.is_some() || carrier.spawn_area_effect_object.is_some() || carrier.target_buff.as_ref().is_some_and(|b| !b.is_null()) {
-            return Err(format!("projectile {what} with target cap / area effect / target buff is not simulated"));
+        if carrier.maximum_targets.is_some() || carrier.spawn_area_effect_object.is_some() {
+            return Err(format!("projectile {what} with a target cap or an area effect is not simulated"));
         }
+        // TargetBuff + BuffTime (the Snowball's IceWizardSlowDown 3000 ms): the buff
+        // rides the impact and lands on everything the splash lands on, under
+        // calibration status.TARGET_BUFF_ON_SPLASH.
+        let target_buff = match &carrier.target_buff {
+            None => None,
+            Some(v) if v.is_null() => None,
+            Some(v) => {
+                let b: RawBuff = serde_json::from_value(v.clone()).map_err(|e| format!("projectile {what} TargetBuff: {e}"))?;
+                Some(buffs.apply(&b, carrier.buff_time_ms, &format!("projectile {what}"))?)
+            }
+        };
         let speed = carrier.speed.filter(|s| *s > 0).ok_or_else(|| format!("projectile {what} without speed"))?;
         if let Some(roll) = carrier.spawn_projectile {
             let rname = roll.name.clone().unwrap_or_default();
@@ -1108,7 +1263,7 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
                 ignore_buildings: false,
                 no_effect_to_crown_towers: false,
                 knockback: knockback(roll.pushback_milli, roll.pushback_all),
-                stun_ms: 0,
+                buff: None,
             };
             SpellDef {
                 shape: SpellShape::Rolling {
@@ -1153,7 +1308,7 @@ fn convert_spell(raw: RawCard) -> Result<(CardDef, Option<String>), String> {
                     ignore_buildings: false,
                     no_effect_to_crown_towers: false,
                     knockback: knockback(carrier.pushback_milli, carrier.pushback_all),
-                    stun_ms: 0,
+                    buff: target_buff,
                 }),
             };
             let spawn = match carrier.spawn_character.clone() {
@@ -1309,7 +1464,7 @@ fn convert_jump(raw: Option<RawJump>, kind: CardKind) -> Result<Option<JumpDef>,
     Ok(Some(JumpDef { speed, height_raw }))
 }
 
-fn convert(raw: RawCard) -> Result<Converted, String> {
+fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
     if raw.kind == CardKind::Spell {
         let display = raw.display_name.clone();
         #[cfg(clash_plant = "spells_rejected")]
@@ -1319,12 +1474,13 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
             return Err("spells are not simulated yet".into());
         }
         #[allow(unreachable_code)]
-        return convert_spell(raw).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
+        return convert_spell(raw, buffs).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
     }
     refuse_action_mechanic(&raw.action_graph, "the unit")?;
     refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
+    let mut attack_buff: Option<BuffApply> = None;
     let projectile = match raw.projectile {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::Object(o)) => {
@@ -1347,6 +1503,13 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
             if damage.is_none() {
                 // PLANT: the pre-fix precedence.
                 damage = p.damage;
+            }
+            // TargetBuff + BuffTime: the Ice Spirit's Freeze (1100 ms), the Ice
+            // Wizard's IceWizardSlowDown (2500 ms). It goes on the CARD rather than on
+            // ProjectileDef, because ProjectileDef's Debug is inside the format-3 card
+            // fingerprint (state.rs migrate_v3) and CardDef's tail is not.
+            if let Some(b) = &p.target_buff {
+                attack_buff = Some(buffs.apply(b, p.buff_time_ms, "the unit's projectile")?);
             }
             Some(ProjectileDef {
                 speed: p.speed.ok_or("projectile without speed")?,
@@ -1378,6 +1541,17 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         None if inert_building => 0,
         None => return Err("missing range_milli".into()),
     };
+    // BuffOnDamage: a unit whose own hit buffs its victim without a projectile (the
+    // Electro Wizard's ZapFreeze, 500 ms). A card ships this OR a projectile
+    // TargetBuff, never both; two would be a shape this loader does not read.
+    if let Some(bod) = &raw.buff_on_damage {
+        let b = bod.buff.as_ref().ok_or("buff_on_damage without a buff")?;
+        let got = buffs.apply(b, bod.time_ms, "the unit's BuffOnDamage")?;
+        if attack_buff.is_some() {
+            return Err("the unit carries both a projectile TargetBuff and a BuffOnDamage; not simulated".into());
+        }
+        attack_buff = Some(got);
+    }
     let spawner = convert_spawner(raw.spawner)?;
     let death_spawn = convert_death_spawn(raw.death_spawn)?;
     let charge = convert_charge(raw.charge, kind)?;
@@ -1496,6 +1670,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         formation,
         projectile_start_radius: milli(nonneg(raw.projectile_start_radius_milli, "projectile_start_radius_milli")?),
         kamikaze,
+        attack_buff,
     }, display, units))
 }
 
@@ -1525,18 +1700,22 @@ impl CardDb {
                 })
                 .collect::<Result<Vec<_>, String>>()?
         };
+        let mut buffs = BuffTable::default();
         let mut db = CardDb {
             cards: Vec::new(),
+            buffs: Vec::new(),
             by_name: BTreeMap::new(),
             source,
             rejected: Vec::new(),
             towers_from_fallback: false,
             rarities,
         };
+        // `buffs` is filled from the table once every card has been converted
+        // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
-            match convert(raw) {
+            match convert(raw, &mut buffs) {
                 Ok((c, display, units)) => {
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
                         db.rejected.push((name, format!("rarity {} not in rarities.csv", c.rarity)));
@@ -1597,7 +1776,7 @@ impl CardDb {
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
-                    let (mut c, _, nested) = convert(raw).map_err(|e| format!("units.{unit}: {e}"))?;
+                    let (mut c, _, nested) = convert(raw, &mut buffs).map_err(|e| format!("units.{unit}: {e}"))?;
                     if !nested.is_empty() {
                         return Err(format!("units.{unit} itself spawns units ({}); a spawn chain is not simulated", nested[0].1));
                     }
@@ -1656,12 +1835,13 @@ impl CardDb {
             let fb: RawCardsFile = serde_json::from_str(FALLBACK_TOWERS_JSON).expect("fallback towers parse");
             for raw in fb.cards {
                 if db.index(&raw.name).is_none() {
-                    let (c, d, _) = convert(raw)?;
+                    let (c, d, _) = convert(raw, &mut buffs)?;
                     db.push(c, d)?;
                 }
             }
             db.towers_from_fallback = true;
         }
+        db.buffs = buffs.into_defs();
         Ok(db)
     }
 
@@ -2104,7 +2284,13 @@ mod tests {
             SpellDef { shape: SpellShape::AreaEffect { hit }, placement: SpellPlacement::Anywhere } => {
                 let aeo = &zp["spell"]["area_effect_object"];
                 assert_eq!(hit.damage, int(&aeo["damage"]));
-                assert_eq!(hit.stun_ms, int(&aeo["buff_time_ms"]));
+                // the stun is a BUFF now (SpellHit::buff): the ZapFreeze row, for
+                // BuffTime ms, whose three -100 columns compose to a full stop.
+                let b = hit.buff.expect("Zap carries its ZapFreeze buff");
+                assert_eq!(b.time_ms, int(&aeo["buff_time_ms"]));
+                let def = db.buffs[b.buff as usize];
+                assert_eq!(def.speed_pct, int(&aeo["buff"]["speed_multiplier_raw"]));
+                assert_eq!(crate::status::compose([def].iter(), crate::status::Sel::Speed, 100), 0, "ZapFreeze is a full stop");
                 assert_eq!(hit.radius, milli(int(&aeo["radius_milli"])));
                 assert_eq!(hit.crown_pct, int(&aeo["crown_tower_damage_percent"]));
             }
@@ -2143,10 +2329,55 @@ mod tests {
             other => panic!("GoblinBarrel: {other:?}"),
         }
         assert_eq!(db.get(db.index("Giant").unwrap()).ignore_pushback, doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Giant").unwrap()["ignore_pushback"].as_bool().unwrap());
-        // What is NOT simulated is refused out loud.
-        for n in ["Rage", "Poison", "Lightning", "Graveyard", "Tornado", "Clone", "Heal", "Mirror"] {
+        // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
+        // effect whose mechanic is a BUFF (with Earthquake and the Snowball); Rage
+        // and Heal stay refused because each is a SummonCharacter
+        // spell (a bottle, a spirit) whose area effect is released by the summon's
+        // death or projectile, which the loader does not walk.
+        for n in ["Rage", "Lightning", "Graveyard", "Tornado", "Clone", "Heal", "Mirror"] {
             assert!(db.index(n).is_none(), "{n} must not be simulable");
             assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
+        }
+        // THE PULSING AREA EFFECTS, and the buff that IS their mechanic.
+        for n in ["Poison", "Earthquake"] {
+            match spell(n) {
+                SpellDef { shape: SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }, .. } => {
+                    let aeo = &card(n)["spell"]["area_effect_object"];
+                    assert_eq!(life_ms, int(&aeo["life_duration_ms"]));
+                    assert_eq!(hit_speed_ms, int(&aeo["hit_speed_ms"]));
+                    assert_eq!(hit.damage, 0, "{n}: a pulsing area deals no damage of its own");
+                    let b = hit.buff.unwrap_or_else(|| panic!("{n} carries no buff"));
+                    let def = db.buffs[b.buff as usize];
+                    assert_eq!(b.time_ms, int(&aeo["buff_time_ms"]));
+                    assert_eq!(def.damage_per_second, int(&aeo["buff"]["damage_per_second"]));
+                    assert_eq!(def.hit_frequency_ms, int(&aeo["buff"]["hit_frequency_ms"]));
+                    assert_eq!(def.speed_pct, int(&aeo["buff"]["speed_multiplier_raw"]));
+                }
+                other => panic!("{n}: {other:?}"),
+            }
+        }
+        // The Snowball: a projectile whose TargetBuff rides its splash.
+        match spell("Snowball") {
+            SpellDef { shape: SpellShape::Projectile { hit: Some(hit), .. }, .. } => {
+                let p = &card("Snowball")["projectile"];
+                let b = hit.buff.expect("the Snowball carries its slow");
+                assert_eq!(b.time_ms, int(&p["buff_time_ms"]));
+                assert_eq!(db.buffs[b.buff as usize].speed_pct, int(&p["target_buff"]["speed_multiplier_raw"]));
+                assert!(hit.knockback.is_some(), "the Snowball pushes too");
+            }
+            other => panic!("Snowball: {other:?}"),
+        }
+        // A troop's own TargetBuff / BuffOnDamage lands on CardDef::attack_buff.
+        for (n, key) in [("IceSpirits", "projectile"), ("IceWizard", "projectile"), ("ElectroWizard", "buff_on_damage")] {
+            let c = card(n);
+            let b = db.get(db.index(n).unwrap()).attack_buff.unwrap_or_else(|| panic!("{n} carries no attack buff"));
+            let (raw, time) = if key == "projectile" {
+                (&c["projectile"]["target_buff"], &c["projectile"]["buff_time_ms"])
+            } else {
+                (&c["buff_on_damage"]["buff"], &c["buff_on_damage"]["time_ms"])
+            };
+            assert_eq!(b.time_ms, int(time), "{n} BuffTime");
+            assert_eq!(db.buffs[b.buff as usize].speed_pct, int(&raw["speed_multiplier_raw"]), "{n} SpeedMultiplier");
         }
         // No summon-only unit is a playable card name collision.
         assert!(db.cards.iter().filter(|c| c.summon_only).count() >= 1);

@@ -44,10 +44,16 @@
 //!      units per tick (the live arrows: 299-300 then 599-600);
 //!   6. every candidate of the four keys moves a measurable behaviour, each on a
 //!      scene where the shipped arm gives a different number, and a candidate with
-//!      no engine implementation is refused at load.
+//!      no engine implementation is refused at load;
+//!   7. the HIT-STARTED boundary is strictly greater than TICK_MS, not >= TICK_MS
+//!      -- so the swing a chasing unit has only just begun is cancelled when its
+//!      target steps out of reach on exactly that tick (remainder TICK_MS is
+//!      reached after every cycle restart of every shipped card).
 //!
 //! PLANT (regression): `reach_without_own_radius` forces the earlier reach (Range +
-//! the target's radius only): (1), (2) and (6) go red -- 3 of 7.
+//! the target's radius only): (1), (2), (6) and (7) go red -- 4 of 8 ((7) because
+//! the reach it sweeps against is the one the plant moves, so its four scenes no
+//! longer separate the boundary).
 //!     RUSTFLAGS='--cfg clash_plant="reach_without_own_radius"' CARGO_TARGET_DIR=target/plant cargo test --test reach
 
 mod common;
@@ -155,6 +161,77 @@ fn tower_free_spot() -> Vec2 {
 
 fn tower_free_walker_spot() -> Vec2 {
     t(900, 1000)
+}
+
+// ---------------------------------------------------------------------------
+// (7): the hit-started boundary is strictly greater than TICK_MS
+
+/// THE HIT-STARTED FLAG and the tick the remainder is exactly TICK_MS.
+///
+/// The test is `progress % HitSpeed > TICK_MS` (combat.ATTACK_CYCLE's boundary
+/// note) -- and that remainder is exactly TICK_MS on the tick after every cycle
+/// restart of every shipped card, because a fire leaves the progress on an exact
+/// multiple of HitSpeed and the next credited tick adds TICK_MS. An earlier engine
+/// tested `>= TICK_MS`, so on exactly those ticks it called a swing "started" that
+/// is not started and kept attacking a target that had stepped out of reach.
+///
+/// PINNED: a tick on which a chasing melee unit's progress stood at remainder
+/// TICK_MS, its target was OUT of reach, and its progress went to 0 -- the reset.
+/// Under `>= TICK_MS` the flag reads "started" on that tick,
+/// the unit attacks instead, and the counter cannot be 0 afterwards, so the search
+/// below comes back empty. Four scenes are swept because the alignment between the
+/// boundary crossing and the fire is geometry, not chance: a chasing unit spends
+/// most of its cycle out of reach and most of its cycles never land the crossing on
+/// this one tick.
+#[test]
+fn a_swing_at_remainder_tick_ms_does_not_survive_the_target_stepping_out_of_reach() {
+    assert_shipped_arms();
+    let dt = calib().tick_ms;
+    let (mut total_rem, mut total_found) = (0, 0);
+    // (attacker, the buildings-only runner it chases, k) -- k slides the pair along
+    // its lane; every one of these four separates the two spellings.
+    for (card, runner, k) in [("Knight", "Giant", 5), ("Knight", "Golem", 5), ("Barbarian", "HogRider", 0), ("MiniPekka", "Giant", 0)] {
+        let mut s = BattleState::new(11, config());
+        // The runner targets BUILDINGS only, so it never turns to fight: it walks
+        // down its lane and the attacker chases, in and out of reach every few ticks.
+        let prey = s.scenario_spawn_now(Team::Red, runner, t(375, 1500 + k * 25), None).unwrap_or_else(|e| panic!("{runner}: {e:?}"));
+        let hunter = s.scenario_spawn_now(Team::Blue, card, t(375 + k * 13, 900), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
+        let stat: &CardDef = card_stat(&s, card);
+        let (hs, range, own_r) = (stat.hit_speed_ms, stat.range, stat.collision_radius);
+        assert!(hs > 0 && (hs - stat.load_time_ms.max(0)) % dt == 0, "{card}: its cycle cannot land on remainder {dt}");
+
+        let mut prev: Option<(i32, bool)> = None;
+        let (mut rem_ticks, mut found) = (0, 0);
+        for _ in 0..500 {
+            s.tick();
+            let (Some(h), Some(p)) = (s.entity(hunter), s.entity(prey)) else { break };
+            if h.target != Some(prey) {
+                prev = None;
+                continue;
+            }
+            // Law A spelled out here, not asked of the engine.
+            let reach = range + own_r + p.radius;
+            let in_reach = h.pos.sub(p.pos).len2() <= (reach as i64) * (reach as i64);
+            if let Some((before, before_in_reach)) = prev {
+                if before % hs == dt {
+                    rem_ticks += 1;
+                    if !before_in_reach {
+                        assert_eq!(h.attack_ms, 0, "{card} vs {runner}: a swing at remainder {dt} survived the target stepping out of reach ({before} -> {})", h.attack_ms);
+                        found += 1;
+                    }
+                }
+            }
+            prev = Some((h.attack_ms, in_reach));
+        }
+        assert!(rem_ticks > 0, "{card} vs {runner}: the cycle never stood at remainder {dt}");
+        total_rem += rem_ticks;
+        total_found += found;
+    }
+    assert!(total_rem > 0, "no scene reached remainder {dt} at all");
+    assert!(
+        total_found > 0,
+        "no scene put a unit out of reach at remainder {dt} ({total_rem} such ticks, all in reach): the sweep proves nothing and needs a new scene"
+    );
 }
 
 // ---------------------------------------------------------------------------

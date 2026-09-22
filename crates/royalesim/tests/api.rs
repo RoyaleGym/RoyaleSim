@@ -67,14 +67,16 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // A card that is in cards.json but whose mechanic the engine does not simulate
     // must read as UNSUPPORTED with a reason, never as "unknown".
     // It must be a card the loader genuinely refuses: Fireball no longer is, now
-    // that spells load, and Rage no longer carries an area effect in the 15.535
-    // data at all (its buff is an action graph), so it is refused for "no mechanic
-    // in the data". Poison is a pulsing area effect (HitSpeed set) in both vintages,
-    // refused by card.rs `convert_spell`, with its reason read back from the loader.
-    match s.check_deploy(Team::Blue, "Poison", t(900, 1000)) {
+    // that spells load; Rage carries no area effect in the 15.535 data at all (it
+    // is a SummonCharacter spell whose bottle releases one on death), so it is
+    // refused for "no mechanic in the data"; Poison is a pulsing area effect whose
+    // mechanic is a buff and loads. Tornado's buff carries AttractPercentage, a
+    // column no entity reads, so the loader still refuses it, with its reason read
+    // back from the loader.
+    match s.check_deploy(Team::Blue, "Tornado", t(900, 1000)) {
         Err(DeployError::UnsupportedCard(n, why)) => {
-            assert_eq!(n, "Poison");
-            assert!(why.contains("pulsing"), "Poison refused for an unexpected reason: {why}");
+            assert_eq!(n, "Tornado");
+            assert!(why.contains("AttractPercentage"), "Tornado refused for an unexpected reason: {why}");
         }
         other => panic!("expected UnsupportedCard, got {other:?}"),
     }
@@ -85,7 +87,7 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never
     // Unsupported. Plant: spells_rejected (card.rs, the pre-spell loader).
-    for spell in ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel"] {
+    for spell in ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Poison", "Earthquake", "Snowball"] {
         assert!(s.cards().index(spell).is_some(), "{spell} is not simulable: {:?}", s.cards().rejected.iter().find(|(n, _)| n == spell));
         assert_eq!(s.check_deploy(Team::Blue, spell, t(900, 1000)), Err(DeployError::NotInHand), "{spell}");
     }

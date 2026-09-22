@@ -49,11 +49,12 @@
 
 use crate::arena::{Arena, Rect, Shape};
 use crate::card::{CardDb, KnockbackDef, SpellHit, SpellShape};
+use crate::status::{BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, Calib, KnockLaw, KnockZeroVector, LaunchModel, RollDirection, RollHitShape};
+use crate::state::{AoeHitTest, Calib, KnockLaw, KnockZeroVector, LaunchModel, RollDirection, RollHitShape, TargetBuffScope};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -69,6 +70,9 @@ pub enum SpellMotion {
     Rolling { pos: Vec2, travelled: i32, len: i32, hit: Vec<EntityId> },
     /// A one-shot area effect at `pos`, applied on its first update.
     Area { pos: Vec2 },
+    /// A PULSING area effect standing at `pos` (Poison, Earthquake): it applies its
+    /// hit every HitSpeed ms until its life runs out. `Pulse` carries both clocks.
+    Pulsing(Pulse),
 }
 
 /// One live spell object.
@@ -81,6 +85,11 @@ pub struct Spell {
     pub level: i32,
     /// Level-scaled damage per victim (0 when it deals none).
     pub damage: i32,
+    /// The level-scaled amount of ONE pulse of this spell's buff, positive for damage
+    /// and negative for a heal (`BuffDef::pulse_base` through `CardDb::scaled`); 0
+    /// when the spell carries no pulsing buff. Computed at cast, because the victim
+    /// does not know the caster's level.
+    pub pulse: i32,
     pub motion: SpellMotion,
 }
 
@@ -125,8 +134,15 @@ impl Knock {
 pub struct EffectBuffer {
     /// Knockbacks, in buffer order (spell order = cast order).
     pub knocks: Vec<Knock>,
-    /// Stun durations, ms; merged by max per unit in Resolve.
+    /// Stun durations, ms; merged by max per unit in Resolve. Written by nothing
+    /// but a test: every stun the data ships is a -100 BUFF
+    /// (`buffs` below), and `state.rs apply_effects` derives the timer from it under
+    /// status.FULL_STOP_BUFF_IS_STUN. Kept because the merge it documents is the one
+    /// the buff path reuses and because a caller may still buffer a bare stun.
     pub stuns: Vec<(EntityId, i32)>,
+    /// Buff applications, in buffer order (spell order = cast order). Drained in
+    /// Resolve by `state.rs apply_effects`.
+    pub buffs: Vec<BuffHit>,
 }
 
 /// The caster's forward axis: +1 for Blue (toward high y), -1 for Red.
@@ -143,11 +159,27 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
     let scaled = |h: &SpellHit| cards.scaled(card, level, h.damage);
     #[cfg(clash_plant = "spell_damage_unscaled")]
     let scaled = |h: &SpellHit| cards.scaled(card, level, h.damage).map(|_| h.damage); // PLANT: level-1 damage at every level.
+    // THE PULSE AMOUNT of whatever buff this spell carries, level-scaled by the
+    // caster once (status.rs `BuffDef::pulse_base`). Zero for a spell whose buff does
+    // not pulse, and for one with no buff at all.
+    let pulse_of = |hit: &SpellHit| -> Result<i32, String> {
+        let Some(b) = hit.buff else { return Ok(0) };
+        let base = cards.buffs[b.buff as usize].pulse_base();
+        if base == 0 {
+            return Ok(0);
+        }
+        let mag = cards.scaled(card, level, base.abs())?;
+        Ok(if base < 0 { -mag } else { mag })
+    };
     let mut out = Vec::new();
     match &spell.shape {
         SpellShape::Projectile { hit, waves, wave_interval_ms, .. } => {
             let damage = match hit {
                 Some(h) => scaled(h)?,
+                None => 0,
+            };
+            let pulse = match hit {
+                Some(h) => pulse_of(h)?,
                 None => 0,
             };
             // calibration spells.LAUNCH_POINT = caster_king_tower_centre (the only
@@ -164,14 +196,27 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
                     let _ = (w, wave_interval_ms); // PLANT: every wave released at once.
                     0
                 };
-                out.push(Spell { team, card, level, damage, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms } });
+                out.push(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms } });
             }
         }
         SpellShape::AreaEffect { hit } => {
-            out.push(Spell { team, card, level, damage: scaled(hit)?, motion: SpellMotion::Area { pos: tap } });
+            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap } });
+        }
+        // A PULSING area effect is born at the tap with its first application DUE
+        // (`next_ms` 0), so it applies on the tick it lands and every HitSpeed after.
+        SpellShape::PulsingAreaEffect { hit, life_ms, .. } => {
+            out.push(Spell {
+                team,
+                card,
+                level,
+                damage: scaled(hit)?,
+                pulse: pulse_of(hit)?,
+                motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: *life_ms, next_ms: 0 }),
+            });
         }
         SpellShape::Rolling { airborne_min_distance, range, hit, .. } => {
             let damage = scaled(hit)?;
+            let pulse = pulse_of(hit)?;
             let fwd = forward_dy(team);
             let ahead = |d: i32| Vec2::new(tap.x, tap.y + fwd * d);
             #[cfg(not(clash_plant = "airborne_skipped"))]
@@ -199,7 +244,7 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
                 },
                 LaunchModel::InstantRollAtTap => SpellMotion::Rolling { pos: tap, travelled: 0, len: *range, hit: Vec::new() },
             };
-            out.push(Spell { team, card, level, damage, motion });
+            out.push(Spell { team, card, level, damage, pulse, motion });
         }
     }
     Ok(out)
@@ -284,7 +329,7 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
 
 /// Apply one circular impact of `hit` at `centre` for `team`. `damage` is level-scaled.
 #[allow(clippy::too_many_arguments)]
-fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>) {
+fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>) {
     let e = ctx.ents;
     ctx.hash.neighbours_within(e, centre, hit.radius + ctx.hash.max_radius(), nb);
     // the fixed_distance arm's zero-vector fallback, a unit axis per victim
@@ -297,6 +342,10 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
         KnockZeroVector::Client16402XByIdParity => Some(Vec2::new(if e.team_seq[v] & 1 == 1 { -1 } else { 1 }, 0)),
         KnockZeroVector::NoPush => None,
     };
+    // status.TARGET_BUFF_ON_SPLASH's `primary_target_only` arm: the nearest victim to
+    // the impact centre, which is the unit a projectile's TargetBuff would have been
+    // locked to. Tracked as (distance^2, victim) so the loop stays one pass.
+    let mut primary: Option<(i64, EntityId)> = None;
     for &v in nb.iter() {
         let v = v as usize;
         if !eligible(e, v, team, hit) {
@@ -322,8 +371,30 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             let pct = 100; // PLANT: crown towers take full spell damage.
             dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false });
         }
-        if hit.stun_ms > 0 {
-            fx.stuns.push((id, hit.stun_ms));
+        if let Some(b) = hit.buff {
+            // THE BUFF RIDES THE IMPACT and lands on every victim the impact lands on
+            // (calibration status.TARGET_BUFF_ON_SPLASH = whole_splash): a Snowball's
+            // slow is on everything in its 2500 disc, not on one unit. `pulse_amount`
+            // is the caster's level-scaled per-pulse figure, computed once here
+            // because the victim does not know the caster's level. The key's own
+            // provenance names the Snowball, so the SPELL path dispatches on it too;
+            // an earlier version cited the key in a comment and never read it, so the
+            // `primary_target_only` foil was a no-op for every spell that carries a
+            // buff until the two were joined.
+            match ctx.calib.target_buff_on_splash {
+                TargetBuffScope::WholeSplash => fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse }),
+                TargetBuffScope::PrimaryTargetOnly => {
+                    let d = e.pos[v].sub(centre);
+                    let d2 = (d.x as i64) * (d.x as i64) + (d.y as i64) * (d.y as i64);
+                    let nearer = match primary {
+                        Some((best, _)) => d2 < best,
+                        None => true,
+                    };
+                    if nearer {
+                        primary = Some((d2, id));
+                    }
+                }
+            }
         }
         if let Some(k) = hit.knockback {
             #[cfg(clash_plant = "no_knockback")]
@@ -345,6 +416,9 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
                 }
             }
         }
+    }
+    if let (Some((_, id)), Some(b)) = (primary, hit.buff) {
+        fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
     }
 }
 
@@ -504,7 +578,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     return true;
                 }
                 if let Some(h) = hit {
-                    impact(ctx, s.team, *aim, h, s.damage, dmg, fx, nb);
+                    impact(ctx, s.team, *aim, h, s.damage, s.pulse, dmg, fx, nb);
                 }
                 if let Some(sp) = spawn {
                     // Level validated when the cast was accepted (state.rs).
@@ -523,8 +597,22 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 false
             }
             (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit }) => {
-                impact(ctx, s.team, *pos, hit, s.damage, dmg, fx, nb);
+                impact(ctx, s.team, *pos, hit, s.damage, s.pulse, dmg, fx, nb);
                 false
+            }
+            // A PULSING AREA EFFECT (Poison, Earthquake; calibration
+            // spells.PULSING_AREA_EFFECT = hit_speed_period_from_landing): it lands,
+            // applies at once, and re-applies every HitSpeed ms until LifeDuration is
+            // spent. Every application is one `impact`, so the buff refresh, the
+            // eligibility filters and the hit test are the one-shot ones.
+            (SpellMotion::Pulsing(p), SpellShape::PulsingAreaEffect { hit, hit_speed_ms, .. }) => {
+                while p.next_ms <= 0 && p.life_ms > 0 {
+                    impact(ctx, s.team, p.pos, hit, s.damage, s.pulse, dmg, fx, nb);
+                    p.next_ms += (*hit_speed_ms).max(tick);
+                }
+                p.next_ms -= tick;
+                p.life_ms -= tick;
+                p.life_ms > 0
             }
             (SpellMotion::Airborne { pos, aim, frac, roll_start, roll_len }, SpellShape::Rolling { airborne_speed, .. }) => {
                 let (np, _) = advance(*pos, *aim, airborne_speed * mult, frac);

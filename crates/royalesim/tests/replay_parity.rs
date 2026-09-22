@@ -249,17 +249,22 @@ fn the_engine_meets_the_isolated_walk_floor_on_the_sample() {
         assert!(pm >= min_permille, "{card}: isolated walk within {WALK_TIGHT_NATIVE} native on {pm} permille of {} ticks, floor {min_permille}", sc.walk_ticks);
     };
     // measured (bit-exact, error 0 on every frame): Prince 92 / 92, Giant
-    // 79 / 79, Dark Prince 119 / 119, Battle Ram 98 / 98 (module doc)
-    floor("Prince", 950, 80);
-    floor("Giant", 950, 60);
-    floor("DarkPrince", 950, 100);
+    // 79 / 79, Dark Prince 119 / 119 (module doc). The floor is 980 permille -- at
+    // 1000 achieved, 980 leaves exactly one frame of slack on the shortest row
+    // (Giant, 79 ticks: 78 of 79 is 987 permille and passes, 77 is 974 and does not).
+    floor("Prince", 980, 80);
+    floor("Giant", 980, 60);
+    floor("DarkPrince", 980, 100);
     // THE BATTLE RAM ROW IS NO LONGER THE RAM ALONE (combat.KAMIKAZE_DEATH):
     // the engine now breaks the Ram on its hit, so the row -- keyed by the ROOT card --
     // carries its two death-spawned Barbarians' walk as well (118 isolated-walk frames,
     // was 98). The Ram's own 98 are still bit-exact and that is what this floor pins;
     // the Barbarians' own walk off the death point is the death-spawn / contact work,
-    // not this row's, and is left to the corpus numbers (module doc).
-    floor_tight_count("BattleRam", 98, 98);
+    // not this row's, and is left to the corpus numbers (module doc). The floor is
+    // 99 of the 100 the sample achieves: the ram's own 98 stay pinned and one of
+    // its two Barbarians' frames is pinned with them, which
+    // leaves the other free for the death-spawn timing work that is still open.
+    floor_tight_count("BattleRam", 99, 98);
     // the formation row is measured, printed and NOT pinned (module doc)
     let sk = &r.per_card["Skeletons"];
     assert!(sk.walk_ticks >= 500, "the three cycled Skeletons walk {} isolated ticks", sk.walk_ticks);

@@ -570,7 +570,7 @@ fn a_zap_on_a_tombstone_delays_its_next_wave_by_exactly_the_stun() {
     assert_eq!(calib().buff_expiry, BuffExpiry::CeilFromNextTick, "the tick alignment the delay is derived under");
     let zap = card_stat(&bare(config()), "Zap").spell.clone().unwrap();
     let stun_ms = match zap.shape {
-        royalesim::card::SpellShape::AreaEffect { hit } => hit.stun_ms,
+        royalesim::card::SpellShape::AreaEffect { hit } => hit.buff.map(|b| b.time_ms).unwrap_or(0),
         other => panic!("Zap is not an area effect: {other:?}"),
     };
     assert!(stun_ms > 0, "data: Zap stuns");

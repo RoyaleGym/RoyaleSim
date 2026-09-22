@@ -886,10 +886,10 @@
       "value": "progress_credit",
       "status": "measured",
       "confidence": "HIGH -- measured on 1690 fresh attack entries and 911 first projectile launches of the live corpus (below); the windup arm misses every one of them",
-      "provenance": "MEASURED on the whole live 16.402 corpus (73 captures): the captures carry two per-unit attack counters, and on the frame a unit starts attacking a fresh target they read LoadTime + 50 and LoadTime on 1690 of 2024 entries (the misses are spawned units filed under their spawner's card, whose LoadTime is not the spawner's); 911 of 1004 projectile units launched their first projectile exactly (HitSpeed - LoadTime) / 50 - 1 ticks after that frame (Musketeer 13, Archers 9, Bomber 3, Bowler 9, princess tower 15, king tower 9; the misses are interrupted cycles); 453 of 520 uninterrupted melee cycles dropped the target's hp on that tick (Knight 9, Barbarian 7, Skeleton 9, Goblin 11); 113 of 172 re-entries with the second counter still running show the first at LoadTime + 50 - (load - 50); every later hit HitSpeed apart, the first counter running on across hits (1400, 2800, 4200 on a Prince) and the second reset to LoadTime on every hit. The princess tower of capture 20260920-003751: attacking at t280, progress 50, the first arrow at t295 (progress 800), then t311 and t327; the engine fired on the acquisition tick. THE RULE (combat.rs attack_step_progress): every tick the LOAD TIMER counts down 50 clamped at 0, whatever the state; with a target, the unit attacks this tick when the target is in range (targeting.ATTACK_RANGE_RULE) OR a hit is already started (progress % HitSpeed >= 50), else its progress is RESET to 0 and it stops attacking; attacking, a fresh cycle (progress == 0, not charged) is CREDITED progress = LoadTime - loadTimer (with loadTimer := LoadTime) and then += 50, so a unit whose load timer has run out starts its first cycle at LoadTime + 50 and every later tick adds 50; when LoadTime > HitSpeed no credit is given and the cycle waits until the load timer is <= HitSpeed; a CHARGED entry snaps progress to the next multiple of HitSpeed instead (charge.CHARGED_HIT_TIMING). THE HIT lands on the tick progress crosses a multiple of HitSpeed, which sets loadTimer := LoadTime and leaves progress running. So the FIRST hit on a fresh target lands (HitSpeed - LoadTime) / 50 - 1 ticks after the entry frame, the cadence is HitSpeed, and a unit re-entering range within LoadTime of its last hit or entry gets only LoadTime - (remaining load) of credit.",
+      "provenance": "MEASURED on the whole live 16.402 corpus (73 captures): the captures carry two per-unit attack counters, and on the frame a unit starts attacking a fresh target they read LoadTime + 50 and LoadTime on 1690 of 2024 entries (the misses are spawned units filed under their spawner's card, whose LoadTime is not the spawner's); 911 of 1004 projectile units launched their first projectile exactly (HitSpeed - LoadTime) / 50 - 1 ticks after that frame (Musketeer 13, Archers 9, Bomber 3, Bowler 9, princess tower 15, king tower 9; the misses are interrupted cycles); 453 of 520 uninterrupted melee cycles dropped the target's hp on that tick (Knight 9, Barbarian 7, Skeleton 9, Goblin 11); 113 of 172 re-entries with the second counter still running show the first at LoadTime + 50 - (load - 50); every later hit HitSpeed apart, the first counter running on across hits (1400, 2800, 4200 on a Prince) and the second reset to LoadTime on every hit. The princess tower of capture 20260920-003751: attacking at t280, progress 50, the first arrow at t295 (progress 800), then t311 and t327; the engine fired on the acquisition tick. THE RULE (combat.rs attack_step_progress): every tick the LOAD TIMER counts down 50 clamped at 0, whatever the state; with a target, the unit attacks this tick when the target is in range (targeting.ATTACK_RANGE_RULE) OR a hit is already started (progress % HitSpeed > 50), else its progress is RESET to 0 and it stops attacking; attacking, a fresh cycle (progress == 0, not charged) is CREDITED progress = LoadTime - loadTimer (with loadTimer := LoadTime) and then += 50, so a unit whose load timer has run out starts its first cycle at LoadTime + 50 and every later tick adds 50; when LoadTime > HitSpeed no credit is given and the cycle waits until the load timer is <= HitSpeed; a CHARGED entry snaps progress to the next multiple of HitSpeed instead (charge.CHARGED_HIT_TIMING). THE HIT lands on the tick progress crosses a multiple of HitSpeed, which sets loadTimer := LoadTime and leaves progress running. So the FIRST hit on a fresh target lands (HitSpeed - LoadTime) / 50 - 1 ticks after the entry frame, the cadence is HitSpeed, and a unit re-entering range within LoadTime of its last hit or entry gets only LoadTime - (remaining load) of credit. TWO BOUNDARIES OF THE RULE, corrected after an adversarial read of the engine: (a) the hit-started test is STRICTLY GREATER than 50, not >= 50 -- a fire leaves the progress on an exact multiple of HitSpeed, so the next credited tick puts the remainder at exactly 50 on every cycle of every shipped card (Knight 1250 % 1200, Prince 1450 % 1400, Musketeer 1050 % 1000), and under >= a unit whose target stepped out of reach on that tick kept swinging instead of resetting; the corpus moves with the correction (Skeletons 43.6 -> 43.9 % within 250 with the alive-mismatch share 14.6 -> 13.5 %, Bomber 75.8 -> 76.1 %). (b) A HELD unit's load timer keeps counting down: the hold (a -100 HitSpeedMultiplier, combat.HIT_SPEED_BUFF) stops the PROGRESS step alone, so a unit frozen mid-cooldown does not keep its whole remaining reload and its first hit after the hold is not LoadTime / 50 ticks late.",
       "candidates": ["progress_credit", "windup_load_time"],
       "meaning": "progress_credit: the measured progress counter -- first hit HitSpeed - LoadTime after entering range (a princess tower, LoadTime blank = 0, waits a full HitSpeed = 16 ticks for its first arrow), HitSpeed between hits, a swing already started finishes on a target that stepped out of range, the load timer's remainder reduces the credit on re-entry. windup_load_time: the earlier engine -- a LoadTime windup after entering range, then HitSpeed - LoadTime of cooldown -- so every first hit landed 2 x LoadTime - HitSpeed later than the game's (a Knight 400 ms late, a princess tower 800 ms EARLY).",
-      "promotion_rules": "Measured; not modelled: a hit-speed buff (Rage's HitSpeedMultiplier into the 50 ms step) and LoadFirstHit (Sparky). Re-open only against a live first hit that parts from the rule on an uninterrupted cycle.",
+      "promotion_rules": "Measured. The hit-speed buff is combat.HIT_SPEED_BUFF (Rage's HitSpeedMultiplier into the 50 ms step); LoadFirstHit (Sparky) is not modelled. Re-open only against a live first hit that parts from the rule on an uninterrupted cycle.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> attack_cycle); combat.rs attack_step runs the progress / load-timer counters (Entities::attack_ms = progress, Entities::attack_load_ms = the load timer, snapshot format 16), AttackPhase::Windup = attacking with the swing under way (the target lock), Cooldown = attacking on the hit tick, Idle = not attacking; the Path phase holds any attacking unit. The old arm stays runnable as windup_load_time. tests/reach.rs pins the tower's first arrow and the Knight's first hit from the card data."
     },
     "PROJECTILE_LAUNCH": {
@@ -913,6 +913,15 @@
       "meaning": "at_fire: a Kamikaze unit dies on the tick its hit lands (melee) or its projectile launches, a self-hit for its whole hp + shield resolved with that tick's damage, so its death spawn follows in the same tick's Reap. A KamikazeTime > 0 (the delayed death) is a NAMED GAP: the card loads and its Kamikaze column is NOT taken, so it keeps attacking as the engine did before this key -- the 2018 SkeletonBalloon is the only corpus card with one, and the 16.402 card of that name is refused for its action graph anyway. Not a refusal at load: a refusal drops a whole card over one unmodelled detail and moved the format-3 card fingerprint (tests/stacked_tie.rs).",
       "promotion_rules": "The projectile arm: a live Ice Spirit or Wall Breakers capture with the per-frame projectile stream says whether the unit dies at the launch or at the landing; a delayed KamikazeTime needs a card that ships one in a loadable 16.402 row.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs CardDef::kamikaze from cards.json `kamikaze`, FALSE when kamikaze_time_ms > 0 (the gap above); state.rs phase_attack pushes the self-hit after combat::fire. tests/charge.rs (11) pins the Battle Ram's one hit and the gap."
+    },
+    "HIT_SPEED_BUFF": {
+      "value": "progress_scaled",
+      "status": "hypothesis",
+      "confidence": "MEDIUM (the corpus has no raged or slowed attacker; the hold on a -100 buff is what every shipped stun needs)",
+      "provenance": "WHAT A HitSpeedMultiplier DOES TO THE ATTACK CYCLE. progress_scaled (shipped): the attack progress counter (combat.ATTACK_CYCLE) advances per tick by the buff composition of TICK_MS under the unit's HitSpeedMultiplier columns -- the same composition as the speed (movement.BUFF_SPEED_COMPOSITION) with the column swapped -- 65 under Rage, 35 under an Ice Wizard's slow; when the composed advance is <= 0 the progress step is skipped whole, which is how a -100 buff (every shipped stun and freeze) holds an attack mid-cycle. The LOAD timer is NOT scaled: a flat 50 comes off it every tick, held or not. `none` is the earlier engine, which advanced the counter by TICK_MS whatever the unit was carrying and held nothing. Corpus effect of this key together with BUFF_SPEED_COMPOSITION and STOMP_PAUSE_SCHEDULE, same fixtures and cut points: all-unit hp exact 82.9 -> 83.4 %, buff-status family 71.8 -> 72.2 % within 250 and 36.6 -> 37.3 % hp exact, attack-timing first divergences 8 -> 6.",
+      "candidates": ["progress_scaled", "none"],
+      "promotion_rules": "A raged Musketeer's hit-to-hit interval: HitSpeed x 100 / 130 under progress_scaled, HitSpeed under none. The corpus has no raged attacker (its Rage casts are refused by the loader).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     }
   },
   "match": {
@@ -1201,6 +1210,18 @@
       "not_read": "characters.Goblin.DeployDelay 400 does NOT stagger the released units (spec candidate SPAWNED_UNITS_STAGGER_BY_DEPLOY_DELAY=false). No key, because no code reads it.",
       "promotion_rules": "First visible frame of the three Goblins from a barrel on open ground, repeated 3 times at one tile.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "PULSING_AREA_EFFECT": {
+      "value": "hit_speed_period_from_landing",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "An AreaEffectObject with HitSpeed set (Poison LifeDuration 8000 / HitSpeed 250, Earthquake 3000 / 100) stands where it landed and applies to everything inside it, repeatedly. `hit_speed_period_from_landing`: it applies on the tick it lands and every HitSpeed ms after, until LifeDuration is spent. `hit_speed_period_delayed` waits one period before the first application. Neither is measured. The schedule matters only through how often the area REFRESHES its buff, because the damage is the buff's (status.BUFF_PULSE_TIMING, status.BUFF_PULSE_AMOUNT).",
+      "candidates": [
+        "hit_speed_period_from_landing",
+        "hit_speed_period_delayed"
+      ],
+      "promotion_rules": "The tick a Poison's buff first appears on a unit standing at the tap: the landing tick, or HitSpeed later.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     }
   },
   "knockback": {
@@ -1376,6 +1397,18 @@
       "promotion_rules": "None by video (50 ms vs 16.7 ms frames under client interpolation); pinned by crates/royalesim/tests/spells.rs. NOTE: timing a 500 ms Zap to settle TICK_MS is far weaker than it reads -- a 500 ms buff lasts 500 ms under every tick hypothesis.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     },
+    "BUFF_STACKING": {
+      "value": "one_slot_per_buff_row",
+      "status": "hypothesis",
+      "confidence": "MEDIUM (ours; correct for every combination the corpus ships)",
+      "provenance": "character_buffs ships EnableStacking on Poison, Earthquake, RageModeRage and the Heal Spirit's buff, so the game can carry a row more than once. WHAT IT CANNOT MEAN is one copy per APPLICATION: a Poison area re-applies its 1000 ms buff every HitSpeed = 250 ms for a LifeDuration of 8000, so 32 copies would stack on a unit that stood in one cloud and the card would deal 32 times its published damage. Stacking therefore needs the buff's SOURCE (the area effect object, the projectile) as part of its identity, and the engine does not carry that: `one_slot_per_buff_row` keys a slot on the buff ROW alone, so a second cloud refreshes the first rather than adding to it. A NAMED GAP -- two Poisons on one unit deal one Poison's damage. Measured against this: with per-application slots a Knight standing in one Poison took 17 damage ticks over the cloud's 8 s instead of 8 (tests/status.rs).",
+      "candidates": [
+        "one_slot_per_buff_row",
+        "per_source_slot"
+      ],
+      "promotion_rules": "Two Poisons over one Knight, cast a second apart: the hp curve doubles its slope while both clouds stand under per_source_slot and does not under one_slot_per_buff_row.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); state.rs `apply_effects` keys a slot on the buff row. tests/status.rs pins the Poison's pulse count."
+    },
     "SAME_BUFF_REAPPLY": {
       "value": "refresh_max",
       "status": "hypothesis",
@@ -1422,6 +1455,54 @@
         true
       ],
       "promotion_rules": "Freeze an enemy King at the moment it is first damaged: it attacks as soon as the freeze ends (false) or after a further delay (true).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "FULL_STOP_BUFF_IS_STUN": {
+      "value": "stun_timer",
+      "status": "hypothesis",
+      "confidence": "MEDIUM (ours; the two candidates agree on every gate the engine has)",
+      "provenance": "THE ENGINE'S OWN UNIFICATION. Every stun the data ships is a BUFF: a Zap, a Freeze spell, an Ice Spirit's projectile and an Electro Wizard's hit each hang a character_buffs row whose SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier are all -100, and under movement.BUFF_SPEED_COMPOSITION / combat.HIT_SPEED_BUFF / spawner.STUN_PAUSES_SPAWNER a composed 0 is what stops the unit. The engine already had a hold path -- `stun_ms`, and with it status.STUN_ATTACK_TIMER_MODEL, status.STUN_RETARGET_ON_RESUME, the three status.STUN_PAUSES_*, spawner.STUN_PAUSES_SPAWNER and charge.RESET_ON_STUN -- so `stun_timer` drives that one timer from such a buff and every one of those keys keeps the meaning it was written with. `buff_only` would leave the timer at 0 and make each gate read the composition itself, which re-attaches every STUN_PAUSES_* key; not implemented.",
+      "candidates": [
+        "stun_timer",
+        "buff_only"
+      ],
+      "promotion_rules": "None available: the two arms are observationally identical here. They separate only if a buff is found whose composed speed is 0 and which the game does NOT treat as a stun (no shipped row is like that).",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "BUFF_PULSE_AMOUNT": {
+      "value": "per_second_times_frequency",
+      "status": "hypothesis",
+      "confidence": "MEDIUM",
+      "provenance": "The columns are DamagePerSecond / HealPerSecond alongside HitFrequency in milliseconds (15.535 Poison 36 at 1000, Earthquake 32 at 1000, the Heal Spirit's buff 157 at 250), so one pulse is dps x HitFrequency / 1000 and one second of the buff deals dps whatever the frequency. Not measured. `per_pulse` would make every pulse the whole per-second figure, which multiplies the Heal Spirit by four against its published value.",
+      "candidates": [
+        "per_second_times_frequency",
+        "per_pulse"
+      ],
+      "promotion_rules": "Total a Poison's damage on a standing Knight over its 8 s and compare with the published card value; the Heal Spirit's 250 ms frequency separates the two arms by a factor of four.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "BUFF_PULSE_TIMING": {
+      "value": "after_first_period",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "WHEN a damaging or healing buff's first pulse falls. `after_first_period`: the pulse clock starts at HitFrequency, so a 1000 ms Poison buff that its area re-applies every 250 ms still pulses once a second while the unit stands in it (the refresh keeps the buff alive, it does not re-arm the pulse). `on_application` fires on the application tick, which would make a Poison cloud deal its per-second damage four times a second. Excluded by the card's published total, not by a trace.",
+      "candidates": [
+        "after_first_period",
+        "on_application"
+      ],
+      "promotion_rules": "Count the damage ticks a Poison deals to a Knight standing in it for the full 8 s: 8 under after_first_period, 32 under on_application.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "TARGET_BUFF_ON_SPLASH": {
+      "value": "whole_splash",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "A projectile's TargetBuff column is named for the target, but the projectile's own splash hits everything inside its radius. `whole_splash`: every victim the impact damages takes the buff too, which is how the Snowball (Radius 2500, TargetBuff IceWizardSlowDown 3000 ms) is described. `primary_target_only` would slow one unit of a group -- for a troop's projectile the locked target, for a spell impact (which has a centre and no target) the victim nearest that centre. Not measured. BOTH PATHS dispatch on it: `combat.rs apply_attack_buff` for a troop's TargetBuff / BuffOnDamage and `spell.rs impact` for a spell's area buff (which had cited this key in a comment and never read it, so primary_target_only was a no-op for every spell carrying a buff until the two were joined).",
+      "candidates": [
+        "whole_splash",
+        "primary_target_only"
+      ],
+      "promotion_rules": "Snowball three Skeletons standing together and time all three: all three slowed under whole_splash.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     }
   },
@@ -1830,9 +1911,12 @@
       "promotion_rules": "Raise to HIGH with a second non-integral product on a different card, or with any partial slow. Re-open the composition order with a raged stomp card whose two orderings disagree."
     },
     "STOMP_PAUSE_SCHEDULE": {
-      "value": "k_plus_1_times_tick_ms_mod_period_strictly_greater_than_stop",
+      "value": "ms_clock",
       "status": "measured",
       "confidence": "HIGH",
+      "candidates": ["ms_clock", "k_plus_1_times_tick_ms_mod_period_strictly_greater_than_stop"],
+      "ms_clock": "THE CLOCK, NOT THE TICK INDEX. ms_clock (shipped): the unit keeps a MILLISECOND clock that advances by tdiv(compose(Speed, 100), 2) on every tick it actually walks -- 50 unbuffed, 65 under Rage (the same composition as movement.BUFF_SPEED_COMPOSITION, applied to 100) -- and the tick is paused iff the post-increment clock is strictly above StopMovementAfterMS and still short of StopMovementAfterMS + WaitMS; when it reaches the period the remainder is carried forward. UNBUFFED the advance is 50 and the clock equals ((k + 1) x 50) mod period exactly, so ms_clock reproduces the measured tick-index schedule below tick for tick, and the two candidates part ONLY under a buff -- 65 ms a tick under Rage, where the residue drifts 15 ms a tick and a pause group can run four ticks long. MEASURED on the live 16.402 raged Golem of capture 20260919-143305-B: 168 of 169 walking ticks reproduced under ms_clock, where the tick-index law keeps the unbuffed 13-tick runs and drifts off the recording within one period. The clock does not advance on a tick the unit does not walk (speed 0: attacking, deploying, frozen), which is what `move_ticks` already did.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. Under ms_clock the per-entity state is entity.rs `stomp_clock` (milliseconds); under the older arm it is `move_ticks` (the index k). Both are kept and both are hashed, so the two arms are switchable on one tree.",
       "formula": "with k the unit's moving-tick index (k = 0 on its first moving tick, NEVER reset), skip the position update iff ((k + 1) * TICK_MS) % (StopMovementAfterMS + WaitMS) > StopMovementAfterMS",
       "provenance": "MEASURED, phase uniquely pinned. OFFLINE TRACE CORPUS (Clash Royale 15.535.29 / versionCode 150535029). Traces: data/oracle-native/{walk (6 cards x 1 deploy), lane_sweep_Knight (128 files / 64 distinct experiments), building_Giant (12), repath_Giant (2), meet (3), orient (1)} -- 150 units, 51926 entity-ticks. Analysis: the offline-oracle passes -- grid, cost model, occlusion and goal rule; every law re-measured over every unit of every trace; timing and the speed law. Report: docs/movement-measurements.md; implementation contract: docs/pathfinder-spec.md. Giant 308/308 and Golem 306/306 moving ticks. Strict > beats >= (304/308, 294/306); (k+1) beats k (268/308, 282/306); every phase offset was brute-forced and only 0 fits. A naive 'move 640 ms then wait 100 ms' countdown gives 13 moving ticks in the Giant's first block and the oracle shows 12.",
       "scope": "The pause gates the unit's OWN LOCOMOTION, not the position write: external displacement still applies during a freeze -- a jostled Giant moves on 2 of 323 scheduled pause ticks.",
@@ -1898,6 +1982,16 @@
       "engine": "RECORDED, NOT IMPLEMENTED. Not read by Calib::from_json -- like movement.BUFF_SPEED_RULE, a rule the engine records ahead of a card that exercises it; when Miner / GoblinDrill / Wallbreakers enter the thin slice the key becomes a Calib field, the cost closure in state.rs phase_path16402 gains the state test and path16402::choose_goal_cell is bypassed by the explicit goal. Until then the value names the rule and `not_modelled` is what the engine does.",
       "promotion_rules": "To measured: a live capture of a Miner or Goblin Drill -- the published path of a spawn-pathfinding unit must ignore the lane bonus and every building box, and its per-tick step must be SpawnPathfindSpeed.",
       "units": "native millitiles; SpawnPathfindSpeed is native units per tick"
+    },
+    "BUFF_SPEED_COMPOSITION": {
+      "value": "strongest_up_and_down",
+      "status": "hypothesis",
+      "confidence": "MEDIUM (the single-buff case is measured; no corpus frame carries two speed buffs on one unit)",
+      "formula": "S' = tdiv(max(0, min(100, 100 - maxneg)) * tdiv(maxpos * S, 100), 100), with maxpos = max(100, the positive SpeedMultipliers on the unit), maxneg = max(0, the negations of the negative ones), a zero column skipped",
+      "provenance": "HOW SEVERAL SPEED BUFFS COMBINE, and where the charge multiplies. strongest_up_and_down (shipped): over the unit's buffs, maxpos = the largest positive SpeedMultiplier (at least 100) and maxneg = the largest negation of a negative one (at least 0), a zero column skipped; then S' = tdiv(max(0, min(100, 100 - maxneg)) * tdiv(maxpos * S, 100), 100), and the ChargeSpeedMultiplier multiplies THAT result. Only the strongest speed-up and the strongest slow count, two Rages are one Rage, and Freeze's -100 makes the whole product 0. movement.BUFF_SPEED_RULE recorded the SINGLE-buff case of this same law (floor(S x SpeedMultiplier / 100)), MEASURED on the live 16.402 raged Ice Golem (52 -> 67, where round and ceil both give 68); this key generalises it, and `single_multiplier_floor` is that arm kept runnable (the first buff's multiplier alone). Corpus effect of this key together with HIT_SPEED_BUFF and STOMP_PAUSE_SCHEDULE: Dark Prince 83.4 -> 100.0 % within 250 and 90.9 -> 100.0 % hp exact, Prince 70.7 -> 74.8 %, pushback family 69.4 -> 71.7 %, charge 61.8 -> 64.7 %.",
+      "candidates": ["strongest_up_and_down", "single_multiplier_floor"],
+      "promotion_rules": "A unit carrying a Rage and a slow at once: 45 -> tdiv(130 x 45, 100) = 58 -> tdiv(85 x 58, 100) = 49 under strongest_up_and_down, against tdiv(45 x 115, 100) = 51 for an engine that adds the two percentages. No frame of the 75-capture corpus has both on one unit, so the corpus cannot yet separate them.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     }
   },
   "formation": {

@@ -27,7 +27,7 @@
 //!    triggering a rewrite.
 //!
 //! THE TICK, IN ORDER. This ordering was MEASURED on the live 16.402 captures
-//! (the corpus of 2026-09-20): every attack update runs BEFORE any unit moves, the move updates
+//! (the replay corpus): every attack update runs BEFORE any unit moves, the move updates
 //! then run one after the other in creation order, and the per-unit character
 //! update (state machine, deploy countdown) runs AFTER the move pass. `TICK_PHASES`
 //! is that order; `LEGACY_TICK_PHASES` is the order this engine invented before the
@@ -50,6 +50,7 @@ pub mod collide;
 pub mod combat;
 pub mod spell;
 pub mod formation;
+pub mod status;
 pub mod state;
 pub mod py;
 

@@ -44,7 +44,9 @@ use crate::card::CardDb;
 use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, Vec2};
 use crate::path::advance;
-use crate::state::{AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, ProjectileLaunch};
+use crate::state::{AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, HitSpeedBuff, ProjectileLaunch, TargetBuffScope};
+use crate::spell::EffectBuffer;
+use crate::status::{BuffApply, BuffHit, Sel};
 use crate::target::in_attack_range;
 use crate::{EntityId, Team};
 
@@ -109,6 +111,16 @@ pub struct Projectile {
     /// tick's. Snapshot format 16; absent in older snapshots = false.
     #[serde(default)]
     pub fresh: bool,
+    /// THE ATTACKER'S `attack_buff`, riding to the arrival tick (the Ice Spirit's
+    /// Freeze, the Ice Wizard's slow): the buff lands where the damage lands, on the
+    /// splash or on the one target (status.TARGET_BUFF_ON_SPLASH). None for every
+    /// card without one. Snapshot format 18; absent in older snapshots = None.
+    #[serde(default)]
+    pub buff: Option<BuffApply>,
+    /// The attacker's level-scaled per-pulse amount for that buff, 0 when it does not
+    /// pulse. Snapshot format 18.
+    #[serde(default)]
+    pub pulse: i32,
 }
 
 /// Damage after the crown-tower reduction, if the victim is a crown tower. Damage
@@ -134,6 +146,14 @@ pub fn damage_against(kind: EntityKind, amount: i32, crown_pct: i32, rounding: C
 
 /// Append a hit on every enemy of `team` whose hitbox edge is within `radius`
 /// of `center`. Victim order does not matter: the buffer is summed.
+///
+/// ON RETURN `scratch` HOLDS EXACTLY THE VICTIMS THAT WERE HIT, compacted in
+/// place out of the neighbour list the spatial hash filled. It is not a
+/// convenience: `apply_attack_buff` rides this list, and an earlier version read
+/// the RAW neighbour query -- `radius + hash.max_radius()` around the centre,
+/// unfiltered -- so an Ice Spirit's freeze landed on the attacker's own team and on
+/// units outside the splash disc
+/// (`tests/status.rs::an_attack_buff_lands_on_the_splash_victims_only`).
 #[allow(clippy::too_many_arguments)]
 pub fn splash(
     ents: &Entities,
@@ -150,8 +170,9 @@ pub fn splash(
     scratch: &mut Vec<u32>,
 ) {
     hash.neighbours_within(ents, center, radius + hash.max_radius(), scratch);
-    for &v in scratch.iter() {
-        let v = v as usize;
+    let mut kept = 0usize;
+    for i in 0..scratch.len() {
+        let v = scratch[i] as usize;
         if ents.team[v] == team || ents.hp[v] <= 0 {
             continue;
         }
@@ -160,8 +181,16 @@ pub fn splash(
         }
         if in_range_edge(center, ents.pos[v], radius, ents.radius[v]) {
             out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false });
+            scratch[kept] = v as u32;
+            kept += 1;
         }
     }
+    // PLANT (regression): the earlier scratch, the RAW neighbour query, so an
+    // attack buff rides it onto the attacker's own team and past the splash disc.
+    #[cfg(not(clash_plant = "buff_on_raw_neighbours"))]
+    scratch.truncate(kept);
+    #[cfg(clash_plant = "buff_on_raw_neighbours")]
+    let _ = kept;
 }
 
 /// What one entity's attack step decided. Applied by the caller.
@@ -195,7 +224,7 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
 ///   load -= 50, clamped at 0
 ///   no target -> progress 0, not attacking
 ///   in_range = ATTACK_RANGE_RULE(target)
-///   hit_started = progress % HitSpeed >= 50
+///   hit_started = progress % HitSpeed > 50
 ///   attack this tick iff in_range || hit_started
 ///     else: progress = 0, stop attacking
 ///   attacking:
@@ -223,13 +252,30 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
 fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
     let card = cards.get(ents.card[a]);
     let target = ents.target[a].filter(|t| ents.is_alive(*t));
-    let tick = calib.tick_ms;
+    // THE PROGRESS ADVANCE (combat.HIT_SPEED_BUFF = progress_scaled): the counter
+    // gains the HitSpeedMultiplier composition of TICK_MS, not TICK_MS -- 65 under
+    // Rage, 35 under an Ice Wizard's slow -- and when that is <= 0 the whole step is
+    // skipped, so a -100 Freeze holds the cycle exactly where it stands. The LOAD
+    // timer is NOT scaled: a flat 50 comes off it every tick.
+    let tick = match calib.hit_speed_buff {
+        HitSpeedBuff::ProgressScaled => ents.buffed(&cards.buffs, a, Sel::HitSpeed, calib.tick_ms),
+        HitSpeedBuff::None => calib.tick_ms,
+    };
     let hs = card.hit_speed_ms;
     let lt = card.load_time_ms.max(0);
-    let mut load = (ents.attack_load_ms[a] - tick).max(0);
+    let mut load = (ents.attack_load_ms[a] - calib.tick_ms).max(0);
     let phase = ents.attack_phase[a];
     let mut progress = ents.attack_ms[a];
     let idle = |load| AttackStep { phase: AttackPhase::Idle, ms: 0, load_ms: load, fired_at: None, charge_snapped: false };
+    if tick <= 0 {
+        // The composed advance is 0: a -100 HitSpeedMultiplier (a freeze). The
+        // PROGRESS holds, but the LOAD TIMER does NOT: its decrement, max(load - 50,
+        // 0), runs every tick before any of this, held or not (combat.ATTACK_CYCLE).
+        // An earlier version held the load timer too, which made a unit frozen
+        // mid-cooldown keep its whole remaining reload, so its first hit after the
+        // hold came LoadTime / 50 ticks late.
+        return AttackStep { phase, ms: progress, load_ms: load, fired_at: None, charge_snapped: false };
+    }
     if !can_act {
         // Deploying, stunned, mid-ladder, leaping, under ground, an inactive king:
         // the counters hold (status.STUN_ATTACK_TIMER_MODEL = pause; a landed push
@@ -242,7 +288,14 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     }
     let ti = t.index as usize;
     let in_range = in_attack_range(calib, ents.pos[a], card.range, ents.radius[a], ents.pos[ti], ents.radius[ti]);
-    let hit_started = progress % hs >= tick;
+    // THE HIT-STARTED TEST, `progress % HitSpeed > TICK_MS` -- a FLAT constant and
+    // not the buffed advance, so a slowed unit's swing is still under way. `>=
+    // TICK_MS` would be off by one and reachable on EVERY cycle of EVERY card: a
+    // fire leaves the progress on an exact multiple of HitSpeed, so the tick after
+    // the cycle restarts has remainder exactly 50 (Knight 1250 % 1200, Prince
+    // 1450 % 1400, Musketeer 1050 % 1000), which is "not started" and lets the
+    // range gate cancel (combat.ATTACK_CYCLE's boundary note).
+    let hit_started = progress % hs > calib.tick_ms;
     if !(in_range || hit_started) {
         return idle(load);
     }
@@ -348,11 +401,33 @@ pub fn fire(
     a: usize,
     target: EntityId,
     dmg: &mut DamageBuffer,
+    fx: &mut EffectBuffer,
     projectiles: &mut Vec<Projectile>,
     scratch: &mut Vec<u32>,
 ) {
     let card = cards.get(ents.card[a]);
     let ti = target.index as usize;
+    // THE ATTACK'S BUFF (card.rs `CardDef::attack_buff`): a projectile carries it to
+    // its arrival tick, an instant hit applies it here. The per-pulse amount is the
+    // ATTACKER's level-scaled figure, computed once, because the victim does not know
+    // the attacker's level.
+    let atk_buff = card.attack_buff;
+    let atk_pulse = match atk_buff {
+        None => 0,
+        Some(b) => {
+            let base = cards.buffs[b.buff as usize].pulse_base();
+            if base == 0 {
+                0
+            } else {
+                let mag = cards.scaled(ents.card[a], ents.level[a], base.abs()).unwrap_or(base.abs());
+                if base < 0 {
+                    -mag
+                } else {
+                    mag
+                }
+            }
+        }
+    };
     // THE CHARGED HIT (card.rs `ChargeDef`; calibration charge.SPECIAL_LEVEL_SCALING):
     // a charged unit's hit is DamageSpecial INSTEAD of Damage -- a replacement, not
     // an addition (DamageSpecial is exactly 2 x Damage on every 2018 charge row, the
@@ -419,6 +494,8 @@ pub fn fire(
             hits_ground: card.attacks_ground,
             frac: Vec2::default(),
             fresh,
+            buff: atk_buff,
+            pulse: atk_pulse,
         });
         return;
     }
@@ -432,8 +509,38 @@ pub fn fire(
         #[cfg(clash_plant = "aoe_centre_on_target")]
         let centre = ents.pos[ti];
         splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
+        apply_attack_buff(ents, calib, atk_buff, atk_pulse, target, scratch, fx);
     } else {
         dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
+        if let Some(b) = atk_buff {
+            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse });
+        }
+    }
+}
+
+/// Buffer `buff` on everything the hit it rode landed on. `scratch` is the victim
+/// list `splash` just filled, so the buff lands on exactly the units the damage did
+/// (calibration status.TARGET_BUFF_ON_SPLASH = whole_splash); under
+/// `primary_target_only` only `target` takes it.
+fn apply_attack_buff(
+    ents: &Entities,
+    calib: &Calib,
+    buff: Option<BuffApply>,
+    pulse: i32,
+    target: EntityId,
+    scratch: &[u32],
+    fx: &mut EffectBuffer,
+) {
+    let Some(b) = buff else { return };
+    match calib.target_buff_on_splash {
+        TargetBuffScope::WholeSplash => {
+            for &v in scratch {
+                fx.buffs.push(BuffHit { target: ents.id_of(v as usize), buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+            }
+        }
+        TargetBuffScope::PrimaryTargetOnly => {
+            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+        }
     }
 }
 
@@ -443,11 +550,13 @@ pub fn fire(
 pub fn step_projectiles(
     ents: &Entities,
     hash: &SpatialHash,
-    rounding: CrownRounding,
+    calib: &Calib,
     projectiles: &mut Vec<Projectile>,
     dmg: &mut DamageBuffer,
+    fx: &mut EffectBuffer,
     scratch: &mut Vec<u32>,
 ) {
+    let rounding = calib.crown_rounding;
     projectiles.retain_mut(|p| {
         if p.fresh {
             // born this tick: its first step is next tick's (combat.PROJECTILE_LAUNCH)
@@ -465,9 +574,13 @@ pub fn step_projectiles(
         }
         if p.splash > 0 {
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
+            apply_attack_buff(ents, calib, p.buff, p.pulse, p.target, scratch, fx);
         } else if alive {
             let ti = p.target.index as usize;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding), ignores_hide: false });
+            if let Some(b) = p.buff {
+                fx.buffs.push(BuffHit { target: p.target, buff: b.buff, time_ms: b.time_ms, pulse_amount: p.pulse });
+            }
         }
         false
     });

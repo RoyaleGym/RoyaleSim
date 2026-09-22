@@ -437,6 +437,7 @@ pub fn canon_spells(s: &BattleState, team: Team) -> Vec<CanonSpell> {
                 }
                 SpellMotion::Rolling { pos, travelled, len, hit } => (2, [frame(s, team, *pos), (0, 0), (0, 0), (0, 0)], [0, *travelled, *len], hit.len()),
                 SpellMotion::Area { pos } => (3, [frame(s, team, *pos), (0, 0), (0, 0), (0, 0)], [0, 0, 0], 0),
+                SpellMotion::Pulsing(p) => (4, [frame(s, team, p.pos), (0, 0), (0, 0), (0, 0)], [p.life_ms, p.next_ms, 0], 0),
             };
             (name, sp.level, sp.damage, kind, pts, nums, hits)
         })

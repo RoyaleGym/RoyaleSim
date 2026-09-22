@@ -936,6 +936,16 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
         "immune_to_anti_magic": flag(b, "ImmuneToAntiMagic"),
         "no_effect_to_crown_towers": flag(b, "NoEffectToCrownTowers"),
         "attract_percentage": b["AttractPercentage"],
+        # A damaging or healing buff
+        # needs all four to be the card: how a second copy of itself composes
+        # (EnableStacking, against calibration status.SAME_BUFF_REAPPLY), what it
+        # does to a BUILDING (Earthquake 350) as opposed to a crown tower
+        # (CrownTowerDamagePercent, already above), and whose clock its pulses run
+        # on (HitTickFromSource: the area effect's, not the victim's).
+        # (the 2018 files carry EnableStacking only; the other two read as null there)
+        "building_damage_percent": b.get("BuildingDamagePercent"),
+        "enable_stacking": flag(b, "EnableStacking"),
+        "hit_tick_from_source": flag(b, "HitTickFromSource") if isinstance(b, Row) or "HitTickFromSource" in b else None,
     }
 
 
@@ -1013,6 +1023,11 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         "spawn_interval_ms": a["SpawnInterval"],
         "spawn_max_count": a["SpawnMaxCount"],
         "spawn_initial_delay_ms": a["SpawnInitialDelay"],
+        # A PULSING area effect re-applies
+        # its buff every HitSpeed ms while a unit stands in it, and CapBuffTimeToAreaEffectTime
+        # shortens the last application to the life the area has left (Rage, Earthquake).
+        "cap_buff_time_to_area_effect_time": flag(a, "CapBuffTimeToAreaEffectTime"),
+        "affects_hidden": flag(a, "AffectsHidden"),
     }
     if isinstance(a, Row):
         out["action_graph"] = action_graph(t, a)

@@ -824,6 +824,40 @@ pub fn stomp_paused(tick_ms: i32, stop_ms: i32, wait_ms: i32, k: u32) -> bool {
     phase > stop_ms as i64
 }
 
+/// THE STOMP CLOCK (calibration movement.STOMP_PAUSE_SCHEDULE = ms_clock, measured
+/// on the live raged Golem), one walking tick. `clock` is the unit's clock in
+/// milliseconds and `advance` is this tick's increment -- `tdiv(compose(Speed, 100),
+/// 2)`, i.e. TICK_MS unbuffed and 65 under Rage. Returns (the new clock, whether
+/// this tick is PAUSED):
+///
+/// ```text
+///   clock += advance
+///   Stop <= 0 or clock <= Stop            -> walk
+///   rem = clock - (Stop + Wait);  rem >= 0 -> clock = rem, walk
+///   else                                   -> paused
+/// ```
+///
+/// With `advance == TICK_MS` this is exactly `stomp_paused` above on the unit's
+/// moving-tick index, because the clock is then ((k + 1) x TICK_MS) mod the period:
+/// the two calibration candidates agree on every unbuffed tick and part only under a
+/// buff, where the residue drifts and a pause group can run four ticks long.
+#[inline]
+pub fn stomp_clock_step(clock: i32, advance: i32, stop_ms: i32, wait_ms: i32) -> (i32, bool) {
+    if stop_ms <= 0 {
+        return (clock, false);
+    }
+    let clock = clock + advance;
+    if clock <= stop_ms {
+        return (clock, false);
+    }
+    let rem = clock - (stop_ms + wait_ms);
+    if rem >= 0 {
+        (rem, false)
+    } else {
+        (clock, true)
+    }
+}
+
 /// Has the unit arrived at `node` (spec 7.5, calibration
 /// pathfinding.WAYPOINT_ARRIVE_RULE / WAYPOINT_ARRIVE_RADIUS)? Evaluated on the
 /// POST-move position; at most one node is consumed per tick (0 of 3851 tail-drop

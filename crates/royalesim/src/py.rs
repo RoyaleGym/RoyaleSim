@@ -443,6 +443,9 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
             SpellMotion::Airborne { pos, aim, .. } => (1, *pos, *aim, 0, 0, 0, 0),
             SpellMotion::Rolling { pos, travelled, len, hit } => (2, *pos, Vec2::new(pos.x, pos.y + fwd * (len - travelled)), 0, *travelled, *len, hit.len()),
             SpellMotion::Area { pos } => (3, *pos, *pos, 0, 0, 0, 0),
+            // a pulsing area: `delay_ms` carries its remaining life, so the viewer can
+            // draw a Poison cloud shrinking rather than a one-frame flash.
+            SpellMotion::Pulsing(p) => (4, p.pos, p.pos, p.life_ms, 0, 0, 0),
         };
         let _ = write!(
             o,
