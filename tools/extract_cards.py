@@ -480,7 +480,8 @@ SCALAR_STAT_COLUMNS = {
     "SpawnSpeedMultiplier", "DamagePerSecond", "HitFrequency", "HealPerSecond", "DamageReduction",
     "DamageMultiplier", "ImmuneToAntiMagic", "AttractPercentage", "ManaCost", "NotInUse",
     "CustomDeployTime", "SummonCharacter", "SummonNumber", "SummonRadius", "SummonCharacterSecond",
-    "SummonCharacterSecondCount", "CustomFirstProjectile", "AreaEffectObject", "InstantDamage",
+    "SummonCharacterSecondCount", "SummonWidth", "SummonDeployDelay", "SummonDeployDelaySecond",
+    "SpawnAngleShift", "CustomFirstProjectile", "AreaEffectObject", "InstantDamage",
     "MultipleProjectiles", "ProjectileWaves", "ProjectileWaveInterval", "SpellAsDeploy",
     "CanPlaceOnBuildings", "CanDeployOnEnemySide", "DurationSeconds",
 }
@@ -1128,6 +1129,16 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "limit": c["SpawnLimit"],
             "radius_milli": c["SpawnRadius"],
         },
+        # THE SUMMON RING'S RADIUS FALLBACK (calibration.json formation.LAYOUT): a
+        # card with a blank SummonRadius lays its summons on the character's
+        # SpawnRadius when that is set, else its CollisionRadius (the Skeleton
+        # Warriors' 923-native ring is SpawnRadius 800 scaled, measured live).
+        # Carried on every unit regardless of a SpawnCharacter (SkeletonWarrior
+        # ships 800 and spawns nothing).
+        "spawn_radius_milli": c["SpawnRadius"],
+        # SpawnAngleShift: degrees added to the summon ring's base angle; Bat ships
+        # 45 (the live Bats' ring is turned 45 degrees). Blank = 0.
+        "spawn_angle_shift_deg": c.get("SpawnAngleShift"),
         # ChargeRange's unit is NOT established: Prince ships 250, which is not
         # plausible as 0.25 tiles of run-up. Passed through raw on purpose.
         "charge": None
@@ -1277,6 +1288,8 @@ UNIT_FIELDS_FOR_CARD = [
     "death_spawn",
     "death_area_effect",
     "spawner",
+    "spawn_radius_milli",
+    "spawn_angle_shift_deg",
     "charge",
     "dash",
     "jump",
@@ -1430,6 +1443,16 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["deploy_time_ms"] = s["CustomDeployTime"]
     card["count"] = res["count"]
     card["summon_radius_milli"] = s["SummonRadius"]
+    # The summon LINE (RoyalHogs: SummonWidth 3500 with SummonRadius 1 -- the four
+    # hogs spread along x) and the deploy STAGGER (member k of the SummonNumber
+    # primaries leaves its deploy state k x SummonDeployDelay ms after the first;
+    # the second summon's members (j + 1) x SummonDeployDelaySecond after it):
+    # calibration.json formation.LAYOUT / DEPLOY_STAGGER, measured on the live
+    # corpus' deploy-end ticks. `.get`: the 2018 file has none of the three
+    # columns (null, like a blank).
+    card["summon_width_milli"] = s.get("SummonWidth")
+    card["summon_deploy_delay_ms"] = s.get("SummonDeployDelay")
+    card["summon_deploy_delay_second_ms"] = s.get("SummonDeployDelaySecond")
     card["second_summon"] = (
         None
         if s["SummonCharacterSecond"] is None

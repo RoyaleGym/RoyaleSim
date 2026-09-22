@@ -820,6 +820,16 @@ impl Arena {
         if bits & self.bit_no_deploy != 0 {
             return Err(ZoneError::NoDeploy);
         }
+        self.territory_zone(p, team, territory, enemy_rects)
+    }
+
+    /// The TERRITORY half of `deploy_zone` alone: the river band and the enemy
+    /// rects, with no bounds, water-touch or NO_DEPLOY-bit test. The per-tile mask
+    /// the summon formation's column clamp scans (state.rs `ground_y_range`;
+    /// calibration formation.GROUND_Y_CLAMP): the live Goblin Gang tapped on
+    /// (3500, 1500) puts a Spear Goblin on y 346 in the bit-16 corner strip, so
+    /// that strip is inside the clamp's range.
+    pub fn territory_zone(&self, p: Vec2, team: Team, territory: Territory, enemy_rects: &[Rect]) -> Result<(), ZoneError> {
         let water_lo = self.water_y_min / self.cell;
         let water_hi = self.water_y_max / self.cell - 1;
         let (y0, y1) = self.axis_span(p.y, self.rows);

@@ -1801,5 +1801,65 @@
       "promotion_rules": "To measured: a live capture of a Miner or Goblin Drill -- the published path of a spawn-pathfinding unit must ignore the lane bonus and every building box, and its per-tick step must be SpawnPathfindSpeed.",
       "units": "native millitiles; SpawnPathfindSpeed is native units per tick"
     }
+  },
+  "formation": {
+    "$comment": [
+      "THE SUMMON FORMATION: where a card's N summons stand around the tap and when each",
+      "leaves its deploy state (spells_characters.csv SummonNumber / SummonRadius / SummonWidth /",
+      "SummonDeployDelay / SummonCharacterSecond / SummonCharacterSecondCount /",
+      "SummonDeployDelaySecond; characters.csv SpawnRadius / SpawnAngleShift; globals.csv",
+      "LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE). The columns are card data (data/derived/cards.json",
+      "`summon_*` / `second_summon` / `spawn_radius_milli` / `spawn_angle_shift_deg`, read by",
+      "card.rs `FormationDef`); every rule they do not settle is a key below. The layout model is",
+      "crates/royalesim/src/formation.rs, fitted to and held to every clean multi-unit deploy of",
+      "the live 16.402 corpus (tests/fixtures/formations/measured.json, tools/make_formation_fixture.py,",
+      "tests/formations.rs) after the whole-battle replay harness put 33 of 48 first divergences on",
+      "the old square grid (the formation gap of the corpus report). Column semantics taken as",
+      "given, not keyed: SummonNumber = the primaries' count; a blank SummonRadius / SummonWidth /",
+      "delay is 0; SummonCharacterSecondCount members follow the primaries in creation order and",
+      "take the card's unified level (the same rule as a spawner's unit; SpawnCharacterLevelIndex",
+      "is not carried)."
+    ],
+    "LAYOUT": {
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on the live 16.402 corpus through tools/replay_formations.py; tests/formations.rs pins every clean multi-unit deploy group from tests/fixtures/formations/measured.json (52 groups, 16 cards, both seats, both lanes, the towers down per tick): 51 groups member by member, 150 members exact (within 3 native), one native unit off only where the placement log's tap tile and the formation's centre differ. THE MODEL (formation.rs `member_offset` / `nearest_lane` / `sin1024`, state.rs `formation_members`): the members are the SummonNumber primaries followed by the SummonCharacterSecondCount second summons. THE RADIUS: SummonRadius, or when 0 the primary character's CollisionRadius replaced by its SpawnRadius when that is set (Minions 500, SkeletonWarrior 800). THE LANE: the lane bits of the nearest lane-marked half-tile cell to the tap (first minimum in column-outer scan order); on the shipped map, left of the centre column is 1 and the rest 2. THE OFFSET: the ring count T is SummonNumber, or 2 x max(SummonNumber, SecondCount) with a second summon; T sets the base angle and the mirrored lane -- T = 1: the tap; T = 2: base SpawnAngleShift + 90, mirror on lane 1; T = 3: 180, lane 1; T = 4: 45, lane 2; T = 5: 180, lane 2; T = 6: 0, lane 2; T = 7: member 0 on the tap and the rest a hexagon nobody mirrors; T >= 8: 0, lane 2 -- the mirror only under globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE = TRUE (both vintages). With no SummonWidth and T >= 3 the radius becomes radius x 577 / trunc(1000 x sin(90 / SummonNumber) / 1024) (sin from a 91-entry round(sin x 1024) table, integer degrees: 700 -> 807 for three, 700 -> 1077 for four (sin 22, not 22.5), 700 -> 1311 for five, 600 -> 1341 for six, 1000 -> 1154 for the Gang's 3 + 3), then SpawnAngleShift is added to the base and a swarm of eight or more puts member k at radius x ((3k) mod 7) / 6 (the Skeleton Army's spiral). Member k's angles (no second summon): ay = 360k / T + base + 90, ax = ay + 90, x = trunc(sin(ax) x r / 1024), y = trunc(sin(ay) x r / 1024); with a second summon the primaries start half a step in and the seconds interleave 180 degrees on, the y sign flipped. SummonWidth makes a LINE: x = W k / (T - 1) - W / 2, y = (k mod 2) x r - r / 2, the mirror then 'lane 1' without the global (RoyalHogs 3500). Side 0 negates y and the mirror negates x. The point is then y-clamped for a ground unit (GROUND_Y_CLAMP) and clamped into [250, W - 250] x [250, H - 250] native. THE CORPUS: Skeletons (0, 807) / (+-699, -403) on both lanes and both sides, Goblins (+-761, +-761), Minions (0, 577) / (+-499, -288), Skeleton Warriors (0, 923) / (+-799, -461), Spear Goblins, Barbarians (0, 1311) / (+-1246, 404) / (+-770, -1060), Minion Horde (0, +-1341) / (+-1161, +-670), Bats with their SpawnAngleShift 45 (1404-ring), Wall Breakers (+-750, 0), Skeleton Dragons (+-1500, 0), Archers (+-500, 0), Goblin Gang's hexagon (+-999, +-577) / (0, +-1154), the Rascals' Boy at (0, 1731) with the Girls at (+-1223, -1223), the Royal Hogs' line and the Skeleton Army's spiral -- exact on every member the contact law had not yet moved. THE ENGINE computes in the OWNER's frame (the owner's-frame lane, side 0's y sign) and rotates the point for Red; the corpus' Red formations are the rotations of its Blue ones (a rotation swaps the lanes and the y sign together; formation.rs `member_offset`). NOT MODELLED: a card whose units come from SummonCharactersList carries an explicit SummonCharactersOffsetsX/Y table with CharactersOffsetsXMirrored (the Three Musketeers, one corpus group at (0, 1000) / (+-1000, -1000)); such a card stays on its `count` alone (card.rs `convert`) and tests/formations.rs asserts its ring does NOT match the corpus.",
+      "candidates": [
+        "client16402",
+        "engine_grid"
+      ],
+      "meaning": "client16402: the ring / line / spiral above (formation.rs), every member on a native point. engine_grid: the earlier engine, a centred square grid of one collision diameter around the tap in the owner's frame (state.rs formation_grid, the second summon on the same grid), kept runnable as the refuted arm: 500-1500 native off on every swarm, 3.6 % / 15.5 % of the Skeletons' / Goblins' unit-ticks within 250 native on the corpus against 39.2 % / 36.5 % under the ring.",
+      "promotion_rules": "Stays measured; the open part is the offsets-table layout of a SummonCharactersList card: a Three Musketeers corpus group on each seat and lane, with every tower standing, decides it once the loader accepts the card.",
+      "engine": "state.rs Calib::from_json (pick), BattleState::formation_members; formation.rs; tests/formations.rs (plant formation_grid_legacy)",
+      "globals_role": "context"
+    },
+    "DEPLOY_STAGGER": {
+      "value": "client16402",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED on the live 16.402 corpus (tools/replay_formations.py; tests/formations.rs over tests/fixtures/formations/measured.json): member k leaves its deploy state at spawn + 19 + 2k ticks on every 100 ms card (Minion Horde 215..225 for a spawn at 195, Goblin Gang 571..581, Barbarians 1351..1359, Bats, Wall Breakers, Royal Hogs), at spawn + 19 + 4k on the Goblins (SummonDeployDelay 200), all at spawn + 19 on the Skeletons and the Skeleton Army (blank), and the Rascals' Girls at 21 / 23 behind the Boy's 19 (SummonDeployDelaySecond 100 with the first blank) -- k x SummonDeployDelay on top of the unit's DeployTime, exactly, on every group (a transition seen one frame late where the capture skipped a frame, never early). THE RULE (formation.rs `stagger_ms`, state.rs `formation_members`): member k >= 1 of the primaries waits k x SummonDeployDelay; the j-th second-summon member (j + 1) x SummonDeployDelaySecond when the first column is blank; a summoned BUILDING's members all take the flat SummonDeployDelay (a hypothesis: no such card is in the slice); no wait without a DeployTime. THE ENGINE adds the wait to the member's deploy timer (PendingSpawn.deploy_ms = DeployTime + wait): the member stands in its deploy state for the whole of it -- non-walking, non-attacking, and moved by the separation scan like any deploying unit (movement.CONTACT_DOMAIN).",
+      "candidates": [
+        "client16402",
+        "none"
+      ],
+      "meaning": "client16402: the waits above. none: every member deploys on the same tick (the earlier engine).",
+      "promotion_rules": "Stays measured for the waits; the flat building delay and whether a waiting member can be hit differently from a deploying one take a designed capture of a summoned building with a SummonDeployDelay and a spell landing on a staggered group before its last member is out.",
+      "engine": "state.rs Calib::from_json (pick), BattleState::formation_members; formation.rs stagger_ms; tests/formations.rs"
+    },
+    "GROUND_Y_CLAMP": {
+      "value": "client16402_deploy_column_range",
+      "status": "measured",
+      "confidence": "MEDIUM",
+      "provenance": "MEASURED on the live 16.402 corpus: Blue's clamp range is [0, 14500] (the row-14 centre) -- the Skeletons of capture 20260918-115249.b1 tapped at y 14162 hold their forward member at 14467 after the push, not 15220; once the lane's tower is down the same card at (14500, 14512) puts its forward Skeleton at 15307, on the river, unclamped; Red's range ends at 31000 -- the Skeletons of capture 20260918-122757.b1 tapped at row 31 hold their two rear members at 31000, and the Red Goblins of capture 20260918-164951 tapped on (3500, 30500) their rear pair on 31000, not the 31261 side 0's formula rotated would give. THE RULE (state.rs `ground_y_range`): the tap's tile column is scanned over the deployable rows, keeping lo = min(row x 1000 + (side 1 ? 500 : 0)) and hi = max(row x 1000 + (side 1 ? 0 : 500)), lo - 1 for side 1, and the pair is DROPPED when hi - lo >= 16000 native, half the arena (once a princess tower has fallen the column reaches past the river); every GROUND member's y is clamped into it (flying units skip; y <= lo -> lo, else min(y, hi)). THE ENGINE ships the per-side formula (side 0 lo = the lowest deployable row's near edge, hi = the highest one's centre; side 1 the pair in absolute rows, turned into the owner's frame), so a Red back-row deploy is held on 31000 as the corpus holds it; the mask is arena.rs territory_zone per tile centre with the card's own territory rule (the river band and the alive enemy towers' NoDeploySize rects; NOT the tilemap's NO_DEPLOY corner strips: the Goblin Gang tapped on (3500, 1500) stands a Spear Goblin on y 346 inside one). The owner's-frame arm keeps the seat-symmetry gates meaningful.",
+      "candidates": [
+        "client16402_deploy_column_range",
+        "deploy_column_range_own_frame",
+        "none"
+      ],
+      "meaning": "client16402_deploy_column_range: the clamp above with the measured per-side formula (side 1: [lowest row's centre - 1, highest row's near edge] in absolute rows -- the Red Goblins of capture 20260918-164951 tapped on (3500, 30500) hold their rear pair on 31000, not 31261 -- so the two seats are NOT rotations of each other at the back edge; tests/common symmetric_config selects the next arm for the seat-symmetry gates, as it does for the absolute-grid search). deploy_column_range_own_frame: side 0's formula in the owner's frame for both seats, the seat-symmetric arm, within one native unit of the measurement at the river and up to 750 short of it on a Red back-row deploy. none: no clamp; a ground member past the bank is ejected to the nearest passable ground (arena.rs nearest_passable_ground) like a spell release.",
+      "promotion_rules": "To HIGH: a designed capture of a three-summon card tapped on each seat's river bank row and back edge row with every tower standing -- the exact lo / hi per seat (side 1's river bound one native unit inside side 0's rotated one is the part no corpus group has yet discriminated) -- and a deploy whose column crosses the river with a tower down, to pin the half-arena drop; the mask agreeing with deploy_zone cell for cell on a corner tap of every card class.",
+      "engine": "state.rs Calib::from_json (pick), BattleState::ground_y_range; tests/formations.rs"
+    }
   }
 }

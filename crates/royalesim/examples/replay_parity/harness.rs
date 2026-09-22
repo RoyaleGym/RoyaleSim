@@ -26,8 +26,10 @@
 //!
 //! MATCHING. A sim entity is reduced to its ROOT card: the card that was deployed to
 //! put it there -- itself for a deployed card, its spawner's card for a spawner
-//! emission (`spawned_by`), the card of the unit that died within the last few ticks
-//! nearest to it for a death spawn, the spell for a released unit. The truth carries
+//! emission (`spawned_by`), the card the harness deployed on that tick for a SECOND
+//! SUMMON (the Goblin Gang's Spear Goblins; card.rs `FormationDef`), the
+//! card of the unit that died within the last few ticks nearest to it for a death
+//! spawn, the spell for a released unit. The truth carries
 //! the root as `card_id` already (a Tombstone's Skeletons carry 27000009). Within one
 //! (side, root) both sides are cut into GROUPS -- the entities that first appear on
 //! one tick together (a formation, a wave, a death spawn) -- and `pair_groups` pairs a
@@ -727,12 +729,17 @@ pub struct TraceRow {
 struct Roots {
     death_spawn_of: BTreeMap<u16, Vec<u16>>,
     spell_release_of: BTreeMap<u16, Vec<u16>>,
+    /// SummonCharacterSecond units (the Goblin Gang's Spear Goblins, the Rascals'
+    /// Girls): rooted to the card the harness itself deployed on that tick
+    /// (card.rs `FormationDef::second_summon`).
+    second_summon_of: BTreeMap<u16, Vec<u16>>,
 }
 
 impl Roots {
     fn new(db: &CardDb) -> Roots {
         let mut death_spawn_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut spell_release_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+        let mut second_summon_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         for (i, c) in db.cards.iter().enumerate() {
             if let Some(d) = &c.death_spawn {
                 death_spawn_of.entry(d.unit).or_default().push(i as u16);
@@ -742,8 +749,11 @@ impl Roots {
                     spell_release_of.entry(s.unit).or_default().push(i as u16);
                 }
             }
+            if let Some(d) = &c.formation.second_summon {
+                second_summon_of.entry(d.unit).or_default().push(i as u16);
+            }
         }
-        Roots { death_spawn_of, spell_release_of }
+        Roots { death_spawn_of, spell_release_of, second_summon_of }
     }
 }
 
@@ -849,6 +859,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     let mut sim_index_of: BTreeMap<(u32, u32), usize> = BTreeMap::new();
     let mut recent_deaths: Vec<(u32, Team, u16, Vec2)> = Vec::new();
     let mut spell_casts: Vec<(u32, Team, u16)> = Vec::new();
+    // (tick the units exist from, team, card) of every troop deploy the harness issued
+    let mut deploys_issued: Vec<(u32, Team, u16)> = Vec::new();
     let mut seen_alive: BTreeSet<(u32, u32)> = BTreeSet::new();
     let mut deploys_by_tick: BTreeMap<u32, Vec<&Deploy>> = BTreeMap::new();
     for d in f.deploys.iter().filter(|d| cut.map_or(true, |c| d.tick < c)) {
@@ -857,7 +869,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     let last_tick = report.last_tick;
 
     // -- register what is on the board now (towers at tick 0)
-    let register_new = |s: &BattleState, tick: u32, sim: &mut Vec<SimEntity>, sim_index_of: &mut BTreeMap<(u32, u32), usize>, seen_alive: &mut BTreeSet<(u32, u32)>, recent_deaths: &[(u32, Team, u16, Vec2)], spell_casts: &[(u32, Team, u16)]| {
+    let register_new = |s: &BattleState, tick: u32, sim: &mut Vec<SimEntity>, sim_index_of: &mut BTreeMap<(u32, u32), usize>, seen_alive: &mut BTreeSet<(u32, u32)>, recent_deaths: &[(u32, Team, u16, Vec2)], spell_casts: &[(u32, Team, u16)], deploys_issued: &[(u32, Team, u16)]| {
         let mut new: Vec<_> = s.entities().filter(|e| !seen_alive.contains(&(e.id.index, e.id.generation))).collect();
         new.sort_by_key(|e| (e.team as u8, e.team_seq, e.id.index));
         for e in new {
@@ -870,6 +882,12 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 (e.card.to_string(), "tower")
             } else if !card.summon_only {
                 (e.card.to_string(), "deployed")
+            } else if let Some(cidx) = roots.second_summon_of.get(&e.card_idx).and_then(|parents| {
+                // a second summon: the card the harness deployed for this team on this
+                // very tick (its members exist from the same Spawn phase)
+                deploys_issued.iter().rev().find(|(t, team, c)| *t == tick && *team == e.team && parents.contains(c)).map(|(_, _, c)| *c)
+            }) {
+                (db.get(cidx).name.clone(), "second-summon")
             } else if let Some(owner) = e.spawned_by {
                 match sim_index_of.get(&(owner.index, owner.generation)) {
                     Some(&k) => (sim[k].root.clone(), "spawner"),
@@ -905,7 +923,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             sim.push(SimEntity { id: e.id, team: e.team, card: e.card.to_string(), root, root_how: how, first_tick: tick, first_pos: e.pos, team_seq: e.team_seq, tower_slot });
         }
     };
-    register_new(&s, 0, &mut sim, &mut sim_index_of, &mut seen_alive, &recent_deaths, &spell_casts);
+    register_new(&s, 0, &mut sim, &mut sim_index_of, &mut seen_alive, &recent_deaths, &spell_casts, &deploys_issued);
 
     // -- alive-by-tick bookkeeping for the sim: (sim index -> (tick -> snapshot))
     // Snapshots are kept only on truth frame ticks (every `stride`-th), which is all the
@@ -959,6 +977,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     if let Some(idx) = db.index(&name) {
                         if db.get(idx).kind == CardKind::Spell {
                             spell_casts.push((tick + 1, team, idx));
+                        } else {
+                            deploys_issued.push((tick + 1, team, idx));
                         }
                     }
                 }
@@ -986,7 +1006,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             }
         }
         recent_deaths.retain(|(t, ..)| tick - *t <= DEATH_SPAWN_LOOKBACK);
-        register_new(&s, tick, &mut sim, &mut sim_index_of, &mut seen_alive, &recent_deaths, &spell_casts);
+        register_new(&s, tick, &mut sim, &mut sim_index_of, &mut seen_alive, &recent_deaths, &spell_casts, &deploys_issued);
         if frame_ticks.contains(&tick) {
             snaps.insert(tick, snapshot(&s, &sim_index_of));
         }

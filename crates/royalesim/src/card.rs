@@ -275,6 +275,41 @@ pub struct JumpDef {
     pub height_raw: i32,
 }
 
+/// SummonCharacterSecond: a second kind of unit the same card summons on the same
+/// ring (Goblin Gang: 3 Goblins + 3 Spear Goblins; Rascals: the Boy + 2 Girls).
+/// Loaded as a `summon_only` card like a spawner's unit; `unit` is its CardDb index.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SecondSummonDef {
+    pub unit: u16,
+    /// SummonCharacterSecondCount (>= 1).
+    pub count: i32,
+}
+
+/// The summon layout and stagger columns (formation.rs; calibration.json
+/// formation.*). SUBTILES and ms; a 0 is the column's blank, which the layout
+/// treats as 0 (an int column with no default).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct FormationDef {
+    /// SummonRadius, subtiles (0 = blank: the unit's SpawnRadius, else its
+    /// CollisionRadius -- state.rs `formation_members`).
+    pub summon_radius: i32,
+    /// SummonWidth, subtiles: nonzero selects the LINE layout (RoyalHogs 3500).
+    pub summon_width: i32,
+    /// SummonDeployDelay, ms: member k >= 1 of the primaries waits k x this before
+    /// its own DeployTime starts (formation.rs `stagger_ms`).
+    pub summon_deploy_delay_ms: i32,
+    /// SummonDeployDelaySecond, ms: the j-th second-summon member waits (j + 1) x this
+    /// when SummonDeployDelay is blank.
+    pub summon_deploy_delay_second_ms: i32,
+    /// The unit's own SpawnRadius, subtiles (0 = blank).
+    pub spawn_radius: i32,
+    /// The unit's SpawnAngleShift, degrees (0 = blank).
+    pub spawn_angle_shift_deg: i32,
+    /// SummonCharacterSecond + count; None on every card without one (and on a card
+    /// whose unit list came through the overlay: `RawCard::summon_resolution`).
+    pub second_summon: Option<SecondSummonDef>,
+}
+
 /// One card, in engine units. Distances are SUBTILES; times are ms.
 #[derive(Clone, Debug)]
 pub struct CardDef {
@@ -364,6 +399,12 @@ pub struct CardDef {
     /// SCALING). None: the card's own rarity's local level 1 (RelativeLevel + 1),
     /// the 2018 convention.
     pub level_base: Option<i32>,
+    /// THE SUMMON LAYOUT AND STAGGER INPUTS: the spells_characters Summon* columns
+    /// and the unit's SpawnRadius / SpawnAngleShift, read by state.rs
+    /// `formation_members` under calibration formation.LAYOUT / DEPLOY_STAGGER.
+    /// Always present (zeros are the columns' blanks); `count` above stays the
+    /// primaries' SummonNumber.
+    pub formation: FormationDef,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else silently retires the
@@ -488,6 +529,36 @@ struct RawCard {
     /// 15.535 Lumberjack's rage bottle). Not simulated: the card is refused AFTER its
     /// push (`from_json_str`), which keeps the format-3 card list intact.
     death_area_effect: Option<String>,
+    // --- the summon layout and stagger (`FormationDef`). Every one null in the
+    // 2018 file and on most 15.535 rows; a blank stays a blank.
+    /// spells_characters SummonRadius, millitiles: the ring's radius input.
+    summon_radius_milli: Option<i32>,
+    /// spells_characters SummonWidth, millitiles: a LINE layout when set (RoyalHogs).
+    summon_width_milli: Option<i32>,
+    /// spells_characters SummonDeployDelay, ms: the per-member stagger.
+    summon_deploy_delay_ms: Option<i32>,
+    /// spells_characters SummonDeployDelaySecond, ms: the second summon's stagger.
+    summon_deploy_delay_second_ms: Option<i32>,
+    /// cards.json `second_summon` (SummonCharacterSecond / SummonCharacterSecondCount).
+    second_summon: Option<RawSecondSummon>,
+    /// cards.json `summon_resolution`: present when the card's unit came through the
+    /// SummonCharactersList overlay or a spawn graph, not SummonCharacter. Such a
+    /// card's `second_summon` is the extractor's carrier for the list's other
+    /// entries (already inside `count`), so `convert` leaves it unread.
+    summon_resolution: Option<serde_json::Value>,
+    /// characters.csv SpawnRadius, millitiles, on the unit itself: the ring radius
+    /// when SummonRadius is blank (SkeletonWarrior 800).
+    spawn_radius_milli: Option<i32>,
+    /// characters.csv SpawnAngleShift, degrees (Bat 45).
+    spawn_angle_shift_deg: Option<i32>,
+}
+
+/// cards.json `second_summon` block.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawSecondSummon {
+    character: Option<String>,
+    count: Option<i32>,
 }
 
 /// cards.json `action_graph` (tools/extract_cards.py `action_graph`): the
@@ -572,6 +643,8 @@ enum UnitUse {
     /// DeathAreaEffect: an area effect the death releases -- never resolvable, so
     /// the card goes the unloadable way (rejected after its push).
     DeathAreaEffect,
+    /// SummonCharacterSecond (Goblin Gang's Spear Goblins, the Rascals' Girls).
+    SecondSummon,
 }
 
 #[derive(Deserialize)]
@@ -831,6 +904,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         charge: None,
         jump: None,
         level_base: None,
+        formation: FormationDef::default(),
     }
 }
 
@@ -1264,6 +1338,38 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
     if let Some(aeo) = &raw.death_area_effect {
         units.push((UnitUse::DeathAreaEffect, aeo.clone()));
     }
+    // THE SECOND SUMMON: all-or-nothing like the other blocks (a character without a
+    // count, or a count without a character, is a data error). An overlay-resolved
+    // card (ThreeMusketeers: SummonCharactersList with its own offsets table, the
+    // layout formation.rs does not model) keeps its list inside `count` and its
+    // `second_summon` is the extractor's carrier for the other entries, so it is
+    // not a SummonCharacterSecond and is left unread here.
+    let second_summon = match (&raw.second_summon, raw.summon_resolution.is_some()) {
+        (None, _) | (Some(RawSecondSummon { character: None, count: None }), _) => None,
+        (Some(_), true) => None,
+        (Some(RawSecondSummon { character: Some(u), count: Some(n) }), false) => {
+            if *n < 1 {
+                return Err(format!("second_summon {u}: count {n} < 1"));
+            }
+            units.push((UnitUse::SecondSummon, u.clone()));
+            Some(SecondSummonDef { unit: u16::MAX, count: *n })
+        }
+        (Some(b), false) => return Err(format!("second_summon block half blank: {:?} / {:?}", b.character, b.count)),
+    };
+    let nonneg = |v: Option<i32>, what: &str| match v {
+        Some(x) if x < 0 => Err(format!("{what} {x} < 0")),
+        Some(x) => Ok(x),
+        None => Ok(0),
+    };
+    let formation = FormationDef {
+        summon_radius: milli(nonneg(raw.summon_radius_milli, "summon_radius_milli")?),
+        summon_width: milli(nonneg(raw.summon_width_milli, "summon_width_milli")?),
+        summon_deploy_delay_ms: nonneg(raw.summon_deploy_delay_ms, "summon_deploy_delay_ms")?,
+        summon_deploy_delay_second_ms: nonneg(raw.summon_deploy_delay_second_ms, "summon_deploy_delay_second_ms")?,
+        spawn_radius: milli(nonneg(raw.spawn_radius_milli, "spawn_radius_milli")?),
+        spawn_angle_shift_deg: raw.spawn_angle_shift_deg.unwrap_or(0),
+        second_summon,
+    };
     let no_deploy_size = match raw.no_deploy_size_tiles {
         Some([w, h]) if w > 0 && h > 0 => Some(Vec2::new(tiles(w), tiles(h))),
         Some(other) => return Err(format!("no_deploy_size_tiles {other:?} is not two positive tile counts")),
@@ -1324,6 +1430,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         charge,
         jump,
         level_base,
+        formation,
     }, display, units))
 }
 
@@ -1453,6 +1560,7 @@ impl CardDb {
                         }
                         UnitUse::Spawner => card.spawner.as_mut().expect("spawner block present").unit = u,
                         UnitUse::DeathSpawn => card.death_spawn.as_mut().expect("death_spawn block present").unit = u,
+                        UnitUse::SecondSummon => card.formation.second_summon.as_mut().expect("second_summon present").unit = u,
                         UnitUse::DeathAreaEffect => unreachable!("never resolved: pushed to `unloadable` above"),
                     }
                 }
@@ -1471,6 +1579,7 @@ impl CardDb {
             let card = &mut db.cards[spell_idx as usize];
             card.spawner = None;
             card.death_spawn = None;
+            card.formation.second_summon = None;
             if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = card.spell.as_mut() {
                 *spawn = None;
             }
@@ -1571,6 +1680,9 @@ impl CardDb {
         }
         if c.death_spawn.is_some() {
             self.death_spawn_level(idx, level)?;
+        }
+        if let Some(d) = c.formation.second_summon {
+            self.unit_level(idx, d.unit, None, level)?;
         }
         Ok(())
     }

@@ -315,6 +315,20 @@ pub struct Calib {
     /// vintages) and the three DAMAGE_ counterparts, read from the embedded globals.csv.
     pub tower_hp_pct: TowerPercents,
     pub tower_dmg_pct: TowerPercents,
+
+    // --- the summon formation (formation.rs). Each is one calibration.json
+    // formation.* key; a candidate with no implementation is refused in from_json.
+    // Read by `formation_members`.
+    /// formation.LAYOUT: where a card's N summons stand around the tap.
+    pub formation_layout: FormationLayout,
+    /// formation.DEPLOY_STAGGER: whether member k waits k x SummonDeployDelay.
+    pub formation_deploy_stagger: DeployStagger,
+    /// formation.GROUND_Y_CLAMP: the ground member's y clamp to the tap column's
+    /// deployable rows.
+    pub formation_ground_y_clamp: GroundYClamp,
+    /// globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE (TRUE in both vintages): the
+    /// lane mirror of the ring (formation.rs `member_offset`).
+    pub lane_id_based_deploy_sequence: bool,
 }
 
 /// The three per-level percents of one tower stat (combat.TOWER_HITPOINT_LADDER).
@@ -679,6 +693,54 @@ calib_enum!(
     }
 );
 
+calib_enum!(
+    /// formation.LAYOUT -- see `BattleState::formation_members` and formation.rs.
+    FormationLayout {
+        /// The ring / line / spiral of formation.rs, computed in the owner's frame;
+        /// measured on every clean multi-unit formation of the live 16.402 corpus
+        /// (51 groups member by member, 150 members exact).
+        Client16402 = "client16402",
+        /// The earlier engine: a centred square grid of one collision diameter
+        /// (`formation_grid`), the second summon on the same grid. Kept runnable as
+        /// the refuted arm (500-1500 native off on every swarm).
+        EngineGrid = "engine_grid",
+    }
+);
+calib_enum!(
+    /// formation.DEPLOY_STAGGER -- see formation.rs `stagger_ms`.
+    DeployStagger {
+        /// Member k >= 1 waits k x SummonDeployDelay ms (the second summon's j-th
+        /// member (j + 1) x SummonDeployDelaySecond when the first is blank; a
+        /// summoned building the flat delay) before its DeployTime starts; measured
+        /// on the corpus' deploy-end ticks (Goblins 200 ms apart, the Rascals' Girls
+        /// on the second delay).
+        Client16402 = "client16402",
+        /// Every member deploys on the same tick (the earlier engine).
+        None = "none",
+    }
+);
+calib_enum!(
+    /// formation.GROUND_Y_CLAMP -- see `BattleState::ground_y_range`.
+    GroundYClamp {
+        /// The measured per-side range: a ground member's absolute y clamped into
+        /// [lowest deployable row's near edge, highest one's centre] of the tap's
+        /// tile column for side 0 and, for side 1, [lowest row's centre - 1, highest
+        /// row's near edge] -- which is not the rotation of side 0's (one native unit
+        /// tighter at the river, half a row shorter at the back edge) -- unless the
+        /// range spans half the arena or more. Measured live on both seats (the Red
+        /// Goblins of capture 20260918-164951 hold their rear pair on 31000, not the
+        /// 31261 the rotated formula gives).
+        Client16402DeployColumnRange = "client16402_deploy_column_range",
+        /// Side 0's formula in the OWNER's frame for both seats: the seat-symmetric
+        /// arm (tests/common `symmetric_config`), within one native unit of the
+        /// measurement at the river and a Red back-row deploy's rear members up to
+        /// 750 native short of where the corpus holds them.
+        DeployColumnRangeOwnFrame = "deploy_column_range_own_frame",
+        /// No clamp: a member past the bank is water-ejected like a release.
+        None = "none",
+    }
+);
+
 fn pick<T>(v: &Value, path: &[&str], parse: fn(&str) -> Option<T>) -> Result<T, String> {
     let s = string(v, path)?;
     parse(s).ok_or_else(|| format!("{} = {s} has no engine implementation", path.join(".")))
@@ -727,6 +789,20 @@ fn globals_number(name: &str) -> Result<i32, String> {
         .and_then(|r| r.get(c_num))
         .and_then(|s| s.trim().parse::<i32>().ok())
         .ok_or_else(|| format!("globals.csv: {name} missing"))
+}
+
+/// A globals.csv BooleanValue by name ("TRUE" / "FALSE"; a blank is FALSE, the
+/// Supercell loader's default).
+fn globals_bool(name: &str) -> Result<bool, String> {
+    let (h, rows) = crate::card::parse_supercell_csv(GLOBALS_CSV);
+    let c_name = h.iter().position(|c| c == "Name").ok_or("globals.csv: no Name")?;
+    let c_bool = h.iter().position(|c| c == "BooleanValue").ok_or("globals.csv: no BooleanValue")?;
+    let row = rows.iter().find(|r| r.get(c_name).map(|s| s.as_str()) == Some(name)).ok_or_else(|| format!("globals.csv: {name} missing"))?;
+    match row.get(c_bool).map(|s| s.trim()).unwrap_or("") {
+        "TRUE" | "true" => Ok(true),
+        "" | "FALSE" | "false" => Ok(false),
+        other => Err(format!("globals.csv: {name} BooleanValue {other:?} is not a boolean")),
+    }
 }
 
 /// THE TOWER LEVEL MULTIPLIER (calibration combat.TOWER_HITPOINT_LADDER =
@@ -941,6 +1017,10 @@ impl Calib {
                 princess: globals_number("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL")?,
                 after_cap: globals_number("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL_AFTER_TOURNAMENTCAP")?,
             },
+            formation_layout: pick(&v, &["formation", "LAYOUT", "value"], FormationLayout::from_calibration_name)?,
+            formation_deploy_stagger: pick(&v, &["formation", "DEPLOY_STAGGER", "value"], DeployStagger::from_calibration_name)?,
+            formation_ground_y_clamp: pick(&v, &["formation", "GROUND_Y_CLAMP", "value"], GroundYClamp::from_calibration_name)?,
+            lane_id_based_deploy_sequence: globals_bool("LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE")?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -3957,19 +4037,9 @@ impl BattleState {
         (0..3).filter_map(|k| self.tower_no_deploy_rect(team.other(), k)).collect()
     }
 
-    /// Positions for a multi-unit card: a centred grid, first row toward the
-    /// enemy, spacing one collision diameter. FORMATION IS A GUESS (cards.json's
-    /// summon_radius_milli is null for most cards).
-    ///
-    /// THE LAYOUT IS IN THE TEAM'S OWN FRAME: Red gets the ROTATED offset
-    /// (-dx, -dy), so sibling k sits in the same own-frame place for both seats and
-    /// team_seq follows own-left-to-right for both. A y-reflected offset
-    /// (dx, -dy) instead makes sibling order follow ENGINE x for both teams, and is
-    /// one of the reasons a policy shared by both seats desyncs on multi-unit
-    /// deploys (80 of 144).
-    fn formation(&self, team: Team, card: &CardDef, pos: Vec2) -> Vec<Vec2> {
-        self.formation_grid(team, card.count, card.collision_radius, card.is_flying(), pos)
-    }
+    // A deploy goes through `formation_members` (calibration formation.LAYOUT); the
+    // centred grid stays as `formation_grid` for the engine_grid arm, the releases
+    // and the death spawns.
 
     /// Units RELEASED by a landing spell (calibration spells.PROJECTILE_SPAWN_FORMATION
     /// = engine_grid): the troop formation around the landing point, with the unit's own
@@ -3986,6 +4056,16 @@ impl BattleState {
             .collect()
     }
 
+    /// THE ENGINE GRID: a centred grid, first row toward the enemy, spacing one
+    /// collision diameter, in the team's own frame (Red gets the ROTATED offset
+    /// (-dx, -dy), so sibling k sits in the same own-frame place for both seats and
+    /// team_seq follows own-left-to-right for both. A y-reflected offset (dx, -dy)
+    /// instead makes sibling order follow ENGINE x for both teams, one of the
+    /// reasons a policy shared by both seats desyncs on multi-unit deploys (80 of
+    /// 144)). A GUESS, and for deploys a refuted one (calibration formation.LAYOUT =
+    /// engine_grid, the runnable foil: the corpus shows a ring, formation.rs); still
+    /// the shipped layout of a spell release (spells.PROJECTILE_SPAWN_FORMATION) and
+    /// a death spawn (spawner.DEATH_SPAWN_LAYOUT).
     fn formation_grid(&self, team: Team, count: i32, radius: i32, flying: bool, pos: Vec2) -> Vec<Vec2> {
         let n = count.max(1);
         if n == 1 {
@@ -4036,9 +4116,188 @@ impl BattleState {
             self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None });
             return;
         }
-        for p in self.formation(team, &card, pos) {
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: p, deploy_ms: None, owner: None });
+        for m in self.formation_members(team, idx, level, pos) {
+            self.spawn_queue.push(m);
         }
+    }
+
+    /// A DEPLOY'S MEMBERS: card, level, point and deploy timer for each of the
+    /// SummonNumber primaries and the SummonCharacterSecondCount second summons of
+    /// card `idx` tapped at `pos` by `team`, in creation order (member k = queue
+    /// order = team_seq order), under calibration formation.LAYOUT / DEPLOY_STAGGER /
+    /// GROUND_Y_CLAMP. Pure; `formation_preview` exposes it for the tests.
+    ///
+    /// client16402 (formation.rs): the tap goes into the OWNER'S frame and native
+    /// units, member k's offset is `member_offset` (the ring, the line, the spiral;
+    /// the lane mirror on the owner's-frame lane), the point is clamped (the ground
+    /// column range, then [250, W - 250] x [250, H - 250] native), rotated back for
+    /// Red and water-ejected for a ground unit that still stands on the river.
+    /// Every member of a multi-unit deploy stands on a NATIVE point (a multiple of
+    /// 18 subtiles: the resolution every measured position has); a single summon
+    /// keeps the exact subtile tap. The stagger is `stagger_ms` added to the unit's
+    /// own DeployTime.
+    ///
+    /// engine_grid: the earlier `formation_grid` over all the members.
+    fn formation_members(&self, team: Team, idx: u16, level: i32, pos: Vec2) -> Vec<PendingSpawn> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let cards = &self.cfg.cards;
+        let card = cards.get(idx);
+        let fd = card.formation;
+        let n = card.count.max(1);
+        let second = fd.second_summon.filter(|d| d.unit != u16::MAX);
+        let s = second.map_or(0, |d| d.count.max(0));
+        let total = n + s;
+        let unit_of = |k: i32| if k < n { idx } else { second.expect("k >= n only with a second summon").unit };
+        let level_of = |k: i32| {
+            if k < n {
+                level
+            } else {
+                cards.unit_level(idx, unit_of(k), None, level).expect("second summon level validated at check_levels")
+            }
+        };
+        let calib = &self.cfg.calib;
+        let stagger = |k: i32| match calib.formation_deploy_stagger {
+            DeployStagger::Client16402 => {
+                crate::formation::stagger_ms(k, n, fd.summon_deploy_delay_ms, fd.summon_deploy_delay_second_ms, card.kind == CardKind::Building)
+            }
+            DeployStagger::None => 0,
+        };
+        let member = |k: i32, p: Vec2| {
+            let unit = unit_of(k);
+            let delay = stagger(k);
+            // The stagger only exists for a unit with a DeployTime.
+            let own = cards.get(unit).deploy_time_ms;
+            let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None }
+        };
+        #[cfg(not(clash_plant = "formation_grid_legacy"))]
+        let layout = calib.formation_layout;
+        #[cfg(clash_plant = "formation_grid_legacy")]
+        let layout = FormationLayout::EngineGrid; // PLANT (regression): the square grid on every swarm.
+        match layout {
+            FormationLayout::EngineGrid => {
+                let flying = card.is_flying();
+                self.formation_grid(team, total, card.collision_radius, flying, pos).into_iter().enumerate().map(|(k, p)| member(k as i32, p)).collect()
+            }
+            FormationLayout::Client16402 => {
+                if total == 1 {
+                    return vec![member(0, pos)];
+                }
+                let arena = &self.cfg.arena;
+                let own = arena.to_frame(team, pos);
+                // SummonRadius, else the primary's CollisionRadius overridden by its
+                // SpawnRadius when set (the Skeleton Warriors' 923 ring: SpawnRadius
+                // 800 scaled).
+                let radius = if fd.summon_radius != 0 {
+                    fd.summon_radius
+                } else if fd.spawn_radius != 0 {
+                    fd.spawn_radius
+                } else {
+                    card.collision_radius
+                };
+                let layout = crate::formation::Layout {
+                    primaries: n,
+                    seconds: s,
+                    radius: radius / K,
+                    width: fd.summon_width / K,
+                    angle_shift: fd.spawn_angle_shift_deg,
+                    lane: crate::formation::nearest_lane(arena, own),
+                    lane_mirror: calib.lane_id_based_deploy_sequence,
+                };
+                let tap = Vec2::new(own.x / K, own.y / K);
+                let y_range = match calib.formation_ground_y_clamp {
+                    GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
+                    GroundYClamp::None => None,
+                };
+                // The arena-bounds clamp, native: half a cell inside every edge.
+                let (w, h) = (arena.width / K, arena.height / K);
+                let margin = arena.cell / K / 2;
+                (0..total)
+                    .map(|k| {
+                        let unit = cards.get(unit_of(k));
+                        let off = crate::formation::member_offset(layout, k);
+                        let mut p = tap.add(off);
+                        if let (Some((lo, hi)), false) = (y_range, unit.is_flying()) {
+                            // y <= lo -> lo, else min(y, hi).
+                            p.y = if p.y <= lo { lo } else { p.y.min(hi) };
+                        }
+                        p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
+                        let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
+                        let abs = if unit.is_flying() || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
+                        member(k, abs)
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// The tap column's deployable y range for a ground summon of card `idx` by
+    /// `team`, OWN-FRAME NATIVE units, or None when no clamp applies: the deploy
+    /// mask over the tile grid is scanned down the tap's tile column, keeping `lo =
+    /// min(row x 1000)` and `hi = max(row x 1000 + 500)` over the deployable rows
+    /// (side 0's formula; side 1's is the same range seen from the top, one native
+    /// unit and the back row's half apart, which the owner's frame does not carry:
+    /// calibration formation.GROUND_Y_CLAMP), and the pair is dropped when `hi - lo
+    /// >= H / 2` (the range reaches past the river once a tower has fallen); side 1
+    /// keeps `lo = min(row x 1000 + 500) - 1`, `hi = max(row x 1000)` in absolute
+    /// rows under the shipped arm (the Red Goblins of capture 20260918-164951
+    /// tapped on (3500, 30500) hold their rear pair on 31000, not 31261). The mask
+    /// is the engine's own troop TERRITORY per tile centre (arena.rs
+    /// `territory_zone`: the river band and the enemy tower rects, not the
+    /// tilemap's NO_DEPLOY corners -- the live Goblin Gang on (3500, 1500) stands a
+    /// Spear Goblin on y 346 inside that corner strip).
+    fn ground_y_range(&self, team: Team, idx: u16, tap_own_native: Vec2) -> Option<(i32, i32)> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let card = self.cfg.cards.get(idx);
+        let (territory, _) = deploy_rule(&self.cfg.calib, card);
+        let rects = self.enemy_no_deploy_rects(team);
+        let tile = arena.cell * 2 / K; // 1000 native
+        let h = arena.height / K;
+        let col = tap_own_native.x / tile;
+        let rows = h / tile;
+        // The deployable rows of the tap's column, OWN-FRAME row numbers.
+        let deployable: Vec<i32> = (0..rows)
+            .filter(|&r| {
+                let centre_own = Vec2::new((col * tile + tile / 2) * K, (r * tile + tile / 2) * K);
+                arena.territory_zone(arena.from_frame(team, centre_own), team, territory, &rects).is_ok()
+            })
+            .collect();
+        let (lo, hi) = match (self.cfg.calib.formation_ground_y_clamp, team) {
+            (GroundYClamp::None, _) => return None,
+            // Side 0's formula: lo over the rows' near edges, hi over their centres.
+            // Own frame = absolute for Blue.
+            (GroundYClamp::DeployColumnRangeOwnFrame, _) | (GroundYClamp::Client16402DeployColumnRange, Team::Blue) => {
+                (deployable.iter().map(|r| r * tile).min()?, deployable.iter().map(|r| r * tile + tile / 2).max()?)
+            }
+            // Side 1's formula as measured: lo over the rows' centres, minus one, hi
+            // over their near edges -- in ABSOLUTE rows, then turned into the owner's
+            // frame (y_own = H - y_abs).
+            (GroundYClamp::Client16402DeployColumnRange, Team::Red) => {
+                let abs_rows = deployable.iter().map(|r| rows - 1 - r);
+                let lo_abs = abs_rows.clone().map(|r| r * tile + tile / 2).min()? - 1;
+                let hi_abs = abs_rows.map(|r| r * tile).max()?;
+                (h - hi_abs, h - lo_abs)
+            }
+        };
+        if hi - lo >= h / 2 {
+            return None; // the column reaches past the river
+        }
+        Some((lo, hi))
+    }
+
+    /// TEST HOOK: the members `formation_members` would queue for a deploy of
+    /// `card_name` by `team` at `pos`, as (unit card name, absolute point, the
+    /// deploy timer the entity starts with in ms), in creation order.
+    pub fn formation_preview(&self, team: Team, card_name: &str, pos: Vec2) -> Result<Vec<(String, Vec2, i32)>, DeployError> {
+        let idx = self.simulable(card_name)?;
+        let level = self.cfg.card_level[team as usize];
+        self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
+        Ok(self
+            .formation_members(team, idx, level, pos)
+            .into_iter()
+            .map(|m| (self.cfg.cards.get(m.card).name.clone(), m.pos, m.deploy_ms.unwrap_or(self.cfg.cards.get(m.card).deploy_time_ms)))
+            .collect())
     }
 
     fn simulable(&self, name: &str) -> Result<u16, DeployError> {
@@ -4846,7 +5105,12 @@ impl BattleState {
 ///    towers' saved hitpoints: the ladder is read at BattleState::new only, and
 ///    migrate_v3 gives it the old attack reset and the card-ladder regime it ran
 ///    under).
-pub const SNAPSHOT_FORMAT: u32 = 14;
+/// 15: the summon formation -- Calib gained formation_layout / formation_deploy_stagger
+///    / formation_ground_y_clamp / lane_id_based_deploy_sequence (formation.*);
+///    CardDef gained `formation` (the card fingerprint moves); no new Entities column
+///    (the stagger rides the deploy timer, a second summon is its own card). A
+///    format-3 battle keeps the engine grid on one tick (migrate_v3).
+pub const SNAPSHOT_FORMAT: u32 = 15;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -4980,9 +5244,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... death_spawn~~ -- format 8 added `charge` after them.
                 // ~~... charge~~ -- format 11 added `jump` after it.
                 // ~~... jump~~ -- format 13 added `level_base` after it.
+                // ~~... level_base~~ -- format 15 added `formation` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -5015,6 +5280,11 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // windup only on a landed push; it keeps both (the same rule).
     sh.insert("tower_ladder".into(), serde_json::to_value(TowerLadder::CommonCardLadder).map_err(|e| e.to_string())?);
     sh.insert("knock_attack_reset".into(), serde_json::to_value(KnockAttackReset::ResetWindupKeepTarget).map_err(|e| e.to_string())?);
+    // FORMAT 15: a format-3 battle laid every deploy on the engine grid, on one tick,
+    // with no column clamp; it keeps all three (the same rule).
+    sh.insert("formation_layout".into(), serde_json::to_value(FormationLayout::EngineGrid).map_err(|e| e.to_string())?);
+    sh.insert("formation_deploy_stagger".into(), serde_json::to_value(DeployStagger::None).map_err(|e| e.to_string())?);
+    sh.insert("formation_ground_y_clamp".into(), serde_json::to_value(GroundYClamp::None).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

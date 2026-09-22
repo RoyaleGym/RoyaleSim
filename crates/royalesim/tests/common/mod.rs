@@ -39,9 +39,10 @@ pub fn config() -> BattleConfig {
     BattleConfig::with_cards(cards())
 }
 
-/// The shipped config with the FRAME-PLANNED pathfinder and the FIXED-DISTANCE
-/// knockback selected. The shipped search (path16402.rs, pathfinding.PATH_SEARCH =
-/// client16402) is the client's and is NOT seat-symmetric -- its scan and
+/// The shipped config with the FRAME-PLANNED pathfinder, the FIXED-DISTANCE
+/// knockback and the OWN-FRAME formation clamp selected. The shipped search
+/// (path16402.rs, pathfinding.PATH_SEARCH = client16402) is the client's and is NOT
+/// seat-symmetric -- its scan and
 /// neighbour orders are in absolute arena coordinates, so rotated twins can publish
 /// different equal-cost routes. The shipped knockback (move16402.rs, the measured
 /// ladder) is frame-free arithmetic except at two absolute-frame points the game
@@ -58,6 +59,10 @@ pub fn symmetric_config() -> BattleConfig {
     c.calib.knock_law = royalesim::state::KnockLaw::FixedDistance;
     c.calib.knock_stacking = royalesim::state::KnockStacking::VectorSum;
     c.calib.knock_zero_vector = royalesim::state::KnockZeroVector::CasterForward;
+    // The summon formation's ground clamp (formation.GROUND_Y_CLAMP): the shipped
+    // per-side formula is the measured one and is not the rotation of itself at the
+    // back edge; the own-frame arm is (tests/formations.rs pins both).
+    c.calib.formation_ground_y_clamp = royalesim::state::GroundYClamp::DeployColumnRangeOwnFrame;
     c
 }
 
@@ -713,7 +718,20 @@ pub fn run_scripted_with(cfg: BattleConfig, seed: u64, invariants: bool, perturb
         script.step(&mut s);
         if perturb == Some(s.tick_count()) {
             // PLANT for the determinism gate: nudge one live troop by ONE subtile.
-            let id = s.entities().find(|e| e.kind == royalesim::entity::EntityKind::Troop).map(|e| (e.id, e.pos));
+            // A FREE troop: not deploying and touching nobody, so the nudge cannot be
+            // undone on the same tick by the separation scan of a unit it overlaps
+            // (a Skeleton Army member inside the spiral, the first troop of the
+            // scripted battle at tick 300, walks back onto the unperturbed point
+            // within one tick).
+            let all: Vec<(EntityId, Vec2, i32)> = s.entities().map(|e| (e.id, e.pos, e.radius)).collect();
+            let id = s
+                .entities()
+                .find(|e| {
+                    e.kind == royalesim::entity::EntityKind::Troop
+                        && !e.deploying
+                        && all.iter().all(|(oid, opos, orad)| *oid == e.id || opos.dist2(e.pos) > ((e.radius + orad + 2 * royalesim::fixed::SUBTILE_PER_MILLITILE) as i64).pow(2))
+                })
+                .map(|e| (e.id, e.pos));
             if let Some((id, pos)) = id {
                 let before = s.state_hash();
                 // one NATIVE unit (18 subtiles): the game's positions are native

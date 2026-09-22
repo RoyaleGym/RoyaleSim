@@ -49,6 +49,7 @@ pub mod move16402;
 pub mod collide;
 pub mod combat;
 pub mod spell;
+pub mod formation;
 pub mod state;
 pub mod py;
 
