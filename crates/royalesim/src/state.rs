@@ -9,11 +9,15 @@
 //!     Status     king activation timer; building lifetimes (stun/slow timers only
 //!                under status.BUFF_EXPIRY_TICK_ALIGNMENT = one_tick_short)
 //!     Spawn      pending spawns (deploys since last tick) materialise; accepted
-//!                spell casts become spell objects (spell.rs)
+//!                spell casts become spell objects (spell.rs); then every periodic
+//!                SPAWNER past its deploy time ticks its timer and queues the units
+//!                that are due (spawner_pass; they materialise NEXT tick)
 //!     Target     every entity decides its target from start-of-phase state
 //!     Path       every unit proposes a movement delta from start-of-phase state
-//!     Move       deltas applied, then collision separation (buffered)
+//!     Move       deltas applied, then collision separation (buffered); then every
+//!                CHARGE card's run-up gains from its own walk (charge_pass)
 //!     Attack     windups advance; hits go to the damage buffer / projectile list
+//!                (a charged unit's hit is DamageSpecial and consumes the charge)
 //!     Projectile projectiles advance; arrivals go to the damage buffer. Spells
 //!                advance: impacts write damage / knockback / stun buffers, landing
 //!                Goblin Barrels queue their units
@@ -21,7 +25,8 @@
 //!                stun timers tick, the stun buffer merges (max) and the knockback
 //!                buffer sums and moves the SURVIVORS
 //!     Reap       queued deaths: death damage is BUFFERED (lands next Resolve),
-//!                crown towers are recorded, slots are freed
+//!                death spawns are QUEUED (materialise next Spawn), crown towers
+//!                are recorded, slots are freed
 //!     Judge      crowns, three-crown win, regulation/overtime/draw
 //!
 //! CALIBRATION
@@ -31,11 +36,11 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, FootprintModel, Lane, Rect, Shape, Territory, TerritoryModel};
-use crate::card::{CardDb, CardDef, CardKind, SpellPlacement, SpellShape, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpellPlacement, KING_TOWER, PRINCESS_TOWER};
 use crate::collide::{self, CollideScratch};
 use crate::combat::{self, CrownRounding, DamageBuffer, Hit, Projectile};
 use crate::spell::{self, EffectBuffer, Spell};
-use crate::entity::{AttackPhase, EntityKind, Entities, SpatialHash, SpawnInit};
+use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash, SpawnInit};
 use crate::fixed::{isqrt, Vec2, SUBTILE};
 use crate::path::{self, FrameWorld, NavRequest, Obstacle, UnitBlocker};
 use crate::path2026;
@@ -189,6 +194,62 @@ pub struct Calib {
     pub stun_pauses_building_lifetime: bool,
     /// status.STUN_PAUSES_KING_ACTIVATION.
     pub stun_pauses_king_activation: bool,
+
+    // --- hide (Tesla). Each is one calibration.json hide.* key;
+    // a candidate with no implementation is refused in from_json.
+    /// hide.STARTS_HIDDEN: the state a hiding building takes the moment its deploy
+    /// timer ends (Hidden, or Up with a fresh hide countdown).
+    pub hide_starts_hidden: bool,
+    /// hide.RISE_TRIGGER.
+    pub hide_rise_trigger: RiseTrigger,
+    /// hide.TARGETABLE_WHILE_RISING.
+    pub hide_targetable_while_rising: bool,
+    /// hide.HIDDEN_IMMUNE_TO_DAMAGE (combat.rs `resolve`).
+    pub hide_hidden_immune: bool,
+    /// hide.HIDE_DELAY_MEANING.
+    pub hide_delay_meaning: HideDelayMeaning,
+
+    // --- spawner (periodic spawners and death spawn). Each is one
+    // calibration.json spawner.* key; a candidate with no implementation is refused
+    // in from_json.
+    /// spawner.FIRST_WAVE: the timer a spawner with a blank SpawnStartTime starts with.
+    pub spawner_first_wave: FirstWave,
+    /// spawner.START_TIME_ORIGIN: whether SpawnStartTime counts from activation
+    /// (deploy time over) or from placement.
+    pub spawner_start_time_origin: StartTimeOrigin,
+    /// spawner.PAUSE_ANCHOR: where SpawnPauseTime is measured from in a timed wave.
+    pub spawner_pause_anchor: PauseAnchor,
+    /// spawner.SPAWN_POINT: where a spawner's units appear.
+    pub spawner_spawn_point: SpawnPoint,
+    /// spawner.STUN_PAUSES_SPAWNER.
+    pub spawner_stun_pauses: bool,
+    /// spawner.DEATH_SPAWN_RADIUS_DEFAULT: the radius when DeathSpawnRadius is blank.
+    pub death_spawn_radius_default: DeathSpawnRadius,
+    /// spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT: the deploy time when the block is blank.
+    pub death_spawn_deploy_default: DeathSpawnDeploy,
+
+    // --- charge (Prince, DarkPrince, BattleRam). Each is one
+    // calibration.json charge.* key; a candidate with no implementation is refused
+    // in from_json. Read by `charge_pass`, `effective_speed`, `phase_attack`,
+    // `apply_effects`, `phase_target` and combat.rs `fire`.
+    /// charge.CHARGE_RANGE_UNIT: what ChargeRange's raw number is.
+    pub charge_range_unit: ChargeRangeUnit,
+    /// charge.ACCUMULATOR: what the run-up counts.
+    pub charge_accumulator: ChargeAccumulator,
+    /// charge.MULTIPLIER_MEANING: what ChargeSpeedMultiplier multiplies.
+    pub charge_multiplier_meaning: ChargeMultiplier,
+    /// charge.PROGRESS_ON_STOP: what a tick without a walk does to partial progress.
+    pub charge_progress_on_stop: ChargeStopRule,
+    /// charge.RESET_ON_ATTACK: the landed hit consumes the charge.
+    pub charge_reset_on_attack: bool,
+    /// charge.RESET_ON_STUN: a stun landing clears charge and progress.
+    pub charge_reset_on_stun: bool,
+    /// charge.RESET_ON_KNOCKBACK: a knockback LANDING (one that moves the unit) clears both.
+    pub charge_reset_on_knockback: bool,
+    /// charge.RESET_ON_RETARGET: switching between two live targets clears both.
+    pub charge_reset_on_retarget: bool,
+    /// charge.SPECIAL_LEVEL_SCALING: how DamageSpecial scales with level.
+    pub charge_special_level_scaling: ChargeLevelScaling,
 }
 
 /// A calibration enum: the registry string names each variant, and an unknown string
@@ -271,6 +332,122 @@ calib_enum!(
 calib_enum!(
     /// status.SAME_BUFF_REAPPLY.
     BuffReapply { RefreshMax = "refresh_max", Replace = "replace" }
+);
+calib_enum!(
+    /// hide.RISE_TRIGGER -- what wakes a hidden building (target.rs
+    /// `enemy_in_wake_range`): a targetable enemy within its SIGHT (the community
+    /// reading; Tesla's sight equals its range, so the two agree on it today) or
+    /// within its ATTACK range.
+    RiseTrigger { EnemyInSightRange = "enemy_in_sight_range", EnemyInAttackRange = "enemy_in_attack_range" }
+);
+calib_enum!(
+    /// hide.HIDE_DELAY_MEANING -- what HideTimeMs counts down from: consecutive
+    /// Target phases with no live target (the countdown resets while it has one), or
+    /// the building's last shot (state.rs phase_attack resets it on fire; a kept but
+    /// out-of-range target then does not keep it up).
+    HideDelayMeaning { IdleTimeWithoutTarget = "idle_time_without_target", TimeSinceLastShot = "time_since_last_shot" }
+);
+calib_enum!(
+    /// spawner.FIRST_WAVE -- a spawner whose SpawnStartTime is blank fires its first
+    /// wave at activation (timer 0: queued in the activation tick's Spawn phase) or
+    /// one full SpawnPauseTime later.
+    FirstWave { AfterStartTimeOrImmediately = "first_wave_after_start_time_or_immediately", AfterOnePause = "first_wave_after_one_pause" }
+);
+calib_enum!(
+    /// spawner.START_TIME_ORIGIN -- a set SpawnStartTime counts from ACTIVATION (the
+    /// tick the deploy timer reaches 0; the timer is loaded with the raw column) or
+    /// from PLACEMENT (loaded with max(0, SpawnStartTime - DeployTime): the deploy
+    /// window already consumed that much of it). Every 15.535 spawning troop ships
+    /// SpawnStartTime == DeployTime, which under from_placement is "first wave at
+    /// deploy end"; the 2018 Witch (1000 / 1000) and DarkWitch (1500 / 1000) part the
+    /// arms by 20 ticks.
+    StartTimeOrigin { FromActivation = "from_activation", FromPlacement = "from_placement" }
+);
+calib_enum!(
+    /// spawner.PAUSE_ANCHOR -- SpawnPauseTime counts from the last unit of a timed
+    /// wave (the timer is reloaded with the pause after it) or from its first (the
+    /// pause less the wave's own length, floored at 0).
+    PauseAnchor { AfterLastUnit = "after_last_unit_of_wave", AfterFirstUnit = "after_first_unit_of_wave" }
+);
+calib_enum!(
+    /// spawner.SPAWN_POINT -- the spawner's centre plus its own collision radius (or
+    /// SpawnRadius when set) along the owner's forward axis, or its centre.
+    SpawnPoint { InFrontAtOwnRadius = "in_front_toward_enemy_at_own_radius", AtCentre = "at_centre" }
+);
+calib_enum!(
+    /// spawner.DEATH_SPAWN_RADIUS_DEFAULT -- a blank DeathSpawnRadius means the dying
+    /// entity's own collision radius, or zero.
+    DeathSpawnRadius { OwnCollisionRadius = "own_collision_radius", Zero = "zero" }
+);
+calib_enum!(
+    /// spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT -- a blank DeathSpawnDeployTime means the
+    /// unit's own DeployTime, or zero.
+    DeathSpawnDeploy { UnitOwnDeployTime = "unit_own_deploy_time", Zero = "zero" }
+);
+calib_enum!(
+    /// charge.CHARGE_RANGE_UNIT -- the unit of the raw ChargeRange column (Prince 250,
+    /// BattleRam 300), converted to a SUBTILE run-up in `charge_need`. Every other
+    /// distance column in characters.csv is millitiles, but 250 millitiles (0.25
+    /// tiles) is not a run-up anyone has seen; centitiles (2.5 tiles) is the
+    /// community figure. A TIME reading (centiseconds) is algebraically the same
+    /// thing for the three shipped cards (all Speed 60 = 1 tile/s) and is expressed
+    /// through charge.ACCUMULATOR = time_moving, not here.
+    ChargeRangeUnit { Centitiles = "centitiles", Millitiles = "millitiles" }
+);
+calib_enum!(
+    /// charge.ACCUMULATOR -- what the run-up counts (state.rs `charge_pass`). All five
+    /// are frame-free scalars of the unit's OWN requested step, proposed walk or
+    /// before/after positions, so no seat frame enters. Identical for a free-walking
+    /// unit on a straight lane; they part on a diagonal walk (per-axis truncation
+    /// shortens the step), a body-blocked or pushed unit (net movement is not the
+    /// requested step), and a walk that is not toward the target.
+    ChargeAccumulator {
+        /// The 16.402 reading: `progress += tdiv(L x 1000, ChargeRange)` per walking
+        /// tick with `L = min(S, dist, 250)` the REQUESTED step in native units
+        /// (the step move16402::move_towards asks for), threshold 10000 permille
+        /// (`>= 10000` charges; a non-walking tick resets to 0). CHARGE_RANGE_UNIT
+        /// plays no part under this arm.
+        Client16402ProgressPermille = "client16402_progress_permille",
+        /// The length of the walk the Path phase proposed this tick.
+        WalkDeltaLength = "walk_delta_length",
+        /// Its projection onto the direction to the target (or default tower), floored at 0.
+        WalkDeltaTowardTarget = "walk_delta_toward_target",
+        /// The length of the NET move (walk, clamp, separation and pushes together).
+        NetMoveLength = "net_move_length",
+        /// TICK_MS per tick with a non-zero proposed walk; the threshold is the time
+        /// an unbuffed unit of the card takes to cover the run-up.
+        TimeMoving = "time_moving",
+    }
+);
+calib_enum!(
+    /// charge.MULTIPLIER_MEANING -- what ChargeSpeedMultiplier multiplies
+    /// (`effective_speed`; `charge_need`).
+    ChargeMultiplier {
+        /// The walking speed, once the run-up is complete (the visible Prince charge).
+        MovementWhenCharged = "movement_when_charged",
+        /// The walking speed from the first step, run-up included.
+        MovementAlways = "movement_always",
+        /// The rate the run-up fills at (the threshold divided by it); the speed never changes.
+        AccumulationRate = "accumulation_rate",
+    }
+);
+calib_enum!(
+    /// charge.PROGRESS_ON_STOP -- a tick on which the unit does not walk (attacking,
+    /// stunned, deploying, blocked with no proposed walk) zeroes the partial run-up
+    /// or leaves it. Only `charge_progress`: a completed charge is never undone by
+    /// standing still.
+    ChargeStopRule { Reset = "reset", Hold = "hold" }
+);
+calib_enum!(
+    /// charge.SPECIAL_LEVEL_SCALING -- DamageSpecial at level L (combat.rs `fire`).
+    /// The two agree at level 1 (DamageSpecial = 2 x Damage on every row) and part
+    /// under truncation from local level 2 on: Prince 539 against 2 x 269 = 538.
+    ChargeLevelScaling {
+        /// `CardDb::scaled(DamageSpecial)`: a level-1 stat like every other.
+        ScaleSpecialBase = "scale_special_base",
+        /// The entity's scaled Damage times DamageSpecial / Damage.
+        TwiceScaledDamage = "twice_scaled_damage",
+    }
 );
 calib_enum!(
     /// pathfinding.WAYPOINT_ARRIVE_RULE. `SegmentProjection` is the measured rule
@@ -522,7 +699,35 @@ impl Calib {
             stun_pauses_deploy: boolean(&v, &["status", "STUN_PAUSES_DEPLOY_TIMER", "value"])?,
             stun_pauses_building_lifetime: boolean(&v, &["status", "STUN_PAUSES_BUILDING_LIFETIME", "value"])?,
             stun_pauses_king_activation: boolean(&v, &["status", "STUN_PAUSES_KING_ACTIVATION", "value"])?,
+            hide_starts_hidden: boolean(&v, &["hide", "STARTS_HIDDEN", "value"])?,
+            hide_rise_trigger: pick(&v, &["hide", "RISE_TRIGGER", "value"], RiseTrigger::from_calibration_name)?,
+            hide_targetable_while_rising: boolean(&v, &["hide", "TARGETABLE_WHILE_RISING", "value"])?,
+            hide_hidden_immune: boolean(&v, &["hide", "HIDDEN_IMMUNE_TO_DAMAGE", "value"])?,
+            hide_delay_meaning: pick(&v, &["hide", "HIDE_DELAY_MEANING", "value"], HideDelayMeaning::from_calibration_name)?,
+            spawner_first_wave: pick(&v, &["spawner", "FIRST_WAVE", "value"], FirstWave::from_calibration_name)?,
+            spawner_start_time_origin: pick(&v, &["spawner", "START_TIME_ORIGIN", "value"], StartTimeOrigin::from_calibration_name)?,
+            spawner_pause_anchor: pick(&v, &["spawner", "PAUSE_ANCHOR", "value"], PauseAnchor::from_calibration_name)?,
+            spawner_spawn_point: pick(&v, &["spawner", "SPAWN_POINT", "value"], SpawnPoint::from_calibration_name)?,
+            spawner_stun_pauses: boolean(&v, &["spawner", "STUN_PAUSES_SPAWNER", "value"])?,
+            death_spawn_radius_default: pick(&v, &["spawner", "DEATH_SPAWN_RADIUS_DEFAULT", "value"], DeathSpawnRadius::from_calibration_name)?,
+            death_spawn_deploy_default: pick(&v, &["spawner", "DEATH_SPAWN_DEPLOY_TIME_DEFAULT", "value"], DeathSpawnDeploy::from_calibration_name)?,
+            charge_range_unit: pick(&v, &["charge", "CHARGE_RANGE_UNIT", "value"], ChargeRangeUnit::from_calibration_name)?,
+            charge_accumulator: pick(&v, &["charge", "ACCUMULATOR", "value"], ChargeAccumulator::from_calibration_name)?,
+            charge_multiplier_meaning: pick(&v, &["charge", "MULTIPLIER_MEANING", "value"], ChargeMultiplier::from_calibration_name)?,
+            charge_progress_on_stop: pick(&v, &["charge", "PROGRESS_ON_STOP", "value"], ChargeStopRule::from_calibration_name)?,
+            charge_reset_on_attack: boolean(&v, &["charge", "RESET_ON_ATTACK", "value"])?,
+            charge_reset_on_stun: boolean(&v, &["charge", "RESET_ON_STUN", "value"])?,
+            charge_reset_on_knockback: boolean(&v, &["charge", "RESET_ON_KNOCKBACK", "value"])?,
+            charge_reset_on_retarget: boolean(&v, &["charge", "RESET_ON_RETARGET", "value"])?,
+            charge_special_level_scaling: pick(&v, &["charge", "SPECIAL_LEVEL_SCALING", "value"], ChargeLevelScaling::from_calibration_name)?,
         };
+        // hide.HIDDEN_OCCLUDES_PATH: the one implemented candidate is `true` (a hidden
+        // footprint still occludes the path grid and blocks deploys -- the grid never
+        // looks at the hide state). `false` needs the pathfinder's code and is refused,
+        // the `only()` rule for a boolean key.
+        if !boolean(&v, &["hide", "HIDDEN_OCCLUDES_PATH", "value"])? {
+            return Err("hide.HIDDEN_OCCLUDES_PATH = false has no engine implementation (only true)".into());
+        }
         // Single-implementation keys: read so the registry cannot silently disagree.
         only(&v, &["spells", "LAUNCH_POINT", "value"], "caster_king_tower_centre")?;
         only(&v, &["spells", "WAVE_AREA_MODEL", "value"], "single_disc_one_hit_per_wave")?;
@@ -531,6 +736,10 @@ impl Calib {
         only(&v, &["knockback", "DISPLACEMENT_LAW", "value"], "fixed_distance")?;
         only(&v, &["knockback", "STACKING", "value"], "vector_sum")?;
         only(&v, &["knockback", "WATER_RESOLUTION", "value"], "eject_to_nearest_land")?;
+        // spawner.LIMIT_RULE / DEATH_SPAWN_LAYOUT: one implemented arm each (the
+        // `only()` rule); the other candidate is refused, never mapped.
+        only(&v, &["spawner", "LIMIT_RULE", "value"], "skip_unit_keep_cadence")?;
+        only(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], "engine_grid_within_radius")?;
         if c.projectile_speed_to_subtiles_per_tick <= 0 || c.knock_duration_ms < 0 {
             return Err("calibration.json: non-positive projectile speed or negative knockback duration".into());
         }
@@ -685,6 +894,9 @@ struct PendingSpawn {
     /// Deploy time override (a Goblin Barrel's SpawnCharacterDeployTime); None = the
     /// card's own. For a SPELL card the entry is a cast, not a unit (phase_spawn).
     deploy_ms: Option<i32>,
+    /// The periodic spawner that emitted this unit (entity.rs `spawned_by`, for
+    /// SpawnLimit); None for a deploy, a spell release and a death spawn.
+    owner: Option<EntityId>,
 }
 
 /// A read-only view of one entity, for observation builders.
@@ -725,6 +937,29 @@ pub struct EntityView<'a> {
     /// ms of knockback slide remaining, and the displacement still to apply.
     pub knock_ms: i32,
     pub knock_rem: Vec2,
+    /// Hide state (Tesla; `Up` on everything else) and its timer (entity.rs
+    /// `HideState` says what the timer means in each state).
+    pub hide_state: HideState,
+    pub hide_ms: i32,
+    /// `hide_state == Hidden`: under ground, untargetable, immune (hide.*).
+    pub hidden: bool,
+    /// Periodic spawner (card.rs `SpawnerDef`; 0 / 0 on every other entity): ms until
+    /// its next emission (entity.rs `spawn_ms`) and the units of the current wave
+    /// still to come (`spawn_wave_left`, 0 between waves).
+    pub spawn_ms: i32,
+    pub spawn_wave_left: i32,
+    /// The spawner that emitted this unit, if any (SpawnLimit bookkeeping).
+    pub spawned_by: Option<EntityId>,
+    /// CHARGE (card.rs `ChargeDef`; false / 0 on every other entity): the run-up is
+    /// complete, and the run-up accumulated so far (entity.rs `charge_progress`,
+    /// in the unit calibration charge.ACCUMULATOR selects -- RAW, not divided).
+    pub charged: bool,
+    pub charge_progress: i32,
+    /// The subtile step this entity takes on a walking tick RIGHT NOW: `speed`
+    /// through every speed buff in force (`BattleState::effective_speed` -- the
+    /// charge today; rage and slow when they exist). Equal to `speed` for every
+    /// unbuffed entity.
+    pub effective_speed: i32,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -739,6 +974,13 @@ struct Scratch {
     occluder_epoch: [u32; 2],
     blockers: Vec<UnitBlocker>,
     collide: CollideScratch,
+    /// Every entity's position at the start of the Move phase's walk (AFTER the
+    /// knockback slides), for the charge accumulator's net-move reading.
+    pre: Vec<Vec2>,
+    /// The requested step of every entity's walk this tick in NATIVE units
+    /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
+    /// for the charge accumulator's client16402 reading; 0 on a tick with no walk.
+    walk_step: Vec<i32>,
     /// The selected pathfinder's grid, shared by every unit this tick
     /// (PATH_SEARCH = client16402).
     grid16402: Option<Grid16402>,
@@ -910,12 +1152,11 @@ impl BattleState {
             let mut deck: Vec<u16> = Vec::new();
             for name in &config.decks[t] {
                 let idx = cards.index(name).ok_or_else(|| format!("deck card {name} unknown"))?;
-                cards.level_multiplier(idx, config.card_level[t])?;
+                // The card's own level and every unit it can release, spawn or leave
+                // behind: nothing on the tick path may fail on a level.
+                cards.check_levels(idx, config.card_level[t])?;
                 if cards.get(idx).summon_only {
                     return Err(format!("{name} is a spawned unit, not a playable card"));
-                }
-                if let Some(crate::card::SpellDef { shape: SpellShape::Projectile { spawn: Some(_), .. }, .. }) = &cards.get(idx).spell {
-                    cards.spawn_level(idx, config.card_level[t])?;
                 }
                 deck.push(idx);
             }
@@ -1031,7 +1272,234 @@ impl BattleState {
             self.lifetime_ms.resize(i + 1, None);
         }
         self.lifetime_ms[i] = if kind == EntityKind::Building { c.lifetime_ms } else { None };
+        // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
+        if self.ents.deploy_ms[i] == 0 {
+            self.on_deployed(i);
+        }
         Ok(id)
+    }
+
+    /// THE MOMENT AN ENTITY'S DEPLOY TIME ENDS: the hide machinery takes its start
+    /// state and a spawner is ACTIVATED. Called from phase_upkeep on the tick
+    /// deploy_ms reaches 0, from `spawn_now` / phase_spawn for a zero deploy time,
+    /// and from the scenario setup path, which skips the deploy timer.
+    fn on_deployed(&mut self, i: usize) {
+        self.hide_on_deployed(i);
+        self.spawner_activate(i);
+    }
+
+    /// Entity `i`'s spawner block, if its card has one.
+    #[inline]
+    fn spawner_of(&self, i: usize) -> Option<SpawnerDef> {
+        self.cfg.cards.get(self.ents.card[i]).spawner
+    }
+
+    /// ACTIVATION of a periodic spawner (calibration spawner.FIRST_WAVE and
+    /// spawner.START_TIME_ORIGIN): the timer is loaded with SpawnStartTime -- less
+    /// the card's DeployTime, floored at 0, under from_placement -- or, blank, with 0
+    /// (the first unit is queued in this tick's Spawn phase if it has not run yet,
+    /// else the next one's) or with one SpawnPauseTime; no wave is in progress.
+    fn spawner_activate(&mut self, i: usize) {
+        let Some(sp) = self.spawner_of(i) else { return };
+        self.ents.spawn_wave_left[i] = 0;
+        let c = &self.cfg.calib;
+        self.ents.spawn_ms[i] = match (sp.start_time_ms, c.spawner_first_wave) {
+            (Some(t), _) => match c.spawner_start_time_origin {
+                StartTimeOrigin::FromActivation => t,
+                StartTimeOrigin::FromPlacement => (t - self.cfg.cards.get(self.ents.card[i]).deploy_time_ms).max(0),
+            },
+            (None, FirstWave::AfterStartTimeOrImmediately) => 0,
+            (None, FirstWave::AfterOnePause) => sp.pause_time_ms,
+        };
+    }
+
+    /// Live units spawner `i` owns (entity.rs `spawned_by`), for SpawnLimit. A pure
+    /// count over the entity arrays: order-free.
+    fn owned_count(&self, i: usize) -> i32 {
+        let id = self.ents.id_of(i);
+        self.ents.live_indices().filter(|&j| self.ents.spawned_by[j] == Some(id)).count() as i32
+    }
+
+    /// WHERE SPAWNER `i` EMITS (calibration spawner.SPAWN_POINT): its centre plus a
+    /// distance along the OWNER's forward axis -- SpawnRadius when the column is
+    /// set, else its own collision radius -- or its centre. The contact law then
+    /// slides a unit that overlaps the spawner's circle out of it, as it does every
+    /// unit (move16402.rs separation, capped at 150 native per tick, deploying units
+    /// included; under the trace-fitted arm collide.rs's static pass, in one tick).
+    /// NOT READ (the data ships them; the ring arm of DEATH_SPAWN_LAYOUT and a
+    /// flank spawn would need them): SpawnAngleShift (DarkWitch 90: the Bats on her
+    /// flanks; BattleRam 180: the Barbarians behind), DeathSpawnPushback (Golem,
+    /// LavaHound, DarkWitch true), DeathSpawnMinRadius (SkeletonContainer 100).
+    fn spawn_point(&self, i: usize, sp: &SpawnerDef) -> Vec2 {
+        let c = self.ents.pos[i];
+        match self.cfg.calib.spawner_spawn_point {
+            SpawnPoint::AtCentre => c,
+            SpawnPoint::InFrontAtOwnRadius => {
+                let d = sp.radius.unwrap_or(self.ents.radius[i]);
+                Vec2::new(c.x, c.y + spell::forward_dy(self.ents.team[i]) * d)
+            }
+        }
+    }
+
+    /// THE SPAWNER PASS (Spawn phase, after the queue has drained): every periodic
+    /// spawner past its deploy time ticks its timer by TICK_MS and, at <= 0, queues
+    /// the unit(s) that are due. Decided from START-OF-PHASE state (the count a
+    /// SpawnLimit compares against, the positions), collected, sorted by (team, the
+    /// spawner's team_seq, unit index) and only then pushed, so the queue order --
+    /// which is the materialisation order and therefore team_seq -- is canonical
+    /// and slot-free.
+    ///
+    /// TIMER LAW (entity.rs `spawn_ms` / `spawn_wave_left`): with `left == 0` a
+    /// wave begins (left = SpawnNumber); each emission takes one off and reloads
+    /// the timer with SpawnInterval while the wave has units left, else with the
+    /// pause (calibration spawner.PAUSE_ANCHOR). SpawnInterval 0 emits the whole
+    /// wave in one pass, gridded around the spawn point (the same formation as a
+    /// Goblin Barrel release); a timed wave's units each appear AT the point. At
+    /// most one wave starts per pass; a reload that is already due (0) fires next
+    /// tick. Under spawner.STUN_PAUSES_SPAWNER a stunned spawner skips the pass.
+    ///
+    /// TICK ALIGNMENT (tests/spawner.rs pins it): an activation at tick A with start
+    /// time S materialises the first unit in tick A + max(1, ceil(S / TICK_MS)); a
+    /// unit queued in tick E materialises in tick E + 1 (the one-tick latency of every
+    /// PendingSpawn); with pause P the next wave's first unit follows the last one by
+    /// ceil(P / TICK_MS) ticks; a SpawnInterval I separates a wave's units by
+    /// ceil(I / TICK_MS) ticks. SpawnLimit (spawner.LIMIT_RULE = skip_unit_keep_cadence):
+    /// a unit that would exceed the limit is skipped and the cadence keeps running.
+    fn spawner_pass(&mut self) {
+        #[cfg(clash_plant = "spawner_never_fires")]
+        {
+            // PLANT (regression): the earlier engine, whose loader never read
+            // the Spawn* columns -- a hut is an inert building.
+            return;
+        }
+        #[allow(unreachable_code)]
+        let dt = self.cfg.calib.tick_ms;
+        let stun_pauses = self.cfg.calib.spawner_stun_pauses;
+        let cards = self.cfg.cards.clone();
+        // (team, spawner team_seq, k, the spawn) and the per-spawner timer results.
+        let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        let mut timers: Vec<(usize, i32, i32)> = Vec::new();
+        for i in 0..self.ents.capacity() {
+            let e = &self.ents;
+            if !e.alive[i] || e.deploy_ms[i] > 0 {
+                continue;
+            }
+            let Some(sp) = self.spawner_of(i) else { continue };
+            if stun_pauses && e.stun_ms[i] > 0 {
+                continue;
+            }
+            let mut ms = e.spawn_ms[i] - dt;
+            let mut left = e.spawn_wave_left[i];
+            if ms > 0 {
+                timers.push((i, ms, left));
+                continue;
+            }
+            let unit = cards.get(sp.unit);
+            let level = cards.spawner_level(e.card[i], e.level[i]).expect("spawner level validated at deploy");
+            let point = self.spawn_point(i, &sp);
+            let grid = if sp.interval_ms == 0 { self.formation_points(e.team[i], sp.number, unit.collision_radius, unit.is_flying(), point) } else { self.formation_points(e.team[i], 1, unit.collision_radius, unit.is_flying(), point) };
+            let mut room = sp.limit.map(|l| l - self.owned_count(i));
+            let mut started = false;
+            let mut k = 0u32;
+            loop {
+                if left == 0 {
+                    if started {
+                        break;
+                    }
+                    started = true;
+                    left = sp.number;
+                }
+                let j = (sp.number - left).max(0) as usize;
+                if room.map_or(true, |r| r > 0) {
+                    room = room.map(|r| r - 1);
+                    let pos = grid[j.min(grid.len() - 1)];
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms: None, owner: Some(e.id_of(i)) }));
+                    k += 1;
+                }
+                left -= 1;
+                ms = if left > 0 {
+                    sp.interval_ms
+                } else {
+                    match self.cfg.calib.spawner_pause_anchor {
+                        PauseAnchor::AfterLastUnit => sp.pause_time_ms,
+                        PauseAnchor::AfterFirstUnit => (sp.pause_time_ms - (sp.number - 1) * sp.interval_ms).max(0),
+                    }
+                };
+                if ms > 0 {
+                    break;
+                }
+            }
+            timers.push((i, ms, left));
+        }
+        for (i, ms, left) in timers {
+            self.ents.spawn_ms[i] = ms;
+            self.ents.spawn_wave_left[i] = left;
+        }
+        emissions.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
+        self.spawn_queue.extend(emissions.into_iter().map(|(_, _, _, p)| p));
+    }
+
+    /// WHERE A DEATH SPAWN'S UNITS APPEAR (calibration spawner.DEATH_SPAWN_LAYOUT =
+    /// engine_grid_within_radius): the engine formation grid around the death point
+    /// in the OWNER's frame (`formation_grid`, the same code as a deploy and a
+    /// release), each point pulled back onto `radius` when the grid reaches past it
+    /// (a frame-free radial scaling: exact under the rotation), then water-ejected
+    /// like a release. A zero radius stacks them on the point; the Move phase's
+    /// coincident-push rule spreads them in the owner's frame.
+    fn death_spawn_points(&self, team: Team, count: i32, unit_radius: i32, flying: bool, pos: Vec2, radius: i32) -> Vec<Vec2> {
+        let arena = &self.cfg.arena;
+        let r = radius.max(0) as i64;
+        self.formation_grid(team, count, unit_radius, flying, pos)
+            .into_iter()
+            .map(|p| {
+                let off = p.sub(pos);
+                let d2 = off.len2();
+                let q = if d2 > r * r {
+                    let len = isqrt(d2).max(1);
+                    pos.add(Vec2::new(((off.x as i64) * r / len) as i32, ((off.y as i64) * r / len) as i32))
+                } else {
+                    p
+                };
+                if flying || arena.is_passable_ground(q) {
+                    q
+                } else {
+                    arena.nearest_passable_ground(q, team).unwrap_or(q)
+                }
+            })
+            .collect()
+    }
+
+    /// Does entity `i`'s card hide (card.rs `HideDef`) -- and is it a building, the
+    /// only kind the machinery runs for?
+    #[inline]
+    fn hides(&self, i: usize) -> Option<crate::card::HideDef> {
+        if self.ents.kind[i] == EntityKind::Building {
+            self.cfg.cards.get(self.ents.card[i]).hide
+        } else {
+            None
+        }
+    }
+
+    /// THE MOMENT A HIDING BUILDING'S DEPLOY TIME ENDS (calibration hide.STARTS_HIDDEN):
+    /// it goes under, or it stands up with a full hide countdown. Called from
+    /// phase_upkeep on the tick the deploy timer reaches 0, from `spawn_now` for a
+    /// card with no deploy time, and from the scenario setup path, which skips the
+    /// deploy timer. During the deploy window it is `Up`: a deploying Tesla is
+    /// targetable and damageable like a deploying Cannon, and cannot act because
+    /// `deploy_ms > 0` already blocks every action.
+    fn hide_on_deployed(&mut self, i: usize) {
+        let Some(h) = self.hides(i) else { return };
+        #[cfg(not(clash_plant = "tesla_always_up"))]
+        let starts_hidden = self.cfg.calib.hide_starts_hidden;
+        #[cfg(clash_plant = "tesla_always_up")]
+        let starts_hidden = false; // PLANT (regression): the earlier engine, never under.
+        if starts_hidden {
+            self.ents.hide[i] = HideState::Hidden;
+            self.ents.hide_ms[i] = 0;
+        } else {
+            self.ents.hide[i] = HideState::Up;
+            self.ents.hide_ms[i] = h.hide_time_ms;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1109,6 +1577,9 @@ impl BattleState {
         for i in 0..self.ents.capacity() {
             if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) {
                 self.ents.deploy_ms[i] = (self.ents.deploy_ms[i] - dt).max(0);
+                if self.ents.deploy_ms[i] == 0 {
+                    self.on_deployed(i);
+                }
             }
         }
     }
@@ -1150,7 +1621,13 @@ impl BattleState {
                     // Expiry is a hit for everything it has, so it goes through
                     // the same buffer and death path as any other damage.
                     let amount = self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1);
-                    self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount });
+                    // ignores_hide: a Tesla whose time is up dies under ground too
+                    // (combat.rs `resolve` drops every other hit on a Hidden building).
+                    #[cfg(not(clash_plant = "expiry_respects_hide"))]
+                    let ignores_hide = true;
+                    #[cfg(clash_plant = "expiry_respects_hide")]
+                    let ignores_hide = false; // PLANT: a hidden Tesla lives for ever.
+                    self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide });
                     self.lifetime_ms[i] = None;
                 }
             }
@@ -1198,11 +1675,109 @@ impl BattleState {
                 }
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
+            self.ents.spawned_by[id.index as usize] = p.owner;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
+                if d == 0 {
+                    self.on_deployed(id.index as usize);
+                }
             }
         }
         self.hash.rebuild(&self.ents);
+        // Periodic spawners emit into the (now empty) queue: next tick's units.
+        self.spawner_pass();
+    }
+
+    /// THE HIDE STATE MACHINE (entity.rs `HideState`), one step per tick for every
+    /// hiding building past its deploy time, from START-OF-PHASE state and before
+    /// any entity decides its target, so every decision this tick sees one
+    /// consistent hide state and a building that goes under is dropped by its
+    /// attackers in the same phase (target.rs `can_target`).
+    ///
+    ///   Hidden --[targetable enemy in wake range (hide.RISE_TRIGGER)]--> Rising, timer = UpTimeMs
+    ///   Rising --[timer -= TICK_MS; timer <= 0]--> Up, timer = HideTimeMs
+    ///   Up     --[no live target at phase start (hide.HIDE_DELAY_MEANING = idle_time_without_target):
+    ///             timer -= TICK_MS; timer <= 0]--> Hidden
+    ///          --[live target]--> timer = HideTimeMs
+    ///   Up     under time_since_last_shot: timer -= TICK_MS every tick, reset by phase_attack on
+    ///          fire; Hidden when timer < 0 (strict; see the match arm for why).
+    ///
+    /// TICK ALIGNMENT (tests/hide.rs pins it): a building that enters Rising in tick
+    /// R is Up in tick R + ceil(UpTimeMs / TICK_MS) and may target in that same
+    /// Target phase; a building whose target is gone from the Target phase of tick T
+    /// on is Hidden in tick T + ceil(HideTimeMs / TICK_MS) - 1 (the T-th observation
+    /// counts). Timers are decremented HERE and nowhere else. Building lifetime keeps
+    /// running in every state (phase_status; community, calibration hide.$comment).
+    fn hide_pass(&mut self, nb: &mut Vec<u32>) {
+        let dt = self.cfg.calib.tick_ms;
+        let mut next: Vec<(usize, HideState, i32)> = Vec::new();
+        {
+            let ctx = TargetCtx {
+                ents: &self.ents,
+                hash: &self.hash,
+                cards: &self.cfg.cards,
+                arena: &self.cfg.arena,
+                calib: &self.cfg.calib,
+                reading: self.cfg.tower_sight_reading,
+                towers: &self.towers,
+                king_active: self.king_active,
+            };
+            let e = &self.ents;
+            for i in 0..e.capacity() {
+                if !e.alive[i] || e.deploy_ms[i] > 0 {
+                    continue;
+                }
+                let Some(h) = self.hides(i) else { continue };
+                #[cfg(clash_plant = "tesla_always_up")]
+                {
+                    // PLANT (regression): the earlier engine -- the building is
+                    // simply up, whatever the timers say.
+                    let _ = h;
+                    next.push((i, HideState::Up, 0));
+                    continue;
+                }
+                #[allow(unreachable_code)]
+                match e.hide[i] {
+                    HideState::Hidden => {
+                        if target::enemy_in_wake_range(&ctx, i, nb) {
+                            next.push((i, HideState::Rising, h.up_time_ms));
+                        }
+                    }
+                    HideState::Rising => {
+                        let left = e.hide_ms[i] - dt;
+                        if left <= 0 {
+                            next.push((i, HideState::Up, h.hide_time_ms));
+                        } else {
+                            next.push((i, HideState::Rising, left));
+                        }
+                    }
+                    HideState::Up => {
+                        let has_target = e.target[i].is_some_and(|t| e.is_alive(t) && e.hp[t.index as usize] > 0);
+                        let left = e.hide_ms[i] - dt;
+                        let (st, ms) = match self.cfg.calib.hide_delay_meaning {
+                            // A live target re-arms the countdown; HideTimeMs of no target
+                            // (the countdown REACHING 0) sends it under.
+                            HideDelayMeaning::IdleTimeWithoutTarget if has_target => (HideState::Up, h.hide_time_ms),
+                            HideDelayMeaning::IdleTimeWithoutTarget if left <= 0 => (HideState::Hidden, 0),
+                            HideDelayMeaning::IdleTimeWithoutTarget => (HideState::Up, left),
+                            // Counts from the last shot (phase_attack re-arms it on fire) and
+                            // sends it under on the first Target phase MORE than HideTimeMs
+                            // after it -- STRICT: a building whose HitSpeed equals its
+                            // HideTimeMs (Tesla, 800 = 800) fires its next shot on the very
+                            // tick the countdown reaches 0, and that shot re-arms it. With
+                            // `<= 0` it would go under before every second shot.
+                            HideDelayMeaning::TimeSinceLastShot if left < 0 => (HideState::Hidden, 0),
+                            HideDelayMeaning::TimeSinceLastShot => (HideState::Up, left),
+                        };
+                        next.push((i, st, ms));
+                    }
+                }
+            }
+        }
+        for (i, st, ms) in next {
+            self.ents.hide[i] = st;
+            self.ents.hide_ms[i] = ms;
+        }
     }
 
     fn phase_target(&mut self) {
@@ -1210,6 +1785,7 @@ impl BattleState {
         let mut decisions = std::mem::take(&mut self.scratch.decisions);
         let mut nb = std::mem::take(&mut self.scratch.nb);
         decisions.clear();
+        self.hide_pass(&mut nb);
         {
             let ctx = TargetCtx {
                 ents: &self.ents,
@@ -1228,9 +1804,23 @@ impl BattleState {
             }
         }
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
+        let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
         for &(i, d) in &decisions {
             let e = &mut self.ents;
             let changed = e.target[i] != d.target;
+            // CHARGE (calibration charge.RESET_ON_RETARGET, shipped false): switching
+            // from one LIVE target to a DIFFERENT one clears the charge and the run-up.
+            // Acquiring a first target, or replacing a dead one, is not a switch: a
+            // Prince whose Skeleton dies under it and who then picks the tower was not
+            // distracted, and under `true` it would otherwise lose its charge to every
+            // kill it makes.
+            if retarget_resets_charge {
+                let was = e.target[i].filter(|t| e.is_alive(*t));
+                if was.is_some() && d.target.is_some() && was != d.target {
+                    e.charged[i] = false;
+                    e.charge_progress[i] = 0;
+                }
+            }
             if d.resumed {
                 e.retarget_on_resume[i] = false;
             }
@@ -1328,6 +1918,9 @@ impl BattleState {
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
         deltas.clear();
         deltas.resize(cap, Vec2::default());
+        let mut walk_step = std::mem::take(&mut self.scratch.walk_step);
+        walk_step.clear();
+        walk_step.resize(cap, 0);
         let mut routes = std::mem::take(&mut self.ents.route);
         let mut goals = std::mem::take(&mut self.ents.route_goal);
         let mut planned = std::mem::take(&mut self.ents.last_plan_tick);
@@ -1488,8 +2081,12 @@ impl BattleState {
                 let waypoint = if routes[i].len() >= 2 { routes[i].last().map(|&p| node_centre(p)) } else { None };
                 if !attacking {
                     // The scan runs for walking and deploying units, not for an
-                    // attacking one: an attacking unit is masked out of it.
-                    let pop = move16402::avoidance_scan(&index, &bodies, i, &mut con, waypoint, false, &mut scratch);
+                    // attacking one: an attacking unit is masked out of it. A CHARGED
+                    // unit skips lighter movers and every mover heading its way --
+                    // `charged` is exactly that flag (charge_pass sets it at 10000
+                    // permille) and is false for life on every card without a charge
+                    // block.
+                    let pop = move16402::avoidance_scan(&index, &bodies, i, &mut con, waypoint, e.charged[i], &mut scratch);
                     if pop {
                         routes[i].pop();
                         segs[i] = Vec2::default();
@@ -1505,17 +2102,26 @@ impl BattleState {
                 } else {
                     false
                 };
+                // the native S through every buff in force -- `effective_speed` is
+                // the one place a speed buff enters (the charge today), and it
+                // returns `speed` itself for every card without a buff, so this arm
+                // is unchanged for the whole contact corpus
+                let native_speed = if paused { 0 } else { self.effective_speed(i) / K };
                 let (aim, speed) = match routes[i].last() {
-                    Some(&p) if !deploying && !attacking => (node_centre(p), if paused { 0 } else { e.speed[i] / K }),
+                    Some(&p) if !deploying && !attacking => (node_centre(p), native_speed),
                     None if !deploying && !attacking && feasible => match target_abs {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
                         // target on the line to itself (move16402::direct_aim)
-                        Some(t) => (move16402::direct_aim(actor, t, (card.range + e.radius[i]) / K), if paused { 0 } else { e.speed[i] / K }),
+                        Some(t) => (move16402::direct_aim(actor, t, (card.range + e.radius[i]) / K), native_speed),
                         None => (actor, 0),
                     },
                     _ => (actor, 0),
                 };
+                // the requested step `L = min(speed, dist, 250)` of move_towards, the
+                // quantity the charge accumulator counts under the shipped arm --
+                // NOT the displacement (charge_pass, ACCUMULATOR = client16402_progress_permille)
+                walk_step[i] = speed.min(move16402::distance(actor.0, actor.1, aim.0, aim.1).max(1)).min(250);
                 if segs[i] == Vec2::default() && routes[i].last().is_some() && speed > 0 {
                     // a new segment's direction is frozen from the position toward
                     // the last node when the segment starts
@@ -1566,7 +2172,195 @@ impl BattleState {
         self.ents.facing = facing;
         self.ents.avoid_offset = offsets;
         self.scratch.deltas = deltas;
+        self.scratch.walk_step = walk_step;
         self.scratch.grid16402 = Some(g);
+    }
+
+    /// THE SUBTILE STEP ENTITY `i` TAKES ON A WALKING TICK: `ents.speed[i]` (the
+    /// base, `Speed x time.SPEED_TO_SUBTILES_PER_TICK`, stomp-adjusted at spawn)
+    /// through every speed buff in force. THE SINGLE HOOK FOR EVERY SPEED BUFF --
+    /// the charge today (calibration charge.MULTIPLIER_MEANING; card.rs
+    /// `ChargeDef`), rage and slow when they exist -- so a buff is one arm here and
+    /// nothing else has to know. Both path models read it at every site that turns
+    /// a speed into a step or sizes a probe by one; `ents.speed[i]` itself is never
+    /// written (collide.rs PushModel::SpeedWeighted weights by the BASE speed, and
+    /// no source says a charging Prince pushes harder).
+    ///
+    /// THE LAW IS MEASURED (calibration movement.BUFF_SPEED_RULE, live 16.402):
+    /// S_buffed = floor(S x mult / 100) on the NATIVE S (the raw Speed column after
+    /// the stomp rule), not on the subtile figure. Every stored speed is exactly
+    /// S x spt, so `(speed / spt) x mult / 100 x spt` recovers S without loss
+    /// (debug-asserted; tests/charge.rs pins it over every card), and for a unit
+    /// with no buff in force the result is bit-identical to `speed` -- which is what
+    /// keeps tests/oracle2026.rs, tests/mirror.rs and the contact gates exact.
+    ///
+    /// THE COMPOSITION THE STATUS PASS (rage, freeze, slow) IS TO IMPLEMENT HERE,
+    /// in this order (the 16.402 model; a capture with two buffs of one sign in
+    /// force on one unit is what would discriminate it from plain stacking):
+    ///   1. a unit that cannot move -- a no-move tag, a dash cooldown, a post-attack
+    ///      stop or a pushback still in flight -> 0; the walking states go on;
+    ///   2. `maxpos = max(100, every positive SpeedMultiplier in force)`,
+    ///      `maxneg = max(0, -(every negative one))`, zeros skipped;
+    ///   3. `S' = tdiv(max(0, min(100, 100 - maxneg)) x tdiv(maxpos x S, 100), 100)`
+    ///      (Rage 130 -> tdiv(130 x S, 100); Freeze -100 -> 0; a slow -35 -> 65 %;
+    ///      buffs of one sign never stack, the largest wins);
+    ///   4. then `x ChargeSpeedMultiplier / 100` when the charge progress is at
+    ///      10000 permille -- the arm implemented below (calibration
+    ///      charge.MULTIPLIER_MEANING).
+    ///
+    /// `tdiv` truncates toward zero; every step is on the native S and the result
+    /// is turned into subtiles only at the very end, exactly as done below.
+    #[inline]
+    pub(crate) fn effective_speed(&self, i: usize) -> i32 {
+        let base = self.ents.speed[i];
+        let Some(ch) = self.cfg.cards.get(self.ents.card[i]).charge else { return base };
+        let on = match self.cfg.calib.charge_multiplier_meaning {
+            ChargeMultiplier::MovementWhenCharged => self.ents.charged[i],
+            ChargeMultiplier::MovementAlways => true,
+            ChargeMultiplier::AccumulationRate => false,
+        };
+        if !on {
+            return base;
+        }
+        let spt = self.cfg.calib.speed_to_subtiles_per_tick.max(1);
+        debug_assert_eq!(base % spt, 0, "a stored speed is S x SPEED_TO_SUBTILES_PER_TICK exactly");
+        let native = (base / spt) as i64;
+        ((native * (ch.speed_multiplier_percent as i64) / 100) as i32) * spt
+    }
+
+    /// The run-up threshold of entity `i`'s charge, in the ACCUMULATOR's own unit
+    /// (subtiles, or ms under time_moving): ChargeRange through
+    /// charge.CHARGE_RANGE_UNIT, divided by the multiplier under
+    /// charge.MULTIPLIER_MEANING = accumulation_rate, and under time_moving turned
+    /// into the ms an UNBUFFED unit of this card takes to walk it -- which makes
+    /// time_moving identical to walk_delta_length for a free straight walk and
+    /// different the moment the unit is blocked, pushed or walking a diagonal. That
+    /// identity is the honest statement of what the shipped data can decide.
+    fn charge_need(&self, i: usize, ch: ChargeDef) -> i32 {
+        let c = &self.cfg.calib;
+        let need = match (c.charge_accumulator, c.charge_range_unit) {
+            // the 16.402 accumulator counts permille of the raw ChargeRange and
+            // charges at 10000 (`progress <= 9999` keeps adding)
+            (ChargeAccumulator::Client16402ProgressPermille, _) => 10_000,
+            (_, ChargeRangeUnit::Centitiles) => crate::fixed::centi(ch.range_raw),
+            (_, ChargeRangeUnit::Millitiles) => crate::fixed::milli(ch.range_raw),
+        };
+        let need = if c.charge_multiplier_meaning == ChargeMultiplier::AccumulationRate {
+            ((need as i64) * 100 / (ch.speed_multiplier_percent.max(1) as i64)) as i32
+        } else {
+            need
+        };
+        let need = match c.charge_accumulator {
+            ChargeAccumulator::TimeMoving => {
+                let base = self.ents.speed[i].max(1) as i64;
+                ((need as i64) * (c.tick_ms as i64) / base) as i32
+            }
+            _ => need,
+        };
+        need.max(1)
+    }
+
+    /// CHARGE ACCUMULATION (calibration charge.*; card.rs `ChargeDef`; the state is
+    /// entity.rs `charge_progress` / `charged`). Runs at the END of the Move phase,
+    /// after separation, once per tick, over every live troop whose card charges
+    /// and is not charged yet. Each entity reads only its OWN proposed walk
+    /// (`scratch.deltas`: what the Path phase asked for, locomotion only) and its
+    /// OWN before/after positions (`scratch.pre` is captured AFTER the knockback
+    /// slides, so a slide never counts as a walk); nothing here reads or writes
+    /// another entity's charge, so the pass is order-independent by construction.
+    ///
+    /// A tick with no gain applies charge.PROGRESS_ON_STOP to the run-up; a tick
+    /// with a gain adds it, and reaching the threshold (`charge_need`) sets
+    /// `charged` and zeroes the run-up. `charged` itself is cleared only by the
+    /// consumers named on the entity field, never here.
+    ///
+    /// MIRROR SAFETY BY CONSTRUCTION: every accumulator is a SCALAR of vectors that
+    /// rotate together under the seat rotation -- a length, a dot product over a
+    /// length, a tick count -- so no frame enters. "Progress along engine +y" is
+    /// the one reading that would need `arena.to_frame`, and it is the seat bug in
+    /// a new costume; it is not offered.
+    fn charge_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let c = &self.cfg.calib;
+        let client16402 = self.arm16402();
+        let cap = self.ents.capacity();
+        let mut due: Vec<(usize, i32, i32)> = Vec::new();
+        {
+            let e = &self.ents;
+            let ctx = TargetCtx {
+                ents: e,
+                hash: &self.hash,
+                cards: &self.cfg.cards,
+                arena: &self.cfg.arena,
+                calib: c,
+                reading: self.cfg.tower_sight_reading,
+                towers: &self.towers,
+                king_active: self.king_active,
+            };
+            for i in 0..cap {
+                if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.charged[i] {
+                    continue;
+                }
+                let Some(ch) = self.cfg.cards.get(e.card[i]).charge else { continue };
+                let walk = self.scratch.deltas.get(i).copied().unwrap_or_default();
+                let pre = self.scratch.pre.get(i).copied().unwrap_or(e.pos[i]);
+                let gain = match c.charge_accumulator {
+                    ChargeAccumulator::Client16402ProgressPermille => {
+                        // `L` is move_towards' requested step in native units: exact
+                        // under the 16.402 arm (phase_path16402 records it), the
+                        // proposed walk's length in native units under the other two
+                        // path models (which have no requested-step notion)
+                        let l = if client16402 { self.scratch.walk_step.get(i).copied().unwrap_or(0) } else { walk.len() / K };
+                        move16402::tdiv(l.max(0).saturating_mul(1000), ch.range_raw.max(1))
+                    }
+                    ChargeAccumulator::WalkDeltaLength => walk.len(),
+                    ChargeAccumulator::WalkDeltaTowardTarget => {
+                        // The direction the Path phase steered by: the live target,
+                        // else the default tower (the same resolution it used).
+                        let goal = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i));
+                        match goal {
+                            Some(g) => {
+                                let d = e.pos[g.index as usize].sub(pre);
+                                let len = isqrt(d.len2());
+                                if len == 0 {
+                                    walk.len()
+                                } else {
+                                    let dot = (walk.x as i64) * (d.x as i64) + (walk.y as i64) * (d.y as i64);
+                                    (dot / len).max(0) as i32
+                                }
+                            }
+                            None => walk.len(),
+                        }
+                    }
+                    ChargeAccumulator::NetMoveLength => e.pos[i].sub(pre).len(),
+                    ChargeAccumulator::TimeMoving => {
+                        if walk == Vec2::default() {
+                            0
+                        } else {
+                            c.tick_ms
+                        }
+                    }
+                };
+                due.push((i, gain, self.charge_need(i, ch)));
+            }
+        }
+        let stop = c.charge_progress_on_stop;
+        for (i, gain, need) in due {
+            let e = &mut self.ents;
+            if gain <= 0 {
+                if stop == ChargeStopRule::Reset {
+                    e.charge_progress[i] = 0;
+                }
+                continue;
+            }
+            e.charge_progress[i] = e.charge_progress[i].saturating_add(gain);
+            #[cfg(clash_plant = "charge_never_ready")]
+            let need = i32::MAX; // PLANT (regression): the earlier engine, a Prince that never charges.
+            if e.charge_progress[i] >= need {
+                e.charged[i] = true;
+                e.charge_progress[i] = 0;
+            }
+        }
     }
 
     /// THE 2026 PER-TICK UPDATE for ground troops (spec section 7; path2026.rs).
@@ -1746,7 +2540,7 @@ impl BattleState {
                 if segs[i].x == 0 && segs[i].y == 0 {
                     segs[i] = dir;
                 }
-                let step = path2026::step_delta(e.speed[i], dir);
+                let step = path2026::step_delta(self.effective_speed(i), dir);
                 let after = pos.add(step);
                 deltas[i] = arena.from_frame(team, after).sub(e.pos[i]);
                 // SPEC 7.5: at most ONE node per tick, on the POST-move position.
@@ -1824,6 +2618,12 @@ impl BattleState {
                 let team = e.team[i];
                 let world = FrameWorld { arena, obstacles: &self.scratch.obstacles[team as usize] };
                 let goal_w = e.pos[gi];
+                // The step this unit takes THIS tick through every speed buff (the
+                // charge): the probe `path::avoid_units` sizes by `req.step`, the
+                // neighbour query that must cover the probe, and the distance walked
+                // all read it. Leaving any of the three on the base speed makes a
+                // charging Prince steer as though it were half as fast.
+                let eff = self.effective_speed(i);
                 let mut req = NavRequest {
                     #[cfg(clash_plant = "reflection_bridge_tie")]
                     red: team == Team::Red,
@@ -1832,7 +2632,7 @@ impl BattleState {
                     goal: arena.to_frame(team, goal_w),
                     radius: e.radius[i],
                     sight: card.sight_range,
-                    step: e.speed[i],
+                    step: eff,
                     // Only PathModel::Oracle2026 reads `reach`; the three models
                     // below walk to the target's position and stop on the attack
                     // predicate instead of truncating the path.
@@ -1857,7 +2657,7 @@ impl BattleState {
                 // in its frame. Its own target is never a blocker: a unit walks
                 // up to what it means to hit. Query radius covers the probe
                 // (2 steps + clearance) plus both radii.
-                let query = e.radius[i] * 2 + self.hash.max_radius() + e.speed[i] * 2;
+                let query = e.radius[i] * 2 + self.hash.max_radius() + eff * 2;
                 self.hash.neighbours_within(e, e.pos[i], query, &mut nb);
                 blockers.clear();
                 for &j in nb.iter() {
@@ -1874,7 +2674,7 @@ impl BattleState {
                 }
                 let my_key = yield_key(e, i);
                 // Follow the route. `move_frac` is carried in the TEAM FRAME.
-                let mut amount = e.speed[i];
+                let mut amount = eff;
                 let mut cur = req.pos;
                 let mut frac = fracs[i];
                 for _ in 0..4 {
@@ -1907,10 +2707,22 @@ impl BattleState {
         self.scratch.deltas = deltas;
     }
 
+    /// Whether the Path phase is the measured 16.402 move update
+    /// (`phase_path16402`: pathfinding.PATH_SEARCH = client16402 under the
+    /// 2026 model), the shipped arm.
+    #[inline]
+    fn arm16402(&self) -> bool {
+        self.cfg.path_model == PathModel::Oracle2026 && self.cfg.calib.path_search == PathSearch::Client16402
+    }
+
     fn phase_move(&mut self) {
         self.step_knock_slides();
+        // The charge accumulator's "before" (charge_pass): captured AFTER the slides,
+        // so a knockback displacement never counts as a walk.
+        self.scratch.pre.clear();
+        self.scratch.pre.extend_from_slice(&self.ents.pos);
         let arena = &self.cfg.arena;
-        let client16402 = self.cfg.path_model == PathModel::Oracle2026 && self.cfg.calib.path_search == PathSearch::Client16402;
+        let client16402 = self.arm16402();
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
                 continue;
@@ -1926,19 +2738,20 @@ impl BattleState {
             // unit from the river, because the game does not either.
             self.ents.pos[i] = if self.ents.flying[i] || client16402 { new } else { collide::dry_position(arena, old, new) };
         }
-        if client16402 {
-            // the separation impulse already happened inside phase_path16402
-            return;
+        if !client16402 {
+            // under the 16.402 contact law the separation impulse already
+            // happened inside phase_path16402
+            collide::separate(
+                &mut self.ents,
+                &mut self.hash,
+                &self.cfg.arena,
+                &self.scratch.obstacles[0],
+                self.cfg.push_model,
+                self.cfg.calib.separation_iterations,
+                &mut self.scratch.collide,
+            );
         }
-        collide::separate(
-            &mut self.ents,
-            &mut self.hash,
-            &self.cfg.arena,
-            &self.scratch.obstacles[0],
-            self.cfg.push_model,
-            self.cfg.calib.separation_iterations,
-            &mut self.scratch.collide,
-        );
+        self.charge_pass();
     }
 
     fn phase_attack(&mut self) {
@@ -1954,12 +2767,23 @@ impl BattleState {
             }
             let e = &self.ents;
             let held = e.stun_ms[i] > 0 || e.knock_ms[i] > 0;
+            // Under ground or coming up: no attack (target.rs `decide` already gave it
+            // no target; this keeps a windup from advancing under the
+            // time_since_last_shot arm, where a building can go under mid-swing).
             let can_act = e.deploy_ms[i] == 0
                 && !held
+                && e.hide[i] == HideState::Up
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             let step = combat::attack_step(e, &self.cfg.cards, &self.cfg.calib, i, can_act);
             self.ents.attack_phase[i] = step.phase;
             self.ents.attack_ms[i] = step.ms;
+            // hide.HIDE_DELAY_MEANING = time_since_last_shot: a shot re-arms the hide
+            // countdown (its own column, in its own iteration).
+            if step.fired_at.is_some() && self.cfg.calib.hide_delay_meaning == HideDelayMeaning::TimeSinceLastShot {
+                if let Some(h) = self.hides(i) {
+                    self.ents.hide_ms[i] = h.hide_time_ms;
+                }
+            }
             // A stunned (or sliding) unit is NOT re-locked every tick: the stun released
             // its lock so it can retarget on resume (status.STUN_RETARGET_ON_RESUME).
             // Setting `target_locked = preserve && Windup` unconditionally instead
@@ -1982,6 +2806,15 @@ impl BattleState {
                     &mut self.projectiles,
                     &mut self.scratch.nb,
                 );
+                // CHARGE (calibration charge.RESET_ON_ATTACK): the LANDED hit -- this
+                // completed windup, not entering range and not a cancelled swing --
+                // consumes the charge (`fire` read `charged` for its damage just above).
+                // `charged` and `charge_progress` are two different things: the stop
+                // rule in `charge_pass` touches only the latter.
+                if self.cfg.calib.charge_reset_on_attack && self.ents.charged[i] {
+                    self.ents.charged[i] = false;
+                    self.ents.charge_progress[i] = 0;
+                }
                 #[cfg(clash_plant = "inline_damage")]
                 for h in self.dmg.hits.drain(..) {
                     // PLANT: the predecessor's inline damage.
@@ -2017,7 +2850,7 @@ impl BattleState {
                     continue;
                 }
                 #[allow(unreachable_code)]
-                self.spawn_queue.push(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms });
+                self.spawn_queue.push(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None });
             }
         }
     }
@@ -2065,7 +2898,9 @@ impl BattleState {
         }
         let c = self.cfg.calib.clone();
         let cap = self.ents.capacity();
-        let survivor = |e: &Entities, id: EntityId| e.is_alive(id) && e.hp[id.index as usize] > 0;
+        // A HIDDEN building is out of reach of every effect too (knockback never moved
+        // a building; a stun on it is a no-op).
+        let survivor = |e: &Entities, id: EntityId| e.is_alive(id) && e.hp[id.index as usize] > 0 && e.hide[id.index as usize] != HideState::Hidden;
         // Stuns: max per target. Replace vs refresh decides only what the EXISTING timer
         // contributes; several new stuns in one tick always merge by max.
         let mut stun_new = vec![0i32; cap];
@@ -2101,6 +2936,12 @@ impl BattleState {
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
             }
+            // CHARGE (calibration charge.RESET_ON_STUN): the stun clears the charge and
+            // the run-up. Its own columns; nothing else in this loop reads them.
+            if c.charge_reset_on_stun {
+                e.charged[i] = false;
+                e.charge_progress[i] = 0;
+            }
         }
         // Knockbacks: sum per target, then one move per unit.
         let mut sum = vec![None::<Vec2>; cap];
@@ -2130,6 +2971,16 @@ impl BattleState {
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
             }
+            // CHARGE (calibration charge.RESET_ON_KNOCKBACK): a push that LANDS clears
+            // the charge and the run-up. A sum exists here only for a victim spell.rs
+            // `pushable` accepted, and it refuses IgnorePushback without PushbackAll --
+            // so a Fireball never reaches a Prince, DarkPrince or BattleRam (all three
+            // ship IgnorePushback) and only The Log does. That asymmetry is a
+            // PREDICTION of the shipped data, not a defect.
+            if c.charge_reset_on_knockback {
+                e.charged[i] = false;
+                e.charge_progress[i] = 0;
+            }
             if c.knock_attack_reset == KnockAttackReset::ResetWindupClearTarget {
                 e.target[i] = None;
                 e.target_locked[i] = false;
@@ -2154,7 +3005,7 @@ impl BattleState {
     }
 
     fn phase_resolve(&mut self) {
-        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums);
+        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune);
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -2170,6 +3021,37 @@ impl BattleState {
 
     fn phase_reap(&mut self) {
         let deaths = std::mem::take(&mut self.death_queue);
+        // DEATH SPAWN (card.rs `DeathSpawnDef`): every death that reaches this queue --
+        // hp <= 0 from any hit, the lifetime expiry hit included -- leaves its units
+        // as PendingSpawns (they materialise in the NEXT tick's Spawn phase, like a
+        // release), placed by `death_spawn_points` in the owner's frame, at the
+        // owner's team and level, with the block's deploy time or the calibration
+        // default. Collected and sorted by (team, the dead entity's team_seq, unit
+        // index) before the push, so the queue order is canonical. Death damage
+        // (below) lands as well: both effects, independently.
+        let mut spawned: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        #[cfg(not(clash_plant = "death_spawn_dropped"))]
+        for id in &deaths {
+            let i = id.index as usize;
+            let card = self.cfg.cards.get(self.ents.card[i]);
+            let Some(ds) = card.death_spawn else { continue };
+            let unit = self.cfg.cards.get(ds.unit);
+            let level = self.cfg.cards.death_spawn_level(self.ents.card[i], self.ents.level[i]).expect("death spawn level validated at deploy");
+            let radius = ds.radius.unwrap_or(match self.cfg.calib.death_spawn_radius_default {
+                DeathSpawnRadius::OwnCollisionRadius => self.ents.radius[i],
+                DeathSpawnRadius::Zero => 0,
+            });
+            let deploy_ms = ds.deploy_time_ms.or(match self.cfg.calib.death_spawn_deploy_default {
+                DeathSpawnDeploy::UnitOwnDeployTime => None,
+                DeathSpawnDeploy::Zero => Some(0),
+            });
+            let team = self.ents.team[i];
+            for (k, p) in self.death_spawn_points(team, ds.count, unit.collision_radius, unit.is_flying(), self.ents.pos[i], radius).into_iter().enumerate() {
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None }));
+            }
+        }
+        spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
+        self.spawn_queue.extend(spawned.into_iter().map(|(_, _, _, p)| p));
         for id in &deaths {
             let i = id.index as usize;
             let card = self.cfg.cards.get(self.ents.card[i]);
@@ -2383,11 +3265,11 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None });
             return;
         }
         for p in self.formation(team, &card, pos) {
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: p, deploy_ms: None });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: p, deploy_ms: None, owner: None });
         }
     }
 
@@ -2541,16 +3423,13 @@ impl BattleState {
         }
         let idx = self.simulable(card_name)?;
         let level = level.unwrap_or(self.cfg.card_level[team as usize]);
-        self.cfg.cards.level_multiplier(idx, level).map_err(DeployError::InvalidLevel)?;
+        self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
         let card = self.cfg.cards.get(idx);
         if !self.cfg.arena.in_bounds(pos) {
             return Err(DeployError::OutOfArena);
         }
         if card.kind == CardKind::Spell {
             // A cast, at any in-bounds point (tests aim spells where no player could).
-            if let Some(crate::card::SpellDef { shape: SpellShape::Projectile { spawn: Some(_), .. }, .. }) = &card.spell {
-                self.cfg.cards.spawn_level(idx, level).map_err(DeployError::InvalidLevel)?;
-            }
             self.enqueue(team, idx, level, pos);
             return Ok(());
         }
@@ -2647,6 +3526,7 @@ impl BattleState {
         // Level last: the order the one-at-a-time path always reported in (the
         // level used to fail inside spawn_now, after the position checks).
         let full_hp = self.cfg.cards.scaled(idx, level, card.hitpoints).map_err(DeployError::InvalidLevel)?;
+        self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
         Ok((idx, full_hp))
     }
 
@@ -2657,6 +3537,7 @@ impl BattleState {
         let id = self.spawn_now(team, idx, level, pos, kind).map_err(DeployError::InvalidLevel)?;
         let i = id.index as usize;
         self.ents.deploy_ms[i] = 0;
+        self.on_deployed(i);
         if let Some(h) = hp {
             self.ents.hp[i] = h;
         }
@@ -2841,6 +3722,15 @@ impl BattleState {
             retarget_on_resume: e.retarget_on_resume[i],
             knock_ms: e.knock_ms[i],
             knock_rem: e.knock_rem[i],
+            hide_state: e.hide[i],
+            hide_ms: e.hide_ms[i],
+            hidden: e.hide[i] == HideState::Hidden,
+            spawn_ms: e.spawn_ms[i],
+            spawn_wave_left: e.spawn_wave_left[i],
+            spawned_by: e.spawned_by[i],
+            charged: e.charged[i],
+            charge_progress: e.charge_progress[i],
+            effective_speed: self.effective_speed(i),
         }
     }
     /// Live entities in slot order.
@@ -2865,6 +3755,19 @@ impl BattleState {
             return false;
         }
         self.ents.hp[id.index as usize] = hp;
+        true
+    }
+
+    /// Test/scenario entry point: overwrite an entity's charge state (entity.rs
+    /// `charge_progress` / `charged`), for the hash-sensitivity gate and for
+    /// scenarios that start with a charged unit.
+    pub fn debug_set_charge(&mut self, id: EntityId, progress: i32, charged: bool) -> bool {
+        if !self.ents.is_alive(id) {
+            return false;
+        }
+        let i = id.index as usize;
+        self.ents.charge_progress[i] = progress;
+        self.ents.charged[i] = charged;
         true
     }
 
@@ -2983,6 +3886,13 @@ impl BattleState {
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
                 h.u32(e.move_ticks[i]);
+                h.u32(e.hide[i] as u32);
+                h.i32(e.hide_ms[i]);
+                h.i32(e.spawn_ms[i]);
+                h.i32(e.spawn_wave_left[i]);
+                h.opt_id(e.spawned_by[i]);
+                h.i32(e.charge_progress[i]);
+                h.bool(e.charged[i]);
                 h.vec(e.facing[i]);
                 h.i32(e.avoid_offset[i]);
             }
@@ -3076,6 +3986,7 @@ impl BattleState {
             h.vec(s.pos);
             if !legacy_v3 {
                 h.i32(s.deploy_ms.unwrap_or(-1));
+                h.opt_id(s.owner);
             }
         }
         h.u32(self.dmg.hits.len() as u32);
@@ -3119,9 +4030,19 @@ impl BattleState {
 /// 5: the 2026 pathfinder -- Calib gained repath_interval_ticks as an Option plus
 ///    the pathfinding/movement keys; Entities gained seg_dir and move_ticks;
 ///    PathModel gained Oracle2026 (code 3).
-/// 6: the measured 16.402 search and contact law -- Calib gained path_search;
-///    Entities gained facing and avoid_offset.
-pub const SNAPSHOT_FORMAT: u32 = 6;
+/// 6: hide (Tesla) -- Calib gained the hide.* keys; Entities gained hide and
+///    hide_ms; combat::Hit gained ignores_hide (serde default false). The SAME
+///    number was also used for the measured 16.402 search and contact law --
+///    Calib gained path_search; Entities gained facing and avoid_offset -- so a
+///    "format 6" blob of either kind is refused below like any other stale format.
+/// 7: spawners -- Calib gained the spawner.* keys; Entities gained spawn_ms,
+///    spawn_wave_left and spawned_by; PendingSpawn gained owner.
+/// 8: charge -- Calib gained the charge.* keys; Entities gained charge_progress and
+///    charged; CardDef gained charge (the card fingerprint moves).
+/// 9: the union of 6 (both readings), 7 and 8: Calib carries hide.*, spawner.*,
+///    charge.* AND path_search; Entities carry hide, hide_ms, spawn_ms,
+///    spawn_wave_left, spawned_by, charge_progress, charged, facing and avoid_offset.
+pub const SNAPSHOT_FORMAT: u32 = 9;
 
 mod push_model_serde {
     use crate::PushModel;
@@ -3235,7 +4156,11 @@ fn fingerprint_debug<T: std::fmt::Debug>(v: &T) -> u64 {
 /// (`hash_state(true)`) of the migrated state must equal the hash saved in the file.
 fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     let bad = |what: &str| format!("format-3 snapshot: {what}");
-    let old: Vec<usize> = (0..cards.cards.len()).filter(|&i| cards.cards[i].spell.is_none() && !cards.cards[i].summon_only).collect();
+    // Format 3's loader also refused every card without a Range column -- the
+    // non-attacking spawner buildings (Tombstone, GoblinHut, BarbarianHut,
+    // FirespiritHut), now loaded with range 0 and no damage source.
+    let refused_by_v3 = |c: &CardDef| c.spell.is_some() || c.summon_only || (c.kind == CardKind::Building && c.range == 0 && c.damage == 0 && c.projectile.is_none());
+    let old: Vec<usize> = (0..cards.cards.len()).filter(|&i| !refused_by_v3(&cards.cards[i])).collect();
     let debug_v3: String = {
         let items: Vec<String> = old
             .iter()
@@ -3244,9 +4169,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // Every CardDef field added after format 3, in declaration order.
                 // Not just ignore_pushback/spell/summon_only: format 5 added the
                 // two stomp columns, which is why card.rs declares them LAST.
+                // ~~... wait_ms~~ -- format 6 added `hide` (card.rs declares it last).
+                // ~~... hide~~ -- format 7 added `spawner` and `death_spawn` after it.
+                // ~~... death_spawn~~ -- format 8 added `charge` after them.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -3286,8 +4214,28 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
         // after load, and zero is exactly "no segment" (path2026.rs `arrived`).
         ("seg_dir", zero2),
         ("move_ticks", Value::from(0)),
-        // FORMAT 6: the avoidance offset is 0 between ticks for a unit that has
-        // not met anything; the facing is filled per team below.
+        // FORMAT 6: every format-3 entity is Up with no countdown running. A
+        // format-3 Tesla (the scripted RED_DECK carries one) then goes under on its
+        // first idle Target phase after load -- the hide machinery did not exist when
+        // the fixture was saved, and this is the state that expresses "not hiding
+        // yet" without inventing a timer.
+        ("hide", serde_json::to_value(HideState::Up).map_err(|e| e.to_string())?),
+        ("hide_ms", Value::from(0)),
+        // FORMAT 7: no wave in progress and a timer already due, so a format-3
+        // spawner (a Witch in the fixture's decks, if any) starts its cadence on the
+        // first Spawn phase after load -- "not spawning yet" without inventing a
+        // timer; no unit owes its existence to a spawner.
+        ("spawn_ms", Value::from(0)),
+        ("spawn_wave_left", Value::from(0)),
+        ("spawned_by", Value::Null),
+        // FORMAT 8: no run-up and no charge. Format 3 ran every Prince permanently
+        // uncharged, so 0 / false reproduces its state exactly (the format-3 hash
+        // self-check below proves it); from the first tick after load the Princes in
+        // the fixture's decks accumulate like any freshly walking unit.
+        ("charge_progress", Value::from(0)),
+        ("charged", Value::Bool(false)),
+        // FORMAT 6 (royalegym-v2's): the avoidance offset is 0 between ticks for a
+        // unit that has not met anything; the facing is filled per team below.
         ("avoid_offset", Value::from(0)),
     ] {
         if ents.insert(k.into(), Value::Array(vec![fill; n])).is_some() {
@@ -3308,7 +4256,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     }
     // 1. Pending spawns, spells, effects.
     for p in o.get_mut("spawn_queue").and_then(Value::as_array_mut).ok_or_else(|| bad("no spawn_queue"))? {
-        p.as_object_mut().ok_or_else(|| bad("spawn_queue entry"))?.insert("deploy_ms".into(), Value::Null);
+        let entry = p.as_object_mut().ok_or_else(|| bad("spawn_queue entry"))?;
+        entry.insert("deploy_ms".into(), Value::Null);
+        entry.insert("owner".into(), Value::Null);
     }
     o.insert("spells".into(), Value::Array(Vec::new()));
     o.insert("effects".into(), serde_json::to_value(EffectBuffer::default()).map_err(|e| e.to_string())?);
@@ -3603,6 +4553,22 @@ mod tests {
         // over the same goal set 192/292.
         assert_eq!(c.heuristic_form, HeuristicForm::ChebyshevOverGoalSet);
         assert_eq!(c.tie_break, TieBreak::OrthoFirstPlaceholder);
+    }
+
+    #[test]
+    fn charge_keys_load_their_shipped_arms_and_refuse_an_unimplemented_name() {
+        let c = Calib::shipped();
+        assert_eq!(c.charge_range_unit, ChargeRangeUnit::Centitiles);
+        assert_eq!(c.charge_accumulator, ChargeAccumulator::Client16402ProgressPermille);
+        assert_eq!(c.charge_multiplier_meaning, ChargeMultiplier::MovementWhenCharged);
+        assert_eq!(c.charge_progress_on_stop, ChargeStopRule::Reset);
+        assert!(c.charge_reset_on_attack && c.charge_reset_on_stun && c.charge_reset_on_knockback && !c.charge_reset_on_retarget);
+        assert_eq!(c.charge_special_level_scaling, ChargeLevelScaling::ScaleSpecialBase);
+        // A candidate the engine does not implement is refused at load, never mapped.
+        let edited = CALIBRATION_JSON.replacen("\"value\": \"client16402_progress_permille\"", "\"value\": \"own_frame_forward_progress\"", 1);
+        assert_ne!(edited, CALIBRATION_JSON, "edit did not apply; the JSON layout changed");
+        let err = Calib::from_json(&edited).expect_err("an unimplemented ACCUMULATOR loaded");
+        assert!(err.contains("charge.ACCUMULATOR") && err.contains("no engine implementation"), "{err}");
     }
 
     #[test]

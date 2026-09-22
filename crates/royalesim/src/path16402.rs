@@ -224,6 +224,8 @@ pub fn choose_goal_cell(
         }
         let d_actor = dist2_capped(cx, cy, ax, ay);
         let i = (row * t.cols + col) as usize;
+        // (water and a boxed cell are kept as two tests so each category reads on its own)
+        #[allow(clippy::if_same_then_else)]
         let cat = if t.water[i] {
             1
         } else if avoid_buildings && occ[i] >= building_cost {
@@ -661,8 +663,8 @@ mod tests {
         stamp(&mut occ, 4, Some((0, 3, 0, 3)), 50);
         assert_eq!(cell_cost(&t, &occ, 0, 1), 50);
         assert_eq!(cell_cost(&t, &occ, 0, 0), 50);
-        assert_eq!(cell_cost(&t, &vec![0; 16], 0, 0), 5);
-        assert_eq!(cell_cost(&t, &vec![0; 16], 1, 0), 8);
+        assert_eq!(cell_cost(&t, &[0; 16], 0, 0), 5);
+        assert_eq!(cell_cost(&t, &[0; 16], 1, 0), 8);
         assert_eq!(cell_cost(&t, &occ, 4, 0), -1);
     }
 

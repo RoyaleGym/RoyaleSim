@@ -49,6 +49,30 @@ pub enum AttackPhase {
     Cooldown = 2,
 }
 
+/// The hide state of a building whose card `hides_when_not_attacking` (Tesla;
+/// card.rs `HideDef`; calibration.json `hide.*`). Every other entity is `Up` for
+/// its whole life and the machinery never looks at it.
+///
+/// THE TIMER `Entities::hide_ms` MEANS ONE THING PER STATE: while `Rising` it is
+/// the ms of UpTimeMs still to run; while `Up` it is the ms of HideTimeMs still
+/// to run before the building goes back under (reset to HideTimeMs whenever the
+/// building has a live target -- or, under hide.HIDE_DELAY_MEANING =
+/// time_since_last_shot, whenever it fires); while `Hidden` it is 0. Both timers
+/// are decremented by TICK_MS in the TARGET phase (state.rs `hide_pass`), once per
+/// tick, before any entity decides its target.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
+pub enum HideState {
+    /// Above ground: targets, attacks, can be targeted and damaged.
+    Up = 0,
+    /// Under ground: no target, no attack, untargetable, immune to damage
+    /// (hide.HIDDEN_IMMUNE_TO_DAMAGE), ignores stun and knockback.
+    Hidden = 1,
+    /// Coming up: no target, no attack; targetable per hide.TARGETABLE_WHILE_RISING;
+    /// takes damage.
+    Rising = 2,
+}
+
 /// Everything needed to materialise one entity.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnInit {
@@ -114,6 +138,37 @@ pub struct Entities {
     pub knock_rem: Vec<Vec2>,
     /// ms of knockback slide remaining. While > 0 the unit neither walks nor attacks.
     pub knock_ms: Vec<i32>,
+    /// Hide state (Tesla). `Up` for every entity whose card does not hide.
+    pub hide: Vec<HideState>,
+    /// The hide timer; its meaning per state is on `HideState`.
+    pub hide_ms: Vec<i32>,
+    /// PERIODIC SPAWNER (card.rs `SpawnerDef`; state.rs `spawner_pass`): ms until
+    /// this entity's next emission. Decremented by TICK_MS once per tick in the
+    /// SPAWN phase, after the queue drains, only while the entity is past its deploy
+    /// time (and, under spawner.STUN_PAUSES_SPAWNER, not stunned). At <= 0 a unit is
+    /// queued (it materialises in the NEXT tick's Spawn phase) and the timer is
+    /// reloaded: SpawnInterval while the wave has units left, else SpawnPauseTime.
+    /// Meaningless (0) on an entity whose card has no spawner.
+    pub spawn_ms: Vec<i32>,
+    /// Units of the CURRENT wave still to emit (0 between waves; SpawnNumber when
+    /// a wave starts). With SpawnInterval 0 the whole wave goes in one pass.
+    pub spawn_wave_left: Vec<i32>,
+    /// The spawner that emitted this unit, for SpawnLimit (count of live units it
+    /// owns). None for a deploy, a spell release and a death spawn.
+    pub spawned_by: Vec<Option<EntityId>>,
+    /// CHARGE (card.rs `ChargeDef`; state.rs `charge_pass`, Move phase, after
+    /// separation): the run-up accumulated so far, in the unit calibration
+    /// charge.ACCUMULATOR selects (subtiles of locomotion, or ms of moving ticks).
+    /// Gains only on ticks the unit WALKED (a knockback slide never counts); a tick
+    /// with no walk applies charge.PROGRESS_ON_STOP; zeroed the tick `charged`
+    /// becomes true. Meaningless (0) on an entity whose card has no charge block.
+    pub charge_progress: Vec<i32>,
+    /// The run-up is complete: the unit moves at ChargeSpeedMultiplier percent of
+    /// its speed (charge.MULTIPLIER_MEANING) and its next landed hit deals
+    /// DamageSpecial. Consumed by that hit (charge.RESET_ON_ATTACK), a stun
+    /// (RESET_ON_STUN), a landed knockback (RESET_ON_KNOCKBACK) or a retarget
+    /// (RESET_ON_RETARGET); never by merely standing still.
+    pub charged: Vec<bool>,
 
     /// Sub-subtile movement carry, 1/65536 subtile units (see path::advance).
     pub move_frac: Vec<Vec2>,
@@ -241,6 +296,13 @@ impl Entities {
             self.retarget_on_resume[i] = false;
             self.knock_rem[i] = Vec2::default();
             self.knock_ms[i] = 0;
+            self.hide[i] = HideState::Up;
+            self.hide_ms[i] = 0;
+            self.spawn_ms[i] = 0;
+            self.spawn_wave_left[i] = 0;
+            self.spawned_by[i] = None;
+            self.charge_progress[i] = 0;
+            self.charged[i] = false;
             self.move_frac[i] = Vec2::default();
             self.route[i].clear();
             self.route_goal[i] = None;
@@ -279,6 +341,13 @@ impl Entities {
             self.retarget_on_resume.push(false);
             self.knock_rem.push(Vec2::default());
             self.knock_ms.push(0);
+            self.hide.push(HideState::Up);
+            self.hide_ms.push(0);
+            self.spawn_ms.push(0);
+            self.spawn_wave_left.push(0);
+            self.spawned_by.push(None);
+            self.charge_progress.push(0);
+            self.charged.push(false);
             self.move_frac.push(Vec2::default());
             self.route.push(Vec::new());
             self.route_goal.push(None);

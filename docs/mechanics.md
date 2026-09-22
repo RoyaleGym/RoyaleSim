@@ -31,6 +31,9 @@ Three things are worth stating up front, because they bound everything below:
 | Projectiles, shields, death damage, lifetime expiry | `combat.rs`, `state.rs` | |
 | Multi-unit deploy formation | `state.rs::formation` | the formation shape is the engine's, not the game's, except where `pathfinding.md` records a measured spawn layout |
 | Deploy time | `state.rs` | units are inactive while `deploy_ms > 0` |
+| Hide (Tesla) | `state.rs::hide_pass`, `entity.rs::HideState`, `target.rs`, `combat.rs::resolve` | `HidesWhenNotAttacking` / `HideTimeMs` / `UpTimeMs` from `cards.json`: under at deploy end, rising for `UpTimeMs` when a targetable enemy is in sight, under again after `HideTimeMs` without a target; hidden = untargetable and immune (except lifetime expiry), stun and knockback pass over it. Rules the columns do not settle are the `hide.*` ledger keys, community-sourced. `tests/hide.rs` |
+| Periodic spawners, death spawn | `state.rs::spawner_pass`, `state.rs::phase_reap`, `card.rs::SpawnerDef` / `DeathSpawnDef` | the `Spawn*` / `DeathSpawn*` columns (huts, Witch, Dark Witch; Tombstone, Golem, Lava Hound, Battle Ram): waves on the data's cadence, one-tick emission latency, stun pauses the timer, `SpawnLimit` counts the spawner's own live units, death spawns laid out on the engine grid around the death point. Open rules are the `spawner.*` keys, community/guess. `tests/spawner.rs` |
+| Charge (Prince, Dark Prince, Battle Ram) | `state.rs::charge_pass`, `effective_speed`, `combat.rs::fire` | `ChargeRange` / `DamageSpecial` / `ChargeSpeedMultiplier`: the run-up accumulates `tdiv(L x 1000, ChargeRange)` permille per walking tick from the requested step `L = min(S, dist, 250)`, charged at 10000; the speed doubles from the next walking tick (measured on the corpus: the Prince's 43rd walking tick) and the next landed hit deals `DamageSpecial`; consumed by the hit, reset by a stun or a landed knockback. The `charge.*` keys hold what the corpus has not yet separated. Kamikaze is not read. `tests/charge.rs` |
 | Stun | `entity.rs`, `state.rs`, `status.*` keys | honoured by move and attack; applied by Zap. Attack reset, retarget-on-resume and the deploy-pause question are each their own ledger key |
 | Elixir, hand, cycle | `state.rs` | double elixir when `MANA_SPEED_UP_WHEN_REMAINING_SECONDS` remain, and in overtime |
 | Match timing | `state.rs::phase_judge` | regular time, 60 s sudden-death overtime, 3-crown instant win |
@@ -50,9 +53,7 @@ engine is usable for your purpose.
 
 | Mechanic | What happens instead |
 |---|---|
-| **Charge** (Prince, Dark Prince, Battle Ram) | the Prince plays as a plain melee unit. `cards.json` carries the charge fields; `card.rs` reads none of them |
-| **Hide** (Tesla) | the Tesla plays as an always-up, always-targetable building. `cards.json` carries `hides_when_not_attacking`, `hide_time_ms` and `up_time_ms`; `card.rs` reads none of them |
-| Death spawn, periodic spawners | absent, except as the Goblin Barrel's release |
+| Battle Ram's Kamikaze, `SpawnAngleShift`, `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: the Ram survives its charged hit and keeps hitting; every spawn wave and death spawn is gridded ahead of or around its source |
 | Dash, morph, jump, chained hits, multiple projectiles | absent. The measured jump behaviour (a `JumpEnabled` unit hopping water) is described in `pathfinding.md` but not implemented |
 | Status sources other than Zap's stun — freeze, slow, rage, heal | absent. Rocket and Freeze *load* (their data has an implemented shape) but no test covers either; Rage is refused as unsupported |
 | Evolutions, champions, tower troops | post-2023; no public data |
@@ -67,7 +68,7 @@ both clean is **0.003**. If you are picking decks programmatically, draw from `c
 `thin_slice` key rather than from the catalogue — and parse it, never hand-copy it.
 
 There is no gate that catches this class of problem. `tools/check_data.py` asserts the *data* is
-present (it even asserts Prince's `charge.damage_special > 0`) while the engine reads nothing;
+present (it even asserts Prince's `charge.damage_special > 0`) without asking whether the engine reads it;
 nothing builds the set of `cards.json` fields `card.rs` actually consumes and compares it, in both
 directions, against the fields the slice's cards carry. That gate is the fix, and it does not
 exist yet.

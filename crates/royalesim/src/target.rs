@@ -34,9 +34,9 @@
 
 use crate::arena::{Arena, Lane};
 use crate::card::CardDb;
-use crate::entity::{EntityKind, Entities, SpatialHash};
+use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
-use crate::state::Calib;
+use crate::state::{Calib, RiseTrigger};
 use crate::{EntityId, Team};
 
 /// Which side EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS extends. See module doc.
@@ -88,11 +88,28 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, target: Vec2, targ
     }
 }
 
+/// Is entity `c` untargetable because of its hide state (Tesla under ground, or
+/// rising under hide.TARGETABLE_WHILE_RISING = false)? The one definition; `can_target`
+/// applies it, so a unit already locked on a building that goes under drops it on
+/// the next Target phase and rescans (target.rs `decide`, the dead-target path).
+#[inline]
+pub fn hidden_from_targeting(calib: &Calib, e: &Entities, c: usize) -> bool {
+    match e.hide[c] {
+        HideState::Up => false,
+        HideState::Hidden => true,
+        HideState::Rising => !calib.hide_targetable_while_rising,
+    }
+}
+
 /// Can attacker `a` ever target `c` (ignoring distance)?
 #[inline]
 pub fn can_target(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     let e = ctx.ents;
     if !e.alive[c] || e.team[c] == e.team[a] || e.hp[c] <= 0 {
+        return false;
+    }
+    #[cfg(not(clash_plant = "hidden_targetable"))]
+    if hidden_from_targeting(ctx.calib, e, c) {
         return false;
     }
     let card = ctx.cards.get(e.card[a]);
@@ -171,12 +188,44 @@ pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityI
     best.map(|(_, c)| e.id_of(c))
 }
 
+/// THE WAKE TRIGGER of a hidden building (calibration hide.RISE_TRIGGER): is any
+/// enemy that `a` could target within `a`'s sight of it (enemy_in_sight_range: the
+/// same `sight_toward` a scan uses) or within its attack range
+/// (enemy_in_attack_range)? Reuses `can_target`, so an air unit does not wake a
+/// ground-only building and a hidden enemy Tesla does not wake this one, and the
+/// same edge-to-edge rule as every range test. A boolean over the neighbour set:
+/// order-free, frame-free.
+pub fn enemy_in_wake_range(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> bool {
+    let e = ctx.ents;
+    let card = ctx.cards.get(e.card[a]);
+    let extra = ctx.calib.extra_sight_range_to_crown_towers.max(0) + ctx.calib.extra_sight_range_to_building.max(0);
+    let query = card.sight_range.max(card.range) + extra + ctx.hash.max_radius();
+    ctx.hash.neighbours_within(e, e.pos[a], query, scratch);
+    scratch.iter().any(|&c| {
+        let c = c as usize;
+        if !can_target(ctx, a, c) {
+            return false;
+        }
+        let reach = match ctx.calib.hide_rise_trigger {
+            RiseTrigger::EnemyInSightRange => sight_toward(ctx, a, c),
+            RiseTrigger::EnemyInAttackRange => card.range,
+        };
+        in_attack_range(ctx.calib, e.pos[a], reach, e.pos[c], e.radius[c])
+    })
+}
+
 /// Decide attacker a's target for this tick. Reads only; the caller applies.
 pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecision {
     let e = ctx.ents;
     let cur = e.target[a];
     if e.deploy_ms[a] > 0 {
         return TargetDecision { target: None, cancel_attack: false, resumed: false };
+    }
+    // Under ground or still coming up: no target at all, and any windup it had is
+    // cancelled (it cannot have one; belt and braces for a building that went
+    // under mid-swing under hide.HIDE_DELAY_MEANING = time_since_last_shot).
+    if e.hide[a] != HideState::Up {
+        return TargetDecision { target: None, cancel_attack: true, resumed: false };
     }
     // Stunned or mid-knockback-slide: keep what it had, scan nothing.
     if e.stun_ms[a] > 0 || e.knock_ms[a] > 0 {

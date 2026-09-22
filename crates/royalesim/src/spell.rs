@@ -285,7 +285,7 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             let pct = hit.crown_pct;
             #[cfg(clash_plant = "crown_pct_ignored")]
             let pct = 100; // PLANT: crown towers take full spell damage.
-            dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding) });
+            dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false });
         }
         if hit.stun_ms > 0 {
             fx.stuns.push((id, hit.stun_ms));
@@ -369,7 +369,7 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         let pct = hit.crown_pct;
         #[cfg(clash_plant = "crown_pct_ignored")]
         let pct = 100; // PLANT: crown towers take full spell damage.
-        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding) });
+        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false });
         if let Some(k) = hit.knockback {
             if pushable(ctx, v, &k) {
                 let along = Vec2::new(0, fwd * k.distance);

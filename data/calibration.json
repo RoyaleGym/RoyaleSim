@@ -1315,6 +1315,299 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     }
   },
+  "hide": {
+    "$comment": [
+      "Buildings that hide when not attacking (buildings.csv HidesWhenNotAttacking / HideTimeMs /",
+      "UpTimeMs; Tesla true / 800 / 800 in both the 2018 data and 15.535). The timers are card data",
+      "(data/derived/cards.json, read by card.rs `HideDef`); everything the columns do not settle is a",
+      "key below. State machine: entity.rs `HideState`, stepped once per tick in state.rs `hide_pass`",
+      "(Target phase, before any entity decides its target). Community (unmeasured) rules the engine",
+      "takes without a key: the building lifetime keeps running in every state (wiki Tesla: 'its",
+      "lifetime still counts down while hidden'); a HIDDEN building ignores stun and knockback; a",
+      "hidden building neither targets nor attacks; a deploying Tesla is Up (targetable, damageable)",
+      "until its deploy time ends, when STARTS_HIDDEN applies. HideBeforeFirstHit (blank on every",
+      "2018 row) is not read."
+    ],
+    "STARTS_HIDDEN": {
+      "value": true,
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "Wiki Tesla: 'When deployed, it will be hidden underground' -- the building is under ground the moment its deploy time ends and rises only for a target. The false arm stands it up at deploy end with a full HideTimeMs countdown, so with no enemy near it goes under HideTimeMs later.",
+      "candidates": [true, false],
+      "promotion_rules": "Deploy a Tesla with an enemy Knight already adjacent: its first shot comes UpTimeMs after the deploy ends (true) or immediately at deploy end (false). A capture of the scene carries the Tesla's first-hit tick.",
+      "engine": "state.rs Calib::hide_starts_hidden, applied by BattleState::hide_on_deployed (phase_upkeep on the tick deploy_ms reaches 0; spawn_now / setup spawns for a zero deploy time)"
+    },
+    "RISE_TRIGGER": {
+      "value": "enemy_in_sight_range",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "Wiki Tesla: 'it will rise when an enemy comes within its range'. Tesla ships SightRange = Range = 5500, so the two arms agree on the shipped card and only a card whose sight exceeds its range could separate them. Both use the engine's own edge-to-edge range test and target eligibility (target.rs `enemy_in_wake_range` over `can_target`: an air unit does not wake a ground-only building, a hidden enemy building wakes nothing).",
+      "candidates": ["enemy_in_sight_range", "enemy_in_attack_range"],
+      "promotion_rules": "A hiding building whose SightRange exceeds its Range (none in the 2018 thin slice): an enemy standing between the two radii wakes it under enemy_in_sight_range only.",
+      "engine": "state.rs Calib::hide_rise_trigger, read by target.rs enemy_in_wake_range from state.rs hide_pass"
+    },
+    "TARGETABLE_WHILE_RISING": {
+      "value": false,
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "While the UpTimeMs rise animation plays the building is treated as still under ground for TARGETING (enemies do not lock on) but not for DAMAGE (a spell landing during the rise hits: immunity is the Hidden state alone, HIDDEN_IMMUNE_TO_DAMAGE). The true arm lets enemies acquire it the tick it starts rising.",
+      "candidates": [false, true],
+      "promotion_rules": "A Giant walking past a hidden Tesla just inside its sight: the Giant turns toward the Tesla UpTimeMs after the Tesla starts rising (false) or on the same tick (true). On a capture, compare the Giant's target-change tick with the Tesla's rise tick.",
+      "engine": "state.rs Calib::hide_targetable_while_rising, read by target.rs hidden_from_targeting (inside can_target)"
+    },
+    "HIDDEN_IMMUNE_TO_DAMAGE": {
+      "value": true,
+      "status": "community",
+      "confidence": "MEDIUM-HIGH",
+      "provenance": "Wiki Tesla: 'while hidden it cannot be targeted or damaged by anything, including spells'. Enforced at ONE choke point, combat.rs `resolve` when the damage buffer is applied: every hit on a Hidden building is dropped whatever wrote it (attack, projectile, spell, rolling Log, death damage) -- except the building-lifetime expiry hit, which carries Hit.ignores_hide and always lands (a Tesla whose 40 s are up dies under ground). The false arm lets every hit land (targeting stays blocked).",
+      "candidates": [true, false],
+      "promotion_rules": "Fireball a Tesla that is under ground with nothing near it: its hp is unchanged when it next rises (true) or reduced by the Fireball's damage (false).",
+      "engine": "state.rs Calib::hide_hidden_immune, read by combat.rs resolve from state.rs phase_resolve"
+    },
+    "HIDE_DELAY_MEANING": {
+      "value": "idle_time_without_target",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "HideTimeMs is the time an Up building spends WITHOUT A LIVE TARGET before it goes under (the countdown resets to HideTimeMs on every Target phase it has one). The alternative reading counts from the building's LAST SHOT (state.rs phase_attack resets the countdown on fire), under which a target kept by the keep-target hysteresis but out of attack range does not hold it up. Tick alignment (both arms): the countdown is decremented in the Target phase; a building with no target from the Target phase of tick T on is Hidden in tick T + ceil(HideTimeMs / TICK_MS) - 1. LIMITS OF THE time_since_last_shot ARM: it is only viable on a hider whose HitSpeed <= HideTimeMs. The 2018 Tesla the engine loads ships HitSpeed 800 == HideTimeMs 800, which is why the arm hides on a STRICT countdown (< 0: with <= 0 it went under before every second shot); the 15.535 Tesla (characters/tesla.toml: HitSpeed 1100, LoadTime 700, HideTimeMs 800, UpTimeMs 800) would go under between every pair of shots with its target still in range, so on current data this arm cannot be the live rule as written -- a measurable restatement would be 'time since the last shot, not counting while a target is in attack range', which is not implemented. A THIRD READING the registry does not implement: HideTimeMs as the DURATION of the going-under transition (a Descending state) with the idle delay elsewhere -- the 15.535 Ghost row (characters/ghost.toml: BuffWhenNotAttackingTime = 2000 beside HideTimeMs = 400, no HidesWhenNotAttacking) pairs the same HideTimeMs column with a separate idle-delay column, so the schema does not rule it out; under it a Tesla whose target dies would start descending at once (untargetable immediately or only after the transition is the open question) instead of staying Up/targetable for 800 ms. Implementing it needs a fourth HideState.",
+      "candidates": ["idle_time_without_target", "time_since_last_shot"],
+      "promotion_rules": "Kill a Tesla's only target in the middle of its hit cycle: under idle_time_without_target it goes under HideTimeMs after the kill whatever the cycle phase; under time_since_last_shot HideTimeMs after its last shot, i.e. earlier by the time since that shot. For the unimplemented transition reading, a capture of a Tesla whose target dies: does it become untargetable (a Fireball / a locked attacker's retarget) immediately or only ~800 ms later?",
+      "engine": "state.rs Calib::hide_delay_meaning, read by state.rs hide_pass (and phase_attack for the reset under time_since_last_shot)"
+    },
+    "HIDDEN_OCCLUDES_PATH": {
+      "value": true,
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "A hidden Tesla's footprint still blocks deploys and still occludes the path grid (units walk around the spot; wiki: troops 'walk around a hidden Tesla'). The engine's path grid never looks at the hide state, so `true` is the only arm it runs; `false` needs the pathfinder to consult the hide state and is REFUSED at load.",
+      "candidates": [true, false],
+      "promotion_rules": "A Knight walking a straight lane over a hidden Tesla's footprint with nothing to wake it (out of its sight is impossible on the footprint, so: a Tesla that cannot target the walker, e.g. an air unit over a ground-only hider -- none in the thin slice). Practically: the recorded path nodes of a Giant routed past a hidden enemy Tesla.",
+      "engine": "state.rs Calib::from_json refuses false (the only() rule for a boolean key); the value is not stored because nothing branches on it"
+    }
+  },
+  "spawner": {
+    "$comment": [
+      "PERIODIC SPAWNERS AND DEATH SPAWN (characters.csv / buildings.csv Spawn* and DeathSpawn*",
+      "columns; 2018: Tombstone, GoblinHut, BarbarianHut, FirespiritHut, Witch, DarkWitch spawn;",
+      "Tombstone, Golem, LavaHound, BattleRam, DarkWitch death-spawn). The columns are card data",
+      "(data/derived/cards.json `spawner` / `death_spawn`, read by card.rs `SpawnerDef` /",
+      "`DeathSpawnDef`, checked against the 15.535 csv_logic: same names, same meanings); every",
+      "rule they do not settle is a key below. Column semantics taken as read, not keyed:",
+      "SpawnNumber = units per wave; SpawnInterval = ms between the units of one wave (blank =",
+      "all at once); SpawnPauseTime = ms between waves; SpawnStartTime = ms to the first wave",
+      "(from activation or from placement: START_TIME_ORIGIN); SpawnLimit = most units from one",
+      "spawner alive at once (blank = unlimited); SpawnRadius = how far from the spawner the",
+      "units appear; a SpawnCharacter with SpawnNumber AND SpawnPauseTime both blank is no",
+      "periodic spawner (the SkeletonContainer row); DeathSpawnCount units at DeathSpawnRadius;",
+      "DeathSpawnDeployTime overrides the unit's DeployTime. COLUMNS THE DATA SHIPS THAT ARE NOT",
+      "READ: SpawnAngleShift (DarkWitch 90 -- the Bats on her flanks;",
+      "BattleRam 180 -- the Barbarians behind; 2018 and 15.535 alike), DeathSpawnPushback",
+      "(Golem, LavaHound, DarkWitch true), DeathSpawnMinRadius (SkeletonContainer 100), and",
+      "SpawnCharacterLevelIndex (2 on every hut, Witch 5, DarkWitch 8, BattleRam 2 -- not carried",
+      "into cards.json; every shipped value equals the owner's RelativeLevel and every spawned",
+      "unit is Common, so the owner's unified level is exact today). Engine: state.rs",
+      "`spawner_pass` (Spawn phase, after the queue drains: the timer is decremented there and",
+      "an emission is a PendingSpawn that materialises in the NEXT tick's Spawn phase, the same",
+      "one-tick latency as a landing Goblin Barrel) and `phase_reap` (death spawn, queued the",
+      "same way). Timers run only past the deploy time; a building lifetime is unaffected. A",
+      "wave's simultaneous units and every death spawn are laid out by the engine formation grid",
+      "(the same code as a Goblin Barrel release, spells.PROJECTILE_SPAWN_FORMATION = engine_grid)",
+      "in the OWNER's frame, water-ejected like a release; the contact law (collision.CONTACT_LAW",
+      "= client16402: the separation mean capped at 150 native per tick, deploying units",
+      "included) slides them out of footprints over the following ticks as it does every unit",
+      "(the Move phase's own one-tick static pass runs under the trace-fitted arm only). Spawned units",
+      "carry the owner's team and the owner's unified level (card.rs `unit_level`; the 2018",
+      "SpawnCharacterLevelIndex is not carried into cards.json, see above) and their own",
+      "DeployTime unless the block overrides it."
+    ],
+    "FIRST_WAVE": {
+      "value": "first_wave_after_start_time_or_immediately",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "SpawnStartTime is blank on every 2018 hut (Witch 1000, DarkWitch 1500). Wiki Tombstone / Goblin Hut: the first spawn comes as soon as the building is deployed. The shipped arm reads a blank start time as 0: the first unit is queued in the activation tick's Spawn phase and materialises in the next tick's (activation = the tick the deploy timer reaches 0 in phase_upkeep, or the spawn tick for a zero deploy time). A set start time S materialises the first unit ceil(S / TICK_MS) ticks after activation. The other arm treats a blank start time as one full SpawnPauseTime.",
+      "candidates": ["first_wave_after_start_time_or_immediately", "first_wave_after_one_pause"],
+      "promotion_rules": "A capture: the tick of the first Skeleton a Tombstone spawns, against its deploy-end tick (1 tick under the shipped arm; ceil(2950 / 50) = 59 under the other).",
+      "engine": "state.rs Calib::spawner_first_wave, read by BattleState::spawner_activate (the timer's initial value)"
+    },
+    "START_TIME_ORIGIN": {
+      "value": "from_activation",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Where a set SpawnStartTime is measured from. from_activation (shipped): the timer is loaded with the raw column when the deploy timer reaches 0 -- a 2018 Witch (DeployTime 1000, SpawnStartTime 1000) placed at tick P has its first Skeleton at P + 1 + 20 + 20 = P + 41. from_placement: the deploy window already consumed that much of it, the timer is loaded with max(0, SpawnStartTime - DeployTime) -- the same Witch at P + 22. THE DATA PATTERN THAT RAISES THE FORK: every 15.535 spawning troop ships SpawnStartTime == DeployTime (witch.toml 1000 / 1000, darkwitch.toml 1000 / 1000), which is what a placement-relative 'first wave exactly at deploy end' looks like; the 2018 DarkWitch (1500 / 1000) parts the arms by 500 ms either way. Not measured; FIRST_WAVE covers the blank column only.",
+      "candidates": ["from_activation", "from_placement"],
+      "promotion_rules": "A capture: the tick of a Witch's first Skeleton against her placement tick -- 41 (from_activation) or 22 (from_placement) on the 2018 numbers; the 16.402 Witch ships 1000 / 1000 too, so the live numbers are the same.",
+      "engine": "state.rs Calib::spawner_start_time_origin, read by BattleState::spawner_activate"
+    },
+    "PAUSE_ANCHOR": {
+      "value": "after_last_unit_of_wave",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "For a wave with SpawnInterval > 0 (Witch: 3 Skeletons 300 ms apart, BarbarianHut 2 x 500 ms), where SpawnPauseTime is measured from: the wave's LAST unit (shipped; the timer is simply reloaded with the pause after the last emission) or its FIRST (the pause minus the wave's own length; if that is <= 0 the next wave starts at once). Indistinguishable on a single-unit wave (Tombstone, GoblinHut).",
+      "candidates": ["after_last_unit_of_wave", "after_first_unit_of_wave"],
+      "promotion_rules": "Needs a live card that ships a SpawnInterval: the 16.402 Witch does NOT (15.535 witch.toml: SpawnNumber 4, SpawnPauseTime 7000, no SpawnInterval line -- her whole wave is simultaneous and both arms predict the same gap, so the 140-vs-128-tick Witch prediction is void). A capture of a BarbarianHut if 16.402 still ships its 2 x 500 ms wave: the tick gap between two consecutive waves' first Barbarians is ceil(pause / 50) + ceil(500 / 50) (after_last) or ceil(pause / 50) (after_first); on a hut with no interval the key is unsettleable and irrelevant.",
+      "engine": "state.rs Calib::spawner_pause_anchor, read by BattleState::spawner_pass when a wave's last unit is emitted"
+    },
+    "SPAWN_POINT": {
+      "value": "in_front_toward_enemy_at_own_radius",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "SpawnRadius is blank on every 2018 hut and the Witch (DarkWitch 1500; the 15.535 Witch ships 2000). Wiki Tombstone / Goblin Hut / Barbarian Hut: units emerge from the FRONT of the hut. The shipped arm puts the emission point at the spawner's centre plus its own collision radius (or SpawnRadius when the column is set) along the owner's forward axis (spell.rs forward_dy; frame-free scalars, so exactly rotation-symmetric); the units of a simultaneous wave are gridded around that point. The other arm emits at the spawner's centre, ignoring SpawnRadius, and leaves the Move phase's footprint push-out (and the coincident-push rule for a wave) to spread them.",
+      "candidates": ["in_front_toward_enemy_at_own_radius", "at_centre"],
+      "promotion_rules": "A capture: the first position of a Tombstone's Skeleton relative to the Tombstone (one own radius forward at materialisation, then slid out by the separation cap of 150 native per tick until the circles part, under the shipped arm). The 'in front' guess contradicts the DarkWitch's own row (SpawnAngleShift 90: her Bats appear on her flanks, and BattleRam 180: behind) -- SpawnAngleShift is not read, so a DarkWitch or Ram capture must be compared against that column, not this key.",
+      "engine": "state.rs Calib::spawner_spawn_point, read by BattleState::spawn_point from spawner_pass"
+    },
+    "STUN_PAUSES_SPAWNER": {
+      "value": true,
+      "status": "datamined",
+      "confidence": "MEDIUM-HIGH",
+      "provenance": "character_buffs.csv ZapFreeze ships SpawnSpeedMultiplier -100 beside SpeedMultiplier -100 and HitSpeedMultiplier -100 (2018 and 15.535 alike), i.e. the stun class stops the spawn timer as it stops movement and attacks. The engine skips the timer's decrement on every Spawn phase the spawner is stunned in (stun_ms > 0 at that phase), so a D-ms Zap delays the next wave by exactly the number of Spawn phases the stun covers -- ceil(D / TICK_MS) under status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick. The false arm lets the timer run through a stun.",
+      "candidates": [true, false],
+      "promotion_rules": "A capture: Zap a Tombstone mid-pause and compare its next Skeleton's tick with the unstunned cadence.",
+      "engine": "state.rs Calib::spawner_stun_pauses, read by BattleState::spawner_pass"
+    },
+    "LIMIT_RULE": {
+      "value": "skip_unit_keep_cadence",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "No 2018 row sets SpawnLimit, so nothing shipped turns on it. The implemented arm counts the spawner's own live units plus its units still in the spawn queue (entity.rs `spawned_by`, a pure count over start-of-phase state) and, when the count is at the limit, SKIPS the unit and keeps the timer cadence. The other arm would hold the timer until room frees; it is not implemented and is refused at load.",
+      "candidates": ["skip_unit_keep_cadence", "hold_until_room"],
+      "promotion_rules": "A card with a SpawnLimit in later card data (Goblin Drill, Phoenix nest): the tick of the first unit after one of its units dies at the limit.",
+      "engine": "state.rs Calib::from_json (only() rule); the count is BattleState::owned_count from spawner_pass"
+    },
+    "DEATH_SPAWN_RADIUS_DEFAULT": {
+      "value": "own_collision_radius",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "DeathSpawnRadius is blank on the Tombstone (4 Skeletons; Golem 1500, LavaHound 2500, BattleRam 600, DarkWitch 2000 are set). The shipped arm uses the dying entity's own collision radius (Tombstone 1000: the Skeletons appear where the building stood). The other arm uses zero (all at the death point; the Move phase's coincident-push rule then spreads them in the owner's frame).",
+      "candidates": ["own_collision_radius", "zero"],
+      "promotion_rules": "A capture: the first positions of a dying Tombstone's four Skeletons.",
+      "engine": "state.rs Calib::death_spawn_radius_default, read by BattleState::phase_reap"
+    },
+    "DEATH_SPAWN_LAYOUT": {
+      "value": "engine_grid_within_radius",
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "How DeathSpawnCount units are placed inside DeathSpawnRadius: the engine formation grid (state.rs formation_points, spacing one unit diameter, the same code as a deploy and a Goblin Barrel release) centred on the death point, each point pulled back onto the radius when the grid reaches past it. The community picture is a ring AT the radius; a ring needs trigonometry the integer engine does not have, so that arm is not implemented and is refused at load.",
+      "candidates": ["engine_grid_within_radius", "ring_at_radius"],
+      "promotion_rules": "A capture: the first positions of a Lava Hound's six Pups relative to the death point. The ring arm, when implemented, must honour the unread columns DeathSpawnPushback (Golem / LavaHound / DarkWitch true: the units are pushed outward from the death point) and DeathSpawnMinRadius (SkeletonContainer 100: an inner radius), and SpawnAngleShift for the periodic layout.",
+      "engine": "state.rs Calib::from_json (only() rule); BattleState::death_spawn_points"
+    },
+    "DEATH_SPAWN_DEPLOY_TIME_DEFAULT": {
+      "value": "unit_own_deploy_time",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "DeathSpawnDeployTime is blank on every 2018 death spawn but the BattleRam's (800; the 15.535 ram ships 1000). The shipped arm gives the unit its own DeployTime (Golemite 1000, LavaPups 1000, Skeleton 1000); the other arm deploys it at once (0).",
+      "candidates": ["unit_own_deploy_time", "zero"],
+      "promotion_rules": "A capture: the tick a Golemite first moves against the Golem's death tick.",
+      "engine": "state.rs Calib::death_spawn_deploy_default, read by BattleState::phase_reap"
+    }
+  },
+  "charge": {
+    "$comment": [
+      "THE CHARGE (characters.csv ChargeRange / DamageSpecial / ChargeSpeedMultiplier; 2018: Prince",
+      "250 / 490 / 200, DarkPrince 250 / 290 / 200, BattleRam 300 / 280 / 200). The three numbers",
+      "are card data (data/derived/cards.json `charge`, read RAW by card.rs `ChargeDef`); every rule",
+      "they do not settle is a key below. SETTLED BY DATA, NOT KEYED: the charged hit REPLACES",
+      "Damage with DamageSpecial (exactly 2 x Damage on all three rows, the relation DashDamage has on",
+      "Assassin and MegaKnight where replacement is unambiguous); it has no special range, min-range,",
+      "load time, post-hit pause or attack interval (SpecialRange, SpecialMinRange, SpecialLoadTime,",
+      "StopTimeAfterSpecialAttack, SpecialAttackInterval are blank on EVERY 2018 row); no knockback",
+      "(AttackPushBack is blank; only ZapMachine 750 in the file); ordinary crown-tower percent (100 on",
+      "all three). Engine: state.rs `charge_pass` (Move phase, after separation: the run-up gains only",
+      "from the unit's OWN proposed walk and OWN before/after positions, captured after the knockback",
+      "slides so a slide never counts), `effective_speed` (the one hook every speed buff goes through;",
+      "the buff law is movement.BUFF_SPEED_RULE, floor on the native S), `phase_attack` (the landed hit",
+      "consumes), `apply_effects` (stun / knockback resets), `phase_target` (retarget reset), combat.rs",
+      "`fire` (the special damage). State: entity.rs `charge_progress` / `charged` (hashed, snapshot",
+      "format 9). CHARGE_RANGE_UNIT is measured (the Prince's 42-tick run-up on the corpus) and",
+      "ACCUMULATOR ships the client16402_progress_permille reading, which no clean-lane capture can",
+      "separate from its foils (see the key); the seven other keys are community/guess. Under the",
+      "shipped locomotion (pathfinding.PATH_SEARCH = client16402) the charged speed enters",
+      "phase_path16402's speed read through effective_speed and the charged flag feeds the avoidance",
+      "scan's charged branch (move16402.rs avoidance_scan). Each key's promotion_rules names the",
+      "recorded scene that settles it."
+    ],
+    "CHARGE_RANGE_UNIT": {
+      "value": "centitiles",
+      "units": "the unit of the raw ChargeRange column, as the four DISPLACEMENT accumulators read it; NOT READ under the shipped ACCUMULATOR = client16402_progress_permille",
+      "status": "measured",
+      "confidence": "HIGH",
+      "provenance": "MEASURED ON THE 16.402 CORPUS (gen 26 of frames-20260918-122757.b1): the Prince walks at S 60 from tick 1258 and at 119..120 per tick from tick 1300, i.e. the doubled speed starts on its 43rd walking tick. With ChargeRange 250 that is a run-up of 42 x 60 = 2520 native units, 2.5 tiles: TEN TIMES the column in millitiles. 'centitiles' names that distance (250 centitiles = 2.5 tiles) and predicts the 42 ticks; 'millitiles' (0.25 tiles, 5 ticks) is refuted by the same capture. Under the shipped ACCUMULATOR the column is not converted to a distance at all -- the requested step is divided by it, `progress += tdiv(L x 1000, ChargeRange)` with `L = min(S, dist, 250)` in native units, charged at `progress >= 10000` -- which puts the threshold at the same 2500 native for the Prince (240 permille per walking tick, 10080 after the 42nd) and 3000 native = 3.0 tiles for the Ram (200 per tick, charged after the 50th). THE VALUE STAYS 'centitiles' because it is what the four displacement accumulators (walk_delta_length, walk_delta_toward_target, net_move_length, time_moving -- kept runnable as recording foils) need to hit the 2.5-tile run-up; the shipped accumulator does not read this key (state.rs charge_need returns 10000 permille for it). 2018 ChargeRange: Prince 250, DarkPrince 250, BattleRam 300; 15.535 (dark_prince.toml) and the 16.402 client: DarkPrince 300, Prince 250, BattleRam 300 -- a 16.402 Dark Prince capture must be read against 300 (50 ticks), not 250.",
+      "candidates": ["centitiles", "millitiles"],
+      "promotion_rules": "Measured: 42 moving ticks at S 60 before the first S 120 tick on a clean lane (gen 26 of frames-20260918-122757.b1). A further clean-lane Prince capture is a confirmation; a 16.402 Dark Prince switches at ~50 own moving ticks (ChargeRange 300 there).",
+      "engine": "state.rs Calib::charge_range_unit, read by BattleState::charge_need for the four displacement accumulators only; a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ACCUMULATOR": {
+      "value": "client16402_progress_permille",
+      "status": "hypothesis",
+      "confidence": "MEDIUM",
+      "provenance": "What the run-up counts. client16402_progress_permille, the shipped 16.402 reading: per walking tick `progress += tdiv(L x 1000, ChargeRange)` where `L = min(S, dist_to_aim, 250)` is the REQUESTED step of the walk in native units (the step move16402::move_towards asks for), not the displacement: a body-blocked or pushed Prince still gains the full 240 permille per tick; a tick that is not a walking tick (not in the walking state, or L <= 0) resets progress to 0 (= PROGRESS_ON_STOP reset); reaching 10000 permille sets `charged` and the speed doubles from the NEXT walking tick -- the 43rd for the Prince (S 60, ChargeRange 250: 42 x 240 = 10080), the 51st for the Ram (300: 50 x 200 = 10000). CONSISTENT WITH THE CORPUS (gen 26 of frames-20260918-122757.b1: walking from tick 1258, 119..120 per tick from tick 1300 = walking tick 43), but that capture is a clean straight lane, on which every arm below predicts the same tick; nothing recorded so far separates them, hence hypothesis. Engine: state.rs phase_path16402 records L for every unit (Scratch::walk_step); charge_pass adds tdiv(L x 1000, range_raw) and charge_need is 10000 for this arm; under the two other path models (no requested-step notion) L is the proposed walk's length in native units. THE FOUR FOILS, kept runnable for a recording to decide (all identical to the shipped arm on a free straight walk): walk_delta_length: the length of the walk the Path phase proposed this tick (locomotion only; a blocked unit still counts its intended step). walk_delta_toward_target: that walk projected onto the direction to its target (the default tower when it has none), floored at zero, so a detour around a building counts less. net_move_length: the length of the unit's actual displacement over the Move phase (walk, arena clamp, separation and pushes together; a body-blocked Prince charges later). time_moving: TICK_MS per tick with a non-zero proposed walk, against the ms an unbuffed unit of the card takes to cover the run-up -- identical to walk_delta_length on a free straight walk and different the moment the unit is blocked, pushed or walking a diagonal (per-axis truncation shortens a diagonal step below the nominal S). FOR A FREE-WALKING UNIT ON A STRAIGHT LANE ALL FIVE ARE IDENTICAL BY CONSTRUCTION, and all three charge cards ship the same Speed, so no clean-lane recording can decide this key: the discriminator is a body-blocked, pushed, detouring or slowed/raged Prince. Every arm is a frame-free scalar (a length, a dot product over a length, a tick count), so the seat rotation cannot enter; an own-frame forward-progress reading is deliberately not offered.",
+      "candidates": ["client16402_progress_permille", "walk_delta_length", "walk_delta_toward_target", "net_move_length", "time_moving"],
+      "promotion_rules": "To measured: a capture of a body-blocked Prince (behind a friendly Giant) -- the switch to S 120 at 42 of ITS OWN walking ticks under client16402_progress_permille / walk_delta_length / time_moving, later under net_move_length; a detour separates walk_delta_toward_target; a Prince slowed or raged mid-run-up separates the requested-step reading from walk_delta_length (the requested step is the buffed S, the proposed walk too, but a diagonal or blocked buffed walk parts them). tests/charge.rs prints the switch tick under every arm on the body-blocked scene and pins the 43rd-walking-tick doubling under the shipped arm from the data.",
+      "engine": "state.rs Calib::charge_accumulator, read by BattleState::charge_pass (the per-tick gain) and charge_need (the threshold's unit); phase_path16402 records the requested step"
+    },
+    "MULTIPLIER_MEANING": {
+      "value": "movement_when_charged",
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "What ChargeSpeedMultiplier 200 multiplies. movement_when_charged: the walking speed once the run-up is complete -- the visible Prince charge every player knows (S 60 -> 120), and the live 16.402 corpus shows the Prince at exactly S = 120 while charging (movement.BUFF_SPEED_RULE, not_this_key). movement_always: the speed from the first step, run-up included. accumulation_rate: the rate the run-up fills at (the threshold divided by 200 %), the speed never changing. The buff arithmetic is the measured movement.BUFF_SPEED_RULE applied to the native S (floor(60 * 200 / 100) = 120, then x SPEED_TO_SUBTILES_PER_TICK), so a buffed speed is exact in subtiles.",
+      "candidates": ["movement_when_charged", "movement_always", "accumulation_rate"],
+      "promotion_rules": "A capture: S on the Prince's first moving ticks (60 under movement_when_charged and accumulation_rate, 120 under movement_always) and whether S ever changes (never under accumulation_rate). One capture.",
+      "engine": "state.rs Calib::charge_multiplier_meaning, read by BattleState::effective_speed (both path models) and charge_need"
+    },
+    "PROGRESS_ON_STOP": {
+      "value": "reset",
+      "status": "community",
+      "confidence": "LOW",
+      "provenance": "What a tick on which the unit does not walk (attacking, stunned, deploying, held with no proposed walk) does to a PARTIAL run-up: reset zeroes it (the wiki's 'the Prince must charge again after stopping'); hold leaves it so the run-up resumes where it stopped. Touches charge_progress only -- a completed charge is never undone by standing still (the resets for that are RESET_ON_*).",
+      "candidates": ["reset", "hold"],
+      "promotion_rules": "A captured Zap on a Prince mid-run-up with RESET_ON_STUN settled false, or a Prince that fights a Skeleton mid-run-up: after the interruption the switch to S 120 comes a FULL run-up later (reset) or the remainder later (hold).",
+      "engine": "state.rs Calib::charge_progress_on_stop, read by BattleState::charge_pass on a tick with no gain"
+    },
+    "RESET_ON_ATTACK": {
+      "value": true,
+      "status": "community",
+      "confidence": "MEDIUM-HIGH",
+      "provenance": "The landed charged hit consumes the charge: the next hit is the ordinary Damage and the unit walks at S 60 again until it has covered another run-up (wiki Prince: 'the charge is reset when he hits a target'). Consumed by a COMPLETED windup (state.rs phase_attack, right after combat::fire), not by entering range and not by a cancelled swing. The false arm keeps the charge through every hit (every hit DamageSpecial, the speed never dropping).",
+      "candidates": [true, false],
+      "promotion_rules": "A capture: the tower's hp delta on the Prince's second hit (Damage-scaled under true, DamageSpecial-scaled under false) and S after the first hit.",
+      "engine": "state.rs Calib::charge_reset_on_attack, read by BattleState::phase_attack"
+    },
+    "RESET_ON_STUN": {
+      "value": true,
+      "status": "community",
+      "confidence": "MEDIUM",
+      "provenance": "A stun landing (Zap; the stun buffer applied in Resolve) clears the charge AND the run-up (wiki Zap: 'resets the charge of a Prince'). The false arm leaves both untouched: a charged Prince is still charged when the stun ends. Unsourced by any recording.",
+      "candidates": [true, false],
+      "promotion_rules": "A capture: a Zap on a Prince already at S 120 -- S after the stun is 60 (true) or 120 (false); and the tower's first-hit delta after the stun.",
+      "engine": "state.rs Calib::charge_reset_on_stun, read by BattleState::apply_effects (the stun loop)"
+    },
+    "RESET_ON_KNOCKBACK": {
+      "value": true,
+      "status": "community",
+      "confidence": "LOW",
+      "provenance": "A knockback that LANDS (one the victim is pushable by: spell.rs `pushable` refuses IgnorePushback unless the spell carries PushbackAll) clears the charge and the run-up. All three charge cards ship IgnorePushback = true, so under the shipped data a Fireball never pushes a Prince and never resets it; only The Log (PushbackAll) does. That asymmetry is a PREDICTION of the data, not a modelling choice. The false arm leaves the charge through a landed push.",
+      "candidates": [true, false],
+      "promotion_rules": "A captured Fireball on a Prince (expected: no displacement and no reset either way -- it pins IgnorePushback, not this key) and a captured Log on a Prince at S 120: S after the push is 60 (true) or 120 (false).",
+      "engine": "state.rs Calib::charge_reset_on_knockback, read by BattleState::apply_effects (the knockback loop)"
+    },
+    "RESET_ON_RETARGET": {
+      "value": false,
+      "status": "guess",
+      "confidence": "LOW",
+      "provenance": "Whether switching from one LIVE target to a DIFFERENT live target (state.rs phase_target; acquiring a first target or replacing a dead one is not a switch) clears the charge and the run-up. Shipped false: no source describes a Prince losing its charge to a passing unit, and true would make every Skeleton that crosses its sight reset it. The true arm is kept runnable for the recording.",
+      "candidates": [false, true],
+      "promotion_rules": "A capture: a Prince at S 120 walking for the tower with a Skeleton dropped beside it -- S the tick after it retargets (120 under false, 60 under true).",
+      "engine": "state.rs Calib::charge_reset_on_retarget, read by BattleState::phase_target"
+    },
+    "SPECIAL_LEVEL_SCALING": {
+      "value": "scale_special_base",
+      "status": "guess",
+      "confidence": "MEDIUM",
+      "provenance": "How DamageSpecial scales with level. scale_special_base: a rarity-local level-1 stat like every other, through CardDb::scaled (rarities.csv PowerLevelMultiplier, truncating). twice_scaled_damage: the entity's scaled Damage times DamageSpecial / Damage (i.e. 2 x the scaled Damage on the shipped rows). The two agree at level 1 and part under truncation from local level 2 on: Prince at Epic local 2 (110 %) is scale(490, 110) = 539 against 2 x scale(245, 110) = 538. cards.json level_scaling.applies_to lists hitpoints and damage only and nothing reads it. Settleable from any published Prince stat sheet at two levels, cheaper than a recording.",
+      "candidates": ["scale_special_base", "twice_scaled_damage"],
+      "promotion_rules": "A published charge-damage ladder for the Prince at two levels whose truncations differ (local 2: 539 vs 538), or a captured charged hit at a level above 1.",
+      "engine": "state.rs Calib::charge_special_level_scaling, read by combat.rs fire"
+    }
+  },
   "movement": {
     "$comment": [
       "THE PER-TICK LOCOMOTION LAW OF A GROUND TROOP, measured from the offline oracle on",

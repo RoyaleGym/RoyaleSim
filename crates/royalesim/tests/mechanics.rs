@@ -186,9 +186,11 @@ fn hog_rider_retargets_to_a_cannon_exactly_when_it_enters_sight() {
 fn target_is_locked_once_the_windup_has_started() {
     // Knight winding up on a Cannon. Mid-windup the Cannon is moved 0.5 tile
     // beyond range (past LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET, inside
-    // LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE) and a Tesla is nearer: the lock
-    // must hold and the swing must land on the Cannon. Moved 2 tiles beyond
+    // LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE) and a ~~Tesla~~ Bomb Tower is nearer:
+    // the lock must hold and the swing must land on the Cannon. Moved 2 tiles beyond
     // (past the cancel range) the windup must be cancelled with no damage.
+    // Not a Tesla: a Tesla hides (tests/hide.rs) and cannot be the
+    // nearer target this scene needs; the Bomb Tower is a plain building.
     // Plant: no_target_lock.
     let calib = Calib::shipped();
     assert!(calib.preserve_target_if_hit_started);
@@ -198,13 +200,13 @@ fn target_is_locked_once_the_windup_has_started() {
         let mut s = BattleState::new(1, config());
         let range = card_stat(&s, "Knight").range;
         let cr = card_stat(&s, "Cannon").collision_radius;
-        let tr = card_stat(&s, "Tesla").collision_radius;
+        let tr = card_stat(&s, "BombTower").collision_radius;
         let k = t(900, 2000);
         let c = Vec2::new(k.x, k.y + range + cr);
-        // Tesla nearer than the moved Cannon will be, but out of range now.
+        // Bomb Tower nearer than the moved Cannon will be, but out of range now.
         let tesla = Vec2::new(k.x + range + tr + SUBTILE * 3 / 10, k.y);
         s.spawn_unit(Team::Red, "Cannon", c, None).unwrap();
-        s.spawn_unit(Team::Red, "Tesla", tesla, None).unwrap();
+        s.spawn_unit(Team::Red, "BombTower", tesla, None).unwrap();
         s.spawn_unit(Team::Blue, "Knight", k, None).unwrap();
         let cannon = {
             s.tick();
@@ -737,34 +739,35 @@ fn two_units_that_kill_each_other_on_the_same_tick_both_die() {
 
 #[test]
 fn valkyrie_splash_is_centred_on_the_valkyrie_not_her_target() {
-    // cards.json: Valkyrie self_as_aoe_center = true. A Tesla in front is her
-    // target; a Cannon behind her is inside her splash radius from HER centre but
-    // outside it from the Tesla's. Only a self-centred splash can hurt the Cannon.
-    // Plant: aoe_centre_on_target.
+    // cards.json: Valkyrie self_as_aoe_center = true. A ~~Tesla~~ Bomb Tower in front
+    // is her target; a Cannon behind her is inside her splash radius from HER centre
+    // but outside it from the Bomb Tower's. Only a self-centred splash can hurt the
+    // Cannon. Not a Tesla: a Tesla hides (tests/hide.rs) and is not a
+    // target while under; the Bomb Tower is a plain building. Plant: aoe_centre_on_target.
     let mut s = BattleState::new(1, config());
     let v = card_stat(&s, "Valkyrie");
     assert!(v.self_as_aoe_center, "data: Valkyrie self_as_aoe_center");
     let (range, splash) = (v.range, v.area_damage_radius);
-    let tr = card_stat(&s, "Tesla").collision_radius;
+    let tr = card_stat(&s, "BombTower").collision_radius;
     let cr = card_stat(&s, "Cannon").collision_radius;
     let valk = t(900, 1900);
     let tesla = Vec2::new(valk.x, valk.y - range - tr); // exactly in edge range, toward the river
     let behind_edge = splash - SUBTILE / 2; // cannon edge 0.5 tile inside the splash from Valkyrie
     let cannon = Vec2::new(valk.x, valk.y + behind_edge + cr);
-    // from the Tesla the Cannon is out of splash reach:
-    assert!(tesla.dist(cannon) > splash + cr, "geometry: Cannon must be out of a Tesla-centred splash");
+    // from the Bomb Tower the Cannon is out of splash reach:
+    assert!(tesla.dist(cannon) > splash + cr, "geometry: Cannon must be out of a target-centred splash");
     assert!(s.arena().is_passable_ground(tesla));
-    s.spawn_unit(Team::Red, "Tesla", tesla, None).unwrap();
+    s.spawn_unit(Team::Red, "BombTower", tesla, None).unwrap();
     s.spawn_unit(Team::Red, "Cannon", cannon, None).unwrap();
     s.spawn_unit(Team::Blue, "Valkyrie", valk, None).unwrap();
     s.tick();
-    let (tid, cid) = (id_of(&s, Team::Red, "Tesla"), id_of(&s, Team::Red, "Cannon"));
+    let (tid, cid) = (id_of(&s, Team::Red, "BombTower"), id_of(&s, Team::Red, "Cannon"));
     let cmax = s.entity(cid).unwrap().max_hp;
     let tmax = s.entity(tid).unwrap().max_hp;
     let hit = run_until(&mut s, 200, |s| s.entity(tid).map_or(true, |t| t.hp < tmax));
-    assert!(hit < 200, "the Valkyrie never hit the Tesla");
+    assert!(hit < 200, "the Valkyrie never hit the Bomb Tower");
     let vv = find_live(&s, Team::Blue, "Valkyrie")[0];
-    assert_eq!(vv.target, Some(tid), "precondition: the Tesla is the target");
+    assert_eq!(vv.target, Some(tid), "precondition: the Bomb Tower is the target");
     assert!(s.entity(cid).unwrap().hp < cmax, "the Cannon behind the Valkyrie took no splash");
     let _ = isqrt(0);
 }

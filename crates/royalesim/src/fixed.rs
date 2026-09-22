@@ -44,6 +44,13 @@ pub const fn tiles(t: i32) -> i32 {
     t * SUBTILE
 }
 
+/// Convert hundredths of a tile into subtiles (SUBTILE / 100 = 180, exact). The
+/// unit calibration charge.CHARGE_RANGE_UNIT = centitiles reads ChargeRange in.
+#[inline]
+pub const fn centi(centitiles: i32) -> i32 {
+    centitiles * (SUBTILE / 100)
+}
+
 /// A position or vector in subtiles.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Vec2 {

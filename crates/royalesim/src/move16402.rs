@@ -103,7 +103,7 @@ pub fn loaded_mass(mass_column: i32, r: i32) -> i32 {
         let t = (((r as i64) * (r as i64)) / 250) as i32;
         m = tdiv(t.wrapping_mul(r), 62500);
     }
-    m.min(20).max(1)
+    m.clamp(1, 20)
 }
 
 /// One entity as the contact law sees it. Positions are CURRENT (written back
@@ -353,6 +353,7 @@ pub struct Moved {
 /// displacement): heading, step, the avoidance rotation, the collision mean, the
 /// position write, the reached test. `seg` is the frozen segment direction;
 /// `state4_ground` turns a water cell edge into a wall (deploying ground units).
+#[allow(clippy::too_many_arguments)]
 pub fn move_towards(
     u: (i32, i32),
     tx: i32,
@@ -414,6 +415,9 @@ pub fn move_towards(
 /// The position write: `pos += step`, then, with the flag, an axis that
 /// crossed into a water cell (or out of the grid) is clamped to the edge of the cell
 /// it started in. Without the flag only the grid edge clamps.
+/// (The grid test and the water test are kept as two arms per axis so each
+/// clamp reads on its own, even where the two arms coincide.)
+#[allow(clippy::too_many_arguments, clippy::if_same_then_else)]
 pub fn grid_move(ox: i32, oy: i32, dx: i32, dy: i32, flag: bool, is_water: &impl Fn(i32, i32) -> bool, width_cells: i32, height_cells: i32) -> (i32, i32) {
     let (col, row) = (tdiv(ox, 500), tdiv(oy, 500));
     let (cx0, cy0) = (col * 500, row * 500);

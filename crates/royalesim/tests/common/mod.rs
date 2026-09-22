@@ -265,6 +265,18 @@ pub type Canon = (
     // knockback slide (timer, and the remaining displacement -- a WORLD vector, so
     // both components flip sign under the rotation, like a projectile's carry).
     (i32, bool, i32, (i32, i32)),
+    // Hide state (Tesla): the state code and its timer, both frame-free
+    // scalars.
+    (u8, i32),
+    // Spawner state: ms to the next emission and the units left in the
+    // current wave, frame-free scalars. The owner id (`spawned_by`) differs between
+    // twins and is not compared.
+    (i32, i32),
+    // Charge state (Prince): the charged flag and the run-up progress,
+    // frame-free scalars, plus the effective step. Without them every mirror test
+    // would stay green over a seat-asymmetric charge; a frame transform applied to
+    // either IS the bug.
+    (bool, i32, i32),
 );
 
 /// A position in `team`'s own frame: identity for Blue, the 180-degree rotation for
@@ -301,6 +313,9 @@ fn canon_entity(s: &BattleState, e: &EntityView) -> Canon {
             target,
         ),
         (e.stun_ms, e.retarget_on_resume, e.knock_ms, knock_rem),
+        (e.hide_state as u8, e.hide_ms),
+        (e.spawn_ms, e.spawn_wave_left),
+        (e.charged, e.charge_progress, e.effective_speed),
     )
 }
 

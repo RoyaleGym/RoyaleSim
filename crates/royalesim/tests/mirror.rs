@@ -46,6 +46,7 @@
 //! tests/stacked_tie.rs. `red_reversed` here reorders `spawn_unit` calls, which
 //! still assign team_seq in CALL order; setup-spawn order is gated by
 //! tests/setup_spawn_order.rs.
+#![allow(unexpected_cfgs)]
 mod common;
 
 use royalesim::entity::EntityKind;

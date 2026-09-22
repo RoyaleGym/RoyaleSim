@@ -30,10 +30,10 @@
 #![allow(unexpected_cfgs)]
 
 use crate::card::CardDb;
-use crate::entity::{AttackPhase, EntityKind, Entities, SpatialHash};
+use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, Vec2};
 use crate::path::advance;
-use crate::state::Calib;
+use crate::state::{Calib, ChargeLevelScaling};
 use crate::target::in_attack_range;
 use crate::{EntityId, Team};
 
@@ -63,6 +63,13 @@ impl CrownRounding {
 pub struct Hit {
     pub target: EntityId,
     pub amount: i32,
+    /// Lands on a HIDDEN building regardless of hide.HIDDEN_IMMUNE_TO_DAMAGE. Only
+    /// the building-lifetime expiry hit (state.rs phase_status) sets it: a Tesla
+    /// whose 40 s are up dies under ground. Every attack, projectile, spell and
+    /// death-damage hit leaves it false and is dropped by `resolve` while the
+    /// victim is Hidden. Snapshot format 6; absent in older snapshots = false.
+    #[serde(default)]
+    pub ignores_hide: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -136,7 +143,7 @@ pub fn splash(
             continue;
         }
         if in_range_edge(center, ents.pos[v], radius, ents.radius[v]) {
-            out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding) });
+            out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false });
         }
     }
 }
@@ -217,7 +224,30 @@ pub fn fire(
 ) {
     let card = cards.get(ents.card[a]);
     let ti = target.index as usize;
-    let amount = ents.damage[a];
+    // THE CHARGED HIT (card.rs `ChargeDef`; calibration charge.SPECIAL_LEVEL_SCALING):
+    // a charged unit's hit is DamageSpecial INSTEAD of Damage -- a replacement, not
+    // an addition (DamageSpecial is exactly 2 x Damage on every 2018 charge row, the
+    // relation DashDamage has where replacement is unambiguous). Everything else
+    // about the hit is the ordinary one: the card's range, its crown-tower percent
+    // (100 on all three), no knockback (AttackPushBack is blank on them). The
+    // caller (state.rs phase_attack) consumes the charge right after this call.
+    let amount = match (ents.charged[a], card.charge) {
+        (true, Some(ch)) => {
+            #[cfg(clash_plant = "charge_damage_ignores_level")]
+            {
+                let _ = calib.charge_special_level_scaling;
+                ch.damage_special // PLANT: the level-1 DamageSpecial at every level.
+            }
+            #[cfg(not(clash_plant = "charge_damage_ignores_level"))]
+            match calib.charge_special_level_scaling {
+                // A level-1 stat like every other; the level was validated at spawn
+                // (state.rs spawn_now scaled hitpoints through the same table).
+                ChargeLevelScaling::ScaleSpecialBase => cards.scaled(ents.card[a], ents.level[a], ch.damage_special).expect("level validated at spawn"),
+                ChargeLevelScaling::TwiceScaledDamage => ((ents.damage[a] as i64) * (ch.damage_special as i64) / (card.damage.max(1) as i64)) as i32,
+            }
+        }
+        _ => ents.damage[a],
+    };
     let pct = card.crown_tower_damage_percent;
     let splash_r = if card.area_damage_radius > 0 {
         card.area_damage_radius
@@ -255,7 +285,7 @@ pub fn fire(
         let centre = ents.pos[ti];
         splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
     } else {
-        dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) });
+        dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
     }
 }
 
@@ -284,7 +314,7 @@ pub fn step_projectiles(
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
         } else if alive {
             let ti = p.target.index as usize;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) });
+            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding), ignores_hide: false });
         }
         false
     });
@@ -300,14 +330,34 @@ pub struct ResolveOut {
 }
 
 /// Apply every buffered hit in one pass. `sums` is scratch.
-pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>) -> ResolveOut {
+///
+/// THE ONE CHOKE POINT FOR HIDE IMMUNITY (calibration hide.HIDDEN_IMMUNE_TO_DAMAGE,
+/// `hidden_immune`): a hit on a building that is `HideState::Hidden` at resolve
+/// time is dropped here, whatever wrote it -- an attack, a projectile, a spell, a
+/// rolling Log, death damage -- unless the hit says `ignores_hide` (the lifetime
+/// expiry). Dropping at resolve rather than at push time means every writer stays
+/// ignorant of hide, and the state that decides is the one Target phase set this
+/// tick (the hide pass runs before any damage is written).
+pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool) -> ResolveOut {
     let cap = ents.capacity();
     sums.clear();
     sums.resize(cap, 0);
     for h in dmg.hits.drain(..) {
-        if ents.is_alive(h.target) && h.amount > 0 {
-            sums[h.target.index as usize] += h.amount as i64;
+        if !ents.is_alive(h.target) || h.amount <= 0 {
+            continue;
         }
+        #[cfg(not(clash_plant = "hidden_takes_damage"))]
+        let immune = hidden_immune && !h.ignores_hide && ents.hide[h.target.index as usize] == HideState::Hidden;
+        #[cfg(clash_plant = "hidden_takes_damage")]
+        let immune = {
+            // PLANT (regression): the choke point never consults the hide state.
+            let _ = hidden_immune;
+            false
+        };
+        if immune {
+            continue;
+        }
+        sums[h.target.index as usize] += h.amount as i64;
     }
     let mut out = ResolveOut::default();
     for (i, &s) in sums.iter().enumerate() {

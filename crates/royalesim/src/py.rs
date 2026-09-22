@@ -289,10 +289,23 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
     for (cid, idx) in catalogue.iter().enumerate() {
         id_of_idx[*idx as usize] = cid as i32;
     }
+    // A summon-only unit reports under the FIRST catalogue card that can produce it:
+    // a spell's release, a periodic spawner's or a death spawn's unit (one Skeleton
+    // record serves Skeletons, Tombstone and Witch alike).
     for (cid, idx) in catalogue.iter().enumerate() {
-        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &cards.get(*idx).spell {
-            if id_of_idx[sp.unit as usize] == -1 {
-                id_of_idx[sp.unit as usize] = cid as i32;
+        let c = cards.get(*idx);
+        let mut units: Vec<u16> = Vec::new();
+        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell {
+            units.push(sp.unit);
+        }
+        units.extend(c.spawner.map(|sp| sp.unit));
+        units.extend(c.death_spawn.map(|ds| ds.unit));
+        for u in units {
+            // A card whose unit could not be loaded is rejected (unregistered, its
+            // unit index unresolved) and never in a catalogue that came from names;
+            // the by-index default catalogue below skips it too.
+            if (u as usize) < id_of_idx.len() && id_of_idx[u as usize] == -1 {
+                id_of_idx[u as usize] = cid as i32;
             }
         }
     }
@@ -499,7 +512,9 @@ impl Battle {
                     Ok(i)
                 })
                 .collect::<PyResult<_>>()?,
-            None => (0..db.cards.len() as u16).filter(|i| !is_tower(&db.get(*i).name) && !db.get(*i).summon_only).collect(),
+            // Every REGISTERED non-tower, non-summon card: a card rejected after its
+            // push (its spawned unit could not load) is in `cards` but not by name.
+            None => (0..db.cards.len() as u16).filter(|i| !is_tower(&db.get(*i).name) && !db.get(*i).summon_only && db.index(&db.get(*i).name) == Some(*i)).collect(),
         };
         let mut seen = vec![false; db.cards.len()];
         for idx in &catalogue {
@@ -755,6 +770,59 @@ impl Battle {
         Ok(self.s()?.state_hash())
     }
 
+    /// HIDE (Tesla): the protocol uids of every live entity that is
+    /// under ground right now (entity.rs `HideState::Hidden`: untargetable and, under
+    /// calibration hide.HIDDEN_IMMUNE_TO_DAMAGE, immune). Deliberately a SEPARATE
+    /// accessor: the positional EntityState rows of `state_json` keep their shape,
+    /// and the Python protocol grows a `hidden` field only when RoyaleGym is ready
+    /// to read one. Rising buildings are not listed (they are targetable per
+    /// hide.TARGETABLE_WHILE_RISING and take damage); `hide_states` has them.
+    fn hidden_uids(&self) -> PyResult<Vec<i64>> {
+        let s = self.s()?;
+        Ok(s.entities().filter(|e| e.hidden).map(|e| (e.team_seq as i64) * 2 + e.team as i64).collect())
+    }
+
+    /// SPAWNERS: `(uid, ms_to_next, wave_left)` for every live entity whose card is a
+    /// periodic spawner (Tombstone, GoblinHut, Witch, ...): ms until its next unit is
+    /// queued (state.rs `spawner_pass`; a negative or zero value while deploying means
+    /// "at activation") and the units of the current wave still to come. `state_json`
+    /// is unchanged; a viewer reads this beside it.
+    fn spawner_states(&self) -> PyResult<Vec<(i64, i32, i32)>> {
+        let s = self.s()?;
+        let cards = s.cards();
+        Ok(s.entities()
+            .filter(|e| cards.get(e.card_idx).spawner.is_some())
+            .map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.spawn_ms, e.spawn_wave_left))
+            .collect())
+    }
+
+    /// CHARGE (Prince, DarkPrince, BattleRam): `(uid, charged, progress)`
+    /// for every live entity whose card charges -- `charged` 1 once the run-up is
+    /// complete (the unit walks at ChargeSpeedMultiplier and its next landed hit is
+    /// DamageSpecial), `progress` the run-up accumulated so far, RAW (its unit is
+    /// calibration charge.ACCUMULATOR's: subtiles, or ms; never divide it here).
+    /// `state_json` is unchanged; a viewer reads this beside it.
+    fn charge_states(&self) -> PyResult<Vec<(i64, u8, i32)>> {
+        let s = self.s()?;
+        let cards = s.cards();
+        Ok(s.entities()
+            .filter(|e| cards.get(e.card_idx).charge.is_some())
+            .map(|e| ((e.team_seq as i64) * 2 + e.team as i64, u8::from(e.charged), e.charge_progress))
+            .collect())
+    }
+
+    /// HIDE: `(uid, state, ms)` for every live entity whose card hides -- state 0 Up,
+    /// 1 Hidden, 2 Rising (entity.rs `HideState`), `ms` the state's timer in ms
+    /// (UpTimeMs left while Rising; HideTimeMs left while Up; 0 while Hidden).
+    fn hide_states(&self) -> PyResult<Vec<(i64, u8, i32)>> {
+        let s = self.s()?;
+        let cards = s.cards();
+        Ok(s.entities()
+            .filter(|e| cards.get(e.card_idx).hide.is_some())
+            .map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.hide_state as u8, e.hide_ms))
+            .collect())
+    }
+
     /// TRACE-DIFF ENTRY POINT: every live troop as
     /// `(uid, card, x, y, deploy_ms, speed, [(col, row), ...])`, positions in
     /// SUBTILES and the route as half-tile CELLS in the order the engine stores it
@@ -766,6 +834,7 @@ impl Battle {
     /// cells a divergence cannot be attributed to the search rather than to the
     /// locomotion law. `state_json` is the protocol surface and does not carry
     /// routes; this is deliberately separate and debug-only.
+    #[allow(clippy::type_complexity)] // a debug tuple row; the shape is documented above
     fn debug_units(&self) -> PyResult<Vec<(i64, String, i32, i32, i32, i32, Vec<(i32, i32)>)>> {
         let s = self.s()?;
         let a = s.arena();

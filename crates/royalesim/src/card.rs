@@ -142,6 +142,95 @@ pub struct SpellDef {
     pub placement: SpellPlacement,
 }
 
+/// A building that hides when it is not attacking (buildings.csv
+/// HidesWhenNotAttacking / HideTimeMs / UpTimeMs; 2018 and 15.535 both: Tesla
+/// 800 / 800). The state machine is entity.rs `HideState`, driven by state.rs
+/// `hide_pass`; every rule the columns do not settle is a calibration.json `hide.*`
+/// key. `HideBeforeFirstHit` (blank on every 2018 row) is not read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HideDef {
+    /// ms the building stays up without attacking before it hides again.
+    pub hide_time_ms: i32,
+    /// ms from the wake trigger to being up (able to target and attack).
+    pub up_time_ms: i32,
+}
+
+/// A PERIODIC SPAWNER (characters.csv / buildings.csv SpawnCharacter, SpawnNumber,
+/// SpawnInterval, SpawnPauseTime, SpawnStartTime, SpawnLimit, SpawnRadius; 2018:
+/// Tombstone, GoblinHut, BarbarianHut, FirespiritHut, Witch, DarkWitch). The
+/// column semantics were checked against the 15.535 csv_logic (same names, same
+/// meanings) and the community reading; every rule the columns do not settle is
+/// a calibration.json `spawner.*` key. Driven by state.rs `spawner_pass` (Spawn
+/// phase); the per-entity timers are entity.rs `spawn_ms` / `spawn_wave_left`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpawnerDef {
+    /// The spawned unit's CardDb index (a `summon_only` card; resolved by
+    /// `CardDb::from_json_str`, which loads it).
+    pub unit: u16,
+    /// SpawnNumber: units per wave (>= 1).
+    pub number: i32,
+    /// SpawnInterval: ms between the units of ONE wave (Witch 300). Blank = all at
+    /// once, read as 0 -- a column semantic, not a guess (the community reading and
+    /// the only one under which a blank cell on a multi-unit wave means anything).
+    pub interval_ms: i32,
+    /// SpawnStartTime: ms to the first wave -- from ACTIVATION (deploy time over)
+    /// or from PLACEMENT, calibration spawner.START_TIME_ORIGIN (every 15.535
+    /// spawning troop ships SpawnStartTime == DeployTime, which reads like a
+    /// placement-relative timer; the 2018 DarkWitch 1500 / 1000 does not settle it).
+    /// Blank on every hut: calibration spawner.FIRST_WAVE decides.
+    pub start_time_ms: Option<i32>,
+    /// SpawnPauseTime: ms between waves (> 0).
+    pub pause_time_ms: i32,
+    /// SpawnLimit: the most units from THIS spawner alive (or queued) at once.
+    /// Blank = unlimited (no 2018 row sets it).
+    pub limit: Option<i32>,
+    /// SpawnRadius, SUBTILES: how far from the spawner the units appear. Blank on
+    /// every hut and the Witch: calibration spawner.SPAWN_POINT decides.
+    pub radius: Option<i32>,
+}
+
+/// A DEATH SPAWN (DeathSpawnCharacter / DeathSpawnCount / DeathSpawnRadius /
+/// DeathSpawnDeployTime; 2018: Tombstone 4 Skeletons, Golem 2 Golemites, LavaHound
+/// 6 LavaPups, BattleRam 2 Barbarians, DarkWitch 3 Bats). Fired by state.rs
+/// `phase_reap` for every death that goes through the death queue (hp <= 0 from
+/// any hit, the lifetime expiry hit included); never for a scenario removal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeathSpawnDef {
+    /// The spawned unit's CardDb index (a `summon_only` card).
+    pub unit: u16,
+    pub count: i32,
+    /// DeathSpawnRadius, SUBTILES. None: calibration spawner.DEATH_SPAWN_RADIUS_DEFAULT.
+    pub radius: Option<i32>,
+    /// DeathSpawnDeployTime: overrides the unit's own DeployTime. None: calibration
+    /// spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT.
+    pub deploy_time_ms: Option<i32>,
+}
+
+/// A CHARGE (characters.csv ChargeRange / DamageSpecial / ChargeSpeedMultiplier;
+/// 2018: Prince 250 / 490 / 200, DarkPrince 250 / 290 / 200, BattleRam 300 / 280 /
+/// 200). The unit walks a run-up, then moves at the multiplied speed and its next
+/// landed hit deals DamageSpecial INSTEAD of Damage (DamageSpecial is exactly
+/// 2 x Damage on all three rows, the same relation DashDamage has on Assassin and
+/// MegaKnight where replacement is unambiguous). Every rule the columns do not
+/// settle is a calibration.json `charge.*` key; the state is entity.rs
+/// `charge_progress` / `charged`, driven by state.rs `charge_pass` (Move phase),
+/// `effective_speed` and `phase_attack`, and combat.rs `fire`.
+///
+/// ALL THREE NUMBERS ARE RAW. `range_raw`'s UNIT is not established by the data
+/// alone (250 is neither millitiles nor ms under this file's own conventions), so
+/// it is NOT converted here: calibration charge.CHARGE_RANGE_UNIT and
+/// charge.ACCUMULATOR decide in state.rs, where Calib is in scope.
+/// `damage_special` is the rarity-local LEVEL-1 value like every other stat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChargeDef {
+    /// ChargeRange, raw.
+    pub range_raw: i32,
+    /// DamageSpecial, level 1, raw.
+    pub damage_special: i32,
+    /// ChargeSpeedMultiplier, percent (200 = twice the speed).
+    pub speed_multiplier_percent: i32,
+}
+
 /// One card, in engine units. Distances are SUBTILES; times are ms.
 #[derive(Clone, Debug)]
 pub struct CardDef {
@@ -207,6 +296,21 @@ pub struct CardDef {
     /// the only correct way to turn these three numbers into a speed.
     pub stop_movement_after_ms: i32,
     pub wait_ms: i32,
+    /// buildings.csv HidesWhenNotAttacking with its two timers (Tesla). None on
+    /// every card that does not hide; a hiding card with either timer missing is
+    /// refused at load, never defaulted.
+    pub hide: Option<HideDef>,
+    /// The Spawn* columns (periodic spawner). None on every card without a
+    /// SpawnCharacter; a spawner block missing SpawnNumber or SpawnPauseTime is
+    /// refused at load, never defaulted.
+    pub spawner: Option<SpawnerDef>,
+    /// The DeathSpawn* columns. None without a DeathSpawnCharacter; a block missing
+    /// its count is refused at load.
+    pub death_spawn: Option<DeathSpawnDef>,
+    /// The charge block (ChargeRange / DamageSpecial / ChargeSpeedMultiplier). None
+    /// on every card without one; a block missing any of the three is refused at
+    /// load, never defaulted (a card that half-charges runs as a different card).
+    pub charge: Option<ChargeDef>,
     // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere else silently retires the
@@ -310,6 +414,62 @@ struct RawCard {
     ignore_pushback: Option<bool>,
     /// Spells only: cards.json `spell` block.
     spell: Option<RawSpell>,
+    /// buildings.csv HidesWhenNotAttacking / HideTimeMs / UpTimeMs (Tesla).
+    hides_when_not_attacking: Option<bool>,
+    hide_time_ms: Option<i32>,
+    up_time_ms: Option<i32>,
+    /// cards.json `spawner` block (Spawn* columns); null on most cards.
+    spawner: Option<RawSpawner>,
+    /// cards.json `death_spawn` block (DeathSpawn* columns); null on most cards.
+    death_spawn: Option<RawDeathSpawn>,
+    /// cards.json `charge` block (ChargeRange / DamageSpecial / ChargeSpeedMultiplier);
+    /// null on every card but Prince, DarkPrince and BattleRam in the 2018 data.
+    charge: Option<RawCharge>,
+}
+
+/// cards.json `charge` block, every field nullable (the extractor writes the whole
+/// block whenever DamageSpecial is set; field names exactly as it writes them).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawCharge {
+    damage_special: Option<i32>,
+    charge_range_raw: Option<i32>,
+    charge_speed_multiplier_percent: Option<i32>,
+}
+
+/// cards.json `spawner` block, every field nullable (the extractor writes the
+/// whole block whenever SpawnCharacter is set).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawSpawner {
+    character: Option<String>,
+    number: Option<i32>,
+    interval_ms: Option<i32>,
+    start_time_ms: Option<i32>,
+    pause_time_ms: Option<i32>,
+    limit: Option<i32>,
+    radius_milli: Option<i32>,
+}
+
+/// cards.json `death_spawn` block.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawDeathSpawn {
+    character: Option<String>,
+    count: Option<i32>,
+    radius_milli: Option<i32>,
+    deploy_time_ms: Option<i32>,
+}
+
+/// Which mechanic of a card needs a unit loaded (`CardDb::from_json_str`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum UnitUse {
+    /// A spell projectile's SpawnCharacter (Goblin Barrel).
+    Spell,
+    /// The Spawn* block.
+    Spawner,
+    /// The DeathSpawn* block.
+    DeathSpawn,
 }
 
 #[derive(Deserialize)]
@@ -528,6 +688,10 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         summon_only: false,
         stop_movement_after_ms: 0,
         wait_ms: 0,
+        hide: None,
+        spawner: None,
+        death_spawn: None,
+        charge: None,
     }
 }
 
@@ -732,8 +896,86 @@ fn level_table_of(v: Option<serde_json::Value>) -> Result<Option<Vec<i32>>, Stri
     })
 }
 
-/// (card, display name, name of the unit it spawns).
-type Converted = (CardDef, Option<String>, Option<String>);
+/// (card, display name, the units it needs loaded: which mechanic, unit name).
+type Converted = (CardDef, Option<String>, Vec<(UnitUse, String)>);
+
+/// The SPAWNER half of the loader: the `spawner` block is all-or-nothing. A block
+/// with a SpawnCharacter needs SpawnNumber and SpawnPauseTime (a Witch or hut row
+/// with only one of them is a data error, not a spawner with a guessed cadence);
+/// one without a character but with any other column set is refused too. THE
+/// GAME'S OWN BLANK: a SpawnCharacter with BOTH SpawnNumber and SpawnPauseTime
+/// blank is no periodic spawner at all -- the 2018 SkeletonContainer row ships
+/// `SpawnCharacter = Skeleton` with both blank (and death-spawns its 8 Skeletons
+/// through DeathSpawn*), so the pair-blank reading is the file's, not a guess.
+/// Returns the def with `unit` unresolved (u16::MAX) and the unit's name.
+fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String)>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let Some(unit) = b.character else {
+        if b.number.is_some() || b.pause_time_ms.is_some() || b.interval_ms.is_some() || b.start_time_ms.is_some() || b.limit.is_some() || b.radius_milli.is_some() {
+            return Err("spawner block with Spawn* columns but no SpawnCharacter".into());
+        }
+        return Ok(None);
+    };
+    if b.number.is_none() && b.pause_time_ms.is_none() {
+        return Ok(None);
+    }
+    let number = b.number.ok_or_else(|| format!("spawner {unit}: no SpawnNumber"))?;
+    let pause_time_ms = b.pause_time_ms.ok_or_else(|| format!("spawner {unit}: no SpawnPauseTime"))?;
+    let interval_ms = b.interval_ms.unwrap_or(0);
+    if number < 1 || pause_time_ms <= 0 || interval_ms < 0 || b.start_time_ms.is_some_and(|t| t < 0) || b.limit.is_some_and(|l| l < 1) || b.radius_milli.is_some_and(|r| r < 0) {
+        return Err(format!(
+            "spawner {unit}: SpawnNumber {number} / SpawnPauseTime {pause_time_ms} / SpawnInterval {interval_ms} / SpawnStartTime {:?} / SpawnLimit {:?} / SpawnRadius {:?} out of range",
+            b.start_time_ms, b.limit, b.radius_milli
+        ));
+    }
+    Ok(Some((
+        SpawnerDef { unit: u16::MAX, number, interval_ms, start_time_ms: b.start_time_ms, pause_time_ms, limit: b.limit, radius: b.radius_milli.map(milli) },
+        unit,
+    )))
+}
+
+/// The DEATH-SPAWN half of the loader. A blank DeathSpawnCount is ONE: Balloon and
+/// RageBarbarian ship DeathSpawnCharacter with no count in the 2018 data and in
+/// 15.535 alike and the game drops exactly one object, so the blank is the game's
+/// own default (a column semantic, like a blank SpawnInterval), not a guess. Their
+/// units cannot load anyway (`from_json_str`), so both cards end up rejected -- but
+/// AFTER the push, which keeps the format-3 card list (state.rs `migrate_v3`)
+/// intact: the earlier loader ran the Balloon as a plain flyer.
+fn convert_death_spawn(raw: Option<RawDeathSpawn>) -> Result<Option<(DeathSpawnDef, String)>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let Some(unit) = b.character else {
+        if b.count.is_some() || b.radius_milli.is_some() || b.deploy_time_ms.is_some() {
+            return Err("death_spawn block with DeathSpawn* columns but no DeathSpawnCharacter".into());
+        }
+        return Ok(None);
+    };
+    let count = b.count.unwrap_or(1);
+    if count < 1 || b.radius_milli.is_some_and(|r| r < 0) || b.deploy_time_ms.is_some_and(|d| d < 0) {
+        return Err(format!("death_spawn {unit}: DeathSpawnCount {count} / DeathSpawnRadius {:?} / DeathSpawnDeployTime {:?} out of range", b.radius_milli, b.deploy_time_ms));
+    }
+    Ok(Some((DeathSpawnDef { unit: u16::MAX, count, radius: b.radius_milli.map(milli), deploy_time_ms: b.deploy_time_ms }, unit)))
+}
+
+/// The CHARGE half of the loader: the `charge` block is all-or-nothing. A block with
+/// any of ChargeRange, DamageSpecial or ChargeSpeedMultiplier missing or non-positive
+/// is a data error (a Prince with no run-up length would silently run as a plain
+/// melee unit, which is the defect this mechanic replaces), never a default. Only a
+/// TROOP charges: the accumulator counts locomotion, and a building never walks.
+fn convert_charge(raw: Option<RawCharge>, kind: CardKind) -> Result<Option<ChargeDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let need = |v: Option<i32>, what: &str| match v {
+        Some(x) if x > 0 => Ok(x),
+        Some(x) => Err(format!("charge: {what} {x} is not positive")),
+        None => Err(format!("charge: no {what}")),
+    };
+    let damage_special = need(b.damage_special, "DamageSpecial")?;
+    let range_raw = need(b.charge_range_raw, "ChargeRange")?;
+    let speed_multiplier_percent = need(b.charge_speed_multiplier_percent, "ChargeSpeedMultiplier")?;
+    if kind != CardKind::Troop {
+        return Err(format!("charge block on a {kind:?}; only a troop charges"));
+    }
+    Ok(Some(ChargeDef { range_raw, damage_special, speed_multiplier_percent }))
+}
 
 fn convert(raw: RawCard) -> Result<Converted, String> {
     if raw.kind == CardKind::Spell {
@@ -745,7 +987,7 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
             return Err("spells are not simulated yet".into());
         }
         #[allow(unreachable_code)]
-        return convert_spell(raw).map(|(c, spawn)| (c, display, spawn));
+        return convert_spell(raw).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
     }
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
@@ -783,13 +1025,53 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
     let kind = raw.kind;
     // Spells do not reach here: `convert_spell` above handles them
     // (plant: spells_rejected).
-    let range = need(raw.range_milli, "range_milli")?;
+    // A NON-ATTACKING BUILDING ships no Range at all: the 2018 huts (Tombstone,
+    // GoblinHut, BarbarianHut, FirespiritHut) have no Damage, no Projectile and a
+    // blank Range (their HitSpeed 10000 is inert). Loaded as range 0 / sight 0 AND
+    // attacks nothing (attacks_ground / attacks_air forced false below): the
+    // edge-to-edge range test (fixed.rs in_range_edge adds the target's radius)
+    // would otherwise acquire a unit standing inside the footprint -- a Goblin
+    // Barrel's goblin on a Tombstone -- and run a zero-damage attack cycle. Any
+    // card WITH a damage source still needs its range; requiring range_milli of
+    // every non-spell card refused every spawner building.
+    let attacks = raw.damage.is_some() || projectile.is_some();
+    // Buildings only: a damage-less TROOP row (SkeletonBalloon, rejected later
+    // anyway) keeps its columns as loaded, so the format-3 card fingerprint
+    // (state.rs migrate_v3) still reproduces.
+    let inert_building = kind == CardKind::Building && !attacks;
+    let range = match raw.range_milli {
+        Some(r) => r,
+        None if inert_building => 0,
+        None => return Err("missing range_milli".into()),
+    };
+    let spawner = convert_spawner(raw.spawner)?;
+    let death_spawn = convert_death_spawn(raw.death_spawn)?;
+    let charge = convert_charge(raw.charge, kind)?;
+    let mut units: Vec<(UnitUse, String)> = Vec::new();
+    if let Some((_, u)) = &spawner {
+        units.push((UnitUse::Spawner, u.clone()));
+    }
+    if let Some((_, u)) = &death_spawn {
+        units.push((UnitUse::DeathSpawn, u.clone()));
+    }
     let no_deploy_size = match raw.no_deploy_size_tiles {
         Some([w, h]) if w > 0 && h > 0 => Some(Vec2::new(tiles(w), tiles(h))),
         Some(other) => return Err(format!("no_deploy_size_tiles {other:?} is not two positive tile counts")),
         None => None,
     };
     let display = raw.display_name.clone();
+    // The hide block is all-or-nothing: a hiding card ships both timers or is
+    // refused; a non-hiding card ships neither (a stray timer is a data error, not
+    // a mechanic to guess at). Only a BUILDING hides: the machinery keys on
+    // `EntityKind::Building` too, so a hiding troop would load and then never hide.
+    let hide = match (raw.hides_when_not_attacking.unwrap_or(false), raw.hide_time_ms, raw.up_time_ms) {
+        (false, None, None) => None,
+        (false, h, u) => return Err(format!("hide_time_ms {h:?} / up_time_ms {u:?} on a card that does not hide")),
+        (true, Some(h), Some(u)) if h >= 0 && u >= 0 && kind == CardKind::Building => Some(HideDef { hide_time_ms: h, up_time_ms: u }),
+        (true, h, u) => {
+            return Err(format!("hides_when_not_attacking needs non-negative hide_time_ms and up_time_ms on a building; got {h:?} / {u:?} on a {kind:?}"))
+        }
+    };
     Ok((CardDef {
         name: raw.name,
         kind,
@@ -806,8 +1088,8 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         collision_radius: milli(need(raw.collision_radius_milli, "collision_radius_milli")?),
         mass: raw.mass,
         deploy_time_ms: raw.deploy_time_ms.unwrap_or(0),
-        attacks_air: raw.attacks_air.unwrap_or(false),
-        attacks_ground: raw.attacks_ground.unwrap_or(true),
+        attacks_air: raw.attacks_air.unwrap_or(false) && !inert_building,
+        attacks_ground: raw.attacks_ground.unwrap_or(true) && !inert_building,
         target_only_buildings: raw.target_only_buildings.unwrap_or(false),
         flying_height: raw.flying_height.unwrap_or(0),
         area_damage_radius: milli(raw.area_damage_radius_milli.unwrap_or(0)),
@@ -826,7 +1108,11 @@ fn convert(raw: RawCard) -> Result<Converted, String> {
         ignore_pushback: raw.ignore_pushback.unwrap_or(false),
         spell: None,
         summon_only: false,
-    }, display, None))
+        hide,
+        spawner: spawner.map(|(d, _)| d),
+        death_spawn: death_spawn.map(|(d, _)| d),
+        charge,
+    }, display, units))
 }
 
 impl CardDb {
@@ -842,35 +1128,52 @@ impl CardDb {
             towers_from_fallback: false,
             rarities,
         };
-        let mut spawns: Vec<(u16, String)> = Vec::new();
+        let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
             match convert(raw) {
-                Ok((c, display, spawn)) => {
+                Ok((c, display, units)) => {
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
                         db.rejected.push((name, format!("rarity {} not in rarities.csv", c.rarity)));
                         continue;
                     }
                     db.push(c, display)?;
-                    if let Some(unit) = spawn {
-                        spawns.push(((db.cards.len() - 1) as u16, unit));
+                    for (which, unit) in units {
+                        spawns.push(((db.cards.len() - 1) as u16, which, unit));
                     }
                 }
                 Err(e) => db.rejected.push((name, e)),
             }
         }
-        // SPAWNED UNITS. A spell that releases units needs those units' stats; they are
-        // `units` records, not cards (no Goblin card exists: the card is Goblins). Each is
-        // loaded once, as a summon_only card, after every real card so no card index
-        // moves. A spell whose unit cannot be loaded is REJECTED (removed again), never
-        // left pointing at nothing.
+        // SPAWNED UNITS. A spell that releases units, a spawner and a death spawn need
+        // those units' stats; they are `units` records, not cards (no Goblin card
+        // exists: the card is Goblins; no Skeleton card: Skeletons, Tombstone and the
+        // Witch all spawn the one `Skeleton` record). Each is loaded ONCE, as a
+        // summon_only card, after every real card so no card index moves -- one unit
+        // table for all three mechanics. A card whose unit cannot be loaded is REJECTED
+        // (unregistered again, with the unit's reason), never left pointing at nothing:
+        // Balloon (BalloonBomb), GiantSkeleton (GiantSkeletonBomb) and RageBarbarian
+        // (RageBarbarianBottle) go this way in the 2018 data -- their "units" are
+        // lifetime-plus-death-damage buildings with no hitpoints -- and SkeletonBalloon
+        // (SkeletonContainer: a hitpoint-less building too, refused on `hitpoints`
+        // before its own 8-Skeleton death spawn -- a chain -- is even reached)
+        // and MovingCannon (BrokenCannon, a troop with a LifeTime).
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
         let mut unloadable: Vec<(u16, String)> = Vec::new();
-        for (spell_idx, unit) in &spawns {
+        for (spell_idx, which, unit) in &spawns {
             let got = unit_idx
                 .entry(unit.clone())
                 .or_insert_with(|| {
-                    if db.by_name.contains_key(unit) {
+                    if let Some(&existing) = db.by_name.get(unit) {
+                        // THE UNIT IS A CARD ALREADY (FirespiritHut spawns `FireSpirits`,
+                        // which is also the playable card's name; the card row IS that
+                        // character's row plus a count). A troop or building card serves
+                        // as the unit -- one table, no duplicate stats; only a spell or
+                        // another unit under that name is a collision.
+                        let c = db.get(existing);
+                        if c.spell.is_none() && !c.summon_only {
+                            return Ok(existing);
+                        }
                         return Err(format!("spawned unit {unit} collides with a card name"));
                     }
                     let mut v = file.units.get(unit).cloned().ok_or_else(|| format!("spawned unit {unit} has no units record"))?;
@@ -883,8 +1186,13 @@ impl CardDb {
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
                     let (mut c, _, nested) = convert(raw).map_err(|e| format!("units.{unit}: {e}"))?;
-                    if nested.is_some() {
-                        return Err(format!("units.{unit} itself spawns units; not simulated"));
+                    if !nested.is_empty() {
+                        return Err(format!("units.{unit} itself spawns units ({}); a spawn chain is not simulated", nested[0].1));
+                    }
+                    if c.kind == CardKind::Troop && c.lifetime_ms.is_some() {
+                        // The engine honours LifeTime on BUILDINGS only (spawn_now); a
+                        // troop unit that expires (BrokenCannon) would live for ever.
+                        return Err(format!("units.{unit} is a troop with a LifeTime; not simulated"));
                     }
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
                         return Err(format!("units.{unit}: rarity {} not in rarities.csv", c.rarity));
@@ -896,8 +1204,15 @@ impl CardDb {
                 .clone();
             match got {
                 Ok(u) => {
-                    if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = db.cards[*spell_idx as usize].spell.as_mut() {
-                        sp.unit = u;
+                    let card = &mut db.cards[*spell_idx as usize];
+                    match which {
+                        UnitUse::Spell => {
+                            if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = card.spell.as_mut() {
+                                sp.unit = u;
+                            }
+                        }
+                        UnitUse::Spawner => card.spawner.as_mut().expect("spawner block present").unit = u,
+                        UnitUse::DeathSpawn => card.death_spawn.as_mut().expect("death_spawn block present").unit = u,
                     }
                 }
                 Err(e) => unloadable.push((*spell_idx, e)),
@@ -905,8 +1220,20 @@ impl CardDb {
         }
         for (spell_idx, why) in unloadable {
             // Keep indices stable: the card stays in `cards` but is unregistered and
-            // listed as rejected, so no name resolves to it.
-            let name = db.cards[spell_idx as usize].name.clone();
+            // listed as rejected, so no name resolves to it. Its unit blocks are
+            // DROPPED: nothing may keep pointing at the unresolved u16::MAX, because a
+            // board entity of this card is still reachable through a format-3
+            // snapshot (state.rs migrate_v3 keeps these five in the format-3 card
+            // list, where they were plain units) and phase_reap / check_levels would
+            // index cards[65535] at its death. Dropped, it runs
+            // as the plain unit format 3 ran it.
+            let card = &mut db.cards[spell_idx as usize];
+            card.spawner = None;
+            card.death_spawn = None;
+            if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = card.spell.as_mut() {
+                *spawn = None;
+            }
+            let name = card.name.clone();
             db.by_name.retain(|_, i| *i != spell_idx);
             db.rejected.push((name, why));
         }
@@ -936,7 +1263,6 @@ impl CardDb {
         let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell else {
             return Err(format!("{} releases no units", c.name));
         };
-        let unit = self.get(sp.unit);
         #[cfg(clash_plant = "spawn_level_local_one")]
         {
             // PLANT: the released unit at its rarity's local level 1.
@@ -945,16 +1271,67 @@ impl CardDb {
             return Ok(r + 1);
         }
         #[allow(unreachable_code)]
-        let out = match sp.level_index {
+        self.unit_level(spell_idx, sp.unit, sp.level_index, level)
+    }
+
+    /// The unified level of unit `unit` produced by card `owner` at unified `level`
+    /// under an optional level index (the `spawn_level` rule). The Spawn* blocks DO
+    /// carry one in the 2018 data -- SpawnCharacterLevelIndex is 2 on every hut, 5 on
+    /// the Witch, 8 on the DarkWitch, 2 on the BattleRam -- but the extractor does
+    /// not carry it into cards.json, so the spawner and death-spawn callers pass
+    /// None and every unit takes the owner's unified level. That is exact today:
+    /// every shipped index equals the owner's rarity RelativeLevel and every spawned
+    /// unit is Common, so `level - own + ix + theirs == level`. OPEN: carry the
+    /// column (tools/extract_cards.py `spawner.level_index`) and pass it here as the
+    /// Goblin Barrel path does. Err if that level does not exist for the unit's rarity:
+    /// never clamped.
+    pub fn unit_level(&self, owner: u16, unit: u16, level_index: Option<i32>, level: i32) -> Result<i32, String> {
+        if unit == u16::MAX {
+            return Err(format!("{}: spawned unit unresolved (the card was rejected after its push)", self.get(owner).name));
+        }
+        let c = self.get(owner);
+        let u = self.get(unit);
+        let out = match level_index {
             None => level,
             Some(ix) => {
                 let own = self.rarity(&c.rarity).ok_or_else(|| format!("{}: unknown rarity", c.name))?.relative_level;
-                let theirs = self.rarity(&unit.rarity).ok_or_else(|| format!("{}: unknown rarity", unit.name))?.relative_level;
+                let theirs = self.rarity(&u.rarity).ok_or_else(|| format!("{}: unknown rarity", u.name))?.relative_level;
                 level - own + ix + theirs
             }
         };
-        self.level_multiplier(sp.unit, out)?;
+        self.level_multiplier(unit, out)?;
         Ok(out)
+    }
+
+    /// Level of the units card `idx`'s SPAWNER emits at unified `level`.
+    pub fn spawner_level(&self, idx: u16, level: i32) -> Result<i32, String> {
+        let sp = self.get(idx).spawner.ok_or_else(|| format!("{} has no spawner", self.get(idx).name))?;
+        self.unit_level(idx, sp.unit, None, level)
+    }
+
+    /// Level of the units card `idx`'s DEATH SPAWN leaves at unified `level`.
+    pub fn death_spawn_level(&self, idx: u16, level: i32) -> Result<i32, String> {
+        let ds = self.get(idx).death_spawn.ok_or_else(|| format!("{} has no death spawn", self.get(idx).name))?;
+        self.unit_level(idx, ds.unit, None, level)
+    }
+
+    /// Every level a card at unified `level` can put on the board exists: the card's
+    /// own, and its spell-released, spawned and death-spawned units'. Called at deck
+    /// validation and every scenario / debug spawn, so a spawn later in the tick
+    /// loop can never fail on a level.
+    pub fn check_levels(&self, idx: u16, level: i32) -> Result<(), String> {
+        self.level_multiplier(idx, level)?;
+        let c = self.get(idx);
+        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(_), .. }, .. }) = &c.spell {
+            self.spawn_level(idx, level)?;
+        }
+        if c.spawner.is_some() {
+            self.spawner_level(idx, level)?;
+        }
+        if c.death_spawn.is_some() {
+            self.death_spawn_level(idx, level)?;
+        }
+        Ok(())
     }
 
     /// Register a card under its internal name, and under its display name
@@ -1126,7 +1503,14 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // "death_damage_radius_milli", "self_as_aoe_center", "lifetime_ms", projectile as an
 // object {"speed", "damage", "radius_milli"}, and level_scaling.multiplier_percent_by_level
 // (entry L-1 = percent at local level L), and "no_deploy_size_tiles": [W, H] on towers.
-// Unknown fields are ignored.
+// Also "hides_when_not_attacking", "hide_time_ms", "up_time_ms" (buildings;
+// all three or none, see `convert`); the "spawner" block {character, number,
+// interval_ms, start_time_ms, pause_time_ms, limit, radius_milli} and the "death_spawn" block
+// {character, count, radius_milli, deploy_time_ms} (`convert_spawner` / `convert_death_spawn`;
+// the named unit is loaded from "units" like a spell's). A building with no damage source may
+// omit "range_milli" (the huts). Also the "charge" block {damage_special,
+// charge_range_raw, charge_speed_multiplier_percent} (`convert_charge`; all three or the card is
+// refused; troops only). Unknown fields are ignored.
 
 #[cfg(test)]
 mod tests {
