@@ -9,7 +9,7 @@
 
 <p align="center">
   <img alt="Engine" src="https://img.shields.io/badge/engine-Rust%2C%20whole%20numbers%20only-DEA584?style=flat-square&logo=rust&logoColor=white">
-  <img alt="Cards" src="https://img.shields.io/badge/cards-144-555?style=flat-square">
+  <img alt="Card table: 78 cards in a public clone, 144 in the full table" src="https://img.shields.io/badge/card%20table-78%20in%20a%20clone%2C%20144%20full-555?style=flat-square">
   <img alt="Tick" src="https://img.shields.io/badge/tick-50%20ms%2C%2020%20per%20second-555?style=flat-square">
   <img alt="Routes reproduced" src="https://img.shields.io/badge/recorded%20routes-743%20of%20744-2ea043?style=flat-square">
   <img alt="Position agreement, towers left out" src="https://img.shields.io/badge/position%20match%2C%20no%20towers-49.4%25-orange?style=flat-square">
@@ -52,9 +52,9 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>144 cards, towers, spells, overtime</b><br><sub>The 15.535 client's card data, 144 cards. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 95 of the 144 cards in the 15.535 client's card table (2026-09-22). A public clone builds the older 78-card table. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="All 148 engine constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 148 carry a status from guess to measured. 88 also name the rivals they were chosen against, and 98 say what would change them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 149 carry a status from guess to measured, and 49 are measured (2026-09-22). 89 also name the rivals they were chosen against, and 99 say what would change them.</sub></td>
   </tr>
 </table>
 
@@ -92,7 +92,7 @@ There are two card tables, and the difference decides which tests you can run.
 (`data/raw/cr-15.535.29/`). That pack is not redistributed, so a fresh clone does not have it.
 `--vintage 2018` builds the card table from the tracked 2018 files instead, which is what the two
 `extract_cards.py` runs above do. One writes `data/derived/cards-2018.json`, which
-`tests/stacked_tie.rs` loads by that name. The other writes the same table over
+`tests/charge.rs` loads by that name. The other writes the same table over
 `data/derived/cards.json`, which is what the engine loads.
 
 A 2018-only checkout runs the engine, the example below and the Python suite. It is not gate-green.
@@ -103,6 +103,12 @@ pack and `extract_cards.py` with no `--vintage`.
 
 One build note. The engine compiles `data/calibration.json` and `data/derived/arena.json` in, so
 after editing either one, build again. RoyaleGym refuses a stale build.
+
+The card table works the other way. Each time you create a `Battle`, the engine reads
+`data/derived/cards.json` from the checkout it was built in. So re-running `extract_cards.py`
+there changes the cards with no rebuild. `ROYALESIM_DATA_DIR`, the variable RoyaleGym uses to
+find `data/`, does not change which file the engine reads. Build in the checkout whose card table
+you want.
 
 ## Try it
 
@@ -206,9 +212,10 @@ every battle, so counting them flatters the result.
 Single units are already close. A Knight is within a quarter tile 82.5% of the time and walks the
 exact same path 74.9% of the time. Swarms are where the gap is: Goblins 42.5%, Skeletons 43.9%.
 
-**Those numbers are today's, not the target.** The target is that a swarm fight does not diverge
-either. We know where the gap comes from, because the same run that produces the table above also
-reports what went wrong first in every battle:
+**Those numbers are where the engine stands, not the target.** They come from the run of
+2026-09-21. The target is that a swarm fight does not diverge either. We know where the gap
+comes from, because the same run also reports what went wrong first in every battle, and how much
+of the error sits in the battles that went wrong that way:
 
 | cause of the first divergence | share of the error |
 |---|---|
@@ -218,10 +225,12 @@ reports what went wrong first in every battle:
 | attack timing | 13.9% |
 | walking | 0.4% |
 
-Two causes are 63% of what is left, and both are being worked on. 25 of the 67 battles in the
-corpus never diverge at all, though most of those are short. A single unit walking on its own is
-close to solved, which is why walking is the smallest row in the table: a Knight is within a
-quarter tile 82.5% of the time. Expect these numbers to keep moving.
+The battles in the first two rows hold nearly two thirds of the error (63.5%), so those two causes
+are the biggest open problems. 25 of the 67 battles in the corpus never diverge at all, though
+most of those are short. A single unit walking on its own is close to solved, which is why walking is the smallest row in
+the table: a Knight is within a quarter tile 82.5% of the time. These numbers change whenever the
+engine does, and [docs/replay-parity.md](docs/replay-parity.md) gives the date of the run behind
+them.
 
 So: this engine is not as accurate as running the real game, which is correct by definition. It is
 faster, it runs anywhere, it needs no game files, and it tells you exactly how wrong it is and where.
@@ -273,28 +282,43 @@ What goes out: the `royalesim` module, one JSON state per step, engine traces th
 and RoyaleViser plays, and the `data/` folder every sibling reads. RoyaleGym finds it at
 `../RoyaleSim/data`, or wherever `ROYALESIM_DATA_DIR` points.
 
-## Status (2026-09-21)
+## Status
+
+As of 2026-09-22.
 
 Working:
 
-- The full match loop on the 15.535 client's own card data (144 cards with that table, 78 in a
-  public clone; 2 towers, 334 units), with
-  card levels and the tower ladder measured on 2026 recordings: elixir, deploys, formations for
-  multi-unit cards, fighting, Fireball, Arrows, Zap, The Log and Goblin Barrel, king activation,
-  double elixir, 60 s overtime, the 3-crown win and the tiebreak.
+- The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
+  Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 60 s overtime, the
+  3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
+- Cards. The 15.535 client's card table holds 144 cards, 2 towers and 334 units. The engine plays
+  95 of those cards. It refuses the other 49 when it loads the table, and says why for each one.
+  A public clone builds the older 2018 table instead, which holds 78 cards.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
-  spawner timing and death spawns, hiding buildings, the lifetime drain of buildings, status effects
-  (rage, slow, freeze, heal and damage over time) and the order things happen within a tick.
-- Same seed same battle, snapshots, seat symmetry (Red is Blue turned 180 degrees, checked every
-  tick) and the deploy-legality query.
+  spawner timing and death spawns, the lifetime drain of buildings and the order things happen
+  within a tick.
+- Modelled, but not measured yet: hiding buildings, and most of how status effects work (slow,
+  freeze, damage over time, and what happens when several stack). Those rules come from reasoning
+  about the card data, community write-ups or a best guess, and the constants file marks which.
+  One part is measured: how much a single rage speeds a unit up. The engine has the rage speed-up
+  and healing, but the Rage and Heal cards themselves are refused when the table loads.
+- Same seed same battle, snapshots, and the deploy-legality query.
+- Seat symmetry is a test setting, not something the engine promises. The game itself treats the
+  two seats a little differently in three measured places: where a ground deploy is clamped, the
+  point it lands on, and how the pathfinder breaks a tie. The engine copies the game, so it is
+  not symmetric either. The mirror tests run an arm where those three are made symmetric, and
+  then check that Red is Blue turned 180 degrees on every tick.
 
 Not modelled yet, in plain words:
 
-- Only the 18 cards in `thin_slice` (`data/derived/cards.json`) are checked against recordings. The
-  rest carry data that no test covers yet. That is 126 of the 144 on the full card table, or
-  60 of the 78 a public clone builds.
+- The 18 cards in `thin_slice` (`data/derived/cards.json`) are the ones the engine has been
+  checked on. With the full table it plays 77 more that are not. A few of those show up in tests
+  of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
+  mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
+  will most likely hold one. A public clone's table has 60 cards outside the 18. If you pick
+  decks in code, draw them from `thin_slice`.
 - Dash and morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
 - Two known collision defects. A unit can sit inside a building's footprint for up to 47 ticks,
@@ -306,9 +330,12 @@ Not modelled yet, in plain words:
 Tests:
 
 ```
-cd RoyaleSim\crates\royalesim && cargo test --release     # 338 test functions, 3 of them #[ignore]d
-cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 108 collected
+cd RoyaleSim\crates\royalesim && cargo test --release     # 339 tests, 3 of them skipped unless you ask for them
+cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 112 tests
 ```
+
+Both counts are from 2026-09-22. The cargo count is the `#[test]` lines in `tests/*.rs` and
+`src/*.rs`. The pytest count is what `pytest --collect-only -q` reports.
 
 The cargo run above assumes the 15.535 card table, as described under Install. On a 2018-only
 checkout `levels.rs` and `jump16402.rs` go red for want of it. RoyaleGym's suite drives the engine
