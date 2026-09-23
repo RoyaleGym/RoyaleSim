@@ -172,7 +172,8 @@ There are two card tables, and the difference decides which tests you can run.
 `data/derived/cards.json`, which is what the engine loads.
 
 A 2018-only checkout runs the engine, the example below and the Python suite. **On a fresh clone
-it is 179 passed, 10 skipped, nothing failing** (2026-09-22). On a machine that also has the
+it is 179 passed, 10 skipped, nothing failing** (2026-09-22, commit `2b85ce1`; a clone count is a
+fact about the commit it was taken at, so it carries one). On a machine that also has the
 15.535 card table it is 187 passed, 2 skipped, and the difference is those ten.
 
 Read the skips rather than ignoring them. Each one names the thing it could not find and says that
