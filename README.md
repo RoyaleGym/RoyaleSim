@@ -9,7 +9,7 @@
 
 <p align="center">
   <img alt="Engine" src="https://img.shields.io/badge/engine-Rust%2C%20whole%20numbers%20only-DEA584?style=flat-square&logo=rust&logoColor=white">
-  <img alt="Card table: 78 cards in a public clone, 144 in the full table" src="https://img.shields.io/badge/card%20table-78%20in%20a%20clone%2C%20144%20full-555?style=flat-square">
+  <img alt="Card table: 144 cards, the same table in a clone as here" src="https://img.shields.io/badge/card%20table-144%2C%20same%20in%20a%20clone-555?style=flat-square">
   <img alt="Tick" src="https://img.shields.io/badge/tick-50%20ms%2C%2020%20per%20second-555?style=flat-square">
   <img alt="Routes reproduced" src="https://img.shields.io/badge/recorded%20routes-743%20of%20744-2ea043?style=flat-square">
   <img alt="Position agreement, towers left out" src="https://img.shields.io/badge/position%20match%2C%20no%20towers-56.5%25-orange?style=flat-square">
@@ -52,7 +52,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table (2026-09-22, after the footprint rebuild added five, Hog 2.6 among them). A public clone builds the older 78-card table. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table (2026-09-22, after the footprint rebuild added five, Hog 2.6 among them). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 155 carry a status from guess to measured, and 62 are measured (2026-09-22). 101 also name the rivals they were chosen against, and 110 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -170,11 +170,16 @@ which generate `data/derived/`, and the `maturin develop` line, which builds the
 There are two card tables, and the difference decides which tests you can run.
 
 `extract_cards.py` defaults to the 15.535 card table, which needs the client's own asset pack
-(`data/raw/cr-15.535.29/`). That pack is not redistributed, so a fresh clone does not have it.
-`--vintage 2018` builds the card table from the tracked 2018 files instead, which is what the two
-`extract_cards.py` runs in stage 3 do. One writes `data/derived/cards-2018.json`, which
-`tests/charge.rs` loads by that name. The other writes the same table over
-`data/derived/cards.json`, which is what the engine loads.
+(`data/raw/cr-15.535.29/`). **That pack is still not redistributed and a fresh clone does not have
+it.** What changed is that it is no longer what a clone needs: the table BUILT from it,
+`data/derived/cards-15.535.json`, is committed, and stage 3 copies it into place as
+`data/derived/cards.json`, which is what the engine loads. A clone reads the same 144-row table
+this repository does.
+
+The 2018 path did not go away and is not vestigial. Stage 3 still runs `extract_cards.py
+--vintage 2018`, which writes `data/derived/cards-2018.json`; `crates/royalesim/tests/charge.rs`
+and `tests/test_card_reads.py` load it by that name, and the ledger cites it as evidence of what
+shipped in 2018. It simply no longer writes over `cards.json`.
 
 A 2018-only checkout runs the engine, the example below and the Python suite. **The PYTHON suite
 on a fresh clone is 179 passed, 10 skipped, nothing failing** (2026-09-22, commit `2b85ce1`; a
@@ -427,7 +432,8 @@ Working:
 - Cards. The 15.535 client's card table holds 144 cards, 2 towers and 334 units. The engine plays
   100 of those cards (2026-09-22). It refuses the other 44 when it loads the table, and says why for
   each one.
-  A public clone builds the older 2018 table instead, which holds 78 cards.
+  A clone reads the same 144-row table: it is committed rather than generated. The 2018
+  table, 78 cards, is still built beside it and still used by tests.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
@@ -478,14 +484,24 @@ not travel with the repo and your own run will use fat LTO unless you set it. It
 what the tests check: there is no `f32` or `f64` anywhere in the crate, and `overflow-checks = true`
 is set on the package and cannot be reached by that variable.
 
-**It is a local result, not a certified one.** This repo has no clean-runner evidence at all yet,
-and a count that is true on one machine is not a certification, because a clean machine is the
-reader's. Treat the figure above as supporting evidence.
+**It is a local result, and a clean runner now checks it too.** A count true on one machine is not
+a certification, because a clean machine is the reader's. CI arrived after the figure above was
+taken, and its first three runs each found something this machine could not:
+
+- **32 Rust tests failed on the runner and passed here.** All 32 were the card table: the runner
+  had no 15.535 table to read. Committing the derived table cleared every one of them.
+- **Five modules could not import `numpy` or `msgspec`**, which the install line did not name.
+  Nobody here met it because everybody here already had them.
+- A third run was still going when this was written.
+
+None of those was findable on a machine that already had everything, which is the whole argument
+for the runner outranking the laptop.
 
 **The defect that caused the failure is still here, and its size is now known.** Two Skeleton Army
 units overlap by 157 per cent of the smaller radius for **87 consecutive ticks**, against a limit
 of 150 for 40. A test now holds it at 87 in both directions, so it cannot grow and it cannot be
-quietly fixed without somebody noticing.
+quietly fixed without somebody noticing. It holds on both runners, and it now holds against the
+same card table the number is a fact about, which was not true when 87 was first taken.
 
 That 87 was published here as 41 for most of a day, and the reason is worth more than the
 correction. The gate stopped counting the moment it had enough to fail: 40 allowed, one more,
