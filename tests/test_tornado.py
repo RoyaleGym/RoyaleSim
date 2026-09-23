@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import math
+from itertools import pairwise
 
 import pytest
 
@@ -69,10 +70,10 @@ def test_the_tornado_pulls_its_victim_against_its_own_walk():
         f"{before:.0f} -> {track[0]:.0f} native"
     )
     # STRICTLY closing, every tick of the approach
-    assert all(b_ < a for a, b_ in zip(track, track[1:])), f"the approach is not monotone: {track}"
+    assert all(b_ < a for a, b_ in pairwise(track)), f"the approach is not monotone: {track}"
     # and closing at the pull minus the walk, not at a walk's pace. A Knight walks about 57
     # native per tick; anything under 100 here is a unit that is walking, not being pulled.
-    steps = [a - b_ for a, b_ in zip(track, track[1:])]
+    steps = [a - b_ for a, b_ in pairwise(track)]
     assert min(steps) > 100, f"too slow to be an attract: {[round(s) for s in steps]}"
     assert max(steps) < 250, f"faster than the law allows: {[round(s) for s in steps]}"
 

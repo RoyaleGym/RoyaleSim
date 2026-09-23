@@ -669,6 +669,21 @@ calib_enum!(
     /// combat.RETARGET_PROGRESS.
     RetargetProgress { ResetAlways = "reset_always", KeepWhenDead = "keep_when_dead" }
 );
+
+/// One live PULLING area effect (status.ATTRACT_LAW), reduced to what `phase_path16402`'s
+/// attract pre-pass needs: where it is, how far it reaches, whose it is, how hard it pulls,
+/// and the four eligibility flags its own damage test already uses. Named rather than left
+/// as the eight-wide tuple it was, which no reader could keep in order.
+struct AttractSource {
+    pos: Vec2,
+    radius: i32,
+    team: Team,
+    pct: i32,
+    hits_air: bool,
+    hits_ground: bool,
+    ignore_buildings: bool,
+    only_enemies: bool,
+}
 calib_enum!(
     /// status.BUFF_EXPIRY_TICK_ALIGNMENT.
     BuffExpiry { CeilFromNextTick = "ceil_from_next_tick", OneTickShort = "one_tick_short" }
@@ -3236,7 +3251,7 @@ impl BattleState {
         // and CapBuffTimeToAreaEffectTime false, the last application outlives the area
         // by ten ticks -- and the Giant's displacement is exactly (0, 0) on two of them.
         let attract: Vec<(i32, i32)> = {
-            let sources: Vec<(Vec2, i32, Team, i32, bool, bool, bool, bool)> = self
+            let sources: Vec<AttractSource> = self
                 .spells
                 .iter()
                 .filter_map(|s| {
@@ -3257,20 +3272,20 @@ impl BattleState {
                     if pct == 0 {
                         return None;
                     }
-                    Some((
-                        p.pos,
-                        hit.radius,
-                        s.team,
+                    Some(AttractSource {
+                        pos: p.pos,
+                        radius: hit.radius,
+                        team: s.team,
                         pct,
-                        hit.hits_air,
-                        hit.hits_ground,
-                        hit.ignore_buildings,
-                        hit.only_enemies,
-                    ))
+                        hits_air: hit.hits_air,
+                        hits_ground: hit.hits_ground,
+                        ignore_buildings: hit.ignore_buildings,
+                        only_enemies: hit.only_enemies,
+                    })
                 })
                 .collect();
             let mut out = vec![(0i32, 0i32); cap];
-            for i in 0..cap {
+            for (i, slot) in out.iter_mut().enumerate() {
                 if sources.is_empty() || !self.ents.alive[i] {
                     continue;
                 }
@@ -3287,11 +3302,11 @@ impl BattleState {
                 let flying = self.ents.flying[i];
                 let building = self.ents.kind[i] != EntityKind::Troop;
                 let mut acc = (0i32, 0i32);
-                for &(pos, radius, team, pct, air, ground, no_buildings, only_enemies) in &sources {
-                    if only_enemies && self.ents.team[i] == team {
+                for a in &sources {
+                    if a.only_enemies && self.ents.team[i] == a.team {
                         continue;
                     }
-                    if (flying && !air) || (!flying && !ground) || (building && no_buildings) {
+                    if (flying && !a.hits_air) || (!flying && !a.hits_ground) || (building && a.ignore_buildings) {
                         continue;
                     }
                     // ELIGIBILITY IN SUBTILES, against the same centre and the same
@@ -3301,21 +3316,21 @@ impl BattleState {
                         AoeHitTest::EdgeInclusive => self.ents.radius[i],
                         AoeHitTest::CentreInRadius => 0,
                     };
-                    let (dx, dy) = ((pos.x - self.ents.pos[i].x) as i64, (pos.y - self.ents.pos[i].y) as i64);
-                    let reach = (radius + edge) as i64;
+                    let (dx, dy) = ((a.pos.x - self.ents.pos[i].x) as i64, (a.pos.y - self.ents.pos[i].y) as i64);
+                    let reach = (a.radius + edge) as i64;
                     if dx * dx + dy * dy > reach * reach {
                         continue;
                     }
                     // THE STEP IN NATIVE, the units the move pass works in. normalize_to
                     // truncates both axes, which is the measured rounding: ceil is
                     // refuted by the Giant's 187.2 landing on 187 twice.
-                    let l = move16402::tdiv(s_native * pct, 100);
-                    let mut v = ((pos.x - self.ents.pos[i].x) / K, (pos.y - self.ents.pos[i].y) / K);
+                    let l = move16402::tdiv(s_native * a.pct, 100);
+                    let mut v = ((a.pos.x - self.ents.pos[i].x) / K, (a.pos.y - self.ents.pos[i].y) / K);
                     move16402::normalize_to(&mut v, l);
                     acc.0 += v.0;
                     acc.1 += v.1;
                 }
-                out[i] = acc;
+                *slot = acc;
             }
             out
         };

@@ -21,6 +21,7 @@ was not measuring one shooter.
 from __future__ import annotations
 
 import json
+from itertools import pairwise
 
 import pytest
 
@@ -58,7 +59,7 @@ def damage_events(spawns, ticks):
 
 def gaps(events):
     ts = [t for t, _, _ in events]
-    return [b - a for a, b in zip(ts, ts[1:])]
+    return [b - a for a, b in pairwise(ts)]
 
 
 def test_the_princess_towers_cadence_is_its_hit_speed():
@@ -94,9 +95,10 @@ def test_the_gap_that_spans_a_death_matches_the_gaps_that_do_not():
     skels = [(1, SK, int((2.5 + 0.6 * i) * TILE), int((8.6 + 0.3 * (i % 2)) * TILE), 300) for i in range(4)]
     ev = damage_events(skels, 220)
     assert len(ev) >= 9, f"too few events to see a second victim: {ev}"
-    held = [b - a for (a, _, ka), (b, _, kb) in zip(ev, ev[1:]) if ka == "hit" and kb == "hit"]
-    crossing = [b - a for (a, _, ka), (b, _, _) in zip(ev, ev[1:]) if ka == "death"]
-    assert held and crossing, f"the scenario produced no comparison: {ev}"
+    held = [b - a for (a, _, ka), (b, _, kb) in pairwise(ev) if ka == "hit" and kb == "hit"]
+    crossing = [b - a for (a, _, ka), (b, _, _) in pairwise(ev) if ka == "death"]
+    assert held, f"no gap between two hits on one victim, so there is nothing to compare: {ev}"
+    assert crossing, f"no gap spanning a death, so the target change never happened: {ev}"
     assert set(held) == {16}, f"the within-victim gaps are not the cadence: {held}"
     assert set(crossing) <= {16, 17}, (
         f"only the gap that spans a target change is slow: within a victim {held}, "
