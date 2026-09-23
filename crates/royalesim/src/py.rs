@@ -1223,8 +1223,19 @@ mod tests {
         let ents = v["entities"].as_array().unwrap();
         // 15 since the placement footprint was added as a trailing element.
         assert!(ents.iter().all(|r| r.as_array().unwrap().len() == 15));
-        // Only a building or a crown tower carries a box; a troop's is null.
-        assert!(ents.iter().all(|r| r[14].is_null() || r[14].as_array().map(|b| b.len()) == Some(4)));
+        // THE FOOTPRINT SPLITS BY KIND, and both halves are asserted against the
+        // kind column rather than against the footprint itself. `is_null() || len
+        // == 4` alone cannot fail: an engine that emitted null for everything would
+        // satisfy it, which is what the first version of this did.
+        let (boxed, bare): (Vec<_>, Vec<_>) = ents.iter().partition(|r| r[2].as_i64() != Some(0));
+        assert!(!boxed.is_empty() && !bare.is_empty(), "this scene needs both a troop and a building for the split to mean anything");
+        for r in &boxed {
+            let b = r[14].as_array().unwrap_or_else(|| panic!("a building or crown tower carries no box: {r}"));
+            assert_eq!(b.len(), 4, "a footprint is a closed box of four subtile bounds: {r}");
+        }
+        for r in &bare {
+            assert!(r[14].is_null(), "a TROOP carries a footprint box, and the placement box is not a collision shape: {r}");
+        }
         let gob: Vec<_> = ents.iter().filter(|r| r[3] == barrel_id).collect();
         assert_eq!(gob.len(), 3, "the barrel's Goblins report the barrel's card id");
         assert!(ents.iter().any(|r| r[12].as_i64().unwrap() > 0), "no entity reports stun ticks");

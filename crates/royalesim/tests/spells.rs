@@ -1388,12 +1388,13 @@ fn spell_placement_follows_the_card_data() {
     // after the loop is what makes that say so rather than pass quietly.
     for _ in 0..8 {
         // Refill BEFORE probing, not after. This test is about placement rules, and
-        // a probe must not be able to fail on elixir: the two cycling deploys below
-        // spend up to 8 of the 10, and whether they spend it at all depends on
-        // whether they are accepted, which is exactly what placement decides. Once
-        // the building placement rule started relocating an unfittable tap instead
-        // of refusing it, the `own_tower` deploy began to succeed and spend, and a
-        // Fireball probe on the next round failed with 2 elixir against 4.
+        // a probe must not be able to fail on elixir: the cycling deploy below spends
+        // up to 5 of the 10, and whether it spends anything at all depends on whether
+        // it is accepted, which is exactly what placement decides. Once the building
+        // placement rule started relocating an unfittable tap instead of refusing it,
+        // the second deploy this test used to make onto its own tower began to
+        // succeed and spend, and a Fireball probe on the next round failed with 2
+        // elixir against 4. That second deploy is gone now; one is enough.
         s.scenario_set_elixir_milli(Team::Blue, 10_000);
         let hand: Vec<String> = s.hand(Team::Blue).iter().map(|x| x.to_string()).collect();
         for card in &hand {
@@ -1414,7 +1415,7 @@ fn spell_placement_follows_the_card_data() {
     for card in ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Knight", "Giant", "Cannon"] {
         assert!(
             verdicts.contains_key(&(card.to_string(), "river")),
-            "{card} never reached the hand in 16 rounds, so this test covers less than it claims"
+            "{card} never reached the hand in the 8 rounds this test runs, so it covers less than it claims"
         );
     }
     let v = |c: &str, l: &str| verdicts.get(&(c.to_string(), l)).cloned().unwrap_or_else(|| panic!("{c} never reached the hand"));
