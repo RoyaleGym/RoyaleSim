@@ -889,7 +889,23 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     // tower hp as recorded on the first frame
     for t in &f.towers {
         let team = team_of(t.side);
-        let have = s.tower_hp(team)[t.slot];
+        // A FIXTURE MUST NOT BE ABLE TO PANIC THE HARNESS. This indexed straight into the
+        // tower table and a fixture numbering its six towers 0..5 GLOBALLY, rather than
+        // 0..2 per side, took it out of bounds -- "index out of bounds: the len is 3 but
+        // the index is 3", which says nothing about slots, sides or the fixture that
+        // caused it. The harness reads files it did not write; a bad one earns a
+        // diagnosis, not a stack trace.
+        let slots = s.tower_hp(team);
+        if t.slot >= slots.len() {
+            return Err(format!(
+                "fixture tower slot {} is out of range for side {}: this engine has {} crown towers per side, numbered 0..{}. SLOTS ARE PER SIDE, not global -- six towers numbered 0..5 across both sides lands exactly here.",
+                t.slot,
+                t.side,
+                slots.len(),
+                slots.len() - 1
+            ));
+        }
+        let have = slots[t.slot];
         if have != t.hp {
             s.scenario_set_tower_hp(team, t.slot, t.hp)?;
         }
