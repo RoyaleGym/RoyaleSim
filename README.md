@@ -203,21 +203,21 @@ We record real matches, replay them in the engine, and compare where every unit 
 
 | how often the engine agrees | counting towers | towers left out |
 |---|---|---|
-| a unit is within a quarter of a tile of where it really was | 83.9% | 49.4% |
-| a unit's hitpoints are exactly right | 83.3% | 81.4% |
+| a unit is within a quarter of a tile of where it really was | 82.6% | 49.4% |
+| a unit's hitpoints are exactly right | 81.7% | 79.4% |
 
 The right-hand column is the one to look at. Towers do not move and there are six of them in
 every battle, so counting them flatters the result.
 
 Single units are already close. A Knight is within a quarter tile 82.5% of the time and walks the
 exact same path 74.9% of the time. Swarms are where the gap is: Goblins 42.5%, Skeletons 43.9%.
+Those four are from the 2026-09-21 run, because the per-card breakdown has not been re-run since.
 
-**Those numbers are where the engine stood on 2026-09-21, not the target, and not necessarily
-where it stands today.** They come from the run of that date. The engine has changed since: whole
-buildings now stand on a tile footprint rather than a circle, five more cards load, and a match
-starts with 6 elixir rather than 5. Any of those can move the figure in either direction, and the
-comparison has not been re-run against them. Treat 49.4 % as the last measured value rather than
-as today's. The target is that a swarm fight does not diverge either. We know where the gap
+**Those numbers are today's, and the 49.4 % is not the old one standing still.** They come from a
+run on 2026-09-22 over 271,384 unit-ticks from 67 battles. The run of 2026-09-21 scored the same
+49.4 %, over 219,491. The corpus grew by 23 % in between, because more cards load and so more
+units stand on the board, so the same figure over a bigger and harder population is not a result
+that held steady. Do not subtract the two. The target is that a swarm fight does not diverge either. We know where the gap
 comes from, because the same run also reports what went wrong first in every battle, and how much
 of the error sits in the battles that went wrong that way:
 
