@@ -1242,24 +1242,33 @@
       "vintage": "2018 client data"
     },
     "OVERTIME_S": {
-      "value": 60,
-      "status": "datamined",
-      "confidence": "medium",
-      "provenance": "locations.csv OvertimeSeconds=60 on all 26 PvP/TeamVsTeam/PvE/training rows, with MatchLength=180.",
-      "history": [
-        {
-          "date": "2026-09-13",
-          "value": 180,
-          "status": "guess",
-          "confidence": "LOW",
-          "provenance": "Unverified for the live game.",
-          "overturned_by": "locations.csv (vendored 2018): OvertimeSeconds=60 on every PvP, TeamVsTeam and training location; the 180 in the old registry was never sourced, and the only 180 in the data is TOURNAMENT_OVERTIME_LENGTH_SECONDS, which applies to tournaments"
-        }
+      "value": 120,
+      "status": "measured",
+      "confidence": "HIGH that 60 is wrong for the live game, MEDIUM on 120 itself. The figure is a second user's measurement over 1,810 real 2026 matches, reported with the detail that makes it checkable: 62% of those matches run past 60 s of overtime, which is what made the old value visible as a defect rather than a rounding. It has not been reproduced here, and it was measured against the live 2026 client rather than the 15.535.29 this engine targets, so a genuine version difference is not excluded.",
+      "provenance": "MEASURED by a second user of the project on 1,810 real 2026 matches, 2026-09-23: overtime runs 120 s, and 62% of matches reach past 60 s of it, so the previous value ended the majority of their matches early. They patched their own copy before reporting it. WHY RE-READING THE OLD SOURCE COULD NEVER HAVE CORRECTED IT: the 60 was datamined from the 2018 tables (locations.csv OvertimeSeconds=60 with MatchLength=180 on all 26 PvP/TeamVsTeam/PvE/training rows) and THE 15.535 TABLES DO NOT CARRY THOSE COLUMNS. Checked 2026-09-23: 15.535's locations.csv has only WalkEffectOvertime, LoopingEffectOvertime and LoopingEffectOvertimeSide; game_modes.csv's `Overtime` column is a boolean flag, TRUE on 9 of 513 mode rows and blank on the rest, not a duration; globals.csv carries LADDER_LEAGUES_OVERTIME_LENGTH = 180, which is a third quantity and neither of these. No file in the modern pack supplies this number, so the live measurement is the only evidence that exists for it.",
+      "candidates": [
+        120,
+        60,
+        180
       ],
+      "promotion_rules": "PROMOTE to HIGH when the native kernel reproduces it: run a battle past regulation with the crowns level and read the tick the outcome is decided on. One scenario settles it for 15.535.29 exactly, which is the build this engine targets. IF THE KERNEL SAYS 60 WHILE THE LIVE GAME SAYS 120, that is a VERSION difference and both numbers are right about their own build -- worth establishing before either is called wrong. 60 is kept runnable as the 2018 arm; 180 is listed so the next reader does not rediscover LADDER_LEAGUES_OVERTIME_LENGTH and assume it is this quantity.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json)",
       "units": "seconds",
-      "vintage": "2018 client data",
-      "note": "Tournament mode is different: TOURNAMENT_OVERTIME_LENGTH_SECONDS=180. Ladder in the live 2026 game is UNVERIFIED; a recording of any match that reaches overtime settles it.",
-      "promotion_rules": "Time an overtime from start to end in a recording."
+      "open": "Whether the live 2026 client and 15.535.29 agree on this at all. The measurement is from the live game; this engine targets the older build; so the kernel's answer decides what THIS engine ships and a difference between them is a finding, not an error."
+    },
+    "DEPLOY_LOCKOUT_TICKS": {
+      "value": 90,
+      "status": "measured",
+      "confidence": "HIGH that a lockout exists, MEDIUM on 90 exactly. The engine accepted deploys from tick 0, which no client can do; the threshold is one user's reading of the real engine and has not been reproduced here.",
+      "provenance": "MEASURED by a second user of the project, 2026-09-23: the real engine refuses every deploy until tick 90, 4.5 s at 50 ms per tick, and this engine accepted them immediately. CORROBORATED INDEPENDENTLY, AND ONLY IN DIRECTION: across the 1,181 deploys in the 72 captures under data/derived/replay/, the earliest is tick 130 and not one lands before it. That is consistent with a gate at 90 without pinning it -- the corpus cannot separate 90 from anything in 0..130, because a human tapping 6.5 s in leaves no trace of where the engine would have refused.",
+      "candidates": [
+        90,
+        0
+      ],
+      "promotion_rules": "PROMOTE to HIGH by asking the native kernel for the first tick a deploy is accepted on: offer one every tick from 0 and read the first success. A single scenario pins it. 0 is kept runnable as the arm this engine used to run, so the defect can be reproduced rather than only described.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json -> deploy_lockout_ticks); enforced in state.rs check_deploy_slot, the pure query BOTH deploy entry points ask first, so the validating path and the acting path cannot disagree. Refusal is DeployError::TooEarly { tick, until }.",
+      "units": "ticks from the start of the match, 50 ms each",
+      "open": "Whether the lockout is a deploy refusal or a match that has not started -- whether the elixir clock and the spawn phase run during it. This engine runs everything and refuses only the deploy, which is the smaller claim; if the real engine holds the whole match then elixir at tick 90 differs, and that is measurable in the same scenario that pins the threshold."
     },
     "THREE_CROWN_INSTANT_WIN": {
       "value": true,

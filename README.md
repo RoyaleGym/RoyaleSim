@@ -11,12 +11,27 @@
   <img alt="Engine" src="https://img.shields.io/badge/engine-Rust%2C%20whole%20numbers%20only-DEA584?style=flat-square&logo=rust&logoColor=white">
   <img alt="Card table: 144 cards, the same table in a clone as here" src="https://img.shields.io/badge/card%20table-144%2C%20same%20in%20a%20clone-555?style=flat-square">
   <img alt="Tick" src="https://img.shields.io/badge/tick-50%20ms%2C%2020%20per%20second-555?style=flat-square">
+  <img alt="Coordinates: 18000 units to one tile" src="https://img.shields.io/badge/coordinates-18%2C000%20per%20tile-555?style=flat-square">
   <img alt="Routes reproduced" src="https://img.shields.io/badge/recorded%20routes-743%20of%20744-2ea043?style=flat-square">
   <img alt="Position agreement, towers left out" src="https://img.shields.io/badge/position%20match%2C%20no%20towers-56.5%25-orange?style=flat-square">
 </p>
 
 **A Clash Royale battle engine you drive from Python. It plays the whole match: elixir, hands,
 deploys, walking, targeting, fighting, spells, towers, overtime and the crowns.**
+
+> **Positions are in subtiles: 18,000 to one arena tile.** Every coordinate this engine takes
+> and returns uses them, so the arena is 324,000 by 576,000 and a tile centre is a multiple of
+> 18,000 plus 9,000.
+>
+> **Recorded battle data uses a different unit: 1,000 to a tile** (millitiles). The two are a
+> factor of 18 apart, and nothing in either will complain if you mix them -- a tap at the wrong
+> scale lands somewhere legal, the engine accepts it, and the units simply walk to the wrong
+> place. If you are writing an adapter, convert at the boundary and assert the scale there:
+>
+> ```python
+> SUBTILES_PER_MILLITILE = 18          # royalesim.SUBTILE // 1000
+> x_engine = x_recording * SUBTILES_PER_MILLITILE
+> ```
 
 <p align="center"><img src="docs/media/battle-page.gif" width="100%" alt="The busiest stretch of an engine battle in RoyaleViser, 19 units on the board, one frame per tick"></p>
 

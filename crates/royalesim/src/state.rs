@@ -181,6 +181,9 @@ pub struct Calib {
     /// status.ATTRACT_LAW -- the base speed the AttractPercentage column scales
     /// (state.rs `phase_path16402`).
     pub attract_base: AttractBase,
+    /// match.DEPLOY_LOCKOUT_TICKS -- ticks from the start of the match during which every
+    /// deploy is refused (state.rs `check_deploy_slot`).
+    pub deploy_lockout_ticks: i32,
     /// match.TICK_ORDER -- which phase list `tick()` runs (lib.rs `TICK_PHASES`,
     /// the measured order, or `LEGACY_TICK_PHASES`) and, with it, where the
     /// deploy countdown runs (`deploy_countdown`: after Move, or in Upkeep).
@@ -1334,6 +1337,7 @@ impl Calib {
             three_crown_instant_win: boolean(&v, &["match", "THREE_CROWN_INSTANT_WIN", "value"])?,
             overtime_tiebreak: pick(&v, &["match", "OVERTIME_TIEBREAK", "value"], OvertimeTiebreak::from_calibration_name)?,
             attract_base: pick(&v, &["status", "ATTRACT_LAW", "value"], AttractBase::from_calibration_name)?,
+            deploy_lockout_ticks: int(&v, &["match", "DEPLOY_LOCKOUT_TICKS", "value"])?,
             tick_order: pick(&v, &["match", "TICK_ORDER", "value"], TickOrder::from_calibration_name)?,
             dying_unit_visibility: pick(&v, &["movement", "DYING_UNIT_VISIBILITY", "value"], DyingUnitVisibility::from_calibration_name)?,
             mana_speed_up_remaining_s,
@@ -1569,6 +1573,10 @@ pub const HAND_SIZE: usize = 4;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeployError {
     GameOver,
+    /// THE MATCH HAS NOT OPENED YET (match.DEPLOY_LOCKOUT_TICKS). The real engine
+    /// refuses every deploy until tick 90 and this engine used to accept them from tick
+    /// 0, so anything driving it could open with a play no client could make.
+    TooEarly { tick: i32, until: i32 },
     UnknownCard(String),
     UnsupportedCard(String, String),
     NotInHand,
@@ -5681,6 +5689,13 @@ impl BattleState {
     /// not a card name). Check order is protocol.py's: game over, slot, elixir,
     /// out of arena, water, no-deploy, territory, occupied.
     pub fn check_deploy_slot(&self, team: Team, slot: usize, pos: Vec2) -> Result<(), DeployError> {
+        // THE OPENING LOCKOUT, and it belongs HERE rather than in `deploy_slot` because
+        // this is the pure query both entry points ask first: a check the acting path did
+        // not make is a second answer that can disagree with the one the engine acted on,
+        // which the comment on `deploy_slot` already warns about for building placement.
+        if self.tick < self.cfg.calib.deploy_lockout_ticks {
+            return Err(DeployError::TooEarly { tick: self.tick, until: self.cfg.calib.deploy_lockout_ticks });
+        }
         if self.outcome.is_some() {
             return Err(DeployError::GameOver);
         }
