@@ -167,17 +167,35 @@ obstacle list even for a Red mover, and `Obstacle.ally` in that list means "owne
 seat-asymmetric, which the 180-degree seat symmetry forbids. Selection has to be by a total order
 evaluated in the mover's own frame.
 
-### A unit keeps its target and route through a knockback, and the game does not
+### A unit keeps its target and route through a knockback, and nothing has shown the game does not
 
-The engine holds a unit's target and its planned route for the whole of a knockback ladder. The
-corpus says the real game does not. In capture 20260920-071744-B a Golem retargets and replans
-in the middle of a clean ten-step ladder, from t2039 to t2048: target 6, then no target at
-t2043, then target 4 at t2044, with its path node count going from 3 to 14 on that tick. That
-is six steps before the back-step.
+The engine holds a unit's target and its planned route for the whole of a knockback ladder.
 
-This is deliberate rather than an oversight, and the reasoning is in
-`knockback.DISPLACEMENT_LAW`'s open item 4 in `data/calibration.json`. It is written here as
-well because a parity run will meet it as an unexplained divergence otherwise.
+**This section used to say the corpus refuted that, and it was wrong.** The evidence was the
+Golem of capture 20260920-071744-B going target 6, then no target at t2043, then target 4 at
+t2044, with its path node count going 3 to 14 -- six steps before the back-step of a clean
+ten-step ladder. Read again by frame index rather than by tick, the same transition happens on
+the same ticks to two things that cannot be knocked back at all:
+
+    key 71  Golem          side 0   6  6  6 -1  4  4  4     path_n  3  3  3  3 14 14 14
+    key  3  PrincessTower  side 0   6  6  6 -1  4  4  4     path_n  0  0  0  0  0  0  0
+    key  1  KingTower      side 0   6  6  6 -1 -1 -1 -1     path_n  0  0  0  0  0  0  0
+    key  6  PrincessTower  side 1  72 72 -1  .  .  .  .     <- its last frame
+
+Key 6 is the tower the Golem was walking at, and that is the tick it died on. Everything naming
+it fell back at once, the two crown towers included. The Golem's node count moved because its
+destination moved.
+
+The cause of the misreading is worth more than the correction. The recording's `target` is the
+client's own pointer, and the client aims it at the **destination crown tower** whenever a unit
+is not fighting something. The engine's `target` is only ever an attack target: the default
+tower is computed as a local walk goal at four sites and never stored. So a field that changes
+when a tower dies was read as a field that changes when a unit retargets -- the same confusion
+that makes the replay harness's `target_match` column score about 87 per cent automatic misses.
+
+The hold is now **unrefuted rather than refuted**, which is not the same as confirmed. It rests
+on the one Giant it always rested on. A capture of a unit pushed while it walks at a tower that
+stays alive would settle it; `knockback.DISPLACEMENT_LAW`'s open item 4 carries the detail.
 
 ### Smaller open items
 
