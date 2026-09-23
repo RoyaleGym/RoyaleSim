@@ -255,11 +255,20 @@ pub fn catalogue_violation(s: &BattleState, id_of_idx: &[i32]) -> Result<(), Str
 /// Applying them in INPUT order instead would make the spawn queue -- and so every
 /// entity slot index and the state hash -- depend on whether Blue or Red was listed
 /// first, for plays the protocol calls simultaneous.
+/// WHAT ONE COMMAND GOT BACK: the card id it was played from, the reason code, the tick it
+/// was evaluated on, and the RESOLVED x and y -- where the card actually went down, which for
+/// a relocated building is not the tap. Named rather than repeated, because it appears in two
+/// signatures and a five-tuple written twice is a five-tuple that can drift in one place.
+pub type CommandOutcome = (i32, u8, u32, i32, i32);
+
+/// The tap a caller made: team, hand slot, x, y.
+pub type Command = (i64, i64, i32, i32);
+
 pub fn apply_commands(
     s: &mut BattleState,
-    commands: &[(i64, i64, i32, i32)],
+    commands: &[Command],
     id_of_idx: &[i32],
-) -> Result<Vec<(i32, u8, u32, i32, i32)>, String> {
+) -> Result<Vec<CommandOutcome>, String> {
     let tick = s.tick_count();
     let card_id = |s: &BattleState, team: i64, slot: i64| match (team_of(team), usize::try_from(slot)) {
         (Some(t), Ok(k)) => s.hand_card(t, k).map(|i| id_of_idx[i as usize]).unwrap_or(-1),
@@ -916,7 +925,7 @@ impl Battle {
     /// refused (placement.ILLEGAL_TAP). A reward or a log keyed on the tapped point
     /// therefore describes a point with nothing on it. They are trailing elements on
     /// purpose, so a caller unpacking three keeps working.
-    fn step(&mut self, py: Python<'_>, commands: Vec<(i64, i64, i32, i32)>, ticks: u32) -> PyResult<Vec<(i32, u8, u32, i32, i32)>> {
+    fn step(&mut self, py: Python<'_>, commands: Vec<Command>, ticks: u32) -> PyResult<Vec<CommandOutcome>> {
         let id_of_idx = self.id_of_idx.clone();
         let s = self.s_mut()?;
         let out = apply_commands(s, &commands, &id_of_idx).map_err(PyRuntimeError::new_err)?;

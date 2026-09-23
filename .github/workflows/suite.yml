@@ -109,33 +109,43 @@ jobs:
         working-directory: RoyaleSim
         run: ../.venv/bin/maturin develop --release
 
+      # EVERY GATE AFTER THE INSTALL RUNS, whatever the one before it did. A sequential
+      # pipeline converts ONE failure into an unknown number of UNEXECUTED gates, and the run
+      # summary shows none of it: a step that never ran and a step that passed are both absent
+      # from the failure list. Clippy and ruff had never executed once in this repo's CI --
+      # four runs, the Python suite failed first every time, and both were silently retired.
+      # So the first clippy run in this repo's life was its fifth attempt, and it found a real
+      # lint that had been there the whole time. `if: always()` is gym's repair for the same
+      # defect in the integrator's downstream job, arrived at from the other direction.
       - name: the Rust suite
+        if: always()
         working-directory: RoyaleSim/crates/royalesim
         run: cargo test --release --no-fail-fast
 
       - name: the Python suite
         shell: pwsh
-        if: runner.os == 'Windows'
+        if: always() && runner.os == 'Windows'
         working-directory: RoyaleSim
         run: ..\.venv\Scripts\python -m pytest -q
 
       - name: the Python suite
-        if: runner.os != 'Windows'
+        if: always() && runner.os != 'Windows'
         working-directory: RoyaleSim
         run: ../.venv/bin/python -m pytest -q
 
       - name: ruff
         shell: pwsh
-        if: runner.os == 'Windows'
+        if: always() && runner.os == 'Windows'
         working-directory: RoyaleSim
         run: ..\.venv\Scripts\python -m ruff check .
 
       - name: ruff
-        if: runner.os != 'Windows'
+        if: always() && runner.os != 'Windows'
         working-directory: RoyaleSim
         run: ../.venv/bin/python -m ruff check .
 
       - name: clippy
+        if: always()
         working-directory: RoyaleSim/crates/royalesim
         run: cargo clippy --release --all-targets -- -D warnings
 
