@@ -59,6 +59,10 @@ fn main() {
 
 fn run(args: &[String]) -> Result<(), String> {
     let root = repo_root();
+    // BEFORE ANY MEASUREMENT: a figure from a binary built against a different ledger is an
+    // accurate measurement of a different engine. `maturin develop` does not rebuild this
+    // binary, so the wheel and this exe drift apart routinely.
+    refuse_if_stale(&root)?;
     let replay_dir = format!("{root}/data/derived/replay");
     let mut out_dir = format!("{replay_dir}/results");
     let mut fixtures: Vec<String> = Vec::new();

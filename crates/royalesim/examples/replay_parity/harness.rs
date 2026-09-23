@@ -1825,3 +1825,70 @@ pub fn load_register(path: &str) -> Result<BTreeMap<String, Vec<String>>, String
 pub fn repo_root() -> String {
     format!("{}/../..", env!("CARGO_MANIFEST_DIR"))
 }
+
+/// REFUSE A PARITY MEASUREMENT TAKEN WITH A BINARY BUILT AGAINST A DIFFERENT LEDGER.
+///
+/// The compiled extension already does this: `RustEngine()` raises rather than run against
+/// a calibration.json it was not built with, and that refusal is what tells every session
+/// the ledger moved. THIS BINARY HAD NO SUCH CHECK, and it is the one that produces the
+/// project's headline accuracy figure -- so every gate in the repo could be green,
+/// `test_ledger_build_step` included, while a parity number was measured on an engine the
+/// ledger no longer describes, and the number would look entirely normal.
+///
+/// It is not hypothetical. On 2026-09-23 the parity session was caught by it twice in one
+/// session: once seeing a figure that had not moved when a change predicted it would, and
+/// once seeing 27.3% where 21.7% was expected after a revert. Both times the tell was a
+/// human recognising a number, not an instrument. A figure drifting to something
+/// unfamiliar rather than to a remembered value would have been reported.
+///
+/// VALUES, NOT BYTES, and REFUSE rather than WARN. Values, because reworded prose must not
+/// block a measurement -- the same rule `stale_build_differences` uses. Refuse, because a
+/// parity figure from a stale engine is not a slightly wrong measurement of this engine,
+/// it is an accurate measurement of a DIFFERENT one, and there is no number to salvage.
+pub fn refuse_if_stale(root: &str) -> Result<(), String> {
+    let path = format!("{root}/data/calibration.json");
+    let disk = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+    let values = |src: &str, what: &str| -> Result<BTreeMap<String, serde_json::Value>, String> {
+        let doc: serde_json::Value =
+            serde_json::from_str(src).map_err(|e| format!("{what} calibration.json: {e}"))?;
+        let mut out = BTreeMap::new();
+        if let Some(sections) = doc.as_object() {
+            for (section, entries) in sections {
+                if let Some(entries) = entries.as_object() {
+                    for (key, entry) in entries {
+                        if let Some(v) = entry.get("value") {
+                            out.insert(format!("{section}.{key}"), v.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    };
+    let built = values(royalesim::py::EMBEDDED_CALIBRATION_JSON, "compiled-in")?;
+    let now = values(&disk, "on-disk")?;
+    let mut drifted: Vec<String> = Vec::new();
+    for key in built.keys().chain(now.keys()).collect::<BTreeSet<_>>() {
+        let (b, n) = (built.get(key), now.get(key));
+        if b != n {
+            let show = |v: Option<&serde_json::Value>| {
+                v.map_or("<absent>".to_string(), |v| v.to_string())
+            };
+            drifted.push(format!("  {key}: built {}, now {}", show(b), show(n)));
+        }
+    }
+    if drifted.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "REFUSING TO MEASURE: this binary was built against a different calibration.json, so any figure it produced would describe an engine the ledger no longer names.
+{}
+
+Rebuild it, from crates/royalesim:
+  cargo build --release --example replay_parity
+
+Note that `maturin develop` does NOT rebuild this binary: it builds the wheel, and the two are separate artefacts from the same source.",
+        drifted.join("
+")
+    ))
+}

@@ -294,7 +294,15 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
             "pack, which a CLONE NEVER HAS -- so this is permanently local coverage rather "
             "than a setup step somebody forgot. Do NOT re-pin to the degraded number."
         )
-    outside_by_vintage = {"2018": 40, "15.535": 74}
+    # 74 -> 75 on 2026-09-23: TORNADO. Implementing AttractPercentage made the card
+    # loadable, so it joins the report and it is not in the thin slice. Verified as the
+    # WHOLE delta rather than assumed, which is what this assertion's own message demands:
+    # the outside set is 75, Tornado is in it, and removing Tornado gives exactly 74 with
+    # the register pass running. A card becoming loadable moves this population by
+    # construction, so a future one moves it again -- check the delta is that card before
+    # re-pinning, because the same +1 is also what a flag going missing somewhere else
+    # would look like.
+    outside_by_vintage = {"2018": 40, "15.535": 75}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (
