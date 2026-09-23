@@ -171,10 +171,12 @@ There are two card tables, and the difference decides which tests you can run.
 `tests/charge.rs` loads by that name. The other writes the same table over
 `data/derived/cards.json`, which is what the engine loads.
 
-A 2018-only checkout runs the engine, the example below and the Python suite. **On a fresh clone
-it is 179 passed, 10 skipped, nothing failing** (2026-09-22, commit `2b85ce1`; a clone count is a
-fact about the commit it was taken at, so it carries one). On a machine that also has the
-15.535 card table it is 187 passed, 2 skipped, and the difference is those ten.
+A 2018-only checkout runs the engine, the example below and the Python suite. **The PYTHON suite
+on a fresh clone is 179 passed, 10 skipped, nothing failing** (2026-09-22, commit `2b85ce1`; a
+clone count is a fact about the commit it was taken at, so it carries one). That figure is the
+Python suite only and says nothing about the Rust one, which is a separate command and a separate
+result. On a machine that also has the
+15.535 card table the Python suite is 187 passed, 2 skipped, and the difference is those ten.
 
 Read the skips rather than ignoring them. Each one names the thing it could not find and says that
 a skip is not a pass. Earlier today five of them were FAILURES, and their message told the reader
@@ -432,7 +434,13 @@ Not modelled yet, in plain words:
 Tests. Both blocks below start from the `Royale` folder you made in stage 1, so go back there
 before you run the second one.
 
-The Rust suite is 373 tests, 3 of them skipped unless you ask for them. The first run compiles the
+The Rust suite is 373 tests, 3 of them skipped unless you ask for them. **It is failing today, on
+main, and has been since 2026-09-22 17:38.** One test: the scripted battle's separation invariant,
+where two Skeleton Army units overlap by 157 per cent of the smaller radius for 41 consecutive
+ticks against a limit of 150 for 40. The starting elixir moving from 5 to 6 did not create that
+defect. It created a battle that reaches one already on the backlog, so the engine has carried it
+longer than the failure has existed. No passing count for this suite is published until it is
+green again. The first run compiles the
 test binaries before it runs anything, so expect several minutes of build output before the first
 result appears.
 
