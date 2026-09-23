@@ -201,4 +201,9 @@ jobs:
             echo "and the parity figures are not re-measured here. Each skip names its own remedy."
             echo "A green row means the suite passed ON THAT POPULATION, which is smaller than the"
             echo "one a workspace with the modern card table runs."
-          } >> "$GITHUB_STEP_SUMMARY"
+          # tee, NOT a bare redirect. The step summary does NOT appear in the run log, so a
+          # figure written only there is unreadable to anyone reading logs -- which is how the
+          # integrator came to derive this repo's collected count instead of quoting it, and a
+          # derivation is unsafe here because test_watch_battle.py carries a module-level
+          # importorskip and contributes ZERO collected items when royalegym is absent.
+          } | tee -a "$GITHUB_STEP_SUMMARY"
