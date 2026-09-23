@@ -166,9 +166,30 @@ jobs:
           cp data/derived/cards-15.535.json data/derived/cards.json
           python tools/extract_globals.py
 
+      # PLANT. THIS BRANCH IS NEVER MERGED.
+      #
+      # match.START_MANA is 6 in the ledger the wheel was built from. Moving it to 5 here --
+      # after the build, on the disk the consumers read -- is the exact drift the stale-build
+      # refusal exists to catch, and 5 is not a random number: it is the candidate the ledger
+      # records and rejects, so this is a drift someone could really introduce.
+      - name: PLANT, one calibration value moved after the wheel was built
+        shell: bash
+        working-directory: RoyaleSim
+        run: |
+          python - <<'PY'
+          import io, json
+          p = "data/calibration.json"
+          d = json.loads(io.open(p, encoding="utf-8").read())
+          assert d["match"]["START_MANA"]["value"] == 6, d["match"]["START_MANA"]["value"]
+          d["match"]["START_MANA"]["value"] = 5
+          io.open(p, "w", encoding="utf-8", newline="\n").write(json.dumps(d, indent=2) + "\n")
+          print("PLANTED: match.START_MANA 6 -> 5 on disk, wheel still holds 6")
+          PY
+
       # `-rs` is not decoration: the next step reads these lines. `tee` keeps the output for
       # it while pipefail keeps pytest's own exit code as this step's.
       - name: the suite, against that engine
+        id: suite
         shell: bash
         working-directory: ${{ matrix.repo }}
         run: |
@@ -216,3 +237,30 @@ jobs:
             python -c "import royalesim; print('engine provenance=%s tree=%s' % royalesim.Battle.provenance())" || true
             cat wheelhouse/ENGINE.txt
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # PLANT GRADING. This step is GREEN when the plant landed: the refusal reached the
+      # consumer AND the suite went red for it. A skip carrying the same words is not a
+      # landing -- it is the defect this job exists to refuse, and learn's engine fixture
+      # has exactly that `except RuntimeError: pytest.skip(...)`.
+      - name: PLANT GRADING, the refusal must be a failure and not a skip
+        if: always()
+        shell: bash
+        env:
+          SUITE: ${{ steps.suite.outcome }}
+        run: |
+          echo "suite step outcome: $SUITE"
+          if ! grep -q "built against different data" pytest.txt; then
+            echo "PLANT DID NOT LAND: the stale-build refusal is nowhere in the output."
+            echo "The consumer ran against a wheel built from different data and did not notice."
+            grep -E "^(SKIPPED|FAILED|ERROR)" pytest.txt | head -20
+            exit 1
+          fi
+          if [ "$SUITE" != "failure" ]; then
+            echo "PLANT LANDED AS A SKIP, NOT A FAILURE."
+            echo "The refusal is in the output and the suite still exited green, so this"
+            echo "consumer reports a data mismatch as a pass."
+            grep -E "^SKIPPED" pytest.txt | head -20
+            exit 1
+          fi
+          echo "PLANT LANDED: the engine refused, and the suite went red for that refusal."
+          grep -m3 "built against different data" pytest.txt
