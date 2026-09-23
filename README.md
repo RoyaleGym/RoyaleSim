@@ -212,8 +212,12 @@ every battle, so counting them flatters the result.
 Single units are already close. A Knight is within a quarter tile 82.5% of the time and walks the
 exact same path 74.9% of the time. Swarms are where the gap is: Goblins 42.5%, Skeletons 43.9%.
 
-**Those numbers are where the engine stands, not the target.** They come from the run of
-2026-09-21. The target is that a swarm fight does not diverge either. We know where the gap
+**Those numbers are where the engine stood on 2026-09-21, not the target, and not necessarily
+where it stands today.** They come from the run of that date. The engine has changed since: whole
+buildings now stand on a tile footprint rather than a circle, five more cards load, and a match
+starts with 6 elixir rather than 5. Any of those can move the figure in either direction, and the
+comparison has not been re-run against them. Treat 49.4 % as the last measured value rather than
+as today's. The target is that a swarm fight does not diverge either. We know where the gap
 comes from, because the same run also reports what went wrong first in every battle, and how much
 of the error sits in the battles that went wrong that way:
 
