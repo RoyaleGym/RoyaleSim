@@ -830,6 +830,29 @@ def maker_inputs(m):
     return id_table, doc, name_to_id, card_names
 
 
+def _skip_without_the_id_table(m) -> None:
+    """The Supercell id -> card-name table, and a clean runner has none.
+
+    `make_replay_fixture.load_id_table()` walks `data/raw/cr-15.535.29/csv_logic/` and
+    CONTINUES past every file that is not there, so on a clone it returns an empty dict
+    rather than raising. Every recorded deploy then resolves to nothing, and a test keyed on
+    a card name fails with a KeyError that looks like the card is missing from the table.
+    It is not: the card is in the published table, and nothing could resolve to it.
+
+    A silent `continue` past a missing input is the same shape as a probe that cannot tell
+    absent from empty, which is why this says so out loud instead.
+    """
+    if not m.load_id_table():
+        pytest.skip(
+            "SKIPPED, NOT PASSED: the Supercell id table is empty, so no recorded deploy can "
+            "resolve to a card name. It is read from data/raw/cr-15.535.29/csv_logic/, the "
+            "decoded asset pack, which is excluded on rights grounds and which a CLONE NEVER "
+            "HAS -- permanently local coverage rather than a setup step somebody forgot. "
+            "Nothing about the fixture maker's deploy or spell publishing has been checked "
+            "here."
+        )
+
+
 def _build(m, maker_inputs, path):
     id_table, doc, name_to_id, card_names = maker_inputs
     return m.build(str(path), [], 1, None, None, id_table, doc, {}, name_to_id, card_names, {})
@@ -844,6 +867,7 @@ def _decode(col):
 
 @needs_modern_cards
 def test_the_battle_publishes_timers_elixir_and_spell_objects(m, maker_inputs, tmp_path):
+    _skip_without_the_id_table(m)
     header, frames = _battle()
     path = tmp_path / "frames-synthetic.native.oracle.jsonl.gz"
     _write_capture(path, header, frames)
@@ -864,6 +888,11 @@ def test_the_battle_publishes_timers_elixir_and_spell_objects(m, maker_inputs, t
         "1": m.rle([f["elixir_raw"][1] for f in frames]),
     }
     spells = {d["card"]: d for d in fx["deploys"] if d["kind"] == "spell"}
+    # NAMED, not subscripted. A bare `spells["Fireball"]` can only RAISE, and a KeyError
+    # cannot tell you whether the spell is absent, renamed, or resolved to something else --
+    # three causes with three different repairs. This failure says which in one run.
+    for want in ("Fireball", "Arrows"):
+        assert want in spells, f"the battle published {sorted(spells)}, with no {want}"
     # the Fireball's launch is side 0's king tower centre, as published in `towers`
     king0 = next(t for t in fx["towers"] if t["side"] == 0 and t["slot"] == 0)
     assert spells["Fireball"]["objects"][0]["launch"] == [king0["x"], king0["y"]]
@@ -885,6 +914,7 @@ def test_one_battle_is_one_fixture_whichever_way_up_it_was_recorded(m, maker_inp
     top must give the same fixture as recorded with side 0 at the bottom -- every position,
     side, path cell, spell point, aim and elixir column -- except the `frame` note that says
     which way it came in and the header's native `local_side_native`."""
+    _skip_without_the_id_table(m)
     header, frames = _battle()
     a = tmp_path / "a" / "frames-synthetic.native.oracle.jsonl.gz"
     b = tmp_path / "b" / "frames-synthetic.native.oracle.jsonl.gz"

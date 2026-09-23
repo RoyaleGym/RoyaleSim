@@ -273,13 +273,34 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # The population then moved under it inside the hour: the owner ruled the derived 15.535
     # table may be committed, so a clone went from 40 to 74, and the adaptive version would
     # have passed silently through exactly the change it existed to notice.
+    # A COUNT IS ONLY CHECKABLE ON THE CONFIGURATION IT WAS TAKEN ON, and the vintage is
+    # only half of that configuration. The register pass contributes flags and skips loudly
+    # when `mechanic_register.json` is absent, so the same table gives 74 with it and 72
+    # without. CI measured 72 and the pin said 74; the pin was right and its key was one
+    # dimension short.
+    #
+    # WHY THIS SKIPS RATHER THAN PINNING 72 AS WELL. Generating the register on a runner is
+    # the stronger repair and is not available: `tools/mechanic_register.py` reads
+    # `data/raw/cr-15.535.29/`, the asset pack that is permanently excluded. And re-pinning
+    # to the degraded number would make this gate agree with whatever configuration happens
+    # to run it -- which is the exact property removed from this test an hour before CI
+    # found this, for the exact reason stated four lines above.
+    if any("SKIPPED the register pass" in n for n in r.notes):
+        pytest.skip(
+            "SKIPPED, NOT PASSED: the catalogue-gap pin was measured with the register pass "
+            "RUNNING, and data/derived/mechanic_register.json is absent here, so its flags "
+            "are missing and this population is not the pinned one. The register is generated "
+            "by tools/mechanic_register.py from data/raw/cr-15.535.29/, the decoded asset "
+            "pack, which a CLONE NEVER HAS -- so this is permanently local coverage rather "
+            "than a setup step somebody forgot. Do NOT re-pin to the degraded number."
+        )
     outside_by_vintage = {"2018": 40, "15.535": 74}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (
-        f"{vintage} table: {len(outside)} cards flagged outside the thin slice, and this "
-        f"population was {want}. A number here is a real change in what the gate sees -- "
-        "re-read the gate before updating it."
+        f"{vintage} table with the register pass running: {len(outside)} cards flagged "
+        f"outside the thin slice, and this population was {want}. A number here is a real "
+        "change in what the gate sees -- re-read the gate before updating it."
     )
     # And the shape, kept beside it: if a third table ever appears this says which of the two
     # readings is wrong rather than only that they disagree.
