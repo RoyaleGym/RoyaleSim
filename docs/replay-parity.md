@@ -192,5 +192,6 @@ it has found the thing that is already on the list.
 - Position is scored in native units against a recording that misses a frame here and there; a
   unit-tick on a missed frame is not scored at all, not scored as a match.
 - `target` is the one column where the towers drag the average down rather than up (18.1 % all,
-  37.1 % no towers). A tower with several units in range picks among them by a rule the engine
+  37.1 % no towers, from the 2026-09-23 corpus run at build_digest d872d792711934c2, 67 of
+  73 fixtures played). A tower with several units in range picks among them by a rule the engine
   does not yet reproduce, and the column counts the pick, not the damage.

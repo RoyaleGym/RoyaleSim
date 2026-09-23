@@ -85,3 +85,7 @@ ignore = [
 # style preferences this repo happens to hold and the original does not; "fixing" them
 # would make the next drift invisible, which is the one thing the copy exists to prevent.
 "tests/_doc_links.py" = ["UP037", "SIM102"]
+# Same arrangement, same reason: vendored copies kept byte-identical so they can be diffed
+# against the original and against the other repos' copies.
+"tests/_figure_provenance.py" = ["RUF005"]
+"tests/_version_match.py" = ["RUF005"]

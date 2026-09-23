@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "WHERE EACH VENDORED CHECKER CAME FROM. A copy kept byte-identical can be diffed against",
+    "its source -- but only if the diff is against the SOURCE. On 2026-09-23 this repo vendored",
+    "the fence checker from a SIBLING repo's copy rather than the original and inherited a",
+    "49-line staleness that looked perfect in every comparison available here: three copies",
+    "agreeing is not confirmation when the thing they agree with is each other. The missing rule",
+    "was the one written because of this repo.",
+    "",
+    "So each row records the source path, the source repo's commit at the time of copying, and",
+    "the sha256 of the bytes. The hash is checked by tests/test_vendored_sources.py, which",
+    "detects LOCAL drift; the source and commit are what let anyone holding both trees detect",
+    "the other direction, which no test inside a clone can do."
+  ],
+  "source_repo": "RoyaleLive (private), docs/2026-09-22-integration-harness/",
+  "source_commit": "59980e2df4912b9813a9de86373bec6419c69f71",
+  "vendored": {
+    "tests/_shell_fences.py": {
+      "source": "shell_fence_check.py",
+      "sha256": "0f76559a817a229324cb4cbf873b3b1871245ecc6d766c8d1b0a6371f9d89d39",
+      "lines": 275
+    },
+    "tests/_doc_links.py": {
+      "source": "doc_links_check.py",
+      "sha256": "da36adf11155572b8057a7bbb8c5016b47308f18c4b8e4657b58ac02041bda48",
+      "lines": 208
+    },
+    "tests/_figure_provenance.py": {
+      "source": "figure_provenance_check.py",
+      "sha256": "e922194334f38339f425d3f0215729ecf6243804a7b1c1921a4d08f2ed5a705a",
+      "lines": 157
+    },
+    "tests/_version_match.py": {
+      "source": "version_match_check.py",
+      "sha256": "ba10c1aeb981c0f491f0c0b8c9d40077601cf86b655b5504a069f333bf4abb47",
+      "lines": 199
+    }
+  }
+}

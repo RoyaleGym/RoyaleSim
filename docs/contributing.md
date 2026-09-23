@@ -261,6 +261,11 @@ Two rules go with them, and both were learned the hard way:
 
 ## Test layout
 
+Everything under `crates/royalesim/` runs with `cargo test --release`; everything under the
+repository's own `tests/` runs with pytest. Any count quoted below is the Rust suite unless
+the row says otherwise -- RoyaleSim's Rust suite was red for four hours on 2026-09-22 while
+four sessions quoted correct Python-suite counts at each other, and none of them said which.
+
 | Path | Covers |
 |---|---|
 | `crates/royalesim/src/**` unit tests | phase order, math, loaders |
@@ -269,7 +274,7 @@ Two rules go with them, and both were learned the hard way:
 | `tests/mechanics.rs`, `territory.rs`, `spells.rs`, `knockback.rs` | behaviour per mechanic |
 | `tests/tiebreak.rs`, `hide.rs`, `spawner.rs`, `charge.rs`, `reach.rs`, `lifetime.rs`, `status.rs` | the mechanics measured on the 16.402 corpus |
 | `tests/tick_order.rs`, `knockback16402.rs`, `jump16402.rs` | the measured tick order, knockback ladder and river hop |
-| `tests/formations.rs` | 12 tests over the summon layouts, against `tests/fixtures/formations/measured.json`, 79 groups (`tools/make_formation_fixture.py --check`). The fixture buckets by tap row as well as card, side and lane half, because a row-blind bucket threw away the corpus' only evidence for one of the clamp's bounds. |
+| `tests/formations.rs` | 12 `cargo test` cases over the summon layouts, against `tests/fixtures/formations/measured.json`, 79 groups (`tools/make_formation_fixture.py --check`). The fixture buckets by tap row as well as card, side and lane half, because a row-blind bucket threw away the corpus' only evidence for one of the clamp's bounds. |
 | `tests/levels.rs` | level scaling and the tower ladder, against `tests/fixtures/live_levels.json` (`tools/make_live_levels_fixture.py --check`, needs `ROYALELIVE_REPORTS`) |
 | `tests/replay_parity.rs`, `examples/replay_parity.rs` | a whole recorded battle replayed and scored, against `tests/fixtures/replay/sample.json` (`tools/make_replay_fixture.py ... --check`) |
 | `tests/oracle2026.rs` | the path gates against recorded first paths (G6), against `tests/fixtures/oracle2026/client16402_first_paths.json` (`tools/make_client16402_paths_fixture.py --check`) |

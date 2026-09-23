@@ -154,7 +154,7 @@ The sharpest case is a wedge. A Knight at (7.6001, 10) between Cannons at (7.0, 
 (8.2001, 10) has per-obstacle penetration depths of 0.49994 and 0.50000 tiles; the summed push is
 **0.0001 tile**, the deepest single push is 0.5 tile. Two hundred consecutive static passes
 oscillate between two adjacent subtiles and the unit stays half inside both buildings forever. No
-invariant sees it, because rule 2 tests the centre and the centre is outside both.
+invariant sees it, because rule 2 checks the centre and the centre is outside both.
 
 A contributing defect sits in the same loop: the push predicate and the exit predicate disagree.
 The loop pushes for **disc** clearance and exits on **centre** clearance, so it can return a point
@@ -184,12 +184,14 @@ well because a parity run will meet it as an unexplained divergence otherwise.
 - `spawn_unit` / `deploy` called several times for one team within a tick assigns `team_seq` in
   call order. This is reachable only from the Rust test API; the Python surface applies at most
   one per team per step.
-- 0.27% of live unit-ticks are still not reproduced (`pathfinding.md`).
+- 0.27% of live unit-ticks are still not reproduced, measured on the offline trace corpus of
+  client 15.535.29 (`pathfinding.md` holds the run and the counts).
 
 ## Invariants the game does not have
 
 Three invariants the engine used to enforce were relaxed under the 16.402 arm, each because a
-measurement refutes it. They are listed here so nobody re-adds them as "obviously correct":
+measurement refutes it. Every figure below is measured on the 16.402 capture corpus,
+troop pairs with deploying units excluded. They are listed here so nobody re-adds them as "obviously correct":
 
 - Troops may stand **inside a building footprint**. Melee attackers do, because their goal cell
   is within reach of the building's centre.
