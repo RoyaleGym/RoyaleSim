@@ -112,15 +112,20 @@ see one: the match starts with 6 elixir rather than the 5 in the 2018 table, bec
 the live game does. Only a disagreement nobody has written down stops the run, and then the
 script says so and exits non-zero.
 
-The two `extract_cards.py` lines are not a typo and both need `--vintage 2018`. The first writes
-`data/derived/cards-2018.json` and the second writes the same table over `data/derived/cards.json`.
-The next section says why both files exist.
+`cards.json` is the card table the engine loads, and the copy line is what puts the right one
+there. `cards-15.535.json` is committed to this repository: it is the table the simulator is
+calibrated against, derived from the 2026 client's own data and stored as numbers -- hitpoints,
+timers, radii. `extract_cards.py --vintage 2018` builds the older table beside it, which the
+engine does not run but which several tests load by name and the calibration registry cites as
+evidence of what shipped in 2018.
+
+On macOS or Linux the copy is `cp data/derived/cards-15.535.json data/derived/cards.json`.
 
 ```
 cd RoyaleSim
 ..\.venv\Scripts\python tools\extract_arena.py
 ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018
-..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+Copy-Item data\derived\cards-15.535.json data\derived\cards.json
 ..\.venv\Scripts\python tools\extract_globals.py
 cd ..
 ```

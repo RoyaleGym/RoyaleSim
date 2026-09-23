@@ -28,11 +28,12 @@ on:
 # runner for exactly that, found the first time anybody looked. The untested case is every OS
 # this code has never seen, and no amount of care on the platform where it works can find it.
 #
-# THE RUNNER RUNS A DIFFERENT POPULATION, NOT A SMALLER ONE, and the summary step says so. A
-# clone has no recorded corpus and the README's stage 3 builds the 2018 card table, so the
-# oracle and replay fixtures skip -- and those are the tests that carry the parity claim. A row
-# reading "N passed on ubuntu-latest" is true and means something a reader cannot recover, so
-# the summary records the collected count beside it and names what the difference consists of.
+# THE RUNNER RUNS A DIFFERENT POPULATION, NOT A SMALLER ONE, and the summary step says so. It
+# now reads the same card table this project is calibrated against, so the card-shaped gap is
+# closed -- but a clone still has no RECORDED CORPUS, so the oracle and replay fixtures skip,
+# and those are the tests that carry the parity claim. A row reading "N passed on ubuntu-latest"
+# is true and means something a reader cannot recover, so the summary records the collected
+# count beside it and names what the difference consists of.
 jobs:
   suite:
     strategy:
@@ -70,9 +71,13 @@ jobs:
         if: runner.os != 'Windows'
         run: .venv/bin/python -m pip install maturin pytest hypothesis ruff
 
-      # Stage 3, verbatim including the two extract_cards lines, which are not a typo: the first
-      # writes cards-2018.json and the second writes the same table over cards.json, the file the
-      # engine loads. A clone has only the 2018 tables, so this is the card table CI runs on.
+      # Stage 3, verbatim. The copy line is the one that matters: `cards.json` is the table the
+      # engine loads, and until the owner's 2026-09-23 ruling a clone could only build the 2018
+      # one, because the 15.535 data existed solely as a decoded asset pack that cannot be
+      # redistributed. 32 Rust tests failed on this workflow's first run for exactly that. The
+      # DERIVED 15.535 table is committed now -- numbers, not the pack -- so a runner reads what
+      # this project is calibrated against. The 2018 table is still built beside it: the engine
+      # does not run it, tests load it by name, and the ledger cites it as evidence.
       - name: stage 3, generate the data files
         shell: pwsh
         if: runner.os == 'Windows'
@@ -80,7 +85,7 @@ jobs:
         run: |
           ..\.venv\Scripts\python tools\extract_arena.py
           ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018
-          ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+          Copy-Item data\derived\cards-15.535.json data\derived\cards.json
           ..\.venv\Scripts\python tools\extract_globals.py
 
       - name: stage 3, generate the data files
@@ -90,7 +95,7 @@ jobs:
         run: |
           ../.venv/bin/python tools/extract_arena.py
           ../.venv/bin/python tools/extract_cards.py --vintage 2018
-          ../.venv/bin/python tools/extract_cards.py --vintage 2018 --out data/derived/cards.json
+          cp data/derived/cards-15.535.json data/derived/cards.json
           ../.venv/bin/python tools/extract_globals.py
 
       - name: stage 4, build the engine into the venv

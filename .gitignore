@@ -29,7 +29,22 @@ battle.html
 *.jpg
 
 # Generated data (tools/extract_*.py from data/raw; rebuild royalesim after regenerating)
-data/derived/
+# `data/derived/*` rather than `data/derived/`: git will not un-ignore a file inside an
+# ignored DIRECTORY, so the exception below needs the contents ignored rather than the
+# directory itself. Subdirectories are still covered -- they match the star as entries.
+data/derived/*
+# THE ONE EXCEPTION, by owner ruling 2026-09-23: the DERIVED 15.535 card table is committed.
+# It is numbers -- hitpoints, timers, radii -- of the category already ruled publishable, and
+# it is the file the tests actually read. Without it no clean runner can exercise the engine's
+# real behaviour: 32 Rust tests failed on the first CI run because a clone builds the 2018
+# table and every one of those tests is a fact about 15.535.
+#
+# THE RAW PACK IS STILL EXCLUDED AND THAT IS NOT THE SAME QUESTION. data/raw/cr-15.535.29/ is
+# a decoded Supercell asset tree, not covered by this repository's licence (LICENSE,
+# data/raw/retroroyale-2018/README.md), and pyproject keeps it out of the sdist deliberately.
+# Anything that needs a RAW file rather than this derived table is a new question for the
+# owner rather than something this line covers.
+!data/derived/cards-15.535.json
 
 # Ground-truth traces (large; not distributed)
 data/oracle-native/
