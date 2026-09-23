@@ -41,6 +41,7 @@ Exit 0 if every file passes, 1 otherwise.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -54,6 +55,10 @@ HTML_TAG = re.compile(r"<[^>]+>", re.S)
 # "78%20public" contains the characters of "78%", and three of this check's next four refusals were
 # badge URLs. Blank the target of every markdown link and image.
 MD_TARGET = re.compile(r"\]\(([^)\s]*)")
+# An inline code span is a quotation, not a claim. This page's sibling check learned that early and
+# this one did not, and it showed: the doc-gates page describing `width="100%"` as a false positive
+# was refused for stating a measured figure. A page about markup contains markup.
+INLINE_CODE = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
 HEADING = re.compile(r"^#{1,6} .*$", re.M)
 PERCENT = re.compile(r"\b\d{1,3}(?:[.,]\d+)?\s?%|\b\d{1,3}(?:[.,]\d+)?\s+per cent\b")
 
@@ -91,6 +96,21 @@ def expand(args: list[str]) -> list[str]:
     guard to be wrong: it reports on a page it never read. The sim session hit it.
     """
     out: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        """Once each. Passing a repo AND a page inside it must not count that page twice.
+
+        The sim session reported 28 of 28 on a 14-page repo, having passed both the repo and its
+        explicit list, which is a reasonable thing to do: naming the pages makes the population the
+        caller's own. A doubled denominator is the quietest possible wrong number, because it moves
+        with the real one and never looks stale.
+        """
+        key = os.path.normcase(os.path.normpath(name))
+        if key not in seen:
+            seen.add(key)
+            out.append(name)
+
     for arg in args:
         path = Path(arg)
         if path.is_dir():
@@ -98,9 +118,10 @@ def expand(args: list[str]) -> list[str]:
                                   capture_output=True)
             names = done.stdout.decode("utf-8", errors="replace").split() if not done.returncode \
                 else [str(p.relative_to(path)) for p in sorted(path.rglob("*.md"))]
-            out.extend(f"{arg}/{n}" for n in names)
+            for n in names:
+                add(f"{arg}/{n}")
         else:
-            out.append(arg)
+            add(arg)
     return out
 
 
@@ -125,7 +146,7 @@ def sections(text: str) -> list[tuple[int, str]]:
 
 def check_page(page: str, text: str) -> list[str]:
     blank = lambda m: "\n" * m.group(0).count("\n")  # noqa: E731 - keeps line numbers honest
-    body = MD_TARGET.sub(blank, HTML_TAG.sub(blank, FENCE.sub(blank, text)))
+    body = INLINE_CODE.sub(blank, MD_TARGET.sub(blank, HTML_TAG.sub(blank, FENCE.sub(blank, text))))
     out = []
     for first_line, chunk in sections(body):
         figures = [m for m in PERCENT.finditer(chunk)
@@ -180,6 +201,11 @@ SELFTEST = [
      "# H\n\n56.5%, counted over the offline trace corpus of client 15.535.29.\n", False),
     ("sampled from a corpus", "# H\n\n56.5%, sampled from the replay corpus.\n", False),
     ("a client version alone", "# H\n\n56.5% on client 15.535.29.\n", False),
+    # A page about markup contains markup. A quoted percentage is not a claim about the world.
+    ("a percentage quoted in a code span",
+     '# H\n\nA `width="100%"` attribute is not a measurement.\n', False),
+    ("a real figure beside a quoted one",
+     '# H\n\nA `width="100%"` attribute is not one. It agrees 56.5% of the time.\n', True),
 ]
 
 

@@ -111,8 +111,13 @@ def test_the_checkers_are_vendored_copies_and_not_local_rewrites() -> None:
             for line in text.splitlines()
             if line.startswith("import ") or line.startswith("from ")
         }
-        stdlib_only = {"re", "sys", "subprocess", "pathlib", "tomllib", "unicodedata", "__future__"}
-        assert imports <= stdlib_only, (
-            f"{checker.name} imports {sorted(imports - stdlib_only)}, so it no longer runs on a "
-            "fresh clone with nothing installed"
+        # ASKED OF PYTHON, not kept by hand. The rule is "standard library only, so it runs
+        # on a clone with nothing installed", and the first version of this test wrote out
+        # the modules the checkers happened to import that day. One of them gained `os`
+        # upstream and my gate called a correct copy broken -- a hand-kept list of what
+        # exists falling behind what exists, which is the defect this whole file is about.
+        stdlib = set(sys.stdlib_module_names) | {"__future__"}
+        assert imports <= stdlib, (
+            f"{checker.name} imports {sorted(imports - stdlib)}, which is not in the standard "
+            "library, so it no longer runs on a fresh clone with nothing installed"
         )

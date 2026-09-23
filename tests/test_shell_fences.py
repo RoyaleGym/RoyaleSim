@@ -137,12 +137,12 @@ def test_the_checker_is_the_vendored_copy_and_not_a_local_rewrite() -> None:
         for line in text.splitlines()
         if line.startswith("import ") or line.startswith("from ")
     }
-    # The rule is STANDARD LIBRARY ONLY, and the list is of the modules the original is
-    # allowed to reach for rather than the ones it happens to use today: it grew
-    # `unicodedata` within the hour, for the control-character rule, and a list of what it
-    # uses now would have failed on a copy that is more correct than the one it replaced.
-    stdlib_only = {"re", "sys", "pathlib", "unicodedata", "__future__"}
-    assert imports <= stdlib_only, (
-        f"the vendored checker imports {sorted(imports - stdlib_only)}, so it no longer runs "
-        "on a fresh clone with nothing installed"
+    # ASKED OF PYTHON, not kept by hand. The rule is "standard library only, so it runs on a
+    # clone with nothing installed", and the first version wrote out the modules the checker
+    # happened to import that day. One of them gained `os` upstream and the gate called a
+    # correct copy broken: a hand-kept list of what exists falling behind what exists.
+    stdlib = set(sys.stdlib_module_names) | {"__future__"}
+    assert imports <= stdlib, (
+        f"the vendored checker imports {sorted(imports - stdlib)}, which is not in the standard "
+        "library, so it no longer runs on a fresh clone with nothing installed"
     )
