@@ -45,14 +45,37 @@ def entries(node: dict, prefix: str = "") -> dict:
     return out
 
 
+def nested_entries(node: dict, prefix: str = "") -> dict:
+    """Every dict carrying a string status, INCLUDING ones nested inside another entry.
+
+    `entries()` stops at the first status it finds, which is the convention four tools
+    share. This does not stop, so the two differ by the entries that sit inside entries.
+    Both are reported, because a convention that undercounts is still an undercount if
+    nobody says by how much.
+    """
+    out: dict[str, dict] = {}
+    for key, value in node.items():
+        if key.startswith("$") or not isinstance(value, dict):
+            continue
+        if isinstance(value.get("status"), str):
+            out[prefix + key] = value
+        out.update(nested_entries(value, prefix + key + "."))
+    return out
+
+
 def census(ledger: dict | None = None) -> dict:
     ledger = ledger if ledger is not None else json.loads(LEDGER.read_text(encoding="utf-8"))
     e = entries(ledger)
+    deep = nested_entries(ledger)
     by_status = collections.Counter(v["status"] for v in e.values())
+    deep_status = collections.Counter(v["status"] for v in deep.values())
     measured = [k for k, v in e.items() if v["status"] == "measured"]
     no_rival = [k for k in measured if not e[k].get("candidates")]
     return {
         "entries": len(e),
+        "entries_with_nested": len(deep),
+        "measured_with_nested": deep_status["measured"],
+        "nested_inside_an_entry": sorted(set(deep) - set(e)),
         "candidates": sum(1 for v in e.values() if v.get("candidates")),
         "promotion_rules": sum(1 for v in e.values() if v.get("promotion_rules")),
         "both": sum(1 for v in e.values() if v.get("candidates") and v.get("promotion_rules")),
@@ -75,7 +98,11 @@ CHECKS = [
     (r"the (\d+) `datamined` keys", "datamined"),
     (r"(\d+) of\n  the (\d+) `measured` entries name no rival", ("measured_no_rival", "measured")),
     (r"and (\d+) of those state no promotion criterion", "measured_no_rival_no_promotion"),
-    (r"Of the (\d+) keys with a status, (\d+) are `measured`", ("entries", "measured")),
+    (r"Of the (\d+) top-level keys with a status, (\d+) are `measured`", ("entries", "measured")),
+    # The nested entry the convention leaves out. Watched so the undercount cannot be
+    # quietly dropped from the page later.
+    (r"counting every status in the file gives (\d+)\s+and (\d+) measured",
+     ("entries_with_nested", "measured_with_nested")),
 ]
 
 
