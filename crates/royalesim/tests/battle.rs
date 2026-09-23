@@ -59,6 +59,41 @@ fn scripted_battle_finishes_with_plausible_result() {
     assert!(!full(Team::Blue) && !full(Team::Red), "a side's towers were never damaged");
 }
 
+/// THE KNOWN CROWD DEFECT, PINNED AT ITS MEASURED SIZE so that fixing it is noisy.
+///
+/// The engine skips the whole move pass for a unit whose attack phase holds it
+/// (`movement.ATTACKING_UNIT_MOVEMENT`, REFUTED in the ledger), so an attacking crowd is
+/// never separated. In this battle that shows as a Skeleton Army pair above 150 % of the
+/// smaller radius for 87 consecutive ticks, peaking at 193 %, against a game whose own
+/// crowds run six ticks above 150 % (222 pairs measured on the replay corpus, one outlier
+/// at 120).
+///
+/// THE FIRST REPORT OF THIS SAID 41 TICKS AND THAT NUMBER WAS THE GATE'S, NOT THE ENGINE'S.
+/// A limit that fails as soon as it is exceeded cannot measure what it is failing on: it
+/// prints its own threshold plus one. Raising the limit to 45 moved the reported figure to
+/// 46. The run is 87, found by lifting the limit out of the way and reading `worst_run`.
+///
+/// The alternative was to mark the test above `#[ignore]`. This is better for one reason:
+/// an ignored test cannot tell you when it should be un-ignored. This one fails in BOTH
+/// directions. If the defect grows the tolerance catches it; if someone fixes it, the
+/// lower bound here fails and says to tighten `CLIENT16402_TOLERANCE` back down.
+#[test]
+fn the_known_crowd_defect_has_not_changed_size() {
+    let r = run_scripted(0xC1A5, true, None);
+    let worst = r.inv.worst_run[1];
+    assert!(
+        worst >= 60,
+        "the attacking-crowd overlap is down to {worst} ticks above 150 %, from the 87 this \
+         was pinned at. If movement.ATTACKING_UNIT_MOVEMENT was fixed, say so in the ledger \
+         and TIGHTEN CLIENT16402_TOLERANCE's second limit from 90 toward the game's own six."
+    );
+    assert!(
+        r.inv.worst_pct >= 150,
+        "no pair exceeds 150 % any more ({} %), so this characterisation is watching nothing",
+        r.inv.worst_pct
+    );
+}
+
 #[test]
 fn determinism_same_seed_same_script_identical_hash_every_tick() {
     let a = run_scripted(77, false, None);
@@ -166,4 +201,16 @@ fn the_same_battle_under_separation_only_keeps_its_crowd_apart() {
         r.inv.ticks_checked
     );
     assert!(r.inv.ticks_checked > 1000, "the invariants must have seen a real battle: {}", r.inv.ticks_checked);
+    // AND IT MUST BE BETTER THAN THE SHIPPED ARM, or this test is named for a property it
+    // never compares. It asserted only that a battle happened until the tolerance was
+    // widened to characterise the defect, at which point BOTH arms passed and the name
+    // carried the whole claim.
+    let shipped = run_scripted(0xC1A5, true, None);
+    assert!(
+        r.inv.worst_run[1] < shipped.inv.worst_run[1],
+        "separation_only leaves the crowd packed as long as the shipped arm does: {} ticks \
+         above 150 % against {}",
+        r.inv.worst_run[1],
+        shipped.inv.worst_run[1]
+    );
 }
