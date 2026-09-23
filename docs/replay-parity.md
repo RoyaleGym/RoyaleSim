@@ -1,6 +1,8 @@
 # Replay parity: the engine against recorded battles
 
-Measured 2026-09-21 on the whole corpus.
+Measured 2026-09-22 at 18:40 PDT on the whole corpus, against the engine of that day: tile
+footprints for buildings, 102 loadable cards and 6 starting elixir. An earlier run on
+2026-09-21 is in the history note at the end; do not read the two as one series.
 
 This page is for contributors who want to know how close the engine is to the game. The engine's
 claim is that it reproduces the game, and this file is the measurement of that claim over every
@@ -65,33 +67,39 @@ the per-fixture report each say when they disagree. The run below carries no suc
 
 ## 3. The aggregate
 
-**25 whole battles and 42 prefixes, 67 battles.** 219491 no-tower unit-ticks; the walk columns
-are over 122770 isolated-walk unit-ticks.
+**27 whole battles and 40 prefixes, 67 battles.** 271384 no-tower unit-ticks; the walk
+columns are over 141002 isolated-walk unit-ticks.
 
 | | unit-ticks | <=250 | <=250 moving | <=500 | <=1000 | hp exact | target | path n | alive/missing/extra | walk <=250 | walk <=20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| ALL | 700138 | 83.9% | 83.9% | 88.2% | 92.2% | 83.3% | 17.5% | 83.8% | 3.3% | 52.5% | 31.0% |
-| ALL but towers | 219491 | 49.4% | 46.9% | 62.9% | 75.7% | 81.4% | 38.6% | 48.9% | 10.0% | 52.5% | 31.0% |
+| ALL | 800243 | 82.6% | 82.6% | 87.0% | 91.2% | 81.7% | 18.0% | 82.6% | 3.9% | 51.9% | 30.7% |
+| ALL but towers | 271384 | 49.4% | 47.2% | 62.4% | 74.8% | 79.4% | 37.0% | 49.4% | 11.0% | 51.9% | 30.7% |
 
-**The 25 whole battles alone**, no prefixes. 131960 no-tower unit-ticks; 73087 isolated-walk
+**49.4 % IS NOT UNCHANGED SINCE 2026-09-21, it is the same number over a different
+population.** That run scored 219491 no-tower unit-ticks and this one scores 271384,
+23 % more, because more cards load so more units stand on the board. A score over a bigger and
+harder population that lands on the same figure is not a result that stayed still, and the two
+should not be subtracted from each other.
+
+**The 27 whole battles alone**, no prefixes. 167980 no-tower unit-ticks; 88243 isolated-walk
 unit-ticks.
 
 | | unit-ticks | <=250 | <=250 moving | <=500 | <=1000 | hp exact | target | path n | alive/missing/extra | walk <=250 | walk <=20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| ALL | 465112 | 85.6% | 85.6% | 88.9% | 92.3% | 80.9% | 17.9% | 85.2% | 3.3% | 57.6% | 32.0% |
-| ALL but towers | 131960 | 50.4% | 48.1% | 62.1% | 74.1% | 80.1% | 42.0% | 49.0% | 10.8% | 57.6% | 32.0% |
+| ALL | 539982 | 84.1% | 84.0% | 87.3% | 91.1% | 79.1% | 19.1% | 83.6% | 4.1% | 59.1% | 33.4% |
+| ALL but towers | 167980 | 49.7% | 47.4% | 60.0% | 72.3% | 76.6% | 41.5% | 48.2% | 12.5% | 59.1% | 33.4%
 
 The two modes agree to about a point. The prefixes are the harder half of the corpus (they carry
 the decks with the cards the loader refuses), but they are also the shorter half. Cutting them
-out moves the no-tower position score from 49.4 % to 50.4 % and the bit-exact walk from 31.0 % to
-32.0 %. Nothing in the comparison depends on which mode is read.
+out moves the no-tower position score from 49.4 % to 49.7 % and the bit-exact walk from 30.7 % to
+33.4 %. Nothing in the comparison depends on which mode is read.
 
-Counts behind the prefix-mode no-tower row, for anyone recomputing: 108612 of 219491 within 250;
-96649 of 205640 moving; 138277 within 500; 166292 within 1000; 178822 hitpoints exact; 84767
-target matches; 107539 path-node matches; 20832 alive mismatches and 1287 truth entities the
-engine never produced, against 0 the engine produced and the game did not; 64515 of 122770 walk
-unit-ticks within 250 and 38089 within 20. 6244 of the 219491 fall after the engine had already
-declared the battle over and its state stopped moving.
+Counts behind the prefix-mode no-tower row, for anyone recomputing: 134331 of 271384 within 250;
+169366 within 500; 203158 within 1000; 215520 hitpoints exact; 100634
+target matches; 134301 path-node matches; 28601 alive mismatches and 1287 truth
+entities the engine never produced, against 83 the engine produced and the game did not;
+73318 of 141002 walk unit-ticks within 250 and 43334 within 20. 6284 of the
+271384 fall after the engine had already declared the battle over and its state stopped moving.
 
 Three of these numbers are quoted in the engine's own history as the state this tree reached:
 49.5 % of no-tower unit-ticks within 250 native, 81.4 % hitpoints exact, 31.1 % of the isolated
