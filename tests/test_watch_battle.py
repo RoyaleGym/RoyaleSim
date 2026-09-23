@@ -28,6 +28,20 @@ for p in (ROOT, ROOT / "tools"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+# `tools/watch_battle.py` imports `royalegym.env`, which lives in the SIBLING RoyaleGym
+# checkout. A RoyaleSim-only clone is a legitimate environment -- the README's stages 1 to 4
+# install this repo alone, and the four-repo install is a later section -- so the absence is
+# a skip rather than an error. Without this the whole module fails to IMPORT, which is how
+# CI found it: not a failing assertion, a collection error on a clean runner.
+pytest.importorskip(
+    "royalegym",
+    reason="SKIPPED, NOT PASSED: tools/watch_battle.py drives the engine through the env"
+    " layer, which is the sibling RoyaleGym checkout. Install it with"
+    r" `..\.venv\Scripts\python -m pip install -e ..\RoyaleGym` (forward slashes on"
+    " macOS and Linux), per the README's four-repo install. Nothing about the viewer has been"
+    " checked here.",
+)
+
 import watch_battle as W  # noqa: E402
 
 PY = sys.executable
