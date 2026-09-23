@@ -59,7 +59,8 @@ def test_a_declared_skip_passes_and_the_reason_is_printed(tmp_path: Path) -> Non
     assert r.returncode == 0, r.stdout + r.stderr
     # The REASON PRINTED IS THIS FILE'S, not the test's: the declaration is what was
     # reviewed, and a test that later reworded its own message has not renegotiated it.
-    assert "declared boundary" in r.stdout and "private" in r.stdout
+    assert "declared boundary" in r.stdout
+    assert "private" in r.stdout
     assert "whatever the test says today" not in r.stdout
 
 

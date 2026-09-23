@@ -103,8 +103,11 @@ fn wave_facing_bait(card: &str, unit: &str, bait: Vec2) -> (Vec2, Vec<(i32, i32)
     panic!("{card} never emitted a {unit} with the bait at {bait:?}");
 }
 
+/// One scene: where the spawner stood facing, and every point it emitted at.
+type FacingAndPoints = (Vec2, Vec<(i32, i32)>);
+
 /// Two scenes that differ only in which side of the spawner the enemy is on.
-fn left_and_right(card: &str, unit: &str) -> ((Vec2, Vec<(i32, i32)>), (Vec2, Vec<(i32, i32)>)) {
+fn left_and_right(card: &str, unit: &str) -> (FacingAndPoints, FacingAndPoints) {
     (wave_facing_bait(card, unit, t(200, 900)), wave_facing_bait(card, unit, t(1600, 900)))
 }
 
@@ -118,7 +121,7 @@ fn a_blank_spawn_radius_emits_at_the_tangent_of_the_two_circles() {
     drop(s);
 
     let (at, points) = first_wave(measured(), "Tombstone", "Skeleton", spot(), Team::Blue);
-    let forward = royalesim::arena::Arena::own_side_dy(Team::Blue) * -1;
+    let forward = -royalesim::arena::Arena::own_side_dy(Team::Blue);
     for p in &points {
         let along = (p.y - at.y) * forward;
         assert_eq!(p.x, at.x, "the emission is on the spawner's own column: {p:?}");
