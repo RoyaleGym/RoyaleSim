@@ -19,9 +19,9 @@ fn check_deploy_never_mutates_and_agrees_with_deploy() {
     let mut s = BattleState::new(4, scripted_config());
     // Put a building down so a footprint rejection is reachable.
     s.spawn_unit(Team::Blue, "Cannon", t(900, 1000), None).unwrap();
-    for _ in 0..30 {
-        s.tick();
-    }
+    // past the opening lockout, which is also well past the Cannon's deploy time; before it
+    // every spot in the table below answers TooEarly and the vacuity check finds no Ok
+    past_deploy_lockout(&mut s);
     let cannon = find_live(&s, Team::Blue, "Cannon")[0].pos;
     let hand: Vec<String> = s.hand(Team::Blue).iter().map(|x| x.to_string()).collect();
     assert!(hand.len() >= 4);
@@ -59,7 +59,9 @@ fn check_deploy_never_mutates_and_agrees_with_deploy() {
 
 #[test]
 fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
-    let s = BattleState::new(1, scripted_config());
+    let mut s = BattleState::new(1, scripted_config());
+    past_deploy_lockout(&mut s);
+    let s = s;
     match s.check_deploy(Team::Blue, "NotACard", t(900, 1000)) {
         Err(DeployError::UnknownCard(n)) => assert_eq!(n, "NotACard"),
         other => panic!("expected UnknownCard, got {other:?}"),
@@ -70,16 +72,9 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // that spells load; Rage carries no area effect in the 15.535 data at all (it
     // is a SummonCharacter spell whose bottle releases one on death), so it is
     // refused for "no mechanic in the data"; Poison is a pulsing area effect whose
-    // mechanic is a buff and loads. Tornado's buff carries AttractPercentage, a
-    // column no entity reads, so the loader still refuses it, with its reason read
-    // back from the loader.
-    match s.check_deploy(Team::Blue, "Tornado", t(900, 1000)) {
-        Err(DeployError::UnsupportedCard(n, why)) => {
-            assert_eq!(n, "Tornado");
-            assert!(why.contains("AttractPercentage"), "Tornado refused for an unexpected reason: {why}");
-        }
-        other => panic!("expected UnsupportedCard, got {other:?}"),
-    }
+    // mechanic is a buff and loads. TORNADO WAS THE EXAMPLE HERE until its attract
+    // was measured and implemented -- it now loads, and it has moved to the
+    // NotInHand list below, which is where a simulable card belongs.
     match s.check_deploy(Team::Blue, "Rage", t(900, 1000)) {
         Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "Rage"),
         other => panic!("expected UnsupportedCard for Rage, got {other:?}"),
@@ -87,7 +82,7 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never
     // Unsupported. Plant: spells_rejected (card.rs, the pre-spell loader).
-    for spell in ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Poison", "Earthquake", "Snowball"] {
+    for spell in ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Poison", "Earthquake", "Snowball", "Tornado"] {
         assert!(s.cards().index(spell).is_some(), "{spell} is not simulable: {:?}", s.cards().rejected.iter().find(|(n, _)| n == spell));
         assert_eq!(s.check_deploy(Team::Blue, spell, t(900, 1000)), Err(DeployError::NotInHand), "{spell}");
     }
@@ -96,6 +91,7 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
 #[test]
 fn not_in_hand_and_not_enough_elixir_are_distinguishable() {
     let mut s = BattleState::new(1, scripted_config());
+    past_deploy_lockout(&mut s);
     let hand: Vec<String> = s.hand(Team::Blue).iter().map(|x| x.to_string()).collect();
     let next = s.next_card(Team::Blue).expect("deck has a 5th card").to_string();
     assert!(!hand.contains(&next));

@@ -642,6 +642,7 @@ fn a_hidden_footprint_still_refuses_a_deploy_on_it() {
     // hide.HIDDEN_OCCLUDES_PATH = true: the footprint of a hidden Tesla is a
     // building footprint like any other for deploys (the path grid shares the rule).
     let mut s = bare(scripted_config()); // decks dealt, so Blue has a hand
+    past_deploy_lockout(&mut s); // or every check_deploy below answers TooEarly
     let at = t(900, 1200);
     let tesla = s.scenario_spawn_now(Team::Blue, "Tesla", at, None).unwrap();
     assert_eq!(hide_of(&s, tesla).0, HideState::Hidden);

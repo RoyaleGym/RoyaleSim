@@ -1367,6 +1367,9 @@ fn spell_placement_follows_the_card_data() {
     let mut cfg = config();
     cfg.decks = [deck.clone(), deck];
     let mut s = BattleState::new(1, cfg);
+    // past match.DEPLOY_LOCKOUT_TICKS: the cycling deploy below must be legal, and before it
+    // every card is refused for its timing rather than for where it was put
+    past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     let a = s.arena().clone();
     let river = Vec2::new(a.width / 2, (a.water_y_min + a.water_y_max) / 2);

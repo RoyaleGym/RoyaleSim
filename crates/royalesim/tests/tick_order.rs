@@ -429,10 +429,37 @@ fn every_candidate_runs_the_scripted_battle_deterministically_and_the_orders_dif
         assert_eq!(a.hashes, b.hashes);
         assert!(a.final_state.is_done());
     }
-    // the two orders, and the two visibilities, are different battles
+    // the two orders are different battles, compared TICK BY TICK rather than at the end:
+    // two battles can converge on the same final hash having taken different routes, and an
+    // end-state comparison would call that "the same battle" and stop watching.
     let a = run_scripted_with(shipped, 0xC1A5, false, None);
     let b = run_scripted_with(legacy, 0xC1A5, false, None);
-    let c = run_scripted_with(whole, 0xC1A5, false, None);
-    assert_ne!(a.hashes.last(), b.hashes.last(), "the legacy order ran the same battle as the measured one");
-    assert_ne!(a.hashes.last(), c.hashes.last(), "whole_tick ran the same battle as creation_order_before_victim");
+    assert!(
+        a.hashes.iter().zip(&b.hashes).any(|(x, y)| x != y),
+        "the legacy order ran the same battle as the measured one, tick for tick"
+    );
+
+    // THE TWO VISIBILITIES ARE ASKED ON THE BUILT CROWD, NOT ON THE SCRIPTED BATTLE.
+    // `dying_unit_visibility` only shows when something dies while another unit is resolving
+    // in the same tick, and whether the scripted battle contains such a moment is luck: with
+    // the opening deploy lockout in place it does not, and the two arms run bit-identical for
+    // all 3601 ticks. That was measured, not assumed --
+    //
+    //     lockout 0,  either retarget arm : first divergence at tick 970
+    //     lockout 90, either retarget arm : never diverge
+    //
+    // -- so the lockout hid it and the retarget rule had nothing to do with it. The built
+    // crowd kills fifteen skeletons under a Giant and separates the arms at tick 75, the same
+    // tick at 200, 400 and 800 ticks of run.
+    let vis = |v| {
+        let mut c = config();
+        c.calib.dying_unit_visibility = v;
+        c
+    };
+    let x = common::run_crowd_full(vis(DyingUnitVisibility::CreationOrderBeforeVictim), 200);
+    let y = common::run_crowd_full(vis(DyingUnitVisibility::WholeTick), 200);
+    assert!(
+        x.hashes.iter().zip(&y.hashes).any(|(p, q)| p != q),
+        "whole_tick ran the same battle as creation_order_before_victim, so this arm is          unobservable in the scenario and the comparison is watching nothing"
+    );
 }

@@ -222,7 +222,11 @@ fn a_deploy_reports_the_point_the_building_took() {
             .collect();
         let mut cfg = config();
         cfg.decks = [deck.clone(), deck];
-        BattleState::new(7, cfg)
+        let mut s = BattleState::new(7, cfg);
+        // every `deploy_slot` below is refused as TooEarly at tick 0
+        // (match.DEPLOY_LOCKOUT_TICKS), so the fixture hands back a battle that has started
+        past_deploy_lockout(&mut s);
+        s
     }
 
     let s = dealt();

@@ -53,7 +53,10 @@ fn hashes_after(s: &mut BattleState, script: &mut Script, m: u32) -> Vec<u64> {
 }
 
 fn clone_script(sc: &Script) -> Script {
-    Script { period: sc.period, plays: sc.plays, rejected: sc.rejected, spell_casts: sc.spell_casts }
+    // `opportunities` carries too: it is what picks the card now, so a clone that reset it
+    // would resume the script from the top of the deck and the save/load halves would
+    // diverge for a reason that has nothing to do with saving.
+    Script { period: sc.period, plays: sc.plays, rejected: sc.rejected, spell_casts: sc.spell_casts, opportunities: sc.opportunities }
 }
 
 #[test]
@@ -115,6 +118,9 @@ fn pending_spawns_and_the_rng_round_trip() {
     cfg.shuffle_decks = true;
     let mut s = BattleState::new(31337, cfg);
     let card = s.hand(Team::Blue)[0].to_string();
+    // the deploy below is the point of the test, and before match.DEPLOY_LOCKOUT_TICKS it is
+    // refused, so there is no pending spawn to round-trip
+    past_deploy_lockout(&mut s);
     s.tick();
     let pos = Script::blue_pos(&s, &card, false);
     s.deploy(Team::Blue, &card, pos).unwrap();

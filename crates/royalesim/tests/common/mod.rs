@@ -587,6 +587,14 @@ pub struct Script {
     pub rejected: [u32; 2],
     /// Accepted spell casts per team (a subset of `plays`).
     pub spell_casts: [u32; 2],
+    /// How many OPPORTUNITIES this script has had, which is what picks the card. It was
+    /// the absolute tick until the opening deploy lockout landed; with the lockout the
+    /// first opportunity moved from tick 0 to tick 120, and indexing by the tick started
+    /// the deck three cards in -- a DIFFERENT battle, not the same one 120 ticks later.
+    /// The characterisations in `battle.rs` pin quantities measured on this exact battle,
+    /// so that would have re-baselined them silently: the crowd-overlap run read 2 ticks
+    /// against the 87 it is pinned at, which looks exactly like the engine changing.
+    pub opportunities: u32,
 }
 
 /// Spell decks for the scripted battle WITH spells: every thin-slice spell appears,
@@ -643,7 +651,7 @@ pub fn spell_targets(s: &BattleState, team: Team, card: &str, lane_right: bool) 
 
 impl Script {
     pub fn new(period: u32) -> Self {
-        Script { period, plays: [0, 0], rejected: [0, 0], spell_casts: [0, 0] }
+        Script { period, plays: [0, 0], rejected: [0, 0], spell_casts: [0, 0], opportunities: 0 }
     }
 
     pub fn blue_pos(s: &BattleState, card: &str, lane_right: bool) -> Vec2 {
@@ -666,16 +674,26 @@ impl Script {
         if s.is_done() {
             return;
         }
+        // THE OPENING LOCKOUT (match.DEPLOY_LOCKOUT_TICKS): the engine refuses every deploy
+        // until tick 90, so a script that tries during it is not finding a defect -- it is
+        // asking for something no client can do. SKIPPED RATHER THAN SWALLOWED: treating
+        // TooEarly like NotEnoughElixir, as a refusal the walker accepts, would let a
+        // battle that deployed NOTHING satisfy every assertion about what it deployed.
+        if s.tick_count() < s.config().calib.deploy_lockout_ticks.max(0) as u32 {
+            return;
+        }
         if s.tick_count() % self.period != 0 {
             return;
         }
+        let turn = self.opportunities as usize;
+        self.opportunities += 1;
         for team in [Team::Blue, Team::Red] {
             let ti = team as usize;
             let hand: Vec<String> = s.hand(team).iter().map(|x| x.to_string()).collect();
             if hand.is_empty() {
                 continue;
             }
-            let pick = hand[((s.tick_count() / self.period) as usize + ti) % hand.len()].clone();
+            let pick = hand[(turn + ti) % hand.len()].clone();
             let lane_right = self.plays[ti] % 2 == 1;
             // A building may already stand on the preferred spot (buildings live
             // 30-40 s), so the script offers a short fixed list of alternatives.
@@ -749,6 +767,74 @@ pub fn spell_scripted_config() -> BattleConfig {
 
 /// Run the scripted battle to completion (or the cap), checking invariants on
 /// every tick when `invariants` is set, and recording state_hash after every tick.
+/// Step a battle past the opening deploy lockout (`match.DEPLOY_LOCKOUT_TICKS`).
+///
+/// The engine refuses EVERY deploy until tick 90, so a test that deploys at tick 0 is no
+/// longer testing its own subject: every answer is `TooEarly` and the thing it meant to ask
+/// about is never reached. Fourteen tests in this suite were in exactly that state.
+pub fn past_deploy_lockout(s: &mut BattleState) {
+    while s.tick_count() < s.config().calib.deploy_lockout_ticks.max(0) as u32 {
+        s.tick();
+    }
+}
+
+/// A DELIBERATE CROWD, because the scripted battle's was an accident.
+///
+/// `battle.rs` used to characterise `movement.ATTACKING_UNIT_MOVEMENT` on a pile-up that
+/// emerged from the scripted battle's opening seconds. That pile-up was scenario luck: adding
+/// the opening deploy lockout, or changing the retarget rule, each collapsed its 87-tick run
+/// to 2 WITHOUT TOUCHING THE DEFECT (the 2x2 is recorded in `battle.rs`). A characterisation
+/// two unrelated changes can erase is not measuring the thing it is named for.
+///
+/// So the crowd is BUILT rather than waited for: a Giant standing still and fifteen skeletons
+/// placed on top of it, close enough to overlap from the first tick and all in range of it. An
+/// attacking unit's move pass is skipped entirely under the shipped arm, so nothing separates
+/// them, which is the state the defect is about.
+///
+/// The offsets are a fixed integer list -- no trigonometry, no floats -- so the scenario is
+/// identical on every platform and cannot drift the way the emergent one did.
+pub struct CrowdRun {
+    pub inv: Invariants,
+    /// the state hash after every tick, so a caller can ask whether two arms ran the SAME
+    /// battle rather than only whether they ended the same way
+    pub hashes: Vec<u64>,
+}
+
+pub fn run_crowd(cfg: BattleConfig, ticks: u32) -> Invariants {
+    run_crowd_full(cfg, ticks).inv
+}
+
+pub fn run_crowd_full(mut cfg: BattleConfig, ticks: u32) -> CrowdRun {
+    cfg.decks = [BLUE_DECK.iter().map(|s| s.to_string()).collect(), RED_DECK.iter().map(|s| s.to_string()).collect()];
+    let mut s = BattleState::new(0xC30D, cfg);
+    // MID-ARENA ON THE RED HALF, and the teams are that way round on purpose: the crowd is
+    // RED so no red crown tower ever shoots it, and the Giant it attacks is BLUE and stands
+    // more than seven tiles from every red tower, so nothing outside the scenario fires a
+    // shot. A crowd inside a tower's range is a crowd being thinned by something else.
+    let mid = Vec2::new(9 * royalesim::fixed::SUBTILE, 39 * royalesim::fixed::SUBTILE / 2);
+    // hundredths of a tile from the Giant's centre; a skeleton's collision radius is 50
+    // millitiles, so neighbours 30 hundredths apart start well inside each other
+    const RING: [(i32, i32); 15] = [
+        (-40, -40), (0, -45), (40, -40), (-55, -15), (55, -15),
+        (-30, 0), (30, 0), (0, 30), (-60, 25), (60, 25),
+        (-25, 55), (25, 55), (0, 65), (-45, 45), (45, 45),
+    ];
+    let mut spawns: Vec<(Team, &str, Vec2, Option<i32>)> = vec![(Team::Blue, "Giant", mid, None)];
+    for (dx, dy) in RING {
+        let p = Vec2::new(mid.x + dx * royalesim::fixed::SUBTILE / 100, mid.y + dy * royalesim::fixed::SUBTILE / 100);
+        spawns.push((Team::Red, "Skeletons", p, None));
+    }
+    s.scenario_spawn_batch(&spawns).expect("the crowd scenario must place");
+    let mut inv = Invariants::new(DEFAULT_TOLERANCE);
+    let mut hashes = vec![s.state_hash()];
+    for _ in 0..ticks {
+        s.tick();
+        hashes.push(s.state_hash());
+        inv.check(&s).expect("the crowd scenario must not break an invariant");
+    }
+    CrowdRun { inv, hashes }
+}
+
 pub fn run_scripted(seed: u64, invariants: bool, perturb: Option<u32>) -> BattleRun {
     run_scripted_with(scripted_config(), seed, invariants, perturb)
 }

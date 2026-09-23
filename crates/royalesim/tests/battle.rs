@@ -59,38 +59,52 @@ fn scripted_battle_finishes_with_plausible_result() {
     assert!(!full(Team::Blue) && !full(Team::Red), "a side's towers were never damaged");
 }
 
-/// THE KNOWN CROWD DEFECT, PINNED AT ITS MEASURED SIZE so that fixing it is noisy.
+/// THE KNOWN CROWD DEFECT, PINNED ON A CROWD THIS TEST BUILDS.
 ///
 /// The engine skips the whole move pass for a unit whose attack phase holds it
 /// (`movement.ATTACKING_UNIT_MOVEMENT`, REFUTED in the ledger), so an attacking crowd is
-/// never separated. In this battle that shows as a Skeleton Army pair above 150 % of the
-/// smaller radius for 87 consecutive ticks, peaking at 193 %, against a game whose own
-/// crowds run six ticks above 150 % (222 pairs measured on the replay corpus, one outlier
-/// at 120).
+/// never separated -- against a game whose own crowds run six ticks above 150 % (222 pairs
+/// measured on the replay corpus, one outlier at 120).
 ///
-/// THE FIRST REPORT OF THIS SAID 41 TICKS AND THAT NUMBER WAS THE GATE'S, NOT THE ENGINE'S.
-/// A limit that fails as soon as it is exceeded cannot measure what it is failing on: it
-/// prints its own threshold plus one. Raising the limit to 45 moved the reported figure to
-/// 46. The run is 87, found by lifting the limit out of the way and reading `worst_run`.
+/// THIS USED TO MEASURE A PILE-UP THAT THE SCRIPTED BATTLE HAPPENED TO PRODUCE, pinned at 87
+/// consecutive ticks above 150 %. That number was scenario luck, and two changes on
+/// 2026-09-23 proved it -- neither of which touches `ATTACKING_UNIT_MOVEMENT`:
 ///
-/// The alternative was to mark the test above `#[ignore]`. This is better for one reason:
-/// an ignored test cannot tell you when it should be un-ignored. This one fails in BOTH
-/// directions. If the defect grows the tolerance catches it; if someone fixes it, the
-/// lower bound here fails and says to tighten `CLIENT16402_TOLERANCE` back down.
+///     deploy lockout   retarget arm    worst run above 150 %
+///     0 (old)          reset_always    87     <- what the 87 was measured on
+///     0 (old)          keep_when_dead   2
+///     90               reset_always     2
+///     90               keep_when_dead   5     <- what ships now
+///
+/// Either change alone collapses it forty-fold, because both move the opening of the battle
+/// and the clump formed in the opening. A characterisation two unrelated changes can erase
+/// is not watching the defect; it is watching an accident, and it would have reported "the
+/// crowd defect was fixed, tighten the tolerance" when nothing of the kind had happened.
+///
+/// `worst_pct` is no substitute, and that was checked rather than assumed: under
+/// `separation_only` -- the arm that FIXES this -- the depth still reads 190 to 193 %. A
+/// bound on the depth would have watched nothing at all.
+///
+/// So the crowd is now BUILT (`common::run_crowd`): fifteen skeletons placed on top of a
+/// Giant, out of every tower's range. Measured across the same four cells, the built crowd
+/// reads 55 ticks in ALL FOUR and 9 under `separation_only` in all four -- indifferent to
+/// both changes, and separating the shipped arm from the fixed one six to one.
+///
+/// It still fails in BOTH directions. If the defect grows, `run_crowd`'s own invariant check
+/// fails on CLIENT16402_TOLERANCE's 90-tick limit. If someone fixes it, the lower bound here
+/// fails and says to tighten that limit toward the game's six.
 #[test]
 fn the_known_crowd_defect_has_not_changed_size() {
-    let r = run_scripted(0xC1A5, true, None);
-    let worst = r.inv.worst_run[1];
+    let inv = common::run_crowd(config(), 200);
+    let worst = inv.worst_run[1];
     assert!(
-        worst >= 60,
-        "the attacking-crowd overlap is down to {worst} ticks above 150 %, from the 87 this \
-         was pinned at. If movement.ATTACKING_UNIT_MOVEMENT was fixed, say so in the ledger \
-         and TIGHTEN CLIENT16402_TOLERANCE's second limit from 90 toward the game's own six."
+        worst >= 40,
+        "the attacking-crowd overlap is down to {worst} ticks above 150 %, from the 55 this          was pinned at. If movement.ATTACKING_UNIT_MOVEMENT was fixed, say so in the ledger          and TIGHTEN CLIENT16402_TOLERANCE's second limit from 90 toward the game's own six."
     );
     assert!(
-        r.inv.worst_pct >= 150,
+        inv.worst_pct >= 150,
         "no pair exceeds 150 % any more ({} %), so this characterisation is watching nothing",
-        r.inv.worst_pct
+        inv.worst_pct
     );
 }
 
@@ -188,29 +202,23 @@ fn scripted_battle_with_spells_finishes_and_is_deterministic() {
 /// This runs the identical battle with the other arm selected IN THE CONFIG, so the
 /// question is answered without touching the ledger every other session reads.
 #[test]
-fn the_same_battle_under_separation_only_keeps_its_crowd_apart() {
-    let mut cfg = scripted_config();
+fn the_same_crowd_under_separation_only_is_kept_apart() {
+    let mut cfg = config();
     cfg.calib.attacking_unit_movement = royalesim::state::AttackingUnitMovement::SeparationOnly;
-    let r = run_scripted_with(cfg, 0xC1A5, true, None);
+    let fixed = common::run_crowd(cfg, 200);
+    let shipped = common::run_crowd(config(), 200);
     println!(
-        "separation_only: ticks={} outcome={:?} worst_overlap={}% worst_runs(>50%,>100%)={:?} ticks_checked={}",
-        r.final_state.tick_count(),
-        r.final_state.outcome(),
-        r.inv.worst_pct,
-        r.inv.worst_run,
-        r.inv.ticks_checked
+        "built crowd: separation_only run {:?} pct {} against shipped run {:?} pct {}",
+        fixed.worst_run, fixed.worst_pct, shipped.worst_run, shipped.worst_pct
     );
-    assert!(r.inv.ticks_checked > 1000, "the invariants must have seen a real battle: {}", r.inv.ticks_checked);
-    // AND IT MUST BE BETTER THAN THE SHIPPED ARM, or this test is named for a property it
-    // never compares. It asserted only that a battle happened until the tolerance was
-    // widened to characterise the defect, at which point BOTH arms passed and the name
-    // carried the whole claim.
-    let shipped = run_scripted(0xC1A5, true, None);
+    // A MARGIN, NOT A BARE `<`. On the emergent crowd this compared 2 against 5 and passed on
+    // three ticks, which is indistinguishable from noise in a quantity that had been 87; the
+    // test would have kept its name while comparing nothing. On the built crowd it is 9
+    // against 55, so a factor of two is asked for and there is room for it.
     assert!(
-        r.inv.worst_run[1] < shipped.inv.worst_run[1],
-        "separation_only leaves the crowd packed as long as the shipped arm does: {} ticks \
-         above 150 % against {}",
-        r.inv.worst_run[1],
-        shipped.inv.worst_run[1]
+        fixed.worst_run[1] * 2 < shipped.worst_run[1],
+        "separation_only leaves the crowd packed nearly as long as the shipped arm does: {}          ticks above 150 % against {}",
+        fixed.worst_run[1],
+        shipped.worst_run[1]
     );
 }

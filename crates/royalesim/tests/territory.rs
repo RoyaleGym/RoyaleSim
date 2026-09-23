@@ -40,6 +40,9 @@ fn board(down: &[(Team, usize)]) -> BattleState {
     let deck: Vec<String> = ["Knight", "Archer", "Giant", "Minions", "Knight", "Archer", "Giant", "Minions"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     let mut s = BattleState::new(3, cfg);
+    // past match.DEPLOY_LOCKOUT_TICKS: before it every deploy answers TooEarly, and the
+    // rule this test is about is never reached
+    past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     s.scenario_set_elixir_milli(Team::Red, 10_000);
     for (team, k) in down {
@@ -230,6 +233,7 @@ fn buildings_stay_own_half_after_a_princess_falls() {
     let deck: Vec<String> = ["Cannon", "Tesla", "Cannon", "Tesla", "Cannon", "Tesla", "Cannon", "Tesla"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     let mut b = BattleState::new(3, cfg);
+    past_deploy_lockout(&mut b);
     b.scenario_set_elixir_milli(Team::Blue, 10_000);
     b.scenario_set_tower_hp(Team::Red, 1, 0).unwrap();
     assert_eq!(b.check_deploy_slot(Team::Blue, 0, pocket), Err(DeployError::OutOfTerritory), "a building may not");
