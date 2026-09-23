@@ -717,7 +717,32 @@ calib_enum!(
 calib_enum!(
     /// spawner.SPAWN_POINT -- the spawner's centre plus its own collision radius (or
     /// SpawnRadius when set) along the owner's forward axis, or its centre.
-    SpawnPoint { InFrontAtOwnRadius = "in_front_toward_enemy_at_own_radius", AtCentre = "at_centre" }
+    SpawnPoint {
+        InFrontAtOwnRadius = "in_front_toward_enemy_at_own_radius",
+        AtCentre = "at_centre",
+        /// THE MEASURED LAW, and it splits on whether the card sets SpawnRadius.
+        ///
+        /// BLANK SpawnRadius: the emission is FORWARD, at the two circles' TANGENT,
+        /// the spawner's own radius plus the spawned unit's. A Tombstone's Skeleton
+        /// leaves at 1000 + 500 = 1500, which 849 of its 879 recorded emissions sit
+        /// within 250 of, against 0 of 879 for either older arm. The Barbarian Hut
+        /// agrees independently by the same arithmetic.
+        ///
+        /// SpawnRadius SET: the emission is on a RING of that radius and is NOT
+        /// forward at all. The Witch (2000) has a median centre distance of 1940 and
+        /// a median FORWARD offset of 74; the Dark Witch (1500), 1490 and 120. The
+        /// older arm put this case forward too, so it was wrong in DIRECTION there
+        /// rather than in magnitude.
+        ///
+        /// THE RING'S ANGLE IS TWO LAWS, which is why this is one arm and not two:
+        /// a card with a blank SpawnAngleShift lays its ring out in the ABSOLUTE
+        /// frame (the Witch's four Skeletons sit on 0/90/180/270 every wave while
+        /// her own facing spans 68 to 110 degrees), and a card that sets one lays it
+        /// out relative to its own FACING (the Dark Witch's two Bats hold 91/280,
+        /// 87/277, 91/268 to her facing while their absolute angles swing 130
+        /// degrees).
+        Client16402Measured = "client16402_measured"
+    }
 );
 calib_enum!(
     /// spawner.DEATH_SPAWN_RADIUS_DEFAULT -- a blank DeathSpawnRadius means the dying
@@ -2108,7 +2133,64 @@ impl BattleState {
                 let d = sp.radius.unwrap_or(self.ents.radius[i]);
                 Vec2::new(c.x, c.y + spell::forward_dy(self.ents.team[i]) * d)
             }
+            // The measured arm's BLANK-SpawnRadius case: forward at the tangent of
+            // the two circles. The SpawnRadius case does not go through here at all,
+            // because it is a ring over the whole wave rather than one point the
+            // formation is laid out around (`measured_ring_points`).
+            SpawnPoint::Client16402Measured => {
+                let unit_r = self.cfg.cards.get(sp.unit).collision_radius;
+                let d = self.ents.radius[i] + unit_r;
+                Vec2::new(c.x, c.y + spell::forward_dy(self.ents.team[i]) * d)
+            }
         }
+    }
+
+    /// The measured arm's SpawnRadius case: where each of a wave's `n` units stands,
+    /// on a ring of `sp.radius` around the spawner, in creation order.
+    ///
+    /// The angle is two laws (SpawnPoint::Client16402Measured). A blank
+    /// SpawnAngleShift lays the ring out in the ABSOLUTE frame; a set one lays it out
+    /// relative to the spawner's own facing. Nothing in the table ships an explicit 0,
+    /// so 0 stands for blank here -- a claim about the DATA, held by
+    /// `test_no_entry_ships_an_explicit_zero_angle_shift` in tests/test_card_reads.py.
+    /// The day an entry ships a real 0 that test goes red, because this branch would
+    /// then lay that card's ring out in the wrong frame with nothing to say so.
+    ///
+    /// Returns None when the card leaves SpawnRadius blank, which is the other case.
+    fn measured_ring_points(&self, i: usize, sp: &SpawnerDef, n: i32) -> Option<Vec<Vec2>> {
+        let radius = sp.radius?;
+        let c = self.ents.pos[i];
+        let shift = self.cfg.cards.get(self.ents.card[i]).formation.spawn_angle_shift_deg;
+        // The spawner's facing in degrees, measured the same way the ring is. Only
+        // consulted when the card SETS a shift; the blank case must not move with it.
+        let facing_deg = if shift == 0 {
+            0
+        } else {
+            let f = self.ents.facing[i];
+            // The facing as a whole number of degrees, in the same convention the ring
+            // is drawn in: angle a points at (cos a, sin a). There is no integer atan2
+            // here and none is needed, because the ring only resolves to the degree, so
+            // the angle is the one whose direction the facing agrees with most. Ties
+            // go to the lower degree, which keeps it a function of the facing alone.
+            (0..360)
+                .max_by_key(|d| {
+                    let cos = crate::formation::sin1024(*d + 90) as i64;
+                    let sin = crate::formation::sin1024(*d) as i64;
+                    (cos * f.x as i64 + sin * f.y as i64, -d)
+                })
+                .unwrap_or(0)
+        };
+        let step = if n > 0 { 360 / n } else { 0 };
+        Some(
+            (0..n.max(1))
+                .map(|k| {
+                    let a = facing_deg + shift + step * k;
+                    let x = c.x + (radius as i64 * crate::formation::sin1024(a + 90) as i64 / 1024) as i32;
+                    let y = c.y + (radius as i64 * crate::formation::sin1024(a) as i64 / 1024) as i32;
+                    Vec2::new(x, y)
+                })
+                .collect(),
+        )
     }
 
     /// THE SPAWNER PASS: every periodic spawner past its deploy time ticks its timer
@@ -2180,7 +2262,21 @@ impl BattleState {
             let unit = cards.get(sp.unit);
             let level = cards.spawner_level(e.card[i], e.level[i]).expect("spawner level validated at deploy");
             let point = self.spawn_point(i, &sp);
-            let grid = if sp.interval_ms == 0 { self.formation_points(e.team[i], sp.number, unit.collision_radius, unit.is_flying(), point) } else { self.formation_points(e.team[i], 1, unit.collision_radius, unit.is_flying(), point) };
+            // Under the measured arm a card that SETS SpawnRadius puts its wave on a
+            // RING around the spawner rather than in a formation around one forward
+            // point, so the ring replaces the layout instead of feeding it. A card
+            // that leaves SpawnRadius blank returns None here and takes the old path
+            // with the new forward point.
+            let ring = if self.cfg.calib.spawner_spawn_point == SpawnPoint::Client16402Measured {
+                self.measured_ring_points(i, &sp, sp.number)
+            } else {
+                None
+            };
+            let grid = match ring {
+                Some(points) => points,
+                None if sp.interval_ms == 0 => self.formation_points(e.team[i], sp.number, unit.collision_radius, unit.is_flying(), point),
+                None => self.formation_points(e.team[i], 1, unit.collision_radius, unit.is_flying(), point),
+            };
             let mut room = sp.limit.map(|l| l - self.owned_count(i));
             let mut started = false;
             let mut k = 0u32;

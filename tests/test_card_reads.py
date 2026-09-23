@@ -227,3 +227,24 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     flagged = set(r.per_card)
     assert len(flagged - slice_names) > 40, "the catalogue report is suspiciously short"
     assert flagged & slice_names, "the slice gaps are listed by name in the tool; they should still be reported"
+
+
+def test_no_entry_ships_an_explicit_zero_angle_shift():
+    """`spawn_angle_shift_deg` is the one field the engine reads 0 as BLANK, because a
+    blank column and a shipped 0 arrive as the same value once the loader defaults it
+    (`card.rs`, `unwrap_or(0)`). That reading is a claim about the TABLE, not about the
+    engine, and it is only safe while no entry ships an explicit 0: the day one does, a
+    card meaning "no shift" and a card meaning "0 degrees" stop being distinguishable,
+    and the ring law that branches on it lays that card out in the wrong frame without
+    anything going red.
+    """
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    entries = [(c["name"], c.get("spawn_angle_shift_deg")) for c in doc["cards"]]
+    entries += [(n, u.get("spawn_angle_shift_deg")) for n, u in doc["units"].items()]
+    zeros = [n for n, v in entries if v == 0]
+    assert not zeros, f"explicit 0 ships for {zeros}, so blank and 0 can no longer be told apart"
+    # Non-vacuity: a column nothing sets would pass the assertion above while watching
+    # nothing at all.
+    somebody_sets_one = [n for n, v in entries if v not in (None, 0)]
+    assert len(somebody_sets_one) >= 3, f"nothing sets a shift, so this is an empty column: {somebody_sets_one}"
