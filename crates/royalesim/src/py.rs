@@ -648,6 +648,23 @@ impl Battle {
         self.level()
     }
 
+    /// WHICH SOURCE THIS EXTENSION WAS BUILT FROM: `(commit, tree)`, where `tree`
+    /// is "clean", "dirty" or "unknown". Stamped by build.rs at compile time.
+    ///
+    /// The extension is loaded from the venv with no checkout around it, so without
+    /// this nothing can say whether the running CODE is the code in a commit. The
+    /// data side was already answerable, because the ledger is embedded and compared
+    /// against the file on disk; this is the other half.
+    ///
+    /// "dirty" covers TRACKED modified files, which is what makes a build
+    /// unreproducible in practice. An untracked file the build read would not show.
+    /// "unknown" means git could not be consulted at build time and must be treated
+    /// as unknown rather than as clean.
+    #[staticmethod]
+    fn provenance() -> (&'static str, &'static str) {
+        (env!("ROYALESIM_BUILD_COMMIT"), env!("ROYALESIM_BUILD_TREE"))
+    }
+
     /// calibration.json arena.TERRITORY_MODEL as compiled into this build.
     #[staticmethod]
     fn territory_model() -> &'static str {
@@ -1317,5 +1334,22 @@ mod tests {
             }
         }
         assert!(accepted >= 50, "vacuous: only {accepted} deploys accepted");
+    }
+
+    /// The build stamp has a SHAPE even when git could not be consulted, so a consumer
+    /// can tell "unknown" from a commit rather than getting an empty string. It cannot
+    /// check the stamp is TRUE here: that needs a build from a known tree, and the
+    /// install is what carries it.
+    #[test]
+    fn the_build_stamp_is_a_commit_or_says_it_does_not_know() {
+        let (commit, tree) = (env!("ROYALESIM_BUILD_COMMIT"), env!("ROYALESIM_BUILD_TREE"));
+        assert!(
+            commit == "unknown" || (commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit())),
+            "build commit is neither a sha nor \"unknown\": {commit:?}"
+        );
+        assert!(
+            matches!(tree, "clean" | "dirty" | "unknown"),
+            "build tree state is not one of the three: {tree:?}"
+        );
     }
 }
