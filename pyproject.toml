@@ -80,3 +80,8 @@ ignore = [
 # turns four guards into four slowly diverging ones nobody can compare. The waiver is
 # deliberately narrow: that file, that rule, nothing else.
 "tests/_shell_fences.py" = ["E501"]
+# tests/_doc_links.py is the same arrangement and the same reason: a VENDORED COPY kept
+# byte-identical to the original so the copies can be diffed. The two rules it trips are
+# style preferences this repo happens to hold and the original does not; "fixing" them
+# would make the next drift invisible, which is the one thing the copy exists to prevent.
+"tests/_doc_links.py" = ["UP037", "SIM102"]

@@ -3,7 +3,7 @@
 Every file the README embeds, and how to make it again.
 
 Everything here is generated. The generator is
-[`../../../RoyaleGym/docs/media/make_media.py`](../../../RoyaleGym/docs/media/make_media.py),
+[`RoyaleGym/docs/media/make_media.py`](https://github.com/RoyaleGym/RoyaleGym/blob/main/docs/media/make_media.py),
 which lives in RoyaleGym because it writes into all four repos and the four are cloned side by
 side. From the folder that holds the repos, in Windows PowerShell:
 
