@@ -183,16 +183,27 @@ def test_every_compiled_in_file_matches_the_one_on_disk(const, parts, how, cost)
 
 def test_all_four_compiled_in_files_are_listed_here():
     """The list is what rots. If the crate gains a fifth `include_str!` this must gain a row,
-    and nothing else in the repo would notice."""
+    and nothing else in the repo would notice.
+
+    `os.walk`, not `os.listdir`. The first version read only the files directly in `src/`,
+    which is correct today because the crate has no subdirectories there and WRONG the moment
+    anyone adds one -- and missing a file in a subdirectory is precisely what this test
+    exists to prevent. A scan that sees part of the space reports on the whole space and
+    looks healthy. Found by the integrator, whose own scanner walks.
+    """
     src = os.path.join(ROOT, "crates", "royalesim", "src")
     found = set()
-    for name in os.listdir(src):
-        if not name.endswith(".rs"):
-            continue
-        with open(os.path.join(src, name), encoding="utf-8") as fh:
-            for line in fh:
-                if "include_str!(" in line and "data/" in line:
-                    found.add(line.split('include_str!("')[1].split('")')[0].split("../")[-1])
+    seen_files = 0
+    for folder, _dirs, names in os.walk(src):
+        for name in names:
+            if not name.endswith(".rs"):
+                continue
+            seen_files += 1
+            with open(os.path.join(folder, name), encoding="utf-8") as fh:
+                for line in fh:
+                    if "include_str!(" in line and "data/" in line:
+                        found.add(line.split('include_str!("')[1].split('")')[0].split("../")[-1])
+    assert seen_files >= 10, f"the walk read {seen_files} .rs files, so it is not reading the crate"
     listed = {"/".join(row[1]) for row in EMBEDDED}
     assert found == listed, (
         f"the crate compiles in {sorted(found)} and this file watches {sorted(listed)}; "
