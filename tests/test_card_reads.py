@@ -255,12 +255,34 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
         doc = json.load(fh)
     slice_names = set(doc["thin_slice"])
     flagged = set(r.per_card)
+    vintage = table_vintage(cards)
     outside = flagged - slice_names
-    # A FLOOR, not a pinned measurement, and relative to the slice so it means the same
-    # thing on either table: 40 outside against an 18-card slice on the 2018 build, 74 on
-    # the 15.535 build (measured 2026-09-22). The claim is the SHAPE -- far more of the
-    # catalogue is flagged than the slice holds cards -- and a number from one workspace
-    # asserted against the other is how this used to fail on a clone by exactly one card.
+    # KEYED BY VINTAGE, because the number IS the specification and a shape claim is not.
+    #
+    # This asserted `len(outside) > len(slice_names)` for an hour, which is true of both
+    # tables and satisfied by a huge range of broken ones: if half the flags went missing and
+    # 74 fell to 30, it still exceeds an 18-card slice and the test passes. So it could not
+    # see the defect it exists for.
+    #
+    # The tell was in the file rather than the run: the measured pair sat in a COMMENT while
+    # the assertion said something weaker. Nobody records a number they believe is
+    # irrelevant. Viser's test for the difference -- can you state the derivation WITHOUT
+    # referring to the observed value? -- is what this failed, and the four vintage-derived
+    # expectations elsewhere in this file pass it.
+    #
+    # The population then moved under it inside the hour: the owner ruled the derived 15.535
+    # table may be committed, so a clone went from 40 to 74, and the adaptive version would
+    # have passed silently through exactly the change it existed to notice.
+    outside_by_vintage = {"2018": 40, "15.535": 74}
+    want = outside_by_vintage.get(vintage)
+    assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
+    assert len(outside) == want, (
+        f"{vintage} table: {len(outside)} cards flagged outside the thin slice, and this "
+        f"population was {want}. A number here is a real change in what the gate sees -- "
+        "re-read the gate before updating it."
+    )
+    # And the shape, kept beside it: if a third table ever appears this says which of the two
+    # readings is wrong rather than only that they disagree.
     assert len(outside) > len(slice_names), (
         f"the catalogue report is suspiciously short: {len(outside)} outside a "
         f"{len(slice_names)}-card slice"

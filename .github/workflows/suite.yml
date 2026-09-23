@@ -65,11 +65,11 @@ jobs:
       - name: the tools the README's install names
         shell: pwsh
         if: runner.os == 'Windows'
-        run: .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
+        run: .venv\Scripts\python -m pip install maturin pytest hypothesis ruff numpy msgspec mypy
 
       - name: the tools the README's install names
         if: runner.os != 'Windows'
-        run: .venv/bin/python -m pip install maturin pytest hypothesis ruff
+        run: .venv/bin/python -m pip install maturin pytest hypothesis ruff numpy msgspec mypy
 
       # Stage 3, verbatim. The copy line is the one that matters: `cards.json` is the table the
       # engine loads, and until the owner's 2026-09-23 ruling a clone could only build the 2018

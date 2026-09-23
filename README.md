@@ -95,7 +95,7 @@ pytest, hypothesis and ruff, which takes under a minute on a normal connection.
 
 ```
 python -m venv .venv
-.venv\Scripts\python -m pip install maturin pytest hypothesis ruff
+.venv\Scripts\python -m pip install maturin pytest hypothesis ruff numpy msgspec mypy
 ```
 
 ### Stage 3. Generate the data files
