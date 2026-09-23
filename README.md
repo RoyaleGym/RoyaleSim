@@ -54,7 +54,7 @@ layer bots train in. Install steps are below, under "Install".
   <tr>
     <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table (2026-09-22, after the footprint rebuild added five, Hog 2.6 among them). A public clone builds the older 78-card table. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 149 carry a status from guess to measured, and 49 are measured (2026-09-22). 89 also name the rivals they were chosen against, and 99 say what would change them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 155 carry a status from guess to measured, and 62 are measured (2026-09-22). 101 also name the rivals they were chosen against, and 110 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
 </table>
 
@@ -331,8 +331,8 @@ Not modelled yet, in plain words:
 Tests:
 
 ```
-cd RoyaleSim\crates\royalesim && cargo test --release     # 339 tests, 3 of them skipped unless you ask for them
-cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 112 tests
+cd RoyaleSim\crates\royalesim && cargo test --release     # 367 tests, 3 of them skipped unless you ask for them
+cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 160 tests
 ```
 
 Both counts are from 2026-09-22. The cargo count is the `#[test]` lines in `tests/*.rs` and
