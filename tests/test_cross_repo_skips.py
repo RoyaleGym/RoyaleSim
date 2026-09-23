@@ -121,7 +121,10 @@ def test_a_real_skip_beside_an_xfail_is_still_refused(tmp_path: Path) -> None:
     )
     r = run(p, "RoyaleGym")
     assert r.returncode == 1, r.stdout + r.stderr
-    assert "test_quietly_absent" in r.stdout and "test_known_divergence" not in r.stdout
+    # Two assertions, not one `and`: this test has TWO claims -- the real skip is named and
+    # the xfail beside it is not -- and a compound assert reports neither when it fails.
+    assert "test_quietly_absent" in r.stdout
+    assert "test_known_divergence" not in r.stdout
 
 
 def test_a_missing_report_fails_rather_than_reading_as_clean(tmp_path: Path) -> None:
