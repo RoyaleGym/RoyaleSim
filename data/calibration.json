@@ -1083,6 +1083,7 @@
     "$comment": "The old engine had all of this wrong (300s regular, 360s hard stop, double elixir at 120s, no 3-crown win). Correct values are pending the mechanics research pass; anything below marked 'guess' has NOT been verified for the live 2026 game.",
     "MANA_REGEN_MS_1X": {
       "value": 28000,
+      "measured_2026_09_22": "CONFIRMED. Read off truth.elixir_raw of all 73 regenerated replay fixtures, every one of which now carries it (data/derived/replay; 10,000 raw is one elixir). Rates are counted only on CONSECUTIVE-tick pairs that ROSE, so a spend and a full bar cannot enter the count. 118,392 of the 118,642 rising pairs before the speed-up are 178 raw per tick (99.8 per cent). 28000 ms for a 10-elixir bar is 2,800 ms per elixir, 56 ticks, 10000 / 56 = 178.57 raw per tick, which truncates to the 178 observed. The remaining 0.2 per cent are pairs spanning a frame the capture missed.",
       "units": "ms to fill a 10-elixir bar",
       "status": "measured",
       "confidence": "HIGH",
@@ -1102,6 +1103,7 @@
     },
     "MANA_REGEN_MS_2X": {
       "value": 14000,
+      "measured_2026_09_22": "CONFIRMED. Read off truth.elixir_raw of all 73 regenerated replay fixtures, every one of which now carries it (data/derived/replay; 10,000 raw is one elixir). Rates are counted only on CONSECUTIVE-tick pairs that ROSE, so a spend and a full bar cannot enter the count. 18,462 of the 18,554 rising pairs in the speed-up window are 357 raw per tick (99.5 per cent), which is twice the 1x rate, and 14000 is half of MANA_REGEN_MS_1X.",
       "units": "ms to fill a 10-elixir bar",
       "status": "measured",
       "confidence": "HIGH",
@@ -1123,7 +1125,9 @@
       "value": 5,
       "units": "elixir each side holds at tick 0",
       "status": "datamined",
-      "confidence": "LOW",
+      "confidence": "REFUTED by the recorded corpus, unanimously: every one of the 126 tick-0 readings is 6, not 5 (measured_2026_09_22)",
+      "proposed_value": 6,
+      "measured_2026_09_22": "Read off truth.elixir_raw of all 73 regenerated replay fixtures, every one of which now carries it (data/derived/replay; 10,000 raw is one elixir). Rates are counted only on CONSECUTIVE-tick pairs that ROSE, so a spend and a full bar cannot enter the count. 63 of the 73 fixtures begin at tick 0, giving 126 (side, tick-0) readings. ALL 126 read raw 60000, which is 6 elixir. None reads 5. Not flipped here because a value change alters engine behaviour and must ride an announced rebuild.",
       "provenance": "globals.csv",
       "vintage": "pre-2023",
       "candidates": [
@@ -1136,6 +1140,7 @@
     },
     "MAX_MANA": {
       "value": 10,
+      "measured_2026_09_22": "CONFIRMED. The highest raw elixir value anywhere in the 73 regenerated replay fixtures is 100000, which is exactly 10 elixir, and no reading exceeds it.",
       "status": "measured",
       "confidence": "HIGH",
       "provenance": "MEASURED on client 16.402 from the replay corpus (data/derived/replay, truth.elixir_raw, 10000 = one elixir). The cap is 100000: 95,453 distinct consecutive-tick pairs hold at exactly 100000 on both frames while regeneration runs, in 29 of the 30 distinct battles that carry the column (a battle recorded from both seats counted once), and none of the 295,818 recorded side-frames is above it. A higher cap would let those frames keep climbing by 178 or 357 a tick instead of holding. 10000 is one elixir: 366 of 367 distinct elixir drops are a whole number of elixir x 10000 once the tick's regeneration is allowed for (the other is a frame a tick late). Recorded by the client instrument that records ground-truth traces from the real game.",
@@ -1264,7 +1269,9 @@
       "value": 14000,
       "units": "ms to fill a 10-elixir bar",
       "status": "datamined",
-      "confidence": "LOW",
+      "confidence": "LOW, and the recorded corpus shows a THIRD rate this value does not model (measured_2026_09_22)",
+      "proposed_value": "about 9300 ms for the triple phase, pending the tick at which it starts",
+      "measured_2026_09_22": "Read off truth.elixir_raw of all 73 regenerated replay fixtures, every one of which now carries it (data/derived/replay; 10,000 raw is one elixir). Rates are counted only on CONSECUTIVE-tick pairs that ROSE, so a spend and a full bar cannot enter the count. THREE distinct rates appear, in three SEPARATED tick bands: 178 raw per tick over ticks 1..2539 (118,394 pairs), 357 over 2401..3680 (18,880), and 537 over 4856..4947 (403). The 537 band is separated from the 357 band by a gap of 1,176 ticks, so it is a distinct phase and not noise. 537 per tick is about 9,300 ms for the bar, half again as fast as the 14000 this key ships, which is the same value as MANA_REGEN_MS_2X. WHAT IS NOT SETTLED: the tick at which the triple phase begins. The corpus never observes a rise between ticks 3681 and 4855, because every bar in that window is full, so the boundary is bracketed and not measured. Do not flip the value on this alone.",
       "provenance": "globals.csv MANA_REGEN_MS_OVERTIME (vendored 2018)",
       "vintage": "2018 client data",
       "note": "14000 is the 2x rate: in 2018, overtime was DOUBLE elixir. The live game's overtime is not double from tick 4855 on (measured_2026_09_22). Added 2026-09-13.",
@@ -1278,6 +1285,7 @@
     },
     "MANA_SPEED_UP_WHEN_REMAINING_SECONDS": {
       "value": 60,
+      "measured_2026_09_22": "CONSISTENT, with one caveat. The first 357-per-tick rise anywhere in the corpus is at tick 2401, which is 120.05 s into a 180 s regular period, so 60 s remaining. But 178-per-tick rises continue to tick 2539 in some captures, so the boundary is not the same tick number in every capture and this figure rests on the EARLIEST observed switch rather than on a boundary the corpus pins per battle. A capture whose own match clock is offset from its tick numbering would explain it and has not been checked.",
       "units": "seconds of regular time remaining",
       "status": "measured",
       "confidence": "HIGH",
