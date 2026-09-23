@@ -142,6 +142,17 @@ jobs:
       # A COUNT WITHOUT ITS POPULATION IS THE THING THAT BURNED FOUR SESSIONS IN ONE NIGHT. This
       # records what ran, what did not, and WHY -- because the tests a runner cannot run are the
       # oracle and replay ones, which are exactly the tests that carry this repo's central claim.
+      # THE LOADABLE COUNT, IN THE LOADER'S OWN VOICE. The card table's row count is not the
+      # number that matters -- loadable is whatever the loader accepts, and a static recount
+      # from the JSON would be an instrument measuring a different space from the thing it
+      # claims to describe. This prints "N loadable, M rejected, K summon-only" with the card
+      # table's own hash beside it, so the figure names its input. It creates its own output
+      # directory, so it runs on a clone with no data/derived/replay.
+      - name: the engine's own card census
+        if: always()
+        working-directory: RoyaleSim/crates/royalesim
+        run: cargo run --release --example replay_parity -- --census
+
       - name: record what this run was, and what it could not be
         if: always()
         working-directory: RoyaleSim
@@ -154,6 +165,20 @@ jobs:
             "$py" -c "import royalesim; print('build_commit=%s tree=%s' % royalesim.Battle.provenance())" || true
             echo "card_table=$("$py" -c "import json;print(json.load(open('data/derived/cards.json'))['version'])")"
             echo "python_collected=$("$py" -m pytest --collect-only -q 2>/dev/null | tail -1)"
+            # READ FROM THE FILE THE CENSUS STEP WROTE, rather than re-running it. Two runs
+            # of the same measurement can disagree, and a summary quoting a second run of a
+            # figure the log already shows is a second instrument nobody asked for.
+            "$py" -c "
+          import json, pathlib
+          p = pathlib.Path('data/derived/replay/card_census.json')
+          if p.is_file():
+              c = json.loads(p.read_text(encoding='utf-8'))
+              print('card_census=%d loadable, %d rejected, %d summon-only (cards.json %s)' % (
+                  len(c['loadable']), len(c['rejected']), len(c['summon_only']),
+                  c.get('cards_json_fnv1a64') or 'unhashed'))
+          else:
+              print('card_census=NOT TAKEN: the census step did not write it')
+          "
             echo ""
             echo "WHAT THIS RUN COULD NOT CHECK. A runner has no recorded corpus and builds the"
             echo "2018 card table from the tracked tables, so the oracle and replay fixtures skip"
