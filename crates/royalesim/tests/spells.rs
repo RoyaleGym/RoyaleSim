@@ -1379,17 +1379,43 @@ fn spell_placement_follows_the_card_data() {
     };
     // Put every spell into the hand, one at a time, by cycling.
     let mut verdicts = std::collections::BTreeMap::new();
+    // THIS TEST USED TO COVER ITS DECK BY ACCIDENT. It deployed twice a round, once
+    // onto its own tower, and the walk over the hand only reached all eight cards
+    // because some of those deploys FAILED. When the building placement rule
+    // started relocating that tower tap instead of refusing it, the walk became a
+    // three-card cycle and two cards were never probed at all, while the
+    // assertions below still passed for the six that were. The coverage assertion
+    // after the loop is what makes that say so rather than pass quietly.
     for _ in 0..8 {
+        // Refill BEFORE probing, not after. This test is about placement rules, and
+        // a probe must not be able to fail on elixir: the two cycling deploys below
+        // spend up to 8 of the 10, and whether they spend it at all depends on
+        // whether they are accepted, which is exactly what placement decides. Once
+        // the building placement rule started relocating an unfittable tap instead
+        // of refusing it, the `own_tower` deploy began to succeed and spend, and a
+        // Fireball probe on the next round failed with 2 elixir against 4.
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
         let hand: Vec<String> = s.hand(Team::Blue).iter().map(|x| x.to_string()).collect();
         for card in &hand {
             for (label, p) in [("river", river), ("enemy", enemy), ("own_tower", own_tower), ("enemy_king", enemy_king)] {
                 verdicts.insert((card.clone(), label), probe(&s, card, p));
             }
         }
-        s.scenario_set_elixir_milli(Team::Blue, 10_000);
-        s.deploy_slot(Team::Blue, 0, t(900, 1000)).ok();
-        s.deploy_slot(Team::Blue, 0, own_tower).ok();
+        // EXACTLY ONE deploy per round, and at a point every card in this deck can
+        // legally take. Slot 0 then advances by exactly one card per round, so the
+        // walk over the queue is deterministic instead of depending on which
+        // deploys happen to fail. The probe loop above reads the whole hand, so the
+        // three cards that never leave slots 1..3 are covered every round.
+        s.deploy_slot(Team::Blue, 0, t(900, 1000)).expect("the cycling deploy must be legal for every card in this deck");
         s.tick();
+    }
+    // Every deck card must have been probed, or the assertions below are vacuous
+    // for the ones that were not.
+    for card in ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Knight", "Giant", "Cannon"] {
+        assert!(
+            verdicts.contains_key(&(card.to_string(), "river")),
+            "{card} never reached the hand in 16 rounds, so this test covers less than it claims"
+        );
     }
     let v = |c: &str, l: &str| verdicts.get(&(c.to_string(), l)).cloned().unwrap_or_else(|| panic!("{c} never reached the hand"));
     for spell in ["Fireball", "Arrows", "Zap"] {
