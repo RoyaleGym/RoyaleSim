@@ -228,8 +228,10 @@ def test_the_shipped_rounding_is_the_one_that_survives(doc):
 
 @pytest.mark.skipif(
     not (LIVE and os.path.isdir(LIVE) and os.path.exists(CARDS)),
-    reason="needs ROYALELIVE_REPORTS (the captures folder) and data/derived/cards.json; "
-    "a skip here is not a pass",
+    reason="SKIPPED, NOT PASSED: needs ROYALELIVE_REPORTS, the folder holding the recorded"
+    " battles, and data/derived/cards.json. The recordings are not public and a CLONE NEVER"
+    " HAS THEM, so this is permanently local coverage rather than a setup step somebody"
+    " forgot. Nothing here has been checked against a real battle.",
 )
 def test_the_committed_fixture_is_what_the_captures_give(m):
     with open(FIXTURE, encoding="utf-8") as fh:

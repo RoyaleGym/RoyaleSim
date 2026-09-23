@@ -327,8 +327,12 @@ def test_the_committed_sample_is_what_the_maker_builds_from_its_capture(m, tmp_p
     reports = os.environ.get("ROYALELIVE_REPORTS")
     if not reports:
         pytest.skip(
-            "ROYALELIVE_REPORTS is not set, so the committed sample was not rebuilt from its"
-            " capture and may be stale -- a skip here is not a pass"
+            "SKIPPED, NOT PASSED: ROYALELIVE_REPORTS is not set, so the committed sample"
+            " was not rebuilt from its capture and may be stale. That variable names the"
+            " folder holding the recorded battles, which are not public and which a CLONE"
+            " NEVER HAS -- this is permanently local coverage rather than a setup step"
+            " somebody forgot. A green run of this suite has not checked that the sample"
+            " still matches the capture it was made from."
         )
     if m.capture_named(SAMPLE_CAPTURE, reports) is None:
         pytest.skip(
