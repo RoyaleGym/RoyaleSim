@@ -111,6 +111,19 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 
+/// THE OTHER TWO FILES THIS CRATE COMPILES IN, exposed for the same reason as the two
+/// above and only after they had gone unwatched for months.
+///
+/// Four files are `include_str!`ed: calibration.json (state.rs), arena.json (arena.rs),
+/// rarities.csv (card.rs) and globals.csv (state.rs). Only the first two were ever
+/// compared with the disk. Each of the other two has exactly the property that took the
+/// whole workspace's engine down twice on 2026-09-22 -- compiled into the binary, editable
+/// without a rebuild, and nothing notices -- and theirs is the WORSE failure, because a
+/// stale arena or a stale rarity table is a silently different battle rather than a loud
+/// refusal to construct.
+pub const EMBEDDED_RARITIES_CSV: &str = include_str!("../../../data/raw/retroroyale-2018/csv_logic/rarities.csv");
+pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroyale-2018/csv_logic/globals.csv");
+
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
@@ -1189,6 +1202,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
     m.add("EMBEDDED_CALIBRATION_JSON", EMBEDDED_CALIBRATION_JSON)?;
     m.add("EMBEDDED_ARENA_JSON", EMBEDDED_ARENA_JSON)?;
+    m.add("EMBEDDED_RARITIES_CSV", EMBEDDED_RARITIES_CSV)?;
+    m.add("EMBEDDED_GLOBALS_CSV", EMBEDDED_GLOBALS_CSV)?;
     m.add("SNAPSHOT_FORMAT", crate::state::SNAPSHOT_FORMAT)?;
     m.add("HAND_SIZE", HAND_SIZE)?;
     // The troop territory rule this build deploys with (calibration.json

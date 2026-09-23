@@ -123,3 +123,78 @@ def test_the_real_gate_fires_when_the_two_actually_differ(monkeypatch):
         test_the_installed_engine_carries_the_ledger_on_disk()
     assert "movement.STOMP_PAUSE_SCHEDULE" in str(caught.value), str(caught.value)[:300]
     assert "ONE step" in str(caught.value), "the failure must say what to do, not only what is wrong"
+
+
+# --- the other three files this crate compiles in ------------------------------------
+
+#: (module constant, path on disk, what a stale copy costs). FOUR files are `include_str!`ed
+#: into the extension and only calibration.json and arena.json were ever compared with the
+#: disk. The other two had the same property that took the workspace's engine down twice on
+#: 2026-09-22, unarmed, and theirs is the worse failure: calibration's mismatch REFUSES
+#: loudly, while a stale arena or rarity table is a silently different battle.
+#: The fourth element is HOW to compare, and it is not the same question for each file.
+#: "values" reads the registry's `value` fields, because calibration.json's prose changes
+#: most days and a reworded provenance is not a stale engine -- the first test in this file
+#: does that one. "json" compares the parsed document minus `provenance`, which is the rule
+#: royalegym already uses for the arena and the reason a regenerated timestamp does not cry
+#: wolf. "bytes" is for the two CSVs, which have no structure to compare and where any
+#: difference at all is a different table.
+EMBEDDED = [
+    ("EMBEDDED_CALIBRATION_JSON", ("data", "calibration.json"), "values",
+     "every constant in the engine"),
+    ("EMBEDDED_ARENA_JSON", ("data", "derived", "arena.json"), "json",
+     "the arena's geometry, silently -- a wrong river or tower box with nothing to say so"),
+    ("EMBEDDED_RARITIES_CSV", ("data", "raw", "retroroyale-2018", "csv_logic", "rarities.csv"), "bytes",
+     "every card's level scaling, silently"),
+    ("EMBEDDED_GLOBALS_CSV", ("data", "raw", "retroroyale-2018", "csv_logic", "globals.csv"), "bytes",
+     "the shipped globals the engine reads, silently"),
+]
+
+
+@pytest.mark.parametrize(("const", "parts", "how", "cost"), EMBEDDED, ids=[e[0] for e in EMBEDDED])
+def test_every_compiled_in_file_matches_the_one_on_disk(const, parts, how, cost):
+    """A loud skip when the installed module does not expose the constant: the two CSV ones
+    were added later than the module in this venv, so the honest report is "this workspace's
+    engine predates the check" rather than a pass."""
+    core = pytest.importorskip(
+        "royalesim",
+        reason="the extension module is not installed; run `maturin develop --release`"
+        " -- a skip here is not a pass",
+    )
+    if not hasattr(core, const):
+        pytest.skip(
+            f"the installed engine predates {const}, so this file is STILL UNWATCHED here."
+            f" Rebuild with `maturin develop --release` to arm it -- a skip here is not a pass"
+        )
+    with open(os.path.join(ROOT, *parts), encoding="utf-8") as fh:
+        on_disk = fh.read()
+    built = getattr(core, const)
+    if how == "values":
+        built, on_disk = values(json.loads(built)), values(json.loads(on_disk))
+    elif how == "json":
+        built, on_disk = json.loads(built), json.loads(on_disk)
+        built.pop("provenance", None)
+        on_disk.pop("provenance", None)
+    assert built == on_disk, (
+        f"{os.path.join(*parts)} has changed since the engine was built, so the installed "
+        f"engine is running a different {cost}.\n\nRun:\n  {REBUILD}"
+    )
+
+
+def test_all_four_compiled_in_files_are_listed_here():
+    """The list is what rots. If the crate gains a fifth `include_str!` this must gain a row,
+    and nothing else in the repo would notice."""
+    src = os.path.join(ROOT, "crates", "royalesim", "src")
+    found = set()
+    for name in os.listdir(src):
+        if not name.endswith(".rs"):
+            continue
+        with open(os.path.join(src, name), encoding="utf-8") as fh:
+            for line in fh:
+                if "include_str!(" in line and "data/" in line:
+                    found.add(line.split('include_str!("')[1].split('")')[0].split("../")[-1])
+    listed = {"/".join(row[1]) for row in EMBEDDED}
+    assert found == listed, (
+        f"the crate compiles in {sorted(found)} and this file watches {sorted(listed)}; "
+        "an unwatched one is a silently different battle"
+    )
