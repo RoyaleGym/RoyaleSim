@@ -185,3 +185,74 @@ fn a_troop_may_stand_inside_a_building_box() {
         "the Knight at {p:?} was pushed out of the placement box {b:?}, which is not a collision shape"
     );
 }
+
+/// THE DEPLOY REPORTS WHERE THE CARD WENT DOWN, which for a relocated building is not
+/// the tap.
+///
+/// Gym measured the consequence rather than arguing it: 118 of 234 accepted Cannon taps
+/// relocate, every one of them by a full tile or more, and a placement reward keyed on the
+/// tapped point scored -0.0721875 against a true -0.0859375. Anything downstream that logs
+/// or scores a deploy position was describing a point with nothing on it half the time.
+///
+/// This would pass trivially if `deploy_slot` returned the tap, so it asserts BOTH
+/// directions: a tap that needs no relocation reports itself, and one that does reports the
+/// point the pure query gives, which is also where the building actually stands.
+///
+/// The building is FOUND IN THE HAND rather than named. The first version named the Cannon
+/// and the opening hand does not hold one, so the test panicked on its own setup -- and it
+/// was written, committed and left without being seen to pass.
+#[test]
+fn a_deploy_reports_the_point_the_building_took() {
+    /// The first slot of Blue's opening hand holding a building, with its footprint.
+    fn building_in_hand(s: &BattleState) -> Option<(usize, String, i32)> {
+        (0..4).find_map(|k| {
+            let idx = s.hand_card(Team::Blue, k).ok()?;
+            let card = s.config().cards.get(idx);
+            let n = placement_tiles(card.collision_radius);
+            (card.kind == royalesim::card::CardKind::Building).then(|| (k, card.name.clone(), n))
+        })
+    }
+
+    // `board()` has no deck, which is why every test above it uses the scenario spawn. A
+    // deploy needs a hand, so this one deals a deck and takes whatever building it deals.
+    fn dealt() -> BattleState {
+        let deck: Vec<String> = ["Cannon", "Knight", "Giant", "Archers", "Fireball", "Arrows", "Zap", "Skeletons"]
+            .iter()
+            .map(|x| x.to_string())
+            .collect();
+        let mut cfg = config();
+        cfg.decks = [deck.clone(), deck];
+        BattleState::new(7, cfg)
+    }
+
+    let s = dealt();
+    let hand: Vec<String> = (0..4)
+        .filter_map(|k| s.hand_card(Team::Blue, k).ok().map(|i| s.config().cards.get(i).name.clone()))
+        .collect();
+    let (slot, name, n) = building_in_hand(&s).unwrap_or_else(|| panic!("no building in the opening hand {hand:?}"));
+    assert!(n >= 2, "{name} is a {n}x{n} building, which cannot be pushed off a wall tap");
+    drop(s);
+
+    // 1. open ground: the resolved point IS the tap, or leg 2 proves nothing.
+    let mut s = dealt();
+    let open = tile_centre(6, 8);
+    assert_eq!(place(&s, Team::Blue, &name, open).map(|(c, _)| c), Some(open), "leg 1 needs a tap that does not relocate");
+    let landed = s.deploy_slot(Team::Blue, slot, open).expect("open ground is legal");
+    assert_eq!(landed, open, "a tap that needs no relocation must report itself");
+
+    // 2. against the wall: the tap cannot hold the footprint, so the building moves.
+    let mut s = dealt();
+    let wall = Vec2::new(milli(200), tile_centre(9, 10).y);
+    let (expected, _) = place(&s, Team::Blue, &name, wall).expect("the wall tap relocates rather than refusing");
+    assert_ne!(expected, wall, "this tap does not relocate, so it cannot test the reporting");
+    let landed = s.deploy_slot(Team::Blue, slot, wall).expect("a relocating tap is accepted, not refused");
+    assert_eq!(landed, expected, "the deploy reported the tap rather than the point the building took");
+
+    // 3. and the building really is there when it materialises.
+    for _ in 0..80 {
+        s.tick();
+    }
+    let built = find_live(&s, Team::Blue, &name);
+    assert_eq!(built.len(), 1, "the {name} is on the board");
+    assert_eq!(built[0].pos, landed, "the reported point is not where the building stands");
+}

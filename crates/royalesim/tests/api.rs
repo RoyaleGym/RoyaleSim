@@ -115,7 +115,11 @@ fn not_in_hand_and_not_enough_elixir_are_distinguishable() {
                 refusal = Some(e);
                 break;
             }
-            Ok(()) => s.deploy(Team::Blue, &pick, t(350, 1000)).unwrap(),
+            Ok(()) => {
+                // `deploy` now returns WHERE the card went down; this loop only needs it
+                // to have happened.
+                s.deploy(Team::Blue, &pick, t(350, 1000)).unwrap();
+            }
             Err(e) => panic!("unexpected {e:?}"),
         }
         s.tick();

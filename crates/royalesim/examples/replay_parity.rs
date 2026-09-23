@@ -7,6 +7,7 @@
 //!     ... [--out <dir>]                                               # default data/derived/replay/results/
 //!     ... [--trace]                                                   # per-pair per-tick rows in the JSON (one battle at a time)
 //!     ... [--prefix]                                                  # play an unplayable fixture up to its first unloadable deploy
+//!     ... [--attacking-movement frozen|separation_only]               # judge a CANDIDATE without editing the ledger
 //!
 //! Fixtures come from tools/make_replay_fixture.py. Per fixture this writes
 //! `<fixture>.parity.json` and `<fixture>.parity.md`; `--all` also writes
@@ -79,6 +80,18 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             "--trace" => opts.trace = true,
             "--prefix" => opts.prefix = true,
+            // A CANDIDATE, not a change: run the corpus under the other arm of
+            // movement.ATTACKING_UNIT_MOVEMENT without editing the ledger every other
+            // session's engine reads. Two ledger edits and two rebuilds to answer one
+            // question is how a shared file becomes an outage.
+            "--attacking-movement" => {
+                i += 1;
+                let name = args.get(i).ok_or("--attacking-movement needs a candidate name")?;
+                opts.attacking_movement = Some(
+                    royalesim::state::AttackingUnitMovement::from_calibration_name(name)
+                        .ok_or_else(|| format!("{name}: not a candidate of movement.ATTACKING_UNIT_MOVEMENT"))?,
+                );
+            }
             "--seed" => {
                 i += 1;
                 opts.seed = args.get(i).and_then(|s| s.parse().ok()).ok_or("--seed needs an integer")?;

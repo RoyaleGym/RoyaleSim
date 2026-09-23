@@ -246,7 +246,7 @@ pub fn apply_commands(
     s: &mut BattleState,
     commands: &[(i64, i64, i32, i32)],
     id_of_idx: &[i32],
-) -> Result<Vec<(i32, u8, u32)>, String> {
+) -> Result<Vec<(i32, u8, u32, i32, i32)>, String> {
     let tick = s.tick_count();
     let card_id = |s: &BattleState, team: i64, slot: i64| match (team_of(team), usize::try_from(slot)) {
         (Some(t), Ok(k)) => s.hand_card(t, k).map(|i| id_of_idx[i as usize]).unwrap_or(-1),
@@ -254,8 +254,14 @@ pub fn apply_commands(
     };
     // Validation first, all against the same state: both teams' plays are
     // simultaneous even though they are applied one after the other.
-    let mut out: Vec<(i32, u8, u32)> =
-        commands.iter().map(|&(team, slot, x, y)| (card_id(s, team, slot), check_command(s, team, slot, x, y), tick)).collect();
+    // The last two elements are WHERE THE CARD WENT DOWN. They start as the tap and are
+    // overwritten with the resolved point as each accepted deploy is applied, so a refused
+    // command reports the point it asked for and an accepted building reports the point it
+    // actually took.
+    let mut out: Vec<(i32, u8, u32, i32, i32)> = commands
+        .iter()
+        .map(|&(team, slot, x, y)| (card_id(s, team, slot), check_command(s, team, slot, x, y), tick, x, y))
+        .collect();
     let mut seen = [false; 2];
     let mut accepted = Vec::with_capacity(2);
     for (k, &(team, slot, x, y)) in commands.iter().enumerate() {
@@ -268,13 +274,19 @@ pub fn apply_commands(
             continue;
         }
         seen[t] = true;
-        accepted.push((team, slot, x, y));
+        accepted.push((k, team, slot, x, y));
     }
     #[cfg(not(clash_plant = "command_order_matters"))]
-    accepted.sort_by_key(|&(team, slot, _, _)| (team, slot));
-    for (team, slot, x, y) in accepted {
+    accepted.sort_by_key(|&(_, team, slot, _, _)| (team, slot));
+    for (k, team, slot, x, y) in accepted {
         let t = team_of(team).expect("validated");
-        s.deploy_slot(t, slot as usize, Vec2::new(x, y)).map_err(|e| format!("deploy validated OK was then refused: {e:?}"))?;
+        // Resolved IN THE ORDER THE DEPLOYS HAPPEN, because one team's building changes
+        // where the other team's tap in the same step can fit.
+        let landed = s
+            .deploy_slot(t, slot as usize, Vec2::new(x, y))
+            .map_err(|e| format!("deploy validated OK was then refused: {e:?}"))?;
+        out[k].3 = landed.x;
+        out[k].4 = landed.y;
     }
     Ok(out)
 }
@@ -884,8 +896,14 @@ impl Battle {
     /// `apply_commands` (validate against the current state; apply accepted
     /// deploys in canonical (team, slot) order), then run up to `ticks` ticks with
     /// the GIL released, stopping at game over. Returns (card_id, reason, tick
-    /// evaluated) per command, in input order.
-    fn step(&mut self, py: Python<'_>, commands: Vec<(i64, i64, i32, i32)>, ticks: u32) -> PyResult<Vec<(i32, u8, u32)>> {
+    /// evaluated, resolved x, resolved y) per command, in input order.
+    ///
+    /// THE LAST TWO ARE WHERE THE CARD WENT DOWN, and they are not always the tap: a
+    /// building whose footprint does not fit is MOVED to a nearby legal tile rather than
+    /// refused (placement.ILLEGAL_TAP). A reward or a log keyed on the tapped point
+    /// therefore describes a point with nothing on it. They are trailing elements on
+    /// purpose, so a caller unpacking three keeps working.
+    fn step(&mut self, py: Python<'_>, commands: Vec<(i64, i64, i32, i32)>, ticks: u32) -> PyResult<Vec<(i32, u8, u32, i32, i32)>> {
         let id_of_idx = self.id_of_idx.clone();
         let s = self.s_mut()?;
         let out = apply_commands(s, &commands, &id_of_idx).map_err(PyRuntimeError::new_err)?;

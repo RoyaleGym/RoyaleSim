@@ -101,8 +101,13 @@ def test_both_known_cases_are_covered_and_distinguishable():
     subset = ENTRIES["spells.LAUNCH_POINT"]
     assert subset["status"] == "measured"
     assert subset["refuted_for"] == ["Arrows"]
-    whole = ENTRIES["spawner.SPAWN_POINT"]
-    assert whole["refuted_for"] == "*", "a wholly refuted value is marked with *"
+    # FOUND, not named. This test used to name spawner.SPAWN_POINT, and when that value was
+    # promoted to the measured arm its `refuted_for` correctly went away -- so a gate about a
+    # CONVENTION broke on a routine promotion of one entry. The population is "entries marked
+    # wholly refuted", and the test says so if there are none rather than passing quietly.
+    wholes = {q: e for q, e in ENTRIES.items() if e.get("refuted_for") == "*"}
+    assert wholes, "no entry is marked wholly refuted, so this half of the convention is untested"
+    whole = next(iter(wholes.values()))
     assert whole["status"] != "refuted", (
         "if `status` ever gains a refuted value this gate should be re-read: the point of "
         "refuted_for is that the status does NOT carry the fact"

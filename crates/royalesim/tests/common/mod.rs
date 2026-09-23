@@ -670,7 +670,9 @@ impl Script {
             };
             for pos in candidates {
                 match s.deploy(team, &pick, pos) {
-                    Ok(()) => {
+                    // The Ok now carries WHERE the card went down, which this walker does
+                    // not need: it counts plays.
+                    Ok(_) => {
                         self.plays[ti] += 1;
                         if is_spell {
                             self.spell_casts[ti] += 1;

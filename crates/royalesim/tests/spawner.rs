@@ -250,9 +250,21 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     // included) slides it out along the same axis over the next ticks until the
     // two circles no longer touch. (The engine's own earlier static pass put it
     // edge to edge in the materialisation tick; that pass is retired.)
-    assert_eq!(calib().spawner_spawn_point, SpawnPoint::InFrontAtOwnRadius);
+    // The point is DERIVED from the configured arm rather than asserted to be one of
+    // them. This test is about the wave's TIMING; naming an arm here made it fail the
+    // moment spawner.SPAWN_POINT was promoted, which is a true statement about the
+    // ledger dressed up as a fact about cadence.
+    assert!(
+        s.entity(hut_id).map(|e| s.cards().get(e.card_idx).formation.spawn_radius) == Some(0),
+        "this derivation is the blank-SpawnRadius case; a card that sets one emits on a ring"
+    );
     let cap = 150 * SUBTILE_PER_MILLITILE;
-    let spawn_point = Vec2::new(pos.x, pos.y + hut_r);
+    let spawn_point = match calib().spawner_spawn_point {
+        SpawnPoint::AtCentre => pos,
+        SpawnPoint::InFrontAtOwnRadius => Vec2::new(pos.x, pos.y + hut_r),
+        // the tangent of the two circles: the spawner's own radius plus the unit's
+        SpawnPoint::Client16402Measured => Vec2::new(pos.x, pos.y + hut_r + unit_r),
+    };
     assert_eq!(u.pos.x, spawn_point.x, "the {unit} left the {hut}'s forward axis");
     // Under the shipped emission the unit is created in the MOVE phase, after that
     // tick's contact pass, so it materialises exactly AT the spawn point and the
@@ -843,13 +855,28 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         };
         let (pos, centred) = first_point(with_calib(|c| c.spawner_spawn_point = SpawnPoint::AtCentre));
         assert_eq!(centred, pos, "at_centre: the unit materialises on the spawner's own point");
-        let (_, ahead) = first_point(config());
-        let tomb_r = {
+        // Each candidate is NAMED here rather than one of them being taken from the
+        // shipped config. Reading the shipped arm made this test assert whichever one
+        // the ledger happened to hold, so promoting SPAWN_POINT turned a test about
+        // three candidates into a test about one -- and it failed rather than going
+        // quiet, which is the only reason it was noticed.
+        let (_, ahead) = first_point(with_calib(|c| c.spawner_spawn_point = SpawnPoint::InFrontAtOwnRadius));
+        let (tomb_r, skel_r) = {
             let mut s = bare(config());
             let id = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
-            s.entity(id).unwrap().radius
+            let r = s.entity(id).unwrap().radius;
+            let sp = spawner(&s, "Tombstone");
+            (r, s.cards().get(sp.unit).collision_radius)
         };
         assert_eq!(ahead, Vec2::new(pos.x, pos.y + tomb_r), "in_front_toward_enemy_at_own_radius: one spawner radius along Blue's forward axis");
+        let (_, tangent) = first_point(with_calib(|c| c.spawner_spawn_point = SpawnPoint::Client16402Measured));
+        assert_eq!(
+            tangent,
+            Vec2::new(pos.x, pos.y + tomb_r + skel_r),
+            "client16402_measured: the TANGENT of the two circles, the spawner's radius plus the unit's"
+        );
+        assert_ne!(tangent, ahead, "the measured arm must be distinguishable from the one it replaced");
+        assert_ne!(tangent, centred, "and from at_centre");
     }
     // PAUSE_ANCHOR: the timed-wave card's second wave comes one pause after the
     // FIRST unit (the 2018 Witch; the 15.535 Tombstone -- the 15.535 Witch's wave
@@ -1127,16 +1154,38 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     assert!(seen.iter().all(|r| r.3 == deploying), "spawner.SPAWNED_DEPLOY_TIME: deploying should be {deploying}");
     let bats: Vec<Vec2> = seen.iter().map(|r| r.4).collect();
     assert_ne!(bats[0], bats[1], "the two Bats are on one point");
-    // The engine formation grid for two units: one unit diameter apart (spacing
-    // 2 x unit_r, offsets -+ unit_r on the owner's lateral axis), centred on the
-    // point SpawnRadius ahead. The game's separation may nudge a touching pair by
-    // its minimum push (1 native = 18 subtiles) in the materialisation tick.
-    let point = Vec2::new(anchor.x, anchor.y + radius);
-    let mut xs: Vec<i32> = bats.iter().map(|b| b.x - point.x).collect();
-    xs.sort();
+    // The geometry is the arm's, so it is read from the arm. Under the older arms the
+    // wave is a formation grid centred SpawnRadius AHEAD of her; under the measured one
+    // it is a RING of SpawnRadius around her, which is the half of the law the corpus
+    // refuted in DIRECTION rather than in magnitude. The game's separation may nudge a
+    // touching pair by its minimum push (1 native = 18 subtiles) on the materialisation
+    // tick, which is the tolerance in both branches.
     let nudge = royalesim::fixed::SUBTILE_PER_MILLITILE;
-    assert!((xs[0] + unit_r).abs() <= nudge && (xs[1] - unit_r).abs() <= nudge, "the Bats are not one diameter apart around the spawn point: {xs:?} vs -+{unit_r}");
-    assert!(bats.iter().all(|b| (b.y - point.y).abs() <= nudge), "the Bats are not SpawnRadius ahead: {bats:?} vs {point:?}");
+    if calib().spawner_spawn_point == SpawnPoint::Client16402Measured {
+        // Squared, so there is no square root and no floating point.
+        let lo = ((radius - nudge) as i64).pow(2);
+        let hi = ((radius + nudge) as i64).pow(2);
+        for b in &bats {
+            let (dx, dy) = ((b.x - anchor.x) as i64, (b.y - anchor.y) as i64);
+            let d2 = dx * dx + dy * dy;
+            assert!(d2 >= lo && d2 <= hi, "a Bat is not on the ring of {radius} around her: {b:?} against {anchor:?}");
+        }
+        // Two units 180 degrees apart: their midpoint is the spawner.
+        let mid = Vec2::new((bats[0].x + bats[1].x) / 2, (bats[0].y + bats[1].y) / 2);
+        assert!(
+            (mid.x - anchor.x).abs() <= nudge && (mid.y - anchor.y).abs() <= nudge,
+            "the two Bats are not diametrically opposite on the ring: midpoint {mid:?} against {anchor:?}"
+        );
+        // NOT forward, which is what the older arm got wrong here.
+        let forward: i32 = bats.iter().map(|b| b.y - anchor.y).sum::<i32>() / 2;
+        assert!(forward.abs() < radius / 2, "the wave is pushed forward like the refuted arm: {forward} against {radius}");
+    } else {
+        let point = Vec2::new(anchor.x, anchor.y + radius);
+        let mut xs: Vec<i32> = bats.iter().map(|b| b.x - point.x).collect();
+        xs.sort();
+        assert!((xs[0] + unit_r).abs() <= nudge && (xs[1] - unit_r).abs() <= nudge, "the Bats are not one diameter apart around the spawn point: {xs:?} vs -+{unit_r}");
+        assert!(bats.iter().all(|b| (b.y - point.y).abs() <= nudge), "the Bats are not SpawnRadius ahead: {bats:?} vs {point:?}");
+    }
     assert_eq!(s.entity(witch).unwrap().spawn_wave_left, 0, "a simultaneous wave leaves nothing pending");
 
     // BattleRam: DeathSpawnDeployTime overrides the Barbarian's own DeployTime (the

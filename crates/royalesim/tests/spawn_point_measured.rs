@@ -9,8 +9,13 @@
 //!   1. a blank-SpawnRadius spawner emits FORWARD at its own radius plus the spawned
 //!      unit's (Tombstone 1000 + 500 = 1500), on the owner's forward axis;
 //!   2. a spawner that SETS SpawnRadius emits on a RING of that radius and NOT forward;
-//!   3. the ring's angle is two laws: a blank SpawnAngleShift lays it out in the ABSOLUTE
-//!      frame, a set one relative to the spawner's own facing;
+//!   3. the ring's angle is two laws, discriminated HERE by whether the ring moves when
+//!      the spawner's facing moves: a blank SpawnAngleShift does not follow the facing,
+//!      a set one does. Which fixed frame the blank case uses is NOT settled by this
+//!      file and no test here claims it: the Witch's ring is 4-fold, so it is invariant
+//!      under 90 degrees and cannot separate an absolute frame from the OWNER's forward
+//!      frame. That is open in the ledger's promotion_rules, point (3), and needs a
+//!      spawner whose ring count does not divide 360 into multiples of 90;
 //!   4. the two seats mirror;
 //!   5. the older arms still behave as they did, because they remain selectable.
 //!
@@ -73,6 +78,36 @@ fn d2(a: Vec2, b: Vec2) -> i64 {
     dx * dx + dy * dy
 }
 
+/// One wave of `card`, with an enemy put down at `bait` so the spawner turns to face it.
+///
+/// Returns the spawner's FACING at the moment it emits and the wave's offsets FROM the
+/// spawner, both read on the emission tick. The offsets are what the two angle laws differ
+/// about, and the facing is how a test shows the scene really turned her: two scenes whose
+/// facings match cannot say anything about a law that reads the facing, and would pass
+/// while comparing a scene with itself.
+fn wave_facing_bait(card: &str, unit: &str, bait: Vec2) -> (Vec2, Vec<(i32, i32)>) {
+    let mut s = bare(measured());
+    let id = s.scenario_spawn_now(Team::Blue, card, spot(), None).expect("the spawner goes down");
+    s.scenario_spawn_now(Team::Red, "Knight", bait, None).expect("the bait goes down");
+    for _ in 0..400 {
+        s.tick();
+        let seen = find_live(&s, Team::Blue, unit);
+        if !seen.is_empty() {
+            let e = s.entity(id).expect("the spawner is alive when it emits");
+            let mut off: Vec<(i32, i32)> =
+                seen.iter().map(|u| (u.pos.x - e.pos.x, u.pos.y - e.pos.y)).collect();
+            off.sort_unstable();
+            return (e.facing, off);
+        }
+    }
+    panic!("{card} never emitted a {unit} with the bait at {bait:?}");
+}
+
+/// Two scenes that differ only in which side of the spawner the enemy is on.
+fn left_and_right(card: &str, unit: &str) -> ((Vec2, Vec<(i32, i32)>), (Vec2, Vec<(i32, i32)>)) {
+    (wave_facing_bait(card, unit, t(200, 900)), wave_facing_bait(card, unit, t(1600, 900)))
+}
+
 /// Catches the refuted arm coming back. The recordings put the Tombstone's Skeleton at
 /// 1000 + 500 = 1500 forward, not at the spawner's own 1000 and not at its centre.
 #[test]
@@ -128,10 +163,14 @@ fn a_set_spawn_radius_emits_on_a_ring_and_not_forward() {
     );
 }
 
-/// THE TWO ANGLE LAWS. A blank SpawnAngleShift is laid out in the ABSOLUTE frame, so
-/// turning the spawner must not move it; a set one is relative to the facing, so it must.
+/// The blank half of the angle law: the ring does not follow the spawner's facing.
+///
+/// This test used to be named for both halves and ran only this one. The other half --
+/// that a card SETTING a shift does follow its facing -- is now its own test below, with
+/// its own scene, because a name covering two claims while exercising one is the same
+/// defect as a suite reporting a property it never creates the state for.
 #[test]
-fn a_blank_angle_shift_is_absolute_and_a_set_one_follows_the_facing() {
+fn a_blank_angle_shift_does_not_follow_the_spawners_facing() {
     let s = bare(measured());
     let witch_shift = card_stat(&s, "Witch").formation.spawn_angle_shift_deg;
     let dark_shift = card_stat(&s, "DarkWitch").formation.spawn_angle_shift_deg;
@@ -142,6 +181,20 @@ fn a_blank_angle_shift_is_absolute_and_a_set_one_follows_the_facing() {
     // In the recordings the Witch's four Skeletons sit on 0/90/180/270 every wave, so
     // each one is on an axis through her: exactly one of its two offsets is zero. That
     // is the axis claim without a single angle being computed.
+    // THE CONTROL, and it is the same pair of scenes the set-shift test below uses: turning
+    // her must NOT move a blank-shift ring. Without this the test only said the ring sits on
+    // the axes, which a facing-relative law would also satisfy whenever she happens to face
+    // along one.
+    let ((f_left, left), (f_right, right)) = left_and_right("Witch", "Skeleton");
+    assert_ne!(
+        f_left, f_right,
+        "the two scenes did not turn her, so this control compares a scene with itself"
+    );
+    assert_eq!(
+        left, right,
+        "her ring moved when her facing did, so a blank SpawnAngleShift is following the facing"
+    );
+
     let (at, points) = first_wave(measured(), "Witch", "Skeleton", spot(), Team::Blue);
     let mut on_axis = 0;
     for p in &points {
@@ -155,6 +208,34 @@ fn a_blank_angle_shift_is_absolute_and_a_set_one_follows_the_facing() {
         points.len(),
         "the Witch's blank-shift ring sits on the axes in the recordings; offsets were {:?}",
         points.iter().map(|p| (p.x - at.x, p.y - at.y)).collect::<Vec<_>>()
+    );
+}
+
+/// The SET half of the angle law, which the test above used to be named for and never ran.
+///
+/// A card that sets SpawnAngleShift lays its ring out relative to its own facing, so a scene
+/// that turns the spawner must turn the ring with it. The two scenes differ only in which
+/// side the enemy stands on, so the ring moving is the facing law and nothing else.
+///
+/// WHAT THIS DOES NOT CLAIM. It does not check the ring lands at any particular angle. The
+/// Dark Witch emits two Bats and a 2-fold ring is invariant under 180 degrees, so an angle
+/// assertion here would be weaker than it looked. Moving WITH the facing is the property
+/// that separates this law from the blank one, and it is the property asserted.
+#[test]
+fn a_set_angle_shift_follows_the_spawners_facing() {
+    let s = bare(measured());
+    let shift = card_stat(&s, "DarkWitch").formation.spawn_angle_shift_deg;
+    drop(s);
+    assert_ne!(shift, 0, "the Dark Witch must SET a shift or this test is about the other law");
+
+    let ((f_left, left), (f_right, right)) = left_and_right("DarkWitch", "Bat");
+    assert_ne!(
+        f_left, f_right,
+        "the two scenes did not turn her, so they compare a scene with itself: facing {f_left:?}"
+    );
+    assert_ne!(
+        left, right,
+        "her ring did not move when her facing did, so a set SpawnAngleShift is not following          the facing: {left:?} against {right:?}"
     );
 }
 

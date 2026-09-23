@@ -705,11 +705,16 @@ pub struct Options {
     pub trace: bool,
     /// Play an unplayable fixture up to its first unloadable deploy (`prefix_cut`).
     pub prefix: bool,
+    /// Run the corpus under a CANDIDATE of movement.ATTACKING_UNIT_MOVEMENT rather than
+    /// the shipped value. The corpus is the instrument that can judge that key, because
+    /// the defect it is about is a position error over many ticks -- and judging it this
+    /// way never edits the ledger that every other session's engine reads.
+    pub attacking_movement: Option<royalesim::state::AttackingUnitMovement>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { seed: 0, stride: 1, trace: false, prefix: false }
+        Options { seed: 0, stride: 1, trace: false, prefix: false, attacking_movement: None }
     }
 }
 
@@ -760,7 +765,19 @@ impl Roots {
 
 /// Build the engine config a fixture asks for.
 pub fn config_for(f: &Fixture, db: CardDb) -> Result<(BattleConfig, Vec<String>), String> {
+    config_for_with(f, db, None)
+}
+
+/// As `config_for`, with one calibration candidate overridden for this run.
+pub fn config_for_with(
+    f: &Fixture,
+    db: CardDb,
+    attacking_movement: Option<royalesim::state::AttackingUnitMovement>,
+) -> Result<(BattleConfig, Vec<String>), String> {
     let mut cfg = BattleConfig::with_cards(db);
+    if let Some(arm) = attacking_movement {
+        cfg.calib.attacking_unit_movement = arm;
+    }
     let mut notes = Vec::new();
     for side in 0..2 {
         let key = side.to_string();
@@ -842,7 +859,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         report.prefix_until = Some(c);
         report.last_tick = truth.ticks.last().copied().unwrap_or(0);
     }
-    let (cfg, notes) = config_for(f, db.clone())?;
+    let (cfg, notes) = config_for_with(f, db.clone(), opts.attacking_movement)?;
     report.level_deviations = notes;
     let roots = Roots::new(db);
     let mut s = BattleState::try_new(opts.seed, cfg)?;

@@ -201,6 +201,10 @@ pub struct Calib {
     /// `Refuse`, which is what a battle saved before this key actually ran.
     #[serde(default = "placement_illegal_tap_default")]
     pub placement_illegal_tap: PlacementIllegalTap,
+    /// movement.ATTACKING_UNIT_MOVEMENT. Added after SNAPSHOT_FORMAT 20. The `default`
+    /// is `Frozen`, which is what a battle saved before this key actually ran.
+    #[serde(default = "attacking_unit_movement_default")]
+    pub attacking_unit_movement: AttackingUnitMovement,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -430,6 +434,10 @@ fn placement_snap_even_default() -> PlacementSnapEven {
 /// the behaviour it actually had rather than into the one that ships now.
 fn placement_illegal_tap_default() -> PlacementIllegalTap {
     PlacementIllegalTap::Refuse
+}
+
+fn attacking_unit_movement_default() -> AttackingUnitMovement {
+    AttackingUnitMovement::Frozen
 }
 
 macro_rules! calib_enum {
@@ -662,6 +670,22 @@ calib_enum!(
 calib_enum!(
     /// spells.PULSING_AREA_EFFECT -- when a standing area effect applies.
     PulsingArea { FromLanding = "hit_speed_period_from_landing", Delayed = "hit_speed_period_delayed" }
+);
+calib_enum!(
+    /// movement.ATTACKING_UNIT_MOVEMENT -- what happens to a unit whose attack phase
+    /// holds it. Both arms agree it does not WALK and does not steer; they differ on
+    /// whether the contact scans still reach it.
+    AttackingUnitMovement {
+        /// The shipped arm: the move pass skips the unit entirely, so it is not
+        /// separated from anything and a neighbour cannot push it out. REFUTED by the
+        /// corpus: of the 11 755 attacking ticks where a unit overlaps a neighbour it
+        /// moves on 8 401, against 3.6 per cent of the 117 183 ticks where it is clear.
+        Frozen = "frozen",
+        /// The measured arm: no walk, no avoidance steer, no stomp clock, and the
+        /// separation scan and offset decay run as they do for an in-range unit. The
+        /// route is cleared, as it is on any transition to attacking (SPEC 5.3).
+        SeparationOnly = "separation_only"
+    }
 );
 calib_enum!(
     /// movement.STOMP_PAUSE_SCHEDULE -- the stomp pause's clock.
@@ -1296,6 +1320,7 @@ impl Calib {
             territory_model,
             placement_snap_even: pick(&v, &["placement", "SNAP_EVEN_CORNER", "value"], PlacementSnapEven::from_calibration_name)?,
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
+            attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -1604,6 +1629,11 @@ pub struct EntityView<'a> {
     /// Index of `card` in the CardDb (for bindings that must not look names up).
     pub card_idx: u16,
     pub pos: Vec2,
+    /// The direction this entity faces, as a vector rather than an angle (there is no
+    /// floating point here). Read by the spawner's ring law, which lays a set
+    /// SpawnAngleShift out relative to it, and by any test that has to show a scene
+    /// actually turned a spawner rather than assuming it did.
+    pub facing: Vec2,
     pub hp: i32,
     pub max_hp: i32,
     pub shield: i32,
@@ -3272,7 +3302,13 @@ impl BattleState {
                     }
                     continue;
                 }
-                if e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || calib.attack_holds(e.attack_phase[i]) {
+                // A FREEZE AND AN ATTACK ARE NOT THE SAME HOLD. A frozen or knocked
+                // unit is out of the pass entirely. An attacking one does not WALK, and
+                // under the measured arm the contact scans still reach it -- the same
+                // scans this pass already runs for a unit that is merely in range.
+                let phase_hold = calib.attack_holds(e.attack_phase[i]);
+                let frozen = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0;
+                if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
                     if jumping[i] {
                         // a movement hold on a jumper: the leap is cancelled where it
                         // stands and the unit replans when the hold ends (UNVERIFIED: no
@@ -3350,10 +3386,25 @@ impl BattleState {
                     continue;
                 }
                 // ---- 2. the replan gate (walking units with a target only)
-                let mut attacking = false;
+                //
+                // A phase-held unit is ATTACKING by definition and skips this gate: it
+                // asks for no path, and its route is cleared the same way the in-range
+                // branch below clears one (SPEC 5.3).
+                let mut attacking = phase_hold;
                 let mut target_abs: Option<(i32, i32)> = None;
                 let mut feasible = true;
-                if let (false, Some(gid)) = (deploying, goal_id) {
+                // The route is cleared, as on any transition to attacking (SPEC 5.3).
+                // NOT clearing it was tried, on the argument that a held unit is already
+                // attacking and a fresh replan after every push is what diverges. The
+                // corpus says otherwise: 50.6 per cent within 250 against 50.5 with the
+                // clear, so the replan is not the cost. The cost is the push itself
+                // taking the unit out of range.
+                if phase_hold {
+                    routes[i].clear();
+                    goals[i] = None;
+                    segs[i] = Vec2::default();
+                }
+                if let (false, false, Some(gid)) = (deploying, phase_hold, goal_id) {
                     let gi = gid.index as usize;
                     if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                         // SPEC 5.3: the path is cleared on the transition to attacking
@@ -5499,8 +5550,9 @@ impl BattleState {
     }
 
     /// Play a card from hand by name (the first slot holding it). Validation is
-    /// immediate; the units materialise in the next tick's Spawn phase.
-    pub fn deploy(&mut self, team: Team, card_name: &str, pos: Vec2) -> Result<(), DeployError> {
+    /// immediate; the units materialise in the next tick's Spawn phase. Returns where the
+    /// card went down, which for a building is not always the tap (`deploy_slot`).
+    pub fn deploy(&mut self, team: Team, card_name: &str, pos: Vec2) -> Result<Vec2, DeployError> {
         self.check_deploy(team, card_name, pos)?;
         let idx = self.simulable(card_name)?;
         let slot = self.players[team as usize].hand.iter().position(|c| *c == idx).ok_or(DeployError::NotInHand)?;
@@ -5509,7 +5561,11 @@ impl BattleState {
 
     /// Play the card in `slot`. The played card goes to the back of the queue and
     /// the queue's front takes the slot.
-    pub fn deploy_slot(&mut self, team: Team, slot: usize, pos: Vec2) -> Result<(), DeployError> {
+    /// Returns WHERE THE CARD WENT DOWN: the relocated centre for a building whose
+    /// footprint did not fit the tap, the tap itself otherwise. The caller is given the
+    /// point rather than asked to query for it again, because a second query is a second
+    /// answer that can disagree with the one the engine acted on.
+    pub fn deploy_slot(&mut self, team: Team, slot: usize, pos: Vec2) -> Result<Vec2, DeployError> {
         self.check_deploy_slot(team, slot, pos)?;
         let idx = self.hand_card(team, slot)?;
         // A BUILDING STANDS WHERE ITS FOOTPRINT FITS, not on the tap. The same
@@ -5532,7 +5588,7 @@ impl BattleState {
             }
         }
         self.enqueue(team, idx, level, pos);
-        Ok(())
+        Ok(pos)
     }
 
     /// Scenario/test API: place a card's units ignoring hand, elixir and deploy
@@ -5824,6 +5880,7 @@ impl BattleState {
             card: &self.cfg.cards.get(e.card[i]).name,
             card_idx: e.card[i],
             pos: e.pos[i],
+            facing: e.facing[i],
             hp: e.hp[i],
             max_hp: e.max_hp[i],
             shield: e.shield[i],

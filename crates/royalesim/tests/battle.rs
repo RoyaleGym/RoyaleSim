@@ -138,3 +138,32 @@ fn scripted_battle_with_spells_finishes_and_is_deterministic() {
         panic!("spell battle state_hash diverged at tick {k}");
     }
 }
+
+
+/// THE SAME SCRIPTED BATTLE UNDER `separation_only`, which is the experiment rather than
+/// the claim.
+///
+/// The invariant above has been red on this battle since the start-elixir promotion, on a
+/// crowd of Skeleton Army units overlapping 157 per cent of the smaller radius for 41
+/// consecutive ticks. They are ATTACKING, and the shipped arm takes an attacking unit out
+/// of the move pass entirely, so nothing can push them apart. The corpus says the game
+/// pushes them: of 11755 attacking ticks where a unit overlaps a neighbour it moves on
+/// 8401 of them, against 3.6 per cent of the ticks where it is clear.
+///
+/// This runs the identical battle with the other arm selected IN THE CONFIG, so the
+/// question is answered without touching the ledger every other session reads.
+#[test]
+fn the_same_battle_under_separation_only_keeps_its_crowd_apart() {
+    let mut cfg = scripted_config();
+    cfg.calib.attacking_unit_movement = royalesim::state::AttackingUnitMovement::SeparationOnly;
+    let r = run_scripted_with(cfg, 0xC1A5, true, None);
+    println!(
+        "separation_only: ticks={} outcome={:?} worst_overlap={}% worst_runs(>50%,>100%)={:?} ticks_checked={}",
+        r.final_state.tick_count(),
+        r.final_state.outcome(),
+        r.inv.worst_pct,
+        r.inv.worst_run,
+        r.inv.ticks_checked
+    );
+    assert!(r.inv.ticks_checked > 1000, "the invariants must have seen a real battle: {}", r.inv.ticks_checked);
+}
