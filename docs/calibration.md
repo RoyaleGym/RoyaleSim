@@ -38,6 +38,8 @@ The ledger's job is to keep those two kinds of number apart, permanently and vis
 | `provenance` | the evidence: the client version, the trace or capture, the counts |
 | `promotion_rules` | the observation that would raise the status, written before it is made |
 | `engine_contract` | which code reads the key and what changes when it changes |
+| `refuted_for` | the part of the space this entry's own shipped `value` is known to be wrong for, or `*` for all of it. It sits beside the `confidence` that says so |
+| `supersedes_globals` | present when a measured value departs from a shipped table ON PURPOSE: the key, the value that table holds, and why. `tools/extract_globals.py` reports a declared divergence and fails an undeclared one, so the two can differ without breaking the build and cannot differ silently |
 
 ### Status vocabulary, in increasing order of trust
 

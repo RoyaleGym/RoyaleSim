@@ -1124,6 +1124,12 @@
     },
     "START_MANA": {
       "value": 6,
+      "supersedes_globals": {
+        "key": "START_MANA",
+        "value": 5,
+        "vintage": "2018 globals.csv, vendored in data/raw/retroroyale-2018",
+        "why": "MEASURED against the live game and the 2018 table is simply older: all 126 tick-0 readings of the recorded corpus are 6. The two are SUPPOSED to disagree, so tools/extract_globals.py reports this divergence instead of failing the setup on it. An undocumented divergence still fails."
+      },
       "units": "elixir each side holds at tick 0",
       "status": "measured",
       "confidence": "HIGH. All 126 tick-0 readings of the recorded corpus are 6, and the reading survives the challenge that it is 5 plus regen already credited (measured_2026_09_22).",

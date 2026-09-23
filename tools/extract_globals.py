@@ -31,6 +31,8 @@ USAGE
     python tools/extract_globals.py --plant bool
     python tools/extract_globals.py --plant array
     python tools/extract_globals.py --plant context   # a globals value may not be declared context
+    python tools/extract_globals.py --plant supersede  # an UNdocumented divergence still fails
+    python tools/extract_globals.py --plant stale-note # and a note that no longer fits the file
     python tools/extract_globals.py --plant vintage   # a value cited to a newer build is checked against it
 """
 
@@ -162,8 +164,64 @@ def registry_constants(cal: dict) -> list[tuple[str, dict]]:
     return out
 
 
-def cross_check(g: dict, cal: dict) -> tuple[list[str], list[str], list[str], list[str]]:
-    """Return (failures, agreements, absences, context_only).
+def first_documented(cal: dict) -> tuple[str | None, dict | None]:
+    """The first registry entry that declares a deliberate divergence, for the plants.
+
+    Found rather than named, so the plants keep testing the mechanism after whichever
+    entry happens to carry a note today stops carrying one.
+    """
+    for qual, entry in registry_constants(cal):
+        note = entry.get("supersedes_globals")
+        if isinstance(note, dict):
+            return qual, note
+    return None, None
+
+
+def check_divergence(entry: dict, qual: str, key: str, got, want, where: str,
+                     undocumented: str) -> tuple[str, str]:
+    """Classify a registry-vs-globals disagreement as DECLARED or undocumented.
+
+    A re-measured value is SUPPOSED to disagree with an older table, and failing the
+    build on that turns a finding into a broken setup step: the 2018 file is evidence of
+    what shipped in 2018, and the registry records what the live game does now. What may
+    not happen is the two drifting apart silently. So the entry declares it, in
+    `supersedes_globals`, naming the key, quoting the value it expects to find in the
+    file, and saying why.
+
+    The quoted value is compared with the file. That is what stops the field being a
+    switch that waves off any mismatch: a note that no longer describes the data is a
+    failure of its own rather than a pass, and so is one that names a different key.
+    """
+    note = entry.get("supersedes_globals")
+    if not isinstance(note, dict):
+        return "fail", undocumented
+    missing = [f for f in ("key", "value", "why") if f not in note]
+    if missing:
+        return "fail", (f"documented divergence is incomplete: {qual} -- supersedes_globals "
+                        f"is missing {', '.join(missing)}")
+    if note["key"] != key:
+        return "fail", (f"documented divergence names the wrong key: {qual} -- "
+                        f"supersedes_globals.key is {note['key']!r}, but the value compared "
+                        f"came from {key!r}")
+    if type(note["value"]) is not type(got) or note["value"] != got:
+        return "fail", (f"documented divergence is stale: {qual} -- supersedes_globals says "
+                        f"{where} has {note['value']!r}, the file has {got!r}")
+    if not str(note["why"]).strip():
+        return "fail", f"documented divergence gives no reason: {qual} -- supersedes_globals.why is blank"
+    return "superseded", (f"{qual} = {want!r} deliberately differs from {where}.{key} = {got!r}"
+                          f"  -- {note['why']}")
+
+
+def agreement_is_declared_away(entry: dict, qual: str) -> str | None:
+    """A note claiming to supersede a value the file AGREES with is wrong about itself."""
+    if isinstance(entry.get("supersedes_globals"), dict):
+        return (f"documented divergence but the values agree: {qual} -- supersedes_globals "
+                f"claims this entry departs from the table it matches")
+    return None
+
+
+def cross_check(g: dict, cal: dict) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
+    """Return (failures, agreements, absences, context_only, superseded).
 
     Walks EVERY registry constant whose provenance cites globals, so a new
     registry entry cannot dodge the check by not being on a hand-written list.
@@ -177,7 +235,7 @@ def cross_check(g: dict, cal: dict) -> tuple[list[str], list[str], list[str], li
     compared, and the declaration is REFUSED when the entry's own name is a globals
     key, because then the value really is a globals value and must be compared.
     """
-    fail, agree, absent, context = [], [], [], []
+    fail, agree, absent, context, superseded = [], [], [], [], []
     for qual, entry in registry_constants(cal):
         prov = str(entry.get("provenance", ""))
         name = qual.split(".", 1)[1]
@@ -209,8 +267,15 @@ def cross_check(g: dict, cal: dict) -> tuple[list[str], list[str], list[str], li
                     continue
                 got = newer[k]["value"]
                 if type(got) is not type(want) or got != want:
-                    fail.append(f"calibration agrees: {name} -- registry {want!r} vs globals[{vintage}] {k}={got!r}")
+                    kind, msg = check_divergence(
+                        entry, qual, k, got, want, f"globals[{vintage}]",
+                        f"calibration agrees: {name} -- registry {want!r} vs globals[{vintage}] {k}={got!r}",
+                    )
+                    (superseded if kind == "superseded" else fail).append(msg)
                 else:
+                    wrong = agreement_is_declared_away(entry, qual)
+                    if wrong:
+                        fail.append(wrong)
                     agree.append(f"{qual}{'.' + sub if sub else ''} == globals[{vintage}].{k} == {got!r}"
                                  f"  (2018 data: {old!r})")
             continue
@@ -234,12 +299,17 @@ def cross_check(g: dict, cal: dict) -> tuple[list[str], list[str], list[str], li
         # type-strict: in Python 1 == True, and a registry boolean must not be
         # "confirmed" by a globals number that happens to be 1.
         if type(got) is not type(want) or got != want:
-            fail.append(
-                f"calibration agrees: {name} -- registry {want!r} vs globals.csv {key}={got!r}"
+            kind, msg = check_divergence(
+                entry, qual, key, got, want, "globals.csv",
+                f"calibration agrees: {name} -- registry {want!r} vs globals.csv {key}={got!r}",
             )
+            (superseded if kind == "superseded" else fail).append(msg)
         else:
+            wrong = agreement_is_declared_away(entry, qual)
+            if wrong:
+                fail.append(wrong)
             agree.append(f"{qual} == globals.{key} == {got!r}")
-    return fail, agree, absent, context
+    return fail, agree, absent, context, superseded
 
 
 # --- the report ---------------------------------------------------------------
@@ -278,11 +348,16 @@ def build(g: dict, order: list[str]) -> dict:
     }
 
 
+# Named here rather than inside the argument parser so a test can ask the tool which
+# self-checks it offers, instead of carrying its own list that silently falls behind.
+PLANTS = ["disagree", "bool", "array", "context", "vintage", "supersede", "stale-note"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--plant",
-        choices=["disagree", "bool", "array", "context", "vintage"],
+        choices=PLANTS,
         help="corrupt the parsed globals on purpose and prove the gate goes red",
     )
     ap.add_argument("--quiet", action="store_true")
@@ -294,14 +369,21 @@ def main() -> int:
     print("*** " + VINTAGE_WARNING)
 
     if args.plant:
+        sup_qual, sup_note = first_documented(cal)
+        if args.plant in ("supersede", "stale-note") and sup_qual is None:
+            print(f"PLANT '{args.plant}' INCONCLUSIVE -- no registry entry declares a "
+                  f"divergence, so there is nothing to test the handling of", file=sys.stderr)
+            return 1
         aimed_at = {
             "disagree": "calibration agrees: MELEE_RANGE_LIMIT",
             "bool": "calibration agrees: ADD_CHARACTER_RANGE_TO_RADIUS",
             "array": "array continuation rows fold",
             "context": "context-only declaration: targeting.MELEE_RANGE_LIMIT",
             "vintage": "calibration agrees: LOGIC_DEFAULT_TARGET_USE_LANE_ID -- registry",
+            "supersede": f"calibration agrees: {str(sup_qual).split('.', 1)[-1]} -- registry",
+            "stale-note": f"documented divergence is stale: {sup_qual}",
         }[args.plant]
-        base_fail, _, _, _ = cross_check(g, cal)
+        base_fail, _, _, _, _ = cross_check(g, cal)
         base_fail += shape_gate(g)
         if base_fail:
             print(f"PLANT '{args.plant}' INCONCLUSIVE -- baseline already red:", file=sys.stderr)
@@ -324,6 +406,39 @@ def main() -> int:
             bad_cal = json.loads(json.dumps(cal))
             bad_cal["targeting"]["MELEE_RANGE_LIMIT"]["globals_role"] = "context"
             assert bad_cal != cal, "context plant did not change the registry copy"
+        if args.plant == "supersede":
+            # Take the note away and the same disagreement must go red again. Without this
+            # the "documented" half does no work: any measured value could then drift from
+            # the table unannounced and the gate would shrug.
+            bad_cal = json.loads(json.dumps(cal))
+            section, const = sup_qual.split(".", 1)
+            removed = bad_cal[section][const].pop("supersedes_globals", None)
+            assert removed is not None, "supersede plant removed nothing"
+        if args.plant == "stale-note":
+            # Leave the note and move the FILE underneath it. A note is a claim about what
+            # globals.csv says, so it has to be checked against globals.csv.
+            k = sup_note["key"]
+            if k not in bad:
+                print(f"PLANT 'stale-note' INCONCLUSIVE -- {k} is not a key of this file",
+                      file=sys.stderr)
+                return 1
+            v = bad[k]["value"]
+            # The moved value must differ from the REGISTRY value too. Moving it onto the
+            # registry value makes the two agree, which is a different failure with a
+            # different message: the plant would go red for the wrong reason and prove
+            # nothing about staleness. The first version of this plant did exactly that
+            # and the harness caught it by comparing the message, not the colour.
+            section, const = sup_qual.split(".", 1)
+            want = cal[section][const]["value"]
+            moved = [(not v)] if isinstance(v, bool) else (
+                [v + 1, v - 1, v + 7] if isinstance(v, int) else [f"{v}-moved"])
+            moved = [m for m in moved if m != want and m != v]
+            if not moved:
+                print(f"PLANT 'stale-note' INCONCLUSIVE -- no value of {k} is both unlike the "
+                      f"file and unlike the registry, so a moved file cannot be told from an "
+                      f"agreeing one", file=sys.stderr)
+                return 1
+            bad[k]["value"] = moved[0]
         if args.plant == "vintage":
             # A value cited to a newer build must be compared with THAT build: flip the
             # registry copy and the newer-build comparison has to go red.
@@ -333,7 +448,7 @@ def main() -> int:
             bad_cal = json.loads(json.dumps(cal))
             e = bad_cal["targeting"]["LOGIC_DEFAULT_TARGET_USE_LANE_ID"]
             e["value"] = not e["value"]
-        fail, _, _, _ = cross_check(bad, bad_cal)
+        fail, _, _, _, _ = cross_check(bad, bad_cal)
         fail += shape_gate(bad)
         hit = [f for f in fail if f.startswith(aimed_at)]
         if hit:
@@ -349,7 +464,7 @@ def main() -> int:
         print(f"PLANT '{args.plant}' DID NOT LAND -- '{aimed_at}' stayed GREEN.", file=sys.stderr)
         return 1
 
-    fail, agree, absent, context = cross_check(g, cal)
+    fail, agree, absent, context, superseded = cross_check(g, cal)
     fail += shape_gate(g)
 
     if not args.quiet:
@@ -385,6 +500,8 @@ def main() -> int:
             print("   ABSENT  " + a)
         for a in context:
             print("   CONTEXT " + a + "  (globals cited as context only; value NOT compared)")
+        for a in superseded:
+            print("   SUPERSEDED " + a)
 
     if fail:
         print("GLOBALS GATE FAILED:", file=sys.stderr)
@@ -398,8 +515,8 @@ def main() -> int:
     OUT.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8", newline="\n")
     print(
         f"\nglobals -> {OUT.relative_to(ROOT)}  ({len(order)} keys, "
-        f"{len(agree)} registry agreements, {len(absent)} absent-in-vintage, "
-        f"{len(context)} context-only, 0 failures)"
+        f"{len(agree)} registry agreements, {len(superseded)} declared divergences, "
+        f"{len(absent)} absent-in-vintage, {len(context)} context-only, 0 failures)"
     )
     return 0
 

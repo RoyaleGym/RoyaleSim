@@ -60,29 +60,102 @@ layer bots train in. Install steps are below, under "Install".
 
 ## Install
 
-You need Python 3.12 and Rust 1.80 or newer with cargo. The block below sets up all four public
-repos at once, because they expect to sit side by side. If you only want the engine, the RoyaleSim
-lines are the ones that matter.
+You need Python 3.12 and Rust 1.80 or newer with cargo.
+
+The commands below are for Windows PowerShell, the shell that opens by default on Windows 10 and
+11. There is no separate recipe for the other platforms. On macOS and Linux run the same commands
+with two changes: write the paths with forward slashes, and read every `.venv\Scripts\` as
+`.venv/bin/`.
+
+The five stages set up all four public repos, because they expect to sit side by side in one
+folder. Run one line at a time and look at what it printed before you run the next. That way you
+know which line failed if one does. Stages 1 to 4 are the engine. Stage 5 is the rest of the stack.
+
+### Stage 1. Make the folder and clone the four repos
+
+This makes the folder everything else lives in, then downloads four small repos. Nothing is built
+yet and nothing is installed yet.
 
 ```
-mkdir Royale && cd Royale
+mkdir Royale
+cd Royale
 git clone https://github.com/RoyaleGym/RoyaleSim.git
 git clone https://github.com/RoyaleGym/RoyaleGym.git
 git clone https://github.com/RoyaleGym/RoyaleViser.git
 git clone https://github.com/RoyaleGym/RoyaleLearn.git
-python -m venv .venv                                                    # Python 3.12
+```
+
+You are now in the `Royale` folder. Stages 2 to 5 all start from here.
+
+### Stage 2. Make the virtual environment
+
+The `python` on the first line has to be Python 3.12. Every later command names the venv's own
+`python` by path, so you never have to activate the venv. The second line downloads maturin,
+pytest, hypothesis and ruff, which takes under a minute on a normal connection.
+
+```
+python -m venv .venv
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
-cd RoyaleSim && ..\.venv\Scripts\python tools\extract_arena.py && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 && ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json && ..\.venv\Scripts\python tools\extract_globals.py && cd ..   # generates RoyaleSim/data/derived/
-cd RoyaleSim && ..\.venv\Scripts\maturin develop --release && cd ..     # builds the engine into the venv. Give it a few minutes and some free memory.
+```
+
+### Stage 3. Generate the data files
+
+These read the card and arena tables that ship in the clone and write `RoyaleSim/data/derived/`,
+which the engine and every sibling repo reads. Each one prints a page of table names, row counts
+and notes as it works. That is normal output, not errors.
+
+`extract_globals.py` also compares the shipped 2018 table with the values the simulator runs on
+and prints a line per constant. `AGREE` is a match. `SUPERSEDED` is a value the simulator has
+measured against the current game and deliberately does not take from the 2018 table, with the
+reason printed beside it. Only a disagreement nobody has written down stops the run.
+
+The two `extract_cards.py` lines are not a typo and both need `--vintage 2018`. The first writes
+`data/derived/cards-2018.json` and the second writes the same table over `data/derived/cards.json`.
+The next section says why both files exist.
+
+```
+cd RoyaleSim
+..\.venv\Scripts\python tools\extract_arena.py
+..\.venv\Scripts\python tools\extract_cards.py --vintage 2018
+..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+..\.venv\Scripts\python tools\extract_globals.py
+cd ..
+```
+
+### Stage 4. Build the engine
+
+This is the slow one. It compiles the Rust engine and installs it into the venv as `royalesim`.
+Give it a few minutes and some free memory. It prints compiler progress the whole way, then a line
+saying it installed `royalesim`. After this you can run the example in the next section.
+
+```
+cd RoyaleSim
+..\.venv\Scripts\maturin develop --release
+cd ..
+```
+
+### Stage 5. Install the rest of the stack
+
+Skip this if the engine is all you want. Each of these installs a sibling repo in place and lets
+pip fetch its dependencies, so give them a minute or two.
+
+```
 .venv\Scripts\python -m pip install -e RoyaleGym
 .venv\Scripts\python -m pip install -e RoyaleViser
 .venv\Scripts\python -m pip install -e RoyaleLearn
-.venv\Scripts\python -m pip install -e "RoyaleLearn[torch]"   # only if you want to train; it is a big download
 ```
 
-For the example in the next section you need three of those lines: the venv, the `extract_*.py`
-line, which generates `data/derived/`, and the `maturin develop` line, which builds the engine.
-`tools/watch_battle.py` also needs RoyaleGym installed.
+The line below is optional, and it is a big download: it pulls in PyTorch, which is larger than
+everything above it put together and can take a long time on a slow connection. Run it only if you
+want to train a bot.
+
+```
+.venv\Scripts\python -m pip install -e "RoyaleLearn[torch]"
+```
+
+For the example in the next section you need stages 1 to 4: the venv, the `extract_*.py` lines,
+which generate `data/derived/`, and the `maturin develop` line, which builds the engine.
+`tools/watch_battle.py` also needs RoyaleGym, which is stage 5.
 
 ### About the card tables
 
@@ -91,7 +164,7 @@ There are two card tables, and the difference decides which tests you can run.
 `extract_cards.py` defaults to the 15.535 card table, which needs the client's own asset pack
 (`data/raw/cr-15.535.29/`). That pack is not redistributed, so a fresh clone does not have it.
 `--vintage 2018` builds the card table from the tracked 2018 files instead, which is what the two
-`extract_cards.py` runs above do. One writes `data/derived/cards-2018.json`, which
+`extract_cards.py` runs in stage 3 do. One writes `data/derived/cards-2018.json`, which
 `tests/charge.rs` loads by that name. The other writes the same table over
 `data/derived/cards.json`, which is what the engine loads.
 
@@ -252,10 +325,12 @@ Check the table before you rely on a specific interaction, and check it again in
 
 ## Check it yourself
 
-Speed, from a clone:
+Speed, from a clone. Start in the `Royale` folder from stage 1, and install RoyaleGym first, which
+is stage 5. The test plays battles for a few seconds and then prints its rates.
 
 ```
-cd RoyaleGym && ..\.venv\Scripts\python -m pytest -q tests/test_rust_engine.py -k throughput -s
+cd RoyaleGym
+..\.venv\Scripts\python -m pytest -q tests/test_rust_engine.py -k throughput -s
 ```
 
 That prints a line of rates, one of them `engine ticks/s`. That number is also roughly battles per
@@ -342,11 +417,23 @@ Not modelled yet, in plain words:
 - One recorded route in 744 comes out different. Both routes cost the same, and which one the game
   picks is the open question.
 
-Tests:
+Tests. Both blocks below start from the `Royale` folder you made in stage 1, so go back there
+before you run the second one.
+
+The Rust suite is 367 tests, 3 of them skipped unless you ask for them. The first run compiles the
+test binaries before it runs anything, so expect several minutes of build output before the first
+result appears.
 
 ```
-cd RoyaleSim\crates\royalesim && cargo test --release     # 367 tests, 3 of them skipped unless you ask for them
-cd RoyaleSim && ..\.venv\Scripts\python -m pytest -q       # 160 tests
+cd RoyaleSim\crates\royalesim
+cargo test --release
+```
+
+The Python suite is 160 tests and takes a few seconds.
+
+```
+cd RoyaleSim
+..\.venv\Scripts\python -m pytest -q
 ```
 
 Both counts are from 2026-09-22. The cargo count is the `#[test]` lines in `tests/*.rs` and
