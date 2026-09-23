@@ -41,9 +41,10 @@ placeholder:" and says what the real picture must show. Replace the file, keep t
 
 | File | What it must show | Why it is not made here |
 |---|---|---|
-| `measured-routes.svg` | one deploy, two routes on one board: the recorded route and the engine's, node for node, plus the 743 of 744 score | It needs a recording of a real battle beside the engine. The recordings are private, so this one cannot be generated from anything in a public checkout. It needs a decision about what, if anything, may be shown. |
-| `contact-law.svg` | a recording and the engine side by side, 20 ticks, Skeletons dropped onto a Knight spreading apart | Same reason. |
+| `measured-routes.svg` | one deploy, two routes on one board: the recorded route and the engine's, node for node, plus the 743 of 744 score | Nobody has made it yet. It CAN be made: `crates/royalesim/tests/fixtures/oracle2026/client16402_first_paths.json` carries 747 cases, each with the recorded route (`oracle_cells_goal_first`) and the request the engine needs to plan the same one, so both routes come from the repo. |
+| `contact-law.svg` | a real battle and the engine side by side over 20 ticks, a crowd dropped onto a defender spreading apart | Nobody has made it yet. `crates/royalesim/tests/fixtures/replay/sample.json` carries 1,178 ticks of per-tick positions for 16 entities, so the picture's INPUT is committed; whether that particular battle contains a scene that shows the law is not checked. It holds Prince, Dark Prince, Skeletons, Battle Ram, Giant and Musketeer. |
 
-Both of those are the two tiles that carry the project's strongest claims, so they are worth
-making properly rather than approximating. Neither can be made without deciding what a public
-picture of a real recording may contain.
+Those two tiles carry the project's strongest claims, so they are worth making properly rather
+than approximating. Both are drawn from committed fixtures plus a running engine, which is what
+decision D13 requires of any public picture: it comes from the engine or from data already in
+the repo, and a script anyone with a clone can run.
