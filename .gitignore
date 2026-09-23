@@ -46,8 +46,11 @@ data/derived/*
 # owner rather than something this line covers.
 !data/derived/cards-15.535.json
 
-# Ground-truth traces (large; not distributed)
-data/oracle-native/
+# Ground-truth traces (large; not distributed). The PREFIX, not the exact path: a
+# byte-identical copy at data/oracle-native-2026-09-18-backup/ sat untracked for five
+# days because this line named one directory, and it blocked a training launcher that
+# waits for a clean tree in all five repos. Nothing is tracked under this prefix.
+data/oracle-native*/
 
 # Game-data bundles (not distributed)
 data/raw/cr-*/
