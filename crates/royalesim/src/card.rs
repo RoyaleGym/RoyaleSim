@@ -904,10 +904,14 @@ impl RawBuff {
     /// weaker card (the loader's rule everywhere else).
     fn convert(&self, what: &str) -> Result<BuffDef, String> {
         let name = self.name.clone().unwrap_or_default();
+        // AttractPercentage came off this list on 2026-09-23: it is the Tornado's pull
+        // and it is now measured and implemented (status.ATTRACT_LAW, state.rs
+        // `phase_path16402`). The other two stay, and the rule behind the list is
+        // unchanged -- a card is REFUSED rather than run without a mechanic it carries,
+        // so nothing here may be removed before the mechanic exists.
         for (col, set) in [
             ("DamageReduction", self.damage_reduction.is_some()),
             ("DamageMultiplier", self.damage_multiplier.is_some()),
-            ("AttractPercentage", self.attract_percentage.is_some()),
         ] {
             if set {
                 return Err(format!("{what}: buff {name} carries {col}, which is not simulated"));
@@ -924,6 +928,7 @@ impl RawBuff {
             building_pct: self.building_damage_percent.unwrap_or(PERCENT_I32),
             no_effect_to_crown_towers: self.no_effect_to_crown_towers.unwrap_or(false),
             enable_stacking: self.enable_stacking.unwrap_or(false),
+            attract_pct: self.attract_percentage.unwrap_or(0),
         };
         if def.is_inert() {
             // A row with no multiplier, no damage and no heal is a MARKER (Invisible,

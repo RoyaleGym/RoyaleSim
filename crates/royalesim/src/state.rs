@@ -178,6 +178,9 @@ pub struct Calib {
     /// match.OVERTIME_TIEBREAK -- how a match still level on crowns when overtime
     /// runs out is decided (state.rs `overtime_tiebreak`).
     pub overtime_tiebreak: OvertimeTiebreak,
+    /// status.ATTRACT_LAW -- the base speed the AttractPercentage column scales
+    /// (state.rs `phase_path16402`).
+    pub attract_base: AttractBase,
     /// match.TICK_ORDER -- which phase list `tick()` runs (lib.rs `TICK_PHASES`,
     /// the measured order, or `LEGACY_TICK_PHASES`) and, with it, where the
     /// deploy countdown runs (`deploy_countdown`: after Move, or in Upkeep).
@@ -458,6 +461,22 @@ macro_rules! calib_enum {
     };
 }
 
+calib_enum!(
+    /// status.ATTRACT_LAW: what the AttractPercentage column is a percentage OF. Both
+    /// arms are the same arithmetic over a different base speed, which is the whole of
+    /// the disagreement the corpus settles.
+    AttractBase {
+        /// The victim's EFFECTIVE speed, stomp correction and buffs included. MEASURED:
+        /// the Giant of 20260920-081819 is pulled 187 native per tick, and
+        /// tdiv(52 * 360, 100) = 187 where 52 is its stomp-corrected speed.
+        EffectiveSpeed = "effective_speed",
+        /// The victim's base speed, before the stomp correction. REFUTED by that same
+        /// Giant: tdiv(45 * 360, 100) = 162 puts the step at (33, 157) where (39, 182)
+        /// is recorded, on two separate ticks. Kept runnable, because a refuted arm that
+        /// cannot be run is a claim rather than a measurement.
+        BaseSpeed = "base_speed",
+    }
+);
 calib_enum!(
     /// spells.AOE_HIT_TEST.
     AoeHitTest { EdgeInclusive = "edge_inclusive", CentreInRadius = "centre_in_radius" }
@@ -1314,6 +1333,7 @@ impl Calib {
             overtime_s: int(&v, &["match", "OVERTIME_S", "value"])?,
             three_crown_instant_win: boolean(&v, &["match", "THREE_CROWN_INSTANT_WIN", "value"])?,
             overtime_tiebreak: pick(&v, &["match", "OVERTIME_TIEBREAK", "value"], OvertimeTiebreak::from_calibration_name)?,
+            attract_base: pick(&v, &["status", "ATTRACT_LAW", "value"], AttractBase::from_calibration_name)?,
             tick_order: pick(&v, &["match", "TICK_ORDER", "value"], TickOrder::from_calibration_name)?,
             dying_unit_visibility: pick(&v, &["movement", "DYING_UNIT_VISIBILITY", "value"], DyingUnitVisibility::from_calibration_name)?,
             mana_speed_up_remaining_s,
@@ -3153,6 +3173,105 @@ impl BattleState {
         let mut g = self.scratch.grid16402.take().unwrap_or_else(|| Grid16402::new(&self.cfg.arena, &self.cfg.calib));
         g.refresh(self.scratch.occluder_epoch, &self.scratch.obstacles[0]);
         let cap = self.ents.capacity();
+        // THE TORNADO'S ATTRACT (status.ATTRACT_LAW): one vector per entity, computed
+        // from the START-OF-TICK positions, before anything moves and before the entity
+        // arrays are borrowed.
+        //
+        // A PRE-PASS RATHER THAN A LOOKUP INSIDE THE LOOP, for a reason the measurement
+        // forces. The move pass runs in creation order, so a pull that read live
+        // positions would make one unit's displacement depend on who moved first. The
+        // corpus says the direction is taken from the tick-start position: at 12 native
+        // from the centre a 59-native pre-move rewrites it completely, and "walk first,
+        // then pull" has no legal walk on 9 of the Knight's 11 close ticks while this
+        // order has one on 11 of 11.
+        //
+        // THE SOURCE IS THE LIVE AREA EFFECT, NEVER THE BUFF SLOT. With BuffTime 500 ms
+        // and CapBuffTimeToAreaEffectTime false, the last application outlives the area
+        // by ten ticks -- and the Giant's displacement is exactly (0, 0) on two of them.
+        let attract: Vec<(i32, i32)> = {
+            let sources: Vec<(Vec2, i32, Team, i32, bool, bool, bool, bool)> = self
+                .spells
+                .iter()
+                .filter_map(|s| {
+                    let crate::spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
+                    if p.life_ms <= 0 {
+                        return None;
+                    }
+                    let Some(crate::card::SpellDef {
+                        shape: crate::card::SpellShape::PulsingAreaEffect { hit, .. }, ..
+                    }) = &self.cfg.cards.get(s.card).spell
+                    else {
+                        return None;
+                    };
+                    let pct = match hit.buff {
+                        Some(b) => self.cfg.cards.buffs[b.buff as usize].attract_pct,
+                        None => 0,
+                    };
+                    if pct == 0 {
+                        return None;
+                    }
+                    Some((
+                        p.pos,
+                        hit.radius,
+                        s.team,
+                        pct,
+                        hit.hits_air,
+                        hit.hits_ground,
+                        hit.ignore_buildings,
+                        hit.only_enemies,
+                    ))
+                })
+                .collect();
+            let mut out = vec![(0i32, 0i32); cap];
+            for i in 0..cap {
+                if sources.is_empty() || !self.ents.alive[i] {
+                    continue;
+                }
+                // THE BASE IS `effective_speed` UNCONDITIONALLY, not the walk's speed for
+                // this tick: the Giant was pulled at its full 187 on both of the two ticks
+                // its stomp pause had the walk at zero.
+                let s_native = match self.cfg.calib.attract_base {
+                    AttractBase::EffectiveSpeed => self.effective_speed(i) / K,
+                    AttractBase::BaseSpeed => self.ents.speed[i] / K,
+                };
+                if s_native <= 0 {
+                    continue;
+                }
+                let flying = self.ents.flying[i];
+                let building = self.ents.kind[i] != EntityKind::Troop;
+                let mut acc = (0i32, 0i32);
+                for &(pos, radius, team, pct, air, ground, no_buildings, only_enemies) in &sources {
+                    if only_enemies && self.ents.team[i] == team {
+                        continue;
+                    }
+                    if (flying && !air) || (!flying && !ground) || (building && no_buildings) {
+                        continue;
+                    }
+                    // ELIGIBILITY IN SUBTILES, against the same centre and the same
+                    // `spells.AOE_HIT_TEST` the damage uses, so a unit the area effect
+                    // HITS is exactly a unit it PULLS and the two cannot drift apart.
+                    let edge = match self.cfg.calib.aoe_hit_test {
+                        AoeHitTest::EdgeInclusive => self.ents.radius[i],
+                        AoeHitTest::CentreInRadius => 0,
+                    };
+                    let (dx, dy) = ((pos.x - self.ents.pos[i].x) as i64, (pos.y - self.ents.pos[i].y) as i64);
+                    let reach = (radius + edge) as i64;
+                    if dx * dx + dy * dy > reach * reach {
+                        continue;
+                    }
+                    // THE STEP IN NATIVE, the units the move pass works in. normalize_to
+                    // truncates both axes, which is the measured rounding: ceil is
+                    // refuted by the Giant's 187.2 landing on 187 twice.
+                    let l = move16402::tdiv(s_native * pct, 100);
+                    let mut v = ((pos.x - self.ents.pos[i].x) / K, (pos.y - self.ents.pos[i].y) / K);
+                    move16402::normalize_to(&mut v, l);
+                    acc.0 += v.0;
+                    acc.1 += v.1;
+                }
+                out[i] = acc;
+            }
+            out
+        };
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
         deltas.clear();
         deltas.resize(cap, Vec2::default());
@@ -3296,7 +3415,7 @@ impl BattleState {
                     // and the post-decrement speed (no lower clamp: the back-step tick
                     // hands it -25)
                     let d_pre = move16402::distance(bodies[i].x, bodies[i].y, tgt.0, tgt.1).max(1);
-                    let m = move16402::pushback_step((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), deploying && !flying, is_water, arena.cols, arena.rows);
+                    let m = move16402::pushback_step_extra((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), deploying && !flying, is_water, arena.cols, arena.rows, attract[i]);
                     walk_step[i] = rem.min(d_pre).min(250);
                     // the facing is not updated and the offset neither scanned nor
                     // decayed: `offsets[i]` stays what it was
@@ -3566,7 +3685,7 @@ impl BattleState {
                     segs[i] = Vec2::new(s.0, s.1);
                 }
                 let set_dir = speed > 0 || (aim != actor);
-                let m = move16402::move_towards(
+                let m = move16402::move_towards_extra(
                     actor,
                     aim.0,
                     aim.1,
@@ -3578,6 +3697,7 @@ impl BattleState {
                     is_water,
                     arena.cols,
                     arena.rows,
+                    attract[i],
                 );
                 offsets[i] = con.offset;
                 push_applied[i] = Vec2::new(m.push.0, m.push.1);

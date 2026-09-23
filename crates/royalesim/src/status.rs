@@ -82,6 +82,17 @@ pub struct BuffDef {
     /// than a refresh of the first (calibration status.SAME_BUFF_REAPPLY governs the
     /// non-stacking case).
     pub enable_stacking: bool,
+    /// AttractPercentage, RAW (Tornado 360). The victim takes an extra step of
+    /// `tdiv(S * attract_pct, 100)` native straight at the area effect's centre every
+    /// tick the effect lives, ADDED to whatever else moves it, where S is its own
+    /// EFFECTIVE speed -- see `status.ATTRACT_LAW`. 0 = the column is blank.
+    ///
+    /// IT DOES NOT LIVE ON THE SLOT. The pull is read from the live area effect each
+    /// tick (state.rs `phase_path16402`), because the buff outlives the effect by
+    /// BuffTime and the corpus shows the pull stopping with the EFFECT: the Giant of
+    /// 20260920-081819 has a displacement of exactly (0,0) on two ticks where its buff
+    /// was still current and the area was gone.
+    pub attract_pct: i32,
 }
 
 impl BuffDef {
@@ -94,6 +105,7 @@ impl BuffDef {
             && self.spawn_speed_pct == 0
             && self.damage_per_second == 0
             && self.heal_per_second == 0
+            && self.attract_pct == 0
     }
 
     /// Does this buff pulse damage or healing?

@@ -391,6 +391,34 @@ pub fn move_towards(
     width_cells: i32,
     height_cells: i32,
 ) -> Moved {
+    move_towards_extra(u, tx, ty, speed, set_dir, con, seg, state4_ground, is_water, width_cells, height_cells, (0, 0))
+}
+
+/// `move_towards` with an EXTRA displacement summed into the step before the single
+/// position write. Today its only caller passes the Tornado's attract
+/// (`status.ATTRACT_LAW`), which the corpus shows is added to the walk rather than
+/// replacing it and is NOT subject to the knockback gates.
+///
+/// ONE POSITION WRITE, not two. Summing into `(sx, sy)` and calling `grid_move` once is
+/// identical to a second independent `grid_move` except where the water or grid-edge
+/// clamp fires -- which is exactly the case a Tornado cast at the river creates, so the
+/// choice is not cosmetic. Neither cast in the corpus discriminates it; one write is
+/// shipped because it is the one the walk and the collision push already share.
+#[allow(clippy::too_many_arguments)]
+pub fn move_towards_extra(
+    u: (i32, i32),
+    tx: i32,
+    ty: i32,
+    speed: i32,
+    set_dir: bool,
+    con: &mut Contact,
+    seg: (i32, i32),
+    state4_ground: bool,
+    is_water: impl Fn(i32, i32) -> bool,
+    width_cells: i32,
+    height_cells: i32,
+    extra: (i32, i32),
+) -> Moved {
     let (x, y) = u;
     let dist = distance(x, y, tx, ty).max(1);
     let step = speed.min(dist).min(250);
@@ -432,6 +460,9 @@ pub fn move_towards(
         sx += t.0;
         sy += t.1;
     }
+    // THE ATTRACT, added after the collision mean and before the one position write.
+    sx += extra.0;
+    sy += extra.1;
     // the position write (flag = deploying ground unit only)
     let (nx, ny) = grid_move(x, y, sx, sy, state4_ground, &is_water, width_cells, height_cells);
     // the reached test
@@ -588,8 +619,30 @@ pub fn pushback_step(
     width_cells: i32,
     height_cells: i32,
 ) -> Moved {
+    pushback_step_extra(u, target, remaining, con, seg, state4_ground, is_water, width_cells, height_cells, (0, 0))
+}
+
+/// `pushback_step` with the Tornado's attract summed in. THIS ARM IS IN THE EVIDENCE:
+/// the Knight of capture 20260920-081819 was pulled for eight ticks while its own
+/// knockback ladder was running, and subtracting the 216-native pull from its
+/// displacement leaves exactly the 200, 174, 149, 124, 99, 75, 49, 24 ladder that
+/// `knockback.DISPLACEMENT_LAW` already records. A pull that deferred to the ladder, or
+/// that the ladder's gates refused, would have produced neither.
+#[allow(clippy::too_many_arguments)]
+pub fn pushback_step_extra(
+    u: (i32, i32),
+    target: (i32, i32),
+    remaining: &mut i32,
+    con: &mut Contact,
+    seg: (i32, i32),
+    state4_ground: bool,
+    is_water: impl Fn(i32, i32) -> bool,
+    width_cells: i32,
+    height_cells: i32,
+    extra: (i32, i32),
+) -> Moved {
     *remaining -= PUSHBACK_DECEL;
-    move_towards(u, target.0, target.1, *remaining, false, con, seg, state4_ground, is_water, width_cells, height_cells)
+    move_towards_extra(u, target.0, target.1, *remaining, false, con, seg, state4_ground, is_water, width_cells, height_cells, extra)
 }
 
 /// The octagonal length `max(|a|, |b|) + ((min(|a|, |b|) x 53) >> 7)`, the metric
