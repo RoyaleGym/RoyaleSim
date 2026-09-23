@@ -740,6 +740,17 @@ pub struct TraceRow {
     /// The recording cannot have this: it is the engine saying what it did, against the
     /// recording's observed positions, which is the other half of the comparison.
     pub push: Option<[i64; 3]>,
+    /// The unit's COLLISION RADIUS in native units, from the engine.
+    ///
+    /// Here because a reader that draws contact needs it and the recording does not carry
+    /// it: viser's contact ring recomputes overlaps from positions and radii, and on a
+    /// parity trace every unit arrived with radius 0, so the ring was EMPTY on every tick
+    /// of the one source it exists for. Against the neighbour count that reads as "ring 0,
+    /// engine 1" wherever the engine saw anything -- a stream of false findings in exactly
+    /// the place the instrument was pointed. Per unit rather than per card, because a
+    /// summoned unit has its own radius and the row's `card` is the root card that produced
+    /// it.
+    pub radius: Option<i32>,
     pub dist: Option<i32>,
 }
 
@@ -1180,7 +1191,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     _ => None,
                 };
                 let push = sim_row.map(|r| [r.push.x as i64, r.push.y as i64, r.push_neighbours as i64]);
-                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, dist });
+                let radius = sim_row.map(|r| r.radius);
+                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist });
             }
             match (truth_row, sim_row) {
                 (Some(tr), Some(sr)) => {
