@@ -171,7 +171,13 @@ There are two card tables, and the difference decides which tests you can run.
 `tests/charge.rs` loads by that name. The other writes the same table over
 `data/derived/cards.json`, which is what the engine loads.
 
-A 2018-only checkout runs the engine, the example below and the Python suite. It is not gate-green.
+A 2018-only checkout runs the engine and the example below. **Five Python tests fail on it today,
+and they are ours rather than yours.** Measured on a fresh clone on 2026-09-22: 158 passed, 5
+failed, 6 skipped. The cause is one thing. Those five are pinned to fixtures recorded against the
+15.535 card table, your clone builds the 2018 one, and the guard that was meant to skip them checks
+whether a `cards.json` exists rather than which table it holds. Your clone has a `cards.json`, so
+the guard passes and the test runs and fails. They should skip and say which table they wanted.
+Nothing is wrong with your install or with the engine.
 Three checks want the 15.535 table specifically: `tests/levels.rs` scores the level ladder against
 recorded `max_hp`, `tests/jump16402.rs` wants the jump blocks of the Hog Rider, Prince and Dark
 Prince, and `tools/check_data.py`'s live-level rows go vacuous without them. Those need the 15.535
