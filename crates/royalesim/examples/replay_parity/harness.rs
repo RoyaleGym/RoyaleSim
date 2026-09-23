@@ -726,7 +726,13 @@ pub struct TraceRow {
     pub card: String,
     /// truth x, y, hp, state, path_n, target key
     pub truth: Option<[i64; 6]>,
-    /// sim x, y (native), hp, attacking, path_n, target sim index (-1 none)
+    /// sim x, y (native), hp, attacking, path_n, target TRUTH KEY (-1 none, -2 targeting
+    /// an entity the pairing never matched).
+    ///
+    /// SLOT 5 IS COMPARABLE WITH `truth`'s AND SLOT 3 IS NOT. The target is mapped into the
+    /// truth's key space so the two columns answer the same question. `state` and
+    /// `attacking` are different quantities that happen to share slot 3, and a reader
+    /// comparing them is comparing nothing -- that one is not fixed here, only named.
     pub sim: Option<[i64; 6]>,
     /// THE CONTACT STEP the engine took on this tick: applied push dx, dy in native units
     /// (after the mean and the 150 cap) and the number of neighbours that produced it.
@@ -1199,7 +1205,22 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let tr = truth_row.map(|r| [r.x as i64, r.y as i64, r.hp as i64, r.state as i64, r.path_n as i64, r.target]);
                 let sr = sim_row.map(|r| {
                     let (x, y) = to_native(r.pos);
-                    let tg = r.target.and_then(|id| sim_index_of.get(&(id.index, id.generation))).map(|k| *k as i64).unwrap_or(-1);
+                    // THE SIM'S TARGET IN THE TRUTH'S KEY SPACE. This used to emit the sim
+                    // REGISTRY INDEX beside the truth's KEY, in the same column of the same
+                    // row, so a reader comparing them positionally was comparing two id
+                    // spaces -- and the parity session hit it: both archers read 4 while
+                    // their positions clearly headed for a tower whose truth key is 5.
+                    // -1 is "no target" and -2 is "targeting an entity the pairing never
+                    // matched", which is NOT the same statement and must not collapse into
+                    // it, by the same rule this struct already states for push.
+                    let tg = match r.target {
+                        None => -1,
+                        Some(id) => sim_index_of
+                            .get(&(id.index, id.generation))
+                            .and_then(|sk| sim_to_truth.get(sk))
+                            .map(|ti| truth.entities[*ti].key)
+                            .unwrap_or(-2),
+                    };
                     [x as i64, y as i64, r.hp as i64, r.attacking as i64, r.path_n as i64, tg]
                 });
                 let dist = match (truth_row, sim_row) {
