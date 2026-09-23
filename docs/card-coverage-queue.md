@@ -5,6 +5,9 @@ first time this backlog has been ordered by anything other than what looked inte
 
 ## The measurement
 
+All figures in this file are one user's report of 2026-09-23, against their own
+held-out pool of 293 opponent decks. Nothing here was measured by this project.
+
 A user running RoyaleSim against held-out real matchups reported: of 293 held-out opponent
 decks, the cards that stop a deck loading are **Barbarian Barrel in 93**, **Lightning in 40**,
 **Royal Ghost in 33**, **Miner in 30** and **Graveyard in 27**. With Tornado implemented and
@@ -43,6 +46,8 @@ need an action graph the loader does not read** — that is one piece of work, n
 5. **Royal Ghost.** Check the rejection reason first; the hide columns already load.
 
 ## The honest caveat about the 24%
+
+The 24% is from that same user report of 2026-09-23, over their 293 held-out decks.
 
 That figure is **their** deck pool, not a universal one. A different ladder bracket, a different
 region or a different month gives different frequencies, and the ranking above inherits that.

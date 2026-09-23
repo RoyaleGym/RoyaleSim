@@ -63,7 +63,7 @@ a `promotion_rule` stays open for the rest.
 The status vocabulary is one claim and the provenance prose is another, and they are not
 equally well checked.
 
-A re-read on 2026-09-22 went through 24 of the 156 entries against the corpus. It moved no
+A re-read on 2026-09-22 went through 24 of the 158 entries against the corpus. It moved no
 status and no value. What it turned up was in the evidence the statuses rest on: 42 places
 where a cited number, recording name or piece of arithmetic does not hold. Take that as a
 reason to re-derive, not as 42 established defects. Only a handful of the 42 have since been
@@ -77,13 +77,13 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-132 entries have not been re-read. So, concretely (every count on this page comes from
+134 entries have not been re-read. So, concretely (every count on this page comes from
 `python tools/ledger_census.py`, and `tests/test_ledger_census.py` fails when the page and the
 ledger disagree, because these figures went stale twice in one afternoon before that gate existed):
 
 - **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 156 carry a status. That 155 counts TOP-LEVEL
+  universal, so check rather than assume.** All 158 carry a status. That 155 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
   another and carries its own `measured` status, so counting every status in the file gives 157
   and 65 measured. The tools agree on 155 by convention, and the convention undercounts by one. 102 name the rivals the

@@ -101,6 +101,12 @@ def test_a_cannon_at_the_wall_does_not_stay_there(battle):
 def test_a_troop_tap_is_unaffected(battle):
     """Troops are not judged by a box, and a troop card has no placement to report."""
     assert battle.building_placement(0, "Knight", *tile_centre(6, 8)) is None
+    # PAST THE OPENING LOCKOUT FIRST (match.DEPLOY_LOCKOUT_TICKS). This test is about
+    # WHERE a tap lands, and from 2026-09-23 a tap inside the first 90 ticks is refused
+    # for WHEN it is -- so at tick 0 the assertion below stopped isolating its subject
+    # and started reporting a second rule. Stepping is the fix; loosening the expected
+    # code to "0 or 13" would have made it pass while testing neither.
+    battle.step([], 90)
     assert battle.check_deploy(0, DECK.index("Knight"), *tile_centre(6, 8)) == 0
 
 
