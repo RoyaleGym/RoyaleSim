@@ -1,11 +1,17 @@
 name: suite
-# MANUAL ONLY FOR NOW, AND THAT IS A CONDITION RATHER THAN A PREFERENCE. The owner approved
-# Actions on these repos on the condition that the suites are green first, to avoid a badge that
-# is red on arrival, and this repo's Rust suite is not yet confirmed green on a full sweep. So
-# `push` and `pull_request` are deliberately absent and this fires only when somebody asks it to.
-# Adding those two lines back is the whole of turning CI on, and it should happen the moment a
-# full sweep is green rather than before.
+# ON, as of the first green full sweep: 31 binaries, 374 passed, 0 failed, 3 ignored, with the
+# Python suite at 281 passed / 4 skipped and ruff clean. That was the owner's condition for
+# turning Actions on -- green first, so the badge is not red on arrival.
+#
+# EXPECT THE FIRST RUNS TO BE RED ANYWAY, and that is the point rather than a failure of nerve.
+# Learn took three reds, viser two, and every one was a fact its developer box could not show,
+# because that box already had everything the install needed. This repo has the widest gap of
+# the five: a recorded corpus, a modern card table and a raw asset pack that are all absent from
+# a clone by design. A first-try green here would be evidence that the workflow installed
+# something other than what the README describes.
 on:
+  push:
+  pull_request:
   workflow_dispatch:
 
 # The README's OWN install, verbatim, on both platforms. A workflow that installs some other
