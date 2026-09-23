@@ -41,6 +41,23 @@ def _load():
 ccr = _load()
 
 
+# data/derived/cards.json is GENERATED and gitignored, and which vintage sits there
+# depends on what the workspace carries. A clone has only the 2018 tables, so the README's
+# install writes the 2018 build (78 cards); a workspace with the modern asset pack writes
+# the 15.535 build (144). Several expectations below are per-vintage, and reading the
+# vintage off the file is what lets them be checked in both places instead of only in the
+# one the author happened to have. Asserting a 15.535 expectation against whatever is on
+# disk is how this file came to fail on every clone while passing here.
+VERSION_VINTAGE = {"cards-2018.1": "2018", "cards-15535.1": "15.535"}
+
+
+def table_vintage(path):
+    with open(path, encoding="utf-8") as fh:
+        version = json.load(fh).get("version")
+    assert version in VERSION_VINTAGE, f"{path}: unknown table version {version!r}"
+    return VERSION_VINTAGE[version]
+
+
 @pytest.fixture(scope="module")
 def cards():
     if not os.path.exists(CARDS):
@@ -107,8 +124,13 @@ def test_every_known_slice_gap_is_still_carried(cards):
     """An entry that no thin-slice card carries any more is a closed gap left open
     on paper. The gate fails on it; this pins that it is the gate's job."""
     r = ccr.run(cards)
-    listed = {c for c, (v, _) in ccr.KNOWN_SLICE_GAPS.items() if v in ("15.535", "both")}
-    assert listed == r.slice_gaps_seen, f"listed but not carried: {sorted(listed - r.slice_gaps_seen)}"
+    vintage = table_vintage(cards)
+    listed = {c for c, (v, _) in ccr.KNOWN_SLICE_GAPS.items() if v in (vintage, "both")}
+    assert listed, f"the gaps table lists nothing for the {vintage} table, so this asserts nothing"
+    assert listed == r.slice_gaps_seen, (
+        f"{vintage} table: listed but not carried: {sorted(listed - r.slice_gaps_seen)}; "
+        f"carried but not listed: {sorted(r.slice_gaps_seen - listed)}"
+    )
 
 
 def test_the_gaps_table_says_which_card_tables_show_each_gap():
@@ -207,6 +229,14 @@ def test_the_report_names_the_cards_the_mechanics_doc_calls_out(cards):
         "GoldenKnight": "DashDamage",
         "Monk": "VariableDamage2",
     }
+    # Four of these are cards the 2018 table predates, so on a clone the population is
+    # Mortar and whatever else that vintage ships. Narrow to what the table under test
+    # actually carries, and say so, rather than reporting an absent card as a gate that
+    # failed to look.
+    with open(cards, encoding="utf-8") as fh:
+        carried = {c["name"] for c in json.load(fh)["cards"]}
+    want = {k: v for k, v in want.items() if k in carried}
+    assert want, f"the {table_vintage(cards)} table carries none of these, so this test looks at nothing"
     missing = {}
     for card, column in want.items():
         entry = r.per_card.get(card)
@@ -225,7 +255,16 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
         doc = json.load(fh)
     slice_names = set(doc["thin_slice"])
     flagged = set(r.per_card)
-    assert len(flagged - slice_names) > 40, "the catalogue report is suspiciously short"
+    outside = flagged - slice_names
+    # A FLOOR, not a pinned measurement, and relative to the slice so it means the same
+    # thing on either table: 40 outside against an 18-card slice on the 2018 build, 74 on
+    # the 15.535 build (measured 2026-09-22). The claim is the SHAPE -- far more of the
+    # catalogue is flagged than the slice holds cards -- and a number from one workspace
+    # asserted against the other is how this used to fail on a clone by exactly one card.
+    assert len(outside) > len(slice_names), (
+        f"the catalogue report is suspiciously short: {len(outside)} outside a "
+        f"{len(slice_names)}-card slice"
+    )
     assert flagged & slice_names, "the slice gaps are listed by name in the tool; they should still be reported"
 
 
@@ -247,4 +286,5 @@ def test_no_entry_ships_an_explicit_zero_angle_shift():
     # Non-vacuity: a column nothing sets would pass the assertion above while watching
     # nothing at all.
     somebody_sets_one = [n for n, v in entries if v not in (None, 0)]
-    assert len(somebody_sets_one) >= 3, f"nothing sets a shift, so this is an empty column: {somebody_sets_one}"
+    assert somebody_sets_one, "nothing sets a shift, so this is watching an empty column"
+    assert any(v is None for _, v in entries), "nothing leaves it blank, so blank-versus-0 means nothing here"

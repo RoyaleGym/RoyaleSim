@@ -94,7 +94,8 @@ def test_a_cannon_at_the_wall_does_not_stay_there(battle):
     for tap in [(TILE // 20, 8 * TILE + TILE // 2), (17 * TILE + 19 * TILE // 20, 8 * TILE + TILE // 2)]:
         cx, cy, box = battle.building_placement(0, "Cannon", *tap)
         assert (cx, cy) != tap, f"the Cannon stayed on the tap at {tap}"
-        assert 0 <= box[0] and box[2] <= 18 * TILE, f"its box left the arena: {box}"
+        assert box[0] >= 0, f"its box left the arena on the left: {box}"
+        assert box[2] <= 18 * TILE, f"its box left the arena on the right: {box}"
 
 
 def test_a_troop_tap_is_unaffected(battle):

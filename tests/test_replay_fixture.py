@@ -29,6 +29,33 @@ needs_cards = pytest.mark.skipif(
 )
 
 
+def _cards_version():
+    """The vintage stamp of whatever cards.json this workspace has, or None."""
+    try:
+        with open(CARDS, encoding="utf-8") as fh:
+            return json.load(fh).get("version")
+    except OSError:
+        return None
+
+
+# THE GUARD ABOVE WATCHES PRESENCE, AND PRESENCE WAS THE WRONG QUANTITY. A clone HAS a
+# cards.json -- the 2018 one the README's install writes -- so the presence guard passed,
+# the tests below ran against a table they were never made against, and the suite failed
+# on every clone while passing in a workspace carrying the modern asset pack. Worse, the
+# reason string above tells the reader to run the very command that produces that state.
+#
+# The committed sample records the hash of the table it was classified against, so these
+# tests want a VINTAGE and not a file. They say which, and say it is not a pass.
+MODERN_CARDS = "cards-15535.1"
+needs_modern_cards = pytest.mark.skipif(
+    _cards_version() != MODERN_CARDS,
+    reason=f"this fixture was made against the {MODERN_CARDS} card table and "
+    f"{CARDS} here is {_cards_version()!r} (a clone gets the 2018 build from the README's "
+    "install, which carries neither the cards nor the columns these assertions name)"
+    " -- a skip here is not a pass",
+)
+
+
 def _load():
     spec = importlib.util.spec_from_file_location(
         "make_replay_fixture", os.path.join(ROOT, "tools", "make_replay_fixture.py")
@@ -118,7 +145,7 @@ def test_spawn_tick_falls_back_to_first_seen_without_a_transition(m):
     assert "no transition" in why
 
 
-@needs_cards
+@needs_modern_cards
 def test_classification_tells_a_deploy_summon_from_a_spawned_unit(m):
     with open(CARDS, encoding="utf-8") as fh:
         doc = json.load(fh)
@@ -234,7 +261,7 @@ def test_fnv1a64_matches_the_harness_known_answers(m):
     assert m.fnv1a64(b"a") == "af63dc4c8601ec8c"
 
 
-@needs_cards
+@needs_modern_cards
 def test_the_committed_sample_is_the_documented_battle(m):
     with open(SAMPLE, encoding="utf-8") as fh:
         fx = json.load(fh)
@@ -811,7 +838,7 @@ def _decode(col):
     return out
 
 
-@needs_cards
+@needs_modern_cards
 def test_the_battle_publishes_timers_elixir_and_spell_objects(m, maker_inputs, tmp_path):
     header, frames = _battle()
     path = tmp_path / "frames-synthetic.native.oracle.jsonl.gz"

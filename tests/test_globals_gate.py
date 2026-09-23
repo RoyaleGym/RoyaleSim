@@ -44,12 +44,29 @@ def test_the_install_step_exits_zero_on_the_tracked_data():
     assert got.returncode == 0, got.stdout + got.stderr
 
 
-def test_the_gate_is_comparing_something():
-    """Green means nothing if the comparison is empty. Assert the coverage, not the colour."""
+def test_every_constant_that_cites_globals_is_classified():
+    """Green means nothing if the comparison is empty -- but HOW MANY values can be compared
+    depends on which tables the workspace carries, and the first version of this test did not
+    know that. It asserted 20 agreements, which is 30 here and 11 on a clone, where the rest
+    are reported UNVERIFIED against a table that is not on disk. It failed on the clone it was
+    written to protect, in the same hour, for the same reason as the two files beside it.
+
+    So what is asserted is not a count. It is that every registry entry citing globals lands
+    in a bucket rather than falling out of the comparison unseen, and that at least one real
+    comparison happens.
+    """
+    cal = calibration()
+    citing = [q for q, e in eg.registry_constants(cal)
+              if "globals" in str(e.get("provenance", "")).lower()]
+    assert len(citing) >= 20, f"only {len(citing)} constants cite globals at all"
     g, _ = eg.read_globals(eg.SRC)
-    fail, agree, _absent, _context, _superseded = eg.cross_check(g, calibration())
+    fail, agree, absent, context, superseded = eg.cross_check(g, cal)
     assert not fail, fail
-    assert len(agree) >= 20, f"only {len(agree)} registry values are cross-checked against globals"
+    classified = len(fail) + len(agree) + len(absent) + len(context) + len(superseded)
+    assert classified >= len(citing), (
+        f"{len(citing) - classified} constants cite globals and produced no line at all"
+    )
+    assert agree, "nothing was actually compared against the file"
 
 
 def test_every_declared_divergence_is_reported_and_none_is_swallowed():
@@ -69,6 +86,10 @@ def test_the_plant_lands(plant: str):
     than the exit code, which is what caught `stale-note` going red for a different
     reason the first time it was written."""
     got = run_gate("--plant", plant)
+    if "INCONCLUSIVE" in got.stderr and "not on disk" in got.stderr:
+        # The plant needs a table this workspace does not carry. That is not the plant
+        # failing and it is not a pass either, so it is a loud skip naming what is absent.
+        pytest.skip(got.stderr.strip().splitlines()[-1] + " -- a skip here is not a pass")
     assert got.returncode == 0, got.stdout + got.stderr
     assert "LANDED" in got.stdout, got.stdout + got.stderr
 
