@@ -13,7 +13,7 @@
     "the other direction, which no test inside a clone can do."
   ],
   "source_repo": "RoyaleLive (private), docs/2026-09-22-integration-harness/",
-  "source_commit": "59980e2df4912b9813a9de86373bec6419c69f71",
+  "source_commit": "27210a55f39fd15887365fd9fc35a91723bf3703",
   "vendored": {
     "tests/_shell_fences.py": {
       "source": "shell_fence_check.py",
@@ -27,8 +27,8 @@
     },
     "tests/_figure_provenance.py": {
       "source": "figure_provenance_check.py",
-      "sha256": "e922194334f38339f425d3f0215729ecf6243804a7b1c1921a4d08f2ed5a705a",
-      "lines": 157
+      "sha256": "093e2170efdc0375805f43d25bfbc12b030805a7779672c8d36e6609078e29ba",
+      "lines": 216
     },
     "tests/_version_match.py": {
       "source": "version_match_check.py",

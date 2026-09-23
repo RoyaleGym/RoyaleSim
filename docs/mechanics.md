@@ -184,13 +184,13 @@ well because a parity run will meet it as an unexplained divergence otherwise.
 - `spawn_unit` / `deploy` called several times for one team within a tick assigns `team_seq` in
   call order. This is reachable only from the Rust test API; the Python surface applies at most
   one per team per step.
-- 0.27% of live unit-ticks are still not reproduced, measured on the offline trace corpus of
+- 0.27% of live unit-ticks are still not reproduced, counted over the offline trace corpus of
   client 15.535.29 (`pathfinding.md` holds the run and the counts).
 
 ## Invariants the game does not have
 
 Three invariants the engine used to enforce were relaxed under the 16.402 arm, each because a
-measurement refutes it. Every figure below is measured on the 16.402 capture corpus,
+measurement refutes it. Every figure below comes from the 16.402 capture corpus,
 troop pairs with deploying units excluded. They are listed here so nobody re-adds them as "obviously correct":
 
 - Troops may stand **inside a building footprint**. Melee attackers do, because their goal cell

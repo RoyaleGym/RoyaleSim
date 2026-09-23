@@ -10,18 +10,19 @@ as a gate.
     real gap: the corpus was named in each page's opening paragraph and nowhere else. They
     now name the run beside the figure.
 
-    ONE THING WORTH KNOWING IF THIS EVER REFUSES A PAGE YOU BELIEVE: the checker accepts a
-    fixed vocabulary -- a hex digest, an ISO date, phrases like "measured on" or "from the
-    run", or a named corpus size. "Counted over the offline trace corpus of client
-    15.535.29" is as informative to a reader and does not match. Prefer rewording to the
-    accepted phrasing ONLY when the reworded sentence is equally true; if it is not, the
-    checker is wrong and should be fixed rather than the page.
+    IF IT EVER REFUSES A PAGE YOU BELIEVE, SUSPECT THE CHECKER. Its first version here took a
+    narrow vocabulary -- "measured on", "from the run" -- and I reworded three correct
+    sentences to fit it. They were equally true after, which is what makes it bad rather than
+    harmless: the check learned nothing, the pages got no better, and a guard was quietly
+    deciding how this repo writes. Docs widened it to the verbs people actually use and I put
+    the sentences back. A check that edits prose into its own vocabulary is worse than one
+    that misses, because a miss is visible and a rewrite is not.
 
-    It also cannot tell a measured percentage from shipped CARD DATA. `spell-spec.md` states
-    crown-tower percentages that are table values, not results, and the honest fix there was
-    to date the ruling that decides which table is loaded -- NOT to invent a measurement
-    date. A provenance rule invites exactly that lie, which the checker's own docstring says
-    it cannot see.
+    It cannot tell a measured percentage from shipped CARD DATA on its own, so a row or a
+    fenced token may be marked DATA. `spell-spec.md` states crown-tower percentages that are
+    table values, not results. The honest fix there was to date the RULING that decides which
+    table is loaded -- NOT to invent a measurement date, which the checker's own docstring
+    says would satisfy it perfectly.
 
 VERSION MATCH. What a README promises against what the build enforces: requires-python,
 rust-version and the maturin pin. It is anchored on the tool name, so a "1.16 to 1.38x"
@@ -34,6 +35,7 @@ speed ratio is not read as a version.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -53,9 +55,10 @@ def tracked_pages() -> list[str]:
 def test_every_figure_says_what_produced_it() -> None:
     pages = tracked_pages()
     assert len(pages) >= 12, f"only {len(pages)} tracked pages found, so this checks almost nothing"
-    # PATHS ONLY. The checker's usage line reads `<repo> <path>...`, but it treats every
-    # argument as a file, so passing the repo directory first gives PermissionError on the
-    # directory rather than a verdict -- which the caller would read as a refusal.
+    # PATHS ONLY, deliberately, though the checker now accepts a repo as its first argument
+    # too. Passing the list makes the POPULATION this test's own, which is what the
+    # non-vacuity assertion above is about; handing over a directory would mean asserting a
+    # count over a set chosen by something else. (Passing both double-counts: 28 of 28.)
     done = subprocess.run(
         [sys.executable, str(PROVENANCE), *pages],
         capture_output=True, text=True, timeout=300, cwd=REPO,
@@ -77,15 +80,25 @@ def test_the_readme_promises_the_versions_the_build_enforces() -> None:
 
 
 def test_both_checkers_own_self_tests_pass() -> None:
-    """14 and 12 cases. Run them, do not assume them: a guard whose self-test is never run is
-    a guard nobody has seen work."""
-    for checker, expect in ((PROVENANCE, "14 of 14"), (VERSIONS, "12 of 12")):
+    """Run them, do not assume them: a guard whose self-test is never run is a guard nobody
+    has seen work.
+
+    ALL of them behaved, and at least ten exist -- not a pinned count. The first version
+    pinned 14 and 12, and both moved within the hour when the checkers gained cases, which
+    is a number going stale for the best possible reason. A floor catches a self-test that
+    has quietly emptied; a pin catches an upstream improvement and calls it a failure.
+    """
+    for checker in (PROVENANCE, VERSIONS):
         done = subprocess.run(
             [sys.executable, str(checker), "--selftest"],
             capture_output=True, text=True, timeout=300, cwd=REPO,
         )
         assert done.returncode == 0, (done.stdout + done.stderr)[-2000:]
-        assert expect in done.stdout, f"{checker.name}: {done.stdout[-600:]}"
+        m = re.search(r"(\d+) of (\d+) self-tests behaved", done.stdout)
+        assert m, f"{checker.name} printed no self-test tally: {done.stdout[-600:]}"
+        behaved, total = int(m.group(1)), int(m.group(2))
+        assert behaved == total, f"{checker.name}: {behaved} of {total}"
+        assert total >= 10, f"{checker.name}: only {total} self-tests, so it is barely checked"
 
 
 def test_the_checkers_are_vendored_copies_and_not_local_rewrites() -> None:

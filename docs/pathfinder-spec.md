@@ -51,7 +51,7 @@ node_index = row * 36 + col
 cell_centre = (col*500 + 250, row*500 + 250)
 ```
 
-*Evidence*, measured on the offline traces of client 15.535.29 (`movement-measurements.md`
+*Evidence*, counted over the offline traces of client 15.535.29 (`movement-measurements.md`
 holds the corpus): `path_segment_direction == norm256(cell_centre(tail) − pos)` on 3781/3781
 segment-assignment ticks at exactly `(width 36, +250, +250)`. A 10-unit offset shift drops
 it to 2–3 % (x) or 74 % (y); widths 18/32/34/35/37/38/64/72 all score ≤ 0.08 %.
@@ -126,7 +126,7 @@ analysis scripts hit exactly this bug, and it manufactured some of its goal-cell
 
 **Rule 3.6. Tie-breaking. UNVERIFIED, and known to be insufficient.** Where several
 successors are equally optimal, prefer the orthogonal one (1568 of 1672 ambiguous steps,
-93.8 %, measured on the offline traces of client 15.535.29). **Treat this as a placeholder**: an `ortho_first` neighbour order still reproduces
+93.8 %, over the offline traces of client 15.535.29). **Treat this as a placeholder**: an `ortho_first` neighbour order still reproduces
 only 22/140 exact node sequences. Exact ties are rare with the √2 diagonal, so the
 residual divergence is not a classic tie-break at all. Do not write a tie-break rule into
 `calibration.json` as settled. Keep the open list behind a trait so the discipline can be

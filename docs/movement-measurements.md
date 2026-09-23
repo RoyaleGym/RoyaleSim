@@ -249,8 +249,8 @@ This is the most consequential correction in the whole pass.
 Every step-law failure in the corpus is one of three regimes, and **two of them set no
 flag at all**:
 
-Case counts are measured on the offline trace corpus of client 15.535.29 described at the
-top of this page.
+Case counts are from the offline trace corpus of client 15.535.29 described at the top of
+this page.
 
 | Regime | `behavior_state` | Flags | Cases | Signature |
 |---|---|---|---:|---|
@@ -714,7 +714,7 @@ for a `REFRESH_OPENNODES` linked or array open list rather than a binary heap). 
 does not move.
 
 Where the optimum is ambiguous the oracle takes the orthogonal successor on 1568 of 1672
-steps (93.8 %), measured on the offline trace corpus of client 15.535.29. But an `ortho_first` neighbour order still scores 22/140, so this is a
+steps (93.8 %), counted over the offline trace corpus of client 15.535.29. But an `ortho_first` neighbour order still scores 22/140, so this is a
 description of the output, not the rule. With the √2 diagonal, exact ties are rare, which
 means the residual error is not a classic tie-break at all. Something structural is
 missing: most likely the real open-list discipline, or a post-processing step.
@@ -828,8 +828,8 @@ by the same captures. `pathfinding.md` carries all of them. The rest are open, a
 each one needs is named.
 
 1. **The tie-break / expansion order.** 13/76 distinct experiments is the ceiling of a
-   1040-configuration search, measured on the offline trace corpus of client 15.535.29. The
-   100 % below is the target of a proposed experiment, not a result. This is the single thing standing between the measured cost
+   1040-configuration search over the offline trace corpus of client 15.535.29. The 100 %
+   below is the target of a proposed experiment, not a result. This is the single thing standing between the measured cost
    model and bit-exact path reproduction. Best next experiment: traces with a *unique*
    optimal path everywhere (pepper the lane with friendly Cannons so no ties exist) to
    confirm the cost model to 100 %, and traces with exactly one two-way tie to read the

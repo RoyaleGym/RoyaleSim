@@ -34,7 +34,7 @@ worse than none. It also cannot see the failure it most wants to: a fabricated d
 this check perfectly, which is why the postmortem treats provenance rules as inviting that
 specific lie.
 
-Usage:  python figure_provenance_check.py <repo> <path> [more paths...]
+Usage:  python figure_provenance_check.py <path-or-repo> [more...]
         python figure_provenance_check.py --selftest
 Exit 0 if every file passes, 1 otherwise.
 """
@@ -42,7 +42,9 @@ Exit 0 if every file passes, 1 otherwise.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
+from pathlib import Path
 
 FENCE = re.compile(r"^( {0,3})(`{3,}|~{3,})[^\n]*\n.*?^\1?\2`*~*[ \t]*$", re.M | re.S)
 # An HTML attribute is not a measurement. Every one of this check's first four refusals was
@@ -58,11 +60,55 @@ PERCENT = re.compile(r"\b\d{1,3}(?:[.,]\d+)?\s?%|\b\d{1,3}(?:[.,]\d+)?\s+per cen
 PROVENANCE = [
     re.compile(r"\b[0-9a-f]{7,40}\b"),
     re.compile(r"\b20\d\d-\d\d-\d\d\b"),
-    re.compile(r"\b(measured at|build digest|build_digest|from the run|at build|the run at|"
-               r"re-measured|measured on)\b", re.I),
+    # The verb list was too narrow and the sim session caught it doing real damage: "counted over
+    # the offline trace corpus of client 15.535.29" is as informative as "measured on" and did not
+    # match, so pages were REWORDED to fit the list rather than improved by it. A check that edits
+    # prose into its own vocabulary is worse than one that misses, because the page gets less
+    # readable and the check still learns nothing. Accept the ways people actually say it.
+    re.compile(r"\b(measure[ds]?|counted|sampled|observed|taken|scored|derived)\s+"
+               r"(at|on|over|across|from|in)\b", re.I),
+    re.compile(r"\b(build digest|build_digest|from the run|at build|the run at|re-measured)\b",
+               re.I),
+    re.compile(r"\bcorpus\b", re.I),
+    re.compile(r"\bclient\s+\d+\.\d+", re.I),
     re.compile(r"\b\d[\d,]{2,}\s+(unit-ticks|ticks|battles|fixtures|samples|rows)\b", re.I),
     re.compile(r"\b\d+\s+(fixtures|battles|recorded battles)\b", re.I),
 ]
+
+# A tag marking a number as a SHIPPED VALUE rather than something we measured. RoyaleSim's specs
+# tag every table row `DATA`, `COMMUNITY` or `INFERENCE`, and a crown-tower percentage read out of
+# the card tables has no run behind it to name. Matched only as a fenced or tabled token, never as
+# the bare word, so a sentence mentioning data cannot exempt a real figure beside it.
+NOT_A_MEASUREMENT = re.compile(r"`(DATA|COMMUNITY)`|\|\s*(DATA|COMMUNITY)\s*\|")
+
+
+def expand(args: list[str]) -> list[str]:
+    """Files as given; a DIRECTORY or repo becomes its tracked `.md` files.
+
+    The usage line said `<repo> <path>...` and the code opened every argument as a file, so the
+    documented first argument raised PermissionError on the directory. A caller reads that as a
+    refusal from the check rather than as a mistake in the check, which is the worst way for a
+    guard to be wrong: it reports on a page it never read. The sim session hit it.
+    """
+    out: list[str] = []
+    for arg in args:
+        path = Path(arg)
+        if path.is_dir():
+            done = subprocess.run(["git", "-C", arg, "ls-files", "*.md", "**/*.md"],
+                                  capture_output=True)
+            names = done.stdout.decode("utf-8", errors="replace").split() if not done.returncode \
+                else [str(p.relative_to(path)) for p in sorted(path.rglob("*.md"))]
+            out.extend(f"{arg}/{n}" for n in names)
+        else:
+            out.append(arg)
+    return out
+
+
+def line_holding(text: str, at: int) -> str:
+    """The single line a match sits on. The DATA tag marks a ROW, not a section."""
+    start = text.rfind("\n", 0, at) + 1
+    end = text.find("\n", at)
+    return text[start:] if end == -1 else text[start:end]
 
 
 def sections(text: str) -> list[tuple[int, str]]:
@@ -82,7 +128,8 @@ def check_page(page: str, text: str) -> list[str]:
     body = MD_TARGET.sub(blank, HTML_TAG.sub(blank, FENCE.sub(blank, text)))
     out = []
     for first_line, chunk in sections(body):
-        figures = list(PERCENT.finditer(chunk))
+        figures = [m for m in PERCENT.finditer(chunk)
+                   if not NOT_A_MEASUREMENT.search(line_holding(chunk, m.start()))]
         if not figures:
             continue
         if any(p.search(chunk) for p in PROVENANCE):
@@ -122,6 +169,17 @@ SELFTEST = [
     ("a percent-encoded badge url", "# H\n\n![cards](https://x/badge/cards-78%20public-555)\n", False),
     ("a real figure beside a badge url",
      "# H\n\n![c](https://x/badge/cards-78%20public-555)\n\nIt agrees 56.5% of the time.\n", True),
+    # A shipped table value has no run to name. The tag must be a tabled or fenced token.
+    ("a DATA-tagged table row", "# H\n\n| crown damage | 30% | DATA | towers.csv |\n", False),
+    ("a real figure beside a DATA row",
+     "# H\n\n| crown damage | 30% | DATA | towers.csv |\n\nIt agrees 56.5% of the time.\n", True),
+    ("the bare word data does not exempt",
+     "# H\n\nThe data shows it agrees 56.5% of the time.\n", True),
+    # The vocabulary must not force a rewrite. These say where the number came from.
+    ("counted over a named corpus",
+     "# H\n\n56.5%, counted over the offline trace corpus of client 15.535.29.\n", False),
+    ("sampled from a corpus", "# H\n\n56.5%, sampled from the replay corpus.\n", False),
+    ("a client version alone", "# H\n\n56.5% on client 15.535.29.\n", False),
 ]
 
 
@@ -141,15 +199,16 @@ def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[1] == "--selftest":
         return selftest()
     if len(argv) < 2:
-        raise SystemExit("usage: figure_provenance_check.py <path> [more paths...] | --selftest")
-    bad = 0
-    for path in argv[1:]:
+        raise SystemExit("usage: figure_provenance_check.py <path-or-repo> [more...] | --selftest")
+    bad = total = 0
+    for path in expand(argv[1:]):
         with open(path, encoding="utf-8", errors="replace") as fh:
             problems = check_page(path, fh.read())
         for p in problems:
             print(f"REFUSE {p}")
         bad += bool(problems)
-    print(f"\n{len(argv) - 1 - bad} of {len(argv) - 1} files passed")
+        total += 1
+    print(f"\n{total - bad} of {total} files passed")
     return 1 if bad else 0
 
 
