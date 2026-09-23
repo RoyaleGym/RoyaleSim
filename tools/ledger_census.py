@@ -103,6 +103,14 @@ CHECKS = [
     # quietly dropped from the page later.
     (r"counting every status in the file gives (\d+)\s+and (\d+) measured",
      ("entries_with_nested", "measured_with_nested")),
+    # ADDED 2026-09-23. These three sat UNWATCHED beside watched ones in the same
+    # paragraph, so the page could be made self-contradictory by a checker that passed:
+    # adding one ledger key left "All 159 carry a status" next to "That 155 counts
+    # TOP-LEVEL entries" and the check was green. An unwatched number beside a watched
+    # one is worse than an unwatched page, because the green check vouches for it.
+    (r"That (\d+) counts TOP-LEVEL", "entries"),
+    (r"The tools agree on (\d+) by convention", "entries"),
+    (r"a (\d+)th entry nested inside another is measured too", "entries_with_nested"),
 ]
 
 

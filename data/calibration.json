@@ -322,6 +322,32 @@
       ],
       "note": "The vendored 2018 globals.csv ships LOGIC_DEFAULT_TARGET_USE_LANE_ID=TRUE in its place (see targeting.LOGIC_DEFAULT_TARGET_USE_LANE_ID). Whether XPOS-based targeting replaced or refined lane-id targeting between 2018 and 2023 is not established."
     },
+    "CENTRE_LANE_FRAME": {
+      "value": "own_frame_tie_left",
+      "status": "hypothesis",
+      "confidence": "NONE for the arms themselves, HIGH that the evidence does not separate them. `hypothesis` rather than a new status word: the ledger's vocabulary is fixed (oracle/calibrate.py STATUS_RANK) and inventing one to describe this would put the nuance somewhere no gate reads. It is here in prose instead.",
+      "provenance": "NOT MEASURED, and this entry exists to record that rather than to record a result. The oracle session's 12 discriminating scenarios against the native battle kernel (Clash Royale 15.535.29, 2026-09-23, 2 cards x 2 seats x deploy x in {8999, 9000, 9001}, RoyaleLive native/centreline.py) produced: from engine x=8500 BOTH seats walk to the engine-LEFT princess, from x=9500 BOTH walk to the engine-RIGHT one. The parity session checked BOTH candidate rules against all 12 rows and BOTH reproduce every one of them. The experiment does not discriminate. It was reported as having settled the frame, and it did not.",
+      "meaning": "Which frame decides a unit's lane for LOGIC_XPOS_BASED_TOWER_TARGETING, and therefore which enemy princess tower a targetless unit walks to. own_frame_tie_left: the attacker's own (rotated) frame, centre going own-left. engine_frame_tie_right: the absolute arena x, centre going engine-right.",
+      "candidates": [
+        "own_frame_tie_left",
+        "engine_frame_tie_right"
+      ],
+      "candidates_differ_only_at": "BLUE STANDING EXACTLY ON x = W/2, and nowhere else in the arena for either seat. Verified over every integer x for both seats. That value is unreachable by a deploy, because a tap snaps to its tile centre: x=9000 and x=9001 both land a unit at 9500. So no tap-driven scenario can ever discriminate these arms, and the 12 rows above never stood on the line. To settle it, a unit must WALK onto x = W/2 and be read on the tick it is there.",
+      "why_this_arm": "Chosen on a structural prior, the kernel being silent. own_frame_tie_left is seat-symmetric at every x; engine_frame_tie_right breaks the 180-degree seat rotation at x = W/2 exactly. RoyaleGym's rotation gate measured that break on build 1b8fc1eace21feb7 (one seed of three -- a tie is rare, which is the signature of a tie rather than a systematic flip). Both seats share one policy head and the observation is built in the acting side's own frame so that Blue and Red are the same problem, so an absolute-direction tie makes the same board a different game depending on colour. No evidence for the other arm, a measured cost against it.",
+      "history": [
+        {
+          "date": "2026-09-23",
+          "value": "engine_frame_tie_right",
+          "status": "measured",
+          "confidence": "HIGH for the frame",
+          "provenance": "the 12 kernel scenarios, read as showing that the seats do not mirror on the centre line",
+          "overturned_by": "parity session the same day: both arms reproduce all 12 rows, so the experiment never discriminated them. The divergence it was introduced to fix was a DEPLOY POSITION -- the harness spawned the fixtures at their raw tap (x=9000, a tile corner) where the kernel spawns at the tile centre (9500), and at 9500 the own-frame rule already agrees. Across all 21 fixtures the only lane divergence was side 0 at x=9000, while x=8999, x=9001 and every side-1 row agreed, which is exactly what 'the arms differ only at 9000' predicts. Changing this rule moved the engine to agree with a fixture convention and cost seat symmetry to do it."
+        }
+      ],
+      "observability": "THE ARMS MAY BE BEHAVIOURALLY INDISTINGUISHABLE IN REAL PLAY, measured over the 73-battle corpus on 2026-09-23. (a) x = W/2 = 9000 is NOT a path-node x: nodes sit on half-cell centres k*500+250, so the nearest are 8750 and 9250 and a unit walking the grid never stands there. (b) 3477 non-tower truth entities yield 72 unit-ticks with a unit exactly on x=9000 -- 55 Archer and 14 Goblins in behaviour_state 4, 3 Archer in state 1 -- and ALL 72 carry target = -1, no resolved pointer. (c) ZERO unit-ticks in the corpus have a unit on x=9000 while holding a resolved crown-tower pointer. Positive control on that scan: the same logic finds 557705 such unit-ticks off the centre line across 63 cards, so the zero is a measurement and not a broken query. A unit reaches the exact centre line only while DEPLOYING, before any tower pointer exists. So the corpus cannot settle this, and the behaviour difference between the arms was never observed in 73 recorded battles -- which is also why the fixture score moved when this key was flipped: the movement came entirely from the oracle fixtures placing units on a tile CORNER, which real play does not do.",
+      "promotion_rules": "Reach x = W/2 by MOVEMENT rather than by a tap -- a unit whose walk crosses the centre exactly on a tick boundary, or a placement that is not tile-snapped -- and record which tower it then walks to. Until then neither arm may be cited as measured, and a figure that improves after flipping this key has not confirmed anything: the arms differ at one coordinate that the game never places a unit on.",
+      "note": "Not a globals.csv key: it is a choice royalesim must make that the game makes implicitly. Related: targeting.LOGIC_DEFAULT_TARGET_USE_LANE_ID is FALSE in 15.535.29, consistent with both arms -- the tilemap lane-id model (nearest lane cell) predicts LEFT at x=9500 on an exact distance tie, and the kernel goes RIGHT, so tower choice is not the path lane id."
+    },
     "MELEE_RANGE_LIMIT": {
       "value": 1900,
       "units": "millitiles",

@@ -680,6 +680,17 @@ impl Arena {
     /// team" holds only for a y-reflection; on an ENGINE x the centre-line rule
     /// sends a Blue unit on x = 9 to its own-left and its rotated Red twin to its
     /// own-right.
+    ///
+    /// THAT WARNING WAS TESTED AND HELD, 2026-09-23: the engine-frame reading was shipped for
+    /// about an hour and RoyaleGym's seat-rotation gate went red at x = W/2 exactly, on the one
+    /// seed of three where a unit stood there. See targeting.CENTRE_LANE_FRAME, which keeps both
+    /// arms runnable and records that the kernel measurement does NOT separate them.
+    ///
+    /// NOT EVERY CALLER WANTS A FRAME x, AND `path.rs` IS NOT A BUG. Bridge selection passes an
+    /// ENGINE x deliberately: the bridges are symmetric about W/2 and that is a different law
+    /// with its own evidence (the `reflection_bridge_tie` plant). Do not "fix" it to match the
+    /// sentence above, and do not unify the two ties because they look alike -- that would move
+    /// the bridge rule on the strength of a tower measurement, which says nothing about it.
     #[inline]
     pub fn lane_by_x(&self, x: i32) -> Lane {
         if x * 2 <= self.width {

@@ -44,7 +44,7 @@ use crate::arena::{Arena, Lane};
 use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
-use crate::state::{AttackRangeRule, Calib, RiseTrigger};
+use crate::state::{AttackRangeRule, Calib, CentreLaneFrame, RiseTrigger};
 use crate::{EntityId, Team};
 
 /// Which side EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS extends. See module doc.
@@ -300,28 +300,76 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
     #[cfg(clash_plant = "default_tower_nearest")]
     let by_x = false; // PLANT: ignore LOGIC_XPOS_BASED_TOWER_TARGETING.
     if by_x {
-        // Decided in the attacker's OWN frame: its own lane by frame x (the centre
-        // line goes own-left), then the enemy princess tower on that side of the
-        // attacker's view. Using `lane_by_x` on the ENGINE x instead sends a unit
-        // standing exactly on x = W/2 to the engine-left tower for both seats --
-        // own-left for Blue, own-right for Red.
+        // THE LANE IS DECIDED IN THE ATTACKER'S OWN FRAME, with the centre line going
+        // own-left. targeting.CENTRE_LANE_FRAME, and the ledger entry carries the history.
+        //
+        // WHAT THE NATIVE KERNEL ACTUALLY SETTLED, 2026-09-23, 12 scenarios over 2 cards x 2
+        // seats x deploy x in {8999, 9000, 9001}: from engine x = 8500 both seats walk to the
+        // engine-LEFT princess and from x = 9500 both walk to the engine-RIGHT one. **THE
+        // OWN-FRAME RULE REPRODUCES ALL TWELVE ROWS.** So does an engine-frame rule. The
+        // experiment does not discriminate them, and for a while this file said it did.
+        //
+        // THE TWO RULES DIFFER AT EXACTLY ONE POINT IN THE ARENA: Blue standing exactly on
+        // x = W/2. Checked over every integer x, both seats. Nowhere else, for either seat.
+        // And x = W/2 is the one value a deploy cannot produce, because a tap snaps to its
+        // tile centre: x=9000 and x=9001 both land a unit at 9500. No scenario in that
+        // experiment ever stood on the centre line, so nothing measured the point where the
+        // rules disagree.
+        //
+        // WHY THIS ARM AND NOT THE OTHER, given the kernel is silent. The own-frame rule is
+        // seat-symmetric at every x; the engine-frame rule breaks the 180-degree rotation at
+        // x = W/2 exactly. That asymmetry is not free: both seats share one policy head and
+        // the observation is built in the acting side's own frame precisely so that Blue and
+        // Red are the same problem, so an absolute-direction tie makes the same board a
+        // different game depending on colour. RoyaleGym's rotation gate measured the break on
+        // build 1b8fc1eace21feb7 (one seed of three -- a tie is rare, which is its signature).
+        // So: no evidence for the engine frame, a measured cost against it, and a structural
+        // prior for this arm.
+        //
+        // WHAT LOOKED LIKE A DEFECT HERE WAS A DEPLOY POSITION. The replay harness spawned
+        // the oracle's fixtures at their raw tap (x = 9000, a tile CORNER) where the kernel
+        // spawns at the tile centre (9500). At 9500 this rule already returns engine-right and
+        // already agrees. The engine only walked the wrong way because it was standing where
+        // the game never puts a unit. Confirmed by the shape of the disagreement: across all
+        // 21 fixtures the ONLY lane divergence was side 0 at x=9000, while x=8999, x=9001 and
+        // every side-1 row agreed -- which is what "the rules differ only at 9000" predicts.
+        // Changing this rule to compensate would move the engine to agree with a fixture.
         let team = e.team[a];
+        let frame = ctx.calib.centre_lane_frame;
+        // ONE function for the unit and for the candidate tower. Reading them in different
+        // frames compares an own-frame lane with an engine-frame one, and then the rule is
+        // neither of its two candidates.
+        let lane_of = |p: Vec2| match frame {
+            CentreLaneFrame::OwnFrameTieLeft => ctx.arena.lane_by_x(ctx.arena.to_frame(team, p).x),
+            // KEPT RUNNABLE, NOT SHIPPED: flip the ledger to this and the seat-rotation gates
+            // go red at x = W/2. Whoever measures what the client does with a unit standing on
+            // the exact centre line -- which needs a unit that WALKS onto it, since no tap can
+            // -- settles it by changing one value.
+            CentreLaneFrame::EngineFrameTieRight => {
+                if p.x * 2 < ctx.arena.width {
+                    Lane::Left
+                } else {
+                    Lane::Right
+                }
+            }
+        };
         #[cfg(not(clash_plant = "reflection_centre_lane"))]
-        let own = ctx.arena.lane_by_x(ctx.arena.to_frame(team, e.pos[a]).x);
+        let own = lane_of(e.pos[a]);
+        // PLANT (regression): the centre line goes ENGINE-left for Red too, which in Red's
+        // own frame is its right. Off the line nothing differs.
         #[cfg(clash_plant = "reflection_centre_lane")]
         let own = if team == Team::Red && e.pos[a].x * 2 == ctx.arena.width {
-            // PLANT (regression): the centre line goes ENGINE-left for Red too,
-            // which in Red's own frame is its right. Off the line nothing differs.
             Lane::Right
         } else {
-            ctx.arena.lane_by_x(ctx.arena.to_frame(team, e.pos[a]).x)
+            lane_of(e.pos[a])
         };
         let slot = [Lane::Left, Lane::Right]
             .into_iter()
-            .find(|l| ctx.arena.lane_by_x(ctx.arena.to_frame(team, ctx.arena.princess_tower_pos(team.other(), *l)).x) == own)
+            .find(|l| lane_of(ctx.arena.princess_tower_pos(team.other(), *l)) == own)
             .map_or(1, |l| 1 + l as usize);
         return live(ctx.towers[enemy][slot]).or_else(|| live(ctx.towers[enemy][0]));
     }
+
     let mut best: Option<((i32, i32, i32, u32), EntityId)> = None;
     for t in ctx.towers[enemy].iter().filter_map(|t| live(*t)) {
         let k = key(ctx, a, t.index as usize);

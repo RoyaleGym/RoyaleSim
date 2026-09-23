@@ -178,6 +178,9 @@ pub struct Calib {
     /// match.OVERTIME_TIEBREAK -- how a match still level on crowns when overtime
     /// runs out is decided (state.rs `overtime_tiebreak`).
     pub overtime_tiebreak: OvertimeTiebreak,
+    /// targeting.CENTRE_LANE_FRAME -- the frame the default-tower lane is decided in
+    /// (target.rs `default_tower`).
+    pub centre_lane_frame: CentreLaneFrame,
     /// status.ATTRACT_LAW -- the base speed the AttractPercentage column scales
     /// (state.rs `phase_path16402`).
     pub attract_base: AttractBase,
@@ -464,6 +467,18 @@ macro_rules! calib_enum {
     };
 }
 
+calib_enum!(
+    /// targeting.CENTRE_LANE_FRAME: which frame decides a unit's lane for default tower
+    /// targeting, and which way the centre line itself falls.
+    CentreLaneFrame {
+        /// MEASURED: the ENGINE frame, with `x * 2 >= width` going right, so both seats
+        /// send a unit standing exactly on the centre line to the same engine-right tower.
+        EngineFrameTieRight = "engine_frame_tie_right",
+        /// REFUTED: the attacker's own frame with the centre going own-left, which was
+        /// chosen to keep the two seats mirrored and does not match the game.
+        OwnFrameTieLeft = "own_frame_tie_left",
+    }
+);
 calib_enum!(
     /// status.ATTRACT_LAW: what the AttractPercentage column is a percentage OF. Both
     /// arms are the same arithmetic over a different base speed, which is the whole of
@@ -1337,6 +1352,7 @@ impl Calib {
             three_crown_instant_win: boolean(&v, &["match", "THREE_CROWN_INSTANT_WIN", "value"])?,
             overtime_tiebreak: pick(&v, &["match", "OVERTIME_TIEBREAK", "value"], OvertimeTiebreak::from_calibration_name)?,
             attract_base: pick(&v, &["status", "ATTRACT_LAW", "value"], AttractBase::from_calibration_name)?,
+            centre_lane_frame: pick(&v, &["targeting", "CENTRE_LANE_FRAME", "value"], CentreLaneFrame::from_calibration_name)?,
             deploy_lockout_ticks: int(&v, &["match", "DEPLOY_LOCKOUT_TICKS", "value"])?,
             tick_order: pick(&v, &["match", "TICK_ORDER", "value"], TickOrder::from_calibration_name)?,
             dying_unit_visibility: pick(&v, &["movement", "DYING_UNIT_VISIBILITY", "value"], DyingUnitVisibility::from_calibration_name)?,
