@@ -40,10 +40,10 @@ Towers are scored too and they are easy: they do not move. Every headline number
 | Client | Clash Royale 16.402 |
 | Recordings | 73 whole battles, one frame per 50 ms tick, both sides (not distributed) |
 | Card table | `data/derived/cards.json`, FNV-1a 64 `5a1dac3d2fb1b4a9`, the **15.535.29 LIVE** tables. The NAME does not carry the vintage (`data/derived/` is gitignored and `extract_cards.py` writes whichever vintage it was asked for to that one name), so the hash is what pins it: `cards-2018.json` is `2c4978693f313a1a`. |
-| Engine card census | 97 loadable, 49 rejected, 9 summon-only, against the same card table |
+| Engine card census | 102 loadable, 44 rejected, 12 summon-only, against the same card table |
 | Fixtures | 73, one per recording (a recording carrying more than one name contributes once) |
-| Whole battles playable | 25 |
-| Played as a prefix | 42. The battle runs to its first deploy of a card the loader refuses |
+| Whole battles playable | 27 |
+| Played as a prefix | 40. The battle runs to its first deploy of a card the loader refuses |
 | Not played at all | 6. Every one of them is a recording that begins after its battle began |
 
 ```
@@ -53,10 +53,10 @@ cd crates/royalesim && cargo run --release --example replay_parity -- --census
 # 2. the fixtures, rebuilt against that card list and that card table
 ROYALELIVE_REPORTS=<the recordings folder> python tools/make_replay_fixture.py --all
 
-# 3. the corpus run: 25 whole battles and 42 prefixes
+# 3. the corpus run: 27 whole battles and 40 prefixes
 cd crates/royalesim && cargo run --release --example replay_parity -- --all --prefix
 
-# the whole-battle-only run: the 25, no prefixes
+# the whole-battle-only run: the 27, no prefixes
 cd crates/royalesim && cargo run --release --example replay_parity -- --all
 ```
 
@@ -112,22 +112,28 @@ The cards carrying the most unit-ticks, prefix mode, no towers:
 
 | card | unit-ticks | <=250 | <=1000 | hp exact | alive/missing/extra | walk <=20 |
 |---|---|---|---|---|---|---|
-| Goblins | 39785 | 42.5% | 77.0% | 87.5% | 8.9% | 18.4% |
-| Skeletons | 37662 | 43.9% | 63.8% | 86.4% | 13.5% | 30.3% |
-| Tombstone | 37458 | 20.7% | 60.0% | 76.9% | 18.6% | 0.0% |
-| SkeletonArmy | 18301 | 49.8% | 83.2% | 90.0% | 9.9% | 16.3% |
-| Knight | 13383 | 82.5% | 93.2% | 80.4% | 2.0% | 74.9% |
-| Giant | 12088 | 68.6% | 87.4% | 74.5% | 3.1% | 72.4% |
-| MinionHorde | 9738 | 45.5% | 78.2% | 88.3% | 6.9% | 33.0% |
-| GoblinGang | 7424 | 49.4% | 72.1% | 84.3% | 11.8% | 40.2% |
+| Tombstone | 53875 | 20.0% | 60.4% | 77.2% | 18.3% | 0.0% |
+| Goblins | 44808 | 40.3% | 74.9% | 86.0% | 10.0% | 17.2% |
+| Skeletons | 41532 | 45.8% | 65.9% | 86.3% | 13.7% | 31.3% |
+| SkeletonArmy | 18903 | 55.7% | 81.2% | 87.6% | 12.4% | 15.6% |
+| Giant | 17604 | 64.5% | 84.8% | 68.9% | 5.6% | 70.7% |
+| Knight | 16913 | 73.1% | 84.6% | 74.2% | 3.6% | 73.3% |
+| MinionHorde | 9658 | 46.0% | 81.1% | 89.2% | 5.2% | 33.0% |
+| GoblinGang | 7295 | 63.5% | 76.6% | 86.7% | 10.1% | 61.5% |
 
 The shape is the whole result in miniature. A single unit walking alone is close to solved:
-Knight 82.5 % within 250 and 74.9 % of its isolated walk bit-exact, Musketeer 81.6 %, Prince
-73.8 %, Wallbreakers and Hog Rider effectively exact. A **crowd** is not: five cheap swarm cards
-carry more than half the corpus' unit-ticks between them and none reaches 50 % within 250. The
-Tombstone, at 20.7 %, is the extreme case. It is a building that is itself stationary and
-correct, scored through the Skeletons it emits, whose spawn points and spawn ticks the engine
-does not yet place where the game places them.
+Wall Breakers are exact, the Hog Rider is 90.1 % within 250 with 99.2 % of its isolated walk
+bit-exact, and the Prince, the Knight and the Musketeer sit between 71 % and 74 %. A **crowd** is
+not: five cheap swarm cards carry 63 % of the no-tower unit-ticks between them, and four of the
+five are under 50 % within 250. The Tombstone, at 20.0 %, is the extreme case. It is a building
+that is itself stationary and correct, scored through the Skeletons it emits, whose spawn points
+and spawn ticks the engine does not yet place where the game places them.
+
+Two things moved against the 2026-09-21 run and are recorded rather than explained: the single
+walkers came DOWN (the Knight was 82.5 % and is 73.1 %, the Musketeer 81.6 % and now 71.9 %), and
+the Skeleton Army came UP through 50 %, at 55.7 %, so "none of the swarms reaches 50 %" is no
+longer true. The corpus is 23 % larger and its composition changed with it, so neither figure is
+a like-for-like delta on the same battles.
 
 ## 5. First divergence, by cause
 
@@ -135,29 +141,33 @@ Each battle's **first divergence** is its first unit-tick past 1000 native or it
 mismatch. The harness reads a cause at the onset, the first tick that unit's error passed 250.
 One cause per battle, so the table below ranks what goes wrong *first*, not what costs most
 in total. The unit-tick columns say how much of the corpus sits behind battles that begin that
-way. 25 of the 67 battles never diverge at all (short prefixes, most of them).
+way. 19 of the 67 battles never diverge at all (short prefixes, most of them).
 
 | cause | battles | no-tower unit-ticks | of them beyond 250 | share of the corpus' missed unit-ticks | within 250 |
 |---|---|---|---|---|---|
-| spawn | 10 | 67039 | 36047 | 32.5% | 46.2% |
-| contact | 13 | 62166 | 34381 | 31.0% | 44.7% |
-| death | 11 | 56541 | 24234 | 21.9% | 57.1% |
-| attack-timing | 6 | 28057 | 15386 | 13.9% | 45.2% |
-| walking | 2 | 1898 | 442 | 0.4% | 76.7% |
-| (no divergence) | 25 | 3790 | 389 | 0.4% | 89.7% |
+| spawn | 10 | 73583 | 40144 | 29.3% | 45.4% |
+| contact | 14 | 65289 | 35014 | 25.5% | 46.4% |
+| death | 14 | 74186 | 32519 | 23.7% | 56.2% |
+| attack-timing | 10 | 56348 | 29427 | 21.5% | 47.8% |
 
 Read together with section 4:
 
 - **spawn** (where and when a summoned or emitted unit comes into being) heads the fewest
-  battles of the top three but sits under the most unit-ticks, because the battles it heads are
-  the long ones full of swarm and spawner cards.
+  battles of the top three but the largest share of the missed unit-ticks, because the battles
+  it heads are the long ones full of swarm and spawner cards.
 - **contact** (where a unit stops when something is already standing where it is going) heads
-  the most battles. It is the law the engine models least, and it is what turns a formation that
-  landed correctly into a crowd standing in the wrong places a second later.
-- **death** (the tick a unit dies on) is third by battles and third by cost, and it is the
-  cheapest of the three per battle: those battles still score 57.1 % within 250.
-- **walking**, the search and the step law, heads 2 battles of 67 and 0.4 % of the missed
-  unit-ticks. The path is not the problem any more. What happens when a unit arrives is.
+  the most battles alongside death. It is the law the engine models least, and it is what turns
+  a formation that landed correctly into a crowd standing in the wrong places a second later.
+- **death** (the tick a unit dies on) sits under the most unit-ticks of any cause but is the
+  cheapest of them per tick: those battles still score 56.2 % within 250.
+- **attack-timing** has grown into a peer of the other three rather than a distant fourth,
+  which is the clearest change since the 2026-09-21 run.
+- **walking**, the search and the step law, heads NO battle in this run. In the previous one it
+  headed 2 of 67 and 0.4 % of the missed unit-ticks. The path is not the problem. What happens
+  when a unit arrives is.
+
+The battle counts come from the run's own cause table; the unit-tick columns are aggregated from
+its per-battle table, because the harness does not write them itself. Both are this run.
 
 ## 5a. One divergence that is known and deliberate
 
@@ -178,6 +188,6 @@ it has found the thing that is already on the list.
   with the mechanics the engine has not modelled.
 - Position is scored in native units against a recording that misses a frame here and there; a
   unit-tick on a missed frame is not scored at all, not scored as a match.
-- `target` is the one column where the towers drag the average down rather than up (17.5 % all,
-  38.6 % no towers). A tower with several units in range picks among them by a rule the engine
+- `target` is the one column where the towers drag the average down rather than up (18.1 % all,
+  37.1 % no towers). A tower with several units in range picks among them by a rule the engine
   does not yet reproduce, and the column counts the pick, not the damage.
