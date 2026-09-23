@@ -171,13 +171,15 @@ There are two card tables, and the difference decides which tests you can run.
 `tests/charge.rs` loads by that name. The other writes the same table over
 `data/derived/cards.json`, which is what the engine loads.
 
-A 2018-only checkout runs the engine and the example below. **Five Python tests fail on it today,
-and they are ours rather than yours.** Measured on a fresh clone on 2026-09-22: 158 passed, 5
-failed, 6 skipped. The cause is one thing. Those five are pinned to fixtures recorded against the
-15.535 card table, your clone builds the 2018 one, and the guard that was meant to skip them checks
-whether a `cards.json` exists rather than which table it holds. Your clone has a `cards.json`, so
-the guard passes and the test runs and fails. They should skip and say which table they wanted.
-Nothing is wrong with your install or with the engine.
+A 2018-only checkout runs the engine, the example below and the Python suite. **On a fresh clone
+it is 179 passed, 10 skipped, nothing failing** (2026-09-22). On a machine that also has the
+15.535 card table it is 187 passed, 2 skipped, and the difference is those ten.
+
+Read the skips rather than ignoring them. Each one names the thing it could not find and says that
+a skip is not a pass. Earlier today five of them were FAILURES, and their message told the reader
+to run `extract_cards.py --vintage 2018`, which is exactly the command that made them fail: the
+guard checked whether a `cards.json` existed rather than which table it held, and a clone has one,
+just the 2018 one. They were fixed by guarding on the table's vintage instead.
 Three checks want the 15.535 table specifically: `tests/levels.rs` scores the level ladder against
 recorded `max_hp`, `tests/jump16402.rs` wants the jump blocks of the Hog Rider, Prince and Dark
 Prince, and `tools/check_data.py`'s live-level rows go vacuous without them. Those need the 15.535
@@ -429,7 +431,7 @@ Not modelled yet, in plain words:
 Tests. Both blocks below start from the `Royale` folder you made in stage 1, so go back there
 before you run the second one.
 
-The Rust suite is 367 tests, 3 of them skipped unless you ask for them. The first run compiles the
+The Rust suite is 373 tests, 3 of them skipped unless you ask for them. The first run compiles the
 test binaries before it runs anything, so expect several minutes of build output before the first
 result appears.
 
@@ -438,7 +440,7 @@ cd RoyaleSim\crates\royalesim
 cargo test --release
 ```
 
-The Python suite is 160 tests and takes a few seconds.
+The Python suite is 189 tests and takes a few minutes.
 
 ```
 cd RoyaleSim
