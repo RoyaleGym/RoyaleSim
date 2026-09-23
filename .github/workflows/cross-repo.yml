@@ -114,6 +114,14 @@ jobs:
           - repo: RoyaleGym
             cards: "2018"
             args: tests/test_rust_engine.py tests/test_rust_spells.py tests/test_building_footprint.py
+          # THIS REPO AS A CONSUMER OF ITS OWN WHEEL, and the only home two of its test files
+          # have. tools/watch_battle.py drives the engine through royalegym's env layer, which
+          # suite.yml does not install, so test_watch_battle.py skips there on every run and the
+          # plants that prove the viewer's gates CAN FAIL execute nowhere. test_ledger_build_step
+          # comes with it because here it checks the four compiled-in files against the data on
+          # disk for the SHARED wheel rather than for one built beside them a minute earlier.
+          - repo: RoyaleSim
+            args: tests/test_watch_battle.py tests/test_ledger_build_step.py
     steps:
       # THE WHOLE STACK, not the repo under test alone, and this is the fix for what run one
       # got wrong. Installing one repo against the wheel answers "does this repo import the
@@ -172,9 +180,14 @@ jobs:
       # collection ERROR and `-m engine` never gets to select anything -- the row goes red
       # having run none of the five tests it exists for. Learn's own CI installs the CPU
       # wheels; this is that line. Only for that row: nothing else imports it.
-      - name: torch, CPU wheels, for the learn row
+      # The CPU index first so torch is the small wheel, then learn's own `[torch]` extra,
+      # which is torch AND safetensors. Bare torch left `could not import 'safetensors'` and
+      # four modules skipped at collection, so the engine contract still ran nowhere.
+      - name: torch and safetensors, CPU wheels, for the learn row
         if: matrix.repo == 'RoyaleLearn'
-        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e "RoyaleLearn[torch]"
 
       - name: stage 3 for the data the consumers read
         shell: bash

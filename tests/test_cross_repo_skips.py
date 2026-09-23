@@ -85,6 +85,44 @@ def test_a_skip_whose_wording_is_innocent_is_still_refused(tmp_path: Path) -> No
     assert "test_quiet" in r.stdout
 
 
+def test_an_xfail_is_not_a_skip(tmp_path: Path) -> None:
+    """The gate refused three strict xfails on its first run, which is backwards.
+
+    pytest writes an xfail into the report as a `<skipped>` element with
+    `type="pytest.xfail"`. A strict xfail fails when it passes, so it is a documented
+    expected failure that cannot rot quietly -- a stronger instrument than anything this
+    gate lets through, not a weaker one.
+    """
+    p = tmp_path / "r.xml"
+    p.write_text(
+        '<testsuites><testsuite>'
+        '<testcase classname="t" name="test_known_divergence">'
+        '<skipped message="a tiebreak moved" type="pytest.xfail"/></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    r = run(p, "RoyaleGym")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "0 skip(s), all declared" in r.stdout
+
+
+def test_a_real_skip_beside_an_xfail_is_still_refused(tmp_path: Path) -> None:
+    """The half that makes the test above evidence rather than a hole."""
+    p = tmp_path / "r.xml"
+    p.write_text(
+        '<testsuites><testsuite>'
+        '<testcase classname="t" name="test_known_divergence">'
+        '<skipped message="a tiebreak moved" type="pytest.xfail"/></testcase>'
+        '<testcase classname="t" name="test_quietly_absent">'
+        '<skipped message="nothing to see" type="pytest.skip"/></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    r = run(p, "RoyaleGym")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "test_quietly_absent" in r.stdout and "test_known_divergence" not in r.stdout
+
+
 def test_a_missing_report_fails_rather_than_reading_as_clean(tmp_path: Path) -> None:
     """Absent must not look like empty.
 
@@ -116,6 +154,23 @@ def test_a_declaration_that_no_longer_fires_is_reported(tmp_path: Path) -> None:
     r = run(report(tmp_path / "r.xml", [("test_a", None)]), "RoyaleViser")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "STALE DECLARATION" in r.stdout
+
+
+def test_a_parametrised_case_matches_its_function_declaration(tmp_path: Path) -> None:
+    """`test_x[midgame]` is declared by `test_x`, or six real declarations match nothing.
+
+    Gym's vintage-split entry covers a test with five parameter ids. Keyed on the JUnit name
+    they would every one be undeclared, and the gate would refuse the row whose configuration
+    is correct -- a guard failing on exactly the thing it was told to allow.
+    """
+    name = "test_mock_and_rust_agree_on_setup_state"
+    assert name in C.ALLOWED["RoyaleGym"]
+    cases = [(f"{name}[{p}]", "the two engines are reading different card tables") for p in
+             ("opening", "midgame", "overtime")]
+    r = run(report(tmp_path / "r.xml", cases), "RoyaleGym")
+    assert r.returncode == 0, r.stdout + r.stderr
+    # the FULL name in the report, because which case skipped is the useful half
+    assert "[midgame]" in r.stdout
 
 
 @pytest.mark.parametrize("repo", sorted(C.ALLOWED))
