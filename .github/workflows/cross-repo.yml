@@ -30,18 +30,57 @@ name: cross-repo
 # Windows-only disagreement between repos has no instrument in this project at all.
 on:
   workflow_call:
+    inputs:
+      sim_ref:
+        description: >-
+          Which RoyaleSim commit to build. Leave empty and the job picks: this repo's own
+          triggering commit when RoyaleSim triggered the run, and main when a sibling called it.
+          A caller sets this only to test against an engine commit that is not on main yet.
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
 
 jobs:
   engine:
     runs-on: ubuntu-latest
+    outputs:
+      sim_ref: ${{ steps.simref.outputs.ref }}
     steps:
-      # No `repository:`, so this is the commit that triggered the run rather than whatever
-      # the default branch happens to be. A job that always builds main cannot answer anything
-      # about the change being proposed, and would have been green for every branch that broke
-      # the engine.
+      # WHICH RoyaleSim COMMIT THIS RUN IS ABOUT, decided once, out loud, and handed to both
+      # jobs. It has to be decided rather than assumed because this workflow runs two ways and
+      # they disagree:
+      #
+      #   workflow_dispatch / push here  the run belongs to RoyaleSim, and the interesting
+      #                                  commit is the one that triggered it. A job that always
+      #                                  built main could not answer anything about a branch.
+      #   workflow_call from a sibling   THE RUN BELONGS TO THE CALLER. `github.sha` is a
+      #                                  RoyaleGym commit, and `actions/checkout` with no
+      #                                  `repository:` clones RoyaleGym -- into a directory
+      #                                  named RoyaleSim/, after which every path is wrong.
+      #
+      # That second case is what this file EXISTS for, and it was broken for six hours while
+      # every run on this side stayed green, because this repo never takes the broken path.
+      # The lesson is in the shape rather than the bug: the old comment stated its reason
+      # confidently, and the reason was true in one of the two ways the file runs.
+      - name: which RoyaleSim commit this run is about
+        id: simref
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.sim_ref }}" ]; then
+            ref="${{ inputs.sim_ref }}"; why="the caller pinned it"
+          elif [ "${{ github.repository }}" = "RoyaleGym/RoyaleSim" ]; then
+            ref="${{ github.sha }}"; why="RoyaleSim triggered this run, so its own commit"
+          else
+            ref="main"; why="${{ github.repository }} called this workflow, so RoyaleSim's main"
+          fi
+          echo "sim_ref=$ref  ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
+          repository: RoyaleGym/RoyaleSim
+          ref: ${{ steps.simref.outputs.ref }}
           path: RoyaleSim
           fetch-depth: 0
       - uses: actions/setup-python@v5
@@ -133,11 +172,15 @@ jobs:
       # question is whether the four repos agree on one binary, and a repo cannot disagree
       # with a binary its tests never reached.
       #
-      # RoyaleSim is checked out by the DEFAULT action, with no `repository:`, so it arrives
-      # at the commit that triggered this run. The three consumers arrive at their default
-      # branches, which is the composition a user gets.
+      # RoyaleSim arrives at the commit the `engine` job resolved and BUILT, taken from that
+      # job's output rather than re-derived here. Two copies of the same decision is how the
+      # data and the binary come apart, which is the failure this whole workflow exists to
+      # catch. The three consumers arrive at their default branches, which is the composition
+      # a user gets.
       - uses: actions/checkout@v4
         with:
+          repository: RoyaleGym/RoyaleSim
+          ref: ${{ needs.engine.outputs.sim_ref }}
           path: RoyaleSim
           fetch-depth: 0
       - uses: actions/checkout@v4
