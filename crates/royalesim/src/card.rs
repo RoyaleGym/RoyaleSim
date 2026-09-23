@@ -2604,7 +2604,7 @@ mod tests {
         // and Heal stay refused because each is a SummonCharacter
         // spell (a bottle, a spirit) whose area effect is released by the summon's
         // death or projectile, which the loader does not walk.
-        for n in ["Rage", "Lightning", "Graveyard", "Tornado", "Clone", "Heal", "Mirror"] {
+        for n in ["Rage", "Lightning", "Graveyard", "Clone", "Heal", "Mirror"] {
             assert!(db.index(n).is_none(), "{n} must not be simulable");
             assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         }

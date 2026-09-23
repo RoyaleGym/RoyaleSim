@@ -257,6 +257,8 @@ pub struct Calib {
     pub stun_retarget_on_resume: bool,
     /// status.RESUME_RETARGET_WINDUP.
     pub resume_retarget_windup: ResumeWindup,
+    /// combat.RETARGET_PROGRESS.
+    pub retarget_progress: RetargetProgress,
     /// status.BUFF_EXPIRY_TICK_ALIGNMENT.
     pub buff_expiry: BuffExpiry,
     /// status.SAME_BUFF_REAPPLY.
@@ -662,6 +664,10 @@ calib_enum!(
 calib_enum!(
     /// status.RESUME_RETARGET_WINDUP.
     ResumeWindup { Cancel = "cancel", Carry = "carry" }
+);
+calib_enum!(
+    /// combat.RETARGET_PROGRESS.
+    RetargetProgress { ResetAlways = "reset_always", KeepWhenDead = "keep_when_dead" }
 );
 calib_enum!(
     /// status.BUFF_EXPIRY_TICK_ALIGNMENT.
@@ -1378,6 +1384,7 @@ impl Calib {
             stun_attack_timer: pick(&v, &["status", "STUN_ATTACK_TIMER_MODEL", "value"], StunTimerModel::from_calibration_name)?,
             stun_retarget_on_resume: boolean(&v, &["status", "STUN_RETARGET_ON_RESUME", "value"])?,
             resume_retarget_windup: pick(&v, &["status", "RESUME_RETARGET_WINDUP", "value"], ResumeWindup::from_calibration_name)?,
+            retarget_progress: pick(&v, &["combat", "RETARGET_PROGRESS", "value"], RetargetProgress::from_calibration_name)?,
             buff_expiry: pick(&v, &["status", "BUFF_EXPIRY_TICK_ALIGNMENT", "value"], BuffExpiry::from_calibration_name)?,
             same_buff_reapply: pick(&v, &["status", "SAME_BUFF_REAPPLY", "value"], BuffReapply::from_calibration_name)?,
             buff_speed_composition: pick(&v, &["movement", "BUFF_SPEED_COMPOSITION", "value"], BuffComposition::from_calibration_name)?,
@@ -3037,21 +3044,22 @@ impl BattleState {
         }
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
+        let keep_cycle_when_dead = self.cfg.calib.retarget_progress == RetargetProgress::KeepWhenDead;
         for &(i, d) in &decisions {
             let e = &mut self.ents;
             let changed = e.target[i] != d.target;
+            // the target this unit had AND STILL HAS: `None` once it is dead, which is the
+            // distinction both rules below turn on.
+            let was = e.target[i].filter(|t| e.is_alive(*t));
             // CHARGE (calibration charge.RESET_ON_RETARGET, shipped false): switching
             // from one LIVE target to a DIFFERENT one clears the charge and the run-up.
             // Acquiring a first target, or replacing a dead one, is not a switch: a
             // Prince whose Skeleton dies under it and who then picks the tower was not
             // distracted, and under `true` it would otherwise lose its charge to every
             // kill it makes.
-            if retarget_resets_charge {
-                let was = e.target[i].filter(|t| e.is_alive(*t));
-                if was.is_some() && d.target.is_some() && was != d.target {
-                    e.charged[i] = false;
-                    e.charge_progress[i] = 0;
-                }
+            if retarget_resets_charge && was.is_some() && d.target.is_some() && was != d.target {
+                e.charged[i] = false;
+                e.charge_progress[i] = 0;
             }
             if d.resumed {
                 e.retarget_on_resume[i] = false;
@@ -3059,7 +3067,22 @@ impl BattleState {
             // status.RESUME_RETARGET_WINDUP = carry: a paused windup follows the unit to
             // the target its resume rescan picked, instead of being cancelled.
             let carried = d.resumed && carry && !d.cancel_attack;
-            if d.cancel_attack || (changed && e.attack_phase[i] == AttackPhase::Windup && !carried) {
+            // combat.RETARGET_PROGRESS = keep_when_dead: REPLACING A CORPSE IS NOT A SWITCH,
+            // the same distinction the charge rule above already draws, applied to the attack
+            // cycle. Under `reset_always` a unit whose victim died threw away the time since
+            // its last shot and restarted, so a princess tower killing one-shot skeletons
+            // reloaded in 19 ticks against its own HitSpeed of 16 -- once per target change,
+            // which against a swarm is once per shot. The cost is the elapsed time MINUS the
+            // LoadTime the fresh cycle credits back (combat.ATTACK_CYCLE), so it fell on
+            // short-LoadTime shooters only: the tower's LoadTime is 0 and it paid the lot, a
+            // Musketeer's 300 ms covered the gap and it paid nothing. BOTH PATHS INTO THE
+            // RESET ARE SUPPRESSED, not just the `changed` one: a locked unit whose target
+            // dies arrives here with `cancel_attack` set by target.rs instead, and gating
+            // only `changed` would have left the tower's own case untouched.
+            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some();
+            if !replaced_a_corpse
+                && (d.cancel_attack || (changed && e.attack_phase[i] == AttackPhase::Windup && !carried))
+            {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
@@ -7191,6 +7214,11 @@ mod tests {
             ["Minions", "Knight", "Giant", "Archers", "Archers", "Giant", "Knight", "Minions"].iter().map(|s| s.to_string()).collect();
         cfg.decks = [deck.clone(), deck];
         let mut s = BattleState::new(1, cfg);
+        // past match.DEPLOY_LOCKOUT_TICKS: before it every slot answers TooEarly and none of
+        // the reasons this test is about -- Occupied, BadSlot -- is ever reached
+        while s.tick < s.cfg.calib.deploy_lockout_ticks.max(0) as u32 {
+            s.tick();
+        }
         let a = s.arena().clone();
         let princess = a.princess_tower_pos(Team::Blue, Lane::Left);
         assert_eq!(s.hand_card(Team::Blue, 0).map(|i| s.cards().get(i).name.clone()), Ok("Minions".to_string()));

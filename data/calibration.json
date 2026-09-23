@@ -1070,6 +1070,20 @@
       "promotion_rules": "Measured. The hit-speed buff is combat.HIT_SPEED_BUFF (Rage's HitSpeedMultiplier into the 50 ms step); LoadFirstHit (Sparky) is not modelled. Re-open only against a live first hit that parts from the rule on an uninterrupted cycle.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> attack_cycle); combat.rs attack_step runs the progress / load-timer counters (Entities::attack_ms = progress, Entities::attack_load_ms = the load timer, snapshot format 16), AttackPhase::Windup = attacking with the swing under way (the target lock), Cooldown = attacking on the hit tick, Idle = not attacking; the Path phase holds any attacking unit. The old arm stays runnable as windup_load_time. tests/reach.rs pins the tower's first arrow and the Knight's first hit from the card data."
     },
+    "RETARGET_PROGRESS": {
+      "value": "keep_when_dead",
+      "status": "measured",
+      "confidence": "HIGH. Two independent measurements of the same quantity agree on the tick: a scripted scenario here and the live corpus, by different routes.",
+      "provenance": "MEASURED 2026-09-23 in a scripted scenario (tests/test_retarget_cadence.py) and CORROBORATED on the live corpus. THE SCRIPTED MEASUREMENT: a princess tower (HitSpeed 800 ms = 16 ticks, LoadTime blank = 0) shooting one victim it cannot kill hits every 16 ticks; shooting one-shot skeletons it killed one every 19. The separator is skeletons given 300 hp, which take three shots each: the gaps read 16, 16, 19 and repeated identically for four victims, so the 3 ticks are paid ONCE PER TARGET CHANGE and not once per shot. THE CORPUS: capture 20260920-091423-A, a single princess tower killing fifteen skeletons. Death ticks are ARRIVALS, so the victims' distance falling 6395 -> 1500 native across the engagement compresses them below the firing cadence; subtracting flight at the measured projectile speed gives firing gaps of 15.7, 16.0, 14.8, 16.8, 15.1, 16.3, 15.9, 16.7, 16.1, 16.0, 16.3, 15.9, 16.0, 16.0 -- median 16.0, the tower's own HitSpeed. The same correction on the sim side of that capture gives a steady 19.0. Only one shooter was involved: that tower targeted all fifteen victims in the three ticks before each death.",
+      "candidates": [
+        "keep_when_dead",
+        "reset_always"
+      ],
+      "meaning": "keep_when_dead: a unit whose target DIED keeps its attack progress and fires on its own cadence; switching away from a target still ALIVE cancels the swing as before. reset_always: any target change cancels, which is what the engine did before this key existed. The size of the difference is set by LoadTime, because the fresh cycle credits back min(LoadTime, elapsed) through the load timer (combat.ATTACK_CYCLE): a princess tower's LoadTime is 0, so under reset_always it lost the whole interval and reloaded in 19 ticks instead of 16, while a Musketeer's 300 ms covered the gap and it measured the same under both arms.",
+      "promotion_rules": "Measured on two populations. What would REOPEN it: a scenario where a unit switches away from a LIVE target -- this key says nothing about that case, which still cancels, and nothing here measured it. The native kernel would settle both halves at once by firing at a swarm and at a passing target. reset_always is kept runnable as the arm the engine shipped through 2026-09-23, so the defect can be reproduced rather than only described.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json -> retarget_progress); applied in state.rs phase_target, which suppresses BOTH routes into the cancel -- the `changed` test and target.rs's cancel_attack, which is the route a LOCKED unit whose target dies actually takes. Gating only `changed` leaves the tower's own case untouched.",
+      "open": "Whether the game cancels a swing when a unit switches away from a live target at all. This engine keeps that behaviour because nothing measured it, not because anything confirmed it."
+    },
     "PROJECTILE_LAUNCH": {
       "value": "start_radius_next_tick",
       "status": "measured",
