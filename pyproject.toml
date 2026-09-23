@@ -72,3 +72,11 @@ ignore = [
     "RUF001", "RUF002", "RUF003",  # ambiguous unicode in comments/docstrings
     "SIM108",                       # ternaries are not always clearer
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# tests/_shell_fences.py is a VENDORED COPY, kept byte-identical to the original and to the
+# copies in the other three repos so the four can be diffed against each other. Reformatting
+# it to this repo's line length would pass lint and make the next drift invisible, which
+# turns four guards into four slowly diverging ones nobody can compare. The waiver is
+# deliberately narrow: that file, that rule, nothing else.
+"tests/_shell_fences.py" = ["E501"]

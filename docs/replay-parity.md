@@ -46,18 +46,21 @@ Towers are scored too and they are easy: they do not move. Every headline number
 | Played as a prefix | 40. The battle runs to its first deploy of a card the loader refuses |
 | Not played at all | 6. Every one of them is a recording that begins after its battle began |
 
+Four steps, in Windows PowerShell. First the engine's own card list, which is what decides a
+fixture's playability. Then the fixtures, rebuilt against that card list and that card table.
+Then the corpus run, whole battles and prefixes together. The last line is the whole-battle-only
+run, which is the smaller population and the one to quote when a figure is about complete
+battles.
+
 ```
-# 1. the engine's own card list, which decides a fixture's playability
-cd crates/royalesim && cargo run --release --example replay_parity -- --census
-
-# 2. the fixtures, rebuilt against that card list and that card table
-ROYALELIVE_REPORTS=<the recordings folder> python tools/make_replay_fixture.py --all
-
-# 3. the corpus run: 27 whole battles and 40 prefixes
-cd crates/royalesim && cargo run --release --example replay_parity -- --all --prefix
-
-# the whole-battle-only run: the 27, no prefixes
-cd crates/royalesim && cargo run --release --example replay_parity -- --all
+cd crates\royalesim
+cargo run --release --example replay_parity -- --census
+cd ..\..
+$env:ROYALELIVE_REPORTS = "<the recordings folder>"
+python tools\make_replay_fixture.py --all
+cd crates\royalesim
+cargo run --release --example replay_parity -- --all --prefix
+cargo run --release --example replay_parity -- --all
 ```
 
 The fixtures and the census must be built against the card table the engine loads. A fixture

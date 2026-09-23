@@ -11,7 +11,8 @@ order. They are the numbers to beat, not a promise, and each section says which 
 describes. Re-measure with:
 
 ```
-cd crates\royalesim && cargo test --release --test throughput -- --ignored --nocapture
+cd crates\royalesim
+cargo test --release --test throughput -- --ignored --nocapture
 ```
 
 ## Engine throughput

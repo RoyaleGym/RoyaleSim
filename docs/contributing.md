@@ -4,6 +4,10 @@ This page is for anyone changing the engine. It is the development loop: how to 
 and how to run it, how the test plants work, and the conventions the code follows. `README.md` has
 the one-time workspace setup.
 
+The commands here are written for Windows PowerShell, which is the default shell on the platform
+most of this was built on. On macOS or Linux, swap the backslashes for forward slashes and
+`..\.venv\Scripts\` for `../.venv/bin/`.
+
 ## Build loop
 
 The crate builds alone with cargo. Python callers need the extension module installed into the
@@ -11,8 +15,12 @@ workspace venv:
 
 ```
 cd RoyaleSim
-..\.venv\Scripts\maturin develop --release     # ~1 min, fat LTO, ~1.5 GB RAM
+..\.venv\Scripts\maturin develop --release
 ```
+
+Fat LTO, so it is not quick. Measured from a fresh clone with no `target/`: 160 seconds cold, 88
+with a warm cargo registry cache, and the build processes peaked under a gigabyte. A rebuild after
+touching one file takes longer than either, because that command also runs the Rust suite.
 
 `maturin develop` installs into the active venv. With no venv active, it installs into a `.venv`
 found in the current or a parent directory. A venv under any other name needs `VIRTUAL_ENV`
@@ -44,9 +52,12 @@ asset pack (Supercell's files, not redistributed). A checkout without that pack 
 table from the tracked 2018 files instead:
 
 ```
-python tools\extract_cards.py --vintage 2018                                  # data\derived\cards-2018.json
-python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json    # and over the file the engine loads
+python tools\extract_cards.py --vintage 2018
+python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
 ```
+
+The first writes `data\derived\cards-2018.json`; the second writes the same table over
+`data\derived\cards.json`, which is the file the engine loads.
 
 Both runs are needed: the engine reads `cards.json`, and `tests/stacked_tie.rs` loads the same
 table again by its vintage name, refusing (never skipping) when it is absent. A 2018-only
@@ -69,15 +80,25 @@ named by `ROYALELIVE_REPORTS`; without it they exit and say so.
 ## Gates
 
 ```
-cd crates\royalesim && cargo test --release             # 338 test functions, 3 of them #[ignore]d
-cd crates\royalesim && cargo clippy --all-targets -- -D warnings
-cd crates\royalesim && grep -rn 'f32\|f64' src/ tests/  # must print nothing
-..\.venv\Scripts\python -m pytest -q                     # 108 collected, from the repo root
+cd crates\royalesim
+cargo test --release
+cargo clippy --all-targets -- -D warnings
+cd ..\..
+..\.venv\Scripts\python -m pytest -q
 ..\.venv\Scripts\ruff check tools oracle tests
-..\.venv\Scripts\python tools\check_data.py              # is the card data what the client ships?
-..\.venv\Scripts\python tools\check_card_reads.py        # does the engine read what the cards carry?
-cd ..\RoyaleGym && ..\.venv\Scripts\python -m pytest -q  # the env layer drives the engine
+..\.venv\Scripts\python tools\check_data.py
+..\.venv\Scripts\python tools\check_card_reads.py
+cd ..\RoyaleGym
+..\.venv\Scripts\python -m pytest -q
 ```
+
+In order: the Rust suite, its lint, the Python suite from the repo root, the Python lint, whether
+the card data is what the client ships, whether the engine reads what the cards carry, and the env
+layer driving the engine. No counts are quoted here, because a number typed into prose is stale the
+moment the suite moves; each command prints its own.
+
+The integer-only rule used to be a `grep` on this page, which is not a gate, because nobody runs a
+page. `tests/test_no_floats.py` holds it now, over `src/`, `tests/`, `examples/` and `build.rs`.
 
 `cargo test` also runs in debug; release is the one that matters, because release keeps overflow
 checks on. After a comment-only edit to Rust, `cargo check --release` is enough; after a code
@@ -90,9 +111,13 @@ and holds the rotation and self-play checks.
 Two more, neither of them a pass/fail gate:
 
 ```
-cd crates\royalesim && cargo test --release --test throughput -- --ignored --nocapture   # timing
-..\.venv\Scripts\python tools\watch_battle.py --open                                     # a battle you can watch
+cd crates\royalesim
+cargo test --release --test throughput -- --ignored --nocapture
+cd ..\..
+..\.venv\Scripts\python tools\watch_battle.py --open
 ```
+
+The first is the timing run. The second opens a battle you can watch.
 
 ### `tools/check_card_reads.py`
 
