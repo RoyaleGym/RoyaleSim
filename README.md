@@ -12,7 +12,7 @@
   <img alt="Card table: 78 cards in a public clone, 144 in the full table" src="https://img.shields.io/badge/card%20table-78%20in%20a%20clone%2C%20144%20full-555?style=flat-square">
   <img alt="Tick" src="https://img.shields.io/badge/tick-50%20ms%2C%2020%20per%20second-555?style=flat-square">
   <img alt="Routes reproduced" src="https://img.shields.io/badge/recorded%20routes-743%20of%20744-2ea043?style=flat-square">
-  <img alt="Position agreement, towers left out" src="https://img.shields.io/badge/position%20match%2C%20no%20towers-49.4%25-orange?style=flat-square">
+  <img alt="Position agreement, towers left out" src="https://img.shields.io/badge/position%20match%2C%20no%20towers-56.5%25-orange?style=flat-square">
 </p>
 
 **A Clash Royale battle engine you drive from Python. It plays the whole match: elixir, hands,
@@ -290,11 +290,15 @@ We record real matches, replay them in the engine, and compare where every unit 
 
 | how often the engine agrees | counting towers | towers left out |
 |---|---|---|
-| a unit is within a quarter of a tile of where it really was | 82.6% | 49.4% |
+| a unit is within a quarter of a tile of where it really was | 85.1% | 56.5% |
 | a unit's hitpoints are exactly right | 81.7% | 79.4% |
 
 The right-hand column is the one to look at. Towers do not move and there are six of them in
 every battle, so counting them flatters the result.
+
+The per-card figures below, and the table of causes further down, are from the run BEFORE the
+spawner fix. They have not been re-measured on `d872d792711934c2`, and the fix is expected to move
+at least the spawner rows, so read them as the shape of the problem rather than as today's numbers.
 
 A single unit walking alone is close to solved. A Hog Rider is within a quarter tile 90.1% of the
 time and walks the game's exact path on 99.2% of its ticks. A Knight is 73.1% and 73.3%.
@@ -302,21 +306,33 @@ time and walks the game's exact path on 99.2% of its ticks. A Knight is 73.1% an
 A crowd is not. Five cheap swarm cards carry 63% of the unit-ticks between them and four of the
 five are under 50% within a quarter tile: Goblins 40.3%, Skeletons 45.8%, with the Skeleton Army
 the exception at 55.7%. The worst is the Tombstone at 20.0%, which is a building that sits still
-and is scored through the skeletons it emits, because the engine does not yet put them where the
-game puts them.
+and is scored through the skeletons it emits, and at the time of that run the engine did not put
+them where the game puts them. That is the defect the spawner fix addressed, so this row in
+particular is stale in the reader's favour.
 
 Two of those moved the wrong way since 2026-09-21 and we would rather say so: the Knight was
 82.5% and the Musketeer 81.6%, now 73.1% and 71.9%. Do not read that as the engine getting worse
 at walking. The corpus is 23% bigger and its make-up changed with it, so these are not the same
 battles scored twice.
 
-**Those numbers are today's, and the 49.4 % is not the old one standing still.** They come from a
-run on 2026-09-22 over 271,384 unit-ticks from 67 battles. The run of 2026-09-21 scored the same
-49.4 %, over 219,491. The corpus grew by 23 % in between, because more cards load and so more
-units stand on the board, so the same figure over a bigger and harder population is not a result
-that held steady. Do not subtract the two. The target is that a swarm fight does not diverge either. We know where the gap
-comes from, because the same run also reports what went wrong first in every battle, and how much
-of the error sits in the battles that went wrong that way:
+**The 56.5 % moved on 2026-09-22, and it is the first time that figure has moved.** On the
+73-fixture replay corpus, 56.5 % of non-tower unit-ticks land within 250 native units, a quarter
+tile, of the recording, up from 49.4 % before the spawner emission point was corrected. The same
+fixtures and the same harness produced both, so the 7.1 points is a before-and-after rather than
+two measurements of different things. Build digest `d872d792711934c2`, ledger `97e9ee7be7a10c57`,
+engine `7ea8645`. The population is 270,972 non-tower unit-ticks: 67 of the 73 fixtures play, 40 of
+those only as prefixes that stop at the first card the engine cannot load, and 6 do not play at
+all. Those are not whole battles and the number should not be read as if they were.
+
+Before that, the figure had been flat while the work underneath it was not. A run on 2026-09-21
+scored 49.4 % over 219,491 unit-ticks and a run on 2026-09-22 scored 49.4 % over 271,384. The
+corpus grew 23 % in between, because more cards load and so more units stand on the board, so the
+same figure over a bigger and harder population was not a result that held steady. Do not subtract
+those two.
+
+The target is that a swarm fight does not diverge either. We know where the gap comes from, because
+the same run also reports what went wrong first in every battle, and how much of the error sits in
+the battles that went wrong that way:
 
 | cause of the first divergence | share of the error |
 |---|---|
