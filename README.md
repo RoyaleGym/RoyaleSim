@@ -291,7 +291,7 @@ We record real matches, replay them in the engine, and compare where every unit 
 | how often the engine agrees | counting towers | towers left out |
 |---|---|---|
 | a unit is within a quarter of a tile of where it really was | 85.1% | 56.5% |
-| a unit's hitpoints are exactly right | 81.7% | 79.4% |
+| a unit's hitpoints are exactly right | 81.7%, earlier run | 79.5% |
 
 The right-hand column is the one to look at. Towers do not move and there are six of them in
 every battle, so counting them flatters the result.
