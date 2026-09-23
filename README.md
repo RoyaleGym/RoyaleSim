@@ -67,7 +67,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table and refuses 44, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35851855904 at `6446229`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 101 of the 144 cards in the 15.535 client's card table and refuses 43, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35928386686 at `49777a6`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 155 carry a status from guess to measured, and 62 are measured (2026-09-22). 101 also name the rivals they were chosen against, and 110 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -444,14 +444,15 @@ Working:
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 60 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. **Of the card table's 144 rows the engine loads 100 and refuses 44**, with a reason for
-  each refusal. The engine's own census reports **102 loadable, 44 rejected and 12 summon-only**,
-  and those do not sum to 144 for a reason worth stating: the 102 is the 100 plus the King and
+- Cards. **Of the card table's 144 rows the engine loads 101 and refuses 43**, with a reason for
+  each refusal. The engine's own census reports **103 loadable, 43 rejected and 12 summon-only**,
+  and those do not sum to 144 for a reason worth stating: the 103 is the 101 plus the King and
   Princess towers, and the 12 summon-only are unit definitions that are not rows of the card table
   at all - a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon*
   drops, and no hand can play either. The three lists are disjoint and their union is 158: the 144
-  rows plus the 2 towers plus those 12. Counts from RoyaleSim CI run 35851855904 at `6446229`,
-  against `cards.json` 5a1dac3d2fb1b4a9.
+  rows plus the 2 towers plus those 12. Counts from RoyaleSim CI run 35928386686 at `49777a6`,
+  green on Linux and Windows, against `cards.json` 5a1dac3d2fb1b4a9. The card that moved from
+  refused to loadable since the previous run is Tornado.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
