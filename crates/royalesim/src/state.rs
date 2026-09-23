@@ -1576,7 +1576,7 @@ pub enum DeployError {
     /// THE MATCH HAS NOT OPENED YET (match.DEPLOY_LOCKOUT_TICKS). The real engine
     /// refuses every deploy until tick 90 and this engine used to accept them from tick
     /// 0, so anything driving it could open with a play no client could make.
-    TooEarly { tick: i32, until: i32 },
+    TooEarly { tick: u32, until: u32 },
     UnknownCard(String),
     UnsupportedCard(String, String),
     NotInHand,
@@ -5693,8 +5693,11 @@ impl BattleState {
         // this is the pure query both entry points ask first: a check the acting path did
         // not make is a second answer that can disagree with the one the engine acted on,
         // which the comment on `deploy_slot` already warns about for building placement.
-        if self.tick < self.cfg.calib.deploy_lockout_ticks {
-            return Err(DeployError::TooEarly { tick: self.tick, until: self.cfg.calib.deploy_lockout_ticks });
+        // `.max(0) as u32` rather than a cast: a negative lockout in the ledger means
+        // "no lockout" instead of a threshold that wraps to four billion ticks.
+        let until = self.cfg.calib.deploy_lockout_ticks.max(0) as u32;
+        if self.tick < until {
+            return Err(DeployError::TooEarly { tick: self.tick, until });
         }
         if self.outcome.is_some() {
             return Err(DeployError::GameOver);

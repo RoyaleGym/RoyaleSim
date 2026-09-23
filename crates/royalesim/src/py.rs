@@ -127,7 +127,7 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
-pub const DEPLOY_REASONS: [&str; 13] = [
+pub const DEPLOY_REASONS: [&str; 14] = [
     "OK",
     "BAD_TEAM",
     "BAD_SLOT",
@@ -141,6 +141,12 @@ pub const DEPLOY_REASONS: [&str; 13] = [
     "GAME_OVER",
     "DUPLICATE_TEAM",
     "ENGINE_ERROR",
+    // TOO_EARLY, index 13, added 2026-09-23 with match.DEPLOY_LOCKOUT_TICKS. The array
+    // is length-annotated, so adding the reason code in `reason_of` without adding its
+    // NAME here ran off the end of this list and gym's table -- which is derived from
+    // it, correctly -- raised IndexError. The exhaustive match caught the Rust half and
+    // nothing caught this half, because a `[&str; N]` grows by editing two places.
+    "TOO_EARLY",
 ];
 
 const R_OK: u8 = 0;
@@ -162,6 +168,11 @@ fn reason_of(r: &Result<(), DeployError>) -> u8 {
             DeployError::OutOfTerritory => 8,
             DeployError::Occupied => 9,
             DeployError::GameOver => 10,
+            // 13, its own code rather than the 12 catch-all: "the match has not opened
+            // yet" is a reason a caller can act on by waiting, and the others in 12 are
+            // not. This arm exists because the match above is exhaustive on purpose and
+            // refused to compile without it, which is the comment above doing its job.
+            DeployError::TooEarly { .. } => 13,
             DeployError::UnknownCard(_)
             | DeployError::UnsupportedCard(..)
             | DeployError::NotInHand
