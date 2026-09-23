@@ -459,15 +459,39 @@ Not modelled yet, in plain words:
 Tests. Both blocks below start from the `Royale` folder you made in stage 1, so go back there
 before you run the second one.
 
-The Rust suite is 373 tests, 3 of them skipped unless you ask for them. **It is failing today, on
-main, and has been since 2026-09-22 17:38.** One test: the scripted battle's separation invariant,
-where two Skeleton Army units overlap by 157 per cent of the smaller radius for 41 consecutive
-ticks against a limit of 150 for 40. The starting elixir moving from 5 to 6 did not create that
-defect. It created a battle that reaches one already on the backlog, so the engine has carried it
-longer than the failure has existed. No passing count for this suite is published until it is
-green again. The first run compiles the
-test binaries before it runs anything, so expect several minutes of build output before the first
-result appears.
+The Rust suite passes: **31 binaries, 374 passed, 0 failed, 3 ignored**, run as
+`cargo test --release --no-fail-fast -j 2` on 2026-09-23. It had been failing since 2026-09-22
+17:38 and is not failing now.
+
+Two conditions travel with that number, and both are the kind this project publishes rather than
+leaves out.
+
+**It was built with `CARGO_PROFILE_RELEASE_LTO=thin`.** The profile declared in
+`crates/royalesim/Cargo.toml` is `lto = "fat"`, and fat LTO linked zero of the 31 binaries in
+fifteen minutes on the machine this was run on. The override is an environment variable, so it does
+not travel with the repo and your own run will use fat LTO unless you set it. It does not change
+what the tests check: there is no `f32` or `f64` anywhere in the crate, and `overflow-checks = true`
+is set on the package and cannot be reached by that variable.
+
+**It is a local result, not a certified one.** This repo has no clean-runner evidence at all yet,
+and a count that is true on one machine is not a certification, because a clean machine is the
+reader's. Treat the figure above as supporting evidence.
+
+**The defect that caused the failure is still here, and its size is now known.** Two Skeleton Army
+units overlap by 157 per cent of the smaller radius for **87 consecutive ticks**, against a limit
+of 150 for 40. A test now holds it at 87 in both directions, so it cannot grow and it cannot be
+quietly fixed without somebody noticing.
+
+That 87 was published here as 41 for most of a day, and the reason is worth more than the
+correction. The gate stopped counting the moment it had enough to fail: 40 allowed, one more,
+report 41. **41 was the threshold plus one, not the size of the defect.** It became a measurement
+only when someone re-ran with the limit lifted. A fail-fast check reports its own bound, and a bound
+reads exactly like a measurement once it is written into a sentence.
+
+The starting elixir moving from 5 to 6 did not create the defect. It created a battle that reaches
+one already on the backlog, so the engine carried it long before any test went red. The first run
+compiles the test binaries before it runs anything, so expect several minutes of build output
+before the first result appears.
 
 ```
 cd RoyaleSim\crates\royalesim
