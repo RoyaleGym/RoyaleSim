@@ -32,6 +32,34 @@ def claims_the_value_is_refuted(entry: dict) -> bool:
     return bool(VALUE_REFUTED.search(str(entry.get("confidence", ""))))
 
 
+def test_no_other_field_asserts_a_refutation_in_capitals():
+    """THE CONVENTION IS POSITIONAL, because capitalisation cannot carry it.
+
+    The gate used to read `confidence` alone, and the class lives in several fields: two
+    entries described their OWN shipped value as refuted from `proposed_value` and
+    `measured_2026_09_22` and escaped it. But widening on capitals alone would be wrong in
+    the other direction, because capitals are not reliably about the value:
+    match.START_MANA said REFUTED in capitals about the reading 5 that it REPLACED, which is
+    a rival, not its own value 6.
+
+    So `confidence` is the only field where capitals assert that THIS entry's value is
+    wrong, and this gate holds the rest of the entry to it. Anywhere else, name what was
+    refuted in lower case. That makes the population every field, and the discriminator a
+    place rather than a shape.
+    """
+    offenders = []
+    for key, entry in ENTRIES.items():
+        for field, value in entry.items():
+            if field == "confidence" or not isinstance(value, str):
+                continue
+            if VALUE_REFUTED.search(value):
+                offenders.append(f"{key}[{field}]")
+    assert not offenders, (
+        "a value-refutation asserted outside `confidence`, where nothing looks for it. Put the "
+        f"claim in `confidence` with `refuted_for`, or lower-case it and say what it refutes: {offenders}"
+    )
+
+
 def test_a_refuted_value_is_machine_readable():
     missing = [
         key for key, entry in ENTRIES.items()
