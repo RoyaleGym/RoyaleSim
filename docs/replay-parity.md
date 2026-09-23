@@ -4,6 +4,16 @@ Measured 2026-09-22 at 18:40 PDT on the whole corpus, against the engine of that
 footprints for buildings, 102 loadable cards and 6 starting elixir. An earlier run on
 2026-09-21 is in the history note at the end; do not read the two as one series.
 
+**RE-MEASURED 2026-09-23 13:15 AND THIS PAGE'S FIGURES ARE SUPERSEDED.** On the same corpus and a
+near-identical population (271146 no-tower unit-ticks against the 271384 below, 0.1% apart, so these
+two ARE comparable): **no-tower within 250 is 56.7%, not 49.4%**, and the isolated walk within 250 is
+**64.3%, not 51.9%**. The bit-exact walk barely moved, 30.7% -> 30.9%. The gain is the engine work of
+2026-09-22 evening and later -- the measured spawn point, Tornado, the deploy lockout -- not a change
+of population. **The first-divergence ranking also changed: DEATH now heads section 5, not spawn.**
+Each stale table below says so where it sits. The re-measurement, with the cause table re-derived
+under this page's own column definitions, is in RoyaleLive `docs/2026-09-22-sessions/REPORTS.md`,
+entry 2026-09-23 13:15.
+
 This page is for contributors who want to know how close the engine is to the game. The engine's
 claim is that it reproduces the game, and this file is the measurement of that claim over every
 recorded battle the repository has. The harness plays the script of what a player did through the
@@ -73,6 +83,8 @@ the per-fixture report each say when they disagree. The run below carries no suc
 **27 whole battles and 40 prefixes, 67 battles.** 271384 no-tower unit-ticks; the walk
 columns are over 141002 isolated-walk unit-ticks.
 
+**SUPERSEDED: 56.7% no-tower within 250 as of 2026-09-23, over 271146 unit-ticks. See the top of this page.**
+
 | | unit-ticks | <=250 | <=250 moving | <=500 | <=1000 | hp exact | target | path n | alive/missing/extra | walk <=250 | walk <=20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | ALL | 800243 | 82.6% | 82.6% | 87.0% | 91.2% | 81.7% | 18.0% | 82.6% | 3.9% | 51.9% | 30.7% |
@@ -86,6 +98,11 @@ should not be subtracted from each other.
 
 **The 27 whole battles alone**, no prefixes. 167980 no-tower unit-ticks; 88243 isolated-walk
 unit-ticks.
+
+**NOT RE-MEASURED on 2026-09-23.** That re-run was `--all --prefix` only, so these
+whole-battle-only figures are from 2026-09-22 and no newer measurement exists for this mode.
+They are stale by an unknown amount, not by a known one -- do not scale them by the prefix
+mode's movement, since the two modes are different populations.
 
 | | unit-ticks | <=250 | <=250 moving | <=500 | <=1000 | hp exact | target | path n | alive/missing/extra | walk <=250 | walk <=20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -145,6 +162,11 @@ mismatch. The harness reads a cause at the onset, the first tick that unit's err
 One cause per battle, so the table below ranks what goes wrong *first*, not what costs most
 in total. The unit-tick columns say how much of the corpus sits behind battles that begin that
 way. 19 of the 67 battles never diverge at all (short prefixes, most of them).
+
+**SUPERSEDED, AND THE ORDER CHANGED. As of 2026-09-23: death 16 battles / 31.3% of missed / 57.0%
+within 250; spawn 10 / 29.4% / 53.0%; attack-timing 10 / 20.4% / 57.6%; contact 12 / 18.9% / 58.8%.
+Death is top because it is the one cause that did NOT respond to the 2026-09-22 work -- under a
+point of movement against 7.6, 9.8 and 12.4 for the other three. Walking still heads no battle.**
 
 | cause | battles | no-tower unit-ticks | of them beyond 250 | share of the corpus' missed unit-ticks | within 250 |
 |---|---|---|---|---|---|
