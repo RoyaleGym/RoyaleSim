@@ -52,7 +52,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table (2026-09-22, after the footprint rebuild added five, Hog 2.6 among them). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine loads 102 cards, refuses 44 with a reason for each, and treats 12 more as summon-only, counted by the loader itself on a clean runner (RoyaleSim CI run 35851855904 at `6446229`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 155 carry a status from guess to measured, and 62 are measured (2026-09-22). 101 also name the rivals they were chosen against, and 110 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -429,9 +429,10 @@ Working:
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 60 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. The 15.535 client's card table holds 144 cards, 2 towers and 334 units. The engine plays
-  100 of those cards (2026-09-22). It refuses the other 44 when it loads the table, and says why for
-  each one.
+- Cards. The 15.535 client's card table holds 144 cards, 2 towers and 334 units. Asked to load it,
+  the engine reports **102 loadable, 44 rejected and 12 summon-only**, and says why for each one it
+  refuses. Those are the loader's own counts, taken on a clean runner rather than here: RoyaleSim
+  CI run 35851855904 at `6446229`, against `cards.json` 5a1dac3d2fb1b4a9.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
