@@ -446,6 +446,15 @@ pub struct CardDef {
     /// spawn speed -- on every enemy inside it for 2000 ms, and carries no damage of
     /// its own.
     ///
+    /// THE ROW'S NAME CONTRADICTS ITS BEHAVIOUR, so read the row and not the name.
+    /// `FreezeIceGolemite` is a SLOW: its buff is IceWizardSlowDown at -30, which
+    /// leaves the victim walking at 70 % of its speed. A freeze is -100, which is
+    /// what `SuperIceGolemite`'s `SuperFreezeIceGolemite` actually ships. The
+    /// recordings agree with the row rather than the name: after an Ice Golem death
+    /// a Goblin that walked a straight line stepped 83-84 native units per tick
+    /// against its Speed column of 120 (client 16.402). Anything reading this field
+    /// by name, in this repo or in a consumer, will get the wrong mechanic.
+    ///
     /// INDEPENDENT OF `death_damage` / `death_damage_radius`, which the same death
     /// also fires. The data settles that they are two effects of one death, not one:
     /// the Ice Golem's area carries a blank Damage beside a 33-damage disc, and the
@@ -610,7 +619,8 @@ struct RawCard {
     action_graph: Option<RawActionGraph>,
     /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
     /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
-    /// Barbarian's bottle dummy). `from_json_str` looks it up in the file's
+    /// Barbarian's bottle dummy). A NAME, and nothing more: FreezeIceGolemite is a
+    /// 30 % slow, not a freeze (see `CardDef::death_area_effect`). `from_json_str` looks it up in the file's
     /// `area_effect_objects` table and fills `CardDef::death_area_effect`; a name the
     /// table does not carry, or an area whose mechanic the loader does not read,
     /// refuses the card AFTER its push, which keeps the format-3 card list intact.
