@@ -144,10 +144,16 @@ jobs:
         working-directory: RoyaleSim
         run: ../.venv/bin/python -m ruff check .
 
+      # --keep-going, because this gate had NEVER EXECUTED until 2026-09-23 and a first
+      # execution reports in layers: --all-targets aborts at the first target that fails, so
+      # each round of repairs reveals the next target's lints and costs a full CI cycle. The
+      # flag is documented for `cargo build` and not for `cargo clippy`, which forwards
+      # unrecognised options to `cargo check`; if this cargo rejects it the step says so and
+      # nothing else is lost.
       - name: clippy
         if: always()
         working-directory: RoyaleSim/crates/royalesim
-        run: cargo clippy --release --all-targets -- -D warnings
+        run: cargo clippy --release --all-targets --keep-going -- -D warnings
 
       # A COUNT WITHOUT ITS POPULATION IS THE THING THAT BURNED FOUR SESSIONS IN ONE NIGHT. This
       # records what ran, what did not, and WHY -- because the tests a runner cannot run are the

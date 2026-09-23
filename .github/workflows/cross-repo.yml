@@ -103,6 +103,17 @@ jobs:
             args: ""
           - repo: RoyaleViser
             args: ""
+          # THE SAME REPO AGAIN, ON THE OTHER CARD TABLE, and it is not a duplicate. Six of
+          # gym's cross-engine comparisons skip under the row above because MockEngine reads
+          # the 2018 raw CSVs while the compiled engine reads `cards.json`, which stage 3
+          # fills with the 15.535 table -- so a comparison between them would measure the
+          # DATA rather than the engines, and the skip is correct. The engine re-reads
+          # `cards.json` every time one is constructed, so writing the 2018 table there moves
+          # the engine's half with NO REBUILD and the comparison becomes engine-against-engine
+          # again. This row exists so that coverage is taken rather than declared away.
+          - repo: RoyaleGym
+            cards: "2018"
+            args: tests/test_rust_engine.py tests/test_rust_spells.py tests/test_building_footprint.py
     steps:
       # THE WHOLE STACK, not the repo under test alone, and this is the fix for what run one
       # got wrong. Installing one repo against the wheel answers "does this repo import the
@@ -157,54 +168,61 @@ jobs:
           python -m pip install pytest hypothesis
           python -m pip install -e RoyaleGym -e RoyaleLearn -e "RoyaleViser[media]"
 
+      # Learn's suite imports torch AT COLLECTION in three modules, so a missing torch is a
+      # collection ERROR and `-m engine` never gets to select anything -- the row goes red
+      # having run none of the five tests it exists for. Learn's own CI installs the CPU
+      # wheels; this is that line. Only for that row: nothing else imports it.
+      - name: torch, CPU wheels, for the learn row
+        if: matrix.repo == 'RoyaleLearn'
+        run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - name: stage 3 for the data the consumers read
         shell: bash
         working-directory: RoyaleSim
+        env:
+          CARDS: ${{ matrix.cards }}
         run: |
           python tools/extract_arena.py
           python tools/extract_cards.py --vintage 2018
-          cp data/derived/cards-15.535.json data/derived/cards.json
+          if [ "$CARDS" = "2018" ]; then
+            python tools/extract_cards.py --vintage 2018 --out data/derived/cards.json
+          else
+            cp data/derived/cards-15.535.json data/derived/cards.json
+          fi
           python tools/extract_globals.py
+          echo "cards.json = ${CARDS:-15.535}" >> "$GITHUB_STEP_SUMMARY"
 
-      # `-rs` is not decoration: the next step reads these lines. `tee` keeps the output for
-      # it while pipefail keeps pytest's own exit code as this step's.
+      # The JUnit report is what the next step reads: it carries TEST NAMES, and `file.py:LINE`
+      # from the terse output moves whenever somebody edits above it. `tee` keeps the human
+      # copy for the log while pipefail keeps pytest's own exit code as this step's.
       - name: the suite, against that engine
         shell: bash
         working-directory: ${{ matrix.repo }}
         run: |
           set -o pipefail
-          python -m pytest -q -rs ${{ matrix.args }} 2>&1 | tee "$GITHUB_WORKSPACE/pytest.txt"
+          python -m pytest -q -rs --junitxml="$GITHUB_WORKSPACE/report.xml" ${{ matrix.args }} \
+            2>&1 | tee "$GITHUB_WORKSPACE/pytest.txt"
 
       # THE GATE THAT MAKES THE ROW ABOVE MEAN SOMETHING. A consumer whose engine tests all
       # skip is GREEN, and it is green for the one reason this job may never accept: it did
       # not reach the engine. Run one shipped exactly that -- viser, a green row, zero engine
       # lines -- and nothing in the job could tell.
       #
-      # It refuses a SHAPE rather than a list of known tests: any skip whose reason names the
-      # engine is a failure HERE, whatever the test is called, because there is no such thing
-      # as a legitimately absent engine in this job. Elsewhere those same skips are correct
-      # and must stay.
-      #
-      # It is also the only instrument that would notice learn's
-      # `except RuntimeError: pytest.skip("the engine build disagrees with the data on disk")`,
-      # which converts the stale-build refusal -- the check that the data and the binary
-      # match -- into a green skip in the one job built to test that they do.
-      - name: a skip that names the engine is a failure here
+      # Run two's first version of this gate matched WORDS in the skip reason. It caught a
+      # real hole in gym and it also failed viser for four skips that can never be satisfied
+      # on a public runner, because one sentence said "the engine is absent" and another said
+      # "the recordings are absent" and a word list cannot tell those apart. The gate now
+      # never reads the wording: a skip is either DECLARED in tools/cross_repo_skips.py, with
+      # the reason a public runner can never satisfy it, or it fails the job. A drift has to
+      # become a line somebody adds to that file, which is a lie you can read, rather than a
+      # silence in a green log.
+      - name: every skip is declared, or this job fails
         if: always()
         shell: bash
         run: |
-          test -f pytest.txt || { echo "the suite step produced no output to read"; exit 1; }
-          tail -3 pytest.txt >> "$GITHUB_STEP_SUMMARY"
-          bad=$(grep -E "^SKIPPED" pytest.txt | grep -iE "royalesim|royalegym|extension|engine|core_available|maturin" || true)
-          if [ -n "$bad" ]; then
-            echo "SKIPPED FOR WANT OF THE ENGINE, in the job whose entire subject is the engine:"
-            echo "$bad"
-            echo "Every one of these is a test that did not run against the wheel this job built."
-            echo "Either the stack install above no longer gives this repo what its tests import,"
-            echo "or the engine refused to construct -- and a refusal is a RED here, never a skip."
-            exit 1
-          fi
-          echo "no engine-shaped skips"
+          tail -3 pytest.txt >> "$GITHUB_STEP_SUMMARY" || true
+          python RoyaleSim/tools/cross_repo_skips.py report.xml "${{ matrix.repo }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The engine's own digest, from the binary that just ran the suite, beside the count.
       - name: record what ran
