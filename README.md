@@ -296,24 +296,31 @@ We record real matches, replay them in the engine, and compare where every unit 
 The right-hand column is the one to look at. Towers do not move and there are six of them in
 every battle, so counting them flatters the result.
 
-The per-card figures below, and the table of causes further down, are from the run BEFORE the
-spawner fix. They have not been re-measured on `d872d792711934c2`, and the fix is expected to move
-at least the spawner rows, so read them as the shape of the problem rather than as today's numbers.
+Everything below is from the same run, at build `d872d792711934c2`, over the same 73 fixtures.
 
-A single unit walking alone is close to solved. A Hog Rider is within a quarter tile 90.1% of the
-time and walks the game's exact path on 99.2% of its ticks. A Knight is 73.1% and 73.3%.
+**The Tombstone went from 20.0% to 54.5%**, which is the largest move any card has made. It is a
+building that sits still and is scored through the skeletons it emits, so it was measuring the
+spawn point and almost nothing else, and the spawn point is what was corrected.
 
-A crowd is not. Five cheap swarm cards carry 63% of the unit-ticks between them and four of the
-five are under 50% within a quarter tile: Goblins 40.3%, Skeletons 45.8%, with the Skeleton Army
-the exception at 55.7%. The worst is the Tombstone at 20.0%, which is a building that sits still
-and is scored through the skeletons it emits, and at the time of that run the engine did not put
-them where the game puts them. That is the defect the spawner fix addressed, so this row in
-particular is stale in the reader's favour.
+A single unit walking alone is close to solved. A Bomber is within a quarter tile 81.9% of the time
+and walks the game's exact path on 64.2% of its ticks; a Knight is 72.9% and 73.3%; a Giant is
+64.7% and 70.4%.
 
-Two of those moved the wrong way since 2026-09-21 and we would rather say so: the Knight was
-82.5% and the Musketeer 81.6%, now 73.1% and 71.9%. Do not read that as the engine getting worse
-at walking. The corpus is 23% bigger and its make-up changed with it, so these are not the same
-battles scored twice.
+A crowd is not, and that is now where the remaining error lives. Goblins are at 40.6% within a
+quarter tile, Skeletons and the Minion Horde at 46.0%, the Skeleton Army at 55.7%. Widen the bar to
+a full tile and the same cards are at 75.0%, 66.0%, 81.1% and 81.2%. That gap between the two bars
+is the useful shape of the problem: a swarm is usually in roughly the right place and rarely in
+exactly the right place. The reading we work from, which is a reading and not something these
+numbers establish, is that the units inside a swarm are interchangeable, so the engine can have the
+group right and still have no particular unit where the game put it.
+
+Hitpoints behave differently from position and are worth reading separately. The swarm cards are at
+86-89% exact, better than the Knight's 74.7% and the Giant's 67.7%. A card being badly placed and a
+card having the wrong hitpoints are not the same failure, and on this corpus the cheap swarms are
+the cards that get the second one right and the first one wrong.
+
+For scale, the two tower types are 340,371 and 188,488 unit-ticks of the corpus and sit at 99.8%
+and 99.6%. That is the whole reason the towers-left-out column is the one to read.
 
 **The 56.5 % moved on 2026-09-22, and it is the first time that figure has moved.** On the
 73-fixture replay corpus, 56.5 % of non-tower unit-ticks land within 250 native units, a quarter
@@ -334,20 +341,22 @@ The target is that a swarm fight does not diverge either. We know where the gap 
 the same run also reports what went wrong first in every battle, and how much of the error sits in
 the battles that went wrong that way:
 
-| cause of the first divergence | share of the error |
-|---|---|
-| where a spawner or a multi-unit card puts its units | 32.5% |
-| how units push each other apart on contact | 31.0% |
-| when a unit dies | 21.9% |
-| attack timing | 13.9% |
-| walking | 0.4% |
+| cause of the first divergence | battles | share of the missed unit-ticks |
+|---|---|---|
+| when a unit dies | 16 | 31.2% |
+| where a spawner or a multi-unit card puts its units | 10 | 29.4% |
+| attack timing | 10 | 20.5% |
+| how units push each other apart on contact | 12 | 18.9% |
 
-The battles in the first two rows hold nearly two thirds of the error (63.5%), so those two causes
-are the biggest open problems. 25 of the 67 battles in the corpus never diverge at all, though
-most of those are short. A single unit walking on its own is close to solved, which is why walking is the smallest row in
-the table: a Knight is within a quarter tile 82.5% of the time. These numbers change whenever the
-engine does, and [docs/replay-parity.md](docs/replay-parity.md) gives the date of the run behind
-them.
+**This table is measured after the spawner fix, and the order changed.** Contact was 31.0% and is
+now 18.9%; death was 21.9% and is now 31.2%. Do not read that as contact improving on its own. Each
+battle is attributed to what went wrong FIRST in it, so fixing the largest cause changes the scene
+every other cause is measured on, and the old ranking has stopped being a ranking of anything.
+Comparing the two tables row by row will mislead you.
+
+19 of the 67 battles never diverge at all, though most of those are short. These numbers change
+whenever the engine does, and [docs/replay-parity.md](docs/replay-parity.md) gives the date of the
+run behind them.
 
 So: this engine is not as accurate as running the real game, which is correct by definition. It is
 faster, it runs anywhere, it needs no game files, and it tells you exactly how wrong it is and where.
