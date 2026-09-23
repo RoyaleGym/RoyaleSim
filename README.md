@@ -105,9 +105,12 @@ which the engine and every sibling repo reads. Each one prints a page of table n
 and notes as it works. That is normal output, not errors.
 
 `extract_globals.py` also compares the shipped 2018 table with the values the simulator runs on
-and prints a line per constant. `AGREE` is a match. `SUPERSEDED` is a value the simulator has
-measured against the current game and deliberately does not take from the 2018 table, with the
-reason printed beside it. Only a disagreement nobody has written down stops the run.
+and prints a line per constant. Neither of the two words it prints needs anything from you.
+`AGREE` is a match. `SUPERSEDED` is a value the simulator has measured against the current game
+and deliberately does not take from the 2018 table, with the reason printed beside it. You will
+see one: the match starts with 6 elixir rather than the 5 in the 2018 table, because 6 is what
+the live game does. Only a disagreement nobody has written down stops the run, and then the
+script says so and exits non-zero.
 
 The two `extract_cards.py` lines are not a typo and both need `--vintage 2018`. The first writes
 `data/derived/cards-2018.json` and the second writes the same table over `data/derived/cards.json`.
