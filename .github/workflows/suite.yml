@@ -1,0 +1,152 @@
+name: suite
+# MANUAL ONLY FOR NOW, AND THAT IS A CONDITION RATHER THAN A PREFERENCE. The owner approved
+# Actions on these repos on the condition that the suites are green first, to avoid a badge that
+# is red on arrival, and this repo's Rust suite is not yet confirmed green on a full sweep. So
+# `push` and `pull_request` are deliberately absent and this fires only when somebody asks it to.
+# Adding those two lines back is the whole of turning CI on, and it should happen the moment a
+# full sweep is green rather than before.
+on:
+  workflow_dispatch:
+
+# The README's OWN install, verbatim, on both platforms. A workflow that installs some other
+# way tests nothing a reader will experience: this project's published install block ran in no
+# shell a newcomer would use for the whole public life of these repos, and the first person to
+# run it verbatim found a non-zero line on the thirteenth.
+#
+# TWO RUNNERS IS LOAD-BEARING FOR THIS REPO IN PARTICULAR. Every build in this crate's life has
+# run on one Windows machine. It compiles FOUR data files into the extension with `include_str!`
+# and stamps an absolute build path into the binary, and three other repos read those back out.
+# `..` normalises LEXICALLY on Windows and is walked component by component on POSIX, so a path
+# built with `..` and then stat-ed answers a different question per platform -- which is not
+# hypothetical: on 2026-09-23 a sibling repo's test passed here and failed on a clean Ubuntu
+# runner for exactly that, found the first time anybody looked. The untested case is every OS
+# this code has never seen, and no amount of care on the platform where it works can find it.
+#
+# THE RUNNER RUNS A DIFFERENT POPULATION, NOT A SMALLER ONE, and the summary step says so. A
+# clone has no recorded corpus and the README's stage 3 builds the 2018 card table, so the
+# oracle and replay fixtures skip -- and those are the tests that carry the parity claim. A row
+# reading "N passed on ubuntu-latest" is true and means something a reader cannot recover, so
+# the summary records the collected count beside it and names what the difference consists of.
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RoyaleSim
+          # FULL history. build.rs stamps the commit and the tree's clean/dirty state into the
+          # extension so a figure can name the build it came from, and the doc gates ask
+          # `git ls-files` for the pages they check. A shallow clone is a different repository
+          # to anything that reads git.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The README says the build "fails late and unhelpfully" without a Rust toolchain. Every
+      # machine in this project's life already had one, so that sentence has never been tested;
+      # a runner tests it by construction, and naming the toolchain here is what makes a red
+      # first run mean something other than "rustc was missing".
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: the venv, the README's line
+        run: python -m venv .venv
+
+      - name: the tools the README's install names
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\python -m pip install maturin pytest hypothesis ruff
+
+      - name: the tools the README's install names
+        if: runner.os != 'Windows'
+        run: .venv/bin/python -m pip install maturin pytest hypothesis ruff
+
+      # Stage 3, verbatim including the two extract_cards lines, which are not a typo: the first
+      # writes cards-2018.json and the second writes the same table over cards.json, the file the
+      # engine loads. A clone has only the 2018 tables, so this is the card table CI runs on.
+      - name: stage 3, generate the data files
+        shell: pwsh
+        if: runner.os == 'Windows'
+        working-directory: RoyaleSim
+        run: |
+          ..\.venv\Scripts\python tools\extract_arena.py
+          ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018
+          ..\.venv\Scripts\python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+          ..\.venv\Scripts\python tools\extract_globals.py
+
+      - name: stage 3, generate the data files
+        if: runner.os != 'Windows'
+        shell: bash
+        working-directory: RoyaleSim
+        run: |
+          ../.venv/bin/python tools/extract_arena.py
+          ../.venv/bin/python tools/extract_cards.py --vintage 2018
+          ../.venv/bin/python tools/extract_cards.py --vintage 2018 --out data/derived/cards.json
+          ../.venv/bin/python tools/extract_globals.py
+
+      - name: stage 4, build the engine into the venv
+        shell: pwsh
+        if: runner.os == 'Windows'
+        working-directory: RoyaleSim
+        run: ..\.venv\Scripts\maturin develop --release
+
+      - name: stage 4, build the engine into the venv
+        if: runner.os != 'Windows'
+        working-directory: RoyaleSim
+        run: ../.venv/bin/maturin develop --release
+
+      - name: the Rust suite
+        working-directory: RoyaleSim/crates/royalesim
+        run: cargo test --release --no-fail-fast
+
+      - name: the Python suite
+        shell: pwsh
+        if: runner.os == 'Windows'
+        working-directory: RoyaleSim
+        run: ..\.venv\Scripts\python -m pytest -q
+
+      - name: the Python suite
+        if: runner.os != 'Windows'
+        working-directory: RoyaleSim
+        run: ../.venv/bin/python -m pytest -q
+
+      - name: ruff
+        shell: pwsh
+        if: runner.os == 'Windows'
+        working-directory: RoyaleSim
+        run: ..\.venv\Scripts\python -m ruff check .
+
+      - name: ruff
+        if: runner.os != 'Windows'
+        working-directory: RoyaleSim
+        run: ../.venv/bin/python -m ruff check .
+
+      - name: clippy
+        working-directory: RoyaleSim/crates/royalesim
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      # A COUNT WITHOUT ITS POPULATION IS THE THING THAT BURNED FOUR SESSIONS IN ONE NIGHT. This
+      # records what ran, what did not, and WHY -- because the tests a runner cannot run are the
+      # oracle and replay ones, which are exactly the tests that carry this repo's central claim.
+      - name: record what this run was, and what it could not be
+        if: always()
+        working-directory: RoyaleSim
+        shell: bash
+        run: |
+          py=$( [ "${{ runner.os }}" = "Windows" ] && echo "../.venv/Scripts/python" || echo "../.venv/bin/python" )
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "os=${{ matrix.os }}"
+            "$py" -c "import royalesim; print('build_commit=%s tree=%s' % royalesim.Battle.provenance())" || true
+            echo "card_table=$("$py" -c "import json;print(json.load(open('data/derived/cards.json'))['version'])")"
+            echo "python_collected=$("$py" -m pytest --collect-only -q 2>/dev/null | tail -1)"
+            echo ""
+            echo "WHAT THIS RUN COULD NOT CHECK. A runner has no recorded corpus and builds the"
+            echo "2018 card table from the tracked tables, so the oracle and replay fixtures skip"
+            echo "and the parity figures are not re-measured here. Each skip names its own remedy."
+            echo "A green row means the suite passed ON THAT POPULATION, which is smaller than the"
+            echo "one a workspace with the modern card table runs."
+          } >> "$GITHUB_STEP_SUMMARY"
