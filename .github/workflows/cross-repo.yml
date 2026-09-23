@@ -1,6 +1,155 @@
 name: cross-repo
-on: {workflow_call: {}}
+# ONE ENGINE, MANY CONSUMERS. This is the only job in the family that can see BINARY AHEAD OF
+# CALLERS: the failure where the extension is rebuilt, everything looks installed, and every
+# downstream repo raises on contact. That happened at 22:49 on 2026-09-22 and cost every repo
+# on the machine half an hour, discovered by someone tripping over it rather than being told.
+#
+# WHY IT BUILDS ONCE AND SHARES THE WHEEL, rather than taking a command from each caller. A
+# caller-supplied-command callee is a shell, and it tempts every caller into its own build --
+# and the moment two callers build separately there are two binaries and this job has quietly
+# stopped testing the thing it exists for, while still being green. That is not theoretical:
+# on 2026-09-23 gym's runner and the development box produced IDENTICAL `build_digest` and
+# DIFFERENT `engine_binary` -- same data, different compilation. One wheel, shared, is what
+# makes "the same engine" a fact rather than an assumption.
+#
+# WHY IT EXISTS ONCE, HERE. Four copies of a cross-repo job is the vendored-copy drift problem
+# with a build attached. It lives in the repo that produces the artefact.
+#
+# ONE PLATFORM ON PURPOSE. A wheel is platform-specific, so the consumers must run where it was
+# built. Cross-platform is `suite.yml`'s job, which builds per OS and answers a different
+# question: does this repo work on both. This one answers: do the four repos agree on one
+# binary.
+on:
+  workflow_call:
+  workflow_dispatch:
+
 jobs:
-  probe:
+  engine:
     runs-on: ubuntu-latest
-    steps: [{run: 'echo resolved'}]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: RoyaleGym/RoyaleSim
+          path: RoyaleSim
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: the tools the README's install names
+        run: python -m pip install maturin pytest hypothesis ruff numpy msgspec mypy
+
+      # The README's stage 3. The copy line is what gives a runner the card table this project
+      # is calibrated against; the 2018 table is built beside it because tests load it by name.
+      - name: stage 3, generate the data files
+        shell: bash
+        working-directory: RoyaleSim
+        run: |
+          python tools/extract_arena.py
+          python tools/extract_cards.py --vintage 2018
+          cp data/derived/cards-15.535.json data/derived/cards.json
+          python tools/extract_globals.py
+
+      - name: build the wheel every consumer will install
+        working-directory: RoyaleSim
+        run: maturin build --release --out ../wheelhouse
+
+      # THE ARTEFACT NAMES ITSELF. A downstream row that says a suite passed, without saying
+      # which binary it passed against, cannot tell a data mismatch from a compilation one --
+      # and those two have already been observed to disagree.
+      - name: record what this engine is
+        shell: bash
+        run: |
+          wheel=$(ls wheelhouse/*.whl | head -1)
+          {
+            echo "engine_commit=$(git -C RoyaleSim rev-parse HEAD)"
+            echo "wheel=$(basename "$wheel")"
+            echo "wheel_sha256=$(sha256sum "$wheel" | cut -d' ' -f1)"
+          } | tee -a "$GITHUB_STEP_SUMMARY" > wheelhouse/ENGINE.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: royalesim-wheel
+          path: wheelhouse/
+          if-no-files-found: error
+
+  downstream:
+    needs: engine
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Learn's addopts are `-m "not slow and not engine"`, so a naive pytest here would
+          # DESELECT precisely the five engine-contract tests this job exists to give a home.
+          # It would be green, it would look like success, and the five would still have run
+          # nowhere. So its selection is explicit.
+          - repo: RoyaleLearn
+            args: -m engine
+          - repo: RoyaleGym
+            args: ""
+          - repo: RoyaleViser
+            args: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: "RoyaleGym/${{ matrix.repo }}"
+          path: "${{ matrix.repo }}"
+          fetch-depth: 0
+      # The consumers read RoyaleSim's data directory, not just its extension.
+      - uses: actions/checkout@v4
+        with:
+          repository: RoyaleGym/RoyaleSim
+          path: RoyaleSim
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: royalesim-wheel
+          path: wheelhouse
+
+      # A MISSING WHEEL FAILS HERE, AND THIS IS THE ONE PLACE IN THIS PROJECT WHERE THAT IS
+      # RIGHT. Everywhere else a missing dependency should skip and name its remedy. Here the
+      # engine's presence IS the property under test, so a skip would convert the only job
+      # that can see binary drift into a job that reports green having tested nothing.
+      - name: the wheel must be here
+        shell: bash
+        run: |
+          test -f wheelhouse/ENGINE.txt || { echo "no ENGINE.txt: the engine job did not publish"; exit 1; }
+          ls wheelhouse/*.whl >/dev/null || { echo "no wheel in the artifact"; exit 1; }
+          cat wheelhouse/ENGINE.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: install that engine, then the repo under test
+        shell: bash
+        run: |
+          python -m pip install wheelhouse/*.whl
+          python -m pip install pytest hypothesis
+          python -m pip install -e "${{ matrix.repo }}"
+
+      - name: stage 3 for the data the consumers read
+        shell: bash
+        working-directory: RoyaleSim
+        run: |
+          python tools/extract_arena.py
+          python tools/extract_cards.py --vintage 2018
+          cp data/derived/cards-15.535.json data/derived/cards.json
+          python tools/extract_globals.py
+
+      - name: the suite, against that engine
+        shell: bash
+        working-directory: ${{ matrix.repo }}
+        run: python -m pytest -q ${{ matrix.args }}
+
+      # The engine's own digest, from the binary that just ran the suite, beside the count.
+      - name: record what ran
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "repo=${{ matrix.repo }}  pytest args='${{ matrix.args }}'"
+            python -c "import royalesim; print('engine provenance=%s tree=%s' % royalesim.Battle.provenance())" || true
+            cat wheelhouse/ENGINE.txt
+          } >> "$GITHUB_STEP_SUMMARY"
