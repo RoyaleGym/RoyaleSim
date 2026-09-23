@@ -40,6 +40,16 @@ on:
         required: false
         default: ''
   workflow_dispatch:
+    inputs:
+      sim_ref:
+        description: >-
+          Same meaning as the workflow_call input. Declared here too so the THIRD branch of the
+          ref decision can actually be exercised: a branch nothing runs is a branch nobody has
+          seen fire, and this file has produced three defects whose common cause is a path its
+          author never took.
+        type: string
+        required: false
+        default: ''
 
 jobs:
   engine:
