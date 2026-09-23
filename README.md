@@ -209,9 +209,19 @@ We record real matches, replay them in the engine, and compare where every unit 
 The right-hand column is the one to look at. Towers do not move and there are six of them in
 every battle, so counting them flatters the result.
 
-Single units are already close. A Knight is within a quarter tile 82.5% of the time and walks the
-exact same path 74.9% of the time. Swarms are where the gap is: Goblins 42.5%, Skeletons 43.9%.
-Those four are from the 2026-09-21 run, because the per-card breakdown has not been re-run since.
+A single unit walking alone is close to solved. A Hog Rider is within a quarter tile 90.1% of the
+time and walks the game's exact path on 99.2% of its ticks. A Knight is 73.1% and 73.3%.
+
+A crowd is not. Five cheap swarm cards carry 63% of the unit-ticks between them and four of the
+five are under 50% within a quarter tile: Goblins 40.3%, Skeletons 45.8%, with the Skeleton Army
+the exception at 55.7%. The worst is the Tombstone at 20.0%, which is a building that sits still
+and is scored through the skeletons it emits, because the engine does not yet put them where the
+game puts them.
+
+Two of those moved the wrong way since 2026-09-21 and we would rather say so: the Knight was
+82.5% and the Musketeer 81.6%, now 73.1% and 71.9%. Do not read that as the engine getting worse
+at walking. The corpus is 23% bigger and its make-up changed with it, so these are not the same
+battles scored twice.
 
 **Those numbers are today's, and the 49.4 % is not the old one standing still.** They come from a
 run on 2026-09-22 over 271,384 unit-ticks from 67 battles. The run of 2026-09-21 scored the same
