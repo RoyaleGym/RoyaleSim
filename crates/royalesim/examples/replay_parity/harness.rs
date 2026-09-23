@@ -728,6 +728,18 @@ pub struct TraceRow {
     pub truth: Option<[i64; 6]>,
     /// sim x, y (native), hp, attacking, path_n, target sim index (-1 none)
     pub sim: Option<[i64; 6]>,
+    /// THE CONTACT STEP the engine took on this tick: applied push dx, dy in native units
+    /// (after the mean and the 150 cap) and the number of neighbours that produced it.
+    ///
+    /// ITS OWN FIELD RATHER THAN THREE MORE SLOTS ON `sim`, because (0, 0, 0) is a REAL
+    /// value on most ticks and absence has to look different from it. A reader tells them
+    /// apart by whether the row carries `push` at all, never by reading a zero -- the same
+    /// distinction that already bit this format once, where a max_hp of 0 means "not in
+    /// this source" and an hp bar is drawn only when 0 <= hp < max_hp.
+    ///
+    /// The recording cannot have this: it is the engine saying what it did, against the
+    /// recording's observed positions, which is the other half of the comparison.
+    pub push: Option<[i64; 3]>,
     pub dist: Option<i32>,
 }
 
@@ -965,6 +977,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             stunned: e.stun_ms > 0,
                             jumping: e.jumping,
                             radius: e.radius,
+                            push: e.push_applied,
+                            push_neighbours: e.push_neighbours,
                         },
                     )
                 })
@@ -1165,7 +1179,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     (Some(a), Some(b)) => Some(native_dist(b.pos, (a.x, a.y))),
                     _ => None,
                 };
-                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, dist });
+                let push = sim_row.map(|r| [r.push.x as i64, r.push.y as i64, r.push_neighbours as i64]);
+                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, dist });
             }
             match (truth_row, sim_row) {
                 (Some(tr), Some(sr)) => {
@@ -1361,6 +1376,11 @@ pub struct Snap {
     stunned: bool,
     jumping: bool,
     radius: i32,
+    /// The contact push applied on the tick just run and the neighbour count behind it.
+    /// Carried per tick rather than derived, because the engine is the only thing that
+    /// knows it: a position delta cannot say whether a unit was pushed or walked.
+    push: Vec2,
+    push_neighbours: i32,
 }
 
 // ---------------------------------------------------------------------------

@@ -365,6 +365,12 @@ pub struct Moved {
     pub dir: Option<(i32, i32)>,
     /// The waypoint is reached (pop it).
     pub reached: bool,
+    /// THE CONTACT PUSH ACTUALLY APPLIED this tick, after the mean and the 150 cap: the
+    /// quantity that moved the unit, not the accumulator before clamping. (0, 0) when
+    /// nothing overlapped, which is a real value rather than an absence.
+    pub push: (i32, i32),
+    /// How many neighbours contributed to that mean. 0 when nothing overlapped.
+    pub push_count: i32,
 }
 
 /// The step toward `(tx, ty)` for an ordinary walking unit (no external hit
@@ -411,12 +417,16 @@ pub fn move_towards(
         sx = t.0;
         sy = t.1;
     }
+    let mut push = (0, 0);
+    let mut push_count = 0;
     if con.count > 0 {
         // the collision mean, capped at 150
         let mut t = (tdiv(con.acc.0, con.count), tdiv(con.acc.1, con.count));
         if len_sq(t.0, t.1) >= 22501 {
             normalize_to(&mut t, 150);
         }
+        push = t;
+        push_count = con.count;
         con.count = 0;
         con.acc = (0, 0);
         sx += t.0;
@@ -427,7 +437,7 @@ pub fn move_towards(
     // the reached test
     let (rx, ry) = (tx - nx, ty - ny);
     let proj = trunc_shr8(rx.wrapping_mul(seg.0)) + trunc_shr8(ry.wrapping_mul(seg.1));
-    Moved { x: nx, y: ny, dir: new_dir, reached: proj <= 1000 }
+    Moved { x: nx, y: ny, dir: new_dir, reached: proj <= 1000, push, push_count }
 }
 
 /// The position write: `pos += step`, then, with the flag, an axis that

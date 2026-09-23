@@ -173,6 +173,19 @@ pub struct Entities {
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
+    /// DIAGNOSTIC, written by the Move pass and read by nothing the engine decides with:
+    /// the contact push applied on the tick just run (after the mean and the 150 cap) and
+    /// the number of neighbours that produced it. Both are (0, 0) and 0 on a tick where
+    /// nothing overlapped, which is a real answer rather than a missing one. They exist so
+    /// a parity trace can draw what the contact law DID beside what the recording shows,
+    /// which a position column cannot distinguish from what it wanted.
+    /// `default` so a snapshot saved before these existed still loads. They are resized to
+    /// the entity capacity on load (state.rs `load_with`), because an empty vector here
+    /// would be indexed by the Move pass on the next tick.
+    #[serde(default)]
+    pub push_applied: Vec<Vec2>,
+    #[serde(default)]
+    pub push_neighbours: Vec<i32>,
     /// ms of knockback slide remaining. While > 0 the unit neither walks nor attacks.
     pub knock_ms: Vec<i32>,
     /// THE KNOCKBACK LADDER (calibration knockback.DISPLACEMENT_LAW =
@@ -414,6 +427,8 @@ impl Entities {
             self.clear_buffs(i);
             self.retarget_on_resume[i] = false;
             self.knock_rem[i] = Vec2::default();
+            self.push_applied[i] = Vec2::default();
+            self.push_neighbours[i] = 0;
             self.knock_ms[i] = 0;
             self.push_target[i] = Vec2::default();
             self.push_speed[i] = 0;
@@ -468,6 +483,8 @@ impl Entities {
             }
             self.retarget_on_resume.push(false);
             self.knock_rem.push(Vec2::default());
+            self.push_applied.push(Vec2::default());
+            self.push_neighbours.push(0);
             self.knock_ms.push(0);
             self.push_target.push(Vec2::default());
             self.push_speed.push(0);

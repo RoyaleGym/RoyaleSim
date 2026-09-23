@@ -1634,6 +1634,13 @@ pub struct EntityView<'a> {
     /// SpawnAngleShift out relative to it, and by any test that has to show a scene
     /// actually turned a spawner rather than assuming it did.
     pub facing: Vec2,
+    /// The contact push applied on the tick just run, after the mean and the 150 cap, and
+    /// how many neighbours produced it. (0, 0) and 0 on a tick where nothing overlapped,
+    /// which is a real answer rather than a missing one: a parity trace draws what the
+    /// contact law DID beside what the recording shows, and a position column cannot tell
+    /// a push the wrong way from a push too far.
+    pub push_applied: Vec2,
+    pub push_neighbours: i32,
     pub hp: i32,
     pub max_hp: i32,
     pub shield: i32,
@@ -3169,6 +3176,13 @@ impl BattleState {
         let advances: Vec<i32> = (0..cap).map(|i| self.stomp_advance(i)).collect();
         let mut facing = std::mem::take(&mut self.ents.facing);
         let mut offsets = std::mem::take(&mut self.ents.avoid_offset);
+        // DIAGNOSTIC, cleared every tick so a stale push from an earlier tick cannot be
+        // read as this one's. Zero is a real answer here -- most ticks nothing overlaps --
+        // so the reader tells absent from zero by whether the row carries the field at all.
+        let mut push_applied = std::mem::take(&mut self.ents.push_applied);
+        let mut push_neighbours = std::mem::take(&mut self.ents.push_neighbours);
+        push_applied.iter_mut().for_each(|p| *p = Vec2::default());
+        push_neighbours.iter_mut().for_each(|c| *c = 0);
         let mut push_speed = std::mem::take(&mut self.ents.push_speed);
         let mut push_active = std::mem::take(&mut self.ents.push_active);
         let mut jumping = std::mem::take(&mut self.ents.jumping);
@@ -3365,6 +3379,8 @@ impl BattleState {
                     // the ordinary step law at JumpSpeed, facing set
                     let m = move16402::move_towards(actor, aim.0, aim.1, speed, true, &mut con, (segs[i].x, segs[i].y), false, is_water, arena.cols, arena.rows);
                     offsets[i] = con.offset;
+                    push_applied[i] = Vec2::new(m.push.0, m.push.1);
+                    push_neighbours[i] = m.push_count;
                     if let Some(d) = m.dir {
                         facing[i] = Vec2::new(d.0, d.1);
                         bodies[i].dir = d;
@@ -3564,6 +3580,8 @@ impl BattleState {
                     arena.rows,
                 );
                 offsets[i] = con.offset;
+                push_applied[i] = Vec2::new(m.push.0, m.push.1);
+                push_neighbours[i] = m.push_count;
                 if let Some(d) = m.dir {
                     facing[i] = Vec2::new(d.0, d.1);
                     bodies[i].dir = d;
@@ -3615,6 +3633,8 @@ impl BattleState {
         self.ents.stomp_clock = clocks;
         self.ents.facing = facing;
         self.ents.avoid_offset = offsets;
+        self.ents.push_applied = push_applied;
+        self.ents.push_neighbours = push_neighbours;
         self.ents.push_speed = push_speed;
         self.ents.push_active = push_active;
         self.ents.jumping = jumping;
@@ -5881,6 +5901,8 @@ impl BattleState {
             card_idx: e.card[i],
             pos: e.pos[i],
             facing: e.facing[i],
+            push_applied: e.push_applied[i],
+            push_neighbours: e.push_neighbours[i],
             hp: e.hp[i],
             max_hp: e.max_hp[i],
             shield: e.shield[i],
@@ -6743,7 +6765,7 @@ impl BattleState {
         // Format 3 is MIGRATED, never guessed: see `migrate_v3`. `remap` is then the
         // format-3 card index -> this CardDb's index, applied only after the saved
         // hash has been reproduced on the unmigrated indices.
-        let (snap, remap): (Snapshot, Option<Vec<u16>>) = match format {
+        let (mut snap, remap): (Snapshot, Option<Vec<u16>>) = match format {
             SNAPSHOT_FORMAT => (serde_json::from_slice(bytes).map_err(|e| format!("snapshot: {e}"))?, None),
             3 => {
                 let mut v: Value = serde_json::from_slice(bytes).map_err(|e| format!("snapshot: {e}"))?;
@@ -6759,6 +6781,13 @@ impl BattleState {
             return Err("snapshot was saved against a different arena".into());
         }
         let n = snap.ents.capacity();
+        // The two diagnostic vectors are `serde(default)`, so a snapshot saved before they
+        // existed arrives with them EMPTY while every other column has `n` entries. The Move
+        // pass indexes them on the next tick, so they are sized here rather than at first use.
+        // Their content is not restored and does not need to be: they describe the tick just
+        // run, and a restored battle has not run one.
+        snap.ents.push_applied.resize(n, Vec2::default());
+        snap.ents.push_neighbours.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())
