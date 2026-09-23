@@ -52,7 +52,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine loads 102 cards, refuses 44 with a reason for each, and treats 12 more as summon-only, counted by the loader itself on a clean runner (RoyaleSim CI run 35851855904 at `6446229`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 100 of the 144 cards in the 15.535 client's card table and refuses 44, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35851855904 at `6446229`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 155 carry a status from guess to measured, and 62 are measured (2026-09-22). 101 also name the rivals they were chosen against, and 110 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -429,10 +429,14 @@ Working:
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 60 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. The 15.535 client's card table holds 144 cards, 2 towers and 334 units. Asked to load it,
-  the engine reports **102 loadable, 44 rejected and 12 summon-only**, and says why for each one it
-  refuses. Those are the loader's own counts, taken on a clean runner rather than here: RoyaleSim
-  CI run 35851855904 at `6446229`, against `cards.json` 5a1dac3d2fb1b4a9.
+- Cards. **Of the card table's 144 rows the engine loads 100 and refuses 44**, with a reason for
+  each refusal. The engine's own census reports **102 loadable, 44 rejected and 12 summon-only**,
+  and those do not sum to 144 for a reason worth stating: the 102 is the 100 plus the King and
+  Princess towers, and the 12 summon-only are unit definitions that are not rows of the card table
+  at all - a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon*
+  drops, and no hand can play either. The three lists are disjoint and their union is 158: the 144
+  rows plus the 2 towers plus those 12. Counts from RoyaleSim CI run 35851855904 at `6446229`,
+  against `cards.json` 5a1dac3d2fb1b4a9.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
@@ -471,32 +475,30 @@ Not modelled yet, in plain words:
 Tests. Both blocks below start from the `Royale` folder you made in stage 1, so go back there
 before you run the second one.
 
-The Rust suite passes: **31 binaries, 374 passed, 0 failed, 3 ignored**, run as
-`cargo test --release --no-fail-fast -j 2` on 2026-09-23. It had been failing since 2026-09-22
-17:38 and is not failing now.
+**Both suites are green on a clean runner, on Linux and Windows, at `6446229`.** The Rust suite is
+31 binaries, 374 passed, 0 failed and 3 ignored. The Python suite is 280 passed and 11 skipped.
+Ruff clean. The two commands are below.
 
-Two conditions travel with that number, and both are the kind this project publishes rather than
-leaves out.
+These replace the figures this page used to carry from the maintainer's laptop. A count true on one
+machine is not a certification, because a clean machine is the reader's.
 
-**It was built with `CARGO_PROFILE_RELEASE_LTO=thin`.** The profile declared in
-`crates/royalesim/Cargo.toml` is `lto = "fat"`, and fat LTO linked zero of the 31 binaries in
-fifteen minutes on the machine this was run on. The override is an environment variable, so it does
-not travel with the repo and your own run will use fat LTO unless you set it. It does not change
-what the tests check: there is no `f32` or `f64` anywhere in the crate, and `overflow-checks = true`
-is set on the package and cannot be reached by that variable.
+Two conditions travel with them, or the numbers overstate what was run.
 
-**It is a local result, and a clean runner now checks it too.** A count true on one machine is not
-a certification, because a clean machine is the reader's. CI arrived after the figure above was
-taken, and its first three runs each found something this machine could not:
+**280 is the clean-runner population**, which is smaller than this machine's and smaller than yours
+if you have the recordings. Eleven tests skip, and each says at the skip which kind of skip it is -
+several state outright that they are permanently local coverage rather than a setup step somebody
+forgot. A skip count is not a defect count and this suite will tell you which it is, per test.
 
-- **32 Rust tests failed on the runner and passed here.** All 32 were the card table: the runner
-  had no 15.535 table to read. Committing the derived table cleared every one of them.
-- **Five modules could not import `numpy` or `msgspec`**, which the install line did not name.
-  Nobody here met it because everybody here already had them.
-- A third run was still going when this was written.
+**The three ignored Rust tests are compiled and deliberately not executed**, which is a different
+thing from a test that decided at runtime it could not run. They are `throughput_scripted_battle`,
+`throughput_brawl_20_to_40_entities` and `throughput_scripted_battle_with_spells`: benchmarks, run
+on request.
 
-None of those was findable on a machine that already had everything, which is the whole argument
-for the runner outranking the laptop.
+What the runner found that this machine could not, in its first three runs, is the argument for
+preferring it: 32 Rust tests that failed there and passed here, all of them the card table the
+runner had no copy of; five modules that could not import `numpy` or `msgspec`, which the install
+line did not name and everybody here already had; and `clippy`, which turned out never to have been
+wired into CI at all and found real work on its first execution.
 
 **The defect that caused the failure is still here, and its size is now known.** Two Skeleton Army
 units overlap by 157 per cent of the smaller radius for **87 consecutive ticks**, against a limit
@@ -520,7 +522,7 @@ cd RoyaleSim\crates\royalesim
 cargo test --release
 ```
 
-The Python suite is 189 tests and takes a few minutes.
+The Python suite is 280 passed and 11 skipped on a clean runner and takes a few minutes. On a machine with the recordings it collects more.
 
 ```
 cd RoyaleSim
