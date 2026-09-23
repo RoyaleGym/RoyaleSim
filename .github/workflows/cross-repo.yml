@@ -1,0 +1,6 @@
+name: cross-repo
+on: {workflow_call: {}}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps: [{run: 'echo resolved'}]
