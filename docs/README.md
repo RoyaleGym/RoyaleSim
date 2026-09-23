@@ -12,7 +12,7 @@ pick the row that matches what you are doing.
 | [pathfinding.md](pathfinding.md) | the pathfinder and contact law measured on client 16.402: the model, the scores, the evidence |
 | [pathfinder-spec.md](pathfinder-spec.md) | the implementation contract for the earlier trace-fitted model, still the contract for the grid, units and per-tick update |
 | [movement-measurements.md](movement-measurements.md) | the offline 15.535 measurements the movement laws rest on, with the corpus and the method |
-| [spell-spec.md](spell-spec.md) | the five spells card by card: data chain, behaviour in tick order, what is unsettled |
+| [spell-spec.md](spell-spec.md) | the five spells it specs card by card: data chain, behaviour in tick order, what is unsettled. More spells load than it covers |
 | [spell-spec.json](spell-spec.json) | the same content as structured data |
 | [replay-parity.md](replay-parity.md) | the engine replayed against every recorded battle: the aggregate, the hardest cards, the ranked causes |
 | [performance.md](performance.md) | measured throughput, and what the bottleneck actually is |

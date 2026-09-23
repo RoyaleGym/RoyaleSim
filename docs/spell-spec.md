@@ -1,9 +1,11 @@
 # Spell and knockback spec
 
 This page is for contributors implementing or checking spell and knockback behaviour. It takes the
-five spells the engine implements (Fireball, Arrows, Zap, The Log and Goblin Barrel) card by card:
+five spells THIS PAGE specs in full (Fireball, Arrows, Zap, The Log and Goblin Barrel) card by card:
 where every number comes from, what the behaviour is in tick order, what is still unsettled, and
-the observation that would settle each one. `spell-spec.json` is the same content as structured
+the observation that would settle each one. The engine now loads more spells than this page
+specs: the catalogue also carries Rocket, Freeze, Poison, Earthquake and Snowball, which are not
+specced here yet. `spell-spec.json` is the same content as structured
 data.
 
 **Verification status: partial.** Every `DATA`-tagged number was re-read mechanically against the
