@@ -18,7 +18,16 @@ name: cross-repo
 # ONE PLATFORM ON PURPOSE. A wheel is platform-specific, so the consumers must run where it was
 # built. Cross-platform is `suite.yml`'s job, which builds per OS and answers a different
 # question: does this repo work on both. This one answers: do the four repos agree on one
-# binary.
+# binary. A job that can go red for two unrelated reasons is a worse instrument than two jobs
+# each red for one.
+#
+# AND HERE IS THE GAP THAT LEAVES, stated so a later reader does not read this green as wider
+# than it is. What a green run here establishes is that the four repos agree ON LINUX. It says
+# NOTHING about whether they agree on Windows, and a second platform's cross-repo agreement is
+# therefore UNTESTED rather than fine. The difference matters because the drift this job exists
+# to catch is per-binary: `suite.yml` builds its own wheel per OS and can see a repo break on
+# Windows, but nothing anywhere builds a Windows wheel and hands it to three consumers, so a
+# Windows-only disagreement between repos has no instrument in this project at all.
 on:
   workflow_call:
   workflow_dispatch:
@@ -27,9 +36,12 @@ jobs:
   engine:
     runs-on: ubuntu-latest
     steps:
+      # No `repository:`, so this is the commit that triggered the run rather than whatever
+      # the default branch happens to be. A job that always builds main cannot answer anything
+      # about the change being proposed, and would have been green for every branch that broke
+      # the engine.
       - uses: actions/checkout@v4
         with:
-          repository: RoyaleGym/RoyaleSim
           path: RoyaleSim
           fetch-depth: 0
       - uses: actions/setup-python@v5
@@ -92,17 +104,29 @@ jobs:
           - repo: RoyaleViser
             args: ""
     steps:
+      # THE WHOLE STACK, not the repo under test alone, and this is the fix for what run one
+      # got wrong. Installing one repo against the wheel answers "does this repo import the
+      # engine", which is a weaker question than the one asked here and, for two of the three
+      # consumers, was not even that: learn's install failed for a missing sibling, and
+      # viser's engine tests are all behind `importorskip("royalegym...")` so they SKIPPED and
+      # the row went green having touched no engine code at all. README fidelity -- does the
+      # documented install work from nothing -- is `suite.yml`'s question, per repo. This job's
+      # question is whether the four repos agree on one binary, and a repo cannot disagree
+      # with a binary its tests never reached.
+      #
+      # RoyaleSim is checked out by the DEFAULT action, with no `repository:`, so it arrives
+      # at the commit that triggered this run. The three consumers arrive at their default
+      # branches, which is the composition a user gets.
       - uses: actions/checkout@v4
         with:
-          repository: "RoyaleGym/${{ matrix.repo }}"
-          path: "${{ matrix.repo }}"
-          fetch-depth: 0
-      # The consumers read RoyaleSim's data directory, not just its extension.
-      - uses: actions/checkout@v4
-        with:
-          repository: RoyaleGym/RoyaleSim
           path: RoyaleSim
           fetch-depth: 0
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleGym, path: RoyaleGym, fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleLearn, path: RoyaleLearn, fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleViser, path: RoyaleViser, fetch-depth: 0 }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -122,12 +146,16 @@ jobs:
           ls wheelhouse/*.whl >/dev/null || { echo "no wheel in the artifact"; exit 1; }
           cat wheelhouse/ENGINE.txt >> "$GITHUB_STEP_SUMMARY"
 
-      - name: install that engine, then the repo under test
+      # The wheel FIRST and from a local path, so nothing downstream can resolve `royalesim`
+      # off an index and quietly test a different binary. The siblings are installed from
+      # source for the same reason: `royalelearn` requires `royalegym>=0.1.0`, which exists
+      # on no index, so pip WILL go to PyPI and fail for anything it is not handed by path.
+      - name: install that engine, then the stack around it
         shell: bash
         run: |
           python -m pip install wheelhouse/*.whl
           python -m pip install pytest hypothesis
-          python -m pip install -e "${{ matrix.repo }}"
+          python -m pip install -e RoyaleGym -e RoyaleLearn -e "RoyaleViser[media]"
 
       - name: stage 3 for the data the consumers read
         shell: bash
@@ -138,10 +166,45 @@ jobs:
           cp data/derived/cards-15.535.json data/derived/cards.json
           python tools/extract_globals.py
 
+      # `-rs` is not decoration: the next step reads these lines. `tee` keeps the output for
+      # it while pipefail keeps pytest's own exit code as this step's.
       - name: the suite, against that engine
         shell: bash
         working-directory: ${{ matrix.repo }}
-        run: python -m pytest -q ${{ matrix.args }}
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs ${{ matrix.args }} 2>&1 | tee "$GITHUB_WORKSPACE/pytest.txt"
+
+      # THE GATE THAT MAKES THE ROW ABOVE MEAN SOMETHING. A consumer whose engine tests all
+      # skip is GREEN, and it is green for the one reason this job may never accept: it did
+      # not reach the engine. Run one shipped exactly that -- viser, a green row, zero engine
+      # lines -- and nothing in the job could tell.
+      #
+      # It refuses a SHAPE rather than a list of known tests: any skip whose reason names the
+      # engine is a failure HERE, whatever the test is called, because there is no such thing
+      # as a legitimately absent engine in this job. Elsewhere those same skips are correct
+      # and must stay.
+      #
+      # It is also the only instrument that would notice learn's
+      # `except RuntimeError: pytest.skip("the engine build disagrees with the data on disk")`,
+      # which converts the stale-build refusal -- the check that the data and the binary
+      # match -- into a green skip in the one job built to test that they do.
+      - name: a skip that names the engine is a failure here
+        if: always()
+        shell: bash
+        run: |
+          test -f pytest.txt || { echo "the suite step produced no output to read"; exit 1; }
+          tail -3 pytest.txt >> "$GITHUB_STEP_SUMMARY"
+          bad=$(grep -E "^SKIPPED" pytest.txt | grep -iE "royalesim|royalegym|extension|engine|core_available|maturin" || true)
+          if [ -n "$bad" ]; then
+            echo "SKIPPED FOR WANT OF THE ENGINE, in the job whose entire subject is the engine:"
+            echo "$bad"
+            echo "Every one of these is a test that did not run against the wheel this job built."
+            echo "Either the stack install above no longer gives this repo what its tests import,"
+            echo "or the engine refused to construct -- and a refusal is a RED here, never a skip."
+            exit 1
+          fi
+          echo "no engine-shaped skips"
 
       # The engine's own digest, from the binary that just ran the suite, beside the count.
       - name: record what ran
