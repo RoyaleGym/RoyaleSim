@@ -497,6 +497,17 @@
       "promotion_rules": "Record a Tesla placed by the seat that defends high y, at a tap whose two candidate corners differ. One placement settles it.",
       "engine_contract": "crates/royalesim/src/arena.rs snap_placement, selected by state.rs Calib::placement_snap_even."
     },
+    "TAP_SNAP": {
+      "value": "none",
+      "candidates": ["none", "client16402_tile_centre"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm none, which is today's engine. HIGH for client16402_tile_centre: both clients, every tap that separates the rules",
+      "provenance": "MEASURED on client 15.535.29 and the 16.402 corpus. A troop or spell tap is snapped to the PLAIN centre of its tile, tile * 1000 + 500 on both axes, both sides, both halves: 37 of 37 unique corpus spell casts where the rules disagree land on it, as do 5 of 5 left-half air deploys and the 15.535.29 air scenarios. A GROUND unit then takes the one-native deploy-point offset of formation.GROUND_DEPLOY_POINT (x - 1 on the absolute left half, y - 1 for side 1), which the engine applied only to multi-member rings: the seven single Knights of the 15.535.29 scenarios stand on it, 7 of 7. A Log or a Fireball cast from a raw tap then behaves exactly as from its snapped centre.",
+      "meaning": "client16402_tile_centre: every troop and spell tap is snapped to its tile centre before the formation is laid or the spell is cast, and formation.GROUND_DEPLOY_POINT applies to a single ground unit as to a ring. Buildings keep their own snap (placement.SNAP_EVEN_CORNER). none: today's engine, a single unit and a spell at the raw tap.",
+      "open": "Where the snapped tile is illegal for a troop or a spell, the relocation is placement.TROOP_TOWER_TAPS's and the Log's own rule; this key only snaps.",
+      "promotion_rules": "Pass the 15.535.29 checks (the seven Knights, raw against snapped Log casts), score by override, then flip.",
+      "engine": "the deploy path before formation_members and spell::cast; arena.rs snap_placement with a one-tile box"
+    },
     "ILLEGAL_TAP": {
       "value": "relocate_first_fitting_ring",
       "status": "measured",
@@ -510,6 +521,17 @@
       "why_it_matters": "It decides whether a building tap is a refusal or a different building, which changes what a placement mask means and what a policy can learn.",
       "promotion_rules": "Record a building tap whose only fits are three or more rings away, with a ring-r diagonal fit and a ring-(r+1) axial fit both available. The two arms then land it on different tiles.",
       "engine_contract": "crates/royalesim/src/state.rs building_placement, bounded by PLACEMENT_SEARCH_RINGS = 30 tiles, which spans the arena. The ring scan order is built in the placer's frame so the two seats mirror; the corpus leaves exactly one tie, so the order is the engine's choice and not a measurement."
+    },
+    "TROOP_TOWER_TAPS": {
+      "value": "closed_block",
+      "candidates": ["closed_block", "client16402_half_open_relocate"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm closed_block, which is today's engine: 31 of 48 casts measured on client 15.535.29 disagree with it. HIGH for client16402_half_open_relocate on the own king, 48 of 48 casts measured; OPEN on the princess towers' no-deploy rects, which the battery did not probe",
+      "provenance": "MEASURED on client 15.535.29: a deliberate-tap battery, a Knight, Goblins and Minions tapped at eight own-frame tiles around the own king, both sides, 48 casts, every member's first-frame position. (1) The king's no-deploy block is HALF-OPEN in absolute coordinates, [min, max) on both axes, so it is not mirrored: side 0 refuses own (8500, 1500) and (7500, 1500) and accepts own (10500, 1500); side 1 accepts all three; own (9500, 2500) is refused on both sides. (2) An accepted troop tap whose tile overlaps the own king is moved to the nearest free tile, the way a building's is (placement.ILLEGAL_TAP): own (8500, 1499) lands on (8499, 500), side 1's own (7500, 1500) on (6499, 1501), and a formation is laid around the moved point. (3) Side 1's ground back bound (own y 1000) holds a single unit too: a side-1 Knight at own (8500, 500) stands on own 1000. The 16.402 corpus agrees where it can see: its side-1 Goblins at own (8500, 1500) sit on the 15.535.29 battery's own 850 / 1262 / 1262 / 1000 in 7 of 11 groups, its side-1 Bombers there on own 1000 in 11 of 15, and its side-0 king plays stand where relocation from own (8500, 1500) puts them (singles on (8499, 500)). Units deployed there are the corpus's largest remaining loss (9,980 lost within-250 unit-ticks at the 7b build).",
+      "meaning": "client16402_half_open_relocate: the three laws above; laws 2 and 3 in the placement resolution a replayed deploy shares, law 1 in the play path's legality. closed_block: today's engine, a closed king block, no troop relocation, single units unclamped.",
+      "open": "The princess towers' no-deploy rects keep today's rule until a battery probes their edges; the relocation order on an exact tie is the ring order ILLEGAL_TAP already uses, confirmed on one 15.535.29 tie.",
+      "promotion_rules": "Score the new arm with replay_parity --calibration-override (stacked on formation.STAGGER_WAIT's measured arm), then flip.",
+      "engine": "arena.rs deploy_zone (the king block's edges); state.rs formation_members (relocation before the formation is laid; the single-unit ground clamp)"
     },
     "OVERLAP_TEST": {
       "value": "positive_area",
@@ -1637,6 +1659,17 @@
       "not_read": "characters.Goblin.DeployDelay 400 does NOT stagger the released units (spec candidate SPAWNED_UNITS_STAGGER_BY_DEPLOY_DELAY=false). No key, because no code reads it.",
       "promotion_rules": "First visible frame of the three Goblins from a barrel on open ground, repeated 3 times at one tile.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "ILLEGAL_SPELL_TAP": {
+      "value": "refuse",
+      "candidates": ["refuse", "client16402_clamp_to_legal_edge"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm refuse (client 15.535.29 casts every such tap). HIGH that a territory-restricted spell tapped beyond its legal area is cast, and on the clamp: a tap inside a downed princess's pocket stays, a deeper one is pulled to the pocket's edge",
+      "provenance": "MEASURED on client 15.535.29. With every tower alive a blue Log tapped on the enemy half is cast from the own half's boundary row: two taps 2,615 apart on the enemy half hit a Knight on the same tick as a Log tapped at (11500, 14500). With every tower alive four rules put the tap on that same point (a fixed row, a clamp to the last legal row, a projection onto the boundary then the snap, and the nearest legal tile). A 15.535.29 battery with a princess downed separates them: a Log tapped inside the pocket her fall opens stays, and a deeper tap is pulled to the pocket's edge. That is a CLAMP to the legal area, followed by the tile snap.",
+      "meaning": "client16402_clamp_to_legal_edge: a spell whose placement is restricted to the caster's legal area (the Log) and is tapped beyond it is moved to the nearest legal point in its column (the legal area's edge), then snapped. refuse: today's engine, the play is refused OUT_OF_TERRITORY.",
+      "open": "Which spells besides the Log carry the territory restriction (the rolling spells) is the card data's; only the Log is measured. The 15.535.29 Log hits one tick later than the engine on every cast, legal or relocated: unattributed, and not part of this key.",
+      "promotion_rules": "Pass the engine-against-itself check (the relocated tap hits like the boundary-row tap), then flip.",
+      "engine": "the deploy check for spells (OUT_OF_TERRITORY) and spell::cast"
     },
     "PULSING_AREA_EFFECT": {
       "value": "hit_speed_period_from_landing",

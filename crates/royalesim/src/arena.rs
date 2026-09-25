@@ -834,6 +834,43 @@ impl Arena {
         self.territory_zone(p, team, territory, enemy_rects)
     }
 
+    /// `deploy_zone` with the KING BLOCKS judged HALF-OPEN in absolute coordinates
+    /// (placement.TROOP_TOWER_TAPS = client16402_half_open_relocate): a point on a block's
+    /// max edge is outside it, one on its min edge inside, on both axes and for both seats
+    /// (48 scenario casts on client 15.535.29). Every other NO_DEPLOY cell keeps the closed rule.
+    pub fn deploy_zone_king_half_open(&self, p: Vec2, team: Team, territory: Territory, enemy_rects: &[Rect]) -> Result<(), ZoneError> {
+        match self.deploy_zone(p, team, territory, enemy_rects) {
+            Err(ZoneError::NoDeploy) => {
+                let in_king = self.king_blocks.iter().any(|r| r.min.x <= p.x && p.x < r.max.x && r.min.y <= p.y && p.y < r.max.y);
+                if in_king || self.touching_bits_outside(p, &self.king_blocks) & self.bit_no_deploy != 0 {
+                    return Err(ZoneError::NoDeploy);
+                }
+                self.territory_zone(p, team, territory, enemy_rects)
+            }
+            other => other,
+        }
+    }
+
+    /// `touching_bits` over the cells whose centre is outside every rect in `skip`.
+    fn touching_bits_outside(&self, p: Vec2, skip: &[Rect]) -> u8 {
+        if !self.in_bounds(p) {
+            return 0;
+        }
+        let (x0, x1) = self.axis_span(p.x, self.cols);
+        let (y0, y1) = self.axis_span(p.y, self.rows);
+        let mut acc = 0u8;
+        for row in y0..=y1 {
+            for col in x0..=x1 {
+                let c = Vec2::new(col * self.cell + self.cell / 2, row * self.cell + self.cell / 2);
+                if skip.iter().any(|r| r.contains_closed(c)) {
+                    continue;
+                }
+                acc |= self.cell_bits(col, row);
+            }
+        }
+        acc
+    }
+
     /// The TERRITORY half of `deploy_zone` alone: the river band and the enemy
     /// rects, with no bounds, water-touch or NO_DEPLOY-bit test. The per-tile mask
     /// the summon formation's column clamp scans (state.rs `ground_y_range`;

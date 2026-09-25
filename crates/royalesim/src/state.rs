@@ -212,6 +212,18 @@ pub struct Calib {
     /// `Refuse`, which is what a battle saved before this key actually ran.
     #[serde(default = "placement_illegal_tap_default")]
     pub placement_illegal_tap: PlacementIllegalTap,
+    /// placement.TAP_SNAP. Added after SNAPSHOT_FORMAT 20; the `default` is `None`, what a
+    /// battle saved before it actually ran.
+    #[serde(default = "tap_snap_default")]
+    pub placement_tap_snap: TapSnap,
+    /// placement.TROOP_TOWER_TAPS. Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// `ClosedBlock`, what a battle saved before it actually ran.
+    #[serde(default = "troop_tower_taps_default")]
+    pub placement_troop_tower_taps: TroopTowerTaps,
+    /// spells.ILLEGAL_SPELL_TAP. Added after SNAPSHOT_FORMAT 20; the `default` is `Refuse`,
+    /// what a battle saved before it actually ran.
+    #[serde(default = "illegal_spell_tap_default")]
+    pub illegal_spell_tap: IllegalSpellTap,
     /// movement.ATTACKING_UNIT_MOVEMENT. Added after SNAPSHOT_FORMAT 20. The `default`
     /// is `Frozen`, which is what a battle saved before this key actually ran.
     #[serde(default = "attacking_unit_movement_default")]
@@ -505,6 +517,18 @@ fn placement_illegal_tap_default() -> PlacementIllegalTap {
     PlacementIllegalTap::Refuse
 }
 
+fn tap_snap_default() -> TapSnap {
+    TapSnap::None
+}
+
+fn troop_tower_taps_default() -> TroopTowerTaps {
+    TroopTowerTaps::ClosedBlock
+}
+
+fn illegal_spell_tap_default() -> IllegalSpellTap {
+    IllegalSpellTap::Refuse
+}
+
 fn attacking_unit_movement_default() -> AttackingUnitMovement {
     AttackingUnitMovement::Frozen
 }
@@ -688,6 +712,39 @@ calib_enum!(
         RelocateNearestOverall = "relocate_nearest_overall",
         /// Refuse, as the engine did before the footprint was modelled.
         Refuse = "refuse",
+    }
+);
+calib_enum!(
+    /// placement.TAP_SNAP -- where a troop or spell tap is taken to be.
+    TapSnap {
+        /// Today's engine: the raw tap (a single unit on its exact subtile, a spell on it).
+        None = "none",
+        /// Measured (seven single-Knight scenarios on client 15.535.29, the 16.402 corpus's spell
+        /// casts): the PLAIN tile centre, tile x 1000 + 500 on both axes; a single GROUND unit
+        /// then takes formation.GROUND_DEPLOY_POINT like a ring does.
+        TileCentre = "client16402_tile_centre",
+    }
+);
+calib_enum!(
+    /// placement.TROOP_TOWER_TAPS -- a troop tap at the owner's own crown tower.
+    TroopTowerTaps {
+        /// Today's engine: the king block closed on every edge, a tap overlapping the tower
+        /// laid where tapped, a single unit not clamped.
+        ClosedBlock = "closed_block",
+        /// Measured on 48 scenario casts on client 15.535.29: the king block half-open in absolute
+        /// coordinates; a troop tap whose tile overlaps an alive own crown tower relocated by
+        /// the building ring search; side 1's ground clamp on a single unit too.
+        HalfOpenRelocate = "client16402_half_open_relocate",
+    }
+);
+calib_enum!(
+    /// spells.ILLEGAL_SPELL_TAP -- a spell tapped outside its territory (the Log).
+    IllegalSpellTap {
+        /// Today's engine: refused, OUT_OF_TERRITORY.
+        Refuse = "refuse",
+        /// Measured on client 15.535.29: clamped back along its tile column to the first legal
+        /// tile (the own-half boundary row, or the pocket's edge with a princess down).
+        ClampToLegalEdge = "client16402_clamp_to_legal_edge",
     }
 );
 calib_enum!(
@@ -1617,6 +1674,9 @@ impl Calib {
             territory_model,
             placement_snap_even: pick(&v, &["placement", "SNAP_EVEN_CORNER", "value"], PlacementSnapEven::from_calibration_name)?,
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
+            placement_tap_snap: pick(&v, &["placement", "TAP_SNAP", "value"], TapSnap::from_calibration_name)?,
+            placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
+            illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
@@ -5977,7 +6037,31 @@ impl BattleState {
             }
             FormationLayout::Client16402 => {
                 if total == 1 {
-                    return vec![member(0, pos)];
+                    // A SINGLE GROUND UNIT under placement.TAP_SNAP (formation.GROUND_DEPLOY_POINT,
+                    // which a ring already takes) or placement.TROOP_TOWER_TAPS (the ground y
+                    // clamp, measured on side 1's back bound). Otherwise today's exact tap.
+                    let single_point = calib.placement_tap_snap == TapSnap::TileCentre && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
+                    let single_clamp = calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
+                    if cards.get(unit_of(0)).is_flying() || !(single_point || single_clamp) {
+                        return vec![member(0, pos)];
+                    }
+                    let arena = &self.cfg.arena;
+                    let own = arena.to_frame(team, pos);
+                    let tap = Vec2::new(own.x / K, own.y / K);
+                    let mut p = tap;
+                    if single_point {
+                        let dy = if team == Team::Red { 1 } else { 0 };
+                        let dx = if pos.x < arena.width / 2 { if team == Team::Red { 1 } else { -1 } } else { 0 };
+                        p = Vec2::new(p.x + dx, p.y + dy);
+                    }
+                    if single_clamp {
+                        if let Some((lo, hi)) = self.ground_y_range(team, idx, tap) {
+                            p.y = if p.y <= lo { lo } else { p.y.min(hi) };
+                        }
+                    }
+                    let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
+                    let abs = if arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
+                    return vec![member(0, abs)];
                 }
                 let arena = &self.cfg.arena;
                 let own = arena.to_frame(team, pos);
@@ -6164,7 +6248,18 @@ impl BattleState {
         let rects = self.enemy_no_deploy_rects(team);
         #[cfg(clash_plant = "territory_ignores_king_rect")]
         let rects: Vec<Rect> = (1..3).filter_map(|k| self.tower_no_deploy_rect(team.other(), k)).collect(); // PLANT
-        self.cfg.arena.deploy_zone(pos, team, territory, &rects)?;
+        let half_open = card.kind == CardKind::Troop && self.cfg.calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
+        let zone = if half_open {
+            self.cfg.arena.deploy_zone_king_half_open(pos, team, territory, &rects)
+        } else {
+            self.cfg.arena.deploy_zone(pos, team, territory, &rects)
+        };
+        match zone {
+            // spells.ILLEGAL_SPELL_TAP = clamp: a spell outside its territory is clamped, not refused.
+            Err(crate::arena::ZoneError::OutOfTerritory)
+                if card.kind == CardKind::Spell && self.cfg.calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge && self.clamp_spell_tap(team, idx, pos).is_some() => {}
+            other => other?,
+        }
         // A BUILDING IS JUDGED BY ITS FOOTPRINT, NOT BY THE TAP POINT. The tap
         // above decides territory and the cell rules; the box below decides
         // whether the building fits, and where it ends up.
@@ -6181,7 +6276,10 @@ impl BattleState {
         }
         // A troop or a spell-released unit: no extra radius, because only a
         // building carried one and a building no longer takes this path.
-        if footprint_rule && self.footprint_covers(pos, 0) {
+        // Under placement.TROOP_TOWER_TAPS a tap on an own crown tower is MOVED off it, so the
+        // footprint is judged where the troop will stand.
+        let at = if half_open { self.resolve_point(team, idx, pos) } else { pos };
+        if footprint_rule && self.footprint_covers(at, 0) {
             return Err(DeployError::Occupied);
         }
         Ok(())
@@ -6201,6 +6299,97 @@ impl BattleState {
     ///
     /// The placement box is NOT a collision shape: a troop may stand inside one,
     /// and `collision.BUILDING_FOOTPRINT_MODEL` still decides what movement sees.
+    /// WHERE A PLAY GOES DOWN (pure; the play path and `spawn_unit` share it). A building:
+    /// `building_placement`. A spell outside its territory under spells.ILLEGAL_SPELL_TAP =
+    /// clamp: clamped back along its column. Then, under placement.TAP_SNAP, the plain tile
+    /// centre. Then a troop under placement.TROOP_TOWER_TAPS: moved off an own crown tower.
+    pub fn resolve_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
+        let card = self.cfg.cards.get(idx);
+        let calib = &self.cfg.calib;
+        if card.kind == CardKind::Building {
+            return self.building_placement(team, idx, pos).map_or(pos, |(c, _)| c);
+        }
+        let mut p = pos;
+        if card.kind == CardKind::Spell && calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge {
+            let (territory, _) = deploy_rule(calib, card);
+            let rects = self.enemy_no_deploy_rects(team);
+            if matches!(self.cfg.arena.deploy_zone(p, team, territory, &rects), Err(crate::arena::ZoneError::OutOfTerritory)) {
+                if let Some(c) = self.clamp_spell_tap(team, idx, p) {
+                    p = c;
+                }
+            }
+        }
+        if calib.placement_tap_snap == TapSnap::TileCentre {
+            let t = self.cfg.arena.cell * 2;
+            p = Vec2::new(p.x.div_euclid(t) * t + t / 2, p.y.div_euclid(t) * t + t / 2);
+        }
+        if card.kind == CardKind::Troop && calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
+            p = self.relocate_off_own_crown_tower(team, idx, p);
+        }
+        p
+    }
+
+    /// spells.ILLEGAL_SPELL_TAP = clamp: the first tile centre, stepping back along the tap's
+    /// column toward the caster, that the spell's territory accepts; None if none does.
+    fn clamp_spell_tap(&self, team: Team, idx: u16, tap: Vec2) -> Option<Vec2> {
+        let arena = &self.cfg.arena;
+        let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
+        let rects = self.enemy_no_deploy_rects(team);
+        let t = arena.cell * 2;
+        let own = arena.to_frame(team, tap);
+        let (col, row0) = (own.x.div_euclid(t), own.y.div_euclid(t));
+        (0..=row0).rev().map(|r| arena.from_frame(team, Vec2::new(col * t + t / 2, r * t + t / 2))).find(|&c| arena.deploy_zone(c, team, territory, &rects).is_ok())
+    }
+
+    /// placement.TROOP_TOWER_TAPS: a troop tap whose one-tile box shares positive area with
+    /// an alive OWN crown tower's placement box, moved by `building_placement`'s ring search
+    /// and order (placement.ILLEGAL_TAP, placement.SNAP_EVEN) to the nearest tile whose box
+    /// clears every own crown tower and the troop's territory. Otherwise the tap.
+    fn relocate_off_own_crown_tower(&self, team: Team, idx: u16, tap: Vec2) -> Vec2 {
+        let arena = &self.cfg.arena;
+        let e = &self.ents;
+        let own: Vec<Rect> = self.towers[team as usize]
+            .iter()
+            .flatten()
+            .filter(|id| e.is_alive(**id))
+            .map(|id| {
+                let i = id.index as usize;
+                Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i]))
+            })
+            .collect();
+        let hits = |c: Vec2| {
+            let b = Arena::placement_box(c, 1);
+            own.iter().any(|t| b.overlaps_open(t))
+        };
+        if !hits(tap) || self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
+            return tap;
+        }
+        let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
+        let fits = |c: Vec2| !hits(c) && arena.box_zone(Arena::placement_box(c, 1), team, territory).is_ok();
+        let tile = crate::fixed::tiles(1);
+        let mut best: Option<(i64, Vec2)> = None;
+        for r in 1..=PLACEMENT_SEARCH_RINGS {
+            for (dx, dy) in ring_offsets(r) {
+                let step = Vec2::new(dx * tile, dy * tile);
+                let c = match self.cfg.calib.placement_snap_even {
+                    PlacementSnapEven::PlacerFrame => arena.from_frame(team, arena.to_frame(team, tap).add(step)),
+                    PlacementSnapEven::Absolute => tap.add(step),
+                };
+                if !fits(c) {
+                    continue;
+                }
+                let d = c.dist2(tap);
+                if best.map_or(true, |(b, _)| d < b) {
+                    best = Some((d, c));
+                }
+            }
+            if best.is_some() && self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::RelocateFirstFittingRing {
+                break;
+            }
+        }
+        best.map_or(tap, |(_, c)| c)
+    }
+
     pub fn building_placement(&self, team: Team, idx: u16, tap: Vec2) -> Option<(Vec2, Rect)> {
         let card = self.cfg.cards.get(idx);
         if card.kind != CardKind::Building {
@@ -6355,10 +6544,7 @@ impl BattleState {
         // A BUILDING STANDS WHERE ITS FOOTPRINT FITS, not on the tap. The same
         // pure query decided the verdict above, so the two cannot disagree: if it
         // said yes it returns a point here.
-        let pos = match self.building_placement(team, idx, pos) {
-            Some((centre, _)) => centre,
-            None => pos,
-        };
+        let pos = self.resolve_point(team, idx, pos);
         let t = team as usize;
         let need = (self.cfg.cards.get(idx).elixir as i64) * self.mana_unit;
         let level = self.cfg.card_level[t];
@@ -6389,12 +6575,16 @@ impl BattleState {
         if !self.cfg.arena.in_bounds(pos) {
             return Err(DeployError::OutOfArena);
         }
-        if card.kind == CardKind::Spell {
+        let (kind, flying) = (card.kind, card.is_flying());
+        // The play path's resolution (snap, relocation) for troops and spells; a building
+        // stays where it was put, as before.
+        let pos = if kind == CardKind::Building { pos } else { self.resolve_point(team, idx, pos) };
+        if kind == CardKind::Spell {
             // A cast, at any in-bounds point (tests aim spells where no player could).
             self.enqueue(team, idx, level, pos);
             return Ok(());
         }
-        if !card.is_flying() && !self.cfg.arena.is_passable_ground(pos) {
+        if !flying && !self.cfg.arena.is_passable_ground(pos) {
             return Err(DeployError::Water);
         }
         self.enqueue(team, idx, level, pos);
