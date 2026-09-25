@@ -62,14 +62,14 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/contact-law.svg" width="100%" alt="Video placeholder: Skeletons pushing apart round a Knight, recording beside engine"><br><b>Crowds push each other like the real game</b><br><sub>Over 31 recorded captures, 99.24% of every unit's per-tick positions come out exact.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/deploy-legality.png" width="100%" alt="The arena coloured by check_deploy's answer for a Giant, before and after an enemy princess tower falls"><br><b>Ask whether a card can go there</b><br><sub>Name a card and a tile. The engine answers with one of 13 codes, such as WATER or OUT_OF_TERRITORY. A Giant has 230 of 576 tiles at the start, and 35 more once a tower falls.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/deploy-legality.png" width="100%" alt="The arena coloured by check_deploy's answer for a Giant, before and after an enemy princess tower falls"><br><b>Ask whether a card can go there</b><br><sub>Name a card and a tile. The engine answers with one of 14 codes, such as WATER, OUT_OF_TERRITORY or TOO_EARLY. A Giant has 230 of 576 tiles at the start, and 35 more once a tower falls.</sub></td>
     <td width="33%" align="center"><img src="docs/media/determinism.png" width="100%" alt="One seed run twice and resumed once from a snapshot, with all 960 per-tick hash checks matching"><br><b>Same seed, same battle</b><br><sub>Whole-number arithmetic and a hash of the board every tick. Two runs of one seed, plus a third resumed from a snapshot: 960 checks, none differ.</sub></td>
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
     <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 101 of the 144 cards in the 15.535 client's card table and refuses 43, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35928386686 at `49777a6`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 155 carry a status from guess to measured, and 62 are measured (2026-09-22). 101 also name the rivals they were chosen against, and 110 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 161 carry a status from guess to measured, and 69 are measured (2026-09-24). 108 also name the rivals they were chosen against, and 116 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
 </table>
 
@@ -215,6 +215,13 @@ pack and `extract_cards.py` with no `--vintage`.
 
 One build note. The engine compiles `data/calibration.json` and `data/derived/arena.json` in, so
 after editing either one, build again. RoyaleGym refuses a stale build.
+
+To try another value of a constant without editing that file or rebuilding, pass it when you
+create the battle, as `calibration_overrides={"section.KEY": json.dumps(value)}`. For example,
+`calibration_overrides={"movement.ATTACKING_UNIT_MOVEMENT": json.dumps("frozen")}` runs the
+older rule for attacking units. A key the file does not have is refused, so a typo cannot quietly
+run the shipped value. Every state that battle writes carries a `calibration_overrides` key, so
+a result says it came from an experiment.
 
 The card table works the other way. Each time you create a `Battle`, the engine reads
 `data/derived/cards.json` from the checkout it was built in. So re-running `extract_cards.py`
@@ -442,7 +449,7 @@ As of 2026-09-22.
 Working:
 
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
-  Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 60 s overtime, the
+  Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
 - Cards. **Of the card table's 144 rows the engine loads 101 and refuses 43**, with a reason for
   each refusal. The engine's own census reports **103 loadable, 43 rejected and 12 summon-only**,
@@ -460,11 +467,13 @@ Working:
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
   spawner timing and death spawns, the lifetime drain of buildings and the order things happen
   within a tick.
-- Modelled, but not measured yet: hiding buildings, and most of how status effects work (slow,
+- Modelled, but not measured yet: most of how hiding buildings and status effects work (slow,
   freeze, damage over time, and what happens when several stack). Those rules come from reasoning
   about the card data, community write-ups or a best guess, and the constants file marks which.
-  One part is measured: how much a single rage speeds a unit up. The engine has the rage speed-up
-  and healing, but the Rage and Heal cards themselves are refused when the table loads.
+  A few parts are measured: how much a single rage speeds a unit up, how hard a Tornado pulls
+  (speed buffs do not change the pull, and a stunned or frozen unit is still pulled), and that
+  enemies can target a Tesla as soon as it starts to rise. The engine has the rage speed-up and
+  healing, but the Rage and Heal cards themselves are refused when the table loads.
 - Same seed same battle, snapshots, and the deploy-legality query.
 - Seat symmetry is a test setting, not something the engine promises. The game itself treats the
   two seats a little differently in three measured places: where a ground deploy is clamped, the
@@ -475,11 +484,10 @@ Working:
 Not modelled yet, in plain words:
 
 - The 18 cards in `thin_slice` (`data/derived/cards.json`) are the ones the engine has been
-  checked on. With the full table it plays 77 more that are not. A few of those show up in tests
+  checked on. The rest of the 101 it plays are not. A few of those show up in tests
   of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
   mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
-  will most likely hold one. A public clone's table has 60 cards outside the 18. If you pick
-  decks in code, draw them from `thin_slice`.
+  will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
 - Dash and morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
 - Two known collision defects. A unit can sit inside a building's footprint for up to 47 ticks,
@@ -516,11 +524,17 @@ runner had no copy of; five modules that could not import `numpy` or `msgspec`, 
 line did not name and everybody here already had; and `clippy`, which turned out never to have been
 wired into CI at all and found real work on its first execution.
 
-**The defect that caused the failure is still here, and its size is now known.** Two Skeleton Army
-units overlap by 157 per cent of the smaller radius for **87 consecutive ticks**, against a limit
-of 150 for 40. A test now holds it at 87 in both directions, so it cannot grow and it cannot be
-quietly fixed without somebody noticing. It holds on both runners, and it now holds against the
-same card table the number is a fact about, which was not true when 87 was first taken.
+**The rule behind that failure no longer ships.** The failure was two Skeleton Army units
+overlapping by more than 150 per cent of the smaller radius for **87 consecutive ticks**, at worst
+193 per cent, against a limit of 150 for 40. The cause was a rule that took a unit out of all
+movement while it attacked, so nothing could push an attacking crowd apart. Since 2026-09-24 an
+attacking unit still does not walk, but its neighbours can push it apart
+(`movement.ATTACKING_UNIT_MOVEMENT = separation_only`). The old rule can still be switched back
+on for an experiment. The 87 itself turned out to depend on how that one battle opened, so the
+tests now build their own crowd: one checks that the old rule still packs it, and one checks that
+the shipped rule keeps it apart. The 90-tick limit the engine is held to was not tightened with
+the change, because the shipped rule's worst run on that battle had not been measured when the
+rule changed.
 
 That 87 was published here as 41 for most of a day, and the reason is worth more than the
 correction. The gate stopped counting the moment it had enough to fail: 40 allowed, one more,
@@ -528,8 +542,8 @@ report 41. **41 was the threshold plus one, not the size of the defect.** It bec
 only when someone re-ran with the limit lifted. A fail-fast check reports its own bound, and a bound
 reads exactly like a measurement once it is written into a sentence.
 
-The starting elixir moving from 5 to 6 did not create the defect. It created a battle that reaches
-one already on the backlog, so the engine carried it long before any test went red. The first run
+The starting elixir moving from 5 to 6 did not create that defect. It created a battle that
+reached one already on the backlog, so the engine had carried it long before any test went red. The first run
 compiles the test binaries before it runs anything, so expect several minutes of build output
 before the first result appears.
 
@@ -538,15 +552,14 @@ cd RoyaleSim\crates\royalesim
 cargo test --release
 ```
 
-The Python suite is 280 passed and 11 skipped on a clean runner and takes a few minutes. On a machine with the recordings it collects more.
+On a clean runner at `6446229` the Python suite was 280 passed and 11 skipped, and it takes a few minutes. Tests have been added since, so a run today collects more. A machine with the recordings collects more again.
 
 ```
 cd RoyaleSim
 ..\.venv\Scripts\python -m pytest -q
 ```
 
-Both counts are from 2026-09-22. The cargo count is the `#[test]` lines in `tests/*.rs` and
-`src/*.rs`. The pytest count is what `pytest --collect-only -q` reports.
+Both counts come from the clean runner at `6446229`, so they describe that commit and not a later one.
 
 The cargo run above assumes the 15.535 card table, as described under Install. On a 2018-only
 checkout `levels.rs` and `jump16402.rs` go red for want of it. RoyaleGym's suite drives the engine
