@@ -338,7 +338,7 @@ fn a_calibration_override_reaches_the_battle_config_names_itself_and_refuses_a_k
     assert!(!plain_notes.iter().any(|n| n.starts_with("calibration override")));
     let mut bad = std::collections::BTreeMap::new();
     bad.insert("match.NOT_A_KEY".to_string(), "1".to_string());
-    let err = config_for_with(&f, common::cards(), None, &bad).err().expect("an override cannot add a key");
+    let err = config_for_with(&f, common::cards(), None, &bad).expect_err("an override cannot add a key");
     assert!(err.contains("not a key in the ledger"), "{err}");
 }
 
