@@ -130,6 +130,12 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     if hidden_from_targeting(ctx.calib, e, c) {
         return false;
     }
+    // formation.STAGGER_WAIT: a member still waiting out its deploy stagger is nobody's target
+    // (0 of 972,681 corpus target rows point at one). The one definition, so the scan, a locked
+    // target and a hidden building's wake all read it.
+    if ctx.calib.formation_stagger_wait == crate::state::StaggerWait::Client16402 && e.stagger_ms[c] > 0 {
+        return false;
+    }
     let card = ctx.cards.get(e.card[a]);
     #[cfg(not(clash_plant = "giant_hits_troops"))]
     if card.target_only_buildings && !e.kind[c].is_building() {

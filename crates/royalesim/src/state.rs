@@ -379,6 +379,11 @@ pub struct Calib {
     pub formation_layout: FormationLayout,
     /// formation.DEPLOY_STAGGER: whether member k waits k x SummonDeployDelay.
     pub formation_deploy_stagger: DeployStagger,
+    /// formation.STAGGER_WAIT: whether a member waiting out that stagger can be targeted and
+    /// moved. Added after SNAPSHOT_FORMAT 20; the `default` is `Deploying`, what a battle saved
+    /// before it actually ran.
+    #[serde(default = "stagger_wait_default")]
+    pub formation_stagger_wait: StaggerWait,
     /// formation.GROUND_Y_CLAMP: the ground member's y clamp to the tap column's
     /// deployable rows.
     pub formation_ground_y_clamp: GroundYClamp,
@@ -482,6 +487,10 @@ fn release_timing_default() -> ReleaseTiming {
 
 fn post_kill_wait_default() -> PostKillWait {
     PostKillWait::None
+}
+
+fn stagger_wait_default() -> StaggerWait {
+    StaggerWait::Deploying
 }
 
 macro_rules! calib_enum {
@@ -1150,6 +1159,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.STAGGER_WAIT -- what a member is while it waits out its DEPLOY_STAGGER wait
+    /// (entity.rs `stagger_ms` > 0).
+    StaggerWait {
+        /// Today's engine: the wait is part of the deploy, so a waiting member is targeted and
+        /// moved by the separation scan like any deploying unit.
+        Deploying = "deploying",
+        /// Measured on the 16.402 corpus: no attacker can target it (target.rs `can_target`) and
+        /// the 16.402 move pass leaves it where it is. Its body still stands in the way, so a unit
+        /// overlapping it is pushed off it. When the wait ends it is an ordinary deploying unit.
+        Client16402 = "client16402_untargetable_immovable",
+    }
+);
+calib_enum!(
     /// formation.GROUND_Y_CLAMP -- see `BattleState::ground_y_range`.
     GroundYClamp {
         /// The measured per-side range: a ground member's absolute y clamped into
@@ -1573,6 +1595,7 @@ impl Calib {
             },
             formation_layout: pick(&v, &["formation", "LAYOUT", "value"], FormationLayout::from_calibration_name)?,
             formation_deploy_stagger: pick(&v, &["formation", "DEPLOY_STAGGER", "value"], DeployStagger::from_calibration_name)?,
+            formation_stagger_wait: pick(&v, &["formation", "STAGGER_WAIT", "value"], StaggerWait::from_calibration_name)?,
             formation_ground_y_clamp: pick(&v, &["formation", "GROUND_Y_CLAMP", "value"], GroundYClamp::from_calibration_name)?,
             formation_ground_deploy_point: pick(&v, &["formation", "GROUND_DEPLOY_POINT", "value"], GroundDeployPoint::from_calibration_name)?,
             lane_id_based_deploy_sequence: globals_bool("LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE")?,
@@ -1829,6 +1852,10 @@ struct PendingSpawn {
     /// The periodic spawner that emitted this unit (entity.rs `spawned_by`, for
     /// SpawnLimit); None for a deploy, a spell release and a death spawn.
     owner: Option<EntityId>,
+    /// The formation member's DEPLOY_STAGGER wait, ms, already inside `deploy_ms`
+    /// (entity.rs `stagger_ms`); 0 for everything that is not a staggered member.
+    #[serde(default)]
+    stagger_ms: i32,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -2371,6 +2398,7 @@ impl BattleState {
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at release");
             self.ents.spawned_by[id.index as usize] = p.owner;
+            self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -2605,7 +2633,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)) }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0 }));
                     k += 1;
                 }
                 left -= 1;
@@ -2649,6 +2677,7 @@ impl BattleState {
             let Ok(id) = self.spawn_now(p.team, p.card, p.level, p.pos, kind) else { continue };
             let i = id.index as usize;
             self.ents.spawned_by[i] = p.owner;
+            self.ents.stagger_ms[i] = p.stagger_ms;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[i] = d;
                 if d == 0 {
@@ -2872,6 +2901,7 @@ impl BattleState {
         for i in 0..self.ents.capacity() {
             if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) {
                 self.ents.deploy_ms[i] = (self.ents.deploy_ms[i] - dt).max(0);
+                self.ents.stagger_ms[i] = (self.ents.stagger_ms[i] - dt).max(0);
                 if self.ents.deploy_ms[i] == 0 {
                     self.on_deployed(i);
                 }
@@ -3129,6 +3159,7 @@ impl BattleState {
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
             self.ents.spawned_by[id.index as usize] = p.owner;
+            self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -3731,6 +3762,22 @@ impl BattleState {
                         routes[i].clear();
                         goals[i] = None;
                         segs[i] = Vec2::default();
+                    }
+                    continue;
+                }
+                // formation.STAGGER_WAIT = client16402_untargetable_immovable: A MEMBER STILL
+                // WAITING OUT ITS STAGGER DOES NOT MOVE -- no walk, no avoidance, no separation
+                // scan (1083 of 1083 corpus frame pairs inside the wait are still). Its body stays
+                // collidable, so a unit overlapping it is pushed off it as today. After the
+                // pushback branch, so a knockback keeps today's behaviour, and a pull is applied
+                // alone as the held branch below applies it: both are unmeasured on a waiting
+                // member and keep today's reach.
+                if calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0 {
+                    if attract[i] != (0, 0) {
+                        let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, deploying && !flying, &is_water, arena.cols, arena.rows);
+                        bodies[i].x = nx;
+                        bodies[i].y = ny;
+                        deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
                     }
                     continue;
                 }
@@ -4901,7 +4948,7 @@ impl BattleState {
             // Spawn phase under the earlier convention.
             let unit = self.cfg.cards.get(r.unit);
             for p in self.formation_points(r.team, r.count, unit.collision_radius, unit.is_flying(), r.pos) {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0 });
             }
         }
     }
@@ -5341,7 +5388,7 @@ impl BattleState {
             let shift = card.formation.spawn_angle_shift_deg;
             let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing, angle_shift_deg: shift, radius };
             for (k, p) in self.death_spawn_points(team, self.ents.pos[i], ring).into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0 }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -5584,7 +5631,7 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0 });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -5639,7 +5686,8 @@ impl BattleState {
             // The stagger only exists for a unit with a DeployTime.
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None }
+            let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -6550,6 +6598,9 @@ impl BattleState {
                 if self.cfg.calib.post_kill_wait == PostKillWait::MeasuredList {
                     h.i32(e.retarget_wait[i] as i32);
                 }
+                if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
+                    h.i32(e.stagger_ms[i]);
+                }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
@@ -6680,6 +6731,9 @@ impl BattleState {
             if !legacy_v3 {
                 h.i32(s.deploy_ms.unwrap_or(-1));
                 h.opt_id(s.owner);
+                if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
+                    h.i32(s.stagger_ms);
+                }
             }
         }
         h.u32(self.dmg.hits.len() as u32);
@@ -7231,6 +7285,7 @@ impl BattleState {
         snap.ents.push_applied.resize(n, Vec2::default());
         snap.ents.push_neighbours.resize(n, 0);
         snap.ents.retarget_wait.resize(n, 0);
+        snap.ents.stagger_ms.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

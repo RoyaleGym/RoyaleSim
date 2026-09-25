@@ -176,6 +176,14 @@ pub struct Entities {
     /// (state.rs `load_with`), and 0 is also the truth for such a snapshot: nothing waited then.
     #[serde(default)]
     pub retarget_wait: Vec<i16>,
+    /// What is left of a formation member's DEPLOY_STAGGER wait, ms: set from PendingSpawn.stagger_ms
+    /// when the member is created and counted down beside `deploy_ms`, so `deploy_ms - stagger_ms`
+    /// stays the unit's own DeployTime. 0 for every unit that never staggered (a spell release and
+    /// a death spawn take `deploy_ms` from their own columns, so `deploy_ms > DeployTime` cannot tell
+    /// the wait). Read under formation.STAGGER_WAIT = client16402_untargetable_immovable. `default`
+    /// and sized on load like `retarget_wait`.
+    #[serde(default)]
+    pub stagger_ms: Vec<i32>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -433,6 +441,7 @@ impl Entities {
             self.clear_buffs(i);
             self.retarget_on_resume[i] = false;
             self.retarget_wait[i] = 0;
+            self.stagger_ms[i] = 0;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -490,6 +499,7 @@ impl Entities {
             }
             self.retarget_on_resume.push(false);
             self.retarget_wait.push(0);
+            self.stagger_ms.push(0);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);
