@@ -281,6 +281,10 @@ pub struct Calib {
     pub knock_affects_deploying: bool,
     /// knockback.DIRECTION_ROLLING.
     pub knock_direction_rolling: RollDirection,
+    /// spells.PROJECTILE_SPAWN_FORMATION. Before this field the key was read only to refuse
+    /// anything but engine_grid; the `default` is that arm.
+    #[serde(default = "projectile_spawn_formation_default")]
+    pub projectile_spawn_formation: ProjectileSpawnFormation,
     /// knockback.ROLLING_CONTACT_RADIUS, native: the Log's contact radius the
     /// radial_from_contact_point arm reads. `default` 0: read only under that arm, which no
     /// battle saved before this field ran.
@@ -511,6 +515,10 @@ fn deploying_heading_default() -> DeployingHeading {
 
 fn waiting_heading_default() -> WaitingHeading {
     WaitingHeading::Kept
+}
+
+fn projectile_spawn_formation_default() -> ProjectileSpawnFormation {
+    ProjectileSpawnFormation::EngineGrid
 }
 
 fn release_timing_default() -> ReleaseTiming {
@@ -764,6 +772,18 @@ calib_enum!(
         /// The card ladder of the record's rarity (Common: x 256 % at 11 -> 6144 / 3584),
         /// what the engine ran before the towers were measured. Kept runnable as the foil.
         CommonCardLadder = "common_card_ladder",
+    }
+);
+calib_enum!(
+    /// spells.PROJECTILE_SPAWN_FORMATION -- how a landing spell lays the units it releases.
+    /// ring_at_projectile_radius is a listed candidate with no implementation: refused at load.
+    ProjectileSpawnFormation {
+        /// The centred grid (`formation_grid`), the earlier guess.
+        EngineGrid = "engine_grid",
+        /// The formation ring (`formation::member_offset`) of `count` touching units of the
+        /// released unit's collision radius, one member forward: client 15.535.29's Goblin Barrel
+        /// (0, 577), (+-499, -288).
+        CountRingTight = "count_ring_tight",
     }
 );
 calib_enum!(
@@ -1631,6 +1651,7 @@ impl Calib {
             knock_attack_reset: pick(&v, &["knockback", "ATTACK_RESET", "value"], KnockAttackReset::from_calibration_name)?,
             knock_affects_deploying: boolean(&v, &["knockback", "AFFECTS_DEPLOYING_UNITS", "value"])?,
             knock_direction_rolling: pick(&v, &["knockback", "DIRECTION_ROLLING", "value"], RollDirection::from_calibration_name)?,
+            projectile_spawn_formation: pick(&v, &["spells", "PROJECTILE_SPAWN_FORMATION", "value"], ProjectileSpawnFormation::from_calibration_name)?,
             knock_rolling_contact_radius: int(&v, &["knockback", "ROLLING_CONTACT_RADIUS", "value"])?,
             stun_attack_timer: pick(&v, &["status", "STUN_ATTACK_TIMER_MODEL", "value"], StunTimerModel::from_calibration_name)?,
             stun_retarget_on_resume: boolean(&v, &["status", "STUN_RETARGET_ON_RESUME", "value"])?,
@@ -1740,7 +1761,6 @@ impl Calib {
         only(&v, &["spells", "LAUNCH_POINT", "value"], "caster_king_tower_centre")?;
         only(&v, &["spells", "WAVE_AREA_MODEL", "value"], "single_disc_one_hit_per_wave")?;
         only(&v, &["spells", "ONE_SHOT_AREA_EFFECT_APPLICATION", "value"], "first_update_only")?;
-        only(&v, &["spells", "PROJECTILE_SPAWN_FORMATION", "value"], "engine_grid")?;
         // knockback.STACKING is implemented PER LAW: the ladder's gate refuses a push
         // while a ladder runs and never sums, and the fixed-distance slide sums and
         // never refuses. The other two pairings have no code and are refused here
@@ -5154,7 +5174,11 @@ impl BattleState {
             // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
             // Spawn phase under the earlier convention.
             let unit = self.cfg.cards.get(r.unit);
-            for p in self.formation_points(r.team, r.count, unit.collision_radius, unit.is_flying(), r.pos) {
+            let points = match self.cfg.calib.projectile_spawn_formation {
+                ProjectileSpawnFormation::EngineGrid => self.formation_points(r.team, r.count, unit.collision_radius, unit.is_flying(), r.pos),
+                ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
+            };
+            for p in points {
                 self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0 });
             }
         }
@@ -5793,6 +5817,37 @@ impl BattleState {
         self.formation_grid(team, count, radius, flying, pos)
             .into_iter()
             .map(|p| if flying || arena.is_passable_ground(p) { p } else { arena.nearest_passable_ground(p, team).unwrap_or(p) })
+            .collect()
+    }
+
+    /// A spell RELEASE laid by the formation ring (spells.PROJECTILE_SPAWN_FORMATION =
+    /// count_ring_tight): `count` members of `unit`, radius its collision radius, in the
+    /// caster's frame and lane (the same `member_offset` a deploy uses), clamped half a cell
+    /// inside the arena, and a ground member still on water put on the nearest land.
+    fn release_ring_points(&self, team: Team, count: i32, unit: u16, pos: Vec2) -> Vec<Vec2> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let u = self.cfg.cards.get(unit);
+        let own = arena.to_frame(team, pos);
+        let layout = crate::formation::Layout {
+            primaries: count.max(1),
+            seconds: 0,
+            radius: u.collision_radius / K,
+            width: 0,
+            angle_shift: 0,
+            lane: crate::formation::nearest_lane(arena, own),
+            lane_mirror: self.cfg.calib.lane_id_based_deploy_sequence,
+        };
+        let tap = Vec2::new(own.x / K, own.y / K);
+        let (w, h) = (arena.width / K, arena.height / K);
+        let margin = arena.cell / K / 2;
+        (0..count.max(1))
+            .map(|k| {
+                let p = tap.add(crate::formation::member_offset(layout, k));
+                let p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
+                let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
+                if u.is_flying() || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) }
+            })
             .collect()
     }
 
