@@ -62,7 +62,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/contact-law.svg" width="100%" alt="Video placeholder: Skeletons pushing apart round a Knight, recording beside engine"><br><b>Crowds push each other like the real game</b><br><sub>Over 31 recorded captures, 99.24% of every unit's per-tick positions come out exact.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/deploy-legality.png" width="100%" alt="The arena coloured by check_deploy's answer for a Giant, before and after an enemy princess tower falls"><br><b>Ask whether a card can go there</b><br><sub>Name a card and a tile. The engine answers with one of 14 codes, such as WATER, OUT_OF_TERRITORY or TOO_EARLY. A Giant has 230 of 576 tiles at the start, and 35 more once a tower falls.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/deploy-legality.png" width="100%" alt="The arena coloured by check_deploy's answer for a Giant, before and after an enemy princess tower falls"><br><b>Ask whether a card can go there</b><br><sub>Name a card and a tile. The engine answers with one of 14 codes, such as WATER, OUT_OF_TERRITORY or TOO_EARLY. Once play opens at tick 90, a Giant has 230 of 576 tiles, and 35 more once a tower falls.</sub></td>
     <td width="33%" align="center"><img src="docs/media/determinism.png" width="100%" alt="One seed run twice and resumed once from a snapshot, with all 960 per-tick hash checks matching"><br><b>Same seed, same battle</b><br><sub>Whole-number arithmetic and a hash of the board every tick. Two runs of one seed, plus a third resumed from a snapshot: 960 checks, none differ.</sub></td>
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
@@ -232,7 +232,9 @@ you want.
 ## Try it
 
 After the install above, this runs as is. A Giant is played for Blue (team 0, the bottom half of
-the arena) and left alone for 24 seconds of game time. Nobody tells it where to walk.
+the arena) and left alone for 24 seconds of game time. Nobody tells it where to walk. The
+engine refuses every play in a match's opening seconds, as the game does, so the program waits
+those out first.
 
 ```python
 import json, royalesim
@@ -242,8 +244,13 @@ b = royalesim.Battle(card_names=deck, slot_of_k=[[0, 1, 2], [0, 1, 2]])
 b.reset(seed=1, decks=[list(range(8))] * 2, shuffle=0, start_tick=0,
         elixir_milli=[10_000, 10_000], tower_hp=None, spawns=[])
 
+# Like the real game, a match refuses every deploy for its opening seconds. Wait them out.
+calib = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+b.step([], calib["match"]["DEPLOY_LOCKOUT_TICKS"]["value"])
+
 T = royalesim.SUBTILE                   # positions are in subtiles: 18000 to one arena tile
-b.step([(0, 0, 5 * T, 10 * T)], 0)      # Blue plays hand slot 0 (the Giant) on tile (5, 10)
+played = b.step([(0, 0, 5 * T, 10 * T)], 0)   # Blue plays hand slot 0 (the Giant) on tile (5, 10)
+print("play:", royalesim.DEPLOY_REASONS[played[0][1]])
 for _ in range(6):
     b.step([], 80)                      # 80 ticks = four seconds of game time, one call
     s = json.loads(bytes(b.state_json()))
@@ -253,17 +260,23 @@ for _ in range(6):
 ```
 
 ```
-t=80  giant at (4.34, 12.56)  hp=3968  red left tower hp=3052
-t=160  giant at (3.86, 16.15)  hp=3968  red left tower hp=3052
-t=240  giant at (3.77, 19.82)  hp=3532  red left tower hp=3052
-t=320  giant at (3.77, 22.57)  hp=2987  red left tower hp=2799
-t=400  giant at (3.77, 22.57)  hp=2442  red left tower hp=2293
-t=480  giant at (3.77, 22.57)  hp=1897  red left tower hp=1534
+play: OK
+t=170  giant at (4.34, 12.56)  hp=3968  red left tower hp=3052
+t=250  giant at (3.86, 16.15)  hp=3968  red left tower hp=3052
+t=330  giant at (3.77, 19.82)  hp=3532  red left tower hp=3052
+t=410  giant at (3.77, 22.57)  hp=2987  red left tower hp=2799
+t=490  giant at (3.77, 22.57)  hp=2442  red left tower hp=2293
+t=570  giant at (3.77, 22.57)  hp=1897  red left tower hp=1534
 ```
 
+Run on engine build `cb784bb583586789`, RoyaleSim `09a3b84`, with the 15.535 card table. The
+`play: OK` line is there on purpose. `step` does not raise when a play is refused, it returns the
+reason. An earlier version of this program played at tick 0, was refused as `TOO_EARLY`, and then
+failed looking for a Giant that was never placed.
+
 Nobody steered the Giant. It picked its own route on the measured route-finder. It slid left onto
-the bridge column, crossed the river around t=160, walked into princess-tower fire, stopped within
-its own reach of the tower at t=320 and started hitting it. Run it again with the same seed and the
+the bridge column, crossed the river around t=250, walked into princess-tower fire, stopped within
+its own reach of the tower at t=410 and started hitting it. Run it again with the same seed and the
 numbers are the same.
 
 The eight cards are an example rather than a recommendation, and all eight are from the 18 whose
@@ -271,9 +284,10 @@ behaviour is checked against recordings. Only the Giant is ever played here, so 
 change nothing: swapping one of them out and re-running gives the same six lines. `Archers` is
 the display name for the card the data calls `Archer`, and the engine takes either.
 
-The positions and the timing above will be the same on your machine. The hitpoints may not. Card
-levels come from the card table you built, so the two right-hand columns move between the 15.535
-table and the `--vintage 2018` one. The run above used 15.535. If your hitpoints differ and the
+On the same engine and card table, every column above will be the same on your machine. The engine
+keeps changing, though, so if yours differs, compare your build with the one named above first.
+Card levels come from the card table your engine reads, so the two right-hand columns move between
+the 15.535 table the install sets up and the `--vintage 2018` one. If your hitpoints differ and the
 route does not, nothing is wrong.
 
 To watch a battle instead of reading numbers, run `python tools\watch_battle.py --open`. It plays a
