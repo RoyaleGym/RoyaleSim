@@ -1108,6 +1108,36 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> retarget_progress); applied in state.rs phase_target, which suppresses BOTH routes into the cancel -- the `changed` test and target.rs's cancel_attack, which is the route a LOCKED unit whose target dies actually takes. Gating only `changed` leaves the tower's own case untouched.",
       "open": "Whether the game cancels a swing when a unit switches away from a live target at all. This engine keeps that behaviour because nothing measured it, not because anything confirmed it."
     },
+    "POST_KILL_RETARGET_WAIT": {
+      "value": {
+        "arm": "none",
+        "units": [
+          "Skeleton",
+          "Knight",
+          "Goblin_Stab",
+          "Giant",
+          "Prince",
+          "MiniPekka",
+          "InfernoTower",
+          "InfernoDragon",
+          "Bat",
+          "Tesla",
+          "Fisherman",
+          "Hunter"
+        ],
+        "ticks": 6
+      },
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm none, which is today's engine: the 16.402 corpus and the 15.535.29 kernel both measure the listed units waiting (see provenance). It ships at none only until the corpus has scored the measured arm by override. The measured arm is HIGH for the listed units and says nothing about the rest (see open).",
+      "provenance": "MEASURED on the 16.402 corpus, one seat per battle, every attacker whose target DIED while it was attacking (behaviour state 2), over contiguous frames: the attacker keeps state 2 with no target and does not move, its attack progress holds at its value on the loss for five frames and reads 0 on the sixth, and it takes its next target on the loss + 6 (the loss = the first frame with no target, one after the victim's last live frame). The wait is UNCONDITIONAL: in 55 of 118 clean events another enemy already stood in range at the loss and was still ignored for the six ticks; 110 of 118 stood still, the other 8 were pushed. Per unit (6-tick events / clean events, battles): Skeleton 108/108 (16), Knight 65/68 (18; the other three are 1, 12 and 27, new enemies arriving later), Goblin_Stab 47/47 (14), Giant 17/17 (12), Prince 13/13 (6), MiniPekka 12/12 (4), InfernoTower 6/6 (3), Bat 4/4, InfernoDragon 4/4, Tesla 2/2, Fisherman 2/2, Hunter 2/2. CORROBORATED on the 15.535.29 kernel: Knight and Bomber 6, Valkyrie and Musketeer 1, with the same freeze-then-reset of the attack progress on the Knight. The engine took the next target on the loss + 1, so every listed unit walked or swung five ticks early after every kill, and every Prince charge that followed a kill started five ticks early (002736-B: 497 against 502).",
+      "candidates": [
+        "none",
+        "client16402_measured_list"
+      ],
+      "promotion_rules": "Score value.arm = client16402_measured_list on the corpus with replay_parity --calibration-override (the whole value, the arm swapped), then flip. Replace the list by the condition that decides the wait once it is identified, with the list as the old arm.",
+      "engine": "state.rs phase_target (arm, hold, zero on the loss + 5, accept on the loss + 6), phase_attack (a waiting unit's timers freeze), the Path phase (a waiting unit is held like an attacking one); entity.rs retarget_wait; hashed only under the measured arm",
+      "open": "Units NOT on the list keep today's behaviour, deliberately: the rule that decides the wait is not identified, and the list grows only by measurement. No data column separates the two groups (the 15.535 tables set none of LoadAfterRetarget, StopTimeAfterAttack, RetargetAfterAttack, RetargetEachTick; homing does not either). Projectile attackers usually take their next target after 1 tick but wait 6 in 10-20 per cent of events (Musketeer 6 of 54, Archer 8 of 42, SpearGoblin 4 of 69, Witch 4 of 18, Minion 3 of 19, Cannon 1 of 13), Bomber is mixed (19 of 25 at 6), and Valkyrie (16 of 16), Bowler, Princess, BabyDragon, ElectroWizard, MegaMinion and LavaPups take 1: the condition looks like a property of the attack state at the loss, not of the unit."
+    },
     "PROJECTILE_LAUNCH": {
       "value": "start_radius_next_tick",
       "status": "measured",

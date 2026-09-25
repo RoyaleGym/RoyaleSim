@@ -225,6 +225,16 @@ pub struct Calib {
     /// through `BattleState::release_timing`, so the regression plant can force the old arm.
     #[serde(default = "release_timing_default")]
     pub release_timing: ReleaseTiming,
+    /// combat.POST_KILL_RETARGET_WAIT (value.arm, value.units, value.ticks). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
+    #[serde(default = "post_kill_wait_default")]
+    pub post_kill_wait: PostKillWait,
+    /// The UNIT names the wait applies to (value.units), matched against a unit's own name.
+    #[serde(default)]
+    pub post_kill_wait_units: Vec<String>,
+    /// The loss-to-next-target interval, ticks (value.ticks; 6 measured).
+    #[serde(default)]
+    pub post_kill_wait_ticks: i32,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -468,6 +478,10 @@ fn deploying_heading_default() -> DeployingHeading {
 
 fn release_timing_default() -> ReleaseTiming {
     ReleaseTiming::NextSpawnPhase
+}
+
+fn post_kill_wait_default() -> PostKillWait {
+    PostKillWait::None
 }
 
 macro_rules! calib_enum {
@@ -931,6 +945,18 @@ calib_enum!(
         /// The earlier convention: queued, and created in the NEXT tick's Spawn phase,
         /// where the countdown also runs -- one tick late on every release.
         NextSpawnPhase = "next_spawn_phase",
+    }
+);
+calib_enum!(
+    /// combat.POST_KILL_RETARGET_WAIT -- what a unit does in the ticks after its target dies.
+    PostKillWait {
+        /// Today's engine: the next Target phase takes the next target (the loss + 1).
+        None = "none",
+        /// Measured on both clients for the LISTED units: held as attacking with no target and
+        /// standing still, the attack timer frozen and zeroed on the loss + 5, the next target
+        /// taken on the loss + 6 even with another enemy already in range. Unlisted units keep
+        /// today's behaviour: the condition that decides the wait is not identified.
+        MeasuredList = "client16402_measured_list",
     }
 );
 calib_enum!(
@@ -1465,6 +1491,15 @@ impl Calib {
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
+            post_kill_wait: pick(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "arm"], PostKillWait::from_calibration_name)?,
+            post_kill_wait_units: v
+                .pointer("/combat/POST_KILL_RETARGET_WAIT/value/units")
+                .and_then(Value::as_array)
+                .ok_or("combat.POST_KILL_RETARGET_WAIT.value.units: a list of unit names is required")?
+                .iter()
+                .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.units: every entry is a unit name"))
+                .collect::<Result<Vec<_>, _>>()?,
+            post_kill_wait_ticks: int(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "ticks"])?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -3228,8 +3263,39 @@ impl BattleState {
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
         let keep_cycle_when_dead = self.cfg.calib.retarget_progress == RetargetProgress::KeepWhenDead;
+        let wait_arm = self.cfg.calib.post_kill_wait == PostKillWait::MeasuredList;
+        let wait_ticks = self.cfg.calib.post_kill_wait_ticks.max(1) as i16;
+        let wait_units = &self.cfg.calib.post_kill_wait_units;
+        let cards = &self.cfg.cards;
         for &(i, d) in &decisions {
             let e = &mut self.ents;
+            // combat.POST_KILL_RETARGET_WAIT = client16402_measured_list. The loss L is the victim's
+            // death tick (the first frame whose target reads none); this Target phase, L + 1, is the
+            // first to find the target dead. A LISTED unit then holds with no target -- the
+            // decision below is not taken, whatever it found, an enemy already in range included --
+            // for L + 1 .. L + 5, its attack timer zeroed on L + 5, and takes this phase's decision
+            // on L + 6. The hold keeps it out of the walk (the Path phase holds a waiting unit like
+            // an attacking one) and freezes its timers (phase_attack).
+            if wait_arm {
+                if e.retarget_wait[i] > 0 {
+                    e.retarget_wait[i] -= 1;
+                    if e.retarget_wait[i] > 0 {
+                        if e.retarget_wait[i] == 1 {
+                            e.attack_phase[i] = AttackPhase::Idle;
+                            e.attack_ms[i] = 0;
+                        }
+                        e.target[i] = None;
+                        continue;
+                    }
+                } else if e.target[i].is_some_and(|t| !e.is_alive(t)) && wait_units.iter().any(|u| *u == cards.get(e.card[i]).name) {
+                    e.retarget_wait[i] = wait_ticks - 1;
+                    e.target[i] = None;
+                    e.target_locked[i] = false;
+                    if e.retarget_wait[i] > 0 {
+                        continue;
+                    }
+                }
+            }
             let changed = e.target[i] != d.target;
             // the target this unit had AND STILL HAS: `None` once it is dead, which is the
             // distinction both rules below turn on.
@@ -3672,7 +3738,7 @@ impl BattleState {
                 // unit is out of the pass entirely. An attacking one does not WALK, and
                 // under the measured arm the contact scans still reach it -- the same
                 // scans this pass already runs for a unit that is merely in range.
-                let phase_hold = calib.attack_holds(e.attack_phase[i]);
+                let phase_hold = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0;
                 let frozen = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0;
                 if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
                     if jumping[i] {
@@ -4357,7 +4423,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
+                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -4555,7 +4621,7 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) {
+                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -4738,7 +4804,8 @@ impl BattleState {
             let e = &self.ents;
             // stunned, mid-slide or mid-ladder: the attack timers freeze (a landed
             // push already reset a running windup in `apply_effects`)
-            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i);
+            // ... and a unit in its post-kill retarget wait (combat.POST_KILL_RETARGET_WAIT).
+            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || e.retarget_wait[i] > 0;
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing).
@@ -6480,6 +6547,9 @@ impl BattleState {
                 }
                 h.i32(e.stomp_clock[i]);
                 h.bool(e.retarget_on_resume[i]);
+                if self.cfg.calib.post_kill_wait == PostKillWait::MeasuredList {
+                    h.i32(e.retarget_wait[i] as i32);
+                }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
@@ -7160,6 +7230,7 @@ impl BattleState {
         // run, and a restored battle has not run one.
         snap.ents.push_applied.resize(n, Vec2::default());
         snap.ents.push_neighbours.resize(n, 0);
+        snap.ents.retarget_wait.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

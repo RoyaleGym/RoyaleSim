@@ -170,6 +170,12 @@ pub struct Entities {
     /// first Target phase with stun_ms == 0 the unit rescans ignoring target lock and
     /// keep-target hysteresis, then clears it.
     pub retarget_on_resume: Vec<bool>,
+    /// Ticks left of the post-kill retarget wait (calibration combat.POST_KILL_RETARGET_WAIT):
+    /// while > 0 the unit is held as attacking with no target and its attack timer frozen.
+    /// `default` so a snapshot saved before it existed still loads; sized to the capacity on load
+    /// (state.rs `load_with`), and 0 is also the truth for such a snapshot: nothing waited then.
+    #[serde(default)]
+    pub retarget_wait: Vec<i16>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -426,6 +432,7 @@ impl Entities {
             self.stun_ms[i] = 0;
             self.clear_buffs(i);
             self.retarget_on_resume[i] = false;
+            self.retarget_wait[i] = 0;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -482,6 +489,7 @@ impl Entities {
                 self.buffs.push(BuffSlot::default());
             }
             self.retarget_on_resume.push(false);
+            self.retarget_wait.push(0);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);
