@@ -69,8 +69,8 @@ use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
-    BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor, SpawnPoint,
-    ReleaseTiming, SpawnedDeploy, SpawnerEmission, StartTimeOrigin,
+    BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor,
+    ReleaseTiming, SpawnPoint, SpawnedDeploy, SpawnerEmission, StartTimeOrigin, TimerLeftover,
 };
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
@@ -138,15 +138,29 @@ fn first_wave_tick(sp: &royalesim::card::SpawnerDef) -> u32 {
 /// The appearance post-ticks of `waves` waves of `sp` whose first unit lands at `m1`:
 /// the units of a wave `SpawnInterval` apart (a blank interval: all on one tick), the
 /// next wave one pause after the LAST unit (the shipped PauseAnchor::AfterLastUnit).
+/// Under spawner.TIMER_LEFTOVER = client16402_carried a BLANK-START spawner's activation
+/// overshoot (-TICK_MS: the pass decrements the 0 it was activated with) carries into the
+/// first NONZERO reload, so that one gap is ceil((gap - TICK_MS) / TICK_MS); a start time
+/// fires at exactly 0 and carries nothing. Under `dropped` every gap is ceil(gap / TICK_MS).
 fn wave_ticks(sp: &royalesim::card::SpawnerDef, m1: u32, waves: u32) -> Vec<u32> {
-    let step = ticks_of(sp.interval_ms);
-    let mut out = Vec::new();
-    let mut base = m1;
-    for _ in 0..waves {
-        for j in 0..sp.number as u32 {
-            out.push(base + j * step);
+    let mut carry = if calib().spawner_timer_leftover == TimerLeftover::Carried && sp.start_time_ms.is_none() { dt() } else { 0 };
+    let mut gap = |ms: i32| -> u32 {
+        if ms == 0 {
+            return 0;
         }
-        base = *out.last().unwrap() + ticks_of(sp.pause_time_ms);
+        let g = ticks_of(ms - carry);
+        carry = 0;
+        g
+    };
+    let mut out = Vec::new();
+    let mut t = m1;
+    for w in 0..waves {
+        for j in 0..sp.number as u32 {
+            if w > 0 || j > 0 {
+                t += gap(if j == 0 { sp.pause_time_ms } else { sp.interval_ms });
+            }
+            out.push(t);
+        }
     }
     out
 }
@@ -567,10 +581,12 @@ fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     assert_eq!(sp.unit, ds.unit, "data: the Tombstone's two blocks name one unit");
     let life = card_stat(&s, "Tombstone").lifetime_ms.expect("data: the Tombstone has a LifeTime");
     assert!(ds.radius.is_none(), "data: the Tombstone's death radius is blank");
-    assert_eq!(calib().death_spawn_radius_default, DeathSpawnRadius::OwnCollisionRadius, "the shipped arm this test pins");
+    let c = calib();
+    let at_emission = c.death_spawn_at_emission == DeathAtEmission::MeasuredList && c.death_spawn_at_emission_units.iter().any(|u| u == "Tombstone");
     let pos = blue_spot(&s);
     let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
     let tomb_r = s.entity(tomb).unwrap().radius;
+    let skel_r = s.cards().get(ds.unit).collision_radius;
     // lifetime.HP_DECAY = linear_drain: the LifeTime is bled out of the hp pool, so the
     // Tombstone dies when the pool empties -- ceil(max_hp x 100 / drain) ticks, one or
     // two past ticks_of(LifeTime), never before it.
@@ -588,8 +604,19 @@ fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     let burst: Vec<_> = find_live(&s, Team::Blue, &unit).into_iter().filter(|e| !before.contains(&(e.id.index, e.id.generation))).collect();
     assert_eq!(burst.len(), ds.count as usize, "the expiry left {} {unit}s at once", ds.count);
     assert_eq!(laid.len(), ds.count as usize, "the burst was queued as one batch");
+    // WHERE, by the arms: on the emission point (spawner.DEATH_SPAWN_AT_EMISSION_POINT, the
+    // Tombstone listed; the measured SPAWN_POINT is the tangent along Blue's forward axis), else
+    // inside the Tombstone's own radius (DEATH_SPAWN_RADIUS_DEFAULT = own_collision_radius), else
+    // on its centre (zero).
     for b in &laid {
-        assert!(b.dist2(pos) <= (tomb_r as i64) * (tomb_r as i64), "{unit} at {b:?} outside the Tombstone's own radius");
+        if at_emission {
+            assert_eq!(c.spawner_spawn_point, SpawnPoint::Client16402Measured, "the emission point this test computes");
+            assert_eq!(*b, Vec2::new(pos.x, pos.y + tomb_r + skel_r), "{unit} not on the emission point");
+        } else if c.death_spawn_radius_default == DeathSpawnRadius::OwnCollisionRadius {
+            assert!(b.dist2(pos) <= (tomb_r as i64) * (tomb_r as i64), "{unit} at {b:?} outside the Tombstone's own radius");
+        } else {
+            assert_eq!(*b, pos, "{unit} not on the Tombstone's centre under a zero radius");
+        }
         assert!(s.arena().is_passable_ground(*b));
     }
     // And the periodic cadence ended with the building: no further unit for a pause.
@@ -907,7 +934,11 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
     // FIRST unit (the 2018 Witch; the 15.535 Tombstone -- the 15.535 Witch's wave
     // is instantaneous and cannot part the arms).
     {
-        let mut s = bare(with_calib(|c| c.spawner_pause_anchor = PauseAnchor::AfterFirstUnit));
+        // spawner.TIMER_LEFTOVER pinned to `dropped`: the formula below is its gaps.
+        let mut s = bare(with_calib(|c| {
+            c.spawner_pause_anchor = PauseAnchor::AfterFirstUnit;
+            c.spawner_timer_leftover = TimerLeftover::Dropped;
+        }));
         let timed = timed_wave_card(&s);
         let sp = spawner(&s, timed);
         let unit = unit_name(&s, sp.unit);
@@ -921,7 +952,12 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
     }
     // DEATH_SPAWN_RADIUS_DEFAULT = zero: every Tombstone Skeleton is queued ON the point.
     {
-        let mut s = bare(with_calib(|c| c.death_spawn_radius_default = DeathSpawnRadius::Zero));
+        // spawner.DEATH_SPAWN_AT_EMISSION_POINT off in both runs: the Tombstone is on its list,
+        // and this block is about the radius default, which that key overrides for it.
+        let mut s = bare(with_calib(|c| {
+            c.death_spawn_radius_default = DeathSpawnRadius::Zero;
+            c.death_spawn_at_emission = DeathAtEmission::None;
+        }));
         let pos = blue_spot(&s);
         let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
         s.tick(); // the first periodic Skeleton is queued and out of the way
@@ -930,7 +966,10 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         let queued = laid_points(&s, tomb_ds.unit);
         assert_eq!(queued.len(), tomb_ds.count as usize);
         assert!(queued.iter().all(|p| *p == death_pos), "zero: all on the death point, {queued:?}");
-        let mut c = bare(config());
+        let mut c = bare(with_calib(|c| {
+            c.death_spawn_radius_default = DeathSpawnRadius::OwnCollisionRadius;
+            c.death_spawn_at_emission = DeathAtEmission::None;
+        }));
         let tomb = c.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
         c.tick();
         kill_and_settle(&mut c, tomb);
