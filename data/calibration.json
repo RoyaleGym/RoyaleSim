@@ -2093,6 +2093,17 @@
       "promotion_rules": "Needs a live card that ships a SpawnInterval: the 16.402 Witch does NOT (15.535 witch.toml: SpawnNumber 4, SpawnPauseTime 7000, no SpawnInterval line -- her whole wave is simultaneous and both arms predict the same gap, so the 140-vs-128-tick Witch prediction is void). A capture of a BarbarianHut if 16.402 still ships its 2 x 500 ms wave: the tick gap between two consecutive waves' first Barbarians is ceil(pause / 50) + ceil(500 / 50) (after_last) or ceil(pause / 50) (after_first); on a hut with no interval the key is unsettleable and irrelevant.",
       "engine": "state.rs Calib::spawner_pause_anchor, read by BattleState::spawner_pass when a wave's last unit is emitted"
     },
+    "TIMER_LEFTOVER": {
+      "value": "dropped",
+      "candidates": ["dropped", "client16402_carried"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm dropped, which is today's engine: the 16.402 corpus contradicts it on both blank-start spawners it holds (see provenance). HIGH for client16402_carried on the Tombstone, whose every contiguous emission it fits; the Barbarian Hut rests on one activation. The carried arm is neutral for a spawner with a SpawnStartTime, whose timer reaches exactly 0.",
+      "provenance": "MEASURED on the 16.402 corpus, one seat per battle, the ticks of each spawner's periodic emissions against its activation tick A (its first tick out of the deploy). A Tombstone (SpawnInterval 500, SpawnNumber 2, SpawnPauseTime 3500, blank SpawnStartTime) emits at A, A+9, A+79, A+89, A+159: the first gap is 9 on 36 of 38 exact activations, and every later contiguous emission comes one tick before the engine's (102 of 102). A Barbarian Hut (SpawnInterval 500, SpawnNumber 3, SpawnPauseTime 14000) emits at A, A+9, A+19, A+299, A+309 (one activation). The engine emitted at A, A+10, A+80 and A, A+10, A+20, A+300: on the activation tick its timer goes from 0 to -50, the first unit comes out, and the reload REPLACES the timer with SpawnInterval, dropping the -50. Adding the reload to the overshoot (-50 + 500 = 450, nine ticks) fits every emission above exactly. A Witch (SpawnStartTime 1000) fires with her timer at exactly 0, so the rule does not move her; the gaps of her corpus waves are a separate question.",
+      "meaning": "client16402_carried: when a spawner's timer reaches 0 or below and it emits, the reload (SpawnInterval, or the pause after a wave's last unit) is ADDED to the timer's value, so the overshoot carries into the next wait. dropped: today's engine, the reload replaces the timer's value.",
+      "open": "Whether other timers the engine reloads the same way (attack cooldowns, charge, hide) carry their overshoot too: not measured here.",
+      "promotion_rules": "Score client16402_carried on the corpus with replay_parity --calibration-override, then flip. When it flips, a pin that says a SpawnInterval I separates a wave's units by ceil(I / TICK_MS) ticks follows the arm: after a blank-start activation the first gap becomes ceil((I - TICK_MS) / TICK_MS).",
+      "engine": "state.rs spawner_pass (the reload after an emission)"
+    },
     "SPAWN_POINT": {
       "value": "client16402_measured",
       "status": "measured",
@@ -2144,6 +2155,23 @@
       "meaning": "facing_ring: member k at DeathSpawnRadius from the death point in the direction of the dying unit's facing rotated by SpawnAngleShift + k x 360 / DeathSpawnCount (through formation.rs's sine table; a unit that never moved faces its seat's forward); then water-ejected like a release. engine_grid_within_radius: the old grid arm, kept runnable. ring_at_radius: the community picture without a base direction, no implementation.",
       "promotion_rules": "To HIGH: a live capture of a Lava Hound's six Pups or a Golem's two Golemites, their first positions relative to the death point and the parent's facing, settles the base angle for counts above two. The columns DeathSpawnPushback (Golem / LavaHound / DarkWitch true) and DeathSpawnMinRadius (SkeletonContainer 100) are not modelled.",
       "engine": "state.rs Calib::from_json -> death_spawn_layout; BattleState::death_spawn_points (the facing from Entities::facing, SpawnAngleShift from CardDef::formation); ring_at_radius is refused at load"
+    },
+    "DEATH_SPAWN_AT_EMISSION_POINT": {
+      "value": {
+        "arm": "none",
+        "units": [
+          "Tombstone",
+          "BarbarianHut"
+        ]
+      },
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm none, which is today's engine: the 16.402 corpus contradicts it on every listed unit's death. HIGH for client16402_measured_list on the Tombstone (49 deaths); the Barbarian Hut rests on one death that matches to within one unit step; OPEN on every unit not listed.",
+      "provenance": "MEASURED on the 16.402 corpus, one seat per battle, the first positions of a dying unit's death spawn against its last live position. Tombstone (DeathSpawnCount 4, blank DeathSpawnRadius), 49 deaths and 197 Skeletons: the four appear on ONE point (cluster half-width median 0), about 1564 native from it and never within 300 or at 700-1300, which is the tangent of the two circles (1000 + 500) plus one Skeleton step; its direction matches the Tombstone's last periodic emission within 15 degrees on 48 of 49 deaths, the sideways ones included (the 49th is a mispaired group 7,000 away). Barbarian Hut (DeathSpawnCount 1), one death: its Barbarian appears 1544 away, (42, 1543) in the owner's forward frame, 4 degrees from its last periodic Barbarian, which is the tangent plus one Barbarian step. The engine laid both on a facing ring of the dying unit's collision radius (1000): the four Skeletons 1000 around the Tombstone, the Barbarian 500 short of the emission point. After appearing together the four part over the next frames (half-width median 132, 271 and 412 native on frames 1, 2 and 3).",
+      "candidates": ["none", "client16402_measured_list"],
+      "meaning": "client16402_measured_list: a listed unit with a spawner puts every member of its death spawn on the point that spawner emits at (spawn_point, the same definition its periodic units use), all together. none: today's engine, spawner.DEATH_SPAWN_RADIUS_DEFAULT and spawner.DEATH_SPAWN_LAYOUT for every unit.",
+      "open": "Units NOT on the list keep today's rules, deliberately, because the emission point is not every death spawn's rule. The corpus puts GoblinHut's single SpearGoblin at the hut's centre (29 of 31 within 160; the card runs an action graph this loader does not read) and GoblinCage's GoblinBrawler at the cage's centre (3 of 3); neither has a periodic spawner here. DarkWitch's Bat appears 330 from her (one death). The point's DIRECTION is the spawner's current one, and the engine's spawn_point is always forward, so the sideways deaths stay wrong until the periodic emission direction is measured and fixed; both then follow it together.",
+      "promotion_rules": "Score value.arm = client16402_measured_list on the corpus with replay_parity --calibration-override (the whole value, the arm swapped), then flip. A unit joins the list by a measured death. This answers spawner.DEATH_SPAWN_RADIUS_DEFAULT's promotion rule (the first positions of a dying Tombstone's four Skeletons) for the listed units.",
+      "engine": "state.rs, the death-spawn step where DeathSpawnRadius and the facing ring are chosen: a listed unit with a spawner takes spawn_point for every member"
     },
     "DEATH_SPAWN_DEPLOY_TIME_DEFAULT": {
       "value": "zero",

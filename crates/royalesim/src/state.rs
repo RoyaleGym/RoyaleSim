@@ -316,6 +316,20 @@ pub struct Calib {
     pub spawner_start_time_origin: StartTimeOrigin,
     /// spawner.PAUSE_ANCHOR: where SpawnPauseTime is measured from in a timed wave.
     pub spawner_pause_anchor: PauseAnchor,
+    /// spawner.TIMER_LEFTOVER: whether a reload replaces the timer's overshoot or is
+    /// added to it. Added after SNAPSHOT_FORMAT 20; the `default` is `Dropped`, what a
+    /// battle saved before it actually ran.
+    #[serde(default = "timer_leftover_default")]
+    pub spawner_timer_leftover: TimerLeftover,
+    /// spawner.DEATH_SPAWN_AT_EMISSION_POINT (value.arm, value.units): whether a listed
+    /// spawner puts its death spawn on its own emission point. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is `None`, what a battle saved before it actually ran.
+    #[serde(default = "death_at_emission_default")]
+    pub death_spawn_at_emission: DeathAtEmission,
+    /// The UNIT names that rule applies to (value.units), matched against the dying
+    /// unit's `CardDef::unit_name`.
+    #[serde(default)]
+    pub death_spawn_at_emission_units: Vec<String>,
     /// spawner.SPAWN_POINT: where a spawner's units appear.
     pub spawner_spawn_point: SpawnPoint,
     /// spawner.STUN_PAUSES_SPAWNER.
@@ -492,6 +506,14 @@ fn post_kill_wait_default() -> PostKillWait {
 
 fn stagger_wait_default() -> StaggerWait {
     StaggerWait::Deploying
+}
+
+fn timer_leftover_default() -> TimerLeftover {
+    TimerLeftover::Dropped
+}
+
+fn death_at_emission_default() -> DeathAtEmission {
+    DeathAtEmission::None
 }
 
 macro_rules! calib_enum {
@@ -884,6 +906,28 @@ calib_enum!(
     /// wave (the timer is reloaded with the pause after it) or from its first (the
     /// pause less the wave's own length, floored at 0).
     PauseAnchor { AfterLastUnit = "after_last_unit_of_wave", AfterFirstUnit = "after_first_unit_of_wave" }
+);
+calib_enum!(
+    /// spawner.TIMER_LEFTOVER -- what an emission's reload does with the timer's value,
+    /// which is 0 or below when the spawner emits (`spawner_pass`).
+    TimerLeftover {
+        /// Today's engine: the reload replaces it, so a blank-start spawner's first
+        /// overshoot (0 to -TICK_MS on its activation tick) is dropped.
+        Dropped = "dropped",
+        /// Measured on the 16.402 corpus (Tombstone, Barbarian Hut): the reload is
+        /// added to it, so the overshoot carries into the next wait.
+        Carried = "client16402_carried",
+    }
+);
+calib_enum!(
+    /// spawner.DEATH_SPAWN_AT_EMISSION_POINT -- where a LISTED spawner's death spawn appears.
+    DeathAtEmission {
+        /// Today's engine: DEATH_SPAWN_RADIUS_DEFAULT and DEATH_SPAWN_LAYOUT for every unit.
+        None = "none",
+        /// Measured on the 16.402 corpus for the listed units: every member on the point
+        /// the unit's spawner emits at, all together. Unlisted units keep today's rules.
+        MeasuredList = "client16402_measured_list",
+    }
 );
 calib_enum!(
     /// spawner.SPAWN_POINT -- the spawner's centre plus its own collision radius (or
@@ -1562,6 +1606,15 @@ impl Calib {
             spawner_first_wave: pick(&v, &["spawner", "FIRST_WAVE", "value"], FirstWave::from_calibration_name)?,
             spawner_start_time_origin: pick(&v, &["spawner", "START_TIME_ORIGIN", "value"], StartTimeOrigin::from_calibration_name)?,
             spawner_pause_anchor: pick(&v, &["spawner", "PAUSE_ANCHOR", "value"], PauseAnchor::from_calibration_name)?,
+            spawner_timer_leftover: pick(&v, &["spawner", "TIMER_LEFTOVER", "value"], TimerLeftover::from_calibration_name)?,
+            death_spawn_at_emission: pick(&v, &["spawner", "DEATH_SPAWN_AT_EMISSION_POINT", "value", "arm"], DeathAtEmission::from_calibration_name)?,
+            death_spawn_at_emission_units: v
+                .pointer("/spawner/DEATH_SPAWN_AT_EMISSION_POINT/value/units")
+                .and_then(Value::as_array)
+                .ok_or("spawner.DEATH_SPAWN_AT_EMISSION_POINT.value.units: a list of unit names is required")?
+                .iter()
+                .map(|u| u.as_str().map(str::to_string).ok_or("spawner.DEATH_SPAWN_AT_EMISSION_POINT.value.units: every entry is a unit name"))
+                .collect::<Result<Vec<_>, _>>()?,
             spawner_spawn_point: pick(&v, &["spawner", "SPAWN_POINT", "value"], SpawnPoint::from_calibration_name)?,
             spawner_stun_pauses: boolean(&v, &["spawner", "STUN_PAUSES_SPAWNER", "value"])?,
             death_spawn_radius_default: pick(&v, &["spawner", "DEATH_SPAWN_RADIUS_DEFAULT", "value"], DeathSpawnRadius::from_calibration_name)?,
@@ -2563,7 +2616,9 @@ impl BattleState {
     /// a pass that had already run for tick A.) With pause P the next wave's first
     /// unit follows the last one by
     /// ceil(P / TICK_MS) ticks; a SpawnInterval I separates a wave's units by
-    /// ceil(I / TICK_MS) ticks. SpawnLimit (spawner.LIMIT_RULE = skip_unit_keep_cadence):
+    /// ceil(I / TICK_MS) ticks -- under the shipped spawner.TIMER_LEFTOVER = dropped. Under
+    /// client16402_carried the activation tick's overshoot (-TICK_MS) is carried, so the first
+    /// gap after a blank-start activation is ceil((I - TICK_MS) / TICK_MS). SpawnLimit (spawner.LIMIT_RULE = skip_unit_keep_cadence):
     /// a unit that would exceed the limit is skipped and the cadence keeps running.
     fn spawner_pass(&mut self) {
         #[cfg(clash_plant = "spawner_never_fires")]
@@ -2638,13 +2693,22 @@ impl BattleState {
                     k += 1;
                 }
                 left -= 1;
-                ms = if left > 0 {
+                let reload = if left > 0 {
                     sp.interval_ms
                 } else {
                     match self.cfg.calib.spawner_pause_anchor {
                         PauseAnchor::AfterLastUnit => sp.pause_time_ms,
                         PauseAnchor::AfterFirstUnit => (sp.pause_time_ms - (sp.number - 1) * sp.interval_ms).max(0),
                     }
+                };
+                // spawner.TIMER_LEFTOVER: `ms` is the overshoot here, 0 or below. The
+                // measured arm adds the reload to it, so a blank-start spawner's first gap
+                // is one tick shorter (Tombstone A, A + 9, A + 79 in the corpus); a start
+                // time fires at exactly 0 and has nothing to carry. Within one pass the sum
+                // stays at or below 0 while a SpawnInterval-0 wave is still emitting.
+                ms = match self.cfg.calib.spawner_timer_leftover {
+                    TimerLeftover::Dropped => reload,
+                    TimerLeftover::Carried => ms + reload,
                 };
                 if ms > 0 {
                     break;
@@ -5388,7 +5452,22 @@ impl BattleState {
             };
             let shift = card.formation.spawn_angle_shift_deg;
             let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing, angle_shift_deg: shift, radius };
-            for (k, p) in self.death_spawn_points(team, self.ents.pos[i], ring).into_iter().enumerate() {
+            // spawner.DEATH_SPAWN_AT_EMISSION_POINT = client16402_measured_list: a LISTED unit
+            // with a spawner puts every member on the point its periodic units come out at
+            // (`spawn_point`, through the one-member formation its timed waves use), all
+            // together. Unlisted units, and a listed one without a spawner, keep the ring.
+            let emission = match self.spawner_of(i) {
+                Some(sp) if self.cfg.calib.death_spawn_at_emission == DeathAtEmission::MeasuredList && self.cfg.calib.death_spawn_at_emission_units.iter().any(|u| *u == card.unit_name) => {
+                    let point = self.spawn_point(i, &sp);
+                    Some(self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), point)[0])
+                }
+                _ => None,
+            };
+            let points = match emission {
+                Some(p) => vec![p; ds.count.max(1) as usize],
+                None => self.death_spawn_points(team, self.ents.pos[i], ring),
+            };
+            for (k, p) in points.into_iter().enumerate() {
                 spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0 }));
             }
         }
