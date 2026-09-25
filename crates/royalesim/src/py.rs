@@ -443,6 +443,11 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
         }
         units.extend(c.spawner.map(|sp| sp.unit));
         units.extend(c.death_spawn.map(|ds| ds.unit));
+        // A formation's SECOND summon (the Rascals' RascalGirl beside the RascalBoy): it
+        // was never collected, so it reported card -1 in every entity row and firer -1 on
+        // every shot -- which the projectile export's contract reserves for a crown tower,
+        // so a viewer drew RascalGirls' shots as tower bolts flying from mid-field.
+        units.extend(c.formation.second_summon.as_ref().map(|s| s.unit));
         for u in units {
             // A card whose unit could not be loaded is rejected (unregistered, its
             // unit index unresolved) and never in a catalogue that came from names;
@@ -664,11 +669,17 @@ pub fn state_json_text(
         }
         // -1 once the target is gone: the projectile flies on to `aim`
         let target_uid = s.entity(p.target).map(|t| (t.team_seq as i64) * 2 + t.team as i64).unwrap_or(-1);
-        // -1 a crown tower, which is not a catalogue card (the entity rows' own
-        // convention); -2 NOT RECORDED, a projectile restored from a snapshot older than
-        // the field, kept apart so "unknown" never reads as "a tower fired this"
+        // -1 A CROWN TOWER, decided from the firer's own card and never from a failed
+        // lookup: -1 had meant "id_of_idx has no entry", which is also every unit the
+        // catalogue failed to map, and read as "a tower fired this" for all of them.
+        // -2 anything else without an id: NOT RECORDED (restored from a snapshot older
+        // than the field) or a card the catalogue does not carry.
         let firer = match p.firer_card {
-            Some(c) => id_of_idx.get(c as usize).copied().unwrap_or(-1),
+            Some(c) if matches!(cards.get(c).name.as_str(), KING_TOWER | PRINCESS_TOWER) => -1,
+            Some(c) => match id_of_idx.get(c as usize).copied() {
+                Some(id) if id >= 0 => id,
+                _ => -2,
+            },
             None => -2,
         };
         let _ = write!(o, "[{},{},{},{},{},{target_uid},{},{firer}]", p.team as u8, p.pos.x, p.pos.y, p.aim.x, p.aim.y, p.splash);
