@@ -32,7 +32,7 @@ mod common;
 
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{milli, Vec2};
-use royalesim::state::{BattleConfig, BattleState, Calib, DyingUnitVisibility, PathSearch, TickOrder};
+use royalesim::state::{BattleConfig, BattleState, Calib, DyingUnitVisibility, PathSearch, PostKillWait, TickOrder};
 use royalesim::{EntityId, Team};
 use common::*;
 
@@ -129,7 +129,11 @@ fn a_knight_whose_skeleton_target_dies_walks_the_tick_after_it_is_gone() {
     // transition and the walk in one tick (412 / 413). The LEGACY order walks one
     // tick later under the shipped attack cycle (its Move pass runs before the
     // Attack that leaves the cycle); the comment on `walks` below says why.
-    for cfg in [config(), legacy_config()] {
+    for mut cfg in [config(), legacy_config()] {
+        // combat.POST_KILL_RETARGET_WAIT pinned to none: under the measured list a Knight
+        // waits 6 ticks after its kill before it walks. This test is about the TICK ORDER;
+        // the wait is pinned in tests/test_post_kill_retarget_wait.py.
+        cfg.calib.post_kill_wait = PostKillWait::None;
         let order = cfg.calib.tick_order;
         let mut s = bare(cfg);
         let knight_card = card_stat(&s, "Knight").clone();

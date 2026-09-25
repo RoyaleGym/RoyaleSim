@@ -152,7 +152,10 @@ def test_an_unlisted_golem_is_unchanged():
 
 
 def test_the_old_death_arm_is_todays_engine():
-    """Today's engine scatters the Tombstone's four on a ring of its collision radius."""
-    _, dead = death_spawn({DEATH: death_arm("none")}, TS)
+    """The engine before the flip scattered the Tombstone's four on a ring of its collision radius. The flip
+    moved spawner.DEATH_SPAWN_RADIUS_DEFAULT too (to zero), so the old engine is BOTH old arms: the death arm
+    alone would now lay the four on the Tombstone's centre."""
+    old = {DEATH: death_arm("none"), "spawner.DEATH_SPAWN_RADIUS_DEFAULT": json.dumps("own_collision_radius")}
+    _, dead = death_spawn(old, TS)
     assert len(dead) == 4, f"expected 4 death Skeletons: {dead}"
     assert half_width(dead) >= 500, f"the old arm did not scatter the death spawn: {dead}"

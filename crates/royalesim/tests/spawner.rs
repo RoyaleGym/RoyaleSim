@@ -711,17 +711,19 @@ fn spawn_limit_caps_a_spawners_live_units_and_a_death_frees_a_place_at_the_next_
     assert_eq!(live.len(), 2, "the limit is reached, not undershot");
     assert!(live.iter().all(|e| e.spawned_by == Some(nest_id)));
     // A death frees a place; the cadence was kept (spawner.LIMIT_RULE), so the refill
-    // comes at the next scheduled wave, not at once. The wave ticks are m1 + k *
-    // period FROM THE DATA (not read off the Nest's own timer): the
-    // loop ended on the k = 5 wave (skipped at the limit), so the refill is k = 6.
+    // comes at the next scheduled wave, not at once. The wave ticks come FROM THE DATA
+    // through `wave_ticks` (not read off the Nest's own timer), which follows
+    // spawner.TIMER_LEFTOVER: the Nest's start time is blank, so under the carried arm
+    // its first gap, and every wave after it, is one tick earlier. The loop ended on the
+    // k = 5 wave (skipped at the limit), so the refill is k = 6.
     let victim = live[0].id;
-    let next_wave = m1 + 6 * period;
+    let next_wave = wave_ticks(&sp, m1, 7)[6];
     assert!(s.debug_set_hp(victim, 0));
     s.tick();
     assert_eq!(find_live(&s, Team::Blue, "Statue").len(), 1);
     let refilled = run_until(&mut s, period + 2, |s| find_live(s, Team::Blue, "Statue").len() == 2);
     assert!(refilled < period + 2, "never refilled");
-    assert_eq!(s.tick_count(), next_wave, "the refill came with the next scheduled wave (m1 {m1} + 6 x {period})");
+    assert_eq!(s.tick_count(), next_wave, "the refill came with the next scheduled wave (m1 {m1}, period {period}, wave k = 6)");
 }
 
 // ---------------------------------------------------------------------------
