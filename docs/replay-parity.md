@@ -11,8 +11,8 @@ two ARE comparable): **no-tower within 250 is 56.7%, not 49.4%**, and the isolat
 2026-09-22 evening and later -- the measured spawn point, Tornado, the deploy lockout -- not a change
 of population. **The first-divergence ranking also changed: DEATH now heads section 5, not spawn.**
 Each stale table below says so where it sits. The re-measurement, with the cause table re-derived
-under this page's own column definitions, is in RoyaleLive `docs/2026-09-22-sessions/REPORTS.md`,
-entry 2026-09-23 13:15.
+under this page's own column definitions, was made on 2026-09-23 in the private RoyaleLive repo and is
+not reproduced here.
 
 This page is for contributors who want to know how close the engine is to the game. The engine's
 claim is that it reproduces the game, and this file is the measurement of that claim over every
