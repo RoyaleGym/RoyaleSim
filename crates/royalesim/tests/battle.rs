@@ -61,10 +61,11 @@ fn scripted_battle_finishes_with_plausible_result() {
 
 /// THE KNOWN CROWD DEFECT, PINNED ON A CROWD THIS TEST BUILDS.
 ///
-/// The engine skips the whole move pass for a unit whose attack phase holds it
-/// (`movement.ATTACKING_UNIT_MOVEMENT`, REFUTED in the ledger), so an attacking crowd is
-/// never separated -- against a game whose own crowds run six ticks above 150 % (222 pairs
-/// measured on the replay corpus, one outlier at 120).
+/// Under `movement.ATTACKING_UNIT_MOVEMENT = frozen`, the arm that shipped until
+/// 2026-09-24 and that this test runs BY NAME, the engine skips the whole move pass for a
+/// unit whose attack phase holds it, so an attacking crowd is never separated -- against a
+/// game whose own crowds run six ticks above 150 % (222 pairs measured on the replay
+/// corpus, one outlier at 120). The shipped arm is separation_only.
 ///
 /// THIS USED TO MEASURE A PILE-UP THAT THE SCRIPTED BATTLE HAPPENED TO PRODUCE, pinned at 87
 /// consecutive ticks above 150 %. That number was scenario luck, and two changes on

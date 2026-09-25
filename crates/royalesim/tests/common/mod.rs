@@ -179,10 +179,11 @@ pub const DEFAULT_TOLERANCE: Tolerance = Tolerance { limits: [(50, 20), (100, 3)
 /// THE 90 IS A CHARACTERISATION OF A KNOWN DEFECT AND NOT A CLAIM ABOUT THE GAME.
 /// It was 40 until 2026-09-23. What changed is not the game and not the engine's contact
 /// law: `match.START_MANA` was promoted to the measured 6, both sides play a different
-/// battle, and the different battle walks into `movement.ATTACKING_UNIT_MOVEMENT`
-/// (ledger, REFUTED). The engine skips the whole move pass for a unit whose attack phase
-/// holds it, so nothing can separate an attacking crowd, and the scripted battle's
-/// Skeleton Army sits above 150 % for 87 consecutive ticks, peaking at 193 %. (The first
+/// battle, and the different battle walked into `movement.ATTACKING_UNIT_MOVEMENT = frozen`,
+/// the arm that shipped until 2026-09-24: the engine skipped the whole move pass for a unit
+/// whose attack phase held it, so nothing could separate an attacking crowd, and the scripted battle's
+/// Skeleton Army sat above 150 % for 87 consecutive ticks, peaking at 193 %. The 90 has NOT
+/// been re-measured under separation_only, which ships since then. (The first
 /// report of this said 41 ticks, which was where the OLD limit tripped rather than how long
 /// the run was: a limit that fails fast cannot measure what it is failing on, and the number
 /// it prints is its own threshold plus one.)

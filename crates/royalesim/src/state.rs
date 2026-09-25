@@ -216,6 +216,10 @@ pub struct Calib {
     /// is `Frozen`, which is what a battle saved before this key actually ran.
     #[serde(default = "attacking_unit_movement_default")]
     pub attacking_unit_movement: AttackingUnitMovement,
+    /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
+    /// `Zeroed`, which is what a battle saved before this key actually ran.
+    #[serde(default = "deploying_heading_default")]
+    pub deploying_heading: DeployingHeading,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -451,6 +455,10 @@ fn placement_illegal_tap_default() -> PlacementIllegalTap {
 
 fn attacking_unit_movement_default() -> AttackingUnitMovement {
     AttackingUnitMovement::Frozen
+}
+
+fn deploying_heading_default() -> DeployingHeading {
+    DeployingHeading::Zeroed
 }
 
 macro_rules! calib_enum {
@@ -767,15 +775,30 @@ calib_enum!(
     /// holds it. Both arms agree it does not WALK and does not steer; they differ on
     /// whether the contact scans still reach it.
     AttackingUnitMovement {
-        /// The shipped arm: the move pass skips the unit entirely, so it is not
-        /// separated from anything and a neighbour cannot push it out. REFUTED by the
-        /// corpus: of the 11 755 attacking ticks where a unit overlaps a neighbour it
-        /// moves on 8 401, against 3.6 per cent of the 117 183 ticks where it is clear.
+        /// The earlier arm, shipped until 2026-09-24: the move pass skips the unit
+        /// entirely, so it is not separated from anything and a neighbour cannot push it
+        /// out. The corpus rules it out: of the 11 755 attacking ticks where a unit
+        /// overlaps a neighbour it moves on 8 401, against 3.6 per cent of the 117 183
+        /// ticks where it is clear.
         Frozen = "frozen",
-        /// The measured arm: no walk, no avoidance steer, no stomp clock, and the
-        /// separation scan and offset decay run as they do for an in-range unit. The
-        /// route is cleared, as it is on any transition to attacking (SPEC 5.3).
+        /// The measured arm, shipped since 2026-09-24: no walk, no avoidance steer, no
+        /// stomp clock, and the separation scan and offset decay run as they do for an
+        /// in-range unit. The route is cleared, as it is on any transition to attacking
+        /// (SPEC 5.3).
         SeparationOnly = "separation_only"
+    }
+);
+calib_enum!(
+    /// movement.DEPLOYING_HEADING -- what a DEPLOYING neighbour's heading counts for in a
+    /// walker's avoidance vote, where a moving neighbour facing the walker's way (dot > 0)
+    /// is not a blocker.
+    DeployingHeading {
+        /// The measured arm: a deploying unit keeps the forward heading it spawned with,
+        /// so a same-facing walker is not deflected by it.
+        Kept = "kept",
+        /// The earlier reading: a deploying unit's heading is zeroed, the dot is 0, and
+        /// the walker counts it as a blocker and steers round it.
+        Zeroed = "zeroed"
     }
 );
 calib_enum!(
@@ -1416,6 +1439,7 @@ impl Calib {
             placement_snap_even: pick(&v, &["placement", "SNAP_EVEN_CORNER", "value"], PlacementSnapEven::from_calibration_name)?,
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
+            deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -3442,9 +3466,12 @@ impl BattleState {
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot
-                        // product; here: attacking or deploying units do not steer
-                        // their neighbours by heading
-                        heading_counts: e.deploy_ms[i] == 0 && e.attack_phase[i] == AttackPhase::Idle,
+                        // product: an attacking unit does not steer its neighbours by
+                        // heading. A DEPLOYING unit (state 4, not on that list) keeps
+                        // its forward heading under movement.DEPLOYING_HEADING = kept;
+                        // `zeroed` is the earlier reading, which counted it as a
+                        // blocker and turned a same-facing walker 72 degrees.
+                        heading_counts: e.attack_phase[i] == AttackPhase::Idle && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept),
                     }
                 })
                 .collect();
