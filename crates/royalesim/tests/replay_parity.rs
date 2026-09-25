@@ -342,3 +342,15 @@ fn a_calibration_override_reaches_the_battle_config_names_itself_and_refuses_a_k
     assert!(err.contains("not a key in the ledger"), "{err}");
 }
 
+#[test]
+fn a_runs_overrides_are_in_its_notes_and_its_own_field_not_among_the_level_deviations() {
+    let f = sample();
+    let mut opts = Options::default();
+    let want = royalesim::state::Calib::shipped().king_activate_time_ms + 250;
+    opts.calibration_overrides.insert("match.KING_ACTIVATE_TIME_MS".to_string(), want.to_string());
+    let r = replay(&f, &common::cards(), &register(), &opts).expect("the sample replays under an override");
+    assert_eq!(r.calibration_overrides.get("match.KING_ACTIVATE_TIME_MS"), Some(&want.to_string()), "the report does not carry the run's override");
+    assert!(r.notes.iter().any(|n| n.starts_with("calibration override match.KING_ACTIVATE_TIME_MS")), "the notes do not name the override: {:?}", r.notes);
+    assert!(!r.level_deviations.iter().any(|n| n.contains("calibration override")), "an override is filed as a level deviation");
+    assert!(play(&f).calibration_overrides.is_empty(), "the shipped run names no override");
+}

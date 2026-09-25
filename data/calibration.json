@@ -1045,17 +1045,16 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> tower_ladder, tower_ladder_cap_level; the six percents from the embedded globals.csv, the four AT/AFTER ones refused if they part); applied in BattleState::spawn_now to the KingTower / PrincessTower records only (state.rs tower_multiplier_percent), every other card scaling on STAT_BASE_LEVEL's ladder; a candidate without an engine implementation is refused at load. The old arm stays runnable as common_card_ladder (the regression plant tower_card_ladder forces it)."
     },
     "KING_DAMAGE_PERCENT_PER_LEVEL": {
-      "value": 7,
-      "status": "datamined",
-      "confidence": "LOW as a description of the 16.402 king: 7 is the embedded 2018 globals row, kept as the shipped value only until the corpus has scored the alternative by override (see open).",
-      "provenance": "globals.csv (the embedded 2018 table), DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL = 7: the king tower's per-level DAMAGE rate, compounded as combat.TOWER_HITPOINT_LADDER's regime compounds every tower rate. Split out of the globals read on 2026-09-25 so the corpus can judge the other candidate without a ledger edit. The king's HITPOINT rate stays 7 and stays read from the globals: 2400 x 201% = 4824 is measured.",
+      "value": 8,
+      "status": "measured",
+      "confidence": "HIGH. When the king is the only tower in range its victims lose 109 per hit at tower level 11 in the 16.402 corpus (410 drops, not one of 100): 50 x 218%, the compounded rate 8, where rate 7 gives 201% and 100.",
+      "provenance": "MEASURED 2026-09-24 on the 16.402 corpus (king-only hits on its victims: 109 on 410 drops, the engine's 100 on 232). The king tower's per-level DAMAGE rate, compounded as combat.TOWER_HITPOINT_LADDER's regime compounds every tower rate. The engine read it from the embedded 2018 globals.csv (DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL = 7), a vintage that parts from the 15.535 client, whose globals carry 8. The king's HITPOINT rate stays 7 and stays read from the globals: 2400 x 201% = 4824 is measured. CORPUS PRE-SCORE before the flip (replay_parity --calibration-override on RoyaleSim 2420a94, the 16.402 corpus fixtures at d7505ba, playable no-tower unit-ticks within 250, default 125,732 of 159,643): the activation at 3550 alone -94, the damage rate at 8 alone -483 (hit points exact +1,127), BOTH together +99 and hit points exact +1,275; each alone loses a little, so the two flip together. Per card under both: Knight +201, KingTower +52, the worst Barbarians -65. In 004657-A every king hit is 109 and the engine hits the truth's 67 hp on 685 exactly.",
       "candidates": [
         7,
         8
       ],
-      "promotion_rules": "Score 8 on the 16.402 corpus with replay_parity --calibration-override combat.KING_DAMAGE_PERCENT_PER_LEVEL=8 (with match.KING_ACTIVATE_TIME_MS=3550, the same batch); flip if it holds.",
-      "engine": "state.rs Calib::from_json: tower_dmg_pct.king, applied by tower_multiplier_percent in spawn_now",
-      "open": "The 16.402 corpus says 8: when the king is the only tower in range its victims lose 109 per hit at tower level 11 (410 drops, not one of 100; the engine's 100 on 232), 50 x 218% at rate 8 where rate 7 gives 201% and 100 -- the 15.535 client's globals value."
+      "promotion_rules": "SETTLED 2026-09-25 (see provenance). 7 is the 2018 globals row, the old arm.",
+      "engine": "state.rs Calib::from_json: tower_dmg_pct.king, applied by tower_multiplier_percent in spawn_now"
     },
     "DAMAGE_ARITHMETIC": {
       "value": "integer",
@@ -1242,11 +1241,11 @@
       ]
     },
     "KING_ACTIVATE_TIME_MS": {
-      "value": 3300,
-      "status": "datamined",
+      "value": 3550,
+      "status": "measured",
       "refuted_for": "*",
-      "confidence": "REFUTED. The shipped 3300 is wrong under either reading of the load-time confound: it predicts 66 ticks with no load inside the measured window and 76 with one, and the corpus has 0 sides at either against 39 at 71 and 3 at 72. What the value should BE is still open, see proposed_value (measured_2026_09_22).",
-      "provenance": "globals.csv",
+      "confidence": "HIGH (see provenance).",
+      "provenance": "MEASURED 2026-09-24 on the 16.402 corpus: in 36 of 36 kings the first UNIT target appears on the SAME tick as the first swing, at the princess loss + 71 (28 exact; 72 in 6 with capture gaps; 70 in 2): no load between waking and swinging, and 71 ticks = 3550 ms. The engine at 3300 targeted 4-6 ticks early in 16 of 19 wakes; a scripted check on the module moved its first king target from loss + 66 to loss + 71. The earlier value, 3300, is the globals.csv row. CORPUS PRE-SCORE before the flip (replay_parity --calibration-override on RoyaleSim 2420a94, the 16.402 corpus fixtures at d7505ba, playable no-tower unit-ticks within 250, default 125,732 of 159,643): the activation at 3550 alone -94, the damage rate at 8 alone -483 (hit points exact +1,127), BOTH together +99 and hit points exact +1,275; each alone loses a little, so the two flip together. Per card under both: Knight +201, KingTower +52, the worst Barbarians -65. In 004657-A every king hit is 109 and the engine hits the truth's 67 hp on 685 exactly.",
       "open": "Established (measured_2026_09_22): losing a princess tower starts it, and it runs from the loss to the king's first swing. Still open: whether damage to the king alone starts it. The one side where the king was hit before any tower fell (20260918-112751, side 0, first hit tick 2837) had no enemy in the king's range until tick 3247, so its first swing (3248) marks a target arriving, not the wake. Spell splash is untested.",
       "candidates": [
         3300,

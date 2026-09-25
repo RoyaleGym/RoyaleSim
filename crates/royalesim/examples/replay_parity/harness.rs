@@ -754,6 +754,9 @@ pub struct Report {
     pub cards_json_fixture: Option<String>,
     pub cards_json_engine: Option<String>,
     pub notes: Vec<String>,
+    /// The run's `--calibration-override`s as given (`section.KEY` -> JSON text); empty when
+    /// the run is the shipped ledger. A score quoted from this report names its arm by this.
+    pub calibration_overrides: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub trace: Vec<TraceRow>,
 }
@@ -940,6 +943,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         cards_json_fixture: f.cards_json_fnv1a64.clone(),
         cards_json_engine: cards_json_hash().ok(),
         notes: Vec::new(),
+        calibration_overrides: BTreeMap::new(),
         trace: Vec::new(),
     };
     if let (Some(a), Some(b)) = (&report.cards_json_fixture, &report.cards_json_engine) {
@@ -963,7 +967,12 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         report.last_tick = truth.ticks.last().copied().unwrap_or(0);
     }
     let (cfg, notes) = config_for_with(f, db.clone(), opts.attacking_movement, &opts.calibration_overrides)?;
-    report.level_deviations = notes;
+    // config_for_with reports the level deviations and the applied overrides in one list; the
+    // overrides are the run's ARM, not a level fact, so they go to `notes` and their own field.
+    let (overrides, levels): (Vec<String>, Vec<String>) = notes.into_iter().partition(|n| n.starts_with("calibration override "));
+    report.level_deviations = levels;
+    report.notes.extend(overrides);
+    report.calibration_overrides = opts.calibration_overrides.clone();
     let roots = Roots::new(db);
     let mut s = BattleState::try_new(opts.seed, cfg)?;
     // tower hp as recorded on the first frame
