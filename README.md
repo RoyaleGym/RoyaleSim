@@ -504,6 +504,9 @@ Not modelled yet, in plain words:
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
 - Dash and morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
+- Damage that grows the longer a unit keeps one target, which the Inferno Tower and Inferno Dragon
+  depend on, and the Mortar's minimum range. All three cards load, so a random deck can hold one,
+  and it will not fight like the real card.
 - Two known collision defects. A unit can sit inside a building's footprint for up to 47 ticks,
   almost always right after a multi-unit spawn. A unit overlapping several obstacles gets the
   push-outs summed instead of one chosen.
