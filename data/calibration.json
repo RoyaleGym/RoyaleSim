@@ -2102,7 +2102,7 @@
       "engine": "state.rs Calib::spawner_pause_anchor, read by BattleState::spawner_pass when a wave's last unit is emitted"
     },
     "TIMER_LEFTOVER": {
-      "value": "client16402_carried",
+      "value": "dropped",
       "candidates": [
         "dropped",
         "client16402_carried"
