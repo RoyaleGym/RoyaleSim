@@ -229,7 +229,8 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
     #[serde(default = "post_kill_wait_default")]
     pub post_kill_wait: PostKillWait,
-    /// The UNIT names the wait applies to (value.units), matched against a unit's own name.
+    /// The UNIT names the wait applies to (value.units), matched against a unit's
+    /// `CardDef::unit_name` (the game's unit name, not the card's).
     #[serde(default)]
     pub post_kill_wait_units: Vec<String>,
     /// The loss-to-next-target interval, ticks (value.ticks; 6 measured).
@@ -3318,7 +3319,7 @@ impl BattleState {
                         e.target[i] = None;
                         continue;
                     }
-                } else if e.target[i].is_some_and(|t| !e.is_alive(t)) && wait_units.iter().any(|u| *u == cards.get(e.card[i]).name) {
+                } else if e.target[i].is_some_and(|t| !e.is_alive(t)) && wait_units.iter().any(|u| *u == cards.get(e.card[i]).unit_name) {
                     e.retarget_wait[i] = wait_ticks - 1;
                     e.target[i] = None;
                     e.target_locked[i] = false;

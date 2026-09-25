@@ -330,6 +330,12 @@ pub struct FormationDef {
 #[derive(Clone, Debug)]
 pub struct CardDef {
     pub name: String,
+    /// The name of the UNIT this card puts on the board: its SummonCharacter (cards.json
+    /// `summon_character`), else its own name. A multi-unit card's members carry the card, so
+    /// `name` is the card's (Goblins, Skeletons, Bats) where the game names the unit
+    /// (Goblin_Stab, Skeleton, Bat); a summon-only unit is its own record and the two agree.
+    /// What a MEASURED list keyed by unit matches (combat.POST_KILL_RETARGET_WAIT).
+    pub unit_name: String,
     pub kind: CardKind,
     pub elixir: i32,
     pub rarity: String,
@@ -625,6 +631,8 @@ struct RawCard {
     /// table does not carry, or an area whose mechanic the loader does not read,
     /// refuses the card AFTER its push, which keeps the format-3 card list intact.
     death_area_effect: Option<String>,
+    /// spells_characters SummonCharacter: the unit the card deploys (`CardDef::unit_name`).
+    summon_character: Option<String>,
     // --- the summon layout and stagger (`FormationDef`). Every one null in the
     // 2018 file and on most 15.535 rows; a blank stays a blank.
     /// spells_characters SummonRadius, millitiles: the ring's radius input.
@@ -1133,6 +1141,7 @@ pub const PRINCESS_TOWER: &str = "PrincessTower";
 /// A CardDef with every stat zeroed, for spells (which have no unit of their own).
 fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
     CardDef {
+        unit_name: name.clone(),
         name,
         kind: CardKind::Spell,
         elixir,
@@ -1860,6 +1869,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
         }
     };
     Ok((CardDef {
+        unit_name: raw.summon_character.clone().unwrap_or_else(|| raw.name.clone()),
         name: raw.name,
         kind,
         elixir: raw.elixir.unwrap_or(0),

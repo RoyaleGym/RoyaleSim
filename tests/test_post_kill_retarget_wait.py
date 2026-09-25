@@ -26,9 +26,9 @@ royalesim = pytest.importorskip("royalesim")
 
 TILE = 18_000
 #: explicit, because catalogue ids are positional
-DECK = ["Skeletons", "Giant", "Musketeer", "Archer", "Knight", "Minions", "Cannon", "Tesla"]
+DECK = ["Skeletons", "Giant", "Musketeer", "Goblins", "Knight", "Minions", "Cannon", "Tesla"]
 IDS = list(range(len(DECK)))
-SK, MU, KN = 0, 2, 4
+SK, MU, GO, KN = 0, 2, 3, 4
 ATTACKER = (9 * TILE, 12 * TILE)
 VICTIMS = [(9 * TILE, int(13.3 * TILE)), (int(9.8 * TILE), int(13.5 * TILE))]
 KEY = "combat.POST_KILL_RETARGET_WAIT"
@@ -78,6 +78,14 @@ def test_a_knight_waits_six_ticks_after_its_kill():
     assert red_left, "the scenario lost its point: no second enemy was left when the first died"
     assert nxt - loss == 6, f"the Knight took its next target {nxt - loss} ticks after the loss; the game takes 6"
     assert len(set(positions[:-1])) == 1, f"the Knight moved while it waited: {positions}"
+
+
+def test_a_goblins_member_waits_like_the_listed_unit_it_is():
+    """A Goblins member carries the Goblins CARD, while the list names the game's unit, Goblin_Stab.
+    Matching the card's name made every Goblin retarget on the loss + 1 under the measured arm; the
+    Knight above could not see it, because the Knight card and its unit share a name."""
+    loss, nxt, _, _ = first_kill(GO, WAIT_ARM)
+    assert nxt - loss == 6, f"the Goblin took its next target {nxt - loss} ticks after the loss; the game takes 6"
 
 
 def test_the_wait_ignores_an_enemy_already_in_range():
