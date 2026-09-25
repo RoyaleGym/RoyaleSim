@@ -661,6 +661,19 @@ def elixir_columns(frames: list[dict]) -> dict | None:
     return out
 
 
+def snap_troop_tap(native: list) -> list:
+    """A troop tap's native point as the game places it. A log's `requested` tile is almost
+    always a tile centre (x.5 -> ...500); one on a tile BOUNDARY on x (9.0 -> 9000, the centre
+    line) goes to the tile on its right, +x (a troop tapped at x = 9000 stands at 9500 in the
+    recordings; a spell breaks the same tie the other way, which is why this is for troops).
+    Measured on 240 troop taps of the corpus, one of which is on the boundary: 002736's Royal
+    Hogs at (9000, 12500), which started ~500 left of where the game put them."""
+    x, y = int(native[0]), int(native[1])
+    if x % 1000 == 0:
+        x += 500
+    return [x, y]
+
+
 def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
     """The first frame tick at or after `tap_tick`, inside CAST_DROP_WINDOW ticks, on which one
     side's `elixir` (per frame, aligned with `frame_ticks`; None where the capture has none) falls
@@ -1157,7 +1170,7 @@ def build(
                 "cycled": t["cycled"],
             }
             if t["native"] and len(members) > 1:
-                d["pos"], d["source"] = list(t["native"]), "tap_tile"
+                d["pos"], d["source"] = snap_troop_tap(t["native"]), "tap_tile"
             else:
                 d["pos"], d["source"] = [cx, cy], "centroid"
         else:

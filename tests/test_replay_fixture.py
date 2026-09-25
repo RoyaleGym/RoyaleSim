@@ -316,6 +316,15 @@ def test_a_log_without_its_own_side_takes_the_captures(m, tmp_path):
     assert [t["side"] for t in taps] == [0]
 
 
+def test_a_troop_tap_on_the_centre_line_goes_to_the_tile_on_its_right(m):
+    # 002736's Royal Hogs: the log asked for (9000, 12500), the tile boundary on the centre line,
+    # and the game put them one tile right; the fixture fed the raw point and the hogs started
+    # ~500 left. A tile centre is left alone, and a y boundary too (no recording shows one).
+    assert m.snap_troop_tap([9000, 12500]) == [9500, 12500]
+    assert m.snap_troop_tap([14500, 8500]) == [14500, 8500]
+    assert m.snap_troop_tap([3500, 1000]) == [3500, 1000]
+
+
 def test_fnv1a64_matches_the_harness_known_answers(m):
     # the same known answers tests/replay_parity.rs pins for harness.rs fnv1a64
     assert m.fnv1a64(b"") == "cbf29ce484222325"
