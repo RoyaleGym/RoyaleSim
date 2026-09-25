@@ -272,7 +272,7 @@ jobs:
         working-directory: ${{ matrix.repo }}
         run: |
           set -o pipefail
-          python -m pytest -q -rs --junitxml="$GITHUB_WORKSPACE/report.xml" ${{ matrix.args }} \
+          python -m pytest -q -rsx --junitxml="$GITHUB_WORKSPACE/report.xml" ${{ matrix.args }} \
             2>&1 | tee "$GITHUB_WORKSPACE/pytest.txt"
 
       # THE GATE THAT MAKES THE ROW ABOVE MEAN SOMETHING. A consumer whose engine tests all
