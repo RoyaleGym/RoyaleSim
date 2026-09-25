@@ -1110,7 +1110,7 @@
     },
     "POST_KILL_RETARGET_WAIT": {
       "value": {
-        "arm": "client16402_measured_list",
+        "arm": "none",
         "units": [
           "Skeleton",
           "Knight",
