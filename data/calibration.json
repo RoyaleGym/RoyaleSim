@@ -1110,7 +1110,7 @@
     },
     "POST_KILL_RETARGET_WAIT": {
       "value": {
-        "arm": "client16402_measured_list",
+        "arm": "none",
         "units": [
           "Skeleton",
           "Knight",
@@ -2102,7 +2102,7 @@
       "engine": "state.rs Calib::spawner_pause_anchor, read by BattleState::spawner_pass when a wave's last unit is emitted"
     },
     "TIMER_LEFTOVER": {
-      "value": "client16402_carried",
+      "value": "dropped",
       "candidates": [
         "dropped",
         "client16402_carried"
@@ -2149,7 +2149,7 @@
       "engine": "state.rs Calib::from_json (only() rule); the count is BattleState::owned_count from spawner_pass"
     },
     "DEATH_SPAWN_RADIUS_DEFAULT": {
-      "value": "zero",
+      "value": "own_collision_radius",
       "status": "measured",
       "confidence": "MEDIUM. The units this key still reaches are single death spawns (the Tombstone and the Barbarian Hut take spawner.DEATH_SPAWN_AT_EMISSION_POINT instead), and for those the 16.402 corpus puts the unit on the dying unit's centre: GoblinCage's GoblinBrawler 3 of 3, GoblinHut's SpearGoblin 29 of 31 within 160 (the hut is not loadable yet). FirespiritHut and SpearGoblinGiant, the other blank-radius single death spawns, are not measured. No loadable card has a blank-radius death spawn of more than one unit that is not on that list.",
       "provenance": "DeathSpawnRadius is blank on the Tombstone (4 Skeletons; Golem 1500, LavaHound 2500, BattleRam 600, DarkWitch 2000 are set). The shipped arm uses the dying entity's own collision radius (Tombstone 1000: the Skeletons appear where the building stood). The other arm uses zero (all at the death point; the Move phase's coincident-push rule then spreads them in the owner's frame). MEASURED 2026-09-24/25 on the 16.402 corpus (Parity): a count-1 death spawn with a blank DeathSpawnRadius appears on its parent's centre, where own_collision_radius put it one radius out on the facing ring. The Tombstone's four, this key's original promotion question, turned out to follow the spawner's emission point, now spawner.DEATH_SPAWN_AT_EMISSION_POINT. CORPUS PRE-SCORE on top of that key, on RoyaleSim cc22161: within 250 +17, GoblinCage +71. THE FOUR TOGETHER (formation.STAGGER_WAIT, spawner.TIMER_LEFTOVER, spawner.DEATH_SPAWN_AT_EMISSION_POINT, spawner.DEATH_SPAWN_RADIUS_DEFAULT = zero), stacked as overrides on RoyaleSim cc22161 over the 16.402 corpus fixtures: 128,094 of 156,718 playable no-tower unit-ticks within 250 (81.74%), against the base's 126,669 of 156,500 (80.94%): +1,425. The both-alive denominator moves with the treatment, so the counts, not the percentages, are the comparison. Per card: Goblins +829, GoblinGang +914, Tombstone +595; Knight -617, all of it in battle 124946, whose cascade also carries every other single-key loss. Flipped together on 2026-09-25.",
@@ -2172,7 +2172,7 @@
     },
     "DEATH_SPAWN_AT_EMISSION_POINT": {
       "value": {
-        "arm": "client16402_measured_list",
+        "arm": "none",
         "units": [
           "Tombstone",
           "BarbarianHut"
@@ -2585,7 +2585,7 @@
       "engine": "state.rs Calib::from_json (pick), BattleState::formation_members; formation.rs stagger_ms; tests/formations.rs"
     },
     "STAGGER_WAIT": {
-      "value": "client16402_untargetable_immovable",
+      "value": "deploying",
       "candidates": [
         "deploying",
         "client16402_untargetable_immovable"
