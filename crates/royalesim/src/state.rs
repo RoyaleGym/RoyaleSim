@@ -2166,7 +2166,7 @@ impl Grid16402 {
             .collect();
         std::mem::swap(&mut self.occ_prev, &mut self.occ_cur);
         self.occ_cur = path16402::occlusion(&self.terrain, &occluders, &self.costs);
-        self.src_prev = std::mem::replace(&mut self.src_cur, Some(occluders));
+        self.src_prev = self.src_cur.replace(occluders);
         self.epochs = epochs;
     }
 }
