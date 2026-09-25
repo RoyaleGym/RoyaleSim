@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ORACLE DIFF -- step the Rust engine beside an offline-oracle trace, tick for tick.
+"""ORACLE DIFF -- step the Rust engine beside a recorded 15.535.29 trace, tick for tick.
 
     RoyaleSim\\.venv\\Scripts\\python.exe tools/oracle_diff.py                 # the walk gate
     ... tools/oracle_diff.py --family walk --family building_Giant --verbose
@@ -11,24 +11,24 @@
 WHAT IT DOES
     For one trace it rebuilds the same situation in royalesim -- an empty board
     with the four crown towers, the same card at the same NATIVE position, spawned
-    so that its first moving tick lands on the oracle's -- then steps both and
+    so that its first moving tick lands on the recorded unit's -- then steps both and
     prints the per-tick position error in NATIVE units (1 tile = 1000) together with
-    the engine's path cells and the oracle's published `path_nodes`.
+    the engine's path cells and the recorded path (the trace's `path_nodes`).
 
 THE GATE: every `walk/` trace must be EXACT -- zero subtiles of error -- from the
-oracle's first moving tick to the tick its unit starts attacking
+recorded unit's first moving tick to the tick it starts attacking
 (`behavior_state == 2`), which is where the isolated-unit laws stop applying
 (calibration movement.CONTACT_DOMAIN).
 
 WHY THE COMPARISON STOPS AT THE FIRST ATTACKING TICK
-    The oracle's own attack predicate is wider than this engine's: measured on these
-    six traces it starts attacking at Range + own CollisionRadius + target
+    The recorded attack reach is wider than this engine's: measured on these
+    six traces a unit starts attacking at Range + own CollisionRadius + target
     CollisionRadius of the tower centre, while royalesim's targeting.
     ADD_CHARACTER_RANGE_TO_RADIUS reading is Range + target CollisionRadius. After
-    that tick the two engines are answering different questions.
+    that tick the engine's unit and the recorded one are doing different things.
 
 UNITS
-    The oracle is in native arena units (millitiles, 1000 per tile); royalesim is in
+    The traces are in native arena units (millitiles, 1000 per tile); royalesim is in
     subtiles, 18 per millitile (calibration representation.SUBTILE_PER_TILE and
     time.SPEED_TO_SUBTILES_PER_TICK). Errors are reported in NATIVE units, and an
     error of 0 means bit-exact.
@@ -100,7 +100,7 @@ def cells_of(nodes) -> list[tuple[int, int]]:
 
 # --------------------------------------------------------------------------- cost
 # The engine's own cost model, read from the ledger, so that a path can be scored
-# without the engine.  The cost gate -- "the oracle's path is exactly cost-minimal"
+# without the engine.  The cost gate -- "the recorded path is exactly cost-minimal"
 # -- is TIE-BREAK INDEPENDENT: two different lists of the same cost are both correct
 # under the measured model, and only the expansion order separates them.
 def cost_model() -> tuple[dict, int, int]:
@@ -132,7 +132,7 @@ _CELL_COST = None
 
 # CollisionRadius of the occluders the corpus uses, native units, read off
 # data/raw/cr-15.535.29/csv_logic/characters/*.toml. TESLA IS 500, not the 600 this
-# table used to assume -- with 600 its box claims cells the oracle's own path walks
+# table used to assume -- with 600 its box claims cells the recorded path walks
 # through, and both Tesla runs looked like the occlusion model failing.
 OCCLUDER_RADIUS = {"Cannon": 600, "BombTower": 600, "Tesla": 500,
                    "princess": 1000, "king": 1400}
@@ -146,7 +146,7 @@ def occluded(header: dict, buildings: list[tuple[str, tuple[int, int]]], side: i
     corpus friendly-only occlusion fails 119 of 785 first paths and both sides fails
     6. `side` is kept
     in the signature because the caller has it and the next question about this
-    corpus is whose box a path crosses; on the offline traces the change is inert,
+    corpus is whose box a path crosses; on the 15.535.29 traces the change is inert,
     because no interior cell of any first path here lies inside an enemy tower box.
     """
     boxes = [(t["x"], t["y"], OCCLUDER_RADIUS[t["type"]]) for t in header.get("towers", [])]
@@ -204,11 +204,11 @@ def buildings_of(header: dict, frames: list[dict], events: list[dict], walker_sp
     commanded x = 3000 and the Cannon stands at x = 3500, and `Tesla_dx+0.0`
     commanded (3500, 9500) and stands at (3000, 9000). Reading `acts[i][1]` put a
     phantom occlusion box on the board -- it is why this tool used to report the
-    ORACLE's own path as illegal (`COST 198 vs None`) on cannon_dx-0.5.
+    RECORDED path as illegal (`COST 198 vs None`) on cannon_dx-0.5.
 
     `acts` / the `cannon_deployed` event are still used, but only for the TICK: a
     building dropped after the walker spawned has to be issued as a real deploy
-    command at that tick so the engine sees the replan trigger where the oracle did.
+    command at that tick so the engine sees the replan trigger at the recorded tick.
     Its position is then taken from the first frame it appears in.
     """
     first_seen: dict[int, tuple[int, str, tuple[int, int]]] = {}
@@ -266,7 +266,7 @@ class Engine:
     pathfinding.OCCLUSION_MODEL) and without them a building_Giant diff is a diff
     of a different problem. One already standing when the walker spawns goes in
     through `spawns`; one dropped mid-walk is issued as a real deploy COMMAND at
-    the trace's tick, so the engine sees it exactly as the oracle did -- the entity
+    the trace's tick, so the engine sees it exactly as the trace records it -- the entity
     exists the tick after the command, which is replan trigger 2.
 
     DEPLOY TIMING IS NOT UNDER TEST HERE, and this docstring used to claim it was.
@@ -367,8 +367,8 @@ def diff_trace(path: Path, family: str, verbose: bool = False, all_units: bool =
     by_unit = units_of(header, frames)
     # THE TRACKED UNIT is the first one in the trace. A multi-unit deploy
     # (Skeletons, Goblin Giant) puts its siblings in the CROWD-SEPARATION regime,
-    # which no law implemented here models and which sets no flag in the oracle's
-    # own state either (calibration movement.CONTACT_DOMAIN) -- they are listed with
+    # which no law implemented here models and which sets no flag in the recorded
+    # trace either (calibration movement.CONTACT_DOMAIN) -- they are listed with
     # --all-units and never gated.
     # Only units that actually WALK: a building_Giant trace's first entity by
     # generation key is the Cannon (or Bomb Tower, or Tesla) that was dropped in
@@ -412,7 +412,7 @@ def diff_trace(path: Path, family: str, verbose: bool = False, all_units: bool =
         # silently switch to a different unit the moment one died. It happens to be
         # safe today only because `setup_spawn_place` materialises ONE entity per
         # spawn whatever the card's summon count -- so the engine side of the
-        # Skeletons comparison holds a single isolated troop where the oracle has
+        # Skeletons comparison holds a single isolated troop where the recording has
         # three, which is an isolated-unit comparison by construction.
         eng_first = None
         prev = None
@@ -437,7 +437,7 @@ def diff_trace(path: Path, family: str, verbose: bool = False, all_units: bool =
         d.oracle_cells = cells_of(ticks[first_move].get("path_nodes"))
         sub = eng.sub_per_native
         # tick `first_move` is the engine's first moving tick too; compare it and
-        # every tick after it up to the oracle's first attacking tick.
+        # every tick after it up to the recorded unit's first attacking tick.
         t = first_move
         d.window = (first_move, end - 1)
         while True:
@@ -468,7 +468,7 @@ def deploy_countdown_is_spawn_plus_deploy_time(card: str = "Knight", command_tic
     spawn, expected first move), a note).
 
     spec 9.1: the unit appears the tick AFTER the command and first moves
-    DeployTime/TICK_MS ticks after that, anchored on the spawn. The oracle's Knight is
+    DeployTime/TICK_MS ticks after that, anchored on the spawn. The recorded Knight is
     commanded at tick 100, appears at 101 and first moves at 121 (DeployTime 1000 ms,
     TICK_MS 50). `Engine`'s scenario spawns bypass the countdown entirely
     (`setup_spawn_place` sets `deploy_ms = 0`) and `diff_trace` re-aligns on the
@@ -512,7 +512,7 @@ def deploy_countdown_is_spawn_plus_deploy_time(card: str = "Knight", command_tic
 def rule_sweep() -> None:
     """Score the two WAYPOINT_ARRIVE_RULE candidates against the whole corpus.
 
-    Pure trace arithmetic -- no engine -- so it says what the ORACLE did, not what
+    Pure trace arithmetic -- no engine -- so it says what the RECORDED units did, not what
     this engine does. It is the evidence behind calibration
     pathfinding.WAYPOINT_ARRIVE_RULE.
     """
@@ -604,11 +604,11 @@ def main() -> int:
                 oc = path_cost(d.oracle_cells[::-1], d.blocked)
                 # COMPARABLE ONLY BETWEEN THE SAME ENDPOINTS. When the two routes end
                 # at different goal cells -- spec 6.2's open question, where the
-                # oracle's goal is not the cheapest in-reach cell in 114 of 140
+                # recorded goal cell is not the cheapest in-reach cell in 114 of 140
                 # samples -- the two numbers price two different problems and saying
                 # one is dearer means nothing. The tie-break-independent cost gate is
                 # crates/royalesim/tests/oracle2026.rs `g1`, which plans between the
-                # ORACLE path's own endpoints.
+                # RECORDED path's own endpoints.
                 ends = (d.engine_cells[:1], d.engine_cells[-1:]) == (d.oracle_cells[:1], d.oracle_cells[-1:])
                 if not ends:
                     verdict = f"COST {mc} vs {oc} -- DIFFERENT ENDPOINTS, not comparable"
@@ -628,7 +628,7 @@ def main() -> int:
         costed = [d for d in paths if d.same_cost is not None]
         same = sum(1 for d in costed if d.same_cost)
         print()
-        print(f"FIRST-PATH CELLS: {agree}/{len(paths)} identical to the oracle's published list; "
+        print(f"FIRST-PATH CELLS: {agree}/{len(paths)} identical to the recorded paths; "
               f"{same}/{len(costed)} the same COST (gate G1 -- the tie-break-independent one)")
     print()
     print(f"WALK GATE ({len(gate)} traces, exact = 0 native units of error for the WHOLE window):")
@@ -636,7 +636,7 @@ def main() -> int:
     # early is not the gate anybody meant, and there is no allowance for a short one.
     # Skeletons used to be the exception -- `setup_spawn_place` materialises ONE
     # entity per spawn, so the engine meets the princess tower with a single Skeleton
-    # where the oracle has three and takes every shot -- but that single Skeleton now
+    # where the recording has three and takes every shot -- but that single Skeleton now
     # outlives the window, so every trace is held to the whole of its own.
     bad = [d for d in gate if d.max_err > 0 or len(d.rows) != d.window_ticks]
     for d in gate:

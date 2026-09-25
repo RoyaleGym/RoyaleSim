@@ -1182,7 +1182,7 @@ impl Battle {
     /// (GOAL-FIRST under PathModel::Oracle2026, so element 0 is the goal -- the
     /// same layout the live game publishes in `path_nodes`).
     ///
-    /// WHY IT EXISTS: tools/oracle_diff.py steps this engine beside an offline-oracle
+    /// WHY IT EXISTS: tools/oracle_diff.py steps this engine beside a recorded 15.535.29
     /// trace and prints the per-tick position error and the path cells. Without the
     /// cells a divergence cannot be attributed to the search rather than to the
     /// locomotion law. `state_json` is the protocol surface and does not carry

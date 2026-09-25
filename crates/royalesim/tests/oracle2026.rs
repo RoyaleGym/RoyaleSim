@@ -1,4 +1,4 @@
-//! THE 2026 PATHFINDER, against the offline oracle's own published paths.
+//! THE 2026 PATHFINDER, against the paths recorded on client 15.535.29.
 //!
 //! The fixture `fixtures/oracle2026/first_paths.json` holds 37 first paths the LIVE
 //! 2026 game published (7 walk, 16 lane-sweep, 12 building, 2 repath), each with the
@@ -18,13 +18,13 @@
 //! this model reaches only 13 of 76 distinct experiments (the search measured on
 //! client 16.402, path16402.rs, is the one that reproduces them):
 //!
-//!   G1 COST      the engine's path costs exactly what the oracle's path costs, on
+//!   G1 COST      the engine's path costs exactly what the recorded path costs, on
 //!                the engine's own grid with the engine's own occluders. This is the
 //!                tie-break-INDEPENDENT gate and it is the one that catches a wrong
 //!                cost constant, a wrong diagonal weight or a wrong occlusion box.
-//!   G3 LEGALITY  the oracle's own path is legal under the engine's model: every
+//!   G3 LEGALITY  the recorded path is legal under the engine's model: every
 //!                step 8-connected, no interior cell occluded, no cell impassable.
-//!   G4 GOAL      the reach rule holds two-sided on the oracle's list -- the goal is
+//!   G4 GOAL      the reach rule holds two-sided on the recorded list -- the goal is
 //!                in reach and its predecessor is not.
 //!   G5 SHAPE     the engine's path is 8-connected and never revisits a cell.
 //!
@@ -48,7 +48,7 @@ const FIXTURE: &str = include_str!("fixtures/oracle2026/first_paths.json");
 
 #[derive(serde::Deserialize)]
 struct Case {
-    /// Does the measured occlusion box ADMIT this oracle path -- is every INTERIOR
+    /// Does the measured occlusion box ADMIT this recorded path -- is every INTERIOR
     /// cell of the path the game published outside every friendly box? Derived by
     /// the generator from the trace, and true on all 37, which is the claim
     /// `the_occlusion_box_admits_every_path_the_game_took` asserts.
@@ -121,7 +121,7 @@ fn cost_of(f: &CostField, calib: &Calib, cells: &[(i32, i32)]) -> Option<i64> {
     Some(total)
 }
 
-/// The engine's path between the ORACLE PATH'S OWN ENDPOINTS.
+/// The engine's path between the RECORDED PATH'S OWN ENDPOINTS.
 ///
 /// WHY NOT FROM THE UNIT'S CELL: the recorded `path_nodes` is a POST-TICK snapshot
 /// and the unit consumed its first node in the same tick it planned (spec 5.2 /
@@ -194,7 +194,7 @@ fn plan_with_reach(arena: &Arena, calib: &Calib, c: &Case, reach: i32) -> Vec<(i
 fn the_fixtures_reach_is_the_card_datas() {
     // The fixture carries the live client's own reach; data/derived/cards.json (the
     // 15.535 vintage) must give the same Range + CollisionRadius for every card the
-    // oracle walked -- the 2018 file disagreed on four of them, which is why the walk
+    // traces recorded -- the 2018 file disagreed on four of them, which is why the walk
     // gate (tools/oracle_diff.py) scored 19 of 21 first-path goal cells: the Mini
     // P.E.K.K.A (1050 + 450) and the Royal Giant (6500 + 750) aimed at other cells.
     let db = common_cards();
@@ -246,12 +246,12 @@ fn g1_engine_path_costs_exactly_what_the_oracle_path_costs() {
         let mut mine: Vec<(i32, i32)> = plan_between(&arena, &calib, &c, from, to).into_iter().rev().collect();
         mine.insert(0, from);
         let their_cost = cost_of(&f, &calib, &theirs)
-            .unwrap_or_else(|| panic!("{}: the ORACLE's own path is illegal under this model", c.trace));
+            .unwrap_or_else(|| panic!("{}: the RECORDED path is illegal under this model", c.trace));
         let my_cost = cost_of(&f, &calib, &mine)
             .unwrap_or_else(|| panic!("{}: the engine's path is illegal under its own model", c.trace));
         assert_eq!(
             my_cost, their_cost,
-            "{} ({}): engine path costs {my_cost}, oracle's costs {their_cost}\n  engine {mine:?}\n  oracle {theirs:?}",
+            "{} ({}): engine path costs {my_cost}, recorded {their_cost}\n  engine {mine:?}\n  recorded {theirs:?}",
             c.trace, c.card
         );
         checked += 1;
@@ -286,7 +286,7 @@ fn g4_the_goal_rule_holds_two_sided_on_every_oracle_path() {
 fn g3_the_oracle_paths_are_legal_under_the_engines_grid() {
     // Every step 8-connected, no interior cell occluded or impassable. This is what
     // fails first if the occlusion box is the wrong shape: a CLOSED box blocks 57
-    // cells the oracle's own paths use, and a mover pad of one native unit blocks
+    // cells the recorded paths use, and a mover pad of one native unit blocks
     // 155 (calibration pathfinding.OCCLUSION_MODEL).
     let arena = Arena::shipped();
     let calib = Calib::shipped();
@@ -381,7 +381,7 @@ fn the_occlusion_box_admits_every_path_the_game_took() {
             // king's box, which no case here contains.
             assert!(
                 !f.in_building_box(f.idx(cell[0], cell[1])),
-                "{}: the oracle walked through {cell:?}, which the occlusion box claims",
+                "{}: the recorded unit walked through {cell:?}, which the occlusion box claims",
                 c.trace
             );
         }
@@ -436,7 +436,7 @@ fn the_half_tile_cannon_offsets_are_duplicate_experiments() {
 #[test]
 fn the_two_rival_occlusion_shapes_are_the_ones_the_corpus_refutes() {
     // The measurement's own discriminators, as a test rather than as prose: a CLOSED
-    // box and a one-native-unit MOVER PAD each claim cells the oracle's own paths
+    // box and a one-native-unit MOVER PAD each claim cells the recorded paths
     // walk through. Without this, "half-open, no pad" is an unfalsifiable label.
     let arena = Arena::shipped();
     let calib = Calib::shipped();
@@ -459,9 +459,9 @@ fn the_two_rival_occlusion_shapes_are_the_ones_the_corpus_refutes() {
             }
         }
     }
-    assert!(closed_hits > 0, "a closed box would have to claim cells the oracle used");
-    assert!(pad_hits > 0, "a one-unit mover pad would have to claim cells the oracle used");
-    println!("cells of the oracle's own paths claimed by a closed box: {closed_hits}; by a 1-unit pad: {pad_hits}");
+    assert!(closed_hits > 0, "a closed box would have to claim cells the recorded paths use");
+    assert!(pad_hits > 0, "a one-unit mover pad would have to claim cells the recorded paths use");
+    println!("cells of the recorded paths claimed by a closed box: {closed_hits}; by a 1-unit pad: {pad_hits}");
 }
 
 // --------------------------------------------------------------------------------
@@ -580,7 +580,7 @@ fn g6_the_client_search_reproduces_every_published_node_sequence() {
         let (mine, ok) = plan_client16402_case(&arena, &calib, c);
         assert!(ok, "{}: the search found no route", c.name);
         let oracle: Vec<(i32, i32)> = c.oracle_cells_goal_first.iter().map(|c| (c[0], c[1])).collect();
-        // goal-first on both sides: the ORACLE list is shorter by the nodes the game
+        // goal-first on both sides: the RECORDED list is shorter by the nodes the game
         // had already popped on the publishing tick, so compare its length from the head
         let hit = mine.len() >= oracle.len() && mine[..oracle.len()] == oracle[..];
         if hit {
@@ -590,7 +590,7 @@ fn g6_the_client_search_reproduces_every_published_node_sequence() {
                 offline += 1;
             }
         } else {
-            failures.push(format!("{}: oracle {:?}.. mine {:?}..", c.name, &oracle[..oracle.len().min(6)], &mine[..mine.len().min(6)]));
+            failures.push(format!("{}: recorded {:?}.. mine {:?}..", c.name, &oracle[..oracle.len().min(6)], &mine[..mine.len().min(6)]));
         }
     }
     assert_eq!(skipped, vec!["20260918-115249.b1:44:Goblins", "20260918-115249.b1:45:Goblins", "20260918-124946:69:Goblins"]);

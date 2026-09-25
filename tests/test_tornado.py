@@ -164,7 +164,7 @@ def step_of(rows, t):
 
 
 def paired_first_pull(setup_slot, in_state):
-    """ORACLE'S PROCEDURE, so a state that has not landed yet cannot be measured by mistake.
+    """THE 15.535.29 MEASUREMENT PROCEDURE, so a state that has not landed yet cannot be measured by mistake.
 
     First a run WITHOUT the Tornado finds the first tick the Knight is in the state
     (`in_state(rows, t)`); the Tornado is cast on that tick in a second run; and the pull is the

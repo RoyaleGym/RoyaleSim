@@ -99,7 +99,7 @@ pub struct Calib {
     #[serde(with = "path_model_serde")]
     pub path_model: PathModel,
     /// pathfinding.REPATH_INTERVAL_TICKS. `None` = no periodic replan, which is
-    /// what the offline oracle measured (150 structural recomputes over 31 859
+    /// what was measured on client 15.535.29 (150 structural recomputes over 31 859
     /// path-ticks with no common period); the pre-2026 models then replan only when
     /// their route empties or their goal moves. A positive value re-arms the old
     /// folklore cadence for those models; the 2026 model ignores it entirely and
@@ -1451,7 +1451,7 @@ impl Calib {
         let diag_num = int(&v, &["pathfinding", "DIAGONAL_COST_RATIO", "value", "num"])?;
         let diag_den = int(&v, &["pathfinding", "DIAGONAL_COST_RATIO", "value", "den"])?;
         // One pathfinding cell is CELL_SIZE_NATIVE millitiles; the engine's arena
-        // half-cell must be exactly that, or the node encoding the oracle publishes
+        // half-cell must be exactly that, or the node encoding the recorded paths use
         // does not concern the engine's grid.
         let cell_native = int(&v, &["pathfinding", "CELL_SIZE_NATIVE", "value"])?;
         let arena_cell = crate::arena::Arena::shipped().cell;
@@ -4557,7 +4557,7 @@ impl BattleState {
     /// NOT MODELLED HERE: avoidance, crowd separation and combat pushback
     /// (calibration movement.CONTACT_DOMAIN). `path::avoid_units` is deliberately
     /// NOT applied -- it is this engine's own invention for the pre-2026 models,
-    /// and the oracle's avoidance term is unmeasured (it sets `avoidance_offset` to
+    /// and the game's avoidance term is unmeasured (it sets `avoidance_offset` to
     /// +-190 and then walks it by +-10 per tick in a way no decay explains).
     /// Applying a made-up deflection here would corrupt the one law that IS
     /// measured.
@@ -4605,7 +4605,7 @@ impl BattleState {
                 let gi = goal_id.index as usize;
                 if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                     // SPEC 5.3: the path is cleared on the transition to attacking,
-                    // without reaching the goal node. Over 46 304 oracle ticks not
+                    // without reaching the goal node. Over 46 304 recorded ticks not
                     // one has behavior_state == 2 with a live path -- the clear and
                     // the state change are the same event.
                     routes[i].clear();
@@ -4636,7 +4636,7 @@ impl BattleState {
                 };
                 if req.flying {
                     // Air units do not use the grid at all: they fly to the target.
-                    // UNMEASURED -- no flying unit appears in the oracle corpus.
+                    // UNMEASURED -- no flying unit appears in the 15.535.29 corpus.
                     // The route is stored in WORLD coordinates like every other
                     // route; only the arithmetic happens in the frame.
                     routes[i] = vec![arena.from_frame(team, req.goal)];
@@ -4676,7 +4676,7 @@ impl BattleState {
                 // Giant (750) walking up to a Cannon (600) -- the goal cell is
                 // OUTSIDE attack range and the unit would stand there for ever.
                 //
-                // The oracle never shows this case because its own attack predicate
+                // The game never shows this case because its own attack predicate
                 // is wider than its goal rule: measured on the six walk traces, the
                 // first attacking tick is at
                 // `Range + own CollisionRadius + target CollisionRadius` of the
@@ -4786,7 +4786,7 @@ impl BattleState {
             // None = the measured "no periodic replan" (calibration
             // pathfinding.REPATH_INTERVAL_TICKS). For these pre-2026 models that
             // leaves the route-empty and goal-moved triggers below, which is
-            // strictly closer to the oracle than the old folklore 10-tick cadence.
+            // strictly closer to the 15.535.29 measurements than the old folklore 10-tick cadence.
             let repath = calib.repath_interval_ticks.map(|r| r.max(1) as u32);
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {

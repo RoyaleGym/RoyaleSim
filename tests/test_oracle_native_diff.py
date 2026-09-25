@@ -1,8 +1,8 @@
 """THE ORACLE DIFF GATE, as a test.
 
 Runs tools/oracle_diff.py's comparison in-process: for every `walk/` trace the Rust
-engine must reproduce the offline oracle's trajectory EXACTLY -- zero native units of
-error on every tick from the oracle's first moving tick to the tick its unit starts
+engine must reproduce the recorded trajectory EXACTLY -- zero native units of
+error on every tick from the recorded unit's first moving tick to the tick it starts
 attacking, which is where the isolated-unit laws stop applying (calibration
 movement.CONTACT_DOMAIN).
 
@@ -12,10 +12,10 @@ is the thing to run when they are.
 
 WHAT IT DOES NOT GATE
   * building_Giant / repath_Giant: their first paths are the same COST as the
-    oracle's but not the same cells, because this model does not reproduce the
+    recorded paths but not the same cells, because this model does not reproduce the
     expansion order. They are reported by the tool, not asserted here.
   * a deploy's crowd siblings (Skeletons #1 and #2): crowd separation is unmodelled
-    and sets no flag in the oracle's own state either.
+    and sets no flag in the recorded trace either.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ WALK = TRACES / "walk"
 
 pytestmark = pytest.mark.skipif(
     not WALK.is_dir() or not any(WALK.glob("*.jsonl.gz")),
-    reason=f"{WALK} is absent; run tools/oracle_diff.py where the offline-oracle traces are",
+    reason=f"{WALK} is absent; run tools/oracle_diff.py where the recorded 15.535.29 traces are",
 )
 
 
@@ -56,7 +56,7 @@ def diffs():
 def test_the_walk_traces_are_reproduced_exactly(diffs):
     """Zero error, over the WHOLE window -- not over whatever ticks happened to run.
 
-    The window is the oracle's first moving tick to the tick before its unit starts
+    The window is the recorded unit's first moving tick to the tick before it starts
     attacking, and it is asserted as well as the error. It used to be guarded only by
     `len(d.rows) >= 100`: `diff_trace` stops early and leaves a note when the engine's
     unit dies or never moves, so a regression that killed a unit two thirds of the way
@@ -78,7 +78,7 @@ def test_the_walk_traces_are_reproduced_exactly(diffs):
             # THE SHORT WINDOW IS GONE, and this pins that rather than the old
             # shortfall. state.rs `setup_spawn_place` still materialises ONE entity
             # per spawn whatever the card's summon count, so the engine still faces
-            # the princess tower with a single Skeleton where the oracle has three
+            # the princess tower with a single Skeleton where the recording has three
             # and still takes every shot -- but it now survives the whole window: it
             # is on the board on the window's last tick, t227, and goes at t228, one
             # tick past the end. So the comparison covers all 107 of the window's
@@ -111,14 +111,14 @@ def test_the_deploy_countdown_is_the_measured_one():
 
 
 def test_the_first_path_matches_the_oracles_published_cells(diffs):
-    """ALL SIX publish the same first-path cell list as the oracle, cell for cell.
+    """ALL SIX publish the same first-path cell list as the recorded path, cell for cell.
 
     MiniPekka used to be the one exception, and the reason was card DATA rather than
     the search: the goal rule is Range + the unit's own CollisionRadius, and a
-    MiniPekka Range of 1050 stops the path one cell short of the oracle's goal, so
-    the engine's list was the oracle's without its first cell.
+    MiniPekka Range of 1050 stops the path one cell short of the recorded goal cell, so
+    the engine's list was the recorded one without its first cell.
     data/derived/cards.json now carries the 15.535.29 table, whose MiniPekka Range is
-    800, and the list is the oracle's published one. The pin is therefore the whole
+    800, and the list is the recorded one. The pin is therefore the whole
     set, with no exception left to carve out.
     """
     import oracle_diff

@@ -63,7 +63,7 @@ to one of the four analyses; section 10 lists what it covers.
 ### 4.1 The frame
 
 Native coordinates are integer arena units, **1000 per tile**, x ∈ [0, 18000),
-y ∈ [0, 32000). This comes from the oracle trace itself, not inferred: the trace header puts the
+y ∈ [0, 32000). This comes from the recorded trace itself, not inferred: the trace header puts the
 side-0 king at (9000, 3000) and the princess towers at (3500, 6500) and (14500, 6500),
 and the orientation trace's probe grids declare width 18, height 32, cell size 1000.
 Side 1 is the exact 180° rotation.
@@ -476,7 +476,7 @@ ever becomes load-bearing.
 
 ### 6.2 Costs
 
-Scored as "is the oracle's own recorded path exactly cost-minimal between its own
+Scored as "is the recorded path exactly cost-minimal between its own
 endpoints", over all **150 first-paths** including the `meet/` traces and side-1 units,
 with a Dijkstra written independently of the analysis scripts:
 
@@ -499,9 +499,9 @@ distinguish a unit's own lane from the other one.
 
 **Water is effectively impassable to ground units.** `PATHFINDING_WATER_COST = 7` is in
 the shipped globals but modelling it that way makes 25 first-paths strictly dearer than
-the optimum. The oracle refused water shortcuts it would have taken. Cost 50 and a hard
+the optimum. The recorded units refused water shortcuts it would have taken. Cost 50 and a hard
 block are indistinguishable here, as are cost 50 and a hard block for bit-16 terrain and
-for buildings: no oracle path ever needed to cross one.
+for buildings: no recorded path ever needed to cross one.
 
 ### 6.3 The diagonal weight
 
@@ -556,13 +556,13 @@ every R in (500, 1000] blocks the same cells. `R = CollisionRadius` is therefore
 three observed footprints under one unfitted rule. It is not independently measured to
 scale with `CollisionRadius`.
 
-**Half-open, not closed.** A closed box blocks 57 cells the oracle's own paths use. The
+**Half-open, not closed.** A closed box blocks 57 cells the recorded paths use. The
 discriminator is the *tower*, not the Cannon: for all five Cannon positions the half-open
 and closed boxes are identical (none of `x ± 600`, `y ± 600` is a multiple of 500), while
 the towers' radii 1000 and 1400 are exact multiples of the cell size.
 
 **No mover radius, no clearance pad: the term is exactly zero.** A pad of even **1
-native unit** blocks 155 cells the oracle's own paths use, because `cx − R = 2500` lands
+native unit** blocks 155 cells the recorded paths use, because `cx − R = 2500` lands
 exactly on a cell boundary for the princess towers and the Giant's control path runs up
 column 4 at rows 11–16. Cannon 600 + Giant 750 = 1350 would block the very column the
 `cannon_dx+0.0` detour takes. The Cannon alone brackets the pad to [0, 400]; including the
@@ -611,11 +611,11 @@ Two caveats that belong with the rule:
 1. **The constant is pinned only to about ±75 units.** A constant offset `k` added to
    `Range + CollisionRadius` fits every one of the 150 first paths for any
    `k ∈ [−125.2, +24.8)`. Zero is inside that window; so are several other values.
-2. **The rule is necessary, not determinative.** It is a condition on the oracle's own last
+2. **The rule is necessary, not determinative.** It is a condition on the recorded path's last
    node, not a predictor of which cell the search will stop at. Between 12 and 52 cells per
-   sample satisfy it (median 32). The oracle's goal cell is not the *cheapest*
+   sample satisfy it (median 32). The recorded goal cell is not the *cheapest*
    reachable in-reach cell in 114 of 140 samples, with no cost ties among them. Handing an
-   A* the oracle's goal cell raises exact-sequence reproduction from 22/140 to 43/140.
+   A* the recorded goal cell raises exact-sequence reproduction from 22/140 to 43/140.
    The goal cell is an output of the expansion order, not an independent rule.
 
 For a target that is *below* the unit, the sign flips: the standoff is on the approach
@@ -699,9 +699,9 @@ holds a target throughout, as it drops in and out of the attacking state. The ga
 
 ### 6.8 What we still cannot reproduce: the node sequence
 
-The cost model is right: the oracle's path is exactly cost-minimal on **150 / 150**
+The cost model is right: the recorded path is exactly cost-minimal on **150 / 150**
 first-paths. But the exact node *sequence* is not reproduced. The best configurable A*
-reaches **22 / 140** exact matches (43/140 when handed the oracle's goal cell). Once
+reaches **22 / 140** exact matches (43/140 when handed the recorded goal cell). Once
 the corpus is deduplicated to 76 distinct experiments the ceiling is **13 / 76**, of which
 6 are the walk traces (one start, one straight column) and 6 are a single lane-sweep
 column.
@@ -713,13 +713,13 @@ index ascending/descending, by `g` ascending/descending, and h-then-index (plaus
 for a `REFRESH_OPENNODES` linked or array open list rather than a binary heap). The ceiling
 does not move.
 
-Where the optimum is ambiguous the oracle takes the orthogonal successor on 1568 of 1672
+Where the optimum is ambiguous the recorded path takes the orthogonal successor on 1568 of 1672
 steps (93.8 %), counted over the offline trace corpus of client 15.535.29. But an `ortho_first` neighbour order still scores 22/140, so this is a
 description of the output, not the rule. With the √2 diagonal, exact ties are rare, which
 means the residual error is not a classic tie-break at all. Something structural is
 missing: most likely the real open-list discipline, or a post-processing step.
 
-A typical failure: `c00_r08` agrees for 16 nodes, then the oracle moves from column 6 to
+A typical failure: `c00_r08` agrees for 16 nodes, then the recorded path moves from column 6 to
 column 5 at row 35 while the model stays on column 6. The switch row varies with the start
 cell for the same goal (row 35, 36, 37, 44, 48 for starts c00, c02, c04, c08, c06), the
 signature of an expansion-order artefact.
@@ -849,7 +849,7 @@ each one needs is named.
    Giant/Golem 52/54 mapping. A live capture carrying the mover's state fields would
    settle it faster than another trace.
 5. **Occluded cells: hard block or `PATHFINDING_BUILDING_COST = 50`?** Indistinguishable
-   here because no oracle path ever needed to cross one. Same for bit-16 terrain and for
+   here because no recorded path ever needed to cross one. Same for bit-16 terrain and for
    water (50 vs impassable). Settle with a corridor where going *through* is cheaper than
    going around.
 6. **`FRIENDLYONLY_OCCLUSIONS`.** The globals say TRUE; the traces cannot tell. Needs a
@@ -887,7 +887,7 @@ it.
 
 The regression gates these measurements support, in increasing strictness:
 
-1. All 150 oracle first-paths are exactly cost-minimal on the engine's own grid.
+1. All 150 recorded first-paths are exactly cost-minimal on the engine's own grid.
 2. The movement laws reproduce every *isolated* unit bit-exactly from its first moving
    tick (walk: 239, 307, 305, 164, 121, 106 ticks; zero drift; identical final positions).
 3. The node-consumption predicate never fires early across the 27 824 keep-ticks.
@@ -913,4 +913,4 @@ is not reproducible from a clone. What it covered, section by section:
 | H | Goal truncation rule and its admissible constant window |
 
 The rules these sections support are gated inside this repo by `tests/oracle2026.rs` and
-`tools/oracle_diff.py`, which a reader can run against any trace in the oracle format.
+`tools/oracle_diff.py`, which a reader can run against any trace in the recorded-trace format.

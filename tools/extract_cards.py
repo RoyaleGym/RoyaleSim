@@ -1095,8 +1095,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # A blank Speed is a thing that does not move (buildings, BrokenCannon).
         "speed": dflt("speed", c["Speed"], 0),
         # THE STOMP COLUMNS.  A Giant does not walk at Speed: it walks faster for
-        # StopMovementAfterMS and then stands still for WaitMS, and the native
-        # oracle's per-tick displacement is the FASTER figure (calibration.json
+        # StopMovementAfterMS and then stands still for WaitMS, and the per-tick
+        # displacement measured on client 15.535.29 is the FASTER figure (calibration.json
         # movement.STOMP_SPEED_RULE / STOMP_PAUSE_SCHEDULE, measured 2026-09-18 --
         # free per-unit speed fit: Giant 52 and Golem 54 while both ship Speed 45).
         # Blank on everything but Giant, RoyalGiant, Golem and IceGolemite in 2018; the

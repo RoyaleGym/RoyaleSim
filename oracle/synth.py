@@ -319,8 +319,8 @@ def base_config(cal: dict | None = None, **candidate_only: Any) -> ModelConfig:
         # THE SHIPPED VALUE SINCE 2026-09-18, and this generator does NOT implement
         # it. `weighted_grid_astar` is the measured 2026 weighted grid A* over the
         # 36x64 half-tile cells (crates/royalesim/src/path2026.rs); reproducing it
-        # here would mean a second implementation of the thing the offline oracle
-        # already settles, and a synthetic trace from it would be a copy of the
+        # here would mean a second implementation of the thing the 15.535.29 traces
+        # already settle, and a synthetic trace from it would be a copy of the
         # engine, not evidence about the game.
         #
         # WHAT THIS MAPPING IS FOR, and what it is not: synth exists to SELF-TEST the
@@ -354,7 +354,7 @@ def base_config(cal: dict | None = None, **candidate_only: Any) -> ModelConfig:
         speed_unit=speed_unit,
         path_model=path_model,
         avoidance=avoidance,
-        # RETIRED IN THE LEDGER 2026-09-18: the offline oracle measured that there is
+        # RETIRED IN THE LEDGER 2026-09-18: the 15.535.29 traces show that there is
         # no periodic replan timer at all (150 structural recomputes over 31 859
         # path-ticks, no common period), so the key is null and the real triggers are
         # pathfinding.REPLAN_TRIGGERS. This generator's model still has a cadence

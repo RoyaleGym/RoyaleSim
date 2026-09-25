@@ -1,4 +1,4 @@
-//! THE 2026 PATHFINDER AND LOCOMOTION LAW, measured from the offline oracle.
+//! THE 2026 PATHFINDER AND LOCOMOTION LAW, measured on client 15.535.29.
 //!
 //! SOURCE OF TRUTH
 //!     docs/pathfinder-spec.md states the rules and docs/movement-measurements.md
@@ -29,7 +29,7 @@
 //!        pathfinding.REPLAN_TRIGGERS).
 //!
 //! PLANNED IN THE TEAM'S FRAME, like every other model (path.rs header). The
-//! oracle's `path_nodes` are ABSOLUTE arena cells, but that does not force the
+//! recorded `path_nodes` are ABSOLUTE arena cells, but that does not force the
 //! engine's convention: the shipped grid is exactly rotation-symmetric with the two
 //! lane bits swapped (arena.rs `is_rotation_symmetric`), this cost model reads
 //! "either lane bit" so it is invariant under that swap, and the goal predicate,
@@ -41,7 +41,7 @@
 //!
 //! WHAT IS NOT MODELLED, and must not be quietly absorbed into a card constant:
 //! avoidance (`avoidance_offset`), crowd separation and combat pushback. Two of
-//! the three set no flag at all in the oracle's own state, and 174 movement-law
+//! the three set no flag at all in the 15.535.29 traces, and 174 movement-law
 //! failures corpus-wide are all in those regimes (calibration
 //! movement.CONTACT_DOMAIN). Everything here is the ISOLATED-unit law.
 #![allow(unexpected_cfgs)]
@@ -93,7 +93,7 @@ pub const OCCLUDED: i32 = -2;
 /// (calibration pathfinding.TIE_BREAK).
 ///
 /// UNVERIFIED AND KNOWN TO BE INSUFFICIENT -- a placeholder, not a finding. Where
-/// several successors are equally optimal the oracle prefers the orthogonal one on
+/// several successors are equally optimal the recorded paths take the orthogonal one on
 /// 1568 of 1672 ambiguous steps (93.8 %), but this order still reproduces only
 /// 22/140 exact node sequences and no discipline tried exceeds 13/76 distinct
 /// experiments (spec 3.6). This is THE key the ledger says is most likely to be
@@ -171,8 +171,8 @@ impl CostField {
     /// bit-16 arena-edge/king block is `OCCLUDED`, everything else is the default.
     ///
     /// WATER IS A HARD BLOCK FOR GROUND even though `PATHFINDING_WATER_COST = 7`
-    /// ships: modelling water as traversable at 7 makes 25 of 150 oracle first
-    /// paths strictly dearer than the optimum -- the oracle refused water shortcuts
+    /// ships: modelling water as traversable at 7 makes 25 of the 150 recorded 15.535.29 first
+    /// paths strictly dearer than the optimum -- the game refused water shortcuts
     /// it would have taken (calibration pathfinding.WATER_RULE_GROUND), and 51 of 785
     /// live ones. That key is pinned to "impassable" at load, so
     /// `OCCLUDED_CELL_TREATMENT` does NOT reach it: the two keys used to share this
@@ -218,11 +218,11 @@ impl CostField {
     ///
     /// HALF-OPEN, AXIS-ALIGNED, PER-AXIS: cells overlapping
     /// `[cx - R, cx + R) x [cy - R, cy + R)`, floor division on both edges. A
-    /// CLOSED box blocks 57 cells the oracle's own paths use; a circle-overlap test
+    /// CLOSED box blocks 57 cells the recorded paths use; a circle-overlap test
     /// fails 45 of 216; a Euclidean centre test fails 23.
     ///
     /// NO MOVER PAD. The term is exactly zero: a pad of even ONE native unit blocks
-    /// 155 cells the oracle's own paths use, because 3500 - 1000 = 2500 lands
+    /// 155 cells the recorded paths use, because 3500 - 1000 = 2500 lands
     /// exactly on a cell boundary and the Giant's control path runs up column 4 at
     /// rows 11-16.
     ///
@@ -260,7 +260,7 @@ impl CostField {
                 // to the goal-exempt sentinel nor to a payable 50. A building beside
                 // a bridge would otherwise hand the search a legal route through the
                 // water, which WATER_RULE_GROUND refuses on its own evidence (25 of
-                // 150 oracle first paths, and 51 of 785 live ones, go wrong at
+                // 150 recorded 15.535.29 first paths, and 51 of 785 live ones, go wrong at
                 // cost 7).
                 if self.cost[i] != IMPASSABLE {
                     self.cost[i] = v;
@@ -328,7 +328,7 @@ pub fn cell_of(arena: &Arena, p: Vec2) -> (i32, i32) {
 /// orthogonal weight is `PATHFINDING_DEFAULTHEURISTIC_COST` under both forms.
 ///
 /// CHEBYSHEV IS THE MEASURED ONE (LIVE 16.402): both weights are H, so
-/// `h = 5 * max(|dc|, |dr|)`. Handed the oracle's own goal cell, exact node-sequence
+/// `h = 5 * max(|dc|, |dr|)`. Handed the recorded goal cell, exact node-sequence
 /// reproduction on the live corpus is 192/292 for Chebyshev at W in 3..5 (the three
 /// weights are indistinguishable; 5 is the datamined constant), against 171/292 for
 /// Dijkstra and 78/292 for the octile form this engine used before. Offline the same
@@ -369,7 +369,7 @@ fn chamfer_distance(calib: &Calib, dc: i32, dr: i32) -> i32 {
 /// 3.3e11 and an i32 would silently overflow (spec 1).
 ///
 /// Public so the goal rule can be asked of a cell without running a plan -- the tests
-/// score it against the oracle's published goal cells that way. The tick loop tells an
+/// score it against the recorded goal cells that way. The tick loop tells an
 /// arrived unit (walk the last gap) from a walled-in one (hold position) by
 /// `plan_cells`'s own feasibility flag instead, which is exact.
 #[inline]
@@ -455,7 +455,7 @@ pub fn plan_cells(world: &FrameWorld, calib: &Calib, req: &NavRequest) -> (Vec<(
     // goal by up to reach/cell * H and is non-zero AT goal cells, so A* then pops a
     // goal that is not the cheapest one. Measured: with h to the target cell the
     // search returns column 7 (cost 152) on every one of the six walk traces where
-    // the oracle takes column 6 (cost 150).
+    // the recorded unit takes column 6 (cost 150).
     let mut any_goal = false;
     let mut goal_mask = vec![false; n];
     for row in 0..arena.rows {
@@ -539,7 +539,7 @@ pub fn plan_cells(world: &FrameWorld, calib: &Calib, req: &NavRequest) -> (Vec<(
                 step = step * calib.diag_num / calib.diag_den;
             }
             // No corner-cutting restriction (spec 3.1): corner-cut-strict fails 6
-            // of 140, and over ~486 000 adjacent node pairs in the oracle's own
+            // of 140, and over ~486 000 adjacent node pairs in the recorded
             // paths zero are non-8-neighbours.
             let ng = g[cur].saturating_add(step);
             if ng < g[ni] {
@@ -690,7 +690,7 @@ pub fn plan_waypoints(world: &FrameWorld, calib: &Calib, req: &NavRequest) -> (V
 ///
 /// WHY A SEPARATE FUNCTION. The goal cell the search actually stops at is an OUTPUT
 /// of the expansion order (spec 6.2): between 12 and 52 cells satisfy the reach
-/// predicate per sample and the oracle's choice is not the cheapest one in 114 of
+/// predicate per sample and the recorded choice is not the cheapest one in 114 of
 /// 140 samples. So the search keeps the reach PREDICATE, and this -- the observed
 /// shape of the goal cell, 98.96 % per tick -- is only used to notice that the goal
 /// has moved. Re-running the search every tick to compare would cost an A* per unit
@@ -813,7 +813,7 @@ pub fn step_delta(speed: i32, dir: Vec2) -> Vec2 {
 /// reset. Strict `>` beats `>=` (304/308 against 308/308 on the Giant), `(k+1)`
 /// beats `k` (268/308), and every phase offset was brute-forced with only 0 fitting.
 /// A naive "move for Stop ms then wait for Wait ms" countdown gives 13 moving ticks
-/// in the Giant's first block where the oracle shows 12.
+/// in the Giant's first block where the 15.535.29 traces show 12.
 #[inline]
 pub fn stomp_paused(tick_ms: i32, stop_ms: i32, wait_ms: i32, k: u32) -> bool {
     if stop_ms <= 0 {
@@ -1164,7 +1164,7 @@ mod tests {
         let radius = c.waypoint_arrive_radius;
         // The Giant's tick 137 in walk/Giant_x3.5_y8.5_seed2: post-move (3384, 9258),
         // node (6, 20) centre (3250, 10250), segment direction (-32, 253). The
-        // oracle CONSUMES the node here; the Euclidean distance is 1001.0095, which
+        // recorded unit CONSUMES the node here; the Euclidean distance is 1001.0095, which
         // a plain radius of 1000 refuses.
         let node = Vec2::new(3250 * 18, 10250 * 18);
         let pos = Vec2::new(3384 * 18, 9258 * 18);
@@ -1176,7 +1176,7 @@ mod tests {
     #[test]
     fn an_occluded_cell_is_a_price_the_search_will_pay_and_a_block_is_not() {
         // THE 16.402 PROMOTION, as a test rather than as prose. `block` and `cost_50`
-        // were indistinguishable offline -- no oracle path ever needed to cross a
+        // were indistinguishable on 15.535.29 -- no recorded path ever needed to cross a
         // building -- so nothing in this repo could tell them apart either, and a
         // ledger value nothing can falsify is the failure mode calibration.json's
         // own $comment exists to prevent.
@@ -1374,7 +1374,7 @@ mod tests {
     #[test]
     fn the_walk_plan_is_the_oracles_column_six() {
         // walk/*: deploy (3500, 8500) native, target the enemy left princess tower
-        // at (3500, 25500). The oracle publishes column 6 from row 19 up; the plan
+        // at (3500, 25500). The recorded path is column 6 from row 19 up; the plan
         // here is the same column from row 18 (rule 7.5 pops (6, 18) on the first
         // moving tick, which is why the recorded list starts at 19).
         let a = Arena::shipped();

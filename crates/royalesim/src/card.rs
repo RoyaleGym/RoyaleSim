@@ -390,7 +390,7 @@ pub struct CardDef {
     /// Royal Giant, Golem, Ice Golem) walk for `stop_movement_after_ms` and then
     /// stand still for `wait_ms`, forever. 0 on everything else.
     ///
-    /// THE SPEED COLUMN IS NOT THE SPEED FOR THESE CARDS. The offline oracle's
+    /// THE SPEED COLUMN IS NOT THE SPEED FOR THESE CARDS. The measured 15.535.29
     /// per-tick displacement is the FASTER figure -- Giant 52 and Golem 54 while
     /// both ship Speed 45 -- so the engine reads Speed through
     /// calibration.json movement.STOMP_SPEED_RULE, never raw. `move_speed()` is

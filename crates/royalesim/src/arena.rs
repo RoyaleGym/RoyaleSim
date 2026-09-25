@@ -808,7 +808,7 @@ impl Arena {
     /// rule: the rects alone would open the four dry bridge half-columns (16 cells
     /// per bridge) once that lane's princess falls, because the tilemap marks
     /// bridge cells neither WATER nor NO_DEPLOY. Whether the live game lets a troop
-    /// be placed on the bridge then is an oracle question, not a data one.
+    /// be placed on the bridge then is a question to measure, not a data one.
     ///
     /// MIRROR. Red's rows are counted from the top (`rows - 1 - row`), and the rects
     /// are built from tower positions that the rotation maps onto each other, so

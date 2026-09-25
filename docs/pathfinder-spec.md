@@ -24,7 +24,7 @@ there, never hardcoded. Section 10 maps the rules onto the ledger keys that carr
 
 | Quantity | Value | Evidence |
 |---|---|---|
-| Native arena unit | 1 millitile; 1000 per tile | Oracle header: king (9000, 3000), princess (3500, 6500); probe grids declare 18 × 32 tiles at cell size 1000 |
+| Native arena unit | 1 millitile; 1000 per tile | Trace header: king (9000, 3000), princess (3500, 6500); probe grids declare 18 × 32 tiles at cell size 1000 |
 | Arena | x ∈ [0, 18000), y ∈ [0, 32000) | same |
 | Engine position | `i32` subtiles, `«representation.SUBTILE_PER_TILE»` = 18000 per tile | 1 native unit = 18 subtiles exactly; every measured speed is an integer number of subtiles |
 | Tick | `«time.TICK_MS»` = 50 ms | Free-sub-speed fit: no integer speed survives at 2–5 sub-steps per tick |
@@ -72,7 +72,7 @@ cols 15–20 × rows 3–8, centred on the side-0 king at (9000, 3000).
 
 **Rule 2.3.** Do **not** implement `PATHFINDING_WATER_COST = 7` as a traversable cost for
 ground units. It is in the shipped globals but it is wrong for ground: modelling it makes
-25 of 150 oracle first-paths strictly dearer than the optimum. The oracle refused water
+25 of 150 recorded first-paths strictly dearer than the optimum. The recorded units refused water
 shortcuts it would have taken. Water at cost 50 and a hard block are indistinguishable;
 pick the hard block for ground and leave cost 7 available for whatever it is really for.
 
@@ -81,7 +81,7 @@ pick the hard block for ground and leave cost 7 available for whatever it is rea
 ## 3. The search
 
 **Rule 3.1. Connectivity.** 8-connected, no corner-cutting restriction.
-*Evidence:* 4-connected reproduces 44/150; the oracle's own paths contain diagonals; over
+*Evidence:* 4-connected reproduces 44/150; the recorded paths contain diagonals; over
 ~486 000 adjacent node pairs, zero are non-8-neighbours. Corner-cut strict fails 6 of 140.
 
 **Rule 3.2. Step cost.** The cost of a step is the cost of the cell **entered**, times
@@ -149,7 +149,7 @@ Per-axis (Chebyshev), **never Euclidean**. Use floor division on both edges.
 
 *Evidence:* over 3776 published path lists, per-axis square 0 suboptimal / 0 infeasible;
 circle-overlap at R 45/216; circle-overlap at R+250 27/246; cell-centre-within-Euclid 23/0.
-A **closed** box blocks 57 cells the oracle's own paths use. The discriminator is the
+A **closed** box blocks 57 cells the recorded paths use. The discriminator is the
 tower, not the Cannon, because 1000 and 1400 are exact multiples of the cell size while
 none of `600 ± x` is.
 
@@ -166,7 +166,7 @@ unmeasured**: `R_king = 0` scores identically to 1400 (0/0), and only R ≥ 2000
 trace in the corpus goes near a king.
 
 **Rule 4.3. No mover radius, no clearance pad. The term is exactly zero.**
-*Evidence:* a pad of even **1 native unit** blocks 155 cells the oracle's own paths use,
+*Evidence:* a pad of even **1 native unit** blocks 155 cells the recorded paths use,
 because `3500 − 1000 = 2500` lands exactly on a cell boundary and the Giant's control path
 runs up column 4 at rows 11–16. Cannon 600 + Giant 750 = 1350 would block the very column
 the `cannon_dx+0.0` detour takes.
@@ -190,7 +190,7 @@ exemption the short-reach cards get no path at all.
 
 **Rule 4.7. Occluded cells: block or cost 50? UNVERIFIED.**
 `PATHFINDING_BUILDING_COST = 50` and a hard block are indistinguishable in this corpus.
-No oracle path ever needed to cross a building. Same for bit-16 terrain. Either reproduces
+No recorded path ever needed to cross a building. Same for bit-16 terrain. Either reproduces
 every trace. Pick one, flag it, and settle it with a corridor where crossing is cheaper
 than going around.
 
@@ -199,7 +199,7 @@ than going around.
 ## 5. Path ownership and layout
 
 **Rule 5.1.** Store the path as a `Vec` of half-tile cell indices, **goal-first**, and pop
-from the **back** (`Vec::pop`). This matches the oracle's own layout, which keeps a
+from the **back** (`Vec::pop`). This matches the layout of the recorded traces, which keeps a
 byte-level trace diff trivial.
 *Evidence:* over 29 996 live-path ticks the distance from the unit to the last element is
 never below 737.9 (median 1256.2). A path rebuilt from the unit's cell each tick would put
@@ -211,7 +211,7 @@ after the first move. It is Chebyshev-1 for both `repath_Giant` first paths, whi
 literal drop-2 rule gets wrong.
 
 **Rule 5.3.** Clear the path (length 0) when the unit transitions to attacking; do not
-require it to reach the goal node. The oracle abandons the goal 1046.7–1436.1 units from
+require it to reach the goal node. The recorded units abandon the goal 1046.7–1436.1 units from
 the goal cell centre, on the tick `behavior_state` becomes 2. The census of
 `(behavior_state, has_path, has_target)` has exactly four cells over 46 304 ticks and not
 one tick anywhere has `behavior_state == 2` with a live path. The path clear and the state
@@ -242,8 +242,8 @@ reach is pinned to roughly ±75 units, not exactly.
 
 **Rule 6.2. The rule is necessary, not determinative.** It is a condition on the last node,
 not a predictor of which cell the search stops at. Between 12 and 52 cells per sample
-satisfy it (median 32). The oracle's goal cell is not the cheapest reachable in-reach
-cell in 114 of 140 samples, with no cost ties among them. Handing an A* the oracle's goal
+satisfy it (median 32). The recorded goal cell is not the cheapest reachable in-reach
+cell in 114 of 140 samples, with no cost ties among them. Handing an A* the recorded goal
 cell raises exact-sequence reproduction from 22/140 to 43/140. **The goal cell is an output
 of the expansion order.** Do not implement "pick the nearest or cheapest in-reach cell".
 Implement the reach test as the goal predicate and let the search's pop order choose.
@@ -359,7 +359,7 @@ its first moving tick, **never reset**) and skip the position update iff
 *Evidence:* Giant 308/308, Golem 306/306; strict `>` beats `>=` (304/308, 294/306);
 `(k+1)` beats `k` (268/308, 282/306); every phase offset brute-forced, only 0 fits. A naive
 "move 640 ms then wait 100 ms" countdown gives 13 moving ticks in the Giant's first block
-and the oracle shows 12.
+and the recorded traces show 12.
 
 **The pause gates the unit's own locomotion, not the position write.** External
 displacement still applies during a freeze. A jostled Giant moves on 2 of 323 scheduled
@@ -437,7 +437,7 @@ near-identical results. "No periodic replan" bounds only *observable* path chang
 **Rule 9.1. Deploy.** Spawn the entity on the tick **after** the command is accepted. Hold
 it immobile for `DeployTime / «time.TICK_MS»` ticks. Acquire the target, build the first
 path and take the first **full-length** step all on tick
-`spawn_tick + DeployTime / TICK_MS`. Flip the movement state one tick early (the oracle's
+`spawn_tick + DeployTime / TICK_MS`. Flip the movement state one tick early (the recorded
 `behavior_state` goes 4 → 1 before the first displacement). `LoadTime` gates the first
 attack, not the first move. Never scale the first step.
 
@@ -539,7 +539,7 @@ Two readings that did **not** survive the measurement, recorded so that nobody r
 
 Wire these as tests. In increasing strictness:
 
-1. **Cost model.** All 150 oracle first-paths are exactly cost-minimal on the engine's own
+1. **Cost model.** All 150 recorded first-paths are exactly cost-minimal on the engine's own
    grid, with the engine's own occluders. This is the gate that catches a wrong cost
    constant, a wrong diagonal weight or a wrong occlusion box. The 8-run version that
    earlier work used passes under models that this one rejects.

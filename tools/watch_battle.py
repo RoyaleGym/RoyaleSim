@@ -40,7 +40,7 @@ THE GATES (each has a plant; see PLANTS)
 
 WHAT IT CANNOT CATCH
     Whether the battle looks like CLASH ROYALE.  Nothing here compares anything to
-    the real game -- that is the oracle's job -- and no
+    the real game (the oracle/ calibration tooling does that), and no
     recording exists yet.  The default policy is uniform-over-legal-actions with a
     no-op probability; it is a SMOKE POLICY and says nothing whatever about card
     balance, deck strength or who should win.  It also cannot see anything the

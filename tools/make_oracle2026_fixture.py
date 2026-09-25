@@ -10,7 +10,7 @@ WHY THIS FILE EXISTS AT ALL
     see: four of its 36 cases took the occluding building's centre from the deploy
     COMMAND instead of from the entity the trace records. The game SNAPS a deploy to a
     tile, so `cannon_dx-0.5` commanded x = 3000 while the Cannon stood at x = 3500;
-    the phantom box at 3000 then claimed four cells of the oracle's own path, and the
+    the phantom box at 3000 then claimed four cells of the recorded path, and the
     case went into the fixture as "the occlusion model refuses this one". It does not.
     Every number below now comes from the trace or from csv_logic, and `--check` fails
     if the committed fixture disagrees with the traces.
@@ -57,7 +57,7 @@ WHAT ONE CASE IS
                      occluder set quietly re-asserts it every time the gate runs green.
 
     `occlusion_model_admits_this_path` is DERIVED here, not declared: it is false when
-    the oracle's own published path has an INTERIOR cell inside one of those boxes,
+    the recorded path has an INTERIOR cell inside one of those boxes,
     which would mean the measured half-open AABB refutes a path the game actually
     took. With the occluders read from the frames it is true on all 36.
 

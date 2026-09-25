@@ -704,7 +704,7 @@ def build_fixture(tmp: Path, synthetic: bool = False) -> Fixture:
     # REWIND THE KEY THIS FIXTURE PROMOTES, in the copy only.
     #
     # The self-test promotes time.SPEED_TO_SUBTILES_PER_TICK from an S01 result, and
-    # on 2026-09-18 the offline oracle measured that key: the shipped registry now
+    # on 2026-09-18 that key was measured on client 15.535.29: the shipped registry now
     # holds 18 at status `measured`. Promoting a key that already carries the value
     # and the status being promoted TO exercises none of the gates -- no history
     # entry, no conflict, no diff -- so the fixture would silently stop testing

@@ -581,10 +581,10 @@ fn giant_track(model: PathModel, ticks: u32) -> Vec<Vec2> {
 
 #[test]
 fn the_three_path_models_produce_distinguishable_tracks() {
-    // What the oracle discriminates between: a Giant from (6, 9) to the enemy left
+    // What a recording discriminates between: a Giant from (6, 9) to the enemy left
     // princess tower, across the left bridge. Two coinciding models could never be
     // told apart by a recording. Threshold: 0.5 tile max separation, the stated
-    // track-extraction error budget (UNVERIFIED -- the oracle's extractor does not
+    // track-extraction error budget (UNVERIFIED -- the track extractor does not
     // exist yet). Plant: lanesnap_is_diagonal.
     let ticks = 500;
     let models = [PathModel::LaneSnap, PathModel::GridAStar, PathModel::DiagonalLookahead];
@@ -604,7 +604,7 @@ fn the_three_path_models_produce_distinguishable_tracks() {
         println!("track separation {a:?} vs {b:?}: max {} subtiles = {}.{:02} tiles", max, max / SUBTILE, max % SUBTILE * 100 / SUBTILE);
     }
     for (a, b, max) in &report {
-        assert!(*max > SUBTILE / 2, "{a:?} and {b:?} tracks never separate by more than 0.5 tile ({max}); the oracle cannot tell them apart");
+        assert!(*max > SUBTILE / 2, "{a:?} and {b:?} tracks never separate by more than 0.5 tile ({max}); no recording can tell them apart");
     }
 }
 

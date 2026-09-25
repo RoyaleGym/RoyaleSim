@@ -12,8 +12,8 @@ WHERE THE INPUTS ARE
     The offline 15.535 traces stay in this repo (data/oracle-native/, gitignored).
 
 WHAT IT HOLDS
-    Every first path the LIVE client (CR 16.402) and the offline
-    oracle (CR 15.535, data/oracle-native/lane_sweep_Knight) ever published for a ground troop
+    Every first path the LIVE client (CR 16.402) and the CR 15.535
+    client (recorded traces in data/oracle-native/lane_sweep_Knight) ever published for a ground troop
     with a resolvable card row, exactly as the sampler samples them: the mover's
     position on the tick BEFORE the list appeared (the position the
     plan was made from), the target's position, Range + own CollisionRadius, every building of

@@ -266,7 +266,7 @@ pub struct Entities {
     /// Planned waypoints. NEXT FIRST for the three pre-2026 models; GOAL FIRST,
     /// popped from the back, for PathModel::Oracle2026 -- which is the layout the
     /// live game publishes (calibration pathfinding.PATH_NODE_ENCODING), so a
-    /// byte-level trace diff against the oracle is trivial. One model runs per
+    /// byte-level trace diff against the recorded paths is trivial. One model runs per
     /// battle, so the two conventions never share a route.
     pub route: Vec<Vec<Vec2>>,
     /// Goal the route was planned for, in the unit's TEAM FRAME. The pre-2026
@@ -292,7 +292,7 @@ pub struct Entities {
     /// A COUNTER, not `tick - spawn_tick - deploy`: the schedule's phase is pinned
     /// to the unit's own first step, and deriving it from the clock makes it depend
     /// on exactly when the deploy timer expires relative to the Path phase. The
-    /// oracle corpus cannot say whether `k` also advances while the unit is stunned
+    /// 15.535.29 corpus cannot say whether `k` also advances while the unit is stunned
     /// or attacking (no trace has a stomp card do either mid-walk), so this counts
     /// ticks the unit spends WALKING, which is the reading the name carries.
     pub move_ticks: Vec<u32>,

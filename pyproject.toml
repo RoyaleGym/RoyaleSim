@@ -27,7 +27,7 @@ dev = [
     "mypy>=2.0",
     "maturin>=1.15,<2.0",
 ]
-# The oracle's video path. `oracle/extract_tracks.py` imports cv2 LAZILY, so the
+# The `oracle/` module's video path. `oracle/extract_tracks.py` imports cv2 LAZILY, so the
 # module (and tools/diff_harness.py, which imports its schema) loads without it and
 # the `landmarks` / `validate` subcommands work bare.
 oracle = [

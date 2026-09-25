@@ -458,7 +458,7 @@ fn blocker_key(mover: Vec2, b: &UnitBlocker) -> BlockerKey {
 /// nine tiles back across the river. calibration pathfinding.ALGORITHM is
 /// "lane_flow_with_local_avoidance"; this is the second half of that name.
 ///
-/// THE RULE (UNVERIFIED -- a scenario for the oracle): if the next
+/// THE RULE (UNVERIFIED -- a scenario to measure on client 15.535.29): if the next
 /// `2 * step + clearance` of travel would bring the mover's disc into a troop
 /// that is AHEAD of it (not its target; the caller filters), aim for a point
 /// beside that troop instead, on the side it is not on. Exactly colinear
