@@ -255,6 +255,30 @@ def test_one_spell_cast_is_one_run_of_objects_not_one_deploy_per_frame(m):
     assert m.spell_casts([{"tick": 5, "effects": [_eff(0, 26000000, "0x1", 1, 1)]}]) == []
 
 
+def test_a_tap_of_a_spell_card_is_a_cast_whatever_the_log_record_says(m, tmp_path):
+    # A scripted cycle play logs {"cycled": "Rage", "tile": ...} and no `actual`; only three
+    # records in every placement log carry "actual": "cast". Classed by `actual` alone, every
+    # cycled spell became a troop DEPLOY, matched no unit group, and was dropped: 47 of 90 spell
+    # taps never reached a fixture, and the battles stayed "playable" without them.
+    log = tmp_path / "placements.jsonl"
+    rows = [
+        {"local_side_native": 0},
+        {"tick": 309, "cycled": "Rage", "tile": [3.5, 1.5], "for": "Knight"},
+        {"tick": 339, "card": "Knight", "requested": [14.5, 8.5], "side": 0},
+        {"tick": 400, "card": "Fireball", "requested": [9.5, 25.5], "side": 0, "actual": "cast"},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    names = {"Rage", "Knight", "Fireball"}
+    ids = {"Rage": 28000002, "Knight": 26000000, "Fireball": 28000000}
+    taps, _ = m.read_placements([str(log)], names, ids, {"Rage", "Fireball"})
+    kinds = {t["card"]: t["kind"] for t in taps}
+    assert kinds == {"Rage": "cast", "Knight": "deploy", "Fireball": "cast"}, kinds
+    assert next(t for t in taps if t["card"] == "Rage")["cycled"], "the cycled flag survives"
+    # without the spell names the record decides, as before (make_spell_impact_fixture's call)
+    taps, _ = m.read_placements([str(log)], names, ids)
+    assert {t["card"]: t["kind"] for t in taps}["Rage"] == "deploy"
+
+
 def test_fnv1a64_matches_the_harness_known_answers(m):
     # the same known answers tests/replay_parity.rs pins for harness.rs fnv1a64
     assert m.fnv1a64(b"") == "cbf29ce484222325"

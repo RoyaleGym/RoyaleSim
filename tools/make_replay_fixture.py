@@ -687,9 +687,20 @@ def placement_files_for(capture: str, reports_dir: str) -> list[str]:
     return out
 
 
-def read_placements(paths: list[str], card_names: set[str], name_to_id: dict[str, int]):
+def read_placements(
+    paths: list[str],
+    card_names: set[str],
+    name_to_id: dict[str, int],
+    spell_names: set[str] | None = None,
+):
     """-> (taps, decks): taps = [{side, card, id, tick, native, kind, cycled}],
-    decks = {side: [ids]}."""
+    decks = {side: [ids]}.
+
+    A tap is a CAST when its card is a spell (`spell_names`), whatever the record says: the
+    log's `actual` field reads "cast" on three records in the whole corpus, and a scripted
+    cycle play (`{"cycled": "Rage", ...}`) carries none, so classing by `actual` alone made
+    every cycled spell a troop deploy that matched no unit group and was dropped. Without
+    `spell_names` the record's own `actual` decides, as before (make_spell_impact_fixture)."""
     taps, decks = [], {}
     for p in paths:
         side = None
@@ -722,7 +733,9 @@ def read_placements(paths: list[str], card_names: set[str], name_to_id: dict[str
                     "id": name_to_id.get(name),
                     "tick": int(r["tick"]),
                     "native": native,
-                    "kind": "cast" if r.get("actual") == "cast" else "deploy",
+                    "kind": "cast"
+                    if r.get("actual") == "cast" or (spell_names is not None and name in spell_names)
+                    else "deploy",
                     "cycled": "cycled" in r,
                 }
             )
@@ -1039,7 +1052,8 @@ def build(
         if e["role"] == "summon":
             groups[(e["side"], e["card_id"], e["first_index"])].append(e)
     # the taps are already in the game's frame (the log's own rule): not turned with the capture
-    taps, decks = read_placements(placements, card_names, name_to_id)
+    spell_names = {n for n, c in cards_by_name.items() if c.get("kind") == "spell"}
+    taps, decks = read_placements(placements, card_names, name_to_id, spell_names)
     used_taps: set[int] = set()
     deploys = []
     latencies = []
