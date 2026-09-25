@@ -49,9 +49,15 @@ def test_state_rows_carry_the_footprint_box(battle):
     st = json.loads(battle.state_json())
     rows = st["entities"]
     assert rows, "the towers are on the board"
+    # BY THE PUBLISHED FIELD LIST, not a literal. This read `len(r) == 15` and `r[14]`, a second
+    # copy of the row's shape that nothing tied to the first, and it failed the day five fields
+    # were appended -- correctly, but only because the literal happened to be checked.
+    # `royalesim.ENTITY_FIELDS` is what decoders refuse a mismatch against.
+    fields = royalesim.ENTITY_FIELDS
+    fp = fields.index("footprint")
     for r in rows:
-        assert len(r) == 15, "an entity row carries the footprint as its 15th element"
-    boxes = [r[14] for r in rows if r[14] is not None]
+        assert len(r) == len(fields), f"an entity row is not as long as royalesim.ENTITY_FIELDS: {r}"
+    boxes = [r[fp] for r in rows if r[fp] is not None]
     assert len(boxes) == 6, "six crown towers, each with a box"
     for b in boxes:
         assert len(b) == 4

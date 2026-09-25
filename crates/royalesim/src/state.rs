@@ -472,12 +472,20 @@ macro_rules! calib_enum {
 calib_enum!(
     /// targeting.CENTRE_LANE_FRAME: which frame decides a unit's lane for default tower
     /// targeting, and which way the centre line itself falls.
+    ///
+    /// NEITHER ARM IS MEASURED AND NEITHER IS REFUTED, whatever an earlier version of
+    /// these comments said. The two rules disagree at exactly one point -- a unit standing
+    /// on the centre line on side 0 -- which no tap can produce, and 310,150 corpus
+    /// unit-ticks contain no tick where they differ. The ledger entry is `hypothesis` and
+    /// says the evidence does not separate them; these comments say the same, so the code
+    /// cannot contradict its own ledger.
     CentreLaneFrame {
-        /// MEASURED: the ENGINE frame, with `x * 2 >= width` going right, so both seats
-        /// send a unit standing exactly on the centre line to the same engine-right tower.
+        /// The ENGINE frame, with `x * 2 >= width` going right, so both seats send a unit
+        /// standing exactly on the centre line to the same engine-right tower.
         EngineFrameTieRight = "engine_frame_tie_right",
-        /// REFUTED: the attacker's own frame with the centre going own-left, which was
-        /// chosen to keep the two seats mirrored and does not match the game.
+        /// The attacker's own frame, with the centre going own-left. SHIPPED, because it
+        /// is the expression the targeting code hard-coded before this key existed: the
+        /// key changed nothing at the value it ships with.
         OwnFrameTieLeft = "own_frame_tie_left",
     }
 );

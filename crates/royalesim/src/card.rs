@@ -948,21 +948,34 @@ impl RawBuff {
 #[derive(Default)]
 pub(crate) struct BuffTable {
     defs: Vec<BuffDef>,
+    /// Every name that interned to each index, in load order. Several, where two buffs
+    /// carry identical columns: `intern` merges by VALUE, so one index can stand for
+    /// more than one row of the card data.
+    names: Vec<Vec<String>>,
 }
 
 impl BuffTable {
-    fn into_defs(self) -> Vec<BuffDef> {
-        self.defs
+    /// The definitions, and for each one EVERY name that interned to it joined with
+    /// `|`. Joined rather than reduced to the first, because the first would silently
+    /// rename the rest: a viewer told `Freeze` for an index that is also `ZapFreeze`
+    /// draws the second as the first and nothing says so.
+    fn into_parts(self) -> (Vec<BuffDef>, Vec<String>) {
+        let names = self.names.into_iter().map(|n| n.join("|")).collect();
+        (self.defs, names)
     }
 
-    fn intern(&mut self, def: BuffDef) -> Result<u16, String> {
+    fn intern(&mut self, def: BuffDef, name: &str) -> Result<u16, String> {
         if let Some(i) = self.defs.iter().position(|d| *d == def) {
+            if !name.is_empty() && !self.names[i].iter().any(|n| n == name) {
+                self.names[i].push(name.to_string());
+            }
             return Ok(i as u16);
         }
         if self.defs.len() >= u16::MAX as usize {
             return Err("more distinct buffs than the table can index".into());
         }
         self.defs.push(def);
+        self.names.push(if name.is_empty() { Vec::new() } else { vec![name.to_string()] });
         Ok((self.defs.len() - 1) as u16)
     }
 
@@ -970,7 +983,7 @@ impl BuffTable {
     fn apply(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
         let def = raw.convert(what)?;
         let time_ms = time_ms.filter(|t| *t > 0).ok_or_else(|| format!("{what}: buff {} without BuffTime", raw.name.clone().unwrap_or_default()))?;
-        Ok(BuffApply { buff: self.intern(def)?, time_ms })
+        Ok(BuffApply { buff: self.intern(def, raw.name.as_deref().unwrap_or(""))?, time_ms })
     }
 }
 
@@ -1097,6 +1110,13 @@ pub struct CardDb {
     /// (`state.rs fingerprint_debug`): a snapshot saved against different buff
     /// numbers is stale, exactly as one saved against different card numbers is.
     pub buffs: Vec<BuffDef>,
+    /// THE NAMES OF `buffs`, index for index, as the card data spells them. NOT one
+    /// name per buff: the loader interns by VALUE, so buffs whose columns are identical
+    /// share an index, and this holds every name that landed there joined with `|`
+    /// (`Freeze|ZapFreeze`). Display only, and deliberately NOT part of the card
+    /// fingerprint: a name changes nothing the engine does, so it must not stale a
+    /// snapshot.
+    pub buff_names: Vec<String>,
     by_name: BTreeMap<String, u16>,
     pub source: CardSource,
     /// Cards present in the input the engine cannot simulate, with why.
@@ -1921,6 +1941,7 @@ impl CardDb {
         let mut db = CardDb {
             cards: Vec::new(),
             buffs: Vec::new(),
+            buff_names: Vec::new(),
             by_name: BTreeMap::new(),
             source,
             rejected: Vec::new(),
@@ -2105,7 +2126,9 @@ impl CardDb {
             }
             db.towers_from_fallback = true;
         }
-        db.buffs = buffs.into_defs();
+        let (defs, names) = buffs.into_parts();
+        db.buffs = defs;
+        db.buff_names = names;
         Ok(db)
     }
 

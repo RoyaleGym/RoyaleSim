@@ -121,6 +121,13 @@ pub struct Projectile {
     /// pulse. Snapshot format 18.
     #[serde(default)]
     pub pulse: i32,
+    /// THE FIRER'S CARD (a `CardDb` index), for DISPLAY: which card's shot this is, so a
+    /// viewer can tell a tower's bolt from a Musketeer's. It changes nothing the
+    /// simulation does, so it is deliberately NOT in the state hash. None for a
+    /// projectile restored from a snapshot older than this field -- which is why the
+    /// export writes -2 for it rather than folding it into the -1 of a crown tower.
+    #[serde(default)]
+    pub firer_card: Option<u16>,
 }
 
 /// Damage after the crown-tower reduction, if the victim is a crown tower. Damage
@@ -496,6 +503,7 @@ pub fn fire(
             fresh,
             buff: atk_buff,
             pulse: atk_pulse,
+            firer_card: Some(ents.card[a]),
         });
         return;
     }

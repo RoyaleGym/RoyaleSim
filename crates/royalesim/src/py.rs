@@ -83,6 +83,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use std::fmt::Write as _;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// The calibration.json and arena.json this extension was COMPILED with
@@ -149,6 +150,74 @@ pub const DEPLOY_REASONS: [&str; 14] = [
     "TOO_EARLY",
 ];
 
+/// THE ENTITY ROW'S FIELDS, in exactly the order `state_json` writes them, named as
+/// protocol.py `EntityState` names them. Published so a decoder can REFUSE a mismatch
+/// instead of trusting one: rows are positional, two of the trailing fields are adjacent
+/// ints, and a swap would decode without error and be drawn with confidence. The length
+/// is pinned to the serializer by a test in this file, so this is the half that cannot
+/// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
+pub const ENTITY_FIELDS: [&str; 20] = [
+    "uid",
+    "team",
+    "kind",
+    "card_id",
+    "tower_slot",
+    "x",
+    "y",
+    "hp",
+    "max_hp",
+    "radius",
+    "flying",
+    "deploy_ticks",
+    "stun_ticks",
+    "knockback_ticks",
+    "footprint",
+    // added 2026-09-24, for a viewer that shows what a unit is doing and what is on it
+    "target_uid",
+    "attack_phase",
+    "facing",
+    "shield",
+    "buffs",
+];
+
+/// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
+/// reason as ENTITY_FIELDS, and pinned to the serializer the same way.
+pub const PROJECTILE_FIELDS: [&str; 8] = ["team", "x", "y", "aim_x", "aim_y", "target_uid", "splash", "firer_card_id"];
+
+/// AN EXPERIMENT'S CALIBRATION: the compiled-in ledger with some `value`s replaced.
+///
+/// For separating one change from another -- the same battle with one rule reverted --
+/// without editing `data/calibration.json`, which every session's engine reads, and whose
+/// edit is a stale window for all of them. Keys are `section.KEY`; values are JSON
+/// (`json.dumps(value)` from Python), so `0` is a number and `"reset_always"` (quoted)
+/// an arm name, and nothing has to guess which was meant.
+///
+/// It REFUSES rather than adapts. A key the ledger does not have is an error, because an
+/// override cannot add one: a typo would otherwise run the shipped value and report the
+/// experiment done. So is any value `Calib::from_json` rejects, such as an arm name with
+/// no implementation.
+fn overridden_calib(overrides: &BTreeMap<String, String>) -> Result<(Calib, BTreeMap<String, serde_json::Value>), String> {
+    let mut doc: serde_json::Value = serde_json::from_str(EMBEDDED_CALIBRATION_JSON).map_err(|e| format!("the compiled-in ledger: {e}"))?;
+    let mut parsed = BTreeMap::new();
+    for (path, raw) in overrides {
+        let (section, key) = path.split_once('.').ok_or_else(|| format!("{path:?}: an override is named `section.KEY`"))?;
+        let entry = doc
+            .get_mut(section)
+            .and_then(|sec| sec.get_mut(key))
+            .and_then(|e| e.as_object_mut())
+            .ok_or_else(|| format!("{path:?} is not a key in the ledger, and an override cannot add one"))?;
+        if !entry.contains_key("value") {
+            return Err(format!("{path:?} has no `value` to override"));
+        }
+        let v: serde_json::Value =
+            serde_json::from_str(raw).map_err(|e| format!("{path:?}: {raw:?} is not JSON ({e}); pass json.dumps(value)"))?;
+        entry.insert("value".to_string(), v.clone());
+        parsed.insert(path.clone(), v);
+    }
+    let calib = Calib::from_json(&doc.to_string()).map_err(|e| format!("the overridden ledger does not load: {e}"))?;
+    Ok((calib, parsed))
+}
+
 const R_OK: u8 = 0;
 const R_BAD_TEAM: u8 = 1;
 const R_DUPLICATE_TEAM: u8 = 11;
@@ -210,6 +279,11 @@ pub struct Battle {
     /// object starts (None = the ledger's value).
     ground_y_clamp: Option<crate::state::GroundYClamp>,
     ground_deploy_point: Option<crate::state::GroundDeployPoint>,
+    /// An EXPERIMENT's whole calibration (`calibration_overrides`), in place of the
+    /// ledger's for every battle this object starts. None = the ledger.
+    calib: Option<Calib>,
+    /// What was overridden, parsed, for `calibration_overrides()` and for every frame.
+    calib_overrides: BTreeMap<String, serde_json::Value>,
     state: Option<BattleState>,
 }
 
@@ -410,7 +484,13 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
 }
 
 /// `Battle.state_json` without Python (protocol.py `BattleState` as JSON text).
-pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_of_k: &[[i32; 3]; 2]) -> Result<String, String> {
+pub fn state_json_text(
+    s: &BattleState,
+    cards: &CardDb,
+    id_of_idx: &[i32],
+    slot_of_k: &[[i32; 3]; 2],
+    overrides: &BTreeMap<String, serde_json::Value>,
+) -> Result<String, String> {
     let c = &s.config().calib;
     let tick_ms = c.tick_ms as i64;
     let regular_ms = (c.regular_time_s as i64) * 1000;
@@ -516,9 +596,23 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
         } else {
             "null".to_string()
         };
+        // ENTITY_FIELDS 15..20. The target as the ROWS' OWN uid, so a viewer joins the
+        // two without a second id space, and -1 once it is gone. Buffs by NAME from the
+        // card data, `|`-joined where one engine buff stands for several (card.rs
+        // `CardDb::buff_names`), with the milliseconds left.
+        let target_uid = e.target.and_then(|t| s.entity(t)).map(|t| (t.team_seq as i64) * 2 + t.team as i64).unwrap_or(-1);
+        let mut buffs = String::from("[");
+        for b in e.buffs.iter().filter(|b| b.id > 0) {
+            if buffs.len() > 1 {
+                buffs.push(',');
+            }
+            let name = cards.buff_names.get(b.id as usize - 1).map(String::as_str).unwrap_or("");
+            let _ = write!(buffs, "[{},{}]", serde_json::Value::from(name), b.ms);
+        }
+        buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -529,6 +623,10 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
             ceil_div(e.deploy_ms as i64, tick_ms),
             ceil_div(e.stun_ms as i64, tick_ms),
             knock_ticks_left(&e, tick_ms),
+            e.attack_phase as u8,
+            e.facing.x,
+            e.facing.y,
+            e.shield,
         );
     }
     o.push_str("],\"spells\":[");
@@ -558,7 +656,33 @@ pub fn state_json_text(s: &BattleState, cards: &CardDb, id_of_idx: &[i32], slot_
             ceil_div(delay_ms.max(0) as i64, tick_ms),
         );
     }
-    o.push_str("]}");
+    // PROJECTILE_FIELDS, one row per projectile in flight.
+    o.push_str("],\"projectiles\":[");
+    for (k, p) in s.projectiles().iter().enumerate() {
+        if k > 0 {
+            o.push(',');
+        }
+        // -1 once the target is gone: the projectile flies on to `aim`
+        let target_uid = s.entity(p.target).map(|t| (t.team_seq as i64) * 2 + t.team as i64).unwrap_or(-1);
+        // -1 a crown tower, which is not a catalogue card (the entity rows' own
+        // convention); -2 NOT RECORDED, a projectile restored from a snapshot older than
+        // the field, kept apart so "unknown" never reads as "a tower fired this"
+        let firer = match p.firer_card {
+            Some(c) => id_of_idx.get(c as usize).copied().unwrap_or(-1),
+            None => -2,
+        };
+        let _ = write!(o, "[{},{},{},{},{},{target_uid},{},{firer}]", p.team as u8, p.pos.x, p.pos.y, p.aim.x, p.aim.y, p.splash);
+    }
+    o.push(']');
+    if !overrides.is_empty() {
+        // EVERY FRAME OF AN OVERRIDDEN BATTLE SAYS SO. `build_digest` hashes the
+        // COMPILED-IN ledger, so it reads the same with or without an override; a frame
+        // that did not carry this could be quoted as the shipped engine's behaviour and
+        // nothing on it would contradict the quote.
+        o.push_str(",\"calibration_overrides\":");
+        o.push_str(&serde_json::to_string(overrides).map_err(|e| e.to_string())?);
+    }
+    o.push('}');
     Ok(o)
 }
 
@@ -620,14 +744,22 @@ impl Battle {
     /// for the Rust seat-symmetry gates, and the env layer's symmetric engine wants
     /// the same). "none" drops the clamp entirely.
     #[new]
-    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None))]
+    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None))]
     fn new(
         card_names: Option<Vec<String>>,
         slot_of_k: [[i32; 3]; 2],
         path_search: Option<String>,
         ground_y_clamp: Option<String>,
         ground_deploy_point: Option<String>,
+        calibration_overrides: Option<BTreeMap<String, String>>,
     ) -> PyResult<Self> {
+        let (calib, calib_overrides) = match calibration_overrides {
+            Some(m) if !m.is_empty() => {
+                let (c, parsed) = overridden_calib(&m).map_err(PyValueError::new_err)?;
+                (Some(c), parsed)
+            }
+            _ => (None, BTreeMap::new()),
+        };
         let path_search = match path_search.as_deref() {
             None => None,
             Some(name) => Some(
@@ -679,7 +811,7 @@ impl Battle {
             }
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, calib, calib_overrides, state: None })
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -819,6 +951,16 @@ impl Battle {
         }
         let mut cfg = BattleConfig::with_cards(CardDb::clone(&self.cards));
         cfg.cards = self.cards.clone();
+        if let Some(c) = &self.calib {
+            // THE EXPERIMENT'S CALIBRATION, applied before the narrow overrides below so
+            // they still layer on top. The three fields BattleConfig copies OUT of the
+            // calibration follow it, or an override of a model key would change the
+            // calibration and not the model that runs.
+            cfg.path_model = c.path_model;
+            cfg.push_model = c.push_model;
+            cfg.footprint_model = c.footprint_model;
+            cfg.calib = c.clone();
+        }
         if let Some(ps) = self.path_search {
             cfg.calib.path_search = ps;
             if ps == crate::state::PathSearch::TraceFittedAstar {
@@ -955,8 +1097,16 @@ impl Battle {
     /// spell extensions of the module doc (SPELLS).
     fn state_json<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let s = self.s()?;
-        let o = state_json_text(s, &self.cards, &self.id_of_idx, &self.slot_of_k).map_err(PyValueError::new_err)?;
+        let o = state_json_text(s, &self.cards, &self.id_of_idx, &self.slot_of_k, &self.calib_overrides).map_err(PyValueError::new_err)?;
         Ok(PyBytes::new_bound(py, o.as_bytes()))
+    }
+
+    /// The calibration overrides this object applies to every battle it starts, as
+    /// `{"section.KEY": json}`; empty for an unmodified engine. `build_digest` cannot
+    /// report these -- it hashes the compiled-in ledger -- so this, and the
+    /// `calibration_overrides` key on every frame, is where an experiment says it is one.
+    fn calibration_overrides(&self) -> BTreeMap<String, String> {
+        self.calib_overrides.iter().map(|(k, v)| (k.clone(), v.to_string())).collect()
     }
 
     /// Exact snapshot (state.rs `save`).
@@ -1220,6 +1370,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(start_pushback16402, m)?)?;
     m.add_function(wrap_pyfunction!(pushback_step16402, m)?)?;
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
+    m.add("ENTITY_FIELDS", ENTITY_FIELDS.to_vec())?;
+    m.add("PROJECTILE_FIELDS", PROJECTILE_FIELDS.to_vec())?;
     m.add("EMBEDDED_CALIBRATION_JSON", EMBEDDED_CALIBRATION_JSON)?;
     m.add("EMBEDDED_ARENA_JSON", EMBEDDED_ARENA_JSON)?;
     m.add("EMBEDDED_RARITIES_CSV", EMBEDDED_RARITIES_CSV)?;
@@ -1289,10 +1441,11 @@ mod tests {
         s.spawn_unit(Team::Blue, "Zap", at(9, 20), None).unwrap();
         s.spawn_unit(Team::Blue, "Fireball", at(9, 25), None).unwrap();
         s.tick();
-        let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]]).unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
         let ents = v["entities"].as_array().unwrap();
-        // 15 since the placement footprint was added as a trailing element.
-        assert!(ents.iter().all(|r| r.as_array().unwrap().len() == 15));
+        // THE ROW LENGTH IS ENTITY_FIELDS'S, not a literal: the constant is what a decoder
+        // checks its own field order against, so this is what keeps the two in step.
+        assert!(ents.iter().all(|r| r.as_array().unwrap().len() == ENTITY_FIELDS.len()));
         // THE FOOTPRINT SPLITS BY KIND, and both halves are asserted against the
         // kind column rather than against the footprint itself. `is_null() || len
         // == 4` alone cannot fail: an engine that emitted null for everything would
@@ -1404,5 +1557,111 @@ mod tests {
             matches!(tree, "clean" | "dirty" | "unknown"),
             "build tree state is not one of the three: {tree:?}"
         );
+    }
+
+    #[test]
+    fn a_calibration_override_changes_only_what_it_names_and_refuses_what_it_cannot() {
+        let shipped = Calib::shipped();
+        let one = |k: &str, v: &str| {
+            let mut m = BTreeMap::new();
+            m.insert(k.to_string(), v.to_string());
+            overridden_calib(&m)
+        };
+        // THE ROUND TRIP LOSES NOTHING. Overriding a key with the value it already has
+        // must give back the shipped calibration exactly; if it did not, every experiment
+        // would be compared against a baseline other than the one it names.
+        let lockout = shipped.deploy_lockout_ticks;
+        assert_ne!(lockout, 0, "the shipped lockout is 0, so this test could not see an override land");
+        let (same, _) = one("match.DEPLOY_LOCKOUT_TICKS", &lockout.to_string()).unwrap();
+        assert_eq!(same, shipped, "a no-op override changed the calibration");
+        // IT TAKES EFFECT, AND ON THAT KEY ALONE: put the one field back and the rest
+        // must already be the shipped calibration.
+        let (zero, parsed) = one("match.DEPLOY_LOCKOUT_TICKS", "0").unwrap();
+        assert_eq!(zero.deploy_lockout_ticks, 0);
+        let mut back = zero.clone();
+        back.deploy_lockout_ticks = lockout;
+        assert_eq!(back, shipped, "overriding one key moved another");
+        assert_eq!(parsed["match.DEPLOY_LOCKOUT_TICKS"], serde_json::Value::from(0));
+        // an arm by name
+        let (arm, _) = one("combat.RETARGET_PROGRESS", "\"reset_always\"").unwrap();
+        assert_eq!(arm.retarget_progress, crate::state::RetargetProgress::ResetAlways);
+        assert_ne!(shipped.retarget_progress, crate::state::RetargetProgress::ResetAlways);
+        // AND IT REFUSES, WITH A REASON, EVERYTHING IT CANNOT HONOUR. A typo that ran the
+        // shipped value would report an experiment done that never happened.
+        for (k, v, why) in [
+            ("match.NOT_A_KEY", "0", "not a key in the ledger"),
+            ("nodot", "0", "section.KEY"),
+            ("match.DEPLOY_LOCKOUT_TICKS", "zero", "is not JSON"),
+            ("combat.RETARGET_PROGRESS", "\"no_such_arm\"", "does not load"),
+        ] {
+            let e = one(k, v).expect_err(&format!("{k}={v} was accepted"));
+            assert!(e.contains(why), "{k}={v} refused for the wrong reason: {e}");
+        }
+    }
+
+    #[test]
+    fn the_export_rows_match_their_field_lists_and_every_new_field_carries_something() {
+        // THE LENGTH PIN. ENTITY_FIELDS and PROJECTILE_FIELDS are what a decoder refuses
+        // a mismatch against, so a row that grew without its list, or a list that grew
+        // without its row, has to fail here rather than decode as a shifted row elsewhere.
+        //
+        // AND NOT ONLY THE LENGTH. A row of the right length full of -1s and empty lists
+        // passes a length check, so every new field must be SEEN carrying real data in
+        // this scene: a tower's shot and a troop's shot, a target that resolves to a uid
+        // on the board, a named buff with time left.
+        let db = cards();
+        let ids = catalogue_without(&db, &[]);
+        let musketeer = ids[db.index("Musketeer").unwrap() as usize];
+        assert!(musketeer >= 0);
+        let mut s = battle(&db, &["Musketeer", "Knight", "Archer", "Giant", "Minions", "Cannon", "Tesla", "Zap"]);
+        let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
+        // a red Knight inside the blue left princess tower's range: the TOWER's shots
+        s.scenario_spawn_now(Team::Red, "Knight", at(3, 9), None).unwrap();
+        // mid-field, out of every tower's range: the MUSKETEER's shots
+        s.scenario_spawn_now(Team::Blue, "Musketeer", at(9, 14), None).unwrap();
+        s.scenario_spawn_now(Team::Red, "Giant", at(9, 18), None).unwrap();
+        // a Poison on the red Knight: a BUFF with a name and time left
+        s.spawn_unit(Team::Blue, "Poison", at(3, 9), None).unwrap();
+        let (mut tower_shot, mut troop_shot, mut resolved_target, mut named_buff) = (false, false, false, false);
+        for _ in 0..200 {
+            s.tick();
+            let v: serde_json::Value =
+                serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+            assert!(v.get("calibration_overrides").is_none(), "an unmodified engine's frame claims overrides");
+            let ents = v["entities"].as_array().unwrap();
+            let uids: Vec<i64> = ents.iter().map(|r| r[0].as_i64().unwrap()).collect();
+            for r in ents {
+                let r = r.as_array().unwrap();
+                assert_eq!(r.len(), ENTITY_FIELDS.len(), "an entity row is not ENTITY_FIELDS long: {r:?}");
+                let phase = r[16].as_i64().unwrap();
+                assert!((0..=2).contains(&phase), "attack_phase {phase} is not idle, windup or cooldown");
+                assert_eq!(r[17].as_array().map(|f| f.len()), Some(2), "facing is not an [x, y] pair: {r:?}");
+                let target = r[15].as_i64().unwrap();
+                if target >= 0 {
+                    assert!(uids.contains(&target), "target_uid {target} names nothing on the board");
+                    resolved_target = true;
+                }
+                for b in r[19].as_array().unwrap() {
+                    let (name, ms) = (b[0].as_str().unwrap(), b[1].as_i64().unwrap());
+                    if name.split('|').any(|n| n == "Poison") && ms > 0 {
+                        named_buff = true;
+                    }
+                }
+            }
+            for p in v["projectiles"].as_array().unwrap() {
+                let p = p.as_array().unwrap();
+                assert_eq!(p.len(), PROJECTILE_FIELDS.len(), "a projectile row is not PROJECTILE_FIELDS long: {p:?}");
+                match p[7].as_i64().unwrap() {
+                    -1 => tower_shot = true,
+                    id if id == musketeer as i64 => troop_shot = true,
+                    -2 => panic!("a projectile fired in this battle reports its firer as NOT RECORDED"),
+                    _ => {}
+                }
+            }
+        }
+        assert!(tower_shot, "no projectile in 200 ticks reported a crown tower as its firer");
+        assert!(troop_shot, "no projectile in 200 ticks reported the Musketeer as its firer");
+        assert!(resolved_target, "no entity in 200 ticks reported a target that is on the board");
+        assert!(named_buff, "no entity in 200 ticks carried a buff named Poison with time left");
     }
 }
