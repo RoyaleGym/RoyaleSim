@@ -524,6 +524,71 @@ def dedupe(frames):
     return out, dup, back
 
 
+#: A key that starts at most this many ticks after another of the same side, card and
+#: kind ended is the same unit re-keyed (merge_rekeyed), if the rest also agrees.
+REKEY_MAX_TICKS = 2
+#: ... and within this distance PER ELAPSED TICK, native: one unit step (a Skeleton moves 90
+#: a tick) with room; a dropped frame between the two keys doubles it (010218-A.b1: 178 over
+#: 2 ticks), still far short of where a spawner puts a new unit.
+REKEY_STEP_PER_TICK = 100
+
+
+def merge_rekeyed(ents: dict, per_tick_rows: list, ticks: list[int]) -> list[list[int]]:
+    """Fold a truth unit the capture gave a NEW KEY mid-life back into one entity.
+
+    Key B is key A re-keyed when B starts 1..REKEY_MAX_TICKS ticks after A's last frame,
+    on the same side with the same card, kind and max hp, within REKEY_STEP_PER_TICK per
+    elapsed tick of A's
+    last position, with A's last hp and A's last behaviour state -- the last is what a
+    fresh emission beside a dying unit cannot match -- and A is the ONLY such key. B's
+    rows move under A's key, every target that named B names A, and B is gone. Returns
+    [kept key, merged key, tick] per merge; the fixture records them.
+    """
+    merges: list[list[int]] = []
+    for b in sorted(list(ents.values()), key=lambda e: (e["first_index"], e["key"])):
+        if b["key"] not in ents or b["first_index"] == 0:
+            continue
+        rb = per_tick_rows[b["first_index"]].get(b["key"])
+        if rb is None:
+            continue
+        found = []
+        for a in ents.values():
+            if a is b or a["last_index"] >= b["first_index"]:
+                continue
+            same = ("side", "card_id", "kind_first", "max_hp")
+            if any(a[f] != b[f] for f in same):
+                continue
+            gap = ticks[b["first_index"]] - ticks[a["last_index"]]
+            if not 1 <= gap <= REKEY_MAX_TICKS:
+                continue
+            ra = per_tick_rows[a["last_index"]].get(a["key"])
+            if ra is None or ra[2] != rb[2] or ra[5] != rb[5]:
+                continue
+            if math.hypot(ra[0] - rb[0], ra[1] - rb[1]) > REKEY_STEP_PER_TICK * gap:
+                continue
+            found.append(a)
+        if len(found) != 1:
+            continue
+        a = found[0]
+        for fi in range(b["first_index"], b["last_index"] + 1):
+            row = per_tick_rows[fi].pop(b["key"], None)
+            if row is not None:
+                per_tick_rows[fi][a["key"]] = row
+        a["last_index"] = b["last_index"]
+        a["frames"] += b["frames"]
+        a.setdefault("states", []).extend(b.get("states", []))
+        a.setdefault("positions", []).extend(b.get("positions", []))
+        del ents[b["key"]]
+        merges.append([a["key"], b["key"], ticks[b["first_index"]]])
+    if merges:
+        remap = {bk: ak for ak, bk, _ in merges}
+        for rows in per_tick_rows:
+            for k, row in rows.items():
+                if row[3] in remap:
+                    rows[k] = (*row[:3], remap[row[3]], *row[4:])
+    return merges
+
+
 def spawn_tick_bounds(ticks: list[int], first_index: int) -> tuple[int, int]:
     """(previous frame tick + 1, first-seen tick): where the spawn can lie."""
     lo = ticks[first_index - 1] + 1 if first_index > 0 else ticks[first_index]
@@ -1030,6 +1095,11 @@ def build(
                 rec["states"].append((fi, e["behavior_state"]))
                 rec.setdefault("positions", []).append((fi, x, y))
         per_tick_rows.append(rows)
+
+    # -- a unit the capture re-keyed mid-life is one entity (merge_rekeyed)
+    rekeyed = merge_rekeyed(ents, per_tick_rows, ticks)
+    if rekeyed:
+        fx["truth_rekeyed"] = rekeyed
 
     # -- mid-battle start
     first_non_tower = [e for e in ents.values() if e["first_index"] == 0 and e["card_id"] >= 0]
