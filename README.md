@@ -82,8 +82,8 @@ The commands below are for Windows PowerShell, the shell that opens by default o
 with two changes: write the paths with forward slashes, and read every `.venv\Scripts\` as
 `.venv/bin/`.
 
-The five stages set up all four public repos, because they expect to sit side by side in one
-folder. Run one line at a time and look at what it printed before you run the next. That way you
+The five stages set up the four repos the stack needs, because they expect to sit side by side in
+one folder. Run one line at a time and look at what it printed before you run the next. That way you
 know which line failed if one does. Stages 1 to 4 are the engine. Stage 5 is the rest of the stack.
 
 ### Stage 1. Make the folder and clone the four repos
@@ -434,7 +434,7 @@ test and get something different, your machine is different from ours, and we wo
 
 ## With the rest of the stack
 
-<p align="center"><img src="docs/media/family.svg" width="100%" alt="The five Royale repos: RoyaleLearn trains on RoyaleGym, which steps RoyaleSim; RoyaleViser views traces and streams; RoyaleLive records real battles"></p>
+<p align="center"><img src="docs/media/family.svg" width="100%" alt="How the Royale repos depend on each other: RoyaleLearn trains on RoyaleGym, which steps RoyaleSim; RoyaleViser views traces and streams; RoyaleLive records real battles"></p>
 
 RoyaleSim is the bottom of the stack. It knows nothing about rewards, observations or training. If
 you are writing a bot, you will spend your time in RoyaleGym and RoyaleLearn, and this repo will
@@ -446,6 +446,7 @@ just be the thing underneath that plays the match.
 | [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) | the environment API: observations, actions, rewards; Gymnasium, PettingZoo and self-play envs | wraps `royalesim` as `RustEngine`, reads this repo's `data/` for the arena and cards, and its test suite drives the engine from the outside |
 | [RoyaleLearn](https://github.com/RoyaleGym/RoyaleLearn) | the training harness: self-play rollouts, PPO, a ladder of frozen opponents, checkpoints | reaches the engine only through RoyaleGym |
 | [RoyaleViser](https://github.com/RoyaleGym/RoyaleViser) | the viewer: recordings, engine traces and running environments in its own window | plays engine traces (a trace is the engine's own per-tick record of a battle) and live streams; the still in the first tile is one of its screenshots |
+| [RoyaleImitate](https://github.com/RoyaleGym/RoyaleImitate) | an optional add-on to RoyaleLearn: config sections that start a bot from saved weights and keep it near a reference policy while it learns | nothing directly. It plugs into RoyaleLearn and never reaches the engine |
 | RoyaleLive | private. The client instrument that records ground-truth traces from real battles. | its recordings are the evidence the engine's constants are measured against |
 
 What comes in: Supercell's card and arena tables under `data/raw/`, which `tools/extract_*.py` turn
