@@ -59,12 +59,14 @@ engine is usable for your purpose.
 
 | Mechanic | What happens instead |
 |---|---|
-| `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: a death spawn's units land on the facing ring and nothing pushes them apart or holds them off a minimum radius, so a crowded death point leaves them closer together than the game does |
+| `DeathSpawnPushback`, `DeathSpawnMinRadius` | not read: a death spawn's units land where the facing ring, the parent's centre or the spawner's emission point puts them, and nothing pushes them apart or holds them off a minimum radius, so a crowded death point leaves them closer together than the game does |
 | Dash, morph, chained hits, multiple projectiles | absent, and so is the attack jump (Mega Knight, Assassin). The river hop IS modelled (`jump16402.rs`, `movement.JUMP_WATER_HOP`) |
 | Rage and Heal | refused by the loader, and out loud: neither card row carries an area effect or a projectile at all. Each works by summoning a bottle whose death releases an own-troop area, and the bottle has no hitpoints, so the engine will not put it on the board. A death that releases an area IS modelled (see the Modelled table); an area that buffs the releaser's own side is not, because `impact` has no filter for it |
 | Evolutions, champions, tower troops | post-2023; no public data |
 | A troop's own projectile knockback (`Pushback` on the projectile row) | not read: a troop's projectile is loaded as speed, damage, splash radius and a buff, and nothing else. Bowler, Zappies and the Mega Knight's landing hit push in the game and do not here. A SPELL's knockback is read (`spell.rs`, the measured ladder) |
 | The splash layer filter (`AoeToAir` / `AoeToGround` on the projectile row) | not read: the engine filters a splash by the ATTACKER's `AttacksAir` / `AttacksGround` (`combat.rs`). The two agree on every card the slice reaches; they disagree on Wall Breakers, whose blast covers air in the data and only ground here (`tools/check_card_reads.py` names every row where they part) |
+| Inferno damage that grows (`VariableDamage2`, `VariableDamage3` and their times) | not read: the Inferno Tower and the Inferno Dragon keep hitting for their first-stage damage for as long as they hold a target, where the game raises it twice |
+| The Mortar's minimum range (`MinimumRange`) | not read: the Mortar keeps a target that walks up close, where the game drops one nearer than 3.5 tiles |
 | The real intra-tick order and the real PRNG | out of reach, and not a goal |
 
 ### Cards outside the slice
