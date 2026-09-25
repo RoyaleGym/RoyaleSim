@@ -2172,7 +2172,7 @@
     },
     "DEATH_SPAWN_AT_EMISSION_POINT": {
       "value": {
-        "arm": "client16402_measured_list",
+        "arm": "none",
         "units": [
           "Tombstone",
           "BarbarianHut"
