@@ -202,9 +202,12 @@ pub const DEFAULT_TOLERANCE: Tolerance = Tolerance { limits: [(50, 20), (100, 3)
 /// intact across the hold gives 50.6, so the replan is not the cost either. What is needed
 /// is a push the unit's ATTACK survives.
 ///
-/// WHEN THAT LANDS, `the_known_crowd_defect_has_not_changed_size` in tests/battle.rs fails
-/// and tells you to tighten this number. That is the whole point of pinning it: an ignored
-/// test cannot ask to be un-ignored.
+/// IT LANDED ON 2026-09-24 as movement.ATTACKING_UNIT_MOVEMENT = separation_only, and this
+/// limit was NOT tightened in the same change: the shipped arm's worst run on the scripted
+/// battle had not been measured under it, and a bound written before its measurement is a
+/// guess wearing a number. Tighten it toward the game's own six from that measurement.
+/// `the_frozen_foil_still_packs_the_crowd` in tests/battle.rs keeps the defect visible on the
+/// arm that has it, so the foil still asks to be un-ignored if anyone breaks it.
 pub const CLIENT16402_TOLERANCE: Tolerance = Tolerance { limits: [(100, 95), (150, 90)] };
 
 /// Stateful every-tick invariant checker.

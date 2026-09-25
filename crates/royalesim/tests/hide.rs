@@ -88,6 +88,20 @@ fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
 /// the left bridge's approach, just OUTSIDE the Tesla's sight, walking down the
 /// bridge toward Blue's engine-left princess tower and into the Tesla's sight.
 /// Far from every crown tower's reach until well after the first shot.
+/// THE FOIL ARM OF hide.TARGETABLE_WHILE_RISING, by name. The shipped value is `true` since
+/// 2026-09-24 (measured on the 15.535.29 kernel: a Knight locks on a Tesla while it rises). The
+/// tests that take this config are about the hide STATE MACHINE -- when the Tesla goes under,
+/// when it rises, when a swing is cancelled -- and they were written when a rising Tesla could
+/// not be targeted; under the shipped arm "going under" includes no untargetable rise, so they
+/// would be asserting a different property. They keep testing the machine on the arm they were
+/// written for, and `under_the_shipped_arm_a_knight_targets_a_rising_tesla_before_it_is_up`
+/// pins what the measurement settled.
+fn rising_untargetable() -> BattleConfig {
+    let mut c = config();
+    c.calib.hide_targetable_while_rising = false;
+    c
+}
+
 fn approach(cfg: BattleConfig) -> (BattleState, EntityId, EntityId) {
     let mut s = bare(cfg);
     let bridge_x = s.arena().princess_tower_pos(Team::Blue, Lane::Left).x;
@@ -150,7 +164,7 @@ fn a_hidden_tesla_is_not_targeted_by_a_giant_that_sees_it_but_that_it_cannot_see
 
 #[test]
 fn a_knight_entering_sight_starts_the_rise_next_tick_up_after_up_time_and_the_first_shot_follows() {
-    let (mut s, tesla, knight) = approach(config());
+    let (mut s, tesla, knight) = approach(rising_untargetable());
     let h = tesla_hide(&s);
     let (load, base) = (card_stat(&s, "Tesla").load_time_ms, card_stat(&s, "Tesla").damage);
     let hit_speed = card_stat(&s, "Tesla").hit_speed_ms;
@@ -364,7 +378,7 @@ fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacq
     // in COOLDOWN at deploy end, and the lock-drop path (target.rs decide's
     // `target_locked` cancel; phase_target's cancel of a hidden target) is never
     // exercised. ~~`if in_windup { .. }`~~: the windup is asserted, not tested for.
-    let mut s = bare(config());
+    let mut s = bare(rising_untargetable());
     let tesla_at = t(900, 1400);
     let knight_at = Vec2::new(tesla_at.x, tesla_at.y - 3 * SUBTILE / 2);
     s.spawn_unit(Team::Blue, "Tesla", tesla_at, None).unwrap();
@@ -677,4 +691,24 @@ fn the_loader_refuses_a_partial_hide_block_and_reads_teslas_whole() {
         let (_, why) = db.rejected.iter().find(|(n, _)| n == "Tesla").unwrap_or_else(|| panic!("{field}: Tesla neither loaded nor rejected"));
         assert!(why.contains("hide"), "{field}: rejected for the wrong reason: {why}");
     }
+}
+
+#[test]
+fn under_the_shipped_arm_a_knight_targets_a_rising_tesla_before_it_is_up() {
+    // hide.TARGETABLE_WHILE_RISING = true, MEASURED on the 15.535.29 kernel: the Tesla starts
+    // rising on 240 and the Knight locks on at 241, fifteen ticks before it is up. The engine
+    // locks on the rise tick itself, one tick earlier (the key's `open` field). So this asserts
+    // only what the measurement settles -- the lock lands WHILE the Tesla is rising -- and not
+    // the tick, on which the two clients' orderings do not yet agree.
+    assert!(config().calib.hide_targetable_while_rising, "the shipped arm this test pins");
+    let (mut s, tesla, knight) = approach(config());
+    for _ in 0..400 {
+        s.tick();
+        let state = s.entity(tesla).expect("the Tesla lives through the scene").hide_state;
+        if s.entity(knight).and_then(|k| k.target) == Some(tesla) {
+            assert_eq!(state, HideState::Rising, "the Knight first targeted the Tesla only once it was {state:?}; the measured law has it locked on during the rise");
+            return;
+        }
+    }
+    panic!("the Knight never targeted the Tesla in 400 ticks; the scene measures nothing");
 }

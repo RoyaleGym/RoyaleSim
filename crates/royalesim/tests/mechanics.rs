@@ -130,13 +130,25 @@ fn giant_targets_only_buildings_and_never_hits_a_troop() {
     s.spawn_unit(Team::Red, "Knight", t(900, 2110), None).unwrap();
     s.spawn_unit(Team::Red, "Cannon", t(900, 2500), None).unwrap();
     let mut targeted_building = false;
+    // A TARGET CAN BE DEAD FOR A TICK: the field is cleared in the next Target phase, not when
+    // the target dies. This read `s.entity(tid).expect("target alive")` and failed the day the
+    // Giant first killed its Cannon inside the 400 ticks (movement.ATTACKING_UNIT_MOVEMENT =
+    // separation_only moved it). Skipping a dead target would let a Giant that targeted a TROOP
+    // which then died pass unseen, so a dead target must be one already verified as a building
+    // while it was alive.
+    let mut verified_buildings = std::collections::BTreeSet::new(); // EntityId is Ord, not Hash
     for _ in 0..400 {
         s.tick();
         let Some(g) = find_live(&s, Team::Blue, "Giant").first().copied() else { break };
         if let Some(tid) = g.target {
-            let tv = s.entity(tid).expect("target alive");
-            assert!(tv.kind.is_building(), "Giant targeted a {} ({:?})", tv.card, tv.kind);
-            targeted_building = true;
+            match s.entity(tid) {
+                Some(tv) => {
+                    assert!(tv.kind.is_building(), "Giant targeted a {} ({:?})", tv.card, tv.kind);
+                    verified_buildings.insert(tid);
+                    targeted_building = true;
+                }
+                None => assert!(verified_buildings.contains(&tid), "the Giant holds a dead target it was never seen to hold alive, so its kind was never checked"),
+            }
         }
         if let Some(k) = find_live(&s, Team::Red, "Knight").first() {
             assert_eq!(k.hp, k.max_hp, "the Knight lost hp; only the Giant could have hit it");

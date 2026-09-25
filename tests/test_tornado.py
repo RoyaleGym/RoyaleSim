@@ -126,3 +126,87 @@ def test_the_pull_stops_with_the_area_effect_and_not_with_the_buff():
         f"the knight is still being held near the cast point 30 ticks after the cast: "
         f"{settled:.0f} -> {after:.0f} native"
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# PAIRED CONTROLS, the kernel's own method: the same battle run with and without the Tornado.
+# The engine is deterministic, so the two runs are identical until the Tornado first acts, and
+# the displacement between them on that tick IS the pull -- no model of the victim's walk.
+# ---------------------------------------------------------------------------------------------
+
+PAIRED_DECK = ["Tornado", "Zap", "Snowball", "Knight", "Archer", "Musketeer", "Giant", "Minions"]
+P_TORNADO, P_ZAP, P_SNOWBALL, P_KNIGHT = 0, 1, 2, 3  # hand slots: no shuffle, the first four
+#: an unbuffed Knight's pull, trunc(60 * 360 / 100), and the kernel's measured figure
+KNIGHT_PULL = 216
+
+
+def knight_trace(setup_slot, tornado_at, ticks=90):
+    """The enemy Knight's row after every tick: `setup_slot` cast on it at tick 0, and a
+    Tornado behind it at `tornado_at` (None = never)."""
+    b = royalesim.Battle(card_names=PAIRED_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+    ids = list(range(len(PAIRED_DECK)))
+    b.reset(0, [ids, ids], 0, 200, [10_000, 10_000], None, [(1, P_KNIGHT, *START, -1)])
+    rows = []
+    for t in range(ticks):
+        cmds = []
+        if t == 0:
+            k = next(e for e in json.loads(b.state_json())["entities"] if e[1] == 1 and e[3] == P_KNIGHT)
+            cmds.append((0, setup_slot, k[5], k[6]))
+        if tornado_at is not None and t == tornado_at:
+            cmds.append((0, P_TORNADO, *CAST))
+        b.step(cmds, 1)
+        rows.append(next((e for e in json.loads(b.state_json())["entities"] if e[1] == 1 and e[3] == P_KNIGHT), None))
+    return rows
+
+
+def step_of(rows, t):
+    return math.hypot(rows[t][5] - rows[t - 1][5], rows[t][6] - rows[t - 1][6]) / K
+
+
+def paired_first_pull(setup_slot, in_state):
+    """ORACLE'S PROCEDURE, so a state that has not landed yet cannot be measured by mistake.
+
+    First a run WITHOUT the Tornado finds the first tick the Knight is in the state
+    (`in_state(rows, t)`); the Tornado is cast on that tick in a second run; and the pull is the
+    displacement between the two runs on the first tick they differ, which must still be a tick
+    the Knight is in the state. Returns (pull, the no-Tornado row that tick, its own step).
+    """
+    without = knight_trace(setup_slot, None)
+    t_state = next((t for t in range(1, len(without)) if without[t] is not None and in_state(without, t)), None)
+    assert t_state is not None, "the Knight never entered the state in 90 ticks; the scene measures nothing"
+    with_ = knight_trace(setup_slot, t_state)
+    for t, (ra, rb) in enumerate(zip(without, with_, strict=True)):
+        assert ra is not None, f"the Knight died by tick {t} without the Tornado; the scene measures nothing"
+        assert rb is not None, f"the Knight died by tick {t} with the Tornado; the scene measures nothing"
+        if (ra[5], ra[6]) != (rb[5], rb[6]):
+            assert in_state(without, t), f"the Tornado first acted on tick {t}, after the state had ended"
+            return math.hypot(rb[5] - ra[5], rb[6] - ra[6]) / K, ra, step_of(without, t)
+    raise AssertionError("the two runs never differed: the Tornado never pulled the Knight")
+
+
+def test_a_stunned_victim_is_still_pulled():
+    """status.ATTRACT_WHILE_HELD = pulled. The kernel pulls a Zap-stunned Knight 216.1.
+
+    The hold stops the WALK. It must not anchor the unit: the engine used to skip the move pass
+    for a held unit, and the pull lives in that pass, so a stunned victim was never moved.
+    """
+    pull, row, _ = paired_first_pull(P_ZAP, lambda rows, t: rows[t][12] > 0)
+    assert row[12] > 0
+    assert abs(pull - KNIGHT_PULL) <= 3, f"a stunned Knight was pulled {pull:.1f}, not the unbuffed {KNIGHT_PULL}"
+
+
+def test_the_pull_ignores_a_slow():
+    """status.ATTRACT_LAW = base_speed. The kernel pulls a slowed Knight 215.7, not its slowed figure.
+
+    THE PREMISE IS CHECKED, not assumed: the Knight must actually be walking slower than its own
+    ~59 on the measured tick, or a "216" here would be an unslowed Knight passing for a slowed one.
+    """
+    pull, row, step = paired_first_pull(P_SNOWBALL, lambda rows, t: rows[t][12] == 0 and 0 < step_of(rows, t) < 55)
+    assert row[12] == 0, f"the Knight is stunned, not merely slowed, on the measured tick: {row}"
+    assert 0 < step < 55, (
+        f"the Knight is not slowed on the measured tick (its step is {step:.1f}), so this does not test the base"
+    )
+    assert abs(pull - KNIGHT_PULL) <= 3, (
+        f"a slowed Knight (step {step:.1f}) was pulled {pull:.1f}: the pull followed the buffed "
+        f"speed, where the kernel pulls the unbuffed {KNIGHT_PULL}"
+    )

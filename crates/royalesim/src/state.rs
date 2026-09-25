@@ -184,6 +184,8 @@ pub struct Calib {
     /// status.ATTRACT_LAW -- the base speed the AttractPercentage column scales
     /// (state.rs `phase_path16402`).
     pub attract_base: AttractBase,
+    /// status.ATTRACT_WHILE_HELD.
+    pub attract_while_held: AttractWhileHeld,
     /// match.DEPLOY_LOCKOUT_TICKS -- ticks from the start of the match during which every
     /// deploy is refused (state.rs `check_deploy_slot`).
     pub deploy_lockout_ticks: i32,
@@ -494,15 +496,38 @@ calib_enum!(
     /// arms are the same arithmetic over a different base speed, which is the whole of
     /// the disagreement the corpus settles.
     AttractBase {
-        /// The victim's EFFECTIVE speed, stomp correction and buffs included. MEASURED:
-        /// the Giant of 20260920-081819 is pulled 187 native per tick, and
-        /// tdiv(52 * 360, 100) = 187 where 52 is its stomp-corrected speed.
+        /// The victim's EFFECTIVE speed: its stored speed through every buff in force and
+        /// the charge multiplier (`effective_speed`). REFUTED by a Raged Knight, pulled
+        /// 215.9 native per tick where this arm gives trunc(78 * 360 / 100) = 280, and by
+        /// an Ice-Wizard-slowed one at 215.7 where it gives 147.
         EffectiveSpeed = "effective_speed",
-        /// The victim's base speed, before the stomp correction. REFUTED by that same
-        /// Giant: tdiv(45 * 360, 100) = 162 puts the step at (33, 157) where (39, 182)
-        /// is recorded, on two separate ticks. Kept runnable, because a refuted arm that
-        /// cannot be run is a claim rather than a measurement.
+        /// The victim's STORED speed, no buffs: `Entities::speed`, which for a stomp card
+        /// is the Speed column ALREADY stomp-corrected at load (card.rs,
+        /// S = floor(Speed * (Stop + Wait) / Stop)). MEASURED on both clients: the Giant
+        /// of 20260920-081819 is pulled 187 = tdiv(52 * 360, 100), 52 being its stored
+        /// speed, and Raged, slowed, frozen and stunned Knights all at about 216 =
+        /// tdiv(60 * 360, 100).
+        ///
+        /// AN EARLIER VERSION OF THESE COMMENTS called this arm "before the stomp
+        /// correction" and REFUTED by that same Giant at 162 = tdiv(45 * 360, 100). That
+        /// confused the raw Speed COLUMN (45) with the stored speed this arm reads (52):
+        /// for an unbuffed, uncharged unit the two arms were always the same number, so
+        /// the Giant never separated them. Rage is the first victim that does.
         BaseSpeed = "base_speed",
+    }
+);
+calib_enum!(
+    /// status.ATTRACT_WHILE_HELD: whether a pulling area effect moves a unit whose own
+    /// movement is held -- stunned, frozen, or held by its attack under the `frozen` arm
+    /// of movement.ATTACKING_UNIT_MOVEMENT.
+    AttractWhileHeld {
+        /// MEASURED: stunned 216.1, frozen 215.4, attacking a tower 215.5 -- each the
+        /// unbuffed Knight's full pull. The hold stops the unit walking; it does not
+        /// anchor it.
+        Pulled = "pulled",
+        /// What the engine did before it was measured: the hold `continue`d past the
+        /// move pass that applies the pull, so a held victim was never moved.
+        Skipped = "skipped",
     }
 );
 calib_enum!(
@@ -1381,6 +1406,7 @@ impl Calib {
             three_crown_instant_win: boolean(&v, &["match", "THREE_CROWN_INSTANT_WIN", "value"])?,
             overtime_tiebreak: pick(&v, &["match", "OVERTIME_TIEBREAK", "value"], OvertimeTiebreak::from_calibration_name)?,
             attract_base: pick(&v, &["status", "ATTRACT_LAW", "value"], AttractBase::from_calibration_name)?,
+            attract_while_held: pick(&v, &["status", "ATTRACT_WHILE_HELD", "value"], AttractWhileHeld::from_calibration_name)?,
             centre_lane_frame: pick(&v, &["targeting", "CENTRE_LANE_FRAME", "value"], CentreLaneFrame::from_calibration_name)?,
             deploy_lockout_ticks: int(&v, &["match", "DEPLOY_LOCKOUT_TICKS", "value"])?,
             tick_order: pick(&v, &["match", "TICK_ORDER", "value"], TickOrder::from_calibration_name)?,
@@ -3520,6 +3546,18 @@ impl BattleState {
                         routes[i].clear();
                         goals[i] = None;
                         segs[i] = Vec2::default();
+                    }
+                    // status.ATTRACT_WHILE_HELD = pulled: THE HOLD STOPS THE WALK, NOT THE
+                    // PULL. The pull is otherwise applied inside the move pass this branch
+                    // skips, so a stunned, frozen or attack-held victim was never moved --
+                    // while every walking victim was, which is why nothing noticed. Applied
+                    // alone here: no walk, no avoidance, no separation (a held unit is not
+                    // collidable), through the same grid clamp as any other displacement.
+                    if calib.attract_while_held == AttractWhileHeld::Pulled && attract[i] != (0, 0) {
+                        let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, false, &is_water, arena.cols, arena.rows);
+                        bodies[i].x = nx;
+                        bodies[i].y = ny;
+                        deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
                     }
                     continue; // held: the freeze holds the whole unit (battle F sc5)
                 }

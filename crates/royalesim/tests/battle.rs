@@ -94,18 +94,17 @@ fn scripted_battle_finishes_with_plausible_result() {
 /// fails on CLIENT16402_TOLERANCE's 90-tick limit. If someone fixes it, the lower bound here
 /// fails and says to tighten that limit toward the game's six.
 #[test]
-fn the_known_crowd_defect_has_not_changed_size() {
-    let inv = common::run_crowd(config(), 200);
+fn the_frozen_foil_still_packs_the_crowd() {
+    // THE FOIL, RUN BY NAME. `frozen` was the shipped arm until 2026-09-24 and this test pinned
+    // the crowd it leaves packed as "the known defect" of whatever shipped. With separation_only
+    // shipped, reading the shipped arm would have asked the fixed engine to reproduce the bug.
+    // It now asks the arm that HAS the defect, so the characterisation still characterises it.
+    let mut cfg = config();
+    cfg.calib.attacking_unit_movement = royalesim::state::AttackingUnitMovement::Frozen;
+    let inv = common::run_crowd(cfg, 200);
     let worst = inv.worst_run[1];
-    assert!(
-        worst >= 40,
-        "the attacking-crowd overlap is down to {worst} ticks above 150 %, from the 55 this          was pinned at. If movement.ATTACKING_UNIT_MOVEMENT was fixed, say so in the ledger          and TIGHTEN CLIENT16402_TOLERANCE's second limit from 90 toward the game's own six."
-    );
-    assert!(
-        inv.worst_pct >= 150,
-        "no pair exceeds 150 % any more ({} %), so this characterisation is watching nothing",
-        inv.worst_pct
-    );
+    assert!(worst >= 40, "the frozen foil leaves the built crowd packed for only {worst} ticks above 150 %, against the 55 it was pinned at, so the foil no longer shows the defect it exists to show");
+    assert!(inv.worst_pct >= 150, "no pair exceeds 150 % under the frozen foil ({} %), so this characterisation is watching nothing", inv.worst_pct);
 }
 
 #[test]
@@ -202,23 +201,19 @@ fn scripted_battle_with_spells_finishes_and_is_deterministic() {
 /// This runs the identical battle with the other arm selected IN THE CONFIG, so the
 /// question is answered without touching the ledger every other session reads.
 #[test]
-fn the_same_crowd_under_separation_only_is_kept_apart() {
-    let mut cfg = config();
-    cfg.calib.attacking_unit_movement = royalesim::state::AttackingUnitMovement::SeparationOnly;
-    let fixed = common::run_crowd(cfg, 200);
-    let shipped = common::run_crowd(config(), 200);
-    println!(
-        "built crowd: separation_only run {:?} pct {} against shipped run {:?} pct {}",
-        fixed.worst_run, fixed.worst_pct, shipped.worst_run, shipped.worst_pct
-    );
+fn the_shipped_arm_keeps_the_crowd_apart_where_frozen_does_not() {
+    // THE SHIPPED ARM AGAINST THE FOIL, both by what they do. separation_only ships since
+    // 2026-09-24 (movement.ATTACKING_UNIT_MOVEMENT, measured: 61.60 % against 58.99 % on the
+    // corpus). If the ledger ever went back to frozen, shipped and foil would be the same arm and
+    // this would fail, which is the point: the comparison is the guard on the value.
+    //
     // A MARGIN, NOT A BARE `<`. On the emergent crowd this compared 2 against 5 and passed on
-    // three ticks, which is indistinguishable from noise in a quantity that had been 87; the
-    // test would have kept its name while comparing nothing. On the built crowd it is 9
-    // against 55, so a factor of two is asked for and there is room for it.
-    assert!(
-        fixed.worst_run[1] * 2 < shipped.worst_run[1],
-        "separation_only leaves the crowd packed nearly as long as the shipped arm does: {}          ticks above 150 % against {}",
-        fixed.worst_run[1],
-        shipped.worst_run[1]
-    );
+    // three ticks, which is indistinguishable from noise in a quantity that had been 87. On the
+    // built crowd it is 9 against 55, so a factor of two is asked for and there is room for it.
+    let mut foil = config();
+    foil.calib.attacking_unit_movement = royalesim::state::AttackingUnitMovement::Frozen;
+    let frozen = common::run_crowd(foil, 200);
+    let shipped = common::run_crowd(config(), 200);
+    println!("built crowd: shipped run {:?} pct {} against frozen run {:?} pct {}", shipped.worst_run, shipped.worst_pct, frozen.worst_run, frozen.worst_pct);
+    assert!(shipped.worst_run[1] * 2 < frozen.worst_run[1], "the shipped arm leaves the crowd packed nearly as long as the frozen foil does: {} ticks above 150 % against {}", shipped.worst_run[1], frozen.worst_run[1]);
 }

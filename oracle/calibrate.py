@@ -103,6 +103,12 @@ STATUS_RANK = {
     "disputed_existence": 0,
     "hypothesis": 1,
     "community": 2,
+    # One outside measurement, its source, method and sample named, not reproduced by this
+    # project's instruments. Level with community and NOT in PROTECTED, so an oracle
+    # `measured` replaces it without --supersede. Added 2026-09-24: two such readings had been
+    # filed as measured, which protected them against the very correction that should
+    # replace them, and let a promotion that depended on them pass `dependencies-measured`.
+    "third_party_measured": 2,
     "datamined": 3,
     "measured": 4,
     "owner_ruling": 4,

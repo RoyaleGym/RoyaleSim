@@ -191,7 +191,16 @@ fn a_swing_at_remainder_tick_ms_does_not_survive_the_target_stepping_out_of_reac
     // (attacker, the buildings-only runner it chases, k) -- k slides the pair along
     // its lane; every one of these four separates the two spellings.
     for (card, runner, k) in [("Knight", "Giant", 5), ("Knight", "Golem", 5), ("Barbarian", "HogRider", 0), ("MiniPekka", "Giant", 0)] {
-        let mut s = BattleState::new(11, config());
+        // THE SCENE HOLDS MOVEMENT AT THE FROZEN ARM, by name. This test is about a COMBAT law
+        // -- a swing at remainder TICK_MS does not survive its target stepping out of reach --
+        // and the arms it pins are the combat ones above, none of which moves. It needs the
+        // attacker to stand while the runner walks out of reach; with
+        // movement.ATTACKING_UNIT_MOVEMENT = separation_only shipped (2026-09-24) the chase
+        // stopped producing that moment at all (31 remainder ticks, every one in reach) and
+        // the vacuity guard below said so. Frozen restores the scene without touching the law.
+        let mut cfg = config();
+        cfg.calib.attacking_unit_movement = royalesim::state::AttackingUnitMovement::Frozen;
+        let mut s = BattleState::new(11, cfg);
         // The runner targets BUILDINGS only, so it never turns to fight: it walks
         // down its lane and the attacker chases, in and out of reach every few ticks.
         let prey = s.scenario_spawn_now(Team::Red, runner, t(375, 1500 + k * 25), None).unwrap_or_else(|e| panic!("{runner}: {e:?}"));
