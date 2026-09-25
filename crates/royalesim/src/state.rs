@@ -6341,10 +6341,14 @@ impl BattleState {
         (0..=row0).rev().map(|r| arena.from_frame(team, Vec2::new(col * t + t / 2, r * t + t / 2))).find(|&c| arena.deploy_zone(c, team, territory, &rects).is_ok())
     }
 
-    /// placement.TROOP_TOWER_TAPS: a troop tap whose one-tile box shares positive area with
-    /// an alive OWN crown tower's placement box, moved by `building_placement`'s ring search
-    /// and order (placement.ILLEGAL_TAP, placement.SNAP_EVEN) to the nearest tile whose box
-    /// clears every own crown tower and the troop's territory. Otherwise the tap.
+    /// placement.TROOP_TOWER_TAPS: a troop tap whose SNAPPED one-tile box shares positive area
+    /// with an alive OWN crown tower's placement box is moved exactly as a one-tile building
+    /// would be: `building_placement`'s snap, ring search from the snapped tile, order, fit
+    /// (the troop's territory and every building's box) and distance to the tap
+    /// (placement.ILLEGAL_TAP, placement.SNAP_EVEN). Otherwise the tap, unsnapped. Searching
+    /// from the raw tap instead sends a tap at own (8500, 1499) sideways, because its
+    /// straight-back candidate (8500, 499) overhangs the arena's back edge; measured on
+    /// client 15.535.29 it lands straight back, on (8499, 500).
     fn relocate_off_own_crown_tower(&self, team: Team, idx: u16, tap: Vec2) -> Vec2 {
         let arena = &self.cfg.arena;
         let e = &self.ents;
@@ -6357,23 +6361,35 @@ impl BattleState {
                 Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i]))
             })
             .collect();
-        let hits = |c: Vec2| {
-            let b = Arena::placement_box(c, 1);
-            own.iter().any(|t| b.overlaps_open(t))
+        let snapped = match self.cfg.calib.placement_snap_even {
+            PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, 1),
+            PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, tap, 1),
         };
-        if !hits(tap) || self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
+        let on_own_tower = own.iter().any(|t| Arena::placement_box(snapped, 1).overlaps_open(t));
+        if !on_own_tower || self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
             return tap;
         }
         let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
-        let fits = |c: Vec2| !hits(c) && arena.box_zone(Arena::placement_box(c, 1), team, territory).is_ok();
+        let fits = |c: Vec2| {
+            let b = Arena::placement_box(c, 1);
+            arena.box_zone(b, team, territory).is_ok() && !self.box_hits_a_building(b)
+        };
+        // The candidates are `building_placement`'s ring, but a TIE between two equally near
+        // tiles goes to the first in COLUMN-MAJOR order in the placer's frame (columns from
+        // its low x, each from its low y). Measured on client 15.535.29, three ties fit it and
+        // no other simple order: side 0's own (10500, 1500) takes the tile behind over the one
+        // to its +x, side 1's own (7500, 1500) the tile to its -x over the one behind, side 1's
+        // own (10500, 1500) the tile behind over the one to its +x. The ring order the building
+        // search uses (`ring_offsets`) gets the second wrong.
         let tile = crate::fixed::tiles(1);
         let mut best: Option<(i64, Vec2)> = None;
         for r in 1..=PLACEMENT_SEARCH_RINGS {
-            for (dx, dy) in ring_offsets(r) {
+            let ring = (-r..=r).flat_map(|dx| (-r..=r).map(move |dy| (dx, dy))).filter(|&(dx, dy)| dx.abs().max(dy.abs()) == r);
+            for (dx, dy) in ring {
                 let step = Vec2::new(dx * tile, dy * tile);
                 let c = match self.cfg.calib.placement_snap_even {
-                    PlacementSnapEven::PlacerFrame => arena.from_frame(team, arena.to_frame(team, tap).add(step)),
-                    PlacementSnapEven::Absolute => tap.add(step),
+                    PlacementSnapEven::PlacerFrame => arena.from_frame(team, arena.to_frame(team, snapped).add(step)),
+                    PlacementSnapEven::Absolute => snapped.add(step),
                 };
                 if !fits(c) {
                     continue;
