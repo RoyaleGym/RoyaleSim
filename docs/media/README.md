@@ -32,7 +32,7 @@ copy for anyone who opens the file directly.
 | `snapshots.png` | `make_media.py snapshots` | One saved position loaded into several engines and stepped on differently. |
 | `ledger.png` | `make_media.py ledger` | The spread of statuses across `data/calibration.json`: every entry counted, in four bands from measured to guess. |
 | `engine-battle-viewer.png` | a RoyaleViser screenshot | final, not regenerated here |
-| `family.svg` | hand-drawn | the five repos and how they depend on each other; final |
+| `family.svg` | hand-drawn | the Royale repos and how they depend on each other; final |
 
 ## Still placeholders, and why
 
