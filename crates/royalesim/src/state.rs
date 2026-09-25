@@ -5457,7 +5457,7 @@ impl BattleState {
             // (`spawn_point`, through the one-member formation its timed waves use), all
             // together. Unlisted units, and a listed one without a spawner, keep the ring.
             let emission = match self.spawner_of(i) {
-                Some(sp) if self.cfg.calib.death_spawn_at_emission == DeathAtEmission::MeasuredList && self.cfg.calib.death_spawn_at_emission_units.iter().any(|u| *u == card.unit_name) => {
+                Some(sp) if self.cfg.calib.death_spawn_at_emission == DeathAtEmission::MeasuredList && self.cfg.calib.death_spawn_at_emission_units.contains(&card.unit_name) => {
                     let point = self.spawn_point(i, &sp);
                     Some(self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), point)[0])
                 }
