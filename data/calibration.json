@@ -2585,7 +2585,7 @@
       "engine": "state.rs Calib::from_json (pick), BattleState::formation_members; formation.rs stagger_ms; tests/formations.rs"
     },
     "STAGGER_WAIT": {
-      "value": "client16402_untargetable_immovable",
+      "value": "deploying",
       "candidates": [
         "deploying",
         "client16402_untargetable_immovable"
