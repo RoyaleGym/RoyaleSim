@@ -63,6 +63,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const FORMAT: &str = "replay-fixture-1";
 
+/// THE ONE DEPLOY-TICK CONVENTION THIS HARNESS PLAYS: a deploy's `tick` is the first frame its
+/// effect exists in the game (a troop's units on the board, a spell's first frame), and the
+/// harness issues it at `tick - 1` (module doc). On 2026-09-24 the kernel fixtures were briefly
+/// relabelled to the ISSUE tick; the harness read those labels under this convention and issued
+/// every kernel deploy one tick early, and a scenario scored 180 of 180 ticks within 250 with
+/// 0 exact, which read as a fix. Nothing in a fixture said which convention it used, so nothing
+/// could refuse it. Now a fixture must say, and `Fixture::from_str` refuses one that does not.
+pub const DEPLOY_TICK_CONVENTION: &str = "first_effect_frame";
+
+/// The trace's truth target when the frame recorded none (`Row::target` is `None`).
+pub const TRUTH_TARGET_UNRECORDED: i64 = -3;
+
 /// Position tolerances, native units. Named so the report's columns are one list.
 pub const TOLERANCES_NATIVE: [i32; 3] = [250, 500, 1000];
 /// A pair whose position error passes this is the battle's first divergence.
@@ -146,6 +158,12 @@ pub struct Deploy {
     /// The first frame tick the group was seen on (>= tick when frames were missed).
     #[serde(default)]
     pub first_seen: Option<u32>,
+    /// The tick the deploy was ISSUED on, where the generator knows it (the kernel
+    /// emitter does; a corpus capture does not). When present it must be `tick - 1`, the
+    /// tick this harness issues on; `Fixture::from_str` refuses a disagreement rather than
+    /// letting one of the two labels shift the play.
+    #[serde(default)]
+    pub issued_tick: Option<u32>,
     #[serde(default)]
     pub tick_evidence: Option<String>,
     pub side: i32,
@@ -195,6 +213,11 @@ pub struct Truth {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Fixture {
     pub format: String,
+    /// What every deploy's `tick` means; must be `DEPLOY_TICK_CONVENTION`. Optional here
+    /// only so that its absence reaches `from_str` and is refused with a sentence, not a
+    /// serde error.
+    #[serde(default)]
+    pub deploy_tick_convention: Option<String>,
     pub capture: String,
     /// FNV-1a 64 of the data/derived/cards.json the maker classified the truth
     /// against (`cards_json_hash`); the report notes a mismatch with the engine's.
@@ -224,6 +247,31 @@ impl Fixture {
         let f: Fixture = serde_json::from_str(s).map_err(|e| format!("fixture: {e}"))?;
         if f.format != FORMAT {
             return Err(format!("fixture format {} is not {FORMAT}", f.format));
+        }
+        match f.deploy_tick_convention.as_deref() {
+            Some(DEPLOY_TICK_CONVENTION) => {}
+            Some(other) => {
+                return Err(format!(
+                    "fixture deploy_tick_convention {other:?} is not {DEPLOY_TICK_CONVENTION:?}; this harness issues a deploy at tick - 1 so that its units exist on `tick`, which is right for that convention only"
+                ))
+            }
+            None => {
+                return Err(format!(
+                    "fixture declares no deploy_tick_convention; played anyway, a label meaning anything but {DEPLOY_TICK_CONVENTION:?} would shift every deploy without a sign (regenerate it, or add the field if its generator's `tick` is the first effect frame)"
+                ))
+            }
+        }
+        for d in &f.deploys {
+            if let Some(issued) = d.issued_tick {
+                if issued + 1 != d.tick {
+                    return Err(format!(
+                        "deploy of {} (side {}) labelled tick {} carries issued_tick {issued}; under {DEPLOY_TICK_CONVENTION:?} it must be tick - 1",
+                        d.card.as_deref().unwrap_or("?"),
+                        d.side,
+                        d.tick
+                    ));
+                }
+            }
         }
         Ok(f)
     }
@@ -263,8 +311,10 @@ pub struct Row {
     pub x: i32,
     pub y: i32,
     pub hp: i32,
-    /// The target's generation key, -1 for none.
-    pub target: i64,
+    /// The target's generation key, -1 for none; `None` when the frame did not RECORD one.
+    /// The kernel emitter leaves it null on 1,688 of 70,843 present unit-frames, mostly while
+    /// deploying but 64 of them attacking, so null is "not recorded", never "no target".
+    pub target: Option<i64>,
     pub path_n: i32,
     pub state: i32,
 }
@@ -293,8 +343,13 @@ impl TruthTable {
             let st = decode_rle(&e.state, e.n)?;
             let mut r = Vec::with_capacity(e.n);
             for i in 0..e.n {
-                r.push(match (x[i], y[i], hp[i], tg[i], pn[i], st[i]) {
-                    (Some(x), Some(y), Some(hp), Some(tg), Some(pn), Some(st)) => Some(Row { x: x as i32, y: y as i32, hp: hp as i32, target: tg, path_n: pn as i32, state: st as i32 }),
+                // ON THE BOARD IS DECIDED BY POSITION AND HIT POINTS. A missing TARGET made the
+                // whole row absent, so every kernel unit read "gone in the truth" for its
+                // deploy frames and every fixture's first divergence was a death at t101 that
+                // never happened. The target is an attribute of a present unit, not evidence
+                // of presence.
+                r.push(match (x[i], y[i], hp[i], pn[i], st[i]) {
+                    (Some(x), Some(y), Some(hp), Some(pn), Some(st)) => Some(Row { x: x as i32, y: y as i32, hp: hp as i32, target: tg[i], path_n: pn as i32, state: st as i32 }),
                     _ => None,
                 });
             }
@@ -552,6 +607,11 @@ pub struct Score {
     /// Sum of |hp delta| over both-alive unit-ticks.
     pub hp_abs_delta: u64,
     pub target_match: u64,
+    /// Both-alive unit-ticks whose truth frame recorded no target, so no target was
+    /// compared. The report's target column divides by unit_ticks and so counts them as
+    /// unmatched, as it did when those ticks read as the unit being absent; subtract them
+    /// from the denominator for the rate over compared ticks.
+    pub target_unrecorded: u64,
     pub path_n_match: u64,
     /// Matched pairs on ticks where exactly one side has the unit alive.
     pub alive_mismatch: u64,
@@ -589,6 +649,7 @@ impl Score {
         self.hp_exact += o.hp_exact;
         self.hp_abs_delta += o.hp_abs_delta;
         self.target_match += o.target_match;
+        self.target_unrecorded += o.target_unrecorded;
         self.path_n_match += o.path_n_match;
         self.alive_mismatch += o.alive_mismatch;
         self.missing_in_sim += o.missing_in_sim;
@@ -632,8 +693,8 @@ impl Score {
                 return Err(format!("deploy_within[{k}] exceeds within[{k}]"));
             }
         }
-        if self.hp_exact > self.both_alive || self.target_match > self.both_alive || self.path_n_match > self.both_alive {
-            return Err("hp_exact / target_match / path_n_match exceed both_alive".into());
+        if self.hp_exact > self.both_alive || self.target_match + self.target_unrecorded > self.both_alive || self.path_n_match > self.both_alive {
+            return Err("hp_exact / target_match + target_unrecorded / path_n_match exceed both_alive".into());
         }
         if self.unit_ticks != self.both_alive + self.alive_mismatch + self.missing_in_sim + self.extra_in_sim {
             return Err("unit_ticks is not the sum of its parts".into());
@@ -1202,7 +1263,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 sc.after_engine_end += after_end;
             }
             if opts.trace && (truth_row.is_some() || sim_row.is_some()) {
-                let tr = truth_row.map(|r| [r.x as i64, r.y as i64, r.hp as i64, r.state as i64, r.path_n as i64, r.target]);
+                // -3: the truth frame recorded no target. Not -1 (no target) and not the
+                // sim column's -2 (a target the pairing never matched).
+                let tr = truth_row.map(|r| [r.x as i64, r.y as i64, r.hp as i64, r.state as i64, r.path_n as i64, r.target.unwrap_or(TRUTH_TARGET_UNRECORDED)]);
                 let sr = sim_row.map(|r| {
                     let (x, y) = to_native(r.pos);
                     // THE SIM'S TARGET IN THE TRUTH'S KEY SPACE. This used to emit the sim
@@ -1236,7 +1299,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     sc.unit_ticks += 1;
                     sc.both_alive += 1;
                     let d = native_dist(sr.pos, (tr.x, tr.y));
-                    let walking = tr.state == 1 && (tr.target < 0 || is_tower_key(tr.target)) && tr.hp == e.max_hp;
+                    let walking = tr.state == 1 && matches!(tr.target, Some(t) if t < 0 || is_tower_key(t)) && tr.hp == e.max_hp;
                     let deploying = TRUTH_DEPLOY_STATES.contains(&tr.state) || sr.deploying;
                     if walking {
                         sc.walk_ticks += 1;
@@ -1265,13 +1328,18 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     }
                     sc.hp_abs_delta += (sr.hp - tr.hp).unsigned_abs() as u64;
                     // target by matched key
-                    let truth_target_sim: Option<Option<EntityId>> = if tr.target < 0 {
-                        Some(None)
-                    } else {
-                        truth.key_to_entity.get(&tr.target).and_then(|tk2| truth_to_sim.get(tk2)).map(|sk2| Some(sim[*sk2].id))
-                    };
-                    if truth_target_sim == Some(sr.target) {
-                        sc.target_match += 1;
+                    match tr.target {
+                        None => sc.target_unrecorded += 1,
+                        Some(tt) => {
+                            let truth_target_sim: Option<Option<EntityId>> = if tt < 0 {
+                                Some(None)
+                            } else {
+                                truth.key_to_entity.get(&tt).and_then(|tk2| truth_to_sim.get(tk2)).map(|sk2| Some(sim[*sk2].id))
+                            };
+                            if truth_target_sim == Some(sr.target) {
+                                sc.target_match += 1;
+                            }
+                        }
                     }
                     if sr.path_n == tr.path_n {
                         sc.path_n_match += 1;

@@ -269,6 +269,8 @@ OUT_DEFAULT = os.path.join(ROOT, "data", "derived", "replay")
 CENSUS = "card_census.json"
 
 FORMAT = "replay-fixture-1"
+#: The one convention the harness plays (replay_parity/harness.rs DEPLOY_TICK_CONVENTION).
+DEPLOY_TICK_CONVENTION = "first_effect_frame"
 CAPTURE_SUFFIX = ".native.oracle.jsonl.gz"
 # Native arena size in millitiles (18 x 32 tiles); only used to rotate a capture whose
 # side 0 sits at the top, which no capture of the corpus does.
@@ -869,6 +871,9 @@ def build(
         )
     fx: dict = {
         "format": FORMAT,
+        # What a deploy's `tick` means (DEPLOY POSITION AND TICK above: the tick the entities
+        # came to exist); the replay harness refuses a fixture that does not say.
+        "deploy_tick_convention": DEPLOY_TICK_CONVENTION,
         "generated_by": "tools/make_replay_fixture.py",
         "cards_json_fnv1a64": doc.get("_fnv1a64"),
         "capture": public_name(capture, seats),
