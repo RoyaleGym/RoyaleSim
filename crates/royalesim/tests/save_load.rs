@@ -86,6 +86,41 @@ fn save_then_load_resumes_the_identical_battle() {
 }
 
 #[test]
+fn a_snapshot_from_any_tick_resumes_the_identical_battle() {
+    // The four fixed save points above missed a field that matters only around a building
+    // change: the 16.402 path grid's occlusion arrays, which the SAMEPATH test compares on the
+    // change tick and, for a unit held across it (attacking, or waiting out a post-kill hold),
+    // ticks later. A battle resumed just before a building went down, or between a change and a
+    // held unit's replan, walked a different path. So EVERY tick of the scripted battle up to
+    // END is a save point here, each resumed battle compared for W ticks with the live one (a
+    // clone, which keeps the scratch a load cannot see).
+    // Plant: save_drops_path_grid. The fixed-point test above stays green under it, which is
+    // why this test exists.
+    const END: u32 = 3399;
+    const W: u32 = 40;
+    let mut s = BattleState::new(0x5AFE, scripted_config());
+    let mut script = Script::new(40);
+    let mut checked = 0u32;
+    while s.tick_count() < END && !s.is_done() {
+        let blob = s.save();
+        let mut live = s.clone();
+        let mut script_a = clone_script(&script);
+        let a = hashes_after(&mut live, &mut script_a, W);
+        let n = s.tick_count();
+        let mut l = BattleState::load(&blob).unwrap_or_else(|e| panic!("load failed at tick {n}: {e}"));
+        let mut script_b = clone_script(&script);
+        let b = hashes_after(&mut l, &mut script_b, W);
+        if let Some(k) = a.iter().zip(b.iter()).position(|(x, y)| x != y) {
+            panic!("a battle resumed from a tick-{n} snapshot diverged {k} ticks later");
+        }
+        checked += 1;
+        script.step(&mut s);
+        s.tick();
+    }
+    assert_eq!(checked, END, "the scripted battle ended before tick {END}: only {checked} save points were compared");
+}
+
+#[test]
 fn snapshot_mid_battle_actually_contains_the_hard_parts() {
     // Vacuity guard: find a tick with projectiles in flight AND a unit mid-windup
     // AND a deploying unit, and round-trip exactly there.

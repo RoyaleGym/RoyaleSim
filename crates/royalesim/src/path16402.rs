@@ -583,7 +583,8 @@ pub fn path_touches_changed_occlusion(prev: &[i32], cur: &[i32], old: &[i32], ne
 }
 
 /// One building as the grid sees it: absolute native centre and CollisionRadius.
-#[derive(Clone, Copy, Debug)]
+/// Serialized because a snapshot keeps the lists the grid was stamped from (state.rs `GridSaved`).
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Occluder {
     pub x: i32,
     pub y: i32,

@@ -2089,6 +2089,26 @@ struct Grid16402 {
     occ_prev: Vec<i32>,
     epochs: [u32; 2],
     pf: path16402::PathFinder,
+    /// The occluder lists `occ_cur` and `occ_prev` were stamped from; `None` while an array
+    /// is still the initial zeros. Kept only so a snapshot can rebuild both arrays.
+    src_cur: Option<Vec<path16402::Occluder>>,
+    src_prev: Option<Vec<path16402::Occluder>>,
+}
+
+/// What a snapshot keeps of the 16.402 path grid: its epochs and the occluder lists behind its
+/// two occlusion arrays (`None` for an array still at its initial zeros). The arrays are not
+/// scratch the way the rest of `Scratch` is: they carry history. At a building change the refresh
+/// hands `occ_cur` on to `occ_prev`, and the SAMEPATH test reads `occ_prev` on that tick and, for
+/// a unit whose replan waited the change out (held by an attack or a post-kill wait), ticks
+/// later. A grid rebuilt empty on load handed on zeros instead, at the first building change
+/// after the load as at any other, so a resumed battle could walk a different path.
+/// Not part of `state_hash`: the arrays are a function of these lists and of the arena and
+/// calibration, and the hash has never covered the grid.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct GridSaved {
+    epochs: [u32; 2],
+    cur: Option<Vec<path16402::Occluder>>,
+    prev: Option<Vec<path16402::Occluder>>,
 }
 
 impl Grid16402 {
@@ -2103,7 +2123,31 @@ impl Grid16402 {
             occ_prev: vec![0; n],
             epochs: [u32::MAX, u32::MAX],
             pf: path16402::PathFinder::new(arena.cols, arena.rows, costs.heuristic),
+            src_cur: None,
+            src_prev: None,
         }
+    }
+
+    fn saved(&self) -> GridSaved {
+        GridSaved { epochs: self.epochs, cur: self.src_cur.clone(), prev: self.src_prev.clone() }
+    }
+
+    /// The grid a snapshot describes: both arrays re-stamped from their saved lists by the
+    /// same `occlusion` a refresh calls, so they equal the live grid's cell for cell.
+    fn restore(arena: &Arena, calib: &Calib, saved: GridSaved) -> Grid16402 {
+        let mut g = Grid16402::new(arena, calib);
+        let n = g.occ_cur.len();
+        let stamp = |list: &Option<Vec<path16402::Occluder>>| match list {
+            Some(o) => path16402::occlusion(&g.terrain, o, &g.costs),
+            None => vec![0; n],
+        };
+        let (cur, prev) = (stamp(&saved.cur), stamp(&saved.prev));
+        g.occ_cur = cur;
+        g.occ_prev = prev;
+        g.epochs = saved.epochs;
+        g.src_cur = saved.cur;
+        g.src_prev = saved.prev;
+        g
     }
 
     /// Re-stamp when the building set changed. `obstacles` is Blue's list, which is
@@ -2122,6 +2166,7 @@ impl Grid16402 {
             .collect();
         std::mem::swap(&mut self.occ_prev, &mut self.occ_cur);
         self.occ_cur = path16402::occlusion(&self.terrain, &occluders, &self.costs);
+        self.src_prev = std::mem::replace(&mut self.src_cur, Some(occluders));
         self.epochs = epochs;
     }
 }
@@ -7076,6 +7121,11 @@ struct Snapshot {
     lifetime_acc: Vec<i32>,
     mana_unit: i64,
     mana_rate: [i64; 2],
+    /// The 16.402 path grid's history (`GridSaved`). Added after SNAPSHOT_FORMAT 20. `default`
+    /// (None) for a snapshot saved before it, or by a battle whose path model builds no grid:
+    /// that battle resumes with a fresh grid, as every load did before this field.
+    #[serde(default)]
+    grid16402: Option<GridSaved>,
     state_hash: u64,
 }
 
@@ -7369,8 +7419,11 @@ impl BattleState {
             lifetime_acc: self.lifetime_acc.clone(),
             mana_unit: self.mana_unit,
             mana_rate: self.mana_rate,
+            grid16402: self.scratch.grid16402.as_ref().map(Grid16402::saved),
             state_hash: self.state_hash(),
         };
+        #[cfg(clash_plant = "save_drops_path_grid")]
+        let snap = Snapshot { grid16402: None, ..snap }; // PLANT: the path grid's history is lost.
         #[cfg(clash_plant = "save_drops_rng")]
         let snap = Snapshot { rng: Rng::new(0), ..snap };
         #[cfg(clash_plant = "save_drops_knockback")]
@@ -7485,6 +7538,7 @@ impl BattleState {
             scratch: Scratch::default(),
             phase_trace: None,
         };
+        s.scratch.grid16402 = snap.grid16402.map(|g| Grid16402::restore(&s.cfg.arena, &s.cfg.calib, g));
         s.hash.rebuild(&s.ents);
         let got = s.hash_state(remap.is_some());
         #[cfg(not(clash_plant = "load_skips_selfcheck"))]
