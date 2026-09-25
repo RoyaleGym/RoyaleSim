@@ -279,6 +279,43 @@ def test_a_tap_of_a_spell_card_is_a_cast_whatever_the_log_record_says(m, tmp_pat
     assert {t["card"]: t["kind"] for t in taps}["Rage"] == "deploy"
 
 
+def test_a_cast_is_labelled_by_the_casters_elixir_drop_not_the_log_tick(m):
+    # 181741: the log's tick for a Rage repeated on lines written seconds apart, and tap + latency
+    # put the cast at 182 where the caster's elixir says 324. The label is the first frame at or
+    # after the tap on which the caster's pool falls by the card's cost.
+    ticks = [100, 101, 102, 104, 105, 106, 110]
+    # regen +200; a 2-elixir drop on 102; regen over a 2-tick gap; 3 elixir on 105; 2 on 106; regen
+    elixir = [90000, 90200, 70200, 70600, 40600, 20600, 21400]
+    assert m.first_cast_drop(ticks, elixir, 100, 2, set()) == 102
+    # the frame a matched deploy explains is skipped, and the next drop OF THE COST is taken
+    assert m.first_cast_drop(ticks, elixir, 100, 2, {102}) == 106
+    # a 3-elixir drop is not a 2-elixir card's
+    assert m.first_cast_drop(ticks, elixir, 103, 2, set()) == 106
+    assert m.first_cast_drop(ticks, elixir, 103, 3, set()) == 105
+    # nothing before the tap, nothing past the window, nothing where the capture has no value
+    assert m.first_cast_drop(ticks, elixir, 107, 2, set()) is None
+    assert m.first_cast_drop([0, 1 + m.CAST_DROP_WINDOW], [50000, 30000], 0, 2, set()) is None
+    assert m.first_cast_drop(ticks, [None] * len(ticks), 100, 2, set()) is None
+
+
+def test_a_log_without_its_own_side_takes_the_captures(m, tmp_path):
+    # Half the placement logs of 2026-09-18/19 carry no local_side_native record, and a cycled
+    # play carries no side of its own: every one of them was skipped (133849's Rages, 134739's).
+    # The capture knows its instance port and its side; the log's port says which it is.
+    log = tmp_path / "placements-20260918-134739-10001.jsonl"
+    tap = {"tick": 177, "cycled": "Rage", "tile": [14.5, 1.5], "for": "Giant"}
+    log.write_text(json.dumps(tap) + "\n", encoding="utf-8")
+    ids = {"Rage": 28000002}
+    taps, _ = m.read_placements([str(log)], {"Rage"}, ids, {"Rage"})
+    assert taps == [], "no side at all: skipped, as before"
+    taps, _ = m.read_placements([str(log)], {"Rage"}, ids, {"Rage"}, {"10001": 1})
+    assert [(t["side"], t["card"], t["kind"]) for t in taps] == [(1, "Rage", "cast")]
+    # the log's own record still wins over the default
+    log.write_text(json.dumps({"local_side_native": 0}) + "\n" + log.read_text(encoding="utf-8"), encoding="utf-8")
+    taps, _ = m.read_placements([str(log)], {"Rage"}, ids, {"Rage"}, {"10001": 1})
+    assert [t["side"] for t in taps] == [0]
+
+
 def test_fnv1a64_matches_the_harness_known_answers(m):
     # the same known answers tests/replay_parity.rs pins for harness.rs fnv1a64
     assert m.fnv1a64(b"") == "cbf29ce484222325"

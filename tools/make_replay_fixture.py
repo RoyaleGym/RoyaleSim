@@ -253,6 +253,7 @@ import gzip
 import json
 import math
 import os
+import re
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -269,6 +270,17 @@ OUT_DEFAULT = os.path.join(ROOT, "data", "derived", "replay")
 CENSUS = "card_census.json"
 
 FORMAT = "replay-fixture-1"
+#: The recording's five-digit tag at the end of a capture or placement-log file name
+#: (`...-NNNNN.jsonl`): one tag per seat of a battle, the same on that seat's capture and log.
+SEAT_FILE_TAG = re.compile(r"-(\d{5})(?=\.)")
+#: One elixir in the capture's `elixir_raw` units (module doc, ELIXIR).
+ELIXIR_UNIT = 10_000
+#: The most elixir a side regenerates in one tick (triple elixir: one elixir per ~0.93 s), so a
+#: drop measured across a frame gap is still recognised as a card's cost.
+ELIXIR_REGEN_MAX_PER_TICK = 540
+#: How far after its tap a cast's elixir drop is looked for, ticks: a stale log tick put one
+#: 167 ticks before its cast (181741).
+CAST_DROP_WINDOW = 400
 #: The one convention the harness plays (replay_parity/harness.rs DEPLOY_TICK_CONVENTION).
 DEPLOY_TICK_CONVENTION = "first_effect_frame"
 CAPTURE_SUFFIX = ".native.oracle.jsonl.gz"
@@ -649,6 +661,26 @@ def elixir_columns(frames: list[dict]) -> dict | None:
     return out
 
 
+def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
+    """The first frame tick at or after `tap_tick`, inside CAST_DROP_WINDOW ticks, on which one
+    side's `elixir` (per frame, aligned with `frame_ticks`; None where the capture has none) falls
+    by `cost` elixir -- within what the frame gap could regenerate -- on a tick not in `skip`
+    (frames a matched deploy already explains, drops an earlier cast claimed); None if none."""
+    for i in range(1, len(frame_ticks)):
+        tk = frame_ticks[i]
+        if tk < tap_tick:
+            continue
+        if tk > tap_tick + CAST_DROP_WINDOW:
+            break
+        a, b = elixir[i - 1], elixir[i]
+        if a is None or b is None or tk in skip:
+            continue
+        gap = tk - frame_ticks[i - 1]
+        if abs((a - b) - cost * ELIXIR_UNIT) <= ELIXIR_REGEN_MAX_PER_TICK * gap + ELIXIR_UNIT // 10:
+            return tk
+    return None
+
+
 def rle(values) -> list:
     """[v0, run0, v1, run1, ...]."""
     out: list = []
@@ -692,6 +724,7 @@ def read_placements(
     card_names: set[str],
     name_to_id: dict[str, int],
     spell_names: set[str] | None = None,
+    default_sides: dict[str, int] | None = None,
 ):
     """-> (taps, decks): taps = [{side, card, id, tick, native, kind, cycled}],
     decks = {side: [ids]}.
@@ -700,10 +733,16 @@ def read_placements(
     log's `actual` field reads "cast" on three records in the whole corpus, and a scripted
     cycle play (`{"cycled": "Rage", ...}`) carries none, so classing by `actual` alone made
     every cycled spell a troop deploy that matched no unit group and was dropped. Without
-    `spell_names` the record's own `actual` decides, as before (make_spell_impact_fixture)."""
+    `spell_names` the record's own `actual` decides, as before (make_spell_impact_fixture).
+
+    A log with no `local_side_native` record takes `default_sides[its file-name tag]` (the
+    capture's side for its own tag, the other side for the other seat's): half the logs of
+    2026-09-18/19 carry none, and without it every cycled play in them had no side and was
+    skipped."""
     taps, decks = [], {}
     for p in paths:
-        side = None
+        tag = SEAT_FILE_TAG.search(os.path.basename(p))
+        side = (default_sides or {}).get(tag.group(1)) if tag else None
         with open(p, encoding="utf-8") as fh:
             recs = [json.loads(line) for line in fh if line.strip()]
         for r in recs:
@@ -1053,7 +1092,17 @@ def build(
             groups[(e["side"], e["card_id"], e["first_index"])].append(e)
     # the taps are already in the game's frame (the log's own rule): not turned with the capture
     spell_names = {n for n, c in cards_by_name.items() if c.get("kind") == "spell"}
-    taps, decks = read_placements(placements, card_names, name_to_id, spell_names)
+    # the side of a log that does not record its own (read_placements): this capture's file-name
+    # tag is its header's local side, the other seat's tag the other side
+    own_tag = SEAT_FILE_TAG.search(os.path.basename(capture))
+    own_side = (header or {}).get("local_side_native")
+    default_sides: dict[str, int] = {}
+    if own_tag and own_side in (0, 1):
+        for pf in placements:
+            m = SEAT_FILE_TAG.search(os.path.basename(pf))
+            if m:
+                default_sides[m.group(1)] = own_side if m.group(1) == own_tag.group(1) else 1 - own_side
+    taps, decks = read_placements(placements, card_names, name_to_id, spell_names, default_sides)
     used_taps: set[int] = set()
     deploys = []
     latencies = []
@@ -1219,10 +1268,51 @@ def build(
         deploys.append(d)
     median_latency = int(statistics.median(latencies)) if latencies else None
     unresolved = []
+    # AN ENTITY-LESS CAST IS LABELLED BY THE CASTER'S ELIXIR, not by tap + latency: a cast's
+    # cost leaves the pool on its first effect frame (a Fireball's elixir drops on its first
+    # projectile frame; a Rage bottle appears on its elixir drop), and a placement log's tick can
+    # be stale (181741: one tick repeated on three lines written seconds apart, a Rage labelled
+    # 182 that the elixir puts at 324). The first frame at or after the tap, inside
+    # CAST_DROP_WINDOW ticks, on which the caster's elixir falls by the card's cost (less what
+    # the frame gap could regenerate), on a frame no matched deploy of that side already
+    # explains, each drop claimed once. A capture without elixir keeps tap + median latency.
+    elixir_by_side: dict[int, list] = {0: [], 1: []}
+    for f in frames:
+        pair = f.get("elixir_raw")
+        for es in (0, 1):
+            v = pair[es] if isinstance(pair, list) and len(pair) == 2 else None
+            elixir_by_side[es].append(v if isinstance(v, int) and not isinstance(v, bool) else None)
+    has_elixir = any(v is not None for col in elixir_by_side.values() for v in col)
+    frame_ticks = [f["tick"] for f in frames]
+    explained = {(d["side"], d["tick"]) for d in deploys}
+    claimed: set[tuple[int, int]] = set()
+
+    def cast_drop(side: int, tap_tick: int, cost: int) -> int | None:
+        skip = {tk for (s2, tk) in explained | claimed if s2 == side}
+        tk = first_cast_drop(frame_ticks, elixir_by_side.get(side) or [], tap_tick, cost, skip)
+        if tk is not None:
+            claimed.add((side, tk))
+        return tk
+
     for ix, t in enumerate(taps):
         if ix in used_taps or t["kind"] != "cast":
             continue
-        if t["id"] is None or median_latency is None or not t["native"]:
+        if until_tick is not None and t["tick"] > until_tick:
+            # past a --until-tick cut: not this fixture's, and not worth an unresolved line
+            continue
+        deck = decks.get(t["side"])
+        if deck and t["id"] is not None and t["id"] not in deck:
+            # 005517: a side-1 "Rage" from a placements line whose player's deck has no Rage.
+            unresolved.append(
+                {
+                    "tick": t["tick"],
+                    "side": t["side"],
+                    "card": t["card"],
+                    "why": "the card is not in the caster's recorded deck",
+                }
+            )
+            continue
+        if t["id"] is None or (median_latency is None and not has_elixir) or not t["native"]:
             unresolved.append(
                 {
                     "tick": t["tick"],
@@ -1235,15 +1325,45 @@ def build(
                 }
             )
             continue
+        if has_elixir and frame_ticks and not frame_ticks[0] <= t["tick"] <= frame_ticks[-1]:
+            # a placements log covers the whole battle; a capture split into parts (.b1, .b2)
+            # covers one stretch of it, and a tap outside that stretch is not this fixture's
+            unresolved.append(
+                {
+                    "tick": t["tick"],
+                    "side": t["side"],
+                    "card": t["card"],
+                    "why": "the tap is outside this capture's frames",
+                }
+            )
+            continue
         name = id_table.get(t["id"])
-        est = t["tick"] + median_latency
+        if has_elixir:
+            cost = (cards_by_name.get(name) or {}).get("elixir")
+            est = cast_drop(t["side"], t["tick"], cost) if isinstance(cost, int) else None
+            if est is None:
+                unresolved.append(
+                    {
+                        "tick": t["tick"],
+                        "side": t["side"],
+                        "card": t["card"],
+                        "why": f"no elixir drop of its cost ({cost}) on the caster's side within"
+                        f" {CAST_DROP_WINDOW} ticks of the tap",
+                    }
+                )
+                continue
+            evidence = f"elixir drop of {cost} on side {t['side']} at {est} (tap tick {t['tick']})"
+            timing = "elixir_drop"
+        else:
+            est = t["tick"] + median_latency
+            evidence, timing = f"tap tick {t['tick']} + median latency {median_latency}", "estimated"
         if until_tick is not None and est > until_tick:
             continue
         deploys.append(
             {
                 "tick": est,
                 "first_seen": None,
-                "tick_evidence": f"tap tick {t['tick']} + median latency {median_latency}",
+                "tick_evidence": evidence,
                 "side": t["side"],
                 "card": name,
                 "card_id": t["id"],
@@ -1253,7 +1373,7 @@ def build(
                 "keys": [],
                 "pos": list(t["native"]),
                 "source": "tap_tile",
-                "timing": "estimated",
+                "timing": timing,
                 "tap": {
                     "tick": t["tick"],
                     "native": t["native"],
