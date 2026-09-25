@@ -2454,6 +2454,17 @@
       "promotion_rules": "SETTLED 2026-09-24 (see provenance): the dot < 0 scenario split kept from skipped_by_avoidance.",
       "engine": "state.rs Calib::deploying_heading, read where phase_path16402 builds each body's heading_counts"
     },
+    "WAITING_HEADING": {
+      "value": "kept",
+      "candidates": ["kept", "zeroed"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm kept, which is today's engine: on client 15.535.29 a walker steers around a friendly member that is waiting out its stagger. HIGH for zeroed on the 15.535.29 walking Knight, whose only near neighbour is a waiting one; MEDIUM on the other walking summon-push scenarios, measured by a proxy (see provenance); the 16.402 corpus has only 214 moving unit-ticks with a waiting friendly unit in reach, so its confirmation is the scored run, not a census",
+      "provenance": "MEASURED on client 15.535.29, summon-push scenarios: a Knight, a Skeletons or an Ice Spirits deploy, then a Goblins deploy on the side of the first unit, walking and standing, both sides. Under formation.STAGGER_WAIT = client16402_untargetable_immovable the six standing scenarios reproduce exactly, and the six walking ones stay at 724 of 832 unit-ticks within 250. The loss starts on the tick the Goblins land: the walking Knight (side 0, tap (4499, 9500)) meets a waiting Goblin 365 behind its left shoulder and steps (80, 121) in the game against (20, 156) in the engine, 309 off three ticks later. Counting the waiting members as blockers in the walker's avoidance vote puts the Knight on the game's (4431, 10735) exactly and within 49 through tick 146, the ticks on which its only neighbour within 1600 is a waiting Goblin. The six walking scenarios go to 828 of 832 when EVERY deploying unit is counted as a blocker; that is a proxy for this arm, and on 54 walker-ticks of those scenarios a deploying neighbour is within 1600 too, so this arm's own figure there is a prediction. A deploying member (state 4) is not a blocker: movement.DEPLOYING_HEADING = kept is measured on the 15.535.29 archer-alone scenario and on four 16.402 corpus events, and zeroing EVERY deploying unit takes the 16.402 corpus from 82.27% to 71.45% within 250. So the rule is specific to the waiting state.",
+      "meaning": "zeroed: a member waiting out its formation stagger (formation.STAGGER_WAIT at its measured arm) does not steer its neighbours by heading; a walker's avoidance vote counts it as a blocker, as it counts an attacking unit. Once the wait ends it is an ordinary deploying unit and keeps its heading (movement.DEPLOYING_HEADING). kept: today's engine, a waiting member keeps its forward heading like a deploying one. Under formation.STAGGER_WAIT = deploying no member waits, so the two arms are the same.",
+      "open": "The 16.402 corpus has 214 moving unit-ticks with a same-side waiting unit within 1600 (Skeletons 132, Ice Spirits 38, Bomber 38, Giant 6), against 1,954 with a deploying one: the scored run decides it there.",
+      "promotion_rules": "Score zeroed with replay_parity --calibration-override on a build where formation.STAGGER_WAIT is at its measured arm, on the corpus and the 15.535.29 summon-push scenarios, then flip.",
+      "engine": "state.rs, where the move pass builds each body's heading_counts: false for a member whose stagger wait is running (formation.STAGGER_WAIT client16402 and stagger_ms > 0) under zeroed"
+    },
     "STOMP_PAUSE_SCHEDULE": {
       "value": "ms_clock",
       "status": "measured",

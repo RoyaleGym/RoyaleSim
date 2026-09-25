@@ -220,6 +220,10 @@ pub struct Calib {
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
     pub deploying_heading: DeployingHeading,
+    /// movement.WAITING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is `Kept`,
+    /// which is what a battle saved before this key actually ran.
+    #[serde(default = "waiting_heading_default")]
+    pub waiting_heading: WaitingHeading,
     /// spawner.RELEASE_TIMING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `NextSpawnPhase`, which is what a battle saved before this key actually ran. Read
     /// through `BattleState::release_timing`, so the regression plant can force the old arm.
@@ -498,6 +502,10 @@ fn attacking_unit_movement_default() -> AttackingUnitMovement {
 
 fn deploying_heading_default() -> DeployingHeading {
     DeployingHeading::Zeroed
+}
+
+fn waiting_heading_default() -> WaitingHeading {
+    WaitingHeading::Kept
 }
 
 fn release_timing_default() -> ReleaseTiming {
@@ -857,6 +865,18 @@ calib_enum!(
         Kept = "kept",
         /// The earlier reading: a deploying unit's heading is zeroed, the dot is 0, and
         /// the walker counts it as a blocker and steers round it.
+        Zeroed = "zeroed"
+    }
+);
+calib_enum!(
+    /// movement.WAITING_HEADING -- what the heading of a member still WAITING OUT ITS STAGGER
+    /// (formation.STAGGER_WAIT's measured arm, entity.rs `stagger_ms` > 0) counts for in a
+    /// walker's avoidance vote. A deploying member is DEPLOYING_HEADING's, not this key's.
+    WaitingHeading {
+        /// Today's engine: a waiting member is a deploying unit here too (DEPLOYING_HEADING).
+        Kept = "kept",
+        /// Measured on client 15.535.29's walking summon-push scenarios: the waiting member's
+        /// heading is zeroed, so a walker counts it as a blocker and steps away from it.
         Zeroed = "zeroed"
     }
 );
@@ -1567,6 +1587,7 @@ impl Calib {
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
+            waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
             post_kill_wait: pick(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "arm"], PostKillWait::from_calibration_name)?,
             post_kill_wait_units: v
@@ -3847,7 +3868,11 @@ impl BattleState {
                         // its forward heading under movement.DEPLOYING_HEADING = kept;
                         // `zeroed` is the earlier reading, which counted it as a
                         // blocker and turned a same-facing walker 72 degrees.
-                        heading_counts: e.attack_phase[i] == AttackPhase::Idle && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept),
+                        // movement.WAITING_HEADING = zeroed: a member still waiting out its stagger is a
+                        // blocker, whatever DEPLOYING_HEADING says of a deploying one.
+                        heading_counts: e.attack_phase[i] == AttackPhase::Idle
+                            && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
+                            && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
                     }
                 })
                 .collect();
