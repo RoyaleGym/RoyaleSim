@@ -1771,6 +1771,14 @@
       "proposed_value": "radial_from_contact_point, once it is implemented in spell.rs and the corpus parity run does not get worse. Left unflipped here because a value change alters engine behaviour and must ride one announced rebuild with a parity score beside it.",
       "promotion_rules": "The ruling settles the SIGN, not the vector. (a) a victim standing 1 tile BEHIND the tap is still unrecorded: forward under travel_direction and under radial_from_contact_point, backward under radial_from_projectile_centre; it separates the two radial readings and nothing else does. (b) a victim struck well off the roll axis is ANSWERED (measured_2026_09_22): diagonal, and matching the contact-point source. What would still move the fitted radius: Log pushes on victims whose CollisionRadius is not 500 or 750, which the corpus does not yet carry.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted. radial_from_projectile_centre therefore STAYS implemented in spell.rs although it is not shipped -- it is a listed candidate, and it is the regression plant. Under DISPLACEMENT_LAW = client16402 the ruling composes with the ladder through the SOURCE POINT (spell.rs roll): the ladder pushes away from a point, so travel_direction hands it the point one native unit behind the victim on the roll axis -- (dx, dy) = (0, fwd), d = 1, the target exactly Pushback down the axis with no sideways component; radial_from_projectile_centre hands it the contact point."
+    },
+    "ROLLING_CONTACT_RADIUS": {
+      "value": 475,
+      "units": "native",
+      "status": "measured",
+      "confidence": "MEDIUM: one parameter fitted to four recorded Log pushes (the 16.402 corpus), residual 4.8 native RMS out of a 520 push. Read only under knockback.DIRECTION_ROLLING = radial_from_contact_point.",
+      "provenance": "MEASURED 2026-09-22 on the 16.402 corpus. Four Log pushes carry the knockback ladder exactly (150, 125, 100, 75, 50, 25 native per tick, total 520), so they are knockback and not walking: a Knight 1.664 tiles off the roll axis pushed (450, 261), and Giants 0.173, 0.275 and 0.722 tiles off pushed (-73, 516), (-105, 510) and (-265, 447). A push away from a source on the roll axis one disc-sum behind the victim (this radius plus the victim's own) fits all four with this one free parameter at 475 native. It is not a data column: the roll's RadiusY is 600.",
+      "engine": "spell.rs step_rolling, the radial_from_contact_point source point (both displacement laws)"
     }
   },
   "status": {

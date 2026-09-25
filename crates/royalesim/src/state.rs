@@ -281,6 +281,11 @@ pub struct Calib {
     pub knock_affects_deploying: bool,
     /// knockback.DIRECTION_ROLLING.
     pub knock_direction_rolling: RollDirection,
+    /// knockback.ROLLING_CONTACT_RADIUS, native: the Log's contact radius the
+    /// radial_from_contact_point arm reads. `default` 0: read only under that arm, which no
+    /// battle saved before this field ran.
+    #[serde(default)]
+    pub knock_rolling_contact_radius: i32,
     /// status.STUN_ATTACK_TIMER_MODEL.
     pub stun_attack_timer: StunTimerModel,
     /// status.STUN_RETARGET_ON_RESUME.
@@ -763,7 +768,14 @@ calib_enum!(
 );
 calib_enum!(
     /// knockback.DIRECTION_ROLLING.
-    RollDirection { RadialFromCentre = "radial_from_projectile_centre", TravelDirection = "travel_direction" }
+    RollDirection {
+        RadialFromCentre = "radial_from_projectile_centre",
+        TravelDirection = "travel_direction",
+        /// Away from a source on the roll axis, one disc-sum (knockback.ROLLING_CONTACT_RADIUS
+        /// plus the victim's radius) behind the victim along the caster's forward axis: fitted
+        /// to the four recorded Log pushes at 4.8 RMS of 520 (the 16.402 corpus).
+        RadialFromContactPoint = "radial_from_contact_point",
+    }
 );
 calib_enum!(
     /// status.STUN_ATTACK_TIMER_MODEL.
@@ -1619,6 +1631,7 @@ impl Calib {
             knock_attack_reset: pick(&v, &["knockback", "ATTACK_RESET", "value"], KnockAttackReset::from_calibration_name)?,
             knock_affects_deploying: boolean(&v, &["knockback", "AFFECTS_DEPLOYING_UNITS", "value"])?,
             knock_direction_rolling: pick(&v, &["knockback", "DIRECTION_ROLLING", "value"], RollDirection::from_calibration_name)?,
+            knock_rolling_contact_radius: int(&v, &["knockback", "ROLLING_CONTACT_RADIUS", "value"])?,
             stun_attack_timer: pick(&v, &["status", "STUN_ATTACK_TIMER_MODEL", "value"], StunTimerModel::from_calibration_name)?,
             stun_retarget_on_resume: boolean(&v, &["status", "STUN_RETARGET_ON_RESUME", "value"])?,
             resume_retarget_windup: pick(&v, &["status", "RESUME_RETARGET_WINDUP", "value"], ResumeWindup::from_calibration_name)?,

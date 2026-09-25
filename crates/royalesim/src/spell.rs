@@ -547,6 +547,11 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                     let src = match ctx.calib.knock_direction_rolling {
                         RollDirection::TravelDirection => Vec2::new(vn.x, vn.y - fwd),
                         RollDirection::RadialFromCentre => Vec2::new(contact.x / K, contact.y / K),
+                        // On the roll axis, one disc-sum behind the victim (D9): always behind it,
+                        // so the push is never toward the caster.
+                        RollDirection::RadialFromContactPoint => {
+                            Vec2::new(contact.x / K, vn.y - fwd * (ctx.calib.knock_rolling_contact_radius + e.radius[v] / K))
+                        }
                     };
                     fx.knocks.push(Knock::Push { id, src, strength: k.distance / K, caster: team });
                     continue;
@@ -560,6 +565,11 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                     // along-offsets -1 to -(half_depth + victim radius) a full tile BACK
                     // toward the caster, in both seats.
                     RollDirection::RadialFromCentre => push_along(e.pos[v].sub(contact), k.distance, Some(along)),
+                    // The same source as the client16402 law's, in world units.
+                    RollDirection::RadialFromContactPoint => {
+                        let src = Vec2::new(contact.x, e.pos[v].y - fwd * (ctx.calib.knock_rolling_contact_radius * K + e.radius[v]));
+                        push_along(e.pos[v].sub(src), k.distance, Some(along))
+                    }
                     // SELECTED. In the live game the Log's push is never backward, always
                     // forward: every victim it touches goes exactly Pushback along the
                     // caster's forward axis, with no sideways component, including one
