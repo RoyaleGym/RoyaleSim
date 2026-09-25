@@ -1059,6 +1059,21 @@ impl Battle {
         Ok(s.building_placement(t, idx, Vec2::new(x, y)).map(|(c, b)| (c.x, c.y, vec![b.min.x, b.min.y, b.max.x, b.max.y])))
     }
 
+    /// THE MEMBERS A DEPLOY WOULD LAY: (unit name, x, y, deploy ms) for `card_name` played by
+    /// `team` at (x, y) SUBTILES, in creation order, under this battle's calibration
+    /// (formation.LAYOUT, DEPLOY_STAGGER, GROUND_Y_CLAMP, GROUND_DEPLOY_POINT). Pure: nothing is
+    /// deployed. The point is taken as given (no snap, no relocation): the formation law alone.
+    fn formation_preview(&self, team: i64, card_name: &str, x: i32, y: i32) -> PyResult<Vec<(String, i32, i32, i32)>> {
+        let s = self.s()?;
+        let t = match team {
+            0 => Team::Blue,
+            1 => Team::Red,
+            _ => return Err(PyValueError::new_err("team must be 0 or 1")),
+        };
+        let members = s.formation_preview(t, card_name, Vec2::new(x, y)).map_err(|e| PyValueError::new_err(format!("{e:?}")))?;
+        Ok(members.into_iter().map(|(name, p, ms)| (name, p.x, p.y, ms)).collect())
+    }
+
     /// `apply_commands` (validate against the current state; apply accepted
     /// deploys in canonical (team, slot) order), then run up to `ticks` ticks with
     /// the GIL released, stopping at game over. Returns (card_id, reason, tick
