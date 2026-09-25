@@ -65,9 +65,9 @@ pub const FORMAT: &str = "replay-fixture-1";
 
 /// THE ONE DEPLOY-TICK CONVENTION THIS HARNESS PLAYS: a deploy's `tick` is the first frame its
 /// effect exists in the game (a troop's units on the board, a spell's first frame), and the
-/// harness issues it at `tick - 1` (module doc). On 2026-09-24 the kernel fixtures were briefly
+/// harness issues it at `tick - 1` (module doc). On 2026-09-24 the 15.535.29 scenario fixtures were briefly
 /// relabelled to the ISSUE tick; the harness read those labels under this convention and issued
-/// every kernel deploy one tick early, and a scenario scored 180 of 180 ticks within 250 with
+/// every scenario deploy one tick early, and a scenario scored 180 of 180 ticks within 250 with
 /// 0 exact, which read as a fix. Nothing in a fixture said which convention it used, so nothing
 /// could refuse it. Now a fixture must say, and `Fixture::from_str` refuses one that does not.
 pub const DEPLOY_TICK_CONVENTION: &str = "first_effect_frame";
@@ -158,7 +158,7 @@ pub struct Deploy {
     /// The first frame tick the group was seen on (>= tick when frames were missed).
     #[serde(default)]
     pub first_seen: Option<u32>,
-    /// The tick the deploy was ISSUED on, where the generator knows it (the kernel
+    /// The tick the deploy was ISSUED on, where the generator knows it (the 15.535.29 scenario
     /// emitter does; a corpus capture does not). When present it must be `tick - 1`, the
     /// tick this harness issues on; `Fixture::from_str` refuses a disagreement rather than
     /// letting one of the two labels shift the play.
@@ -312,7 +312,7 @@ pub struct Row {
     pub y: i32,
     pub hp: i32,
     /// The target's generation key, -1 for none; `None` when the frame did not RECORD one.
-    /// The kernel emitter leaves it null on 1,688 of 70,843 present unit-frames, mostly while
+    /// The 15.535.29 scenario fixtures leave it null on 1,688 of 70,843 present unit-frames, mostly while
     /// deploying but 64 of them attacking, so null is "not recorded", never "no target".
     pub target: Option<i64>,
     pub path_n: i32,
@@ -344,7 +344,7 @@ impl TruthTable {
             let mut r = Vec::with_capacity(e.n);
             for i in 0..e.n {
                 // ON THE BOARD IS DECIDED BY POSITION AND HIT POINTS. A missing TARGET made the
-                // whole row absent, so every kernel unit read "gone in the truth" for its
+                // whole row absent, so every scenario unit read "gone in the truth" for its
                 // deploy frames and every fixture's first divergence was a death at t101 that
                 // never happened. The target is an attribute of a present unit, not evidence
                 // of presence.

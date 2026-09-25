@@ -1,11 +1,11 @@
 //! A DEPLOYING NEIGHBOUR'S HEADING -- calibration movement.DEPLOYING_HEADING = kept.
 //!
-//! THE SCENE is the 15.535.29 kernel's archer-alone: two Blue Archers tapped on the tile centre
-//! (12500, 13500), issued on tick 100. Both clients agree on every number pinned here (the kernel
+//! THE SCENE is the client 15.535.29 archer-alone scenario: two Blue Archers tapped on the tile centre
+//! (12500, 13500), issued on tick 100. Both clients agree on every number pinned here (client 15.535.29
 //! and four of four comparable 16.402 corpus events, three of them mirrored). The first member
 //! leaves deploy on 120 and walks; the second is still deploying through 121 and leaves on 122.
 //!
-//!   frame 121   walker (12017,13556)   idle (13016,13500)   -- the scene reproduces the kernel
+//!   frame 121   walker (12017,13556)   idle (13016,13500)   -- the scene reproduces client 15.535.29
 //!   frame 122   walker step (31,51)    idle step (27,-3)    -- the walker goes STRAIGHT; the idle
 //!                                                               member is pushed from the walker's
 //!                                                               post-move position
@@ -18,7 +18,7 @@
 //!
 //! THE MECHANISM, and why the premise is asserted. "A deploying unit keeps its forward heading"
 //! and "deploying units are skipped by avoidance" agree whenever the two face the same way, as
-//! here. A kernel scenario built to split them (a Knight chasing backward into a deploying Giant
+//! here. A 15.535.29 scenario built to split them (a Knight chasing backward into a deploying Giant
 //! that faces forward) steers at look reach, before contact, so the heading counts and the skip is
 //! ruled out (ledger provenance). This test still asserts the premise it relies on -- the
 //! deploying member faces the walker's way -- so a scene that stops meeting it fails rather than
@@ -45,8 +45,8 @@ struct Frame {
     idle_facing: Vec2,
 }
 
-/// The kernel's archer-alone, frames 101..=124. The walker is the member that spawned at the
-/// smaller x (the kernel's 11999; the other at 13000).
+/// The 15.535.29 archer-alone scenario, frames 101..=124. The walker is the member that spawned at the
+/// smaller x (15.535.29: 11999; the other at 13000).
 fn archer_alone(cfg: BattleConfig) -> BTreeMap<u32, Frame> {
     let mut s = BattleState::new(0, cfg);
     while s.tick_count() < 100 {
@@ -80,7 +80,7 @@ fn a_walker_goes_straight_past_a_same_facing_neighbour_that_is_still_deploying()
     assert_eq!(config().calib.deploying_heading, DeployingHeading::Kept, "the shipped arm this test pins");
     let f = archer_alone(config());
     // THE SCENE, before the split: if these move, the numbers below are about another scene.
-    assert_eq!((f[&121].walker, f[&121].idle), ((12017, 13556), (13016, 13500)), "the scene no longer reproduces the kernel on frame 121, before the split");
+    assert_eq!((f[&121].walker, f[&121].idle), ((12017, 13556), (13016, 13500)), "the scene no longer reproduces client 15.535.29 on frame 121, before the split");
     // THE PREMISE the data cannot split without: on the tick the walker's move pass reads, the
     // idle member is still deploying AND faces the walker's way.
     let fr = &f[&121];

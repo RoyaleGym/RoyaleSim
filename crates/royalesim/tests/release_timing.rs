@@ -8,14 +8,14 @@
 //! tick after -- ONE FRAME MORE than an ordinary deploy of the same DeployTime, which counts down
 //! on its own first frame. That one frame is the discriminator every test here reads:
 //!
-//!   kernel barrel (1100 ms):   first 147, deploying 147..168 (22), first step 170 = first + 23
+//!   15.535.29 barrel (1100 ms):   first 147, deploying 147..168 (22), first step 170 = first + 23
 //!   ordinary deploy (1000 ms): first 101, deploying 101..119 (19), first step 121 = first + 20
 //!   corpus BattleRam death:    Barbarians (1000 ms) first on the ram's last live frame + 1,
 //!                              deploying 20 frames
 //!   corpus Golem death:        Golemites (no deploy time) first on last live + 1, moving, first
 //!                              displaced on first + 1
 //!
-//! The tests pin the RELATIONS, not the kernel's absolute ticks (those depend on the cast tick
+//! The tests pin the RELATIONS, not the 15.535.29 absolute ticks (those depend on the cast tick
 //! and the tap snap). Every DeployTime is read from the data. The foil runs the earlier arm,
 //! `next_spawn_phase`, by name, and pins what it did: every release a tick late, with the
 //! countdown already run on its first frame. Plant `release_deferred` turns the first three red.
@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 const K: i32 = 18;
 
 /// A step off the spawn point, native units: more than the 2-3 native separation nudges a
-/// deploying unit takes (the kernel barrel's two nudged members on its second frame).
+/// deploying unit takes (the 15.535.29 barrel's two nudged members on its second frame).
 const STEP_NATIVE: i32 = 20;
 
 fn cards_json() -> serde_json::Value {
@@ -152,12 +152,12 @@ fn a_barrels_goblins_exist_on_its_vanishing_frame_and_deploy_one_frame_longer_th
     for l in lives.values() {
         assert_eq!(l.first, vanish, "a goblin first exists on {}, the barrel vanished on {vanish}: both clients show them on the vanishing frame", l.first);
         assert_eq!((l.first_deploy_ms, l.first_deploying), (d, true), "on its first frame a released unit has its whole SpawnCharacterDeployTime left: nothing counted down");
-        assert_eq!(l.deploying_frames as i32, d / tick_ms, "a released unit deploys DeployTime / TICK_MS frames (the kernel's 22 for 1100 ms)");
+        assert_eq!(l.deploying_frames as i32, d / tick_ms, "a released unit deploys DeployTime / TICK_MS frames (15.535.29: 22 for 1100 ms)");
         assert_eq!(l.first_not_deploying, Some(l.first + (d / tick_ms) as u32), "first frame not deploying");
-        assert_eq!(l.first_step, Some(l.first + (d / tick_ms) as u32 + 1), "first step one tick after the deploy ends (the kernel's first + 23)");
+        assert_eq!(l.first_step, Some(l.first + (d / tick_ms) as u32 + 1), "first step one tick after the deploy ends (15.535.29: first + 23)");
     }
     // THE DISCRIMINATOR: an ordinary deploy counts down on its own first frame, so it deploys
-    // one frame FEWER than its DeployTime / TICK_MS -- the kernel's 19 frames for 1000 ms.
+    // one frame FEWER than its DeployTime / TICK_MS -- the 15.535.29 figure, 19 frames for 1000 ms.
     let knight_ms = cards_json()["units"]["Knight"]["deploy_time_ms"].as_i64().unwrap() as i32;
     let k = ordinary("Knight");
     assert_eq!(k.deploying_frames as i32, knight_ms / tick_ms - 1, "an ordinary deploy deploys DeployTime / TICK_MS - 1 frames");

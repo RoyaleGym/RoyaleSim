@@ -684,7 +684,7 @@ impl Arena {
     /// THAT WARNING WAS TESTED AND HELD, 2026-09-23: the engine-frame reading was shipped for
     /// about an hour and RoyaleGym's seat-rotation gate went red at x = W/2 exactly, on the one
     /// seed of three where a unit stood there. See targeting.CENTRE_LANE_FRAME, which keeps both
-    /// arms runnable and records that the kernel measurement does NOT separate them.
+    /// arms runnable and records that the 15.535.29 measurement does NOT separate them.
     ///
     /// NOT EVERY CALLER WANTS A FRAME x, AND `path.rs` IS NOT A BUG. Bridge selection passes an
     /// ENGINE x deliberately: the bridges are symmetric about W/2 and that is a different law

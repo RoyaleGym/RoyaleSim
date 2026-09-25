@@ -129,14 +129,14 @@ def test_the_pull_stops_with_the_area_effect_and_not_with_the_buff():
 
 
 # ---------------------------------------------------------------------------------------------
-# PAIRED CONTROLS, the kernel's own method: the same battle run with and without the Tornado.
+# PAIRED CONTROLS, as client 15.535.29 was measured: the same battle with and without the Tornado.
 # The engine is deterministic, so the two runs are identical until the Tornado first acts, and
 # the displacement between them on that tick IS the pull -- no model of the victim's walk.
 # ---------------------------------------------------------------------------------------------
 
 PAIRED_DECK = ["Tornado", "Zap", "Snowball", "Knight", "Archer", "Musketeer", "Giant", "Minions"]
 P_TORNADO, P_ZAP, P_SNOWBALL, P_KNIGHT = 0, 1, 2, 3  # hand slots: no shuffle, the first four
-#: an unbuffed Knight's pull, trunc(60 * 360 / 100), and the kernel's measured figure
+#: an unbuffed Knight's pull, trunc(60 * 360 / 100), and the 15.535.29 measured figure
 KNIGHT_PULL = 216
 
 
@@ -185,7 +185,7 @@ def paired_first_pull(setup_slot, in_state):
 
 
 def test_a_stunned_victim_is_still_pulled():
-    """status.ATTRACT_WHILE_HELD = pulled. The kernel pulls a Zap-stunned Knight 216.1.
+    """status.ATTRACT_WHILE_HELD = pulled. Client 15.535.29 pulls a Zap-stunned Knight 216.1.
 
     The hold stops the WALK. It must not anchor the unit: the engine used to skip the move pass
     for a held unit, and the pull lives in that pass, so a stunned victim was never moved.
@@ -196,7 +196,7 @@ def test_a_stunned_victim_is_still_pulled():
 
 
 def test_the_pull_ignores_a_slow():
-    """status.ATTRACT_LAW = base_speed. The kernel pulls a slowed Knight 215.7, not its slowed figure.
+    """status.ATTRACT_LAW = base_speed. Client 15.535.29 pulls a slowed Knight 215.7, not its slowed figure.
 
     THE PREMISE IS CHECKED, not assumed: the Knight must actually be walking slower than its own
     ~59 on the measured tick, or a "216" here would be an unslowed Knight passing for a slowed one.
@@ -208,5 +208,5 @@ def test_the_pull_ignores_a_slow():
     )
     assert abs(pull - KNIGHT_PULL) <= 3, (
         f"a slowed Knight (step {step:.1f}) was pulled {pull:.1f}: the pull followed the buffed "
-        f"speed, where the kernel pulls the unbuffed {KNIGHT_PULL}"
+        f"speed, where client 15.535.29 pulls the unbuffed {KNIGHT_PULL}"
     )

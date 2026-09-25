@@ -89,7 +89,7 @@ fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
 /// bridge toward Blue's engine-left princess tower and into the Tesla's sight.
 /// Far from every crown tower's reach until well after the first shot.
 /// THE FOIL ARM OF hide.TARGETABLE_WHILE_RISING, by name. The shipped value is `true` since
-/// 2026-09-24 (measured on the 15.535.29 kernel: a Knight locks on a Tesla while it rises). The
+/// 2026-09-24 (measured on client 15.535.29: a Knight locks on a Tesla while it rises). The
 /// tests that take this config are about the hide STATE MACHINE -- when the Tesla goes under,
 /// when it rises, when a swing is cancelled -- and they were written when a rising Tesla could
 /// not be targeted; under the shipped arm "going under" includes no untargetable rise, so they
@@ -695,7 +695,7 @@ fn the_loader_refuses_a_partial_hide_block_and_reads_teslas_whole() {
 
 #[test]
 fn under_the_shipped_arm_a_knight_targets_a_rising_tesla_before_it_is_up() {
-    // hide.TARGETABLE_WHILE_RISING = true, MEASURED on the 15.535.29 kernel: the Tesla starts
+    // hide.TARGETABLE_WHILE_RISING = true, MEASURED on client 15.535.29: the Tesla starts
     // rising on 240 and the Knight locks on at 241, fifteen ticks before it is up. The engine
     // locks on the rise tick itself, one tick earlier (the key's `open` field). So this asserts
     // only what the measurement settles -- the lock lands WHILE the Tesla is rising -- and not

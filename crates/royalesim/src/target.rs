@@ -309,7 +309,7 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         // THE LANE IS DECIDED IN THE ATTACKER'S OWN FRAME, with the centre line going
         // own-left. targeting.CENTRE_LANE_FRAME, and the ledger entry carries the history.
         //
-        // WHAT THE NATIVE KERNEL ACTUALLY SETTLED, 2026-09-23, 12 scenarios over 2 cards x 2
+        // WHAT CLIENT 15.535.29 ACTUALLY SETTLED, 2026-09-23, 12 scenarios over 2 cards x 2
         // seats x deploy x in {8999, 9000, 9001}: from engine x = 8500 both seats walk to the
         // engine-LEFT princess and from x = 9500 both walk to the engine-RIGHT one. **THE
         // OWN-FRAME RULE REPRODUCES ALL TWELVE ROWS.** So does an engine-frame rule. The
@@ -322,7 +322,7 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         // experiment ever stood on the centre line, so nothing measured the point where the
         // rules disagree.
         //
-        // WHY THIS ARM AND NOT THE OTHER, given the kernel is silent. The own-frame rule is
+        // WHY THIS ARM AND NOT THE OTHER, given the 15.535.29 scenarios are silent. The own-frame rule is
         // seat-symmetric at every x; the engine-frame rule breaks the 180-degree rotation at
         // x = W/2 exactly. That asymmetry is not free: both seats share one policy head and
         // the observation is built in the acting side's own frame precisely so that Blue and
@@ -333,7 +333,7 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         // prior for this arm.
         //
         // WHAT LOOKED LIKE A DEFECT HERE WAS A DEPLOY POSITION. The replay harness spawned
-        // the oracle's fixtures at their raw tap (x = 9000, a tile CORNER) where the kernel
+        // the scenario fixtures at their raw tap (x = 9000, a tile CORNER) where the client
         // spawns at the tile centre (9500). At 9500 this rule already returns engine-right and
         // already agrees. The engine only walked the wrong way because it was standing where
         // the game never puts a unit. Confirmed by the shape of the disagreement: across all

@@ -1,7 +1,7 @@
 """A listed attacker whose target dies waits six ticks before it takes the next one
 (combat.POST_KILL_RETARGET_WAIT).
 
-WHAT THIS PINS. In the 16.402 corpus and on the 15.535.29 kernel, a Knight whose victim dies keeps
+WHAT THIS PINS. In the 16.402 corpus and on client 15.535.29, a Knight whose victim dies keeps
 attacking-state with NO target for six ticks, standing still, even with another enemy already in
 range, and takes that enemy on the loss + 6. The engine took it on the loss + 1, so every direct
 hitter walked (or swung) five ticks early after every kill, and every Prince charge that followed a
