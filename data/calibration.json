@@ -1054,7 +1054,13 @@
         8
       ],
       "promotion_rules": "SETTLED 2026-09-25 (see provenance). 7 is the 2018 globals row, the old arm.",
-      "engine": "state.rs Calib::from_json: tower_dmg_pct.king, applied by tower_multiplier_percent in spawn_now"
+      "engine": "state.rs Calib::from_json: tower_dmg_pct.king, applied by tower_multiplier_percent in spawn_now",
+      "supersedes_globals": {
+        "key": "DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL",
+        "value": 7,
+        "vintage": "2018 globals.csv, vendored in data/raw/retroroyale-2018",
+        "why": "MEASURED against the live game and the 2018 table is simply older: the 16.402 king hits for 109 at level 11 (410 drops, none of 100), rate 8, the 15.535 client's globals value. The two are SUPPOSED to disagree, so tools/extract_globals.py reports this divergence instead of failing on it."
+      }
     },
     "DAMAGE_ARITHMETIC": {
       "value": "integer",
@@ -1243,7 +1249,6 @@
     "KING_ACTIVATE_TIME_MS": {
       "value": 3550,
       "status": "measured",
-      "refuted_for": "*",
       "confidence": "HIGH (see provenance).",
       "provenance": "MEASURED 2026-09-24 on the 16.402 corpus: in 36 of 36 kings the first UNIT target appears on the SAME tick as the first swing, at the princess loss + 71 (28 exact; 72 in 6 with capture gaps; 70 in 2): no load between waking and swinging, and 71 ticks = 3550 ms. The engine at 3300 targeted 4-6 ticks early in 16 of 19 wakes; a scripted check on the module moved its first king target from loss + 66 to loss + 71. The earlier value, 3300, is the globals.csv row. CORPUS PRE-SCORE before the flip (replay_parity --calibration-override on RoyaleSim 2420a94, the 16.402 corpus fixtures at d7505ba, playable no-tower unit-ticks within 250, default 125,732 of 159,643): the activation at 3550 alone -94, the damage rate at 8 alone -483 (hit points exact +1,127), BOTH together +99 and hit points exact +1,275; each alone loses a little, so the two flip together. Per card under both: Knight +201, KingTower +52, the worst Barbarians -65. In 004657-A every king hit is 109 and the engine hits the truth's 67 hp on 685 exactly.",
       "open": "Established (measured_2026_09_22): losing a princess tower starts it, and it runs from the loss to the king's first swing. Still open: whether damage to the king alone starts it. The one side where the king was hit before any tower fell (20260918-112751, side 0, first hit tick 2837) had no enemy in the king's range until tick 3247, so its first swing (3248) marks a target arriving, not the wake. Spell splash is untested.",
@@ -1262,7 +1267,13 @@
           "date": "2026-09-22",
           "overturned_by": "confidence only, the value stands until a rebuild: the replay corpus puts 71 ticks between a lost princess tower and the king's first swing in 27 of 28 sides, where 3300 gives 66"
         }
-      ]
+      ],
+      "supersedes_globals": {
+        "key": "KING_ACTIVATE_TIME_MS",
+        "value": 3300,
+        "vintage": "2018 globals.csv, vendored in data/raw/retroroyale-2018",
+        "why": "MEASURED against the live game and the 2018 table is simply older: in 36 of 36 corpus kings the first target and the first swing come together at the princess loss + 71 ticks = 3550 ms. The two are SUPPOSED to disagree, so tools/extract_globals.py reports this divergence instead of failing on it."
+      }
     },
     "LOGIC_BATTLE_START_COOLDOWN_MS": {
       "value": 4500,
