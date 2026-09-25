@@ -30,7 +30,7 @@ copy for anyone who opens the file directly.
 | `determinism.png` | `make_media.py determinism` | One seed run more than once, with the per-tick state hashes side by side. |
 | `throughput.png` | `make_media.py throughput` | A real transcript of `tools/throughput.py`, and what the rate means in whole battles an hour. |
 | `snapshots.png` | `make_media.py snapshots` | One saved position loaded into several engines and stepped on differently. |
-| `ledger.png` | `make_media.py ledger` | One entry of `data/calibration.json` with its status and its evidence, and the spread of statuses across the file. |
+| `ledger.png` | `make_media.py ledger` | The spread of statuses across `data/calibration.json`: every entry counted, in four bands from measured to guess. |
 | `engine-battle-viewer.png` | a RoyaleViser screenshot | final, not regenerated here |
 | `family.svg` | hand-drawn | the five repos and how they depend on each other; final |
 
