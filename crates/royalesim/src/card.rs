@@ -445,6 +445,13 @@ pub struct CardDef {
     /// combat.rs `fire` to everything the hit lands on, under calibration
     /// status.TARGET_BUFF_ON_SPLASH.
     pub attack_buff: Option<BuffApply>,
+    /// The card's projectile is HOMING (projectiles.csv Homing; every 16.402 troop and tower
+    /// row sets it: 32 true, 15 false -- Bomber, Princess, Bowler, Hunter, ...). The engine flies
+    /// every projectile to its target, so this is read only where the game's difference shows:
+    /// a victim's pending damage (combat.POST_KILL_RETARGET_WAIT = client16402_attack_finish).
+    /// On the card, not on `ProjectileDef`, whose Debug is inside the format-3 card fingerprint.
+    /// A blank reads as homing; false on a card with no projectile.
+    pub projectile_homing: bool,
     /// THE AREA EFFECT THIS CARD'S DEATH LEAVES ON THE GROUND (characters /
     /// buildings DeathAreaEffect, resolved against cards.json `area_effect_objects`
     /// by `CardDb::from_json_str`). The Ice Golem's FreezeIceGolemite: a 2000
@@ -566,6 +573,8 @@ struct RawProjectileObj {
     /// IceWizardSlowDown 2500 ms). Loaded onto `CardDef::attack_buff`.
     target_buff: Option<RawBuff>,
     buff_time_ms: Option<i32>,
+    /// projectiles.csv Homing (`CardDef::projectile_homing`).
+    homing: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1186,6 +1195,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_start_radius: 0,
         kamikaze: false,
         attack_buff: None,
+        projectile_homing: false,
         death_area_effect: None,
     }
 }
@@ -1724,6 +1734,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
     let mut attack_buff: Option<BuffApply> = None;
+    let mut projectile_homing = false;
     let projectile = match raw.projectile {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::Object(o)) => {
@@ -1754,6 +1765,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
             if let Some(b) = &p.target_buff {
                 attack_buff = Some(buffs.apply(b, p.buff_time_ms, "the unit's projectile")?);
             }
+            projectile_homing = p.homing.unwrap_or(true);
             Some(ProjectileDef {
                 speed: p.speed.ok_or("projectile without speed")?,
                 radius: milli(p.radius_milli.unwrap_or(0)),
@@ -1915,6 +1927,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
         projectile_start_radius: milli(nonneg(raw.projectile_start_radius_milli, "projectile_start_radius_milli")?),
         kamikaze,
         attack_buff,
+        projectile_homing,
         // Resolved by `CardDb::from_json_str` against the file's `area_effect_objects`
         // table, with the card's `death_area_effect` name (pushed on `units` above).
         death_area_effect: None,

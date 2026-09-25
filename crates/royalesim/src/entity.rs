@@ -176,6 +176,13 @@ pub struct Entities {
     /// (state.rs `load_with`), and 0 is also the truth for such a snapshot: nothing waited then.
     #[serde(default)]
     pub retarget_wait: Vec<i16>,
+    /// Whether this unit's target was DOOMED when last seen alive: the damage of the homing
+    /// projectiles flying at it, from every source, covered its hitpoints. Refreshed in the
+    /// Target phase from the projectiles in flight at the tick's start, so after a loss it holds
+    /// the victim's last live tick. Read under combat.POST_KILL_RETARGET_WAIT =
+    /// client16402_attack_finish. `default` and sized on load like `retarget_wait`.
+    #[serde(default)]
+    pub target_doomed: Vec<bool>,
     /// What is left of a formation member's DEPLOY_STAGGER wait, ms: set from PendingSpawn.stagger_ms
     /// when the member is created and counted down beside `deploy_ms`, so `deploy_ms - stagger_ms`
     /// stays the unit's own DeployTime. 0 for every unit that never staggered (a spell release and
@@ -441,6 +448,7 @@ impl Entities {
             self.clear_buffs(i);
             self.retarget_on_resume[i] = false;
             self.retarget_wait[i] = 0;
+            self.target_doomed[i] = false;
             self.stagger_ms[i] = 0;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
@@ -499,6 +507,7 @@ impl Entities {
             }
             self.retarget_on_resume.push(false);
             self.retarget_wait.push(0);
+            self.target_doomed.push(false);
             self.stagger_ms.push(0);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());

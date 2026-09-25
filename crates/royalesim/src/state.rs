@@ -236,6 +236,10 @@ pub struct Calib {
     /// The loss-to-next-target interval, ticks (value.ticks; 6 measured).
     #[serde(default)]
     pub post_kill_wait_ticks: i32,
+    /// value.attack_finish_override_units: the UNIT names that never wait under the
+    /// attack-finish arm, matched against `CardDef::unit_name`.
+    #[serde(default)]
+    pub post_kill_wait_override_units: Vec<String>,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -1009,8 +1013,14 @@ calib_enum!(
         /// Measured on both clients for the LISTED units: held as attacking with no target and
         /// standing still, the attack timer frozen and zeroed on the loss + 5, the next target
         /// taken on the loss + 6 even with another enemy already in range. Unlisted units keep
-        /// today's behaviour: the condition that decides the wait is not identified.
+        /// today's behaviour (the list predates the condition, `AttackFinish`).
         MeasuredList = "client16402_measured_list",
+        /// The CONDITION (measured per event on the 16.402 corpus, 1,138 of 1,152): the wait
+        /// is skipped when (a) the unit is on value.attack_finish_override_units (the 15.535
+        /// OverrideAttackFinishTime cards), (b) its attack progress is 0 at the loss, or (c) its
+        /// card has a projectile and its victim was doomed on its last live tick
+        /// (entity.rs `target_doomed`); every other unit waits, whatever its name.
+        AttackFinish = "client16402_attack_finish",
     }
 );
 calib_enum!(
@@ -1567,6 +1577,13 @@ impl Calib {
                 .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.units: every entry is a unit name"))
                 .collect::<Result<Vec<_>, _>>()?,
             post_kill_wait_ticks: int(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "ticks"])?,
+            post_kill_wait_override_units: v
+                .pointer("/combat/POST_KILL_RETARGET_WAIT/value/attack_finish_override_units")
+                .and_then(Value::as_array)
+                .ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: a list of unit names is required")?
+                .iter()
+                .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: every entry is a unit name"))
+                .collect::<Result<Vec<_>, _>>()?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -3359,10 +3376,28 @@ impl BattleState {
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
         let keep_cycle_when_dead = self.cfg.calib.retarget_progress == RetargetProgress::KeepWhenDead;
-        let wait_arm = self.cfg.calib.post_kill_wait == PostKillWait::MeasuredList;
+        let wait_mode = self.cfg.calib.post_kill_wait;
+        let wait_arm = wait_mode != PostKillWait::None;
         let wait_ticks = self.cfg.calib.post_kill_wait_ticks.max(1) as i16;
         let wait_units = &self.cfg.calib.post_kill_wait_units;
+        let override_units = &self.cfg.calib.post_kill_wait_override_units;
         let cards = &self.cfg.cards;
+        // THE DOOMED TEST (client16402_attack_finish): the homing projectiles in flight at the
+        // tick's start -- the state the previous tick ended in -- summed per target, level-scaled
+        // as fired, against the target's hitpoints. From every source; a non-homing shot (a
+        // Bomber's bomb, a Princess arrow) never counts, as the corpus shows. Crown scaling is not
+        // applied: untested, and immaterial on the corpus.
+        let doomed_now: Vec<bool> = if wait_mode == PostKillWait::AttackFinish {
+            let mut pending = vec![0i64; self.ents.capacity()];
+            for p in &self.projectiles {
+                if p.firer_card.is_some_and(|c| cards.get(c).projectile_homing) && self.ents.is_alive(p.target) {
+                    pending[p.target.index as usize] += p.damage as i64;
+                }
+            }
+            (0..self.ents.capacity()).map(|j| pending[j] > 0 && pending[j] >= self.ents.hp[j] as i64).collect()
+        } else {
+            Vec::new()
+        };
         for &(i, d) in &decisions {
             let e = &mut self.ents;
             // combat.POST_KILL_RETARGET_WAIT = client16402_measured_list. The loss L is the victim's
@@ -3372,6 +3407,13 @@ impl BattleState {
             // for L + 1 .. L + 5, its attack timer zeroed on L + 5, and takes this phase's decision
             // on L + 6. The hold keeps it out of the walk (the Path phase holds a waiting unit like
             // an attacking one) and freezes its timers (phase_attack).
+            // client16402_attack_finish: while the target lives, remember whether it is doomed, so
+            // that at the loss this holds its last live tick.
+            if wait_mode == PostKillWait::AttackFinish {
+                if let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) {
+                    e.target_doomed[i] = doomed_now[t.index as usize];
+                }
+            }
             if wait_arm {
                 if e.retarget_wait[i] > 0 {
                     e.retarget_wait[i] -= 1;
@@ -3383,7 +3425,19 @@ impl BattleState {
                         e.target[i] = None;
                         continue;
                     }
-                } else if e.target[i].is_some_and(|t| !e.is_alive(t)) && wait_units.iter().any(|u| *u == cards.get(e.card[i]).unit_name) {
+                } else if e.target[i].is_some_and(|t| !e.is_alive(t))
+                    && match wait_mode {
+                        PostKillWait::MeasuredList => wait_units.iter().any(|u| *u == cards.get(e.card[i]).unit_name),
+                        // (a) an OverrideAttackFinishTime card, (b) progress 0 at the loss (the engine's
+                        // progress runs on after a hit, as the game's does: a Knight reads 1200 at its
+                        // kill), (c) a projectile card whose victim was doomed: any one skips the wait.
+                        PostKillWait::AttackFinish => {
+                            let c = cards.get(e.card[i]);
+                            !override_units.contains(&c.unit_name) && e.attack_ms[i] != 0 && !(c.projectile.is_some() && e.target_doomed[i])
+                        }
+                        PostKillWait::None => false,
+                    }
+                {
                     e.retarget_wait[i] = wait_ticks - 1;
                     e.target[i] = None;
                     e.target_locked[i] = false;
@@ -3433,6 +3487,11 @@ impl BattleState {
                 e.target_locked[i] = false;
             }
             e.target[i] = d.target;
+            if wait_mode == PostKillWait::AttackFinish {
+                if let Some(t) = d.target.filter(|t| e.is_alive(*t)) {
+                    e.target_doomed[i] = doomed_now[t.index as usize];
+                }
+            }
         }
         self.scratch.decisions = decisions;
         self.scratch.nb = nb;
@@ -6675,8 +6734,11 @@ impl BattleState {
                 }
                 h.i32(e.stomp_clock[i]);
                 h.bool(e.retarget_on_resume[i]);
-                if self.cfg.calib.post_kill_wait == PostKillWait::MeasuredList {
+                if self.cfg.calib.post_kill_wait != PostKillWait::None {
                     h.i32(e.retarget_wait[i] as i32);
+                }
+                if self.cfg.calib.post_kill_wait == PostKillWait::AttackFinish {
+                    h.bool(e.target_doomed[i]);
                 }
                 if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
                     h.i32(e.stagger_ms[i]);
@@ -7365,6 +7427,7 @@ impl BattleState {
         snap.ents.push_applied.resize(n, Vec2::default());
         snap.ents.push_neighbours.resize(n, 0);
         snap.ents.retarget_wait.resize(n, 0);
+        snap.ents.target_doomed.resize(n, false);
         snap.ents.stagger_ms.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
