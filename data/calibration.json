@@ -1044,6 +1044,19 @@
       "promotion_rules": "Already measured at two levels; a capture at a third tower level (any account between 1 and 15) and a king tower hit on a unit (its damage rate: 7 or 8) would close the two gaps.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> tower_ladder, tower_ladder_cap_level; the six percents from the embedded globals.csv, the four AT/AFTER ones refused if they part); applied in BattleState::spawn_now to the KingTower / PrincessTower records only (state.rs tower_multiplier_percent), every other card scaling on STAT_BASE_LEVEL's ladder; a candidate without an engine implementation is refused at load. The old arm stays runnable as common_card_ladder (the regression plant tower_card_ladder forces it)."
     },
+    "KING_DAMAGE_PERCENT_PER_LEVEL": {
+      "value": 7,
+      "status": "datamined",
+      "confidence": "LOW as a description of the 16.402 king: 7 is the embedded 2018 globals row, kept as the shipped value only until the corpus has scored the alternative by override (see open).",
+      "provenance": "globals.csv (the embedded 2018 table), DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL = 7: the king tower's per-level DAMAGE rate, compounded as combat.TOWER_HITPOINT_LADDER's regime compounds every tower rate. Split out of the globals read on 2026-09-25 so the corpus can judge the other candidate without a ledger edit. The king's HITPOINT rate stays 7 and stays read from the globals: 2400 x 201% = 4824 is measured.",
+      "candidates": [
+        7,
+        8
+      ],
+      "promotion_rules": "Score 8 on the 16.402 corpus with replay_parity --calibration-override combat.KING_DAMAGE_PERCENT_PER_LEVEL=8 (with match.KING_ACTIVATE_TIME_MS=3550, the same batch); flip if it holds.",
+      "engine": "state.rs Calib::from_json: tower_dmg_pct.king, applied by tower_multiplier_percent in spawn_now",
+      "open": "The 16.402 corpus says 8: when the king is the only tower in range its victims lose 109 per hit at tower level 11 (410 drops, not one of 100; the engine's 100 on 232), 50 x 218% at rate 8 where rate 7 gives 201% and 100 -- the 15.535 client's globals value."
+    },
     "DAMAGE_ARITHMETIC": {
       "value": "integer",
       "status": "guess",

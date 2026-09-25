@@ -8,6 +8,7 @@
 //!     ... [--trace]                                                   # per-pair per-tick rows in the JSON (one battle at a time)
 //!     ... [--prefix]                                                  # play an unplayable fixture up to its first unloadable deploy
 //!     ... [--attacking-movement frozen|separation_only]               # judge a CANDIDATE without editing the ledger
+//!     ... [--calibration-override section.KEY=JSON]...               # any overridable key, repeatable (the binding's hook)
 //!
 //! Fixtures come from tools/make_replay_fixture.py. Per fixture this writes
 //! `<fixture>.parity.json` and `<fixture>.parity.md`; `--all` also writes
@@ -95,6 +96,15 @@ fn run(args: &[String]) -> Result<(), String> {
                     royalesim::state::AttackingUnitMovement::from_calibration_name(name)
                         .ok_or_else(|| format!("{name}: not a candidate of movement.ATTACKING_UNIT_MOVEMENT"))?,
                 );
+            }
+            // ANY overridable ledger key, the same hook as the binding's calibration_overrides:
+            // `--calibration-override match.KING_ACTIVATE_TIME_MS=3550`, repeatable. The value is
+            // JSON (a string value keeps its quotes: `section.KEY="name"`).
+            "--calibration-override" => {
+                i += 1;
+                let arg = args.get(i).ok_or("--calibration-override needs section.KEY=JSON")?;
+                let (k, v) = arg.split_once('=').ok_or_else(|| format!("{arg}: --calibration-override takes section.KEY=JSON"))?;
+                opts.calibration_overrides.insert(k.to_string(), v.to_string());
             }
             "--seed" => {
                 i += 1;

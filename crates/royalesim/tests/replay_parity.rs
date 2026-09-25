@@ -319,3 +319,26 @@ fn the_replay_is_deterministic() {
     assert_eq!(serde_json::to_string(&a.first_divergence).unwrap(), serde_json::to_string(&b.first_divergence).unwrap());
     assert_eq!(a.pairs.len(), b.pairs.len());
 }
+
+#[test]
+fn a_calibration_override_reaches_the_battle_config_names_itself_and_refuses_a_key_the_ledger_lacks() {
+    // replay_parity --calibration-override section.KEY=JSON: the corpus judges a candidate
+    // like for like without a ledger edit. The same hook as the binding's
+    // calibration_overrides (Calib::shipped_with_overrides), so the two cannot part.
+    let f = sample();
+    let shipped = royalesim::state::Calib::shipped().king_activate_time_ms;
+    let want = shipped + 250;
+    let mut ov = std::collections::BTreeMap::new();
+    ov.insert("match.KING_ACTIVATE_TIME_MS".to_string(), want.to_string());
+    let (cfg, notes) = config_for_with(&f, common::cards(), None, &ov).expect("an override of a real key loads");
+    assert_eq!(cfg.calib.king_activate_time_ms, want, "the override did not reach the config");
+    assert!(notes.iter().any(|n| n == &format!("calibration override match.KING_ACTIVATE_TIME_MS = {want}")), "the run does not name its override: {notes:?}");
+    let (plain, plain_notes) = config_for_with(&f, common::cards(), None, &std::collections::BTreeMap::new()).unwrap();
+    assert_eq!(plain.calib.king_activate_time_ms, shipped, "no override, the shipped value");
+    assert!(!plain_notes.iter().any(|n| n.starts_with("calibration override")));
+    let mut bad = std::collections::BTreeMap::new();
+    bad.insert("match.NOT_A_KEY".to_string(), "1".to_string());
+    let err = config_for_with(&f, common::cards(), None, &bad).err().expect("an override cannot add a key");
+    assert!(err.contains("not a key in the ledger"), "{err}");
+}
+

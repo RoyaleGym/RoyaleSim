@@ -771,11 +771,16 @@ pub struct Options {
     /// the defect it is about is a position error over many ticks -- and judging it this
     /// way never edits the ledger that every other session's engine reads.
     pub attacking_movement: Option<royalesim::state::AttackingUnitMovement>,
+    /// Any overridable ledger key, `section.KEY` -> the value as JSON text
+    /// (`--calibration-override`), applied before `attacking_movement`. The corpus judges a
+    /// candidate like for like and the ledger every session reads stays as it is. The report's
+    /// notes name every override, so a score says which arm it was taken on.
+    pub calibration_overrides: BTreeMap<String, String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { seed: 0, stride: 1, trace: false, prefix: false, attacking_movement: None }
+        Options { seed: 0, stride: 1, trace: false, prefix: false, attacking_movement: None, calibration_overrides: BTreeMap::new() }
     }
 }
 
@@ -855,7 +860,7 @@ impl Roots {
 
 /// Build the engine config a fixture asks for.
 pub fn config_for(f: &Fixture, db: CardDb) -> Result<(BattleConfig, Vec<String>), String> {
-    config_for_with(f, db, None)
+    config_for_with(f, db, None, &BTreeMap::new())
 }
 
 /// As `config_for`, with one calibration candidate overridden for this run.
@@ -863,12 +868,20 @@ pub fn config_for_with(
     f: &Fixture,
     db: CardDb,
     attacking_movement: Option<royalesim::state::AttackingUnitMovement>,
+    overrides: &BTreeMap<String, String>,
 ) -> Result<(BattleConfig, Vec<String>), String> {
     let mut cfg = BattleConfig::with_cards(db);
+    let mut notes = Vec::new();
+    if !overrides.is_empty() {
+        let (c, applied) = royalesim::state::Calib::shipped_with_overrides(overrides)?;
+        cfg.set_calib(c);
+        for (k, v) in &applied {
+            notes.push(format!("calibration override {k} = {v}"));
+        }
+    }
     if let Some(arm) = attacking_movement {
         cfg.calib.attacking_unit_movement = arm;
     }
-    let mut notes = Vec::new();
     for side in 0..2 {
         let key = side.to_string();
         let lv = f.card_levels.get(&key).and_then(|c| c.mode);
@@ -949,7 +962,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         report.prefix_until = Some(c);
         report.last_tick = truth.ticks.last().copied().unwrap_or(0);
     }
-    let (cfg, notes) = config_for_with(f, db.clone(), opts.attacking_movement)?;
+    let (cfg, notes) = config_for_with(f, db.clone(), opts.attacking_movement, &opts.calibration_overrides)?;
     report.level_deviations = notes;
     let roots = Roots::new(db);
     let mut s = BattleState::try_new(opts.seed, cfg)?;

@@ -1528,7 +1528,11 @@ impl Calib {
                 after_cap: globals_number("HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL_AFTER_TOURNAMENTCAP")?,
             },
             tower_dmg_pct: TowerPercents {
-                king: globals_number("DAMAGE_INCREASE_PERCENT_PER_KING_LEVEL")?,
+                // combat.KING_DAMAGE_PERCENT_PER_LEVEL, not the globals row: the embedded 2018
+                // globals.csv says 7 and the 16.402 king hits at 8 (the 15.535 globals' value;
+                // 109 per hit at level 11, never 100). The king's HITPOINT rate, 7, is right and
+                // still read from the globals.
+                king: int(&v, &["combat", "KING_DAMAGE_PERCENT_PER_LEVEL", "value"])?,
                 princess: globals_number("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL")?,
                 after_cap: globals_number("DAMAGE_INCREASE_PERCENT_PER_TOWER_LEVEL_AFTER_TOURNAMENTCAP")?,
             },
@@ -1613,6 +1617,34 @@ impl Calib {
         CELL.get_or_init(|| Calib::from_json(CALIBRATION_JSON).expect("shipped calibration.json must parse"))
             .clone()
     }
+
+    /// THE SHIPPED LEDGER WITH SOME VALUES REPLACED, for a run that judges a candidate without
+    /// editing the file every session's engine reads. `overrides` maps `section.KEY` to the value
+    /// as JSON text. Refused: a key the ledger does not have (an override cannot add one), a key
+    /// with no `value`, a value that is not JSON, and a ledger the engine then cannot load.
+    /// Returns the calibration and the parsed values applied, so a run can say what it ran. ONE
+    /// implementation, used by the Python binding's `calibration_overrides` and the replay
+    /// harness's `--calibration-override`.
+    pub fn shipped_with_overrides(overrides: &std::collections::BTreeMap<String, String>) -> Result<(Calib, std::collections::BTreeMap<String, Value>), String> {
+        let mut doc: Value = serde_json::from_str(CALIBRATION_JSON).map_err(|e| format!("the compiled-in ledger: {e}"))?;
+        let mut parsed = std::collections::BTreeMap::new();
+        for (path, raw) in overrides {
+            let (section, key) = path.split_once('.').ok_or_else(|| format!("{path:?}: an override is named `section.KEY`"))?;
+            let entry = doc
+                .get_mut(section)
+                .and_then(|sec| sec.get_mut(key))
+                .and_then(|e| e.as_object_mut())
+                .ok_or_else(|| format!("{path:?} is not a key in the ledger, and an override cannot add one"))?;
+            if !entry.contains_key("value") {
+                return Err(format!("{path:?} has no `value` to override"));
+            }
+            let v: Value = serde_json::from_str(raw).map_err(|e| format!("{path:?}: {raw:?} is not JSON ({e}); pass json.dumps(value)"))?;
+            entry.insert("value".to_string(), v.clone());
+            parsed.insert(path.clone(), v);
+        }
+        let calib = Calib::from_json(&doc.to_string()).map_err(|e| format!("the overridden ledger does not load: {e}"))?;
+        Ok((calib, parsed))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1656,6 +1688,16 @@ impl BattleConfig {
     /// rule, not verified from any file in this repo). The live 2026 game's levels
     /// differ, and no measurement of them exists here.
     /// A different level is one BattleConfig field away.
+    /// Install `c` as this config's calibration, with the three fields BattleConfig copies OUT
+    /// of a calibration at construction following it -- else an override of a model key would
+    /// change the calibration and not the model that runs.
+    pub fn set_calib(&mut self, c: Calib) {
+        self.path_model = c.path_model;
+        self.push_model = c.push_model;
+        self.footprint_model = c.footprint_model;
+        self.calib = c;
+    }
+
     pub fn with_cards(cards: CardDb) -> BattleConfig {
         let level = cards.lowest_level_valid_for_every_rarity();
         let calib = Calib::shipped();

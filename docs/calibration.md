@@ -66,7 +66,7 @@ a `promotion_rule` stays open for the rest.
 The status vocabulary is one claim and the provenance prose is another, and they are not
 equally well checked.
 
-A re-read on 2026-09-22 went through 24 of the 163 entries against the corpus. It moved no
+A re-read on 2026-09-22 went through 24 of the 164 entries against the corpus. It moved no
 status and no value. What it turned up was in the evidence the statuses rest on: 42 places
 where a cited number, recording name or piece of arithmetic does not hold. Take that as a
 reason to re-derive, not as 42 established defects. Only a handful of the 42 have since been
@@ -80,18 +80,18 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-139 entries have not been re-read. So, concretely (every count on this page comes from
+140 entries have not been re-read. So, concretely (every count on this page comes from
 `python tools/ledger_census.py`, and `tests/test_ledger_census.py` fails when the page and the
 ledger disagree, because these figures went stale twice in one afternoon before that gate existed):
 
 - **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 163 carry a status. That 163 counts TOP-LEVEL
+  universal, so check rather than assume.** All 164 carry a status. That 164 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
-  another and carries its own `measured` status, so counting every status in the file gives 164
-  and 73 measured. The tools agree on 163 by convention, and the convention undercounts by one. 110 name the rivals the
-  value was chosen against and 118 state what would move it, and 102 do both. The gap is mostly
-  the 33 `datamined` keys, where the number was read out of a shipped table and no choice was
+  another and carries its own `measured` status, so counting every status in the file gives 165
+  and 73 measured. The tools agree on 164 by convention, and the convention undercounts by one. 111 name the rivals the
+  value was chosen against and 119 state what would move it, and 103 do both. The gap is mostly
+  the 34 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 20 of
   the 72 `measured` entries name no rival at all, and 12 of those state no promotion criterion
@@ -149,7 +149,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 163 top-level keys with a status, 72 are `measured` and one is an `owner_ruling`; a 164th entry nested inside another is measured too.
+disagree. Of the 164 top-level keys with a status, 72 are `measured` and one is an `owner_ruling`; a 165th entry nested inside another is measured too.
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|

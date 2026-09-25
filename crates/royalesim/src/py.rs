@@ -197,25 +197,10 @@ pub const PROJECTILE_FIELDS: [&str; 8] = ["team", "x", "y", "aim_x", "aim_y", "t
 /// experiment done. So is any value `Calib::from_json` rejects, such as an arm name with
 /// no implementation.
 fn overridden_calib(overrides: &BTreeMap<String, String>) -> Result<(Calib, BTreeMap<String, serde_json::Value>), String> {
-    let mut doc: serde_json::Value = serde_json::from_str(EMBEDDED_CALIBRATION_JSON).map_err(|e| format!("the compiled-in ledger: {e}"))?;
-    let mut parsed = BTreeMap::new();
-    for (path, raw) in overrides {
-        let (section, key) = path.split_once('.').ok_or_else(|| format!("{path:?}: an override is named `section.KEY`"))?;
-        let entry = doc
-            .get_mut(section)
-            .and_then(|sec| sec.get_mut(key))
-            .and_then(|e| e.as_object_mut())
-            .ok_or_else(|| format!("{path:?} is not a key in the ledger, and an override cannot add one"))?;
-        if !entry.contains_key("value") {
-            return Err(format!("{path:?} has no `value` to override"));
-        }
-        let v: serde_json::Value =
-            serde_json::from_str(raw).map_err(|e| format!("{path:?}: {raw:?} is not JSON ({e}); pass json.dumps(value)"))?;
-        entry.insert("value".to_string(), v.clone());
-        parsed.insert(path.clone(), v);
-    }
-    let calib = Calib::from_json(&doc.to_string()).map_err(|e| format!("the overridden ledger does not load: {e}"))?;
-    Ok((calib, parsed))
+    // The library's one implementation (state.rs Calib::shipped_with_overrides), which the
+    // replay harness's --calibration-override uses too; the compiled-in ledger is the same
+    // file as EMBEDDED_CALIBRATION_JSON.
+    Calib::shipped_with_overrides(overrides)
 }
 
 const R_OK: u8 = 0;
@@ -964,13 +949,8 @@ impl Battle {
         cfg.cards = self.cards.clone();
         if let Some(c) = &self.calib {
             // THE EXPERIMENT'S CALIBRATION, applied before the narrow overrides below so
-            // they still layer on top. The three fields BattleConfig copies OUT of the
-            // calibration follow it, or an override of a model key would change the
-            // calibration and not the model that runs.
-            cfg.path_model = c.path_model;
-            cfg.push_model = c.push_model;
-            cfg.footprint_model = c.footprint_model;
-            cfg.calib = c.clone();
+            // they still layer on top (set_calib carries the model fields with it).
+            cfg.set_calib(c.clone());
         }
         if let Some(ps) = self.path_search {
             cfg.calib.path_search = ps;
