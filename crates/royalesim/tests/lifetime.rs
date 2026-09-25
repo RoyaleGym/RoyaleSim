@@ -48,7 +48,6 @@ use royalesim::entity::EntityKind;
 use royalesim::fixed::Vec2;
 use royalesim::state::{BattleConfig, BattleState, Calib, LifetimeDecay};
 use royalesim::{EntityId, Team};
-use std::collections::BTreeSet;
 
 fn calib() -> Calib {
     Calib::shipped()
@@ -302,10 +301,11 @@ fn a_tombstone_that_bleeds_out_still_leaves_its_death_spawn() {
     let want_death = ceil_div(max as i64 * 100, drain as i64) as u32;
     let died = run_until(&mut s, want_death + 10, |s| s.entity(tomb).is_none());
     assert_eq!(s.tick_count(), want_death, "the Tombstone bled out on post-tick {died}");
-    // everything of its periodic cadence, counted apart from the burst
-    let before: BTreeSet<(u32, u32)> = find_live(&s, Team::Blue, &unit).iter().map(|e| (e.id.index, e.id.generation)).collect();
+    // the burst, told from the periodic cadence by its spawner: a death spawn owes nothing to
+    // one. (spawner.RELEASE_TIMING = end_of_event_phase has the burst exist on the death tick
+    // itself; one more tick lets the earlier arm's queued burst materialise too.)
     s.tick();
-    let burst = find_live(&s, Team::Blue, &unit).into_iter().filter(|e| !before.contains(&(e.id.index, e.id.generation))).count();
+    let burst = find_live(&s, Team::Blue, &unit).into_iter().filter(|e| e.spawned_by.is_none()).count();
     assert_eq!(burst, ds.count as usize, "a death by drain must go through the death path");
 }
 

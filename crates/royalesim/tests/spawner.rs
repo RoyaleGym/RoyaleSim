@@ -70,7 +70,7 @@ use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffExpiry, Calib, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor, SpawnPoint,
-    SpawnedDeploy, SpawnerEmission, StartTimeOrigin,
+    ReleaseTiming, SpawnedDeploy, SpawnerEmission, StartTimeOrigin,
 };
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
@@ -414,8 +414,29 @@ fn assert_on_the_ring(members: &[Vec2], death_pos: Vec2, radius: i32, axis: Opti
 
 /// The positions the spawn queue holds for `card`'s units on Blue -- where a death
 /// spawn was LAID, before the tick that materialises it lets it walk.
-fn queued_points(s: &BattleState, unit: u16) -> Vec<Vec2> {
-    s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == unit).map(|(_, _, p)| *p).collect()
+/// THE POINTS A DEATH LAID ON THE TICK JUST RUN, before anything moved, in creation order
+/// (spawner.RELEASE_TIMING). Under the shipped end_of_event_phase the units already stand on
+/// them, inert on the death frame; under next_spawn_phase they wait in the spawn queue. A
+/// death spawn owes nothing to a periodic spawner, which is how it is told from one.
+fn laid_points(s: &BattleState, unit: u16) -> Vec<Vec2> {
+    match s.config().calib.release_timing {
+        ReleaseTiming::NextSpawnPhase => s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == unit).map(|(_, _, p)| *p).collect(),
+        ReleaseTiming::EndOfEventPhase => {
+            let mut laid: Vec<(u32, Vec2)> = s.entities().filter(|e| e.team == Team::Blue && e.card_idx == unit && e.spawned_by.is_none()).map(|e| (e.team_seq, e.pos)).collect();
+            laid.sort_by_key(|(seq, _)| *seq);
+            laid.into_iter().map(|(_, p)| p).collect()
+        }
+    }
+}
+
+/// The deploy countdown a released unit has ALREADY run on the frame it is first seen:
+/// none under end_of_event_phase (created after the countdown), the spawn tick's own under
+/// next_spawn_phase (created in the Spawn phase, match.TICK_ORDER).
+fn release_first_frame_countdown(c: &Calib) -> i32 {
+    match c.release_timing {
+        ReleaseTiming::EndOfEventPhase => 0,
+        ReleaseTiming::NextSpawnPhase => spawn_tick_countdown(c),
+    }
 }
 
 fn kill_and_settle(s: &mut BattleState, victim: EntityId) -> (u32, Vec2) {
@@ -428,7 +449,7 @@ fn kill_and_settle(s: &mut BattleState, victim: EntityId) -> (u32, Vec2) {
 }
 
 #[test]
-fn golem_killed_leaves_two_golemites_on_the_radius_next_tick_and_its_death_damage_lands() {
+fn golem_killed_leaves_two_golemites_on_the_radius_and_its_death_damage_lands() {
     // Plant death_spawn_dropped: no Golemite.
     let mut s = bare(config());
     let ds = death_spawn(&s, "Golem");
@@ -447,8 +468,10 @@ fn golem_killed_leaves_two_golemites_on_the_radius_next_tick_and_its_death_damag
     let knight = find_live(&s, Team::Red, "Knight")[0].id;
     let full = s.entity(knight).unwrap().hp;
     let (k, death_pos) = kill_and_settle(&mut s, golem);
-    assert!(find_live(&s, Team::Blue, &unit).is_empty(), "post-tick {k}: the {unit}s are queued, not yet in the world");
-    let laid = queued_points(&s, ds.unit);
+    // spawner.RELEASE_TIMING = end_of_event_phase: on the death tick itself (tests/release_timing.rs
+    // pins the timing; this test pins the place, the timer and the death damage).
+    assert_eq!(find_live(&s, Team::Blue, &unit).len(), ds.count as usize, "post-tick {k}: the {unit}s exist on the death tick");
+    let laid = laid_points(&s, ds.unit);
     assert_eq!(laid.len(), ds.count as usize);
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
@@ -484,7 +507,7 @@ fn lava_hound_killed_leaves_six_flying_pups() {
     let pos = blue_spot(&s);
     let hound = s.scenario_spawn_now(Team::Blue, "LavaHound", pos, None).unwrap();
     let (_, death_pos) = kill_and_settle(&mut s, hound);
-    let laid = queued_points(&s, ds.unit);
+    let laid = laid_points(&s, ds.unit);
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize);
@@ -527,7 +550,7 @@ fn a_battle_rams_barbarians_land_on_the_axis_to_the_tower_it_hit() {
         }
     }
     let (death_pos, aim) = (death_pos.expect("the ram never died"), aim.expect("the ram died without a target"));
-    let laid = queued_points(&s, ds.unit);
+    let laid = laid_points(&s, ds.unit);
     s.tick();
     let barbs = find_live(&s, Team::Blue, &unit);
     assert_eq!(barbs.len(), ds.count as usize, "the ram's death spawn");
@@ -556,9 +579,11 @@ fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     assert!(want >= ticks_of(life), "the drain cannot kill the Tombstone before its own LifeTime");
     let died = run_until(&mut s, want + 5, |s| s.entity(tomb).is_none());
     assert_eq!(died, want, "the Tombstone expired at post-tick {died}, want {want}");
-    let before: BTreeSet<(u32, u32)> = find_live(&s, Team::Blue, &unit).iter().map(|e| (e.id.index, e.id.generation)).collect();
-    // As LAID (the burst has no deploy timer and walks in the tick it materialises in).
-    let laid = queued_points(&s, ds.unit);
+    // The PERIODIC skeletons, told from the burst by their spawner (a death spawn owes
+    // nothing to one): under end_of_event_phase the burst already exists here.
+    let before: BTreeSet<(u32, u32)> = find_live(&s, Team::Blue, &unit).iter().filter(|e| e.spawned_by.is_some()).map(|e| (e.id.index, e.id.generation)).collect();
+    // As LAID (the burst has no deploy timer and walks on the tick after it appears).
+    let laid = laid_points(&s, ds.unit);
     s.tick();
     let burst: Vec<_> = find_live(&s, Team::Blue, &unit).into_iter().filter(|e| !before.contains(&(e.id.index, e.id.generation))).collect();
     assert_eq!(burst.len(), ds.count as usize, "the expiry left {} {unit}s at once", ds.count);
@@ -901,14 +926,15 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
         s.tick(); // the first periodic Skeleton is queued and out of the way
         let (_, death_pos) = kill_and_settle(&mut s, tomb);
-        let queued: Vec<Vec2> = s.pending_spawns().iter().map(|(_, _, p)| *p).collect();
-        assert_eq!(queued.len(), death_spawn(&s, "Tombstone").count as usize);
+        let tomb_ds = death_spawn(&s, "Tombstone");
+        let queued = laid_points(&s, tomb_ds.unit);
+        assert_eq!(queued.len(), tomb_ds.count as usize);
         assert!(queued.iter().all(|p| *p == death_pos), "zero: all on the death point, {queued:?}");
         let mut c = bare(config());
         let tomb = c.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
         c.tick();
         kill_and_settle(&mut c, tomb);
-        assert!(c.pending_spawns().iter().any(|(_, _, p)| *p != death_pos), "own_collision_radius: spread around it");
+        assert!(laid_points(&c, death_spawn(&c, "Tombstone").unit).iter().any(|p| *p != death_pos), "own_collision_radius: spread around it");
     }
     // DEATH_SPAWN_DEPLOY_TIME_DEFAULT = unit_own_deploy_time (the earlier arm):
     // Golemites serve their own DeployTime instead of walking at once.
@@ -1212,7 +1238,7 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
                 let b = s.entity(*id).unwrap();
                 // One TICK_MS counted down per tick since it was first seen, plus the
                 // spawn tick's own countdown (match.TICK_ORDER).
-                b.deploy_ms + dt() * (s.tick_count() - seen_at) as i32 + spawn_tick_countdown(&calib())
+                b.deploy_ms + dt() * (s.tick_count() - seen_at) as i32 + release_first_frame_countdown(&calib())
             })
             .collect();
         (own, block, took)
@@ -1288,9 +1314,9 @@ fn a_death_spawn_whose_grid_reaches_past_its_radius_is_pulled_back_onto_it() {
     s.tick();
     assert!(s.debug_set_hp(id, 0));
     s.tick();
-    // The QUEUED points (the contact law slides the overlapping Statues apart once
-    // they materialise, which is not what this test measures).
-    let mut at: Vec<Vec2> = s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == ds.unit).map(|(_, _, p)| *p).collect();
+    // The LAID points (the contact law slides the overlapping Statues apart from the next
+    // tick on, which is not what this test measures).
+    let mut at: Vec<Vec2> = laid_points(&s, ds.unit);
     assert_eq!(at.len(), ds.count as usize, "{at:?}");
     at.sort_by_key(|p| (p.x, p.y));
     at.dedup();

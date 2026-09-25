@@ -136,11 +136,13 @@ fn the_matching_is_one_to_one_on_both_sides() {
     let barbarians: Vec<&Pair> = r.pairs.iter().filter(|p| p.sim_card == "Barbarian").collect();
     assert_eq!(barbarians.len(), 2);
     assert!(barbarians.iter().all(|p| p.root == "BattleRam" && p.root_how == "death-spawn"), "{barbarians:?}");
-    // the Barbarians appear 63 ticks later in the engine (its death spawn materialises
-    // in the next tick's Spawn phase, so they appear later than the recording's) and
-    // still pair, inside PAIR_WINDOW_TICKS
+    // the Barbarians pair inside PAIR_WINDOW_TICKS. This used to assert they appeared LATER in
+    // the engine than in the recording, because its death spawns materialised in the next
+    // tick's Spawn phase; under spawner.RELEASE_TIMING = end_of_event_phase (2026-09-24) they
+    // appear on the recording's own tick, 1153 on both. The exact tick is emergent -- it moves
+    // with anything that moves the ram's death -- so it is not pinned here; the window is.
     for p in &barbarians {
-        assert!(p.sim_first_tick > p.truth_first_tick && p.sim_first_tick - p.truth_first_tick <= PAIR_WINDOW_TICKS, "{p:?}");
+        assert!(p.sim_first_tick.abs_diff(p.truth_first_tick) <= PAIR_WINDOW_TICKS, "{p:?}");
     }
 }
 

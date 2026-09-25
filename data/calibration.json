@@ -2110,6 +2110,19 @@
       "promotion_rules": "Settled. What is still unmodelled is the intra-pass ordering: the engine collects the whole pass, sorts by (team, the spawner's team_seq, k) and only then creates, where a per-entity update in creation order would interleave creations with the pass. A capture of two spawners emitting on the same tick as an entity dies would test it.",
       "engine": "state.rs Calib::spawner_emission_timing, read by BattleState::phase_move (the pass placement) and BattleState::spawner_pass (immediate spawn_now vs PendingSpawn)"
     },
+    "RELEASE_TIMING": {
+      "value": "end_of_event_phase",
+      "status": "measured",
+      "confidence": "HIGH. Both clients agree on every case read: a released unit exists on the event's own frame and is inert on it (no deploy countdown, no step), so it shows exactly one more deploying frame than an ordinary deploy of the same DeployTime. 83 contiguous 16.402 corpus death-spawn observations over 9 classes are all +1 from the parent's last live frame; every apparent +2 has a missing frame.",
+      "provenance": "MEASURED 2026-09-24. 15.535.29 kernel (centre-by-spawn Goblin Barrel, SpawnCharacterDeployTime 1100 = 22 ticks): all three goblins first exist on 147, the barrel's vanishing frame; deploying on 147..168 = 22 frames, first not deploying on 169; first step off the spawn point on 170 = first + 23. An ordinary deploy of DeployTime 1000 (giant-alone, musketeer-alone, first frame 101) deploys on 19 frames (101..119) and steps on first + 20: it counts down on its first frame, a released unit does not. 16.402 corpus: a BattleRam's Barbarians (DeathSpawnDeployTime 1000; 003751 seat B) first exist on 1153, the tick after the ram's last live frame 1152, deploying on 1153..1172 = 20 frames (again one more than 19); a Golem's Golemites (blank deploy time, born moving; 3 deaths) first exist on the parent's last live frame + 1, not deploying, first displaced on first + 1. Under next_spawn_phase the engine created every one of them a tick later: the barrel's goblins on 148, death spawns on + 2. No measurement ever backed that deferral; the code's whole justification was that every spawn is deferred. Re-derived the same evening by an independent check (HOLDS), which narrowed it: PERIODIC spawner emissions are a different key (spawner.EMISSION_TIMING, already on their own tick).",
+      "candidates": [
+        "end_of_event_phase",
+        "next_spawn_phase"
+      ],
+      "promotion_rules": "SETTLED 2026-09-24 (see provenance).",
+      "engine": "state.rs Calib::release_timing, read through BattleState::release_timing (the regression plant release_deferred forces the old arm): phase_projectile's spell releases and phase_reap's death spawns go through BattleState::release, and materialise_released creates them at the end of Reap, after the dead are despawned and before the hash is rebuilt",
+      "open": "The Goblin Barrel half rests on the 15.535.29 kernel alone: the 16.402 corpus never casts one. The barrel's own 147 against the engine's 148 holds at the SNAPPED tap only (at the raw tap the engine releases on 146), so this key's barrel figure depends on the tap snap (placement)."
+    },
     "SPAWNED_DEPLOY_TIME": {
       "value": "zero",
       "status": "measured",

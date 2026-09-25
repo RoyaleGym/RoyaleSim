@@ -220,6 +220,11 @@ pub struct Calib {
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
     pub deploying_heading: DeployingHeading,
+    /// spawner.RELEASE_TIMING. Added after SNAPSHOT_FORMAT 20. The `default` is
+    /// `NextSpawnPhase`, which is what a battle saved before this key actually ran. Read
+    /// through `BattleState::release_timing`, so the regression plant can force the old arm.
+    #[serde(default = "release_timing_default")]
+    pub release_timing: ReleaseTiming,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -459,6 +464,10 @@ fn attacking_unit_movement_default() -> AttackingUnitMovement {
 
 fn deploying_heading_default() -> DeployingHeading {
     DeployingHeading::Zeroed
+}
+
+fn release_timing_default() -> ReleaseTiming {
+    ReleaseTiming::NextSpawnPhase
 }
 
 macro_rules! calib_enum {
@@ -907,6 +916,21 @@ calib_enum!(
         /// late on every live deploy, because the activation happened after that
         /// tick's Spawn.
         SpawnPhaseNextTick = "spawn_phase_next_tick",
+    }
+);
+calib_enum!(
+    /// spawner.RELEASE_TIMING -- when units RELEASED by an event come into existence: a
+    /// spell's SpawnCharacter (the Goblin Barrel's goblins) and a death spawn. Not the
+    /// periodic spawner (spawner.EMISSION_TIMING) and not a deploy.
+    ReleaseTiming {
+        /// Measured on both clients: the units exist on the event's own frame and are
+        /// INERT on it -- no deploy countdown and no step until the next tick. Created at
+        /// the end of the tick's Reap phase, after the dead are despawned and before the
+        /// hash is rebuilt, in release order: the tick's spell releases, then its deaths.
+        EndOfEventPhase = "end_of_event_phase",
+        /// The earlier convention: queued, and created in the NEXT tick's Spawn phase,
+        /// where the countdown also runs -- one tick late on every release.
+        NextSpawnPhase = "next_spawn_phase",
     }
 );
 calib_enum!(
@@ -1440,6 +1464,7 @@ impl Calib {
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
+            release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -1997,6 +2022,9 @@ pub struct BattleState {
     /// Knockback and stun buffers: written in Projectile, drained in Resolve.
     effects: EffectBuffer,
     spawn_queue: Vec<PendingSpawn>,
+    /// Units released this tick under spawner.RELEASE_TIMING = end_of_event_phase,
+    /// created at the end of Reap. Empty between ticks, so not in a snapshot.
+    released: Vec<PendingSpawn>,
     death_queue: Vec<EntityId>,
     tick: u32,
     crowns: [u8; 2],
@@ -2099,6 +2127,7 @@ impl BattleState {
             spells: Vec::new(),
             effects: EffectBuffer::default(),
             spawn_queue: Vec::new(),
+            released: Vec::new(),
             death_queue: Vec::new(),
             tick: 0,
             crowns: [0, 0],
@@ -2235,6 +2264,45 @@ impl BattleState {
     /// in the Spawn phase, its units queued for the next tick -- so tests/spawner.rs's
     /// tick alignment and the Tombstone rows of the replay harness go red under it.
     #[inline]
+    fn release_timing(&self) -> ReleaseTiming {
+        #[cfg(clash_plant = "release_deferred")]
+        {
+            return ReleaseTiming::NextSpawnPhase; // PLANT (regression): every release a tick late.
+        }
+        #[allow(unreachable_code)]
+        self.cfg.calib.release_timing
+    }
+
+    /// A RELEASED unit (spawner.RELEASE_TIMING): queued for the next Spawn phase, or held
+    /// for the end of this tick's Reap phase (`materialise_released`).
+    fn release(&mut self, p: PendingSpawn) {
+        match self.release_timing() {
+            ReleaseTiming::NextSpawnPhase => self.spawn_queue.push(p),
+            ReleaseTiming::EndOfEventPhase => self.released.push(p),
+        }
+    }
+
+    /// The tick's released units, created in release order with the same per-unit steps
+    /// `phase_spawn` gives a queued one -- except that nothing counts down or steps: they
+    /// are created after every phase that would.
+    fn materialise_released(&mut self) {
+        for p in std::mem::take(&mut self.released) {
+            let kind = match self.cfg.cards.get(p.card).kind {
+                CardKind::Building => EntityKind::Building,
+                CardKind::Troop => EntityKind::Troop,
+                CardKind::Spell => unreachable!("a release is a unit, never a spell"),
+            };
+            let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at release");
+            self.ents.spawned_by[id.index as usize] = p.owner;
+            if let Some(d) = p.deploy_ms {
+                self.ents.deploy_ms[id.index as usize] = d;
+                if d == 0 {
+                    self.on_deployed(id.index as usize);
+                }
+            }
+        }
+    }
+
     fn emission_timing(&self) -> SpawnerEmission {
         #[cfg(clash_plant = "spawner_first_wave_late")]
         {
@@ -4720,20 +4788,11 @@ impl BattleState {
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut released, &mut self.scratch.nb);
         }
         for r in released {
-            // Deferred like every spawn: the units materialise in the next Spawn phase.
+            // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
+            // Spawn phase under the earlier convention.
             let unit = self.cfg.cards.get(r.unit);
             for p in self.formation_points(r.team, r.count, unit.collision_radius, unit.is_flying(), r.pos) {
-                #[cfg(clash_plant = "barrel_instant_spawn")]
-                {
-                    // PLANT: released units appear on the landing tick, skipping the queue.
-                    let id = self.spawn_now(r.team, r.unit, r.level, p, EntityKind::Troop).expect("plant spawn");
-                    if let Some(d) = r.deploy_ms {
-                        self.ents.deploy_ms[id.index as usize] = d;
-                    }
-                    continue;
-                }
-                #[allow(unreachable_code)]
-                self.spawn_queue.push(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None });
             }
         }
     }
@@ -5098,8 +5157,8 @@ impl BattleState {
         let deaths = std::mem::take(&mut self.death_queue);
         // DEATH SPAWN (card.rs `DeathSpawnDef`): every death that reaches this queue --
         // hp <= 0 from any hit, the lifetime expiry hit included -- leaves its units
-        // as PendingSpawns (they materialise in the NEXT tick's Spawn phase, like a
-        // release), placed by `death_spawn_points` in the owner's frame, at the
+        // as released units (spawner.RELEASE_TIMING: on the death frame and inert on it, or
+        // queued for the next Spawn phase), placed by `death_spawn_points` in the owner's frame, at the
         // owner's team and level, with the block's deploy time or the calibration
         // default. Collected and sorted by (team, the dead entity's team_seq, unit
         // index) before the push, so the queue order is canonical.
@@ -5177,7 +5236,9 @@ impl BattleState {
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
-        self.spawn_queue.extend(spawned.into_iter().map(|(_, _, _, p)| p));
+        for (_, _, _, p) in spawned {
+            self.release(p);
+        }
         // A death releases its area effect (card.rs `death_area_effect`) into the same
         // spell list a cast goes into, so the disc applies in the NEXT tick's
         // Projectile phase -- the same tick the death damage buffered below resolves,
@@ -5227,6 +5288,10 @@ impl BattleState {
         for id in deaths {
             self.ents.despawn(id);
         }
+        // RELEASED UNITS (spawner.RELEASE_TIMING = end_of_event_phase): after the dead
+        // are despawned, so a freed slot can be reused without any later read of it, and
+        // before the rebuild, so the hash holds them.
+        self.materialise_released();
         self.hash.rebuild(&self.ents);
     }
 
@@ -7092,6 +7157,7 @@ impl BattleState {
             spells: snap.spells,
             effects: snap.effects,
             spawn_queue: snap.spawn_queue,
+            released: Vec::new(),
             death_queue: snap.death_queue,
             tick: snap.tick,
             crowns: snap.crowns,

@@ -71,7 +71,7 @@
 //!   rolling_centre_in_rect             log_width_*, log_timing_*
 //!   rolling_rehit_every_tick           log_pierces_*
 //!   waves_simultaneous                 arrows_waves_*
-//!   barrel_instant_spawn               barrel_flight_*
+//!   release_deferred                   barrel_flight_*, barrel_releases_*
 //!   spawn_uses_character_deploy_time   barrel_releases_*
 //!   spawn_count_one                    barrel_releases_*, barrel_flight_*, barrel_near_the_river_*
 //!   spawn_level_local_one              barrel_releases_*
@@ -95,7 +95,7 @@ mod common;
 
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, KnockLaw};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, KnockLaw, ReleaseTiming};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -1277,9 +1277,10 @@ fn log_never_pushes_a_victim_backward_or_sideways_in_either_seat() {
 // GOBLIN BARREL
 
 #[test]
-fn barrel_flight_releases_nothing_until_it_lands() {
-    // No Blue Goblin exists before the arrival tick; after the following Spawn phase
-    // exactly SpawnCharacterCount do. Plants: barrel_instant_spawn, spell_launch_from_tap.
+fn barrel_flight_releases_nothing_until_it_lands_and_its_goblins_exist_on_the_landing_frame() {
+    // No Blue Goblin exists before the arrival tick; on the arrival tick itself, the frame the
+    // barrel vanishes, exactly SpawnCharacterCount do (spawner.RELEASE_TIMING =
+    // end_of_event_phase). Plants: release_deferred, spell_launch_from_tap.
     let mut s = bare(config());
     let tap = Vec2::new(king(&s, Team::Blue).x, stage().y);
     s.spawn_unit(Team::Blue, "GoblinBarrel", tap, None).unwrap();
@@ -1288,13 +1289,13 @@ fn barrel_flight_releases_nothing_until_it_lands() {
     let land = ((dist + step - 1) / step) as u32;
     let unit = raw_card("GoblinBarrel")["spell"]["spawn"]["character"].as_str().unwrap().to_string();
     let count = int(&raw_card("GoblinBarrel")["spell"]["spawn"]["count"]) as usize;
-    for k in 1..=land {
+    for k in 1..land {
         s.tick();
         assert_eq!(find_live(&s, Team::Blue, &unit).len(), 0, "call {k}: a {unit} exists before the barrel landed on call {land}");
     }
-    assert!(s.spells().is_empty(), "the barrel did not land on call {land}");
     s.tick();
-    assert_eq!(find_live(&s, Team::Blue, &unit).len(), count, "released units after the Spawn following the landing");
+    assert!(s.spells().is_empty(), "the barrel did not land on call {land}");
+    assert_eq!(find_live(&s, Team::Blue, &unit).len(), count, "released units on the landing frame");
 }
 
 #[test]
@@ -1326,8 +1327,12 @@ fn barrel_releases_goblins_at_the_barrel_level_with_the_barrel_deploy_time() {
         let hp = int(&urec["hitpoints"]) * m / 100;
         for g in &seen {
             assert_eq!(g.max_hp, hp, "level {level}: Goblin hp");
-            // less the countdown that already ran on the release tick (match.TICK_ORDER)
-            assert_eq!(g.deploy_ms + spawn_tick_countdown(&calib()), int(&spawn["deploy_time_ms"]), "level {level}: SpawnCharacterDeployTime, not the unit's own");
+            // a released unit has run no countdown on its first frame (spawner.RELEASE_TIMING)
+            let ran = match calib().release_timing {
+                ReleaseTiming::EndOfEventPhase => 0,
+                ReleaseTiming::NextSpawnPhase => spawn_tick_countdown(&calib()),
+            };
+            assert_eq!(g.deploy_ms + ran, int(&spawn["deploy_time_ms"]), "level {level}: SpawnCharacterDeployTime, not the unit's own");
         }
         assert_ne!(int(&spawn["deploy_time_ms"]), int(&urec["deploy_time_ms"]), "data: the override must differ or the test is vacuous");
     }
