@@ -238,6 +238,10 @@ pub struct Calib {
     /// is `Frozen`, which is what a battle saved before this key actually ran.
     #[serde(default = "attacking_unit_movement_default")]
     pub attacking_unit_movement: AttackingUnitMovement,
+    /// movement.ATTACK_FACING: where a unit in its attack state faces (`phase_attack`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
+    #[serde(default = "attack_facing_default")]
+    pub attack_facing: AttackFacing,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -541,6 +545,10 @@ fn illegal_spell_tap_default() -> IllegalSpellTap {
 
 fn attacking_unit_movement_default() -> AttackingUnitMovement {
     AttackingUnitMovement::Frozen
+}
+
+fn attack_facing_default() -> AttackFacing {
+    AttackFacing::Kept
 }
 
 fn deploying_heading_default() -> DeployingHeading {
@@ -943,6 +951,17 @@ calib_enum!(
 calib_enum!(
     /// spells.PULSING_AREA_EFFECT -- when a standing area effect applies.
     PulsingArea { FromLanding = "hit_speed_period_from_landing", Delayed = "hit_speed_period_delayed" }
+);
+calib_enum!(
+    /// movement.ATTACK_FACING -- where a unit faces while it is in its attack state. A walking
+    /// unit faces along its route under either value (the move pass writes that).
+    AttackFacing {
+        /// The heading of its last walking tick stays through the attack.
+        Kept = "kept",
+        /// Measured on client 15.535.29: on every tick in its attack state it faces its target, the
+        /// move law's integer normalize (length 256) of target - self on the start-of-tick positions.
+        TowardTarget = "toward_target",
+    }
 );
 calib_enum!(
     /// movement.ATTACKING_UNIT_MOVEMENT -- what happens to a unit whose attack phase
@@ -1725,6 +1744,7 @@ impl Calib {
             placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
+            attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
@@ -5232,6 +5252,24 @@ impl BattleState {
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             let step = combat::attack_step(e, &self.cfg.cards, &self.cfg.calib, i, can_act);
             self.ents.attack_phase[i] = step.phase;
+            // movement.ATTACK_FACING = toward_target: a unit in its attack state faces its target on
+            // every tick, the move law's integer normalize (length 256) of target - self in native units.
+            // Attack runs before Move, so these are the start-of-tick positions; the move pass writes
+            // the facing of walking units only, so this one stands for the tick.
+            #[cfg(not(clash_plant = "attack_facing_kept"))]
+            let face = self.cfg.calib.attack_facing == AttackFacing::TowardTarget;
+            #[cfg(clash_plant = "attack_facing_kept")]
+            let face = false; // PLANT (regression): the new arm keeps the walking heading.
+            if face && step.phase != AttackPhase::Idle {
+                if let Some(t) = self.ents.target[i].filter(|t| self.ents.is_alive(*t)) {
+                    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                    let (me, it) = (self.ents.pos[i], self.ents.pos[t.index as usize]);
+                    let mut v = (it.x / K - me.x / K, it.y / K - me.y / K);
+                    if crate::move16402::normalize_to(&mut v, 256) != 0 {
+                        self.ents.facing[i] = Vec2::new(v.0, v.1);
+                    }
+                }
+            }
             self.ents.attack_ms[i] = step.ms;
             self.ents.attack_load_ms[i] = step.load_ms;
             // hide.HIDE_DELAY_MEANING = time_since_last_shot: a shot re-arms the hide
