@@ -308,6 +308,31 @@ pub struct Calib {
     /// `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "doomed_target_drop_default")]
     pub doomed_target_drop: DoomedTargetDrop,
+    /// targeting.CHASE_DROP_RANGE: how far a walking troop keeps a troop it chases out of its attack reach
+    /// (target.rs `decide`, `scan`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle
+    /// saved before it actually ran.
+    #[serde(default = "chase_drop_range_default")]
+    pub chase_drop_range: ChaseDropRange,
+    /// targeting.LEAPING_UNIT_TARGETABILITY: who may target a troop in its river leap (target.rs `can_target`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "leaping_unit_targetability_default")]
+    pub leaping_unit_targetability: LeapingUnitTargetability,
+    /// targeting.MINIMUM_RANGE: whether a card's MinimumRange keeps its attacker off a close target (target.rs
+    /// `inside_minimum_range`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "minimum_range_default")]
+    pub minimum_range: MinimumRange,
+    /// targeting.FIRST_TOWER_PICK: where a troop's first default tower comes from (target.rs `default_tower`,
+    /// `spawn_now`, `summon_lane_flip`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "first_tower_pick_default")]
+    pub first_tower_pick: FirstTowerPick,
+    /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE: how far past its reach a crown tower holds a started
+    /// shot (target.rs `locked_hold_beyond`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "tower_cancel_range_default")]
+    pub tower_cancel_range: TowerCancelRange,
+    /// combat.HIT_BEYOND_CANCEL_RANGE: what a direct hit on a target far past reach deals (combat.rs `fire`). Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "hit_beyond_cancel_range_default")]
+    pub hit_beyond_cancel_range: HitBeyondCancelRange,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -747,6 +772,46 @@ fn deploy_projectile_default() -> DeployProjectile {
 
 fn doomed_target_drop_default() -> DoomedTargetDrop {
     DoomedTargetDrop::Keep
+}
+
+fn chase_drop_range_default() -> ChaseDropRange {
+    ChaseDropRange::SightPlusRadii
+}
+
+fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
+    LeapingUnitTargetability::Ground
+}
+
+fn minimum_range_default() -> MinimumRange {
+    MinimumRange::NotRead
+}
+
+fn first_tower_pick_default() -> FirstTowerPick {
+    FirstTowerPick::CurrentX
+}
+
+fn tower_cancel_range_default() -> TowerCancelRange {
+    TowerCancelRange::Global
+}
+
+fn hit_beyond_cancel_range_default() -> HitBeyondCancelRange {
+    HitBeyondCancelRange::Damage
+}
+
+/// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE's value: the string "global", or a non-negative number of
+/// millitiles, converted to subtiles here.
+fn tower_cancel_value(v: &Value) -> Result<TowerCancelRange, String> {
+    let path = ["targeting", "TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE", "value"];
+    let x = at(v, &path)?;
+    if x.as_str() == Some("global") {
+        return Ok(TowerCancelRange::Global);
+    }
+    x.as_i64()
+        .and_then(|n| i32::try_from(n).ok())
+        .filter(|n| *n >= 0)
+        .and_then(|n| n.checked_mul(crate::fixed::SUBTILE_PER_MILLITILE))
+        .map(TowerCancelRange::Beyond)
+        .ok_or_else(|| format!("calibration.json: {} is {x}, not \"global\" or a non-negative number of millitiles", path.join(".")))
 }
 
 fn deploying_heading_default() -> DeployingHeading {
@@ -1264,6 +1329,94 @@ impl DoomedTargetDrop {
     pub fn drops(self) -> bool {
         self != DoomedTargetDrop::Keep
     }
+}
+calib_enum!(
+    /// targeting.CHASE_DROP_RANGE -- how far a walking troop keeps a troop it chases out of its attack reach
+    /// (target.rs `decide`, `scan`).
+    ChaseDropRange {
+        /// Today's engine: the chaser rescans at plain sight every tick, so it keeps the runner to SightRange + both
+        /// collision radii, centre to centre.
+        SightPlusRadii = "sight_plus_radii",
+        /// Measured on client 15.535.29 along a lane (18 of 18 drops by a P.E.K.K.A, a Knight, a Prince and a Mini
+        /// P.E.K.K.A of a Hog Rider or a Battle Ram): a troop whose target is a troop outside its attack reach drops
+        /// it, and rescans, on the first tick whose start-of-tick max(|dx|, |dy|) between the two centres exceeds
+        /// SightRange + both collision radii - target::CHASE_DROP_SHORT_OF_SIGHT, having been within it at the
+        /// previous Target phase (an edge: a troop taken past the limit is walked after until it has been inside; 31
+        /// of 31 such ticks in the chase scenarios kept it). Its later scans take that troop again only within the
+        /// same limit, measured the same way; every other enemy is a candidate at plain sight.
+        ClientSightMinus1000 = "client_sight_minus_1000",
+    }
+);
+calib_enum!(
+    /// targeting.LEAPING_UNIT_TARGETABILITY -- who may target a troop in its river leap (entity.rs `jumping`;
+    /// target.rs `can_target`).
+    LeapingUnitTargetability {
+        /// Today's engine: a leaping troop stays a ground target for every attacker.
+        Ground = "ground",
+        /// Measured on client 15.535.29 (10 of 10 ground-only witnesses of a Hog Rider's leap, 2 of 2 air-and-ground
+        /// ones): a leaping troop is a target only for an attacker that attacks air. Read in the Target phase from the
+        /// leap state the previous tick's Path phase left, so a ground-only attacker still holds it on the hop tick,
+        /// drops it on the next (its swing cancelled, as for any target it can no longer target) and can take it
+        /// again on the tick after the landing. Target selection only: the unit does not become a flying unit for
+        /// collisions, area damage or spells.
+        Airborne = "airborne",
+    }
+);
+calib_enum!(
+    /// targeting.MINIMUM_RANGE -- whether a card's MinimumRange (card.rs `CardDef::minimum_range`) keeps its
+    /// attacker off a target standing close to it (target.rs `inside_minimum_range`).
+    MinimumRange {
+        /// Today's engine: the column is not acted on, so a Mortar shoots at its own feet.
+        NotRead = "not_read",
+        /// Measured on the 16.402 corpus (one Mortar, both seats of one battle, to the tick): an attacker whose card
+        /// sets MinimumRange neither keeps nor takes a target whose edge distance (centre distance less both
+        /// collision radii) is below it, on the start-of-tick positions. A target that falls inside is dropped on
+        /// that tick with its swing cancelled, as a lost target and not a kill, so no post-kill wait follows.
+        Client16402EdgeDistance = "client16402_edge_distance",
+    }
+);
+calib_enum!(
+    /// targeting.FIRST_TOWER_PICK -- which enemy princess tower a troop with no target walks to first (target.rs
+    /// `default_tower`).
+    FirstTowerPick {
+        /// Today's engine: the tower of the unit's current x on every tick (targeting.CENTRE_LANE_FRAME).
+        CurrentX = "current_x",
+        /// Measured on client 15.535.29 (the lane-pick scenarios, 12 of 12 members on both sides) and on the 16.402
+        /// corpus (2,188 of 2,188 first picks read at creation points): a troop takes a lane at its creation point,
+        /// the lane of the nearest lane-marked cell of the tilemap (formation.rs `nearest_lane`, absolute
+        /// coordinates), a summon member's flipped against its deploy point (`BattleState::summon_lane_flip`). While
+        /// it deploys and for target::FIRST_PICK_LANE_WINDOW_MS after, its default tower is that lane's enemy
+        /// princess tower, the king once it is down; after that the tower of its current x, as today.
+        ClientSpawnLane = "client_spawn_lane",
+    }
+);
+calib_enum!(
+    /// combat.HIT_BEYOND_CANCEL_RANGE -- what a direct hit deals when its target stands far past the attacker's
+    /// reach (combat.rs `fire`).
+    HitBeyondCancelRange {
+        /// Today's engine: a completed hit deals its damage wherever the target stands.
+        Damage = "damage",
+        /// Measured on client 15.535.29 (83 of 83 completed direct hits on a target beyond reach): a single-target
+        /// direct hit whose target stands more than targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past the
+        /// attacker's reach (Range + both collision radii) at the start of the hit tick deals no damage and applies
+        /// no buff; the attack cycle runs on and the target is kept.
+        NoDamage = "no_damage",
+    }
+);
+
+/// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE -- how far past its reach a crown tower holds a started shot
+/// (target.rs `locked_hold_beyond`). The ledger value is the string "global" or a number of millitiles, so it is
+/// read by `tower_cancel_value` rather than declared with `calib_enum!`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum TowerCancelRange {
+    /// "global": today's engine. A crown tower holds its shot to targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE,
+    /// like every other attacker.
+    Global,
+    /// A number: a crown tower with a shot under way drops its target on the first tick whose start-of-tick centre
+    /// distance exceeds Range + both collision radii + this many SUBTILES (the ledger's millitiles, converted at
+    /// load). Measured on client 15.535.29 at 500: a princess tower kept a walking Knight at 9487.2, 9486.9 and
+    /// 9440.4 and dropped it at 9547.2, 9546.1 and 9500.5 (limit 9500). Every other attacker keeps the global value.
+    Beyond(i32),
 }
 calib_enum!(
     /// movement.ATTACK_FACING -- where a unit faces while it is in its attack state. A walking
@@ -2500,6 +2653,12 @@ impl Calib {
             multiple_targets: pick(&v, &["combat", "MULTIPLE_TARGETS", "value"], MultipleTargets::from_calibration_name)?,
             deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
+            chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
+            leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
+            minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
+            first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
+            tower_cancel_range: tower_cancel_value(&v)?,
+            hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
@@ -2925,6 +3084,12 @@ struct PendingSpawn {
     /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     facing: Option<Vec2>,
+    /// targeting.FIRST_TOWER_PICK = client_spawn_lane: the deploy point's x, engine subtiles, on a summon member (a
+    /// unit of a troop card that deploys two or more), which its lane is flipped against when it is created
+    /// (`BattleState::summon_lane_flip`). None on everything else, and on everything under the old arm. Added after
+    /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
+    #[serde(default)]
+    summon_x: Option<i32>,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -3716,6 +3881,15 @@ impl BattleState {
             let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos)?;
             self.spells.extend(area);
         }
+        // targeting.FIRST_TOWER_PICK = client_spawn_lane: a troop takes its lane at its creation point, before any
+        // contact push moves it: the lane of the nearest lane-marked cell of the tilemap, in absolute coordinates
+        // (formation.rs `nearest_lane`). A summon member's flip against its deploy point follows in
+        // `summon_lane_flip`. Its default tower comes from that lane while it deploys and for
+        // target::FIRST_PICK_LANE_WINDOW_MS after (`on_deployed` sets the end). Not written under the old arm.
+        if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && kind == EntityKind::Troop {
+            self.ents.spawn_lane[i] = crate::formation::nearest_lane(&self.cfg.arena, pos);
+            self.ents.lane_window_end[i] = u32::MAX;
+        }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -3734,6 +3908,14 @@ impl BattleState {
         self.hide_on_deployed(i);
         self.spawner_activate(i);
         self.load_first_hit_on_deployed(i);
+        // targeting.FIRST_TOWER_PICK = client_spawn_lane: the spawn lane decides the default tower for the
+        // FIRST_PICK_LANE_WINDOW_MS after this tick, the first pick being the next tick's (measured on client
+        // 15.535.29: 6 of 6 re-picks by x fall 10 ticks after the first pick). `spawn_lane` is 0 on every entity
+        // under the old arm, so nothing is written there.
+        if self.ents.spawn_lane[i] != 0 {
+            let window = (target::FIRST_PICK_LANE_WINDOW_MS / self.cfg.calib.tick_ms.max(1)) as u32;
+            self.ents.lane_window_end[i] = self.tick.saturating_add(window);
+        }
     }
 
     /// THE FIRST-HIT LOAD (calibration combat.LOAD_FIRST_HIT = load_time_from_deploy_end):
@@ -3759,6 +3941,37 @@ impl BattleState {
         }
         #[cfg(clash_plant = "load_first_hit_from_lock")]
         let _ = (first_hit, load_time); // PLANT (regression): the load timer leaves the deploy at 0, so the first launch is timed from the lock.
+    }
+
+    /// targeting.FIRST_TOWER_PICK = client_spawn_lane, A SUMMON MEMBER'S LANE (`PendingSpawn::summon_x`): member `i`,
+    /// just created at its formation point, of a deploy at x `ax` (engine subtiles). In native units, with x the
+    /// member's, c = trunc((x + 5) / 500) and ac = trunc(ax / 500), a flip is due when (ax < x, ac < 18 and c >= 18)
+    /// or (ax > x, ac > 18 and c <= 18), 18 being half the tilemap's columns; the member then takes the OTHER lane
+    /// when the nearest lane cell to (ac, trunc(y / 500)) carries the same lane as its own. So a member at x 9001 of
+    /// a deploy at 9500 goes left, and one at 8999 of a deploy at 8500 goes right. Measured on client 15.535.29 (the
+    /// lane-pick scenarios, 12 of 12 members on both sides) and on the 16.402 corpus (2,188 of 2,188 first picks
+    /// read at creation points). Absolute coordinates, as measured: the "+ 5" and the tilemap are not turned for
+    /// side 1, so the rule is not the seat rotation of itself exactly on the centre line.
+    fn summon_lane_flip(&mut self, i: usize, ax: i32) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let own = self.ents.spawn_lane[i];
+        if own == 0 {
+            return;
+        }
+        let arena = &self.cfg.arena;
+        let cell = (arena.cell / K).max(1);
+        let half = arena.cols / 2;
+        let p = self.ents.pos[i];
+        let (x, a) = (p.x / K, ax / K);
+        let (c, ac) = ((x + 5) / cell, a / cell);
+        let due = (a < x && ac < half && c >= half) || (a > x && ac > half && c <= half);
+        #[cfg(not(clash_plant = "spawn_lane_no_flip"))]
+        let flip = due && crate::formation::nearest_lane(arena, arena.half_to_subtile_center(ac, p.y.div_euclid(arena.cell))) == own;
+        #[cfg(clash_plant = "spawn_lane_no_flip")]
+        let flip = { let _ = due; false }; // PLANT (regression): the member keeps the lane of its own point, as a single troop does.
+        if flip {
+            self.ents.spawn_lane[i] = (arena.bit_lane_left | arena.bit_lane_right) & !own;
+        }
     }
 
     /// spawner.EMISSION_TIMING in force. The regression plant `spawner_first_wave_late`
@@ -4124,7 +4337,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None }));
                     k += 1;
                 }
                 left -= 1;
@@ -4819,6 +5032,10 @@ impl BattleState {
                 }
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
+            // targeting.FIRST_TOWER_PICK = client_spawn_lane: a summon member's lane, flipped against its deploy point.
+            if let Some(ax) = p.summon_x {
+                self.summon_lane_flip(id.index as usize, ax);
+            }
             self.ents.spawned_by[id.index as usize] = p.owner;
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
@@ -5174,6 +5391,20 @@ impl BattleState {
             // The launch beyond reach has had its re-evaluation (target.rs `decide`).
             e.launched_beyond[i] = false;
             e.target[i] = d.target;
+            // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: remember the troop the chase drop let go of, which the
+            // later scans admit only within the chase-drop limit (target.rs `scan`), and forget it once the unit has
+            // taken it again. Never written under the old arm, where no decision carries one.
+            if d.chase_dropped.is_some() {
+                e.chase_dropped[i] = d.chase_dropped;
+            } else if d.target.is_some() && d.target == e.chase_dropped[i] {
+                e.chase_dropped[i] = None;
+            }
+            // targeting.CHASE_DROP_RANGE = client_sight_minus_1000, the edge: the target this decision leaves the unit
+            // holding, when it stands within the chase-drop limit on the positions the decision read (nothing has
+            // moved yet); the next Target phase lets a target go past the limit only when this names it. None under
+            // the old arm.
+            let inside = target::chase_inside(calib, cards, e, i, d.target);
+            e.chase_inside[i] = inside;
             if wait_mode == PostKillWait::AttackFinish {
                 if let Some(t) = d.target.filter(|t| e.standing(*t, struck)) {
                     e.target_doomed[i] = doomed_now[t.index as usize];
@@ -7697,7 +7928,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -8250,7 +8481,7 @@ impl BattleState {
                 None
             };
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing, summon_x: None }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -8551,7 +8782,7 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -8600,6 +8831,10 @@ impl BattleState {
             }
             DeployStagger::None => 0,
         };
+        // targeting.FIRST_TOWER_PICK = client_spawn_lane: a member of a troop card that deploys two or more units
+        // carries the deploy point's x, which its lane is flipped against when it is created (`summon_lane_flip`).
+        // Not written under the old arm.
+        let summon_x = (calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && total >= 2 && card.kind == CardKind::Troop).then_some(pos.x);
         let member = |k: i32, p: Vec2| {
             let unit = unit_of(k);
             let delay = stagger(k);
@@ -8607,7 +8842,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -9690,6 +9925,22 @@ impl BattleState {
                 if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly {
                     h.bool(e.launched_beyond[i]);
                 }
+                // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
+                // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
+                // it did before the columns.
+                if self.cfg.calib.chase_drop_range == ChaseDropRange::ClientSightMinus1000 {
+                    for f in [e.chase_dropped[i], e.chase_inside[i]] {
+                        h.bool(f.is_some());
+                        h.u32(f.map_or(0, |t| t.index));
+                        h.u32(f.map_or(0, |t| t.generation));
+                    }
+                }
+                // targeting.FIRST_TOWER_PICK = client_spawn_lane: the spawn lane and its window, written under that arm
+                // only.
+                if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane {
+                    h.u32(e.spawn_lane[i] as u32);
+                    h.u32(e.lane_window_end[i]);
+                }
                 if self.cfg.calib.doomed_target_drop.drops() {
                     let f = e.fired_at[i];
                     h.bool(f.is_some());
@@ -9925,6 +10176,11 @@ impl BattleState {
                         h.vec(f);
                     }
                 }
+                // targeting.FIRST_TOWER_PICK = client_spawn_lane's deploy x, set under that arm only.
+                if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane {
+                    h.bool(s.summon_x.is_some());
+                    h.i32(s.summon_x.unwrap_or(0));
+                }
             }
         }
         h.u32(self.dmg.hits.len() as u32);
@@ -10113,6 +10369,16 @@ impl BattleState {
 ///    refused as saved against other card data. match.TICK_ORDER gained client_sequential_strike,
 ///    no new state. migrate_v3 strips `hovering` with the rest of the post-format-3 tail and runs
 ///    a migrated battle at the old arms.
+/// 20, unchanged, six targeting and combat keys (targeting.CHASE_DROP_RANGE, LEAPING_UNIT_TARGETABILITY,
+///    MINIMUM_RANGE, FIRST_TOWER_PICK, TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE and combat.HIT_BEYOND_CANCEL_RANGE):
+///    Calib gained six fields (serde default the old arm), Entities gained chase_dropped, chase_inside, spawn_lane
+///    and lane_window_end (serde default, sized on load, written and hashed under their new arms only) and PendingSpawn
+///    gained summon_x (serde default None, written and hashed under client_spawn_lane only), so a format-20 blob saved
+///    before them still deserializes and hashes as it did. A blob saved by this build carries the new fields at
+///    their neutral values, so its BYTES differ from an earlier build's; its state_hash does not. CardDef gained
+///    `minimum_range`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved
+///    against other card data. migrate_v3 strips the field with the rest of the post-format-3 tail and runs a
+///    migrated battle at the old arms; no card's index moves.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -10290,12 +10556,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `spawn_area_effect` after it.
                 // ~~... spawn_area_effect~~ -- pathfinding.HOVERING_WATER_RULE (still format 20)
                 // added `hovering` after it.
+                // ~~... hovering~~ -- targeting.MINIMUM_RANGE (still format 20) added
+                // `minimum_range` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -10327,7 +10595,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.death_projectile,
                     c.deploy_area_effect,
                     c.spawn_area_effect,
-                    c.hovering
+                    c.hovering,
+                    c.minimum_range
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -10410,6 +10679,15 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("hide_rise_law".into(), serde_json::to_value(RiseLaw::EngineRisingPhase).map_err(|e| e.to_string())?);
     sh.insert("area_buff_source_binding".into(), serde_json::to_value(AreaBuffSourceBinding::NotRead).map_err(|e| e.to_string())?);
     sh.insert("card_values".into(), serde_json::to_value(CardValuesArm::None).map_err(|e| e.to_string())?);
+    // The targeting and combat keys of the chase drop, the leap, the minimum range, the first tower
+    // pick, the tower's cancel range and the far hit: a format-3 battle ran none of them; it keeps
+    // that whatever the ledger ships (the same rule).
+    sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
+    sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
+    sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
+    sh.insert("first_tower_pick".into(), serde_json::to_value(FirstTowerPick::CurrentX).map_err(|e| e.to_string())?);
+    sh.insert("tower_cancel_range".into(), serde_json::to_value(TowerCancelRange::Global).map_err(|e| e.to_string())?);
+    sh.insert("hit_beyond_cancel_range".into(), serde_json::to_value(HitBeyondCancelRange::Damage).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -10670,6 +10948,10 @@ impl BattleState {
         snap.ents.target_doomed.resize(n, false);
         snap.ents.fired_at.resize(n, None);
         snap.ents.launched_beyond.resize(n, false);
+        snap.ents.chase_dropped.resize(n, None);
+        snap.ents.chase_inside.resize(n, None);
+        snap.ents.spawn_lane.resize(n, 0);
+        snap.ents.lane_window_end.resize(n, 0);
         snap.ents.stagger_ms.resize(n, 0);
         snap.ents.death_slide_centre.resize(n, Vec2::default());
         snap.ents.death_slide_radius.resize(n, 0);

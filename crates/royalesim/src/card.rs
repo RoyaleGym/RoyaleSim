@@ -737,13 +737,18 @@ pub struct CardDef {
     /// the troop prices water as a JumpEnabled mover does and walks it; a blank, or a file that
     /// does not carry the column, reads false.
     pub hovering: bool,
+    /// characters / buildings MinimumRange, SUBTILES (cards.json `minimum_range_milli`; 0 = blank): an attacker
+    /// neither keeps nor takes a target whose edge distance is below it (the Mortar's 3500). Acted on only under
+    /// calibration targeting.MINIMUM_RANGE = client16402_edge_distance (target.rs `inside_minimum_range`); inert
+    /// under the shipped `not_read`.
+    pub minimum_range: i32,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `hovering`, and onto the end of that tail
+    // field goes HERE, after `minimum_range`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -921,6 +926,9 @@ struct RawCard {
     /// cards.json `hovering` (characters.csv Hovering): `CardDef::hovering`. Not written by the
     /// extractor yet, so absent everywhere today.
     hovering: Option<bool>,
+    /// cards.json `minimum_range_milli` (characters / buildings MinimumRange, millitiles; null on most rows):
+    /// `CardDef::minimum_range`.
+    minimum_range_milli: Option<i32>,
     /// spells_characters SummonCharacter: the unit the card deploys (`CardDef::unit_name`).
     summon_character: Option<String>,
     // --- the summon layout and stagger (`FormationDef`). Every one null in the
@@ -1707,6 +1715,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         deploy_area_effect: None,
         spawn_area_effect: None,
         hovering: false,
+        minimum_range: 0,
     }
 }
 
@@ -2781,6 +2790,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         deploy_area_effect: None,
         spawn_area_effect: None,
         hovering: raw.hovering.unwrap_or(false),
+        // MinimumRange: a blank (every row but the Mortar family's) is none.
+        #[cfg(not(clash_plant = "minimum_range_unread"))]
+        minimum_range: milli(nonneg(raw.minimum_range_milli, "minimum_range_milli")?),
+        #[cfg(clash_plant = "minimum_range_unread")]
+        minimum_range: 0, // PLANT (regression): the loader drops the column, so the Mortar shoots at its own feet.
     }, display, units))
 }
 
@@ -3704,7 +3718,8 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // extractor writes it: "death_spawn_projectile" (a row of the top-level "projectiles" map, the
 // shape a spell's "projectile" block has; `convert_death_projectile`), "deploy_area_effect" and
 // "spawn_area_object" (rows of "area_effect_objects"; `convert_deploy_area_effect`,
-// `convert_spawn_area_effect`). Unknown fields are ignored.
+// `convert_spawn_area_effect`). Also "minimum_range_milli" (MinimumRange; null reads as none).
+// Unknown fields are ignored.
 
 #[cfg(test)]
 mod tests {

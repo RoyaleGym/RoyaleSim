@@ -44,7 +44,10 @@ use crate::arena::{Arena, Lane};
 use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
-use crate::state::{AttackRangeRule, Calib, CentreLaneFrame, PreserveTargetScope, RiseLaw, RiseTrigger};
+use crate::state::{
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, FirstTowerPick, LeapingUnitTargetability, MinimumRange, PreserveTargetScope,
+    RiseLaw, RiseTrigger, TowerCancelRange,
+};
 use crate::{EntityId, Team};
 
 /// Which side EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS extends. See module doc.
@@ -101,6 +104,17 @@ pub const ACQUIRE_DELAY_TICKS: u32 = 7;
 #[cfg(clash_plant = "acquire_delay_one_short")]
 pub const ACQUIRE_DELAY_TICKS: u32 = 6; // PLANT: the first target lands on F + 6.
 
+/// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: how far short of SightRange + both collision radii a walking
+/// troop lets go of a troop it chases, NATIVE units (millitiles; `beyond_chase_limit` scales it to subtiles).
+/// Measured on client 15.535.29: 18 of 18 lane drops of a Hog Rider or a Battle Ram by a P.E.K.K.A, a Knight, a
+/// Prince and a Mini P.E.K.K.A fit one constant between 990 and 1008.
+pub const CHASE_DROP_SHORT_OF_SIGHT: i32 = 1000;
+
+/// targeting.FIRST_TOWER_PICK = client_spawn_lane: how long after its deploy ends a troop's default tower still comes
+/// from its spawn lane, ms (state.rs `on_deployed`). Measured on client 15.535.29: 6 of 6 re-picks by x fall 10
+/// ticks after the first pick.
+pub const FIRST_PICK_LANE_WINDOW_MS: i32 = 500;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct TargetDecision {
     pub target: Option<EntityId>,
@@ -109,6 +123,9 @@ pub struct TargetDecision {
     /// This was the resume rescan after a stun (status.STUN_RETARGET_ON_RESUME); the
     /// caller clears the entity's retarget_on_resume flag.
     pub resumed: bool,
+    /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this decision let go of past the chase-drop
+    /// limit; the caller records it (entity.rs `chase_dropped`). None under the old arm.
+    pub chase_dropped: Option<EntityId>,
 }
 
 /// Is `target` within `range` of `from`? Edge-to-edge when the shipped global
@@ -245,10 +262,94 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     if card.target_only_buildings && !e.kind[c].is_building() {
         return false;
     }
-    if e.flying[c] {
+    // targeting.LEAPING_UNIT_TARGETABILITY = airborne: a troop in its river leap is a target only for an attacker
+    // that attacks air. `jumping` is set and cleared by the Path phase, which runs after this one, so this reads the
+    // leap state the previous tick left: a ground-only attacker drops the leaper one tick after the hop and may take
+    // it again one tick after the landing, as measured on client 15.535.29.
+    #[cfg(not(clash_plant = "leap_targetable_by_ground"))]
+    let airborne = ctx.calib.leaping_unit_targetability == LeapingUnitTargetability::Airborne && e.jumping[c];
+    #[cfg(clash_plant = "leap_targetable_by_ground")]
+    let airborne = false; // PLANT (regression): a leaping troop stays a ground target under the new arm too.
+    if e.flying[c] || airborne {
         card.attacks_air
     } else {
         card.attacks_ground
+    }
+}
+
+/// targeting.MINIMUM_RANGE = client16402_edge_distance: does `c` stand inside attacker `a`'s MinimumRange, its edge
+/// distance (centre distance less both collision radii) below it? Start-of-tick positions (the Target phase). The
+/// measured law names both radii, so this does not follow targeting.ATTACK_RANGE_RULE. False for a card without
+/// MinimumRange and under not_read.
+#[inline]
+pub fn inside_minimum_range(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    let e = ctx.ents;
+    let min = ctx.cards.get(e.card[a]).minimum_range;
+    if ctx.calib.minimum_range != MinimumRange::Client16402EdgeDistance || min <= 0 {
+        return false;
+    }
+    let r = (min as i64) + (e.radius[a] as i64) + (e.radius[c] as i64);
+    e.pos[a].dist2(e.pos[c]) < r * r
+}
+
+/// Does targeting.CHASE_DROP_RANGE = client_sight_minus_1000 reach attacker `a` chasing `c`? A troop after a troop:
+/// the measured chasers were troops and so were the runners, and whether a building target is ever dropped this way
+/// is open.
+#[inline]
+fn chase_drop_applies(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    ctx.calib.chase_drop_range == ChaseDropRange::ClientSightMinus1000
+        && ctx.ents.kind[a] == EntityKind::Troop
+        && ctx.ents.kind[c] == EntityKind::Troop
+}
+
+/// Does `c` stand past attacker `a`'s chase-drop limit, SightRange + both collision radii -
+/// CHASE_DROP_SHORT_OF_SIGHT, on max(|dx|, |dy|) of the two start-of-tick centres? The measure is the proposal's
+/// choice among those the measurements leave: along a lane |dy| and max(|dx|, |dy|) agree, and a diagonal chase on
+/// client 15.535.29 refutes the Euclidean distance.
+#[inline]
+fn beyond_chase_limit(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    past_chase_limit(ctx.cards, ctx.ents, a, c)
+}
+
+/// `beyond_chase_limit` on the current positions, for a caller without a `TargetCtx`.
+#[inline]
+fn past_chase_limit(cards: &CardDb, e: &Entities, a: usize, c: usize) -> bool {
+    let limit = cards.get(e.card[a]).sight_range as i64 + e.radius[a] as i64 + e.radius[c] as i64
+        - (CHASE_DROP_SHORT_OF_SIGHT as i64) * (crate::fixed::SUBTILE_PER_MILLITILE as i64);
+    let d = e.pos[c].sub(e.pos[a]);
+    (d.x as i64).abs().max((d.y as i64).abs()) > limit
+}
+
+/// targeting.CHASE_DROP_RANGE = client_sight_minus_1000, THE EDGE: `target` when troop `a` holds it, a live troop,
+/// within the chase-drop limit on the current positions; else None, and None under the old arm. The Target phase's
+/// caller records it for the target each decision leaves the unit holding, before anything moves, so on the positions
+/// the decision read (entity.rs `chase_inside`); the next `decide` lets a target go past the limit only when this
+/// named it. Measured on client 15.535.29 in the chase scenarios: on 35 of 35 ticks where a walking chaser's troop
+/// target first stood past the limit the chaser let it go, and on 31 of 31 ticks where a troop it had taken past the
+/// limit still stood past it the chaser kept it (walking and deploying targets; one walked away for 16 ticks).
+pub fn chase_inside(calib: &Calib, cards: &CardDb, e: &Entities, a: usize, target: Option<EntityId>) -> Option<EntityId> {
+    target.filter(|t| {
+        let c = t.index as usize;
+        calib.chase_drop_range == ChaseDropRange::ClientSightMinus1000
+            && e.is_alive(*t)
+            && e.kind[a] == EntityKind::Troop
+            && e.kind[c] == EntityKind::Troop
+            && !past_chase_limit(cards, e, a, c)
+    })
+}
+
+/// How far past its reach a LOCKED attacker holds its target (the locked branch of `decide`): for a crown tower,
+/// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE when it names a number; for everything else, and for a tower
+/// under "global", targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE.
+#[inline]
+fn locked_hold_beyond(ctx: &TargetCtx, a: usize) -> i32 {
+    #[cfg(not(clash_plant = "tower_cancel_global"))]
+    let scoped = ctx.ents.kind[a].is_crown_tower();
+    #[cfg(clash_plant = "tower_cancel_global")]
+    let scoped = false; // PLANT (regression): a crown tower holds its shot to the global cancel range, as today.
+    match ctx.calib.tower_cancel_range {
+        TowerCancelRange::Beyond(n) if scoped => n,
+        _ => ctx.calib.cancel_hit_from_long_distance_range,
     }
 }
 
@@ -293,6 +394,15 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i32, i32, i32, u32) {
 
 /// Nearest valid enemy in sight, or None.
 pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityId> {
+    scan_with(ctx, a, scratch, ctx.ents.chase_dropped[a])
+}
+
+/// `scan`, with `dropped` the troop the chase drop let go of (targeting.CHASE_DROP_RANGE = client_sight_minus_1000):
+/// it is a candidate only within the chase-drop limit, measured as the drop measures it, while every other enemy is
+/// one at plain sight. Measured on client 15.535.29: a Tornado dragging a dropped Hog Rider back gets it taken again
+/// on the first tick it is inside the drop limit, 3 of 3 runs, and not while it is back in plain sight only; a
+/// fresh enemy farther than the dropped runner is taken on the drop tick. A per-target range, not a timed exclusion.
+fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<EntityId>) -> Option<EntityId> {
     let e = ctx.ents;
     let card = ctx.cards.get(e.card[a]);
     let extra = ctx.calib.extra_sight_range_to_crown_towers.max(0) + ctx.calib.extra_sight_range_to_building.max(0);
@@ -308,6 +418,16 @@ pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityI
         if !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, c), e.radius[a], e.pos[c], e.radius[c]) {
             continue;
         }
+        // targeting.MINIMUM_RANGE = client16402_edge_distance: never TAKE a target inside the minimum range.
+        if inside_minimum_range(ctx, a, c) {
+            continue;
+        }
+        #[cfg(not(clash_plant = "chase_drop_rescan_admits"))]
+        if dropped == Some(e.id_of(c)) && chase_drop_applies(ctx, a, c) && beyond_chase_limit(ctx, a, c) {
+            continue;
+        }
+        #[cfg(clash_plant = "chase_drop_rescan_admits")]
+        let _ = dropped; // PLANT (regression): the dropped troop is a candidate again at plain sight.
         let k = key(ctx, a, c);
         if best.as_ref().map_or(true, |(bk, _)| k < *bk) {
             best = Some((k, c));
@@ -349,7 +469,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     let e = ctx.ents;
     let cur = e.target[a];
     if e.deploy_ms[a] > 0 {
-        return TargetDecision { target: None, cancel_attack: false, resumed: false };
+        return TargetDecision { target: None, cancel_attack: false, resumed: false, chase_dropped: None };
     }
     // Under ground or still coming up: no target at all, and any windup it had is
     // cancelled (it cannot have one; belt and braces for a building that went
@@ -357,7 +477,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     // surfacing tick under hide.RISE_LAW = client16402_surface_attacking is not
     // coming up: it takes its target on it (`hide_acts`).
     if !hide_acts(ctx.calib, e, a) {
-        return TargetDecision { target: None, cancel_attack: true, resumed: false };
+        return TargetDecision { target: None, cancel_attack: true, resumed: false, chase_dropped: None };
     }
     // Stunned or mid-knockback (the slide, or the 16.402 ladder): keep what it
     // had, scan nothing. The same for a death-spawn member still sliding out
@@ -368,22 +488,27 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     #[cfg(clash_plant = "death_slide_targets")]
     let sliding = false; // PLANT: a sliding member scans and takes a target.
     if e.stun_ms[a] > 0 || e.knocked(a) || sliding {
-        return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false };
+        return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false, chase_dropped: None };
     }
     if e.kind[a] == EntityKind::KingTower && !ctx.king_active[e.team[a] as usize] {
-        return TargetDecision { target: None, cancel_attack: false, resumed: false };
+        return TargetDecision { target: None, cancel_attack: false, resumed: false, chase_dropped: None };
     }
     // RESUME: the first tick after a stun, a fresh scan that ignores the target lock
     // and keep-target hysteresis (Supercell 2017-03-13: stuns 'pause the target's
     // attack, causing them to retarget when they resume').
     #[cfg(not(clash_plant = "no_retarget_after_stun"))]
     if e.retarget_on_resume[a] {
-        return TargetDecision { target: scan(ctx, a, scratch), cancel_attack: false, resumed: true };
+        return TargetDecision { target: scan(ctx, a, scratch), cancel_attack: false, resumed: true, chase_dropped: None };
     }
     let card = ctx.cards.get(e.card[a]);
     let mut cancel = false;
     if let Some(t) = cur {
-        if e.is_alive(t) && can_target(ctx, a, t.index as usize, true) {
+        let targetable = e.is_alive(t) && can_target(ctx, a, t.index as usize, true);
+        // targeting.MINIMUM_RANGE = client16402_edge_distance: a target inside the attacker's MinimumRange is dropped
+        // on this tick with its swing cancelled (idle, progress 0), as a lost target and not a kill, so no post-kill
+        // wait follows; the rescan below does not take it back while it stands there. Always false under not_read.
+        let too_close = targetable && inside_minimum_range(ctx, a, t.index as usize);
+        if targetable && !too_close {
             let ti = t.index as usize;
             #[cfg(not(clash_plant = "no_target_lock"))]
             let locked = e.target_locked[a];
@@ -400,25 +525,43 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 // finds nothing past its range, so it drops the target.
                 let hold = card.range + PROJECTILE_HOLD_BEYOND_REACH * crate::fixed::SUBTILE_PER_MILLITILE;
                 if !e.launched_beyond[a] && in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
-                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
+                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
             } else if locked && ctx.calib.locks_target(card) {
-                let hold = card.range + ctx.calib.cancel_hit_from_long_distance_range;
+                // targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE: a crown tower's own hold when the key names one.
+                let hold = card.range + locked_hold_beyond(ctx, a);
                 if in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
-                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
+                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
                 cancel = true;
             } else {
                 let keep = card.range + ctx.calib.range_extension_to_keep_target;
                 if in_attack_range(ctx.calib, e.pos[a], keep, e.radius[a], e.pos[ti], e.radius[ti]) {
-                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
+                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
             }
-        } else if e.target_locked[a] {
+            // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the target is a troop outside the attacker's attack
+            // reach (no branch above kept it), so the attacker is walking after it. Past the chase-drop limit on the
+            // start-of-tick positions it lets go and rescans, and that rescan and the later ones admit the dropped
+            // troop only within the limit (`scan_with`). The attack-reach keeps above are untouched. A troop just
+            // out of a swing takes this test on its first walking tick, as measured (a Prince at -990).
+            // THE DROP IS AN EDGE: only a target the previous Target phase found within the limit (entity.rs
+            // `chase_inside` names it) is let go. One taken past the limit, at plain sight, is walked after and
+            // rescanned as today until it has been inside (client 15.535.29, the chase scenarios: 31 of 31 such ticks).
+            #[cfg(not(any(clash_plant = "chase_drop_ignored", clash_plant = "chase_drop_level_triggered")))]
+            let dropped = chase_drop_applies(ctx, a, ti) && e.chase_inside[a] == Some(t) && beyond_chase_limit(ctx, a, ti);
+            #[cfg(all(clash_plant = "chase_drop_level_triggered", not(clash_plant = "chase_drop_ignored")))]
+            let dropped = chase_drop_applies(ctx, a, ti) && beyond_chase_limit(ctx, a, ti); // PLANT (regression): a target taken past the limit is let go on the next tick.
+            #[cfg(clash_plant = "chase_drop_ignored")]
+            let dropped = false; // PLANT (regression): the chaser keeps the runner to its plain sight, as today.
+            if dropped {
+                return TargetDecision { target: scan_with(ctx, a, scratch, Some(t)), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
+            }
+        } else if e.target_locked[a] || too_close {
             cancel = true;
         }
     }
-    TargetDecision { target: scan(ctx, a, scratch), cancel_attack: cancel, resumed: false }
+    TargetDecision { target: scan(ctx, a, scratch), cancel_attack: cancel, resumed: false, chase_dropped: None }
 }
 
 /// Where a unit with no target walks: the enemy crown tower chosen by x
@@ -433,6 +576,18 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
     #[cfg(clash_plant = "default_tower_nearest")]
     let by_x = false; // PLANT: ignore LOGIC_XPOS_BASED_TOWER_TARGETING.
     if by_x {
+        // targeting.FIRST_TOWER_PICK = client_spawn_lane: while the unit deploys and for FIRST_PICK_LANE_WINDOW_MS
+        // after, only the enemy princess tower of its spawn lane is a candidate (entity.rs `spawn_lane`, an ENGINE
+        // lane: the tilemap names lanes in engine x), the king once that tower is down. After the window, the pick
+        // below by its current x, as today. `spawn_lane` is 0 on every unit under the old arm.
+        #[cfg(not(clash_plant = "first_pick_by_x"))]
+        let lane_pick = ctx.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && e.spawn_lane[a] != 0 && ctx.tick <= e.lane_window_end[a];
+        #[cfg(clash_plant = "first_pick_by_x")]
+        let lane_pick = false; // PLANT (regression): the first pick by the unit's current x, as today.
+        if lane_pick {
+            let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
+            return live(ctx.towers[enemy][1 + lane as usize]).or_else(|| live(ctx.towers[enemy][0]));
+        }
         // THE LANE IS DECIDED IN THE ATTACKER'S OWN FRAME, with the centre line going
         // own-left. targeting.CENTRE_LANE_FRAME, and the ledger entry carries the history.
         //

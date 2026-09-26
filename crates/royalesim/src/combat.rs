@@ -45,8 +45,8 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
 use crate::path::{advance, advance_client};
 use crate::state::{
-    AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch, ProjectileStep, RangeProjectile,
-    TargetBuffScope, VariableDamage,
+    AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
+    ProjectileStep, RangeProjectile, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -778,14 +778,32 @@ pub fn fire(
         splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
         apply_attack_buff(ents, calib, atk_buff, atk_pulse, target, scratch, fx);
     } else {
-        dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
-        if let Some(b) = atk_buff {
-            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
+        // combat.HIT_BEYOND_CANCEL_RANGE = no_damage: a single-target direct hit whose target stands more than
+        // targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past the attacker's reach (Range + both collision radii
+        // under targeting.ATTACK_RANGE_RULE) deals no damage and applies no buff. The attack pass runs before the
+        // move, so these are the start-of-tick positions. The cycle and the target are the caller's and are kept.
+        // Measured on client 15.535.29: 80 hits up to 1149 past reach dealt their damage, the three from 1507 to
+        // 2697 past it dealt none.
+        #[cfg(not(clash_plant = "hit_beyond_cancel_deals_damage"))]
+        let void = calib.hit_beyond_cancel_range == HitBeyondCancelRange::NoDamage
+            && !in_attack_range(calib, ents.pos[a], card.range + calib.cancel_hit_from_long_distance_range, ents.radius[a], ents.pos[ti], ents.radius[ti]);
+        #[cfg(clash_plant = "hit_beyond_cancel_deals_damage")]
+        let void = false; // PLANT (regression): the far hit deals its full damage under the new arm too.
+        if !void {
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
+            if let Some(b) = atk_buff {
+                fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
+            }
         }
         // combat.MULTIPLE_TARGETS = client_bolts_per_target: every other bolt of the attack is
         // the whole hit again, damage and buff, on its own victim (state.rs `extra_bolts`
         // chose them; under AllTargetsHit a bolt with no other enemy is `target` again).
         for &b in bolts {
+            // A bolt padded onto the target itself is that far hit again, and is voided with it
+            // (combat.HIT_BEYOND_CANCEL_RANGE); every other bolt's victim was chosen within reach.
+            if void && b == target {
+                continue;
+            }
             let bi = b.index as usize;
             dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding), ignores_hide: false });
             if let Some(bf) = atk_buff {
