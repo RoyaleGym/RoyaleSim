@@ -660,6 +660,33 @@ impl Arena {
         self.in_bounds(p) && !self.is_water(p)
     }
 
+    /// Does a CIRCLE of radius `r` centred on `p` overlap a WATER half-cell? A cell counts
+    /// when its nearest point (the cell closed, so its edges and corners included) is
+    /// STRICTLY closer to `p` than `r`. So a circle whose centre lies on a water cell's edge
+    /// or corner overlaps it, and one that only touches a cell at its rim does not (no
+    /// measured case separates the two: calibration spawner.EMISSION_WATER_TURN's open).
+    /// Read by state.rs `spawn_point` under spawner.EMISSION_WATER_TURN.
+    pub fn circle_overlaps_water(&self, p: Vec2, r: i32) -> bool {
+        let r = r.max(0);
+        let c = self.cell;
+        let (c0, c1) = ((p.x - r).div_euclid(c).max(0), (p.x + r).div_euclid(c).min(self.cols - 1));
+        let (r0, r1) = ((p.y - r).div_euclid(c).max(0), (p.y + r).div_euclid(c).min(self.rows - 1));
+        let rr = (r as i64) * (r as i64);
+        for row in r0..=r1 {
+            for col in c0..=c1 {
+                if self.cell_bits(col, row) & self.bit_water == 0 {
+                    continue;
+                }
+                let dx = (p.x - p.x.clamp(col * c, (col + 1) * c)) as i64;
+                let dy = (p.y - p.y.clamp(row * c, (row + 1) * c)) as i64;
+                if dx * dx + dy * dy < rr {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// The tilemap's lane marking at a point. `None` off-lane, or when the point
     /// touches cells of both lanes (only possible on the centre line).
     pub fn lane_at(&self, p: Vec2) -> Option<Lane> {

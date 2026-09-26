@@ -894,6 +894,9 @@ impl Roots {
             for (path, unit, _) in db.unit_refs(i) {
                 let of = match path {
                     UnitRef::DeathSpawn => &mut death_spawn_of,
+                    // A death projectile's release (the Phoenix's egg) comes out of a death
+                    // too, a tick after it: rooted to the nearest recent death, as a death spawn.
+                    UnitRef::DeathProjectile => &mut death_spawn_of,
                     UnitRef::SpellRelease => &mut spell_release_of,
                     UnitRef::SecondSummon => &mut second_summon_of,
                     // A spawner's unit is rooted through the entity that emitted it

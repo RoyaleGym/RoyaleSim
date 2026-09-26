@@ -157,6 +157,10 @@ pub struct SpellHit {
     pub hits_ground: bool,
     /// OnlyEnemies. False would hit both teams; no thin-slice spell ships that.
     pub only_enemies: bool,
+    /// OnlyOwnTroops (area effects): the releaser's own side alone. Read on a SPAWN area only
+    /// (`convert_spawn_area_effect`, the Battle Healer's spawn heal); a spell's or a death's
+    /// own-troop area is still refused (`area_effect_shape`), so this is false on every other hit.
+    pub only_own_troops: bool,
     /// IgnoreBuildings (area effects): troops only.
     pub ignore_buildings: bool,
     /// NoEffectToCrownTowers (area effects).
@@ -691,13 +695,41 @@ pub struct CardDef {
     /// The hook special (`SpecialDef`); None on every card without SpecialRange. Acted on
     /// only under combat.SPECIAL_HOOK = client_hook_drag.
     pub special: Option<SpecialDef>,
+    /// THE PROJECTILE THIS CARD'S DEATH RELEASES (characters DeathSpawnProjectile, cards.json
+    /// `death_spawn_projectile`, resolved against the file's `projectiles` table by
+    /// `CardDb::from_json_str`): the Phoenix's PhoenixFireball, Damage 64 in a Radius of 2500 and
+    /// a SpawnCharacter, the PhoenixEgg. A `SpellShape::Projectile` so its arrival is a cast
+    /// projectile's (spell.rs `step_spells`: the impact, then the release); state.rs `phase_reap`
+    /// stands it on the death point under spawner.DEATH_SPAWN_PROJECTILE = client_projectile and
+    /// leaves it unread under `none`. Its release is `UnitRef::DeathProjectile`. None on every card
+    /// without the column; a card whose projectile the loader refuses is rejected WHOLE.
+    pub death_projectile: Option<SpellDef>,
+    /// THE AREA EFFECT THIS CARD IS (spells_characters AreaEffectObject, when that area's one
+    /// action spawns the card's own character; cards.json `deploy_area_effect`, resolved against
+    /// `area_effect_objects`): the Electro Wizard's ElectroWizardZap, the Ice Wizard's
+    /// IceWizardCold. Cast where the character appears on a deploy under spells.DEPLOY_AREA_EFFECT
+    /// = client_area_effect (state.rs `phase_spawn`), under the card's own index and level. Taken
+    /// on a one-member card alone. None on every card without the column; a card whose area the
+    /// loader refuses is rejected WHOLE.
+    pub deploy_area_effect: Option<SpellDef>,
+    /// THE AREA EFFECT THIS UNIT PUTS DOWN WHERE IT APPEARS (characters SpawnAreaObject, cards.json
+    /// `spawn_area_object`, resolved against `area_effect_objects`): the Battle Healer's
+    /// BattleHealerSpawnHeal, a one-shot 3000 area hanging a heal buff on her own troops. Cast at
+    /// creation under spawner.SPAWN_AREA_OBJECT_SCOPE = every_row (state.rs `spawn_now`). The one
+    /// place an own-troop area is read. None on every card without the column; a card whose area
+    /// the loader refuses is rejected WHOLE.
+    ///
+    /// ONE SPELL OBJECT NAMES ONE SHAPE (spell.rs `shape_of`): a card carries at most one of
+    /// `spell`, `death_area_effect`, `deploy_projectile`, `death_projectile`, `deploy_area_effect`
+    /// and this, and one that would carry two is refused (`CardDb::from_json_str`).
+    pub spawn_area_effect: Option<SpellDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `special`, and onto the end of that tail
+    // field goes HERE, after `spawn_area_effect`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -932,6 +964,21 @@ struct RawCard {
     /// ProjectileSpecial row): `CardDef::special`. Not yet written by the extractor; absent
     /// reads as no special.
     special: Option<RawSpecial>,
+    /// cards.json `death_spawn_projectile`: the NAME of the `projectiles` row the unit's death
+    /// releases (characters DeathSpawnProjectile; the Phoenix's PhoenixFireball).
+    /// `from_json_str` resolves it into `CardDef::death_projectile`. Absent in a file whose
+    /// extractor does not write the column, which reads as none.
+    death_spawn_projectile: Option<String>,
+    /// cards.json `deploy_area_effect`: the NAME of the `area_effect_objects` row the card IS,
+    /// when that area's one action spawns the card's own character (spells_characters
+    /// AreaEffectObject; the Electro Wizard's ElectroWizardZap). `from_json_str` resolves it into
+    /// `CardDef::deploy_area_effect`. Absent reads as none.
+    deploy_area_effect: Option<String>,
+    /// cards.json `spawn_area_object`: the NAME of the `area_effect_objects` row the unit puts
+    /// down where it appears (characters SpawnAreaObject; the Battle Healer's
+    /// BattleHealerSpawnHeal). `from_json_str` resolves it into `CardDef::spawn_area_effect`.
+    /// Absent reads as none.
+    spawn_area_object: Option<String>,
 }
 
 /// cards.json `buff_on_damage`.
@@ -1160,6 +1207,18 @@ enum UnitUse {
     DeathAreaEffect,
     /// SummonCharacterSecond (Goblin Gang's Spear Goblins, the Rascals' Girls).
     SecondSummon,
+    /// DeathSpawnProjectile: a PROJECTILE the death releases. Not a unit -- it resolves against
+    /// the file's `projectiles` table into the card's own `death_projectile` block, and its
+    /// SpawnCharacter is then the card's `DeathProjectileRelease` need.
+    DeathProjectile,
+    /// The SpawnCharacter of a death projectile (the Phoenix's PhoenixEgg): a unit, loaded like a
+    /// spawner's, and the one unit that may itself carry a periodic spawner (its egg hatches).
+    DeathProjectileRelease,
+    /// The AreaEffectObject a card IS when it spawns its own character (`deploy_area_effect`). Not
+    /// a unit: resolved against `area_effect_objects`, like a death area effect.
+    DeployAreaEffect,
+    /// SpawnAreaObject (`spawn_area_effect`). Not a unit: resolved against `area_effect_objects`.
+    SpawnAreaEffect,
 }
 
 /// The units a converter's record needs loaded: (which mechanic, unit name), for
@@ -1179,6 +1238,11 @@ pub enum UnitRef {
     DeathSpawn,
     /// SummonCharacterSecond (`FormationDef::second_summon`).
     SecondSummon,
+    /// A death projectile's SpawnCharacter (`CardDef::death_projectile`'s `SpellShape::Projectile`
+    /// `spawn`, the Phoenix's egg), with the projectile row's level index. The one block whose
+    /// unit may itself put a unit on the board (a periodic spawner), which `check_levels` and
+    /// py.rs `ids_of_indices` follow one level down.
+    DeathProjectile,
 }
 
 impl UnitRef {
@@ -1189,6 +1253,7 @@ impl UnitRef {
             UnitRef::Spawner => "a periodic spawner",
             UnitRef::DeathSpawn => "a death spawn",
             UnitRef::SecondSummon => "a second summon",
+            UnitRef::DeathProjectile => "a death projectile",
         }
     }
 }
@@ -1213,10 +1278,13 @@ struct RawCardsFile {
     /// DeathAreaEffect is then REFUSED BY NAME -- never silently run without it.
     #[serde(default)]
     area_effect_objects: BTreeMap<String, RawAreaEffect>,
-    /// cards.json `projectiles`: every projectiles row by name. Only the rows a unit's
-    /// CustomFirstProjectile names are read (`CardDef::custom_first_projectile`); a card's
-    /// own Projectile arrives inline. A file without the table leaves this empty, and a
-    /// CustomFirstProjectile that names a row it cannot find refuses the card by name.
+    /// cards.json `projectiles`: every projectiles row by name, the shape a spell's
+    /// `projectile` block carries. Only the rows a unit's CustomFirstProjectile names
+    /// (`CardDef::custom_first_projectile`) and the ones a card's DeathSpawnProjectile names
+    /// (`convert_death_projectile`) are read, each parsed when it is named, so a row this loader
+    /// never reads cannot refuse the file; a card's own Projectile arrives inline. A file without
+    /// the table leaves this empty, and a CustomFirstProjectile or a DeathSpawnProjectile that
+    /// names a row it cannot find refuses the card by name.
     #[serde(default)]
     projectiles: BTreeMap<String, serde_json::Value>,
 }
@@ -1608,6 +1676,9 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         variable_damage: None,
         attack_pushback: 0,
         special: None,
+        death_projectile: None,
+        deploy_area_effect: None,
+        spawn_area_effect: None,
     }
 }
 
@@ -1637,9 +1708,47 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 ///
 /// Returns the shape and the units it needs loaded, like every converter (neither
 /// accepted shape releases one, so the list is empty).
-fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
+    area_effect_shape(aeo, buffs, ctx, false)
+}
+
+/// THE AREA EFFECT A CARD IS, when its character is what the area spawns (spells_characters
+/// AreaEffectObject whose OnStartingAction is an ActionSpawn of the card's own character: the
+/// Electro Wizard's ElectroWizardZap, the Ice Wizard's IceWizardCold; `CardDef::deploy_area_effect`).
+/// That spawn IS the deploy the engine already runs, so it is the one action the graph may carry:
+/// a graph of exactly one ActionSpawn of `unit_name` is accepted, and any other graph is refused
+/// as `convert_area_effect` refuses every mechanic graph. The rest is read as a spell's area is,
+/// an own-troop area still refused.
+fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let own_spawn = format!("CharacterType:{unit_name}");
+    let only_its_spawn = aeo.action_graph.as_ref().is_some_and(|g| g.class_types == ["ActionSpawn"] && g.spawns == [own_spawn.as_str()]);
+    if !only_its_spawn {
+        refuse_action_mechanic(&aeo.action_graph, &format!("deploy area effect {what}"))?;
+    }
+    area_effect_shape(aeo, buffs, ctx, false)
+}
+
+/// THE AREA EFFECT A UNIT PUTS DOWN WHERE IT APPEARS (characters SpawnAreaObject;
+/// `CardDef::spawn_area_effect`: the Battle Healer's BattleHealerSpawnHeal). Its action graph is
+/// refused like any area's. THE ONE PLACE AN OWN-TROOP AREA IS READ: the heal lands on the
+/// releaser's own troops (SpellHit `only_own_troops`), which is what the row says and what was
+/// measured on client 15.535.29 -- a damaged friendly Knight 2,000 from her gained the heal, the
+/// control without her gained nothing. A spell's or a death's own-troop area (Rage, Heal) stays
+/// refused: nothing measured it through those paths.
+fn convert_spawn_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    refuse_action_mechanic(&aeo.action_graph, &format!("spawn area effect {what}"))?;
+    area_effect_shape(aeo, buffs, ctx, true)
+}
+
+/// The shape of an area effect whose action graph the caller has accepted (`convert_area_effect`,
+/// `convert_deploy_area_effect`, `convert_spawn_area_effect`). `own_troops`: whether an own-troop
+/// area (OnlyOwnTroops) is read, or refused as every caller but the spawn area refuses it.
+fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx, own_troops: bool) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
     // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
     // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
     // pulse that carries a BUFF and nothing else -- Poison and
@@ -1655,10 +1764,10 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCt
             return Err(format!("pulsing area effect {what} pulses no buff: its mechanic is not in the columns"));
         }
     }
-    if aeo.only_own_troops.unwrap_or(false) {
-        // Rage and Heal: the area buffs the RELEASER's own units, which is a target
-        // filter `impact` does not have (`only_enemies` false would hit both teams).
-        // Refused by shape, from either caller.
+    if aeo.only_own_troops.unwrap_or(false) && !own_troops {
+        // Rage and Heal: the area buffs the RELEASER's own units. `impact` has the filter
+        // (SpellHit `only_own_troops`), but only the spawn area reads it; from a spell or a
+        // death the shape is still refused.
         return Err(format!("own-troop area effect {what} is not simulated"));
     }
     if aeo.maximum_targets.is_some() || aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.spawn_character.is_some() {
@@ -1688,6 +1797,7 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCt
         hits_air: aeo.hits_air.unwrap_or(false),
         hits_ground: aeo.hits_ground.unwrap_or(false),
         only_enemies: aeo.only_enemies.unwrap_or(false),
+        only_own_troops: own_troops && aeo.only_own_troops.unwrap_or(false),
         ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
         no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
         knockback: knockback(aeo.pushback_milli, None),
@@ -1801,6 +1911,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                 hits_air: roll.aoe_to_air.unwrap_or(false),
                 hits_ground: roll.aoe_to_ground.unwrap_or(false),
                 only_enemies: roll.only_enemies.unwrap_or(false),
+                only_own_troops: false,
                 ignore_buildings: false,
                 no_effect_to_crown_towers: false,
                 knockback: knockback(roll.pushback_milli, roll.pushback_all),
@@ -1846,6 +1957,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                     hits_air: carrier.aoe_to_air.unwrap_or(false),
                     hits_ground: carrier.aoe_to_ground.unwrap_or(false),
                     only_enemies: carrier.only_enemies.unwrap_or(false),
+                    only_own_troops: false,
                     ignore_buildings: false,
                     no_effect_to_crown_towers: false,
                     knockback: knockback(carrier.pushback_milli, carrier.pushback_all),
@@ -2140,6 +2252,9 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
         && raw.spawner.is_none()
         && raw.death_spawn.is_none()
         && raw.death_area_effect.is_none()
+        && raw.death_spawn_projectile.is_none()
+        && raw.deploy_area_effect.is_none()
+        && raw.spawn_area_object.is_none()
         && raw.action_graph.is_none()
         && raw.spawn_pathfind.is_none()
         && raw.charge.is_none()
@@ -2232,6 +2347,7 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
                 hits_air: raw.attacks_air.unwrap_or(true),
                 hits_ground: raw.attacks_ground.unwrap_or(true),
                 only_enemies: true,
+                only_own_troops: false,
                 ignore_buildings: false,
                 no_effect_to_crown_towers: false,
                 knockback: None,
@@ -2246,6 +2362,81 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
         placement: SpellPlacement::Anywhere,
     });
     Ok(c)
+}
+
+/// A DEATH PROJECTILE (characters DeathSpawnProjectile, a `projectiles` row; the Phoenix's
+/// PhoenixFireball: Damage 64, Radius 2500, SpawnCharacter PhoenixEgg), read into the
+/// `SpellShape::Projectile` a cast projectile is, so its arrival is one (spell.rs `step_spells`:
+/// the impact, then the release). Returns the block and its release as the dying card's need.
+///
+/// WHAT IS READ, and what refuses the card instead of running as a plainer one: its Damage (at
+/// the dying card's level, over Radius, air and ground and OnlyEnemies as the row says, crown
+/// towers at its percent, Pushback as a spell projectile's), a TargetBuff with its BuffTime, and
+/// its SpawnCharacter. A projectile that chains another projectile, caps its targets, leaves an
+/// area effect or runs a mechanic graph is refused, and so is one that neither deals damage nor
+/// releases a unit.
+///
+/// TWO BLANKS READ AS THE GAME'S, measured on client 15.535.29's Phoenix scenarios: a blank
+/// SpawnCharacterCount is ONE (one egg in all three runs; a blank DeathSpawnCount is one too,
+/// `convert_death_spawn`), and a blank SpawnCharacterDeployTime is ZERO -- the egg hatched 76
+/// ticks after it appeared, its SpawnStartTime of 3800 ms, which under the shipped
+/// spawner.START_TIME_ORIGIN = from_activation needs the egg active on its first tick (its own
+/// DeployTime of 1000 would put the hatch at 96). `speed` is kept and unread: the projectile
+/// stands on the point it is aimed at (state.rs `phase_reap`).
+fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable) -> Result<(SpellDef, UnitNeeds), String> {
+    let what = p.name.clone().unwrap_or_default();
+    refuse_action_mechanic(&p.action_graph, &format!("death projectile {what}"))?;
+    if p.spawn_projectile.is_some() || p.maximum_targets.is_some() || p.spawn_area_effect_object.is_some() {
+        return Err(format!("death projectile {what} with a chained projectile, a target cap or an area effect is not simulated"));
+    }
+    let target_buff = match &p.target_buff {
+        None => None,
+        Some(v) if v.is_null() => None,
+        Some(v) => {
+            let b: RawBuff = serde_json::from_value(v.clone()).map_err(|e| format!("death projectile {what} TargetBuff: {e}"))?;
+            Some(buffs.apply(&b, p.buff_time_ms, &format!("death projectile {what}"))?)
+        }
+    };
+    let hit = match p.damage {
+        None if target_buff.is_some() => return Err(format!("death projectile {what} carries a TargetBuff and no damage; not simulated")),
+        None => None,
+        Some(d) => Some(SpellHit {
+            damage: d,
+            crown_pct: crown(p.crown_tower_damage_percent),
+            radius: milli(p.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("death projectile {what} deals damage but has no radius"))?),
+            hits_air: p.aoe_to_air.unwrap_or(false),
+            hits_ground: p.aoe_to_ground.unwrap_or(false),
+            only_enemies: p.only_enemies.unwrap_or(false),
+            only_own_troops: false,
+            ignore_buildings: false,
+            no_effect_to_crown_towers: false,
+            knockback: knockback(p.pushback_milli, p.pushback_all),
+            buff: target_buff,
+        }),
+    };
+    let mut units: UnitNeeds = Vec::new();
+    let spawn = match p.spawn_character.clone() {
+        None => None,
+        Some(unit) => {
+            let count = p.spawn_character_count.unwrap_or(1);
+            if count < 1 || p.spawn_character_deploy_time_ms.is_some_and(|d| d < 0) {
+                return Err(format!("death projectile {what}: SpawnCharacterCount {count} / SpawnCharacterDeployTime {:?} out of range", p.spawn_character_deploy_time_ms));
+            }
+            units.push((UnitUse::DeathProjectileRelease, unit));
+            Some(SpawnDef {
+                unit: u16::MAX, // resolved by from_json_str
+                count,
+                deploy_time_ms: Some(p.spawn_character_deploy_time_ms.unwrap_or(0)),
+                level_index: p.spawn_character_level_index,
+            })
+        }
+    };
+    if hit.is_none() && spawn.is_none() {
+        return Err(format!("death projectile {what} neither deals damage nor releases a unit"));
+    }
+    let shape = SpellShape::Projectile { speed: p.speed.unwrap_or(0), hit, waves: 1, wave_interval_ms: 0, spawn };
+    // Unread, as a death bomb's: a death is not a cast and has no tap to validate.
+    Ok((SpellDef { shape, placement: SpellPlacement::Anywhere }, units))
 }
 
 fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Converted, String> {
@@ -2395,6 +2586,17 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         }
         (Some(b), false) => return Err(format!("second_summon block half blank: {:?} / {:?}", b.character, b.count)),
     };
+    // The death projectile, the deploy area and the spawn area: each a NAME resolved against the
+    // file's own tables by `from_json_str`, after every unit need above (`death_area_effect`'s way).
+    if let Some(p) = &raw.death_spawn_projectile {
+        units.push((UnitUse::DeathProjectile, p.clone()));
+    }
+    if let Some(a) = &raw.deploy_area_effect {
+        units.push((UnitUse::DeployAreaEffect, a.clone()));
+    }
+    if let Some(a) = &raw.spawn_area_object {
+        units.push((UnitUse::SpawnAreaEffect, a.clone()));
+    }
     let nonneg = |v: Option<i32>, what: &str| match v {
         Some(x) if x < 0 => Err(format!("{what} {x} < 0")),
         Some(x) => Ok(x),
@@ -2536,6 +2738,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         variable_damage,
         attack_pushback,
         special,
+        // Resolved by `CardDb::from_json_str` (the names pushed on `units` above).
+        death_projectile: None,
+        deploy_area_effect: None,
+        spawn_area_effect: None,
     }, display, units))
 }
 
@@ -2614,6 +2820,7 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
                 hits_air: p.aoe_to_air.unwrap_or(false),
                 hits_ground: p.aoe_to_ground.unwrap_or(false),
                 only_enemies: p.only_enemies.unwrap_or(false),
+                only_own_troops: false,
                 ignore_buildings: false,
                 no_effect_to_crown_towers: false,
                 knockback: knockback(p.pushback_milli, p.pushback_all),
@@ -2709,7 +2916,10 @@ impl CardDb {
         // first-need order, then theirs. Today there is no second level -- a unit that
         // itself puts units on the board is refused below as a spawn chain -- so the
         // order is `spawns` order exactly (tests/unit_refs.rs
-        // `summon_only_numbering_is_breadth_first`).
+        // `summon_only_numbering_is_breadth_first`). The one exception is a death
+        // projectile's SpawnCharacter whose row carries a periodic spawner (the Phoenix's
+        // egg): its spawner's unit is a second level, and no shipped file has one until
+        // cards.json carries `death_spawn_projectile`.
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
         let mut unloadable: Vec<(u16, String)> = Vec::new();
         let mut work: VecDeque<(u16, UnitUse, String, u8)> = spawns.into_iter().map(|(owner, which, unit)| (owner, which, unit, 0)).collect();
@@ -2742,6 +2952,75 @@ impl CardDb {
                         }
                     }
                     Err(e) => unloadable.push((spell_idx, format!("death area effect {unit}: {e}"))),
+                }
+                continue;
+            }
+            if matches!(which, UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect) {
+                // THE DEATH PROJECTILE, THE DEPLOY AREA AND THE SPAWN AREA ARE NOT UNITS either:
+                // each is a row of one of the file's own tables, resolved here and stored on the
+                // card as a `SpellDef`, exactly as a death area effect is, and a name the table
+                // does not carry, or a row this loader cannot run, refuses the card BY NAME. Their
+                // units (a death projectile's SpawnCharacter) are the card's needs at its own level
+                // of the worklist. ONE SPELL OBJECT NAMES ONE SHAPE (spell.rs `shape_of`), so a
+                // card that already carries a spell, a death area or another of these is refused.
+                // A card already refused by an earlier need keeps that one reason: a second would
+                // list it twice among the rejected (SuperLavaHound, refused for its death spawn's
+                // chain, would also be refused for its chained FireWallProjectile).
+                if unloadable.iter().any(|(i, _)| *i == spell_idx) {
+                    continue;
+                }
+                let label = match which {
+                    UnitUse::DeathProjectile => "death projectile",
+                    UnitUse::DeployAreaEffect => "deploy area effect",
+                    _ => "spawn area effect",
+                };
+                let c = &db.cards[spell_idx as usize];
+                let blocks = [
+                    c.spell.is_some(),
+                    c.death_area_effect.is_some(),
+                    c.deploy_projectile.is_some(),
+                    c.death_projectile.is_some(),
+                    c.deploy_area_effect.is_some(),
+                    c.spawn_area_effect.is_some(),
+                ];
+                let members = c.count.max(1) + c.formation.second_summon.map_or(0, |s| s.count);
+                let own_unit = c.unit_name.clone();
+                let got: Result<(SpellDef, UnitNeeds), String> = if blocks.contains(&true) {
+                    Err("the card already carries a spell, an area or a projectile, and one spell object names one".into())
+                } else {
+                    match which {
+                        UnitUse::DeathProjectile => match file.projectiles.get(&unit) {
+                            Some(v) => serde_json::from_value::<RawSpellProjectile>(v.clone())
+                                .map_err(|e| e.to_string())
+                                .and_then(|p| convert_death_projectile(&p, &mut buffs)),
+                            None => Err(format!("no projectiles record in cards.json (the file lists {})", file.projectiles.len())),
+                        },
+                        // The area a play IS acts once per play: taken on a one-member card alone.
+                        UnitUse::DeployAreaEffect if members > 1 => Err(format!("a deploy area effect on a card of {members} members is not simulated")),
+                        UnitUse::DeployAreaEffect => match ctx.aeos.get(&unit) {
+                            Some(aeo) => convert_deploy_area_effect(aeo, &own_unit, &mut buffs, &ctx).map(|(shape, needs)| (SpellDef { shape, placement: SpellPlacement::Anywhere }, needs)),
+                            None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
+                        },
+                        _ => match ctx.aeos.get(&unit) {
+                            Some(aeo) => convert_spawn_area_effect(aeo, &mut buffs, &ctx).map(|(shape, needs)| (SpellDef { shape, placement: SpellPlacement::Anywhere }, needs)),
+                            None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
+                        },
+                    }
+                };
+                match got {
+                    Ok((def, needs)) => {
+                        let card = &mut db.cards[spell_idx as usize];
+                        match which {
+                            UnitUse::DeathProjectile => card.death_projectile = Some(def),
+                            UnitUse::DeployAreaEffect => card.deploy_area_effect = Some(def),
+                            _ => card.spawn_area_effect = Some(def),
+                        }
+                        let at = work.iter().position(|q| q.3 > depth).unwrap_or(work.len());
+                        for (k, (w, u)) in needs.into_iter().enumerate() {
+                            work.insert(at + k, (spell_idx, w, u, depth));
+                        }
+                    }
+                    Err(e) => unloadable.push((spell_idx, format!("{label} {unit}: {e}"))),
                 }
                 continue;
             }
@@ -2787,8 +3066,16 @@ impl CardDb {
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
                     let (mut c, _, nested) = convert(raw, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;
+                    // ONE SECOND LEVEL, AND ONLY ONE: a death projectile's SpawnCharacter may carry a
+                    // periodic spawner and nothing else (the Phoenix's PhoenixEgg hatches a
+                    // PhoenixNoRespawn: measured on client 15.535.29, 76 ticks after the egg
+                    // appeared). Its spawner's unit loads one level deeper and must not spawn in turn
+                    // (the refusal below, from that unit's own need). Every other chain is refused.
+                    let hatches = which == UnitUse::DeathProjectileRelease && nested.iter().all(|(w, _)| *w == UnitUse::Spawner);
                     if let Some((_, first)) = nested.first() {
-                        return Err(format!("units.{unit} itself spawns units ({first}); a spawn chain is not simulated"));
+                        if !hatches {
+                            return Err(format!("units.{unit} itself spawns units ({first}); a spawn chain is not simulated"));
+                        }
                     }
                     if c.kind == CardKind::Troop && c.lifetime_ms.is_some() {
                         // The engine honours LifeTime on BUILDINGS only (spawn_now); a
@@ -2804,8 +3091,8 @@ impl CardDb {
                     }
                     db.push(c, None)?;
                     let idx = (db.cards.len() - 1) as u16;
-                    // The loaded unit's own needs, one level deeper (none while the
-                    // chain refusal above stands).
+                    // The loaded unit's own needs, one level deeper (none but a death
+                    // projectile's egg's spawner while the chain refusal above stands).
                     work.extend(nested.into_iter().map(|(w, u)| (idx, w, u, depth + 1)));
                     Ok(idx)
                 })
@@ -2822,7 +3109,14 @@ impl CardDb {
                         UnitUse::Spawner => card.spawner.as_mut().expect("spawner block present").unit = u,
                         UnitUse::DeathSpawn => card.death_spawn.as_mut().expect("death_spawn block present").unit = u,
                         UnitUse::SecondSummon => card.formation.second_summon.as_mut().expect("second_summon present").unit = u,
-                        UnitUse::DeathAreaEffect => unreachable!("never resolved: pushed to `unloadable` above"),
+                        UnitUse::DeathProjectileRelease => {
+                            if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = card.death_projectile.as_mut() {
+                                sp.unit = u;
+                            }
+                        }
+                        UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect => {
+                            unreachable!("never resolved here: resolved against the file's tables above")
+                        }
                     }
                 }
                 Err(e) => unloadable.push((spell_idx, e)),
@@ -2897,10 +3191,12 @@ impl CardDb {
     /// unified. The other reading ("the same unified level as the spell") gives the
     /// identical answer for every shipped row, because every shipped index equals its
     /// rarity's RelativeLevel (Goblin Barrel: Epic, 5) -- docs/spell-spec.md. With no
-    /// index, the unit takes the spell's unified level.
+    /// index, the unit takes the spell's unified level. A DEATH PROJECTILE's release
+    /// (`CardDef::death_projectile`, the Phoenix's egg) is read the same way off the dying
+    /// card: a card carries a spell or a death projectile, never both.
     pub fn spawn_level(&self, spell_idx: u16, level: i32) -> Result<i32, String> {
         let c = self.get(spell_idx);
-        let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell else {
+        let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = c.spell.as_ref().or(c.death_projectile.as_ref()) else {
             return Err(format!("{} releases no units", c.name));
         };
         #[cfg(clash_plant = "spawn_level_local_one")]
@@ -2958,14 +3254,22 @@ impl CardDb {
     /// Every level a card at unified `level` can put on the board exists: the card's
     /// own, and the level of every unit `unit_refs` names. Called at deck
     /// validation and every scenario / debug spawn, so a spawn later in the tick
-    /// loop can never fail on a level.
+    /// loop can never fail on a level. A death projectile's release is followed one
+    /// level down: the unit its own blocks put on the board (the Phoenix's egg hatching
+    /// a Phoenix) is checked at the egg's level, because it is the one unit the loader
+    /// lets carry a spawner of its own.
     pub fn check_levels(&self, idx: u16, level: i32) -> Result<(), String> {
         self.level_multiplier(idx, level)?;
         for (path, unit, level_index) in self.unit_refs(idx) {
-            match path {
+            let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon => self.unit_level(idx, unit, level_index, level)?,
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile => self.unit_level(idx, unit, level_index, level)?,
             };
+            if path == UnitRef::DeathProjectile {
+                for (_, sub, sub_index) in self.unit_refs(unit) {
+                    self.unit_level(unit, sub, sub_index, at)?;
+                }
+            }
         }
         Ok(())
     }
@@ -3001,13 +3305,16 @@ impl CardDb {
         if let Some(ss) = c.formation.second_summon {
             out.push((UnitRef::SecondSummon, ss.unit, None));
         }
+        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.death_projectile {
+            out.push((UnitRef::DeathProjectile, sp.unit, sp.level_index));
+        }
         out
     }
 
     /// DROP EVERY UNIT BLOCK of card `idx` that `unit_refs` names, and its death area
-    /// effect: the cleanup of a card rejected after its push. A card rejected for any
-    /// reason runs, where it can still be reached at all, exactly as it ran before its
-    /// blocks resolved.
+    /// effect, death projectile, deploy area and spawn area: the cleanup of a card rejected
+    /// after its push. A card rejected for any reason runs, where it can still be reached at
+    /// all, exactly as it ran before its blocks resolved.
     fn clear_unit_refs(&mut self, idx: u16) {
         for (path, _, _) in self.unit_refs(idx) {
             let card = &mut self.cards[idx as usize];
@@ -3020,9 +3327,14 @@ impl CardDb {
                 UnitRef::Spawner => card.spawner = None,
                 UnitRef::DeathSpawn => card.death_spawn = None,
                 UnitRef::SecondSummon => card.formation.second_summon = None,
+                UnitRef::DeathProjectile => card.death_projectile = None,
             }
         }
-        self.cards[idx as usize].death_area_effect = None;
+        let card = &mut self.cards[idx as usize];
+        card.death_area_effect = None;
+        card.death_projectile = None;
+        card.deploy_area_effect = None;
+        card.spawn_area_effect = None;
     }
 
     /// Register a card under its internal name, and under its display name
@@ -3242,7 +3554,11 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // (`convert_variable_damage`; all four or the card is refused) and the "special" block
 // {range_milli, min_range_milli, load_time_ms, projectile, drag_margin_milli}
 // (`convert_special`; troops only). The last three are not written by tools/extract_cards.py
-// yet, and each reads as absent until it is. Unknown fields are ignored.
+// yet, and each reads as absent until it is. Also three NAMES, each absent unless the
+// extractor writes it: "death_spawn_projectile" (a row of the top-level "projectiles" map, the
+// shape a spell's "projectile" block has; `convert_death_projectile`), "deploy_area_effect" and
+// "spawn_area_object" (rows of "area_effect_objects"; `convert_deploy_area_effect`,
+// `convert_spawn_area_effect`). Unknown fields are ignored.
 
 #[cfg(test)]
 mod tests {

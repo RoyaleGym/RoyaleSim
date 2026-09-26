@@ -318,6 +318,30 @@ pub struct Calib {
     /// through `BattleState::release_timing`, so the regression plant can force the old arm.
     #[serde(default = "release_timing_default")]
     pub release_timing: ReleaseTiming,
+    /// spawner.EMISSION_WATER_TURN: whether a blank-SpawnRadius spawner's forward emission point
+    /// turns sideways, away from the arena's centre line, when the emitted unit's circle there
+    /// overlaps the river (`spawn_point`). Added after SNAPSHOT_FORMAT 20; the `default` is `None`,
+    /// what a battle saved before it actually ran.
+    #[serde(default = "emission_water_turn_default")]
+    pub emission_water_turn: EmissionWaterTurn,
+    /// spawner.SPAWN_AREA_OBJECT_SCOPE: whether a unit whose row sets SpawnAreaObject (card.rs
+    /// `spawn_area_effect`, the Battle Healer's spawn heal) puts that area effect down where it
+    /// appears (`spawn_now`). Added after SNAPSHOT_FORMAT 20; the `default` is `MorphTargetsOnly`,
+    /// what a battle saved before it actually ran (no loaded row is a morph target, so nothing).
+    #[serde(default = "spawn_area_object_scope_default")]
+    pub spawn_area_object_scope: SpawnAreaObjectScope,
+    /// spawner.DEATH_SPAWN_PROJECTILE: whether a death whose row carries a DeathSpawnProjectile
+    /// (card.rs `death_projectile`, the Phoenix's fireball and egg) releases it (`phase_reap`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it
+    /// actually ran.
+    #[serde(default = "death_spawn_projectile_default")]
+    pub death_spawn_projectile: DeathSpawnProjectile,
+    /// spells.DEPLOY_AREA_EFFECT: whether a card that IS an area effect spawning its character
+    /// (card.rs `deploy_area_effect`, the Electro Wizard's zap, the Ice Wizard's cold) applies
+    /// that area where the character appears (`phase_spawn`). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is `None`, what a battle saved before it actually ran.
+    #[serde(default = "deploy_area_effect_default")]
+    pub deploy_area_effect: DeployAreaEffect,
     /// combat.POST_KILL_RETARGET_WAIT (value.arm, value.units, value.ticks). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
     #[serde(default = "post_kill_wait_default")]
@@ -716,6 +740,22 @@ fn projectile_spawn_formation_default() -> ProjectileSpawnFormation {
 
 fn release_timing_default() -> ReleaseTiming {
     ReleaseTiming::NextSpawnPhase
+}
+
+fn emission_water_turn_default() -> EmissionWaterTurn {
+    EmissionWaterTurn::None
+}
+
+fn spawn_area_object_scope_default() -> SpawnAreaObjectScope {
+    SpawnAreaObjectScope::MorphTargetsOnly
+}
+
+fn death_spawn_projectile_default() -> DeathSpawnProjectile {
+    DeathSpawnProjectile::None
+}
+
+fn deploy_area_effect_default() -> DeployAreaEffect {
+    DeployAreaEffect::None
 }
 
 fn post_kill_wait_default() -> PostKillWait {
@@ -1535,6 +1575,66 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.EMISSION_WATER_TURN -- where a blank-SpawnRadius spawner emits when its forward
+    /// tangent point meets the river (`BattleState::spawn_point`, the measured arms of
+    /// spawner.SPAWN_POINT).
+    EmissionWaterTurn {
+        /// Today's engine: always forward, onto the river's edge.
+        None = "none",
+        /// Measured on the 16.402 corpus (three off-bridge Tombstones one tile behind the river:
+        /// 30 of 30 emissions and 4 of 4 death Skeletons sideways; the bridge Tombstone 18 of 18
+        /// forward) and on client 15.535.29 (both sides, 16 of 16 sideways; two tiles back,
+        /// forward): when the emitted unit's collision CIRCLE at the forward point overlaps a
+        /// water cell (arena.rs `circle_overlaps_water`), the point turns 90 degrees to the side
+        /// away from the arena's centre line (-x left of it, +x right of it) at the same distance
+        /// from the spawner's centre. A death spawn laid at the emission point
+        /// (spawner.DEATH_SPAWN_AT_EMISSION_POINT) follows it.
+        SidewaysAwayFromCentre = "client16402_sideways_away_from_centre",
+    }
+);
+calib_enum!(
+    /// spawner.SPAWN_AREA_OBJECT_SCOPE -- which rows' SpawnAreaObject is read (card.rs
+    /// `spawn_area_effect`; `BattleState::spawn_now`).
+    SpawnAreaObjectScope {
+        /// Today's engine: only a morph target would read it, and no loaded row is one, so no
+        /// spawn area is ever put down (the Battle Healer heals nobody on deploy).
+        MorphTargetsOnly = "morph_targets_only",
+        /// Measured on client 15.535.29 (the Battle Healer spawn-heal scenario against its
+        /// control): a unit whose row sets SpawnAreaObject puts that area effect down on its own
+        /// position when it appears -- a damaged Knight 2,000 from a fresh Battle Healer gained
+        /// three heal pulses from BattleHealerSpawnHeal.
+        EveryRow = "every_row",
+    }
+);
+calib_enum!(
+    /// spawner.DEATH_SPAWN_PROJECTILE -- what a death does with its row's DeathSpawnProjectile
+    /// (card.rs `death_projectile`; `BattleState::phase_reap`).
+    DeathSpawnProjectile {
+        /// Today's engine: the column is not read, and a Phoenix dies with nothing following.
+        None = "none",
+        /// Measured on client 15.535.29 (three Phoenix scenarios): on the second tick after the
+        /// unit's last one the projectile acts at the death point -- its Damage at the dead unit's
+        /// level on every enemy whose centre is within its Radius plus the enemy's own, and its
+        /// SpawnCharacter created there for the dead unit's side and level (a PhoenixEgg, whose own
+        /// spawner row hatches the new Phoenix).
+        ClientProjectile = "client_projectile",
+    }
+);
+calib_enum!(
+    /// spells.DEPLOY_AREA_EFFECT -- what a card whose row IS an area effect spawning its character
+    /// does when it is played (card.rs `deploy_area_effect`; `BattleState::phase_spawn`).
+    DeployAreaEffect {
+        /// Today's engine: only the character is spawned.
+        None = "none",
+        /// Measured on client 15.535.29 (the Electro Wizard and Ice Wizard deploy scenarios, both
+        /// sides): the card acts as its area effect where the character appears, on the
+        /// character's first tick -- its Damage at the card's level and its Buff for BuffTime on
+        /// every enemy whose centre is within Radius plus its own collision radius -- and the
+        /// character is spawned as today.
+        ClientAreaEffect = "client_area_effect",
+    }
+);
+calib_enum!(
     /// combat.POST_KILL_RETARGET_WAIT -- what a unit does in the ticks after its target dies.
     PostKillWait {
         /// The engine before the wait: the next Target phase takes the next target (the loss + 1).
@@ -2261,6 +2361,10 @@ impl Calib {
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             zero_step_waypoint_test: pick(&v, &["pathfinding", "ZERO_STEP_WAYPOINT_TEST", "value"], ZeroStepWaypointTest::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
+            emission_water_turn: pick(&v, &["spawner", "EMISSION_WATER_TURN", "value"], EmissionWaterTurn::from_calibration_name)?,
+            spawn_area_object_scope: pick(&v, &["spawner", "SPAWN_AREA_OBJECT_SCOPE", "value"], SpawnAreaObjectScope::from_calibration_name)?,
+            death_spawn_projectile: pick(&v, &["spawner", "DEATH_SPAWN_PROJECTILE", "value"], DeathSpawnProjectile::from_calibration_name)?,
+            deploy_area_effect: pick(&v, &["spells", "DEPLOY_AREA_EFFECT", "value"], DeployAreaEffect::from_calibration_name)?,
             post_kill_wait: pick(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "arm"], PostKillWait::from_calibration_name)?,
             post_kill_wait_units: v
                 .pointer("/combat/POST_KILL_RETARGET_WAIT/value/units")
@@ -3425,6 +3529,23 @@ impl BattleState {
                 });
             }
         }
+        // spawner.SPAWN_AREA_OBJECT_SCOPE = every_row: a unit whose row sets SpawnAreaObject (card.rs
+        // `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal) puts that area effect down
+        // on its own position as it appears, under its own card index and level -- the same `cast` a
+        // spell and a death's area go through, so the area applies in the next Projectile phase to
+        // run: this tick's for a unit created in the Spawn phase or by the Move phase's emissions,
+        // the next tick's for one created at the end of Reap or by the scenario setup. HERE, where
+        // every creation passes, so no path (a deploy, a release, an emission, the spawn list) is
+        // left out. Under the shipped morph_targets_only nothing is cast: no loaded row is a morph
+        // target.
+        #[cfg(not(clash_plant = "spawn_area_effect_unread"))]
+        let puts_area = self.cfg.calib.spawn_area_object_scope == SpawnAreaObjectScope::EveryRow;
+        #[cfg(clash_plant = "spawn_area_effect_unread")]
+        let puts_area = false; // PLANT (regression): the Battle Healer heals nobody on deploy under every_row too.
+        if puts_area && c.spawn_area_effect.is_some() {
+            let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos)?;
+            self.spells.extend(area);
+        }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -3634,7 +3755,8 @@ impl BattleState {
     /// flanks; BattleRam 180: the Barbarians behind), DeathSpawnMinRadius
     /// (SkeletonContainer 100). DeathSpawnPushback (Golem, LavaHound and, in the 2018
     /// table only, DarkWitch true) is a death-spawn column and only the death spawn reads
-    /// it (spawner.DEATH_SPAWN_PUSHBACK, `death_spawn_points`).
+    /// it (spawner.DEATH_SPAWN_PUSHBACK, `death_spawn_points`). Under spawner.EMISSION_WATER_TURN's
+    /// measured arm the measured arms' forward point turns sideways where it meets the river.
     fn spawn_point(&self, i: usize, sp: &SpawnerDef) -> Vec2 {
         let c = self.ents.pos[i];
         match self.cfg.calib.spawner_spawn_point {
@@ -3650,7 +3772,26 @@ impl BattleState {
             SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree => {
                 let unit_r = self.cfg.cards.get(sp.unit).collision_radius;
                 let d = self.ents.radius[i] + unit_r;
-                Vec2::new(c.x, c.y + spell::forward_dy(self.ents.team[i]) * d)
+                let ahead = Vec2::new(c.x, c.y + spell::forward_dy(self.ents.team[i]) * d);
+                // spawner.EMISSION_WATER_TURN = client16402_sideways_away_from_centre: when the
+                // emitted unit's CIRCLE at the forward point overlaps a water cell, the point turns
+                // 90 degrees away from the arena's centre line, at the same distance d. The circle,
+                // not the point: a side-1 Tombstone at y 18500 has its forward point (x, 17000) on
+                // land and still turns, and the one on the bridge, (3500, 18500), whose circle
+                // stays on the bridge, emits forward. Left of the centre line is -x, right of it +x;
+                // a spawner exactly on it goes +x, which nothing measured separates. Not limited to
+                // a ground unit: every measured emission was a Skeleton, and a flyer by the river is
+                // unmeasured.
+                #[cfg(not(clash_plant = "emission_water_turn_ignored"))]
+                let turns = self.cfg.calib.emission_water_turn == EmissionWaterTurn::SidewaysAwayFromCentre;
+                #[cfg(clash_plant = "emission_water_turn_ignored")]
+                let turns = false; // PLANT (regression): the new arm emits forward onto the river's edge, as the old one does.
+                if turns && self.cfg.arena.circle_overlaps_water(ahead, unit_r) {
+                    let away = if c.x * 2 < self.cfg.arena.width { -d } else { d };
+                    Vec2::new(c.x + away, c.y)
+                } else {
+                    ahead
+                }
             }
         }
     }
@@ -4502,6 +4643,25 @@ impl BattleState {
                 if d == 0 {
                     self.on_deployed(id.index as usize);
                 }
+            }
+            // spells.DEPLOY_AREA_EFFECT = client_area_effect: a card whose row IS an area effect
+            // that spawns its character (card.rs `deploy_area_effect`: the Electro Wizard's
+            // ElectroWizardZap, the Ice Wizard's IceWizardCold) acts as that area where the
+            // character appears, on the character's first tick. Cast here, as the character
+            // materialises, into the spell list this phase's casts go into, so it applies in THIS
+            // tick's Projectile phase: measured on client 15.535.29, a Knight 1271 from the Electro
+            // Wizard lost 192 (Damage 75 at level 11) on its first tick and took no step for the
+            // 500 ms of ZapFreeze. A deploy's only: a scenario spawn puts the character down, not
+            // the card.
+            // The loader takes the block on a one-member card alone, so one play is one area.
+            #[cfg(not(clash_plant = "deploy_area_effect_unread"))]
+            let zaps = self.cfg.calib.deploy_area_effect == DeployAreaEffect::ClientAreaEffect;
+            #[cfg(clash_plant = "deploy_area_effect_unread")]
+            let zaps = false; // PLANT (regression): the new arm deploys the character alone, as the old one does.
+            if zaps && self.cfg.cards.get(p.card).deploy_area_effect.is_some() {
+                let at = self.ents.pos[id.index as usize];
+                let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, at).expect("deploy area level validated at enqueue");
+                self.spells.extend(area);
             }
         }
         self.hash.rebuild(&self.ents);
@@ -7753,6 +7913,33 @@ impl BattleState {
                     .expect("death area effect level validated at deploy"),
             );
         }
+        // spawner.DEATH_SPAWN_PROJECTILE = client_projectile: a death whose row carries a
+        // DeathSpawnProjectile (card.rs `death_projectile`, the Phoenix's PhoenixFireball) leaves
+        // that projectile standing on the death point, aimed at it with no delay (spell.rs
+        // `death_projectile`), in the same spell list and in the same death order. It lands on the
+        // NEXT tick's Projectile phase -- the second tick after the unit's last one, measured on
+        // client 15.535.29 in all three Phoenix scenarios -- and does there what a cast
+        // projectile's arrival does: its Damage at the dead unit's level on every enemy within its
+        // Radius plus the enemy's own (spells.AOE_HIT_TEST), and its SpawnCharacter released at the
+        // point for the dead unit's side and level (`phase_projectile`, which puts a ground unit
+        // over water on land). Under the shipped `none` the column is not read.
+        #[cfg(not(clash_plant = "death_projectile_unread"))]
+        let fires = self.cfg.calib.death_spawn_projectile == DeathSpawnProjectile::ClientProjectile;
+        #[cfg(clash_plant = "death_projectile_unread")]
+        let fires = false; // PLANT (regression): a Phoenix dies with nothing following under the new arm too.
+        if fires {
+            for id in &deaths {
+                let i = id.index as usize;
+                let idx = self.ents.card[i];
+                if self.cfg.cards.get(idx).death_projectile.is_none() {
+                    continue;
+                }
+                released.push(
+                    spell::death_projectile(&self.cfg.cards, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
+                        .expect("death projectile level validated at deploy"),
+                );
+            }
+        }
         self.spells.append(&mut released);
         for id in &deaths {
             let i = id.index as usize;
@@ -9536,6 +9723,16 @@ impl BattleState {
 ///    moves: a snapshot saved by an earlier build is refused as saved against other card data.
 ///    migrate_v3 strips the fields with the rest of the post-format-3 tail and runs a migrated
 ///    battle at the four old arms.
+/// 20, unchanged, the river turn, the spawn area, the death projectile and the deploy area
+///    (spawner.EMISSION_WATER_TURN, spawner.SPAWN_AREA_OBJECT_SCOPE, spawner.DEATH_SPAWN_PROJECTILE,
+///    spells.DEPLOY_AREA_EFFECT): Calib gained four keys, each with a serde default at its old
+///    arm, so a format-20 blob saved before them still deserializes into the behaviour it ran.
+///    No new Entities column and no new snapshot field: every release is an ordinary `Spell` in
+///    the list format 4 already saves. CardDef gained `death_projectile`, `deploy_area_effect` and
+///    `spawn_area_effect`, and SpellHit gained `only_own_troops`, so the card fingerprint moves: a
+///    snapshot saved by an earlier build is refused as saved against other card data. migrate_v3
+///    strips the three fields with the rest of the post-format-3 tail and runs a migrated battle
+///    at the old arms; no card's index moves.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -9708,12 +9905,15 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `multiple_targets`, `all_targets_hit` and `deploy_projectile` after it.
                 // ~~... deploy_projectile~~ -- the special attacks (still format 20) added
                 // `load_first_hit`, `variable_damage`, `attack_pushback` and `special` after it.
+                // ~~... special~~ -- the death projectile, the deploy area and the spawn area
+                // (still format 20) added `death_projectile`, `deploy_area_effect` and
+                // `spawn_area_effect` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -9741,7 +9941,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.load_first_hit,
                     c.variable_damage,
                     c.attack_pushback,
-                    c.special
+                    c.special,
+                    c.death_projectile,
+                    c.deploy_area_effect,
+                    c.spawn_area_effect
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -9812,6 +10015,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
     sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
     sh.insert("special_hook".into(), serde_json::to_value(SpecialHook::NotRead).map_err(|e| e.to_string())?);
+    // The river turn, the spawn area, the death projectile and the deploy area: a format-3
+    // battle ran none of them; it keeps that whatever the ledger ships (the same rule).
+    sh.insert("emission_water_turn".into(), serde_json::to_value(EmissionWaterTurn::None).map_err(|e| e.to_string())?);
+    sh.insert("spawn_area_object_scope".into(), serde_json::to_value(SpawnAreaObjectScope::MorphTargetsOnly).map_err(|e| e.to_string())?);
+    sh.insert("death_spawn_projectile".into(), serde_json::to_value(DeathSpawnProjectile::None).map_err(|e| e.to_string())?);
+    sh.insert("deploy_area_effect".into(), serde_json::to_value(DeployAreaEffect::None).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

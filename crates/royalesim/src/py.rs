@@ -76,7 +76,7 @@
 
 use crate::arena::Arena;
 use crate::arena::Territory;
-use crate::card::{CardDb, CardKind, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardKind, UnitRef, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
@@ -474,6 +474,22 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
             // the by-index default catalogue below skips it too.
             if (u as usize) < id_of_idx.len() && id_of_idx[u as usize] == -1 {
                 id_of_idx[u as usize] = cid as i32;
+            }
+        }
+    }
+    // ONE LEVEL DOWN, after every first-level unit has its card, so no first-level id
+    // moves: the unit a DEATH PROJECTILE's release itself puts on the board (the Phoenix's
+    // egg hatches a Phoenix) reports under the card whose death released the egg. It is the
+    // one unit the loader lets carry blocks of its own (card.rs `UnitRef::DeathProjectile`).
+    for (cid, idx) in catalogue.iter().enumerate() {
+        for (path, u, _) in cards.unit_refs(*idx) {
+            if path != UnitRef::DeathProjectile || (u as usize) >= id_of_idx.len() {
+                continue;
+            }
+            for (_, w, _) in cards.unit_refs(u) {
+                if (w as usize) < id_of_idx.len() && id_of_idx[w as usize] == -1 {
+                    id_of_idx[w as usize] = cid as i32;
+                }
             }
         }
     }

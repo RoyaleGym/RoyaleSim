@@ -35,7 +35,11 @@
 //!      and this test asserts the refusal, so the change that lifts it must replace
 //!      that assertion with the second level's order. A death area's units are the
 //!      dying card's needs, at its own level; no accepted area has any yet, and the
-//!      change that gives one some pins their place here too;
+//!      change that gives one some pins their place here too. ONE EXCEPTION IS LIFTED
+//!      AND NOT PINNED HERE YET: a death projectile's SpawnCharacter may carry a periodic
+//!      spawner (card.rs `UnitUse::DeathProjectileRelease`, the Phoenix's egg), whose
+//!      unit is a second level. No file this test reads has one; the file that first
+//!      does must pin that second level's order here;
 //!   6. `a_unit_that_fails_a_check_is_caught_through_every_block`: the failing
 //!      direction of the two checks that read `unit_refs`, on a synthetic file.
 //!      (a) A Common card whose unit is a Legendary row, one per block (spawner,
@@ -124,6 +128,9 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     }
     if let Some(ss) = &c.formation.second_summon {
         out.push((UnitRef::SecondSummon, ss.unit, None));
+    }
+    if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.death_projectile {
+        out.push((UnitRef::DeathProjectile, sp.unit, sp.level_index));
     }
     out
 }

@@ -17,7 +17,10 @@
 //!                 calls the SAME `cast` at the death point, under the dying card's
 //!                 index and level, and its area applies in the next tick's
 //!                 Projectile phase -- the same tick the death damage the same death
-//!                 buffered is resolved, because Reap writes both after Resolve.
+//!                 buffered is resolved, because Reap writes both after Resolve. A death
+//!                 that carries `death_projectile` (the Phoenix's) stands that projectile
+//!                 on the death point (`death_projectile`) under
+//!                 spawner.DEATH_SPAWN_PROJECTILE, and it lands in that same next phase.
 //!     Projectile  `step_spells`, after troop projectiles: flights advance, rolls
 //!                 roll, area effects apply. Every hit test reads entity positions
 //!                 AS THEY ARE ON THE ARRIVAL TICK (post-Move), never at cast. Hits go
@@ -219,12 +222,16 @@ pub fn forward_dy(team: Team) -> i32 {
 
 /// The area effect / projectile / roll a card index runs: a SPELL card's own shape,
 /// or -- for a troop or building whose DEATH leaves an area effect standing (card.rs
-/// `death_area_effect`, the Ice Golem's) -- that block, or -- for a troop whose card
+/// `death_area_effect`, the Ice Golem's) -- that block; or -- for a troop whose card
 /// carries a DEPLOY PROJECTILE (card.rs `deploy_projectile`, the Mega Knight's) -- that
-/// impact. A card carries at most one of the three: `convert_spell` reads no death or
-/// deploy column, `convert` builds no spell, and `convert` refuses a unit with both a
-/// deploy projectile and a death area effect. Both `cast` and `step_spells` resolve a
-/// `Spell`'s card this way, so a death release and a deploy blow are the SAME object,
+/// impact; or the projectile a death releases (`death_projectile`, the Phoenix's), the
+/// area a card IS when it spawns its character (`deploy_area_effect`, the Electro
+/// Wizard's) or the area a unit puts down where it appears (`spawn_area_effect`, the
+/// Battle Healer's). A card carries at most one of the six: `convert_spell` reads no death
+/// or deploy column, `convert` builds no spell, `convert` refuses a unit with both a
+/// deploy projectile and a death area effect, and the loader refuses a card that would
+/// carry two of the others. Both `cast` and `step_spells` resolve a `Spell`'s card this
+/// way, so a death release, a deploy blow and every other release are the SAME object,
 /// the same `impact` and the same phase a Zap gets.
 ///
 /// CRATE-VISIBLE because the answer is also the snapshot's: state.rs `load_with`
@@ -233,7 +240,47 @@ pub fn forward_dy(team: Team) -> i32 {
 /// battle saved on the one tick a death release is in the air.
 #[inline]
 pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
-    def.spell.as_ref().or(def.death_area_effect.as_ref()).or(def.deploy_projectile.as_ref())
+    def.spell
+        .as_ref()
+        .or(def.death_area_effect.as_ref())
+        .or(def.deploy_projectile.as_ref())
+        .or(def.death_projectile.as_ref())
+        .or(def.deploy_area_effect.as_ref())
+        .or(def.spawn_area_effect.as_ref())
+}
+
+/// THE PROJECTILE A DEATH LEAVES (card.rs `death_projectile`; spawner.DEATH_SPAWN_PROJECTILE =
+/// client_projectile; the Phoenix's PhoenixFireball): ONE `Flight` object standing on the death
+/// point `at` and aimed at it with no delay, under the dying card's index and unified `level`.
+/// `step_spells` lands it on its first update -- `path::advance` arrives on a zero-length leg
+/// whatever the speed, as a death bomb's does -- so its impact and its release are a cast
+/// projectile's arrival, on the tick after the death. Damage and the buff's pulse are scaled by
+/// the dying card's level here, once, as `cast` scales a spell's. Pure; `level` already validated.
+pub fn death_projectile(cards: &CardDb, team: Team, card: u16, level: i32, at: Vec2) -> Result<Spell, String> {
+    let def = cards.get(card);
+    let Some(crate::card::SpellDef { shape: SpellShape::Projectile { hit, .. }, .. }) = &def.death_projectile else {
+        return Err(format!("{} leaves no death projectile", def.name));
+    };
+    let (damage, pulse) = match hit {
+        None => (0, 0),
+        Some(h) => {
+            let damage = cards.scaled(card, level, h.damage)?;
+            let pulse = match h.buff {
+                None => 0,
+                Some(b) => {
+                    let base = cards.buffs[b.buff as usize].pulse_base();
+                    if base == 0 {
+                        0
+                    } else {
+                        let mag = cards.scaled(card, level, base.abs())?;
+                        if base < 0 { -mag } else { mag }
+                    }
+                }
+            };
+            (damage, pulse)
+        }
+    };
+    Ok(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 } })
 }
 
 /// Turn one accepted cast -- or one death that releases an area effect -- into its
@@ -358,6 +405,11 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit) -> bool {
     }
     #[cfg(clash_plant = "spell_friendly_fire")]
     let _ = (team, hit.only_enemies); // PLANT: OnlyEnemies ignored.
+    // OnlyOwnTroops (card.rs SpellHit `only_own_troops`, a spawn area's alone: the Battle
+    // Healer's heal): the releaser's side only.
+    if hit.only_own_troops && ents.team[v] != team {
+        return false;
+    }
     #[cfg(clash_plant = "spells_never_hit_air")]
     if ents.flying[v] {
         return false; // PLANT: AoeToAir / HitsAir ignored.
