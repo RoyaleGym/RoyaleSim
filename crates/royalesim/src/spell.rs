@@ -203,6 +203,12 @@ pub struct EffectBuffer {
     /// Buff applications, in buffer order (spell order = cast order). Drained in
     /// Resolve by `state.rs apply_effects`.
     pub buffs: Vec<BuffHit>,
+    /// Hooks that landed this tick, (victim, thrower) (calibration combat.SPECIAL_HOOK =
+    /// client_hook_drag; combat.rs `step_projectiles`). Drained in Resolve by `state.rs
+    /// apply_effects`, which starts the drag on a surviving victim. Empty under the shipped
+    /// not_read. `default` so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub hooks: Vec<(EntityId, EntityId)>,
 }
 
 /// The caster's forward axis: +1 for Blue (toward high y), -1 for Red.

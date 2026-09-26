@@ -285,6 +285,26 @@ pub struct Calib {
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
     pub deploying_heading: DeployingHeading,
+    /// combat.VARIABLE_DAMAGE: whether a hit's damage follows the Inferno's ramp (combat.rs
+    /// `stage_damage`; a stun restarts it, `apply_effects`). Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is `NotModelled`, what a battle saved before it actually ran.
+    #[serde(default = "variable_damage_default")]
+    pub variable_damage: VariableDamage,
+    /// combat.LOAD_FIRST_HIT: whether a LoadFirstHit unit leaves its deploy with its load
+    /// timer at LoadTime (`load_first_hit_on_deployed`). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is `None`, what a battle saved before it actually ran.
+    #[serde(default = "load_first_hit_default")]
+    pub load_first_hit: LoadFirstHit,
+    /// knockback.ATTACK_PUSHBACK: whether a launch recoils a unit whose row sets
+    /// AttackPushBack (`attack_recoil`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// `None`, what a battle saved before it actually ran.
+    #[serde(default = "attack_pushback_default")]
+    pub attack_pushback: AttackPushback,
+    /// combat.SPECIAL_HOOK: whether a unit whose row sets SpecialRange stands, hooks and drags
+    /// (`special_step`, `step_hook_drags`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// `NotRead`, what a battle saved before it actually ran.
+    #[serde(default = "special_hook_default")]
+    pub special_hook: SpecialHook,
     /// movement.WAITING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is `Kept`,
     /// which is what a battle saved before this key actually ran.
     #[serde(default = "waiting_heading_default")]
@@ -664,6 +684,22 @@ fn doomed_target_drop_default() -> DoomedTargetDrop {
 
 fn deploying_heading_default() -> DeployingHeading {
     DeployingHeading::Zeroed
+}
+
+fn variable_damage_default() -> VariableDamage {
+    VariableDamage::NotModelled
+}
+
+fn load_first_hit_default() -> LoadFirstHit {
+    LoadFirstHit::None
+}
+
+fn attack_pushback_default() -> AttackPushback {
+    AttackPushback::None
+}
+
+fn special_hook_default() -> SpecialHook {
+    SpecialHook::NotRead
 }
 
 fn waiting_heading_default() -> WaitingHeading {
@@ -1258,6 +1294,72 @@ calib_enum!(
         Zeroed = "zeroed"
     }
 );
+calib_enum!(
+    /// combat.VARIABLE_DAMAGE -- what a hit of a unit whose row sets VariableDamage2 deals
+    /// (combat.rs `stage_damage`).
+    VariableDamage {
+        /// Today's engine: Damage on every hit, so an Inferno deals its first stage forever.
+        NotModelled = "not_modelled",
+        /// Measured on the 16.402 corpus (Inferno Tower and Inferno Dragon, level 11): Damage
+        /// while the attack progress on the current target is below VariableDamageTime1,
+        /// VariableDamage2 below VariableDamageTime1 + VariableDamageTime2, VariableDamage3
+        /// from there on, each scaled like Damage. The progress is combat.ATTACK_CYCLE's
+        /// counter, so it restarts with a new target; a stun restarts it too (measured on
+        /// client 15.535.29: a Zap reads the Inferno Tower's progress 0 on the frame it lands).
+        AttackProgressStages = "client16402_attack_progress_stages",
+    }
+);
+calib_enum!(
+    /// combat.LOAD_FIRST_HIT -- where a LoadFirstHit unit's first attack is timed from
+    /// (`BattleState::load_first_hit_on_deployed`).
+    LoadFirstHit {
+        /// Today's engine: from the lock, like any unit (the Sparky launches 19 ticks after it).
+        None = "none",
+        /// Measured on client 15.535.29 (2 of 2 Sparkys): the unit leaves its deploy with its
+        /// load timer at LoadTime, the timer counts down 50 a tick walking or not, and on
+        /// entering the attack its progress is LoadTime - (the timer on the tick before) + 100,
+        /// so the first launch comes 79 ticks after the deploy end whether it walked first or not.
+        LoadTimeFromDeployEnd = "load_time_from_deploy_end",
+    }
+);
+calib_enum!(
+    /// knockback.ATTACK_PUSHBACK -- what a launch does to a unit whose row sets AttackPushBack
+    /// (`BattleState::attack_recoil`).
+    AttackPushback {
+        /// Today's engine: nothing; AttackPushBack is not read.
+        None = "none",
+        /// Measured on client 15.535.29 (5 of 5 Sparky launches, 3 of 3 gaps): the launch arms
+        /// the knockback ladder (knockback.DISPLACEMENT_LAW = client16402) for AttackPushBack
+        /// straight away from the target, its first step on the launch tick (175, 150, ..., 25,
+        /// 0, then 25 back for 750); the unit is out of the attack while the ladder runs and
+        /// re-enters it on the launch + 9 with a fresh cycle, which reads progress 500, so
+        /// launches are 79 ticks apart instead of 80.
+        LadderAwayFromTarget = "ladder_away_from_target",
+    }
+);
+calib_enum!(
+    /// combat.SPECIAL_HOOK -- what a unit whose row sets SpecialRange does with a target in
+    /// its special range (`BattleState::special_step`, `step_hook_drags`).
+    SpecialHook {
+        /// Today's engine: nothing; the Fisherman walks to melee range like a Knight.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the fisherman-knight, -near and -far scenarios, 5
+        /// runs): with an enemy ground troop within SpecialRange plus 500 centre to centre and
+        /// outside SpecialMinRange, the unit stands SpecialLoadTime (26 ticks), throws its
+        /// special projectile at the projectile's Speed, and on landing the target is dragged
+        /// straight at it 510 a tick, neither walking nor attacking, until the next step would
+        /// bring the centres within DragMargin plus both radii. The hook deals no damage; then
+        /// the unit's ordinary attack starts.
+        ClientHookDrag = "client_hook_drag",
+    }
+);
+
+/// combat.SPECIAL_HOOK = client_hook_drag: the drag's step, NATIVE units per tick
+/// (`BattleState::step_hook_drags`). Measured on client 15.535.29, 5 of 5 drags of a Knight:
+/// 509-510. A constant of the measured law, like move16402.rs `PUSHBACK_DECEL`: how it relates
+/// to the special projectile's DragBackSpeed (850) is OPEN, and a target other than a Knight is
+/// not measured.
+const HOOK_DRAG_STEP: i32 = 510;
 calib_enum!(
     /// movement.WAITING_HEADING -- what the heading of a member still WAITING OUT ITS STAGGER
     /// (formation.STAGGER_WAIT's measured arm, entity.rs `stagger_ms` > 0) counts for in a
@@ -2152,6 +2254,10 @@ impl Calib {
             deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
+            variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
+            load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
+            attack_pushback: pick(&v, &["knockback", "ATTACK_PUSHBACK", "value"], AttackPushback::from_calibration_name)?,
+            special_hook: pick(&v, &["combat", "SPECIAL_HOOK", "value"], SpecialHook::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             zero_step_waypoint_test: pick(&v, &["pathfinding", "ZERO_STEP_WAYPOINT_TEST", "value"], ZeroStepWaypointTest::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
@@ -2317,6 +2423,23 @@ impl Calib {
         // measured on the melee Battle Ram; the projectile case is a hypothesis
         // under the same name).
         only(&v, &["combat", "KAMIKAZE_DEATH", "value"], "at_fire")?;
+        // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
+        // progress counter and load timer, which the windup arm does not keep; the recoil IS the
+        // knockback ladder, and its measured re-entry (progress 500 on the launch + 9) is the
+        // progress counter's too. The other pairings have no code and are refused here rather
+        // than run as the nearest thing.
+        if c.variable_damage == VariableDamage::AttackProgressStages && c.attack_cycle != AttackCycle::ProgressCredit {
+            return Err("combat.VARIABLE_DAMAGE = client16402_attack_progress_stages has no engine implementation under combat.ATTACK_CYCLE other than progress_credit".into());
+        }
+        if c.load_first_hit == LoadFirstHit::LoadTimeFromDeployEnd && c.attack_cycle != AttackCycle::ProgressCredit {
+            return Err("combat.LOAD_FIRST_HIT = load_time_from_deploy_end has no engine implementation under combat.ATTACK_CYCLE other than progress_credit".into());
+        }
+        if c.attack_pushback == AttackPushback::LadderAwayFromTarget && c.knock_law != KnockLaw::Client16402 {
+            return Err("knockback.ATTACK_PUSHBACK = ladder_away_from_target has no engine implementation under knockback.DISPLACEMENT_LAW other than client16402".into());
+        }
+        if c.attack_pushback == AttackPushback::LadderAwayFromTarget && c.attack_cycle != AttackCycle::ProgressCredit {
+            return Err("knockback.ATTACK_PUSHBACK = ladder_away_from_target has no engine implementation under combat.ATTACK_CYCLE other than progress_credit".into());
+        }
         if c.projectile_speed_to_subtiles_per_tick <= 0 || c.knock_duration_ms < 0 || c.max_pushback_length <= 0 {
             return Err("calibration.json: non-positive projectile speed / pushback cap or negative knockback duration".into());
         }
@@ -3054,9 +3177,10 @@ fn land_buff(e: &mut Entities, table: &[crate::status::BuffDef], c: &Calib, i: u
 
 /// A HOLD OF `ms` LANDING on entity `i`: merged into `stun_ms` by status.SAME_BUFF_REAPPLY, the
 /// target lock released for the resume rescan (status.STUN_RETARGET_ON_RESUME), the attack cycle
-/// paused or reset (status.STUN_ATTACK_TIMER_MODEL) and the charge cleared (charge.RESET_ON_STUN).
-/// The one implementation behind `apply_effects` and `reflect_melee_hit`.
-fn land_stun(e: &mut Entities, c: &Calib, i: usize, ms: i32) {
+/// paused or reset (status.STUN_ATTACK_TIMER_MODEL), a damage ramp restarted
+/// (combat.VARIABLE_DAMAGE) and the charge cleared (charge.RESET_ON_STUN). The one
+/// implementation behind `apply_effects` and `reflect_melee_hit`.
+fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     #[cfg(not(clash_plant = "stun_replace"))]
     let reapply = c.same_buff_reapply;
     #[cfg(clash_plant = "stun_replace")]
@@ -3074,6 +3198,25 @@ fn land_stun(e: &mut Entities, c: &Calib, i: usize, ms: i32) {
     #[cfg(clash_plant = "stun_resets_attack")]
     let model = StunTimerModel::Reset; // PLANT: crforge's pre-2017 reset.
     if model == StunTimerModel::Reset {
+        e.attack_phase[i] = AttackPhase::Idle;
+        e.attack_ms[i] = 0;
+        e.target_locked[i] = false;
+    }
+    // combat.VARIABLE_DAMAGE = client16402_attack_progress_stages: A STUN RESTARTS THE RAMP
+    // of a unit whose row carries one, whatever status.STUN_ATTACK_TIMER_MODEL says of the
+    // others. Measured on client 15.535.29 (the inferno-zap scenario, both sides): a Zap
+    // landing on an Inferno Tower at progress 2950 reads its progress 0 on that frame, and
+    // its next hits are the first stage again, four of them, then the second at 2000.
+    // Under an Electro Wizard stunning it again and again it never leaves the first stage.
+    // A reflect's stun (`reflect_melee_hit`) lands here too, so it restarts a ramp alike.
+    #[cfg(not(clash_plant = "stun_keeps_variable_damage_ramp"))]
+    let ramp_restarts = c.variable_damage == VariableDamage::AttackProgressStages && cards.get(e.card[i]).variable_damage.is_some();
+    #[cfg(clash_plant = "stun_keeps_variable_damage_ramp")]
+    let ramp_restarts = {
+        let _ = cards;
+        false // PLANT (regression): a stun pauses the ramp, so a Zapped Inferno resumes in its second stage.
+    };
+    if ramp_restarts {
         e.attack_phase[i] = AttackPhase::Idle;
         e.attack_ms[i] = 0;
         e.target_locked[i] = false;
@@ -3299,6 +3442,32 @@ impl BattleState {
     fn on_deployed(&mut self, i: usize) {
         self.hide_on_deployed(i);
         self.spawner_activate(i);
+        self.load_first_hit_on_deployed(i);
+    }
+
+    /// THE FIRST-HIT LOAD (calibration combat.LOAD_FIRST_HIT = load_time_from_deploy_end):
+    /// a unit whose row sets LoadFirstHit (the Sparky) leaves its deploy with its load timer
+    /// at LoadTime. Nothing else is needed: the attack pass counts the timer down 50 a tick in
+    /// every state (combat.rs `attack_step_progress`), and its fresh-cycle entry
+    /// `progress = LoadTime - load` after that tick's decrement, plus the tick's advance, IS
+    /// the measured LoadTime - (the timer on the tick before) + 100 while the timer is above 0.
+    /// So the first launch comes deploy end + 79 for a Sparky (LoadTime 3000, HitSpeed 4000),
+    /// 43 ticks after a lock that followed a 36-tick walk and 78 after a lock straight out of
+    /// the deploy, as measured on client 15.535.29 (2 of 2). Every other unit leaves its deploy
+    /// with the timer at 0 (781 of 783 hand-played units; the other 2 are the Sparkys). Under
+    /// `none` nothing is written.
+    fn load_first_hit_on_deployed(&mut self, i: usize) {
+        if self.cfg.calib.load_first_hit != LoadFirstHit::LoadTimeFromDeployEnd {
+            return;
+        }
+        let card = self.cfg.cards.get(self.ents.card[i]);
+        let (first_hit, load_time) = (card.load_first_hit, card.load_time_ms.max(0));
+        #[cfg(not(clash_plant = "load_first_hit_from_lock"))]
+        if first_hit {
+            self.ents.attack_load_ms[i] = load_time;
+        }
+        #[cfg(clash_plant = "load_first_hit_from_lock")]
+        let _ = (first_hit, load_time); // PLANT (regression): the load timer leaves the deploy at 0, so the first launch is timed from the lock.
     }
 
     /// spawner.EMISSION_TIMING in force. The regression plant `spawner_first_wave_late`
@@ -5003,7 +5172,8 @@ impl BattleState {
                 .map(|i| {
                     let alive = e.alive[i];
                     let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
-                    let held = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0;
+                    // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide
+                    let held = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
                     move16402::Body {
                         x,
                         y,
@@ -5230,7 +5400,9 @@ impl BattleState {
                 // under the measured arm the contact scans still reach it -- the same
                 // scans this pass already runs for a unit that is merely in range.
                 let phase_hold = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0;
-                let frozen = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0;
+                // A unit a hook is dragging (combat.SPECIAL_HOOK) is out of the pass like a slide:
+                // the Move phase steps it (`step_hook_drags`).
+                let frozen = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
                 if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
                     // a stun, a freeze or a knockback ends a dash where it stands (unmeasured:
                     // combat.DASH_ATTACK's open list); an attacking unit is not dashing
@@ -6492,6 +6664,11 @@ impl BattleState {
             // the move pass; here it runs where the slides do
             self.step_pushback_ladders();
         }
+        // combat.SPECIAL_HOOK = client_hook_drag: the hook drags step here, with the slides, under
+        // every path arm, so the charge accumulator never reads one as a walk (`step_hook_drags`).
+        if self.cfg.calib.special_hook == SpecialHook::ClientHookDrag {
+            self.step_hook_drags();
+        }
         // The charge accumulator's "before" (charge_pass): captured AFTER the slides,
         // so a knockback displacement never counts as a walk.
         self.scratch.pre.clear();
@@ -6618,7 +6795,13 @@ impl BattleState {
                 && e.dash_state[i] != DashState::Dashing
                 && e.hide[i] == HideState::Up
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
-            let step = combat::attack_step(e, &self.cfg.cards, &self.cfg.calib, i, can_act);
+            // combat.SPECIAL_HOOK = client_hook_drag: while this unit's special is under way, or
+            // from the tick it starts, it runs in place of the ordinary attack step
+            // (`special_step`). Under the shipped not_read the step below runs for every unit.
+            if self.cfg.calib.special_hook == SpecialHook::ClientHookDrag && self.special_step(i, can_act) {
+                continue;
+            }
+            let step = combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act);
             self.ents.attack_phase[i] = step.phase;
             // movement.ATTACK_FACING = toward_target: a unit in its attack state faces its target on
             // every tick, the move law's integer normalize (length 256) of target - self in native units.
@@ -6731,6 +6914,11 @@ impl BattleState {
                     let all = self.ents.hp[i].max(0) + self.ents.shield[i].max(0);
                     self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false });
                 }
+                // knockback.ATTACK_PUSHBACK = ladder_away_from_target: the launch recoils a unit
+                // whose row sets AttackPushBack (`attack_recoil`).
+                if self.cfg.calib.attack_pushback == AttackPushback::LadderAwayFromTarget {
+                    self.attack_recoil(i, t);
+                }
                 #[cfg(clash_plant = "inline_damage")]
                 for h in self.dmg.hits.drain(..) {
                     // PLANT (regression): apply each hit inline at the swing instead of
@@ -6816,11 +7004,193 @@ impl BattleState {
             let Some(b) = r.buff else { continue };
             #[cfg(not(clash_plant = "reflect_stun_buffered"))]
             if land_buff(&mut self.ents, &self.cfg.cards.buffs, &self.cfg.calib, a, b.buff, b.time_ms, 0) {
-                land_stun(&mut self.ents, &self.cfg.calib, a, b.time_ms);
+                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
             }
             // PLANT (regression): the stun through the effect buffer, landed in Resolve.
             #[cfg(clash_plant = "reflect_stun_buffered")]
             self.effects.buffs.push(crate::status::BuffHit { target: me, buff: b.buff, time_ms: b.time_ms, pulse_amount: 0 });
+        }
+    }
+
+    /// THE RECOIL (calibration knockback.ATTACK_PUSHBACK = ladder_away_from_target): unit `i`,
+    /// whose row sets AttackPushBack, has just launched at `t`. The launch arms the knockback
+    /// ladder (`arm_ladder`, knockback.DISPLACEMENT_LAW = client16402) for AttackPushBack
+    /// straight away from the target, in the Attack phase, so its first step is this tick's
+    /// Path phase: 175, 150, 125, 100, 75, 50, 25, 0, then 25 back for the Sparky's 750, a net
+    /// of 675, as measured on client 15.535.29 on 5 of 5 launches. The ladder is armed here
+    /// rather than through the effect buffer, so IgnorePushback (which the Sparky sets, and
+    /// which the buffer's `pushable` gate reads) does not refuse the unit's own recoil.
+    ///
+    /// THE ATTACK IT INTERRUPTS: the launch leaves the unit out of the attack (Idle, progress 0,
+    /// the load timer at LoadTime, the target kept but unlocked) and the ladder holds it there
+    /// (`Entities::knocked`). It re-enters on the launch + 9 with a fresh cycle whose entry,
+    /// LoadTime - (LoadTime - 9 x 50) + 50, reads the measured progress 500, so the next launch
+    /// comes 79 ticks after this one (3 of 3 gaps), not the 80 its HitSpeed gives. A ladder
+    /// already running refuses the recoil (knockback.STACKING) and then nothing is reset.
+    fn attack_recoil(&mut self, i: usize, t: EntityId) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        if !self.ents.is_alive(t) {
+            return;
+        }
+        let card = self.cfg.cards.get(self.ents.card[i]);
+        #[cfg(not(clash_plant = "attack_pushback_unread"))]
+        let strength = card.attack_pushback / K;
+        #[cfg(clash_plant = "attack_pushback_unread")]
+        let strength = {
+            // PLANT (regression): AttackPushBack is not read; the Sparky never moves when it fires.
+            let _ = card.attack_pushback;
+            0
+        };
+        let load_time = card.load_time_ms.max(0);
+        if strength <= 0 {
+            return;
+        }
+        let ti = t.index as usize;
+        let src = Vec2::new(self.ents.pos[ti].x / K, self.ents.pos[ti].y / K);
+        // The zero-vector fallback (a unit standing on its target's centre) takes the target's
+        // side as the caster, as a push the target had thrown would: an engine choice, no
+        // capture has it.
+        let caster = self.ents.team[ti];
+        if !self.arm_ladder(i, src, strength, caster, false) {
+            return;
+        }
+        #[cfg(not(clash_plant = "attack_pushback_keeps_cycle"))]
+        {
+            let e = &mut self.ents;
+            e.attack_phase[i] = AttackPhase::Idle;
+            e.attack_ms[i] = 0;
+            e.target_locked[i] = false;
+            e.attack_load_ms[i] = load_time;
+        }
+        #[cfg(clash_plant = "attack_pushback_keeps_cycle")]
+        let _ = load_time; // PLANT (regression): the recoil leaves the cycle running, held through the ladder's 8 ticks, so launches are 88 ticks apart.
+    }
+
+    /// THE SPECIAL (calibration combat.SPECIAL_HOOK = client_hook_drag; card.rs `SpecialDef`),
+    /// unit `i`'s attack pass in place of the ordinary step. Returns whether it took the pass.
+    ///
+    /// THE TRIGGER, on a unit whose row sets SpecialRange and that can act: its live target is
+    /// an enemy GROUND TROOP whose centre is within SpecialRange plus the target's collision
+    /// radius and not within SpecialMinRange plus that radius, on the start-of-tick positions
+    /// (Target and Attack run before the move). Measured on client 15.535.29 against a Knight
+    /// (radius 500, like the Fisherman's): he stops on the tick that starts 7,495 or 7,475 away
+    /// and walks on 7,579 and 7,547, so the bracket is [7,495, 7,547) and 7,500 fits; from
+    /// 5,000, 6,000 and 6,999 he never walks. Whether the 500 is his radius or the target's is
+    /// OPEN (a Knight cannot tell); this reads the target's, the engine's usual reach.
+    ///
+    /// THE LOAD: the unit stands (its attack phase held at Windup, which the Path phase holds)
+    /// for SpecialLoadTime from the trigger tick, counting only ticks it can act, then throws
+    /// its special projectile at the victim (combat.rs `launch_hook`): 26 ticks for 1300 ms in
+    /// all 5 measured runs. It keeps standing while the hook flies and while the victim is
+    /// dragged (`step_hook_drags` ends the special when the drag ends). The load timer of the
+    /// ordinary cycle runs down meanwhile, as it does in every state.
+    ///
+    /// A special whose victim has died ends here, and the ordinary step runs this same pass.
+    fn special_step(&mut self, i: usize, can_act: bool) -> bool {
+        let Some(sp) = self.cfg.cards.get(self.ents.card[i]).special else { return false };
+        let tick = self.cfg.calib.tick_ms;
+        if let Some(v) = self.ents.special_on[i] {
+            if !self.ents.is_alive(v) {
+                self.end_special(i);
+                return false;
+            }
+            self.ents.attack_load_ms[i] = (self.ents.attack_load_ms[i] - tick).max(0);
+            if self.ents.special_ms[i] > 0 && can_act {
+                self.ents.special_ms[i] = (self.ents.special_ms[i] - tick).max(0);
+                if self.ents.special_ms[i] == 0 {
+                    combat::launch_hook(&self.ents, &self.cfg.cards, &self.cfg.calib, i, v, sp.projectile_speed, &mut self.projectiles);
+                }
+            }
+            self.ents.attack_phase[i] = AttackPhase::Windup;
+            return true;
+        }
+        if !can_act {
+            return false;
+        }
+        let e = &self.ents;
+        let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return false };
+        let ti = t.index as usize;
+        #[cfg(not(clash_plant = "special_hook_unread"))]
+        let hooks = e.kind[ti] == EntityKind::Troop && !e.flying[ti] && e.team[ti] != e.team[i] && e.hooked_by[ti].is_none();
+        #[cfg(clash_plant = "special_hook_unread")]
+        let hooks = false; // PLANT (regression): the special never starts; the Fisherman walks to melee range.
+        let (from, to, rt) = (e.pos[i], e.pos[ti], e.radius[ti]);
+        if !hooks || !crate::fixed::in_range_edge(from, to, sp.range, rt) || crate::fixed::in_range_edge(from, to, sp.min_range, rt) {
+            return false;
+        }
+        let e = &mut self.ents;
+        e.special_on[i] = Some(t);
+        e.special_ms[i] = sp.load_time_ms;
+        e.attack_load_ms[i] = (e.attack_load_ms[i] - tick).max(0);
+        e.attack_phase[i] = AttackPhase::Windup;
+        e.attack_ms[i] = 0;
+        e.target_locked[i] = false;
+        true
+    }
+
+    /// Unit `i`'s special is over (its drag ended, or its victim is gone): it leaves the attack
+    /// with a fresh cycle to start, and its ordinary attack takes the next pass.
+    fn end_special(&mut self, i: usize) {
+        let e = &mut self.ents;
+        e.special_on[i] = None;
+        e.special_ms[i] = 0;
+        e.attack_phase[i] = AttackPhase::Idle;
+        e.attack_ms[i] = 0;
+        e.target_locked[i] = false;
+    }
+
+    /// THE DRAG (calibration combat.SPECIAL_HOOK = client_hook_drag), the Move phase's step of
+    /// every unit a hook landed on (`hooked_by`, set in Resolve by `apply_effects`). Each tick
+    /// the victim moves HOOK_DRAG_STEP straight toward its thrower, unless that step would end
+    /// with the centres closer than the special projectile's DragMargin plus both collision
+    /// radii: then the drag ends where it stands, the victim is free from the next tick and the
+    /// thrower's special ends (`end_special`). Measured on client 15.535.29 (5 runs, a Knight):
+    /// steps of 509-510, and the drag stops before the step that would bring the centres within
+    /// 1,200 (200 + 500 + 500), so it ends 1,450, 1,607, 1,671, 1,231 and 1,227 apart. The
+    /// victim neither walks nor attacks meanwhile (`Entities::knocked`). The position is written
+    /// straight, over water too: the measured drag is a straight line, and a victim's ground
+    /// rules resume with its walk. A thrower that is gone ends the drag where it stands (what
+    /// cancels a drag is OPEN), and a knockback on the victim runs first while the drag waits.
+    fn step_hook_drags(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (width, height) = (self.cfg.arena.width, self.cfg.arena.height);
+        let mut moved = false;
+        for i in 0..self.ents.capacity() {
+            let Some(by) = self.ents.hooked_by[i] else { continue };
+            if !self.ents.alive[i] {
+                continue;
+            }
+            let bi = by.index as usize;
+            let special = if self.ents.is_alive(by) { self.cfg.cards.get(self.ents.card[bi]).special } else { None };
+            let Some(sp) = special else {
+                self.ents.hooked_by[i] = None;
+                continue;
+            };
+            if self.ents.push_active[i] || self.ents.knock_ms[i] > 0 {
+                continue;
+            }
+            let (p, q) = (self.ents.pos[i], self.ents.pos[bi]);
+            let d = q.sub(p);
+            let len = isqrt(d.len2()) as i32;
+            let stop = sp.drag_margin + self.ents.radius[i] + self.ents.radius[bi];
+            let step = HOOK_DRAG_STEP * K;
+            #[cfg(not(clash_plant = "hook_drag_steps_inside_margin"))]
+            let room = len - step >= stop;
+            #[cfg(clash_plant = "hook_drag_steps_inside_margin")]
+            let room = len > stop; // PLANT (regression): the drag takes the step that ends inside the margin.
+            if !room || len <= 0 {
+                self.ents.hooked_by[i] = None;
+                if self.ents.special_on[bi] == Some(self.ents.id_of(i)) {
+                    self.end_special(bi);
+                }
+                continue;
+            }
+            let np = Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32);
+            self.ents.pos[i] = Vec2::new(np.x.clamp(0, width), np.y.clamp(0, height));
+            moved = true;
+        }
+        if moved {
+            self.hash.rebuild(&self.ents);
         }
     }
 
@@ -6960,7 +7330,7 @@ impl BattleState {
     /// -- buffer order is spell order, which is cast order.
     fn apply_effects(&mut self) {
         let fx = std::mem::take(&mut self.effects);
-        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() {
+        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() {
             self.effects = fx;
             return;
         }
@@ -7001,7 +7371,7 @@ impl BattleState {
             if ms <= 0 {
                 continue;
             }
-            land_stun(&mut self.ents, &c, i, ms);
+            land_stun(&mut self.ents, &self.cfg.cards, &c, i, ms);
         }
         // Knockbacks. fixed_distance: sum per target, then one move per unit.
         // client16402: arm the ladder on the first push per unit (the
@@ -7101,10 +7471,38 @@ impl BattleState {
         if moved {
             self.hash.rebuild(&self.ents);
         }
+        // combat.SPECIAL_HOOK = client_hook_drag: A HOOK THAT LANDED STARTS ITS DRAG on a victim
+        // that survived this Resolve, when the thrower lives and its special is still on that
+        // victim and no other hook holds it. The first step is the next tick's Move phase
+        // (`step_hook_drags`). Empty under the shipped not_read.
+        for &(v, by) in &fx.hooks {
+            if !self.ents.is_alive(by) {
+                continue;
+            }
+            let (vi, bi) = (v.index as usize, by.index as usize);
+            if self.ents.special_on[bi] != Some(v) {
+                continue;
+            }
+            // A hook that finds its victim gone, or already held by another hook, drags
+            // nothing, and its thrower's special ends here: left running, it would stand on a
+            // live victim it can never pull (two hooks on one victim are not measured; an
+            // engine choice).
+            if !survivor(&self.ents, v) || self.ents.hooked_by[vi].is_some() {
+                self.end_special(bi);
+                continue;
+            }
+            #[cfg(not(clash_plant = "hook_drag_unread"))]
+            {
+                self.ents.hooked_by[vi] = Some(by);
+            }
+            #[cfg(clash_plant = "hook_drag_unread")]
+            self.end_special(bi); // PLANT (regression): the hook lands and drags nothing.
+        }
         let mut fx = fx;
         fx.knocks.clear();
         fx.stuns.clear();
         fx.buffs.clear();
+        fx.hooks.clear();
         self.effects = fx;
     }
 
@@ -8769,6 +9167,15 @@ impl BattleState {
                     h.bool(e.dash_blocked[i]);
                     h.u32(e.dash_immune_until[i]);
                 }
+                // combat.SPECIAL_HOOK: only while a special or a drag runs, so a battle with none
+                // (every battle under the shipped not_read) hashes as it did before the columns.
+                if e.special_on[i].is_some() || e.special_ms[i] != 0 {
+                    h.opt_id(e.special_on[i]);
+                    h.i32(e.special_ms[i]);
+                }
+                if let Some(by) = e.hooked_by[i] {
+                    h.id(by);
+                }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
@@ -8830,6 +9237,10 @@ impl BattleState {
             h.vec(p.frac);
             if !legacy_v3 {
                 h.bool(p.fresh);
+                // combat.SPECIAL_HOOK: a hook's thrower, only on a hook.
+                if let Some(by) = p.hook {
+                    h.id(by);
+                }
             }
             // A straight shot (combat.RANGE_PROJECTILE / MULTIPLE_PROJECTILES new arms) hashes its
             // own state; a homing shot writes nothing more, so every battle without one hashes
@@ -8915,6 +9326,15 @@ impl BattleState {
             for (id, ms) in &self.effects.stuns {
                 h.id(*id);
                 h.i32(*ms);
+            }
+            // combat.SPECIAL_HOOK: only when a landed hook is pending, so a battle with none
+            // hashes as it did before the buffer.
+            if !self.effects.hooks.is_empty() {
+                h.u32(self.effects.hooks.len() as u32);
+                for (v, by) in &self.effects.hooks {
+                    h.id(*v);
+                    h.id(*by);
+                }
             }
         }
         h.u32(self.spawn_queue.len() as u32);
@@ -9106,6 +9526,16 @@ impl BattleState {
 ///    the old arms; no card's index moves (no card is newly refused on the shipped data).
 ///    A deploy blow in the air is an ordinary `Spell` under the unit's card, which spell.rs
 ///    `shape_of` resolves through `deploy_projectile`.
+/// 20, unchanged, the special attacks (combat.VARIABLE_DAMAGE, combat.LOAD_FIRST_HIT,
+///    knockback.ATTACK_PUSHBACK, combat.SPECIAL_HOOK): Calib gained the four keys (serde
+///    default each old arm), Entities gained special_ms / special_on / hooked_by (serde default
+///    neutral, sized on load, hashed only while a special or a drag runs), Projectile gained
+///    hook and EffectBuffer gained hooks (serde default none, hashed only when set), so a
+///    format-20 blob saved before them still deserializes and hashes as it did. CardDef gained
+///    load_first_hit, variable_damage, attack_pushback and special, so the card fingerprint
+///    moves: a snapshot saved by an earlier build is refused as saved against other card data.
+///    migrate_v3 strips the fields with the rest of the post-format-3 tail and runs a migrated
+///    battle at the four old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -9276,12 +9706,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... reflect~~ -- the projectile keys (still format 20) added
                 // `range_shot`, `multiple_projectiles`, `custom_first_projectile`,
                 // `multiple_targets`, `all_targets_hit` and `deploy_projectile` after it.
+                // ~~... deploy_projectile~~ -- the special attacks (still format 20) added
+                // `load_first_hit`, `variable_damage`, `attack_pushback` and `special` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -9305,7 +9737,11 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.custom_first_projectile,
                     c.multiple_targets,
                     c.all_targets_hit,
-                    c.deploy_projectile
+                    c.deploy_projectile,
+                    c.load_first_hit,
+                    c.variable_damage,
+                    c.attack_pushback,
+                    c.special
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -9370,6 +9806,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("multiple_projectiles".into(), serde_json::to_value(MultipleProjectiles::One).map_err(|e| e.to_string())?);
     sh.insert("multiple_targets".into(), serde_json::to_value(MultipleTargets::NotRead).map_err(|e| e.to_string())?);
     sh.insert("deploy_projectile".into(), serde_json::to_value(DeployProjectile::NotRead).map_err(|e| e.to_string())?);
+    // The special attacks: a format-3 battle ran no damage ramp, no first-hit load, no recoil
+    // and no hook; it keeps that whatever the ledger ships (the same rule).
+    sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
+    sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
+    sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
+    sh.insert("special_hook".into(), serde_json::to_value(SpecialHook::NotRead).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -9637,6 +10079,9 @@ impl BattleState {
         snap.ents.dash_target.resize(n, None);
         snap.ents.dash_blocked.resize(n, false);
         snap.ents.dash_immune_until.resize(n, 0);
+        snap.ents.special_ms.resize(n, 0);
+        snap.ents.special_on.resize(n, None);
+        snap.ents.hooked_by.resize(n, None);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

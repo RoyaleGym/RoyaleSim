@@ -46,7 +46,7 @@ use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE
 use crate::path::{advance, advance_client};
 use crate::state::{
     AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch, ProjectileStep, RangeProjectile,
-    TargetBuffScope,
+    TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -141,6 +141,13 @@ pub struct Projectile {
     /// hashed only when present, so a battle without one hashes as it did.
     #[serde(default)]
     pub straight: Option<Straight>,
+    /// THE THROWER OF A HOOK (calibration combat.SPECIAL_HOOK = client_hook_drag;
+    /// `launch_hook`): Some only on a special projectile, which deals no damage and whose
+    /// arrival hands (target, thrower) to Resolve to start the drag (`step_projectiles`).
+    /// None on every other shot, and on every shot under the shipped not_read. `default` so a
+    /// snapshot saved before it still loads; hashed only when Some.
+    #[serde(default)]
+    pub hook: Option<EntityId>,
 }
 
 /// The state of a straight shot (`Projectile::straight`). Distances SUBTILES.
@@ -406,8 +413,12 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
 /// target lock, the Path phase's hold), `Cooldown` = attacking on the hit tick
 /// (the unit stands; next tick the range gates the next cycle), `Idle` = not
 /// attacking. Not modelled: a hit-speed buff (Rage's HitSpeedMultiplier),
-/// SpecialRange and per-target ranges, LoadFirstHit (Sparky). The dash's hit is not
-/// this cycle's: state.rs `phase_path16402` lands it (combat.DASH_ATTACK).
+/// per-target ranges. The dash's hit is not this cycle's: state.rs `phase_path16402` lands it
+/// (combat.DASH_ATTACK). LoadFirstHit (the Sparky) is combat.LOAD_FIRST_HIT's: under
+/// load_time_from_deploy_end the load timer leaves the deploy at LoadTime (state.rs
+/// `load_first_hit_on_deployed`) and this same entry formula times the first launch from the
+/// deploy end. SpecialRange (the Fisherman's hook) is combat.SPECIAL_HOOK's, which runs in
+/// place of this step while the special is under way (state.rs `special_step`).
 fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
     let card = cards.get(ents.card[a]);
     let target = ents.target[a].filter(|t| ents.is_alive(*t));
@@ -616,7 +627,7 @@ pub fn fire(
                 ChargeLevelScaling::TwiceScaledDamage => ((ents.damage[a] as i64) * (ch.damage_special as i64) / (card.damage.max(1) as i64)) as i32,
             }
         }
-        _ => ents.damage[a],
+        _ => stage_damage(ents, cards, calib, a),
     };
     let pct = card.crown_tower_damage_percent;
     let splash_r = if card.area_damage_radius > 0 {
@@ -710,6 +721,7 @@ pub fn fire(
                             t: 0,
                             hit: Vec::new(),
                         }),
+                        hook: None,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -728,34 +740,7 @@ pub fn fire(
             Some(cf) => (cf.speed, cards.scaled(ents.card[a], ents.level[a], cf.damage).expect("level validated at spawn"), cf.radius, cf.hits_air, cf.hits_ground, cf.crown_pct),
             None => (p.speed, amount, splash_r, card.attacks_air, card.attacks_ground, pct),
         };
-        // combat.PROJECTILE_LAUNCH: the projectile is born ProjectileStartRadius from
-        // the attacker's centre toward the target and does not move on the fire tick
-        // (the live tower arrows: 299-300 from the centre on the launch frame, 600 per
-        // tick from the next); the old arm starts it at the centre and steps it at once.
-        let (pos, fresh) = match calib.projectile_launch {
-            ProjectileLaunch::StartRadiusNextTick => {
-                let d = ents.pos[ti].sub(ents.pos[a]);
-                let len = crate::fixed::isqrt(d.len2()) as i32;
-                let r = card.projectile_start_radius.min(len.max(0));
-                // combat.PROJECTILE_STEP = client_native_truncated: the same point by the
-                // client's arithmetic, src + trunc0(v * R / isqrt(v.v)) in NATIVE units
-                // (measured on client 15.535.29: 6,695 of 6,813 launches), so the shot sits
-                // on the native grid; the old arm truncates in subtiles.
-                #[cfg(not(clash_plant = "projectile_start_in_subtiles"))]
-                let native = calib.projectile_step == ProjectileStep::ClientNativeTruncated;
-                #[cfg(clash_plant = "projectile_start_in_subtiles")]
-                let native = false; // PLANT (regression): the new arm's start point is truncated in subtiles.
-                let pos = if native {
-                    toward_native(ents.pos[a], ents.pos[ti], r, ents.team[a])
-                } else if len > 0 {
-                    Vec2::new(ents.pos[a].x + ((d.x as i64) * (r as i64) / (len as i64)) as i32, ents.pos[a].y + ((d.y as i64) * (r as i64) / (len as i64)) as i32)
-                } else {
-                    ents.pos[a]
-                };
-                (pos, true)
-            }
-            ProjectileLaunch::AttackerCentreSameTick => (ents.pos[a], false),
-        };
+        let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, a, ti);
         projectiles.push(Projectile {
             team: ents.team[a],
             pos,
@@ -777,6 +762,7 @@ pub fn fire(
             pulse: atk_pulse,
             firer_card: Some(ents.card[a]),
             straight: None,
+            hook: None,
         });
         return;
     }
@@ -807,6 +793,105 @@ pub fn fire(
             }
         }
     }
+}
+
+/// THE DAMAGE OF AN ORDINARY (uncharged) HIT: the entity's scaled Damage or, under
+/// calibration combat.VARIABLE_DAMAGE = client16402_attack_progress_stages and on a card
+/// that carries the ramp (card.rs `VariableDamageDef`), the stage its attack progress on the
+/// current target has reached. Measured on the 16.402 corpus: an Inferno Tower at level 11
+/// hits for 43 below 2000 of progress, 158 below 4000 and 847 from there on (Damage,
+/// VariableDamage2 and VariableDamage3 at 256 per cent), an Inferno Dragon 35 / 120 / 422.
+///
+/// THE PROGRESS IS combat.ATTACK_CYCLE's COUNTER, `attack_ms`, which the caller
+/// (state.rs `phase_attack`) has already set to this hit's value: a hit does not reset it,
+/// so the first hit reads 400 and every later one 400 more. It restarts where that counter
+/// restarts: a new target (the post-kill wait zeroes it, a switch resets a swing) and, under
+/// the same key, a stun (state.rs `apply_effects`). The old arm is Damage on every hit.
+fn stage_damage(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> i32 {
+    #[cfg(not(clash_plant = "variable_damage_first_stage"))]
+    let ramps = calib.variable_damage == VariableDamage::AttackProgressStages;
+    #[cfg(clash_plant = "variable_damage_first_stage")]
+    let ramps = {
+        // PLANT (regression): the Inferno deals its first-stage Damage on every hit.
+        let _ = calib.variable_damage == VariableDamage::AttackProgressStages;
+        false
+    };
+    let Some(vd) = cards.get(ents.card[a]).variable_damage.filter(|_| ramps) else {
+        return ents.damage[a];
+    };
+    let progress = ents.attack_ms[a];
+    let base = if progress < vd.time1_ms {
+        return ents.damage[a];
+    } else if progress < vd.time1_ms + vd.time2_ms {
+        vd.damage2
+    } else {
+        vd.damage3
+    };
+    // A level-1 stat like Damage; the level was validated at spawn.
+    cards.scaled(ents.card[a], ents.level[a], base).expect("level validated at spawn")
+}
+
+/// Where attacker `a`'s shot at entity `ti` is born, and whether its first step is the
+/// next tick's (combat.PROJECTILE_LAUNCH): ProjectileStartRadius (`start_radius`, subtiles)
+/// from the attacker's centre toward the target, first step the next tick (the live tower
+/// arrows: 299-300 from the centre on the launch frame, 600 per tick from the next); the old
+/// arm starts it at the centre and steps it at once. `fire` and `launch_hook` both read it.
+fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, a: usize, ti: usize) -> (Vec2, bool) {
+    match calib.projectile_launch {
+        ProjectileLaunch::StartRadiusNextTick => {
+            let d = ents.pos[ti].sub(ents.pos[a]);
+            let len = crate::fixed::isqrt(d.len2()) as i32;
+            let r = start_radius.min(len.max(0));
+            // combat.PROJECTILE_STEP = client_native_truncated: the same point by the
+            // client's arithmetic, src + trunc0(v * R / isqrt(v.v)) in NATIVE units
+            // (measured on client 15.535.29: 6,695 of 6,813 launches), so the shot sits
+            // on the native grid; the old arm truncates in subtiles.
+            #[cfg(not(clash_plant = "projectile_start_in_subtiles"))]
+            let native = calib.projectile_step == ProjectileStep::ClientNativeTruncated;
+            #[cfg(clash_plant = "projectile_start_in_subtiles")]
+            let native = false; // PLANT (regression): the new arm's start point is truncated in subtiles.
+            let pos = if native {
+                toward_native(ents.pos[a], ents.pos[ti], r, ents.team[a])
+            } else if len > 0 {
+                Vec2::new(ents.pos[a].x + ((d.x as i64) * (r as i64) / (len as i64)) as i32, ents.pos[a].y + ((d.y as i64) * (r as i64) / (len as i64)) as i32)
+            } else {
+                ents.pos[a]
+            };
+            (pos, true)
+        }
+        ProjectileLaunch::AttackerCentreSameTick => (ents.pos[a], false),
+    }
+}
+
+/// THE HOOK (calibration combat.SPECIAL_HOOK = client_hook_drag; card.rs `SpecialDef`;
+/// state.rs `special_step`): thrower `a` launches its special projectile at `target`, born
+/// like any shot (`launch_point`) and flying at the special projectile's Speed (`speed_raw`,
+/// converted like every projectile Speed). It deals no damage: its arrival hands (target,
+/// thrower) to Resolve (`step_projectiles`), which starts the drag. Measured on client
+/// 15.535.29 (5 runs): the hook flies at about 800 a tick and the Knight it lands on loses
+/// no hitpoints to it.
+pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, target: EntityId, speed_raw: i32, projectiles: &mut Vec<Projectile>) {
+    let ti = target.index as usize;
+    let (pos, fresh) = launch_point(ents, calib, cards.get(ents.card[a]).projectile_start_radius, a, ti);
+    projectiles.push(Projectile {
+        team: ents.team[a],
+        pos,
+        target,
+        aim: ents.pos[ti],
+        speed: speed_raw * calib.projectile_speed_to_subtiles_per_tick,
+        damage: 0,
+        crown_pct: PERCENT as i32,
+        splash: 0,
+        hits_air: false,
+        hits_ground: true,
+        frac: Vec2::default(),
+        fresh,
+        buff: None,
+        pulse: 0,
+        firer_card: Some(ents.card[a]),
+        straight: None,
+        hook: Some(ents.id_of(a)),
+    });
 }
 
 /// Buffer `buff` on everything the hit it rode landed on. `scratch` is the victim
@@ -987,6 +1072,15 @@ pub fn step_projectiles(
         if np != p.aim {
             return true;
         }
+        // combat.SPECIAL_HOOK = client_hook_drag: a hook deals no damage. Its landing on a
+        // live target is handed to Resolve (state.rs `apply_effects` starts the drag); a hook
+        // whose target died in flight lands on nothing.
+        if let Some(by) = p.hook {
+            if alive {
+                fx.hooks.push((p.target, by));
+            }
+            return false;
+        }
         if p.splash > 0 {
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
             apply_attack_buff(ents, calib, p.buff, p.pulse, p.target, scratch, fx);
@@ -1031,13 +1125,15 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 ///
 /// A STRAIGHT SHOT (`Projectile::straight`, only under combat.RANGE_PROJECTILE = straight_to_range or
 /// combat.MULTIPLE_PROJECTILES = client_fan) dooms nothing: it flies to its range point, not to its
-/// target, and may miss it. Whether the client counts it is unmeasured.
+/// target, and may miss it. Whether the client counts it is unmeasured. A HOOK (`Projectile::hook`,
+/// only under combat.SPECIAL_HOOK = client_hook_drag) deals no damage and is skipped too, so its
+/// flight time never stretches the ETA of the shots that do.
 pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep) -> Vec<bool> {
     let cap = ents.capacity();
     let mut pending = vec![0i64; cap];
     let mut last_ms = vec![0i32; cap];
     for p in projectiles {
-        if p.straight.is_some() || !ents.is_alive(p.target) {
+        if p.straight.is_some() || p.hook.is_some() || !ents.is_alive(p.target) {
             continue;
         }
         let t = p.target.index as usize;

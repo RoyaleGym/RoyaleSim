@@ -264,6 +264,22 @@ pub struct Entities {
     pub dash_blocked: Vec<bool>,
     #[serde(default)]
     pub dash_immune_until: Vec<u32>,
+    /// THE SPECIAL'S LOAD (calibration combat.SPECIAL_HOOK = client_hook_drag; card.rs
+    /// `SpecialDef`; state.rs `special_step`): ms of SpecialLoadTime this unit still stands
+    /// before it throws its special projectile. 0 when it is not loading, which is every
+    /// unit under the shipped not_read. `default` and sized on load like `acquirable_from`.
+    #[serde(default)]
+    pub special_ms: Vec<i32>,
+    /// The unit this unit's special is on, from the trigger to the end of the drag: through
+    /// the load, the flight of the hook and the drag. While it is Some the unit's ordinary
+    /// attack does not run and it stands. None otherwise. `default` and sized on load.
+    #[serde(default)]
+    pub special_on: Vec<Option<EntityId>>,
+    /// The unit whose hook landed on this one and is dragging it (state.rs `step_hook_drags`).
+    /// While it is Some this unit neither walks nor attacks (`knocked`) and each Move phase
+    /// steps it toward that unit. None otherwise. `default` and sized on load.
+    #[serde(default)]
+    pub hooked_by: Vec<Option<EntityId>>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -417,9 +433,11 @@ impl Entities {
     /// Held by a knockback: mid-slide under the fixed_distance arm (`knock_ms`), or
     /// mid-ladder under the 16.402 one (`push_active`). The one predicate every
     /// "does not walk, does not attack" site reads, so the two arms cannot part.
+    /// A unit being dragged by a hook (combat.SPECIAL_HOOK, `hooked_by`) is held the same
+    /// way: it neither walks nor attacks and keeps its target while the drag runs.
     #[inline]
     pub fn knocked(&self, i: usize) -> bool {
-        self.knock_ms[i] > 0 || self.push_active[i]
+        self.knock_ms[i] > 0 || self.push_active[i] || self.hooked_by[i].is_some()
     }
 
     /// Mid death-spawn slide (calibration spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide;
@@ -598,6 +616,9 @@ impl Entities {
             self.dash_target[i] = None;
             self.dash_blocked[i] = false;
             self.dash_immune_until[i] = 0;
+            self.special_ms[i] = 0;
+            self.special_on[i] = None;
+            self.hooked_by[i] = None;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -668,6 +689,9 @@ impl Entities {
             self.dash_target.push(None);
             self.dash_blocked.push(false);
             self.dash_immune_until.push(0);
+            self.special_ms.push(0);
+            self.special_on.push(None);
+            self.hooked_by.push(None);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);

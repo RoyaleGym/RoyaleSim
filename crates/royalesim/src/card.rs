@@ -441,6 +441,41 @@ pub struct FormationDef {
     pub second_summon: Option<SecondSummonDef>,
 }
 
+/// THE DAMAGE RAMP (characters / buildings VariableDamage2, VariableDamage3,
+/// VariableDamageTime1, VariableDamageTime2; cards.json `variable_damage`). A hit deals
+/// Damage while the attack progress on the current target is below `time1_ms`,
+/// `damage2` below `time1_ms + time2_ms`, and `damage3` from there on (calibration
+/// combat.VARIABLE_DAMAGE, combat.rs `fire`). Measured on the 16.402 corpus on the Inferno
+/// Tower (17 / 62 / 331) and the Inferno Dragon (14 / 47 / 165), switched at 2000 and 4000.
+/// The damages are level-1 values scaled like Damage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VariableDamageDef {
+    pub damage2: i32,
+    pub damage3: i32,
+    pub time1_ms: i32,
+    pub time2_ms: i32,
+}
+
+/// THE HOOK SPECIAL (characters.csv SpecialRange, SpecialMinRange, SpecialLoadTime and the
+/// ProjectileSpecial row's Speed and DragMargin; cards.json `special`). The Fisherman:
+/// 7000, 3500, 1300 ms, FishermanProjectile at 800 with DragMargin 200. Run under
+/// calibration combat.SPECIAL_HOOK = client_hook_drag (state.rs `special_step`,
+/// `step_hook_drags`). DragBackSpeed and DragSelfSpeed are not read: the drag's measured
+/// step is not derived from them yet, and a building target is not hooked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpecialDef {
+    /// SpecialRange, SUBTILES.
+    pub range: i32,
+    /// SpecialMinRange, SUBTILES (0 = blank: no minimum).
+    pub min_range: i32,
+    /// SpecialLoadTime, ms.
+    pub load_time_ms: i32,
+    /// The special projectile's Speed, raw (the unit of every projectile Speed column).
+    pub projectile_speed: i32,
+    /// The special projectile's DragMargin, SUBTILES.
+    pub drag_margin: i32,
+}
+
 /// One card, in engine units. Distances are SUBTILES; times are ms.
 #[derive(Clone, Debug)]
 pub struct CardDef {
@@ -641,13 +676,28 @@ pub struct CardDef {
     /// card with both this and a death area effect is refused (`shape_of` could name only
     /// one of them).
     pub deploy_projectile: Option<SpellDef>,
+    /// characters.csv LoadFirstHit (cards.json `load_first_hit`; the Sparky): the unit leaves
+    /// its deploy with its load timer at LoadTime, so its first attack is timed from the
+    /// deploy end rather than from the lock. Acted on only under combat.LOAD_FIRST_HIT =
+    /// load_time_from_deploy_end (state.rs `load_first_hit_on_deployed`); false on a blank.
+    pub load_first_hit: bool,
+    /// The damage ramp (`VariableDamageDef`); None on every card without VariableDamage2.
+    /// Acted on only under combat.VARIABLE_DAMAGE = client16402_attack_progress_stages.
+    pub variable_damage: Option<VariableDamageDef>,
+    /// characters.csv AttackPushBack (cards.json `attack_pushback_milli`), SUBTILES; 0 on a
+    /// blank. The recoil of each launch (the Sparky 750, the Firecracker 1000), acted on only
+    /// under knockback.ATTACK_PUSHBACK = ladder_away_from_target (state.rs `attack_recoil`).
+    pub attack_pushback: i32,
+    /// The hook special (`SpecialDef`); None on every card without SpecialRange. Acted on
+    /// only under combat.SPECIAL_HOOK = client_hook_drag.
+    pub special: Option<SpecialDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `deploy_projectile`, and onto the end of that tail
+    // field goes HERE, after `special`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -868,6 +918,20 @@ struct RawCard {
     /// cards.json `deploy_projectile` (a troop card's spells_characters Projectile, the
     /// Mega Knight's MegaKnightAppear): `CardDef::deploy_projectile`.
     deploy_projectile: Option<serde_json::Value>,
+    /// cards.json `load_first_hit` (characters.csv LoadFirstHit; the Sparky):
+    /// `CardDef::load_first_hit`.
+    load_first_hit: Option<bool>,
+    /// cards.json `variable_damage` block (VariableDamage2 / VariableDamage3 /
+    /// VariableDamageTime1 / VariableDamageTime2): `CardDef::variable_damage`. Not yet
+    /// written by tools/extract_cards.py; absent reads as no ramp.
+    variable_damage: Option<RawVariableDamage>,
+    /// cards.json `attack_pushback_milli` (characters.csv AttackPushBack):
+    /// `CardDef::attack_pushback`. Not yet written by the extractor; absent reads as 0.
+    attack_pushback_milli: Option<i32>,
+    /// cards.json `special` block (SpecialRange / SpecialMinRange / SpecialLoadTime and the
+    /// ProjectileSpecial row): `CardDef::special`. Not yet written by the extractor; absent
+    /// reads as no special.
+    special: Option<RawSpecial>,
 }
 
 /// cards.json `buff_on_damage`.
@@ -918,6 +982,30 @@ fn convert_reflect(raw: Option<RawReflectedAttack>, buffs: &mut BuffTable) -> Re
         (None, Some(t)) => return Err(format!("reflected_attack: ReflectedAttackBuffDuration {t} without a ReflectedAttackBuff")),
     };
     Ok(Some(ReflectDef { damage, crown_tower_damage: b.crown_tower_damage, radius, buff }))
+}
+
+/// cards.json `variable_damage` block, every field nullable (the extractor is to write the
+/// whole block whenever VariableDamage2 is set).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawVariableDamage {
+    damage2: Option<i32>,
+    damage3: Option<i32>,
+    time1_ms: Option<i32>,
+    time2_ms: Option<i32>,
+}
+
+/// cards.json `special` block, every field nullable (the extractor is to write the whole
+/// block whenever SpecialRange is set; `projectile` is the ProjectileSpecial row in the
+/// shape of every other projectile object, and `drag_margin_milli` that row's DragMargin).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawSpecial {
+    range_milli: Option<i32>,
+    min_range_milli: Option<i32>,
+    load_time_ms: Option<i32>,
+    projectile: Option<RawProjectileObj>,
+    drag_margin_milli: Option<i32>,
 }
 
 /// cards.json `spawn_pathfind`: the underground spawn walk.
@@ -1516,6 +1604,10 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         multiple_targets: 1,
         all_targets_hit: false,
         deploy_projectile: None,
+        load_first_hit: false,
+        variable_damage: None,
+        attack_pushback: 0,
+        special: None,
     }
 }
 
@@ -1965,6 +2057,56 @@ fn convert_dash(raw: Option<RawDash>, kind: CardKind) -> Result<Option<DashDef>,
     }))
 }
 
+/// THE DAMAGE RAMP half of the loader: the `variable_damage` block is all-or-nothing. A
+/// block missing any of the four columns, or with a negative one, is a data error (an
+/// Inferno with no second stage would run as a card that never ramps), never a default.
+fn convert_variable_damage(raw: Option<RawVariableDamage>) -> Result<Option<VariableDamageDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let need = |v: Option<i32>, what: &str| match v {
+        Some(x) if x >= 0 => Ok(x),
+        Some(x) => Err(format!("variable_damage: {what} {x} is negative")),
+        None => Err(format!("variable_damage: no {what}")),
+    };
+    Ok(Some(VariableDamageDef {
+        damage2: need(b.damage2, "VariableDamage2")?,
+        damage3: need(b.damage3, "VariableDamage3")?,
+        time1_ms: need(b.time1_ms, "VariableDamageTime1")?,
+        time2_ms: need(b.time2_ms, "VariableDamageTime2")?,
+    }))
+}
+
+/// THE HOOK SPECIAL half of the loader: the `special` block is all-or-nothing on
+/// SpecialRange, SpecialLoadTime, the special projectile's Speed and its DragMargin
+/// (SpecialMinRange blank reads as no minimum). Only a TROOP hooks: the measured law
+/// stands a unit still and drags a ground troop to it, and the building case (DragSelfSpeed)
+/// is not measured. A special projectile that carries damage or a buff is not the hook the
+/// law describes, and is refused rather than run as one.
+fn convert_special(raw: Option<RawSpecial>, kind: CardKind) -> Result<Option<SpecialDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let need = |v: Option<i32>, what: &str| match v {
+        Some(x) if x > 0 => Ok(x),
+        Some(x) => Err(format!("special: {what} {x} is not positive")),
+        None => Err(format!("special: no {what}")),
+    };
+    let range = milli(need(b.range_milli, "SpecialRange")?);
+    let min_range = milli(b.min_range_milli.unwrap_or(0).max(0));
+    let load_time_ms = need(b.load_time_ms, "SpecialLoadTime")?;
+    let p = b.projectile.ok_or("special: no ProjectileSpecial row")?;
+    let projectile_speed = need(p.speed, "the special projectile's Speed")?;
+    if p.damage.is_some_and(|d| d != 0) || p.target_buff.is_some() {
+        return Err("special: the special projectile carries damage or a buff; not simulated".into());
+    }
+    let drag_margin = match b.drag_margin_milli {
+        Some(x) if x >= 0 => milli(x),
+        Some(x) => return Err(format!("special: DragMargin {x} is negative")),
+        None => return Err("special: no DragMargin".into()),
+    };
+    if kind != CardKind::Troop {
+        return Err(format!("special block on a {kind:?}; only a troop hooks"));
+    }
+    Ok(Some(SpecialDef { range, min_range, load_time_ms, projectile_speed, drag_margin }))
+}
+
 /// WHAT A BUILDING ROW WITH NO HITPOINTS IS, when it is a shape this loader reads
 /// (`hitpointless_building`). Such a row cannot be born as an entity, so each shape
 /// loads as something else; a row that is none of them goes to the ordinary loader,
@@ -2215,6 +2357,16 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let jump = convert_jump(raw.jump, kind)?;
     let dash = convert_dash(raw.dash, kind)?;
     let reflect = convert_reflect(raw.reflected_attack, buffs)?;
+    // The two blocks and the one column the special attacks read (combat.VARIABLE_DAMAGE,
+    // combat.SPECIAL_HOOK, knockback.ATTACK_PUSHBACK). Each is inert under its key's shipped
+    // arm; a half-blank block refuses the card like any other.
+    let variable_damage = convert_variable_damage(raw.variable_damage)?;
+    let special = convert_special(raw.special, kind)?;
+    let attack_pushback = match raw.attack_pushback_milli {
+        Some(x) if x < 0 => return Err(format!("attack_pushback_milli {x} < 0")),
+        Some(x) => milli(x),
+        None => 0,
+    };
     let mut units: Vec<(UnitUse, String)> = Vec::new();
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
@@ -2380,6 +2532,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         multiple_targets,
         all_targets_hit,
         deploy_projectile,
+        load_first_hit: raw.load_first_hit.unwrap_or(false),
+        variable_damage,
+        attack_pushback,
+        special,
     }, display, units))
 }
 
@@ -3080,8 +3236,13 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // boolean beside the "death_spawn" block (15.535 rows only; absent reads false), and the
 // "reflected_attack" block {damage, crown_tower_damage, radius_milli, buff, buff_duration_ms},
 // present only on a row that sets a ReflectedAttack column (`convert_reflect`; damage and
-// radius or the card is refused, the buff with its duration or neither). Unknown fields are
-// ignored.
+// radius or the card is refused, the buff with its duration or neither). Also
+// "load_first_hit" (a boolean; absent reads false), "attack_pushback_milli" (absent reads
+// 0), the "variable_damage" block {damage2, damage3, time1_ms, time2_ms}
+// (`convert_variable_damage`; all four or the card is refused) and the "special" block
+// {range_milli, min_range_milli, load_time_ms, projectile, drag_margin_milli}
+// (`convert_special`; troops only). The last three are not written by tools/extract_cards.py
+// yet, and each reads as absent until it is. Unknown fields are ignored.
 
 #[cfg(test)]
 mod tests {
