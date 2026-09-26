@@ -205,9 +205,11 @@ pub fn cell_cost_for(t: &Terrain, occ: &[i32], col: i32, row: i32, jumper: bool)
 ///
 /// Scans rows ascending over `target_cell +- (reach/500 + 1)`, columns ascending
 /// when the ACTOR's x is in the left half of the arena and descending otherwise;
-/// keeps the highest category (2 = dry and unboxed, 1 = water or boxed) and within
+/// keeps the highest category (2 = dry and unboxed, 1 = boxed, or water when `water_demoted`:
+/// always for a ground chaser, for a flyer under pathfinding.FLYER_GOAL_WATER = demoted) and within
 /// it the strictly smallest squared distance to the ACTOR, so the first scanned
 /// cell wins a tie.
+#[allow(clippy::too_many_arguments)]
 pub fn choose_goal_cell(
     t: &Terrain,
     occ: &[i32],
@@ -216,6 +218,7 @@ pub fn choose_goal_cell(
     reach: i32,
     avoid_buildings: bool,
     building_cost: i32,
+    water_demoted: bool,
 ) -> Option<(i32, i32)> {
     let (ax, ay) = actor;
     let (tx, ty) = target;
@@ -244,7 +247,8 @@ pub fn choose_goal_cell(
         let i = (row * t.cols + col) as usize;
         // (water and a boxed cell are kept as two tests so each category reads on its own)
         #[allow(clippy::if_same_then_else)]
-        let cat = if t.water[i] {
+        // `water_demoted`: a ground chaser always, a flyer under pathfinding.FLYER_GOAL_WATER = demoted.
+        let cat = if water_demoted && t.water[i] {
             1
         } else if avoid_buildings && occ[i] >= building_cost {
             1
@@ -633,7 +637,8 @@ pub fn occlusion(t: &Terrain, occluders: &[Occluder], costs: &Costs) -> Vec<i32>
 
 /// One walking unit's whole request, start to published list.
 pub fn plan(t: &Terrain, occ: &[i32], pf: &mut PathFinder, req: &Request, costs: &Costs) -> Plan {
-    let Some((gcol, grow)) = choose_goal_cell(t, occ, req.actor, req.target, req.reach, req.avoid_buildings, costs.building) else {
+    // A path search is a GROUND mover's (a flyer takes its goal cell without one), so water stays demoted.
+    let Some((gcol, grow)) = choose_goal_cell(t, occ, req.actor, req.target, req.reach, req.avoid_buildings, costs.building, true) else {
         return Plan::NoGoal;
     };
     let scol = div_trunc(req.actor.0, CELL);
@@ -748,12 +753,12 @@ mod tests {
         // a princess tower at (3500, 25500), R 1000, and a Knight (reach 1700) walking
         // up from below: the goal is a clean cell just outside the box, nearest the mover
         stamp(&mut occ, 36, occlusion_box(3500, 25500, 1000, 1000, 36, 64), 50);
-        let g = choose_goal_cell(&t, &occ, (3250, 9750), (3500, 25500), 1700, true, 50).unwrap();
+        let g = choose_goal_cell(&t, &occ, (3250, 9750), (3500, 25500), 1700, true, 50, true).unwrap();
         assert!(occ[(g.1 * 36 + g.0) as usize] < 50, "goal {g:?} sits in the tower box");
         let c = (g.0 * 500 + 250, g.1 * 500 + 250);
         assert!(dist2_capped(c.0, c.1, 3500, 25500) <= 1700 * 1700);
         // without avoidance the nearest in-reach cell wins whatever the box says
-        let g2 = choose_goal_cell(&t, &occ, (3250, 9750), (3500, 25500), 1700, false, 50).unwrap();
+        let g2 = choose_goal_cell(&t, &occ, (3250, 9750), (3500, 25500), 1700, false, 50, true).unwrap();
         assert!(g2.1 <= g.1);
     }
 }

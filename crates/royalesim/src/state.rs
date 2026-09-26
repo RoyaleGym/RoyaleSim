@@ -105,6 +105,16 @@ pub struct Calib {
     /// folklore cadence for those models; the 2026 model ignores it entirely and
     /// uses pathfinding.REPLAN_TRIGGERS.
     pub repath_interval_ticks: Option<i32>,
+    /// pathfinding.GOAL_TARGET_POSITION: which centre of its target a chaser picks its goal cell
+    /// around (`phase_path16402`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// what a battle saved before it actually ran.
+    #[serde(default = "goal_target_position_default")]
+    pub goal_target_position: GoalTargetPosition,
+    /// pathfinding.FLYER_GOAL_WATER: whether a FLYING chaser's goal choice ranks a water cell below
+    /// dry ground, as a ground chaser's does (path16402.rs `choose_goal_cell`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "flyer_goal_water_default")]
+    pub flyer_goal_water: FlyerGoalWater,
 
     // --- the 2026 pathfinder and locomotion law. Every key here is measured
     // against the offline trace corpus; see path2026.rs and calibration.json.
@@ -551,6 +561,14 @@ fn release_timing_default() -> ReleaseTiming {
 
 fn post_kill_wait_default() -> PostKillWait {
     PostKillWait::None
+}
+
+fn goal_target_position_default() -> GoalTargetPosition {
+    GoalTargetPosition::StartOfTick
+}
+
+fn flyer_goal_water_default() -> FlyerGoalWater {
+    FlyerGoalWater::Demoted
 }
 
 fn stagger_wait_default() -> StaggerWait {
@@ -1136,6 +1154,30 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// pathfinding.GOAL_TARGET_POSITION -- the target centre a chaser's goal cell is chosen around
+    /// (the cells within its Range + own CollisionRadius of that centre, the nearest one to the
+    /// chaser winning; path16402.rs `choose_goal_cell`).
+    GoalTargetPosition {
+        /// The target's position at the start of the tick, for every chaser.
+        StartOfTick = "start_of_tick",
+        /// Measured on client 15.535.29: the target's centre as the creation-order move pass holds
+        /// it at the chaser's turn, so already moved this tick when the target was created before
+        /// the chaser and not yet moved when it was created after. Flyers and ground chasers alike.
+        CreationOrder = "creation_order",
+    }
+);
+calib_enum!(
+    /// pathfinding.FLYER_GOAL_WATER -- how a FLYING chaser's goal choice ranks a water cell. A ground
+    /// chaser ranks water below dry ground under either value.
+    FlyerGoalWater {
+        /// Below dry ground, as for a ground chaser: the flyer heads for the nearest DRY cell in reach.
+        Demoted = "demoted",
+        /// Measured on client 15.535.29: like dry ground, so the flyer heads for the nearest cell in
+        /// reach, over the river or not. A cell a building boxes stays below both.
+        NotDemoted = "not_demoted",
+    }
+);
+calib_enum!(
     /// spawner.SPAWNED_DEPLOY_TIME -- whether a periodic spawner's unit serves its
     /// own DeployTime. Measured zero on 1230 live emissions.
     SpawnedDeploy { Zero = "zero", UnitOwnDeployTime = "unit_own_deploy_time" }
@@ -1634,6 +1676,8 @@ impl Calib {
             separation_iterations: int(&v, &["collision", "SEPARATION_ITERATIONS", "value"])?,
             footprint_model,
             path_model,
+            goal_target_position: pick(&v, &["pathfinding", "GOAL_TARGET_POSITION", "value"], GoalTargetPosition::from_calibration_name)?,
+            flyer_goal_water: pick(&v, &["pathfinding", "FLYER_GOAL_WATER", "value"], FlyerGoalWater::from_calibration_name)?,
             repath_interval_ticks: match at(&v, &["pathfinding", "REPATH_INTERVAL_TICKS", "value"])? {
                 Value::Null => None,
                 x => Some(
@@ -4213,9 +4257,24 @@ impl BattleState {
                         segs[i] = Vec2::default();
                         attacking = true;
                     } else {
-                        let target = (e.pos[gi].x / K, e.pos[gi].y / K);
+                        // pathfinding.GOAL_TARGET_POSITION: the target centre the goal cell is
+                        // chosen around. creation_order reads it as this pass holds it at the
+                        // chaser's turn -- `bodies`, where every troop created before this one has
+                        // already moved and every later one has not (a building does not move
+                        // here) -- and start_of_tick reads the tick's starting position.
+                        #[cfg(not(clash_plant = "goal_target_start_of_tick"))]
+                        let as_held = calib.goal_target_position == GoalTargetPosition::CreationOrder;
+                        #[cfg(clash_plant = "goal_target_start_of_tick")]
+                        let as_held = false; // PLANT (regression): the new arm reads the start of the tick.
+                        let target = if as_held { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
                         target_abs = Some(target);
                         let reach = (card.range + e.radius[i]) / K;
+                        // pathfinding.FLYER_GOAL_WATER: whether this chaser's goal choice ranks water
+                        // below dry ground. A ground chaser always does.
+                        #[cfg(not(clash_plant = "flyer_water_demoted"))]
+                        let water_demoted = !(flying && calib.flyer_goal_water == FlyerGoalWater::NotDemoted);
+                        #[cfg(clash_plant = "flyer_water_demoted")]
+                        let water_demoted = true; // PLANT (regression): the new arm demotes water for a flyer too.
                         let goal_cell = path16402::choose_goal_cell(
                             &g.terrain,
                             &g.occ_cur,
@@ -4224,6 +4283,7 @@ impl BattleState {
                             reach,
                             path2026::avoid_buildings16402(e.flying[gi]),
                             g.costs.building,
+                            water_demoted,
                         );
                         let cell_v = goal_cell.map(|(c, r)| Vec2::new(c, r));
                         let due = routes[i].is_empty() || goals[i] != cell_v || planned[i] != epoch;

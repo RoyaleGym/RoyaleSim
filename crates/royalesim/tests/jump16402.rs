@@ -393,8 +393,8 @@ fn a_ground_unit_chasing_a_flying_target_takes_the_boxed_cell() {
     let occ = path16402::occlusion(&t, &[path16402::Occluder { x: building.0, y: building.1, r: box_r }], &costs);
     let mover = (9250, 12250);
     let reach = 1700;
-    let ground = path16402::choose_goal_cell(&t, &occ, mover, target, reach, path2026::avoid_buildings16402(false), costs.building).unwrap();
-    let flying = path16402::choose_goal_cell(&t, &occ, mover, target, reach, path2026::avoid_buildings16402(true), costs.building).unwrap();
+    let ground = path16402::choose_goal_cell(&t, &occ, mover, target, reach, path2026::avoid_buildings16402(false), costs.building, true).unwrap();
+    let flying = path16402::choose_goal_cell(&t, &occ, mover, target, reach, path2026::avoid_buildings16402(true), costs.building, true).unwrap();
     let boxed = |(c, r): (i32, i32)| occ[(r * arena.cols + c) as usize] >= costs.building;
     assert!(boxed(flying), "flying target: the goal is the nearest in-reach cell, inside the box: {flying:?}");
     assert!(!boxed(ground), "ground target: the box demotion keeps the goal outside: {ground:?}");
