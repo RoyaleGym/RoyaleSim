@@ -6043,8 +6043,12 @@ impl BattleState {
             FormationLayout::Client16402 => {
                 if total == 1 {
                     // A SINGLE GROUND UNIT under placement.TAP_SNAP (formation.GROUND_DEPLOY_POINT,
-                    // which a ring already takes) or placement.TROOP_TOWER_TAPS (the ground y
-                    // clamp, measured on side 1's back bound). Otherwise today's exact tap.
+                    // which a ring already takes) or placement.TROOP_TOWER_TAPS (raised to its
+                    // column's BACK bound when it stands behind it: measured on client 15.535.29 for
+                    // side 1, a Knight at own (8500, 500) stands on own 1000). Nothing else moves a
+                    // single unit: the column's front bound and the passable-ground ejection were
+                    // never measured for one, and a scenario unit placed in the enemy half
+                    // (spawn_unit) keeps its exact point.
                     let single_point = calib.placement_tap_snap == TapSnap::TileCentre && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
                     let single_clamp = calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
                     if cards.get(unit_of(0)).is_flying() || !(single_point || single_clamp) {
@@ -6059,9 +6063,14 @@ impl BattleState {
                         let dx = if pos.x < arena.width / 2 { if team == Team::Red { 1 } else { -1 } } else { 0 };
                         p = Vec2::new(p.x + dx, p.y + dy);
                     }
-                    if single_clamp {
-                        if let Some((lo, hi)) = self.ground_y_range(team, idx, tap) {
-                            p.y = if p.y <= lo { lo } else { p.y.min(hi) };
+                    if single_clamp && !single_point {
+                        match self.ground_y_range(team, idx, tap) {
+                            Some((lo, _)) if p.y < lo => p.y = lo,
+                            _ => return vec![member(0, pos)],
+                        }
+                    } else if single_clamp {
+                        if let Some((lo, _)) = self.ground_y_range(team, idx, tap) {
+                            p.y = p.y.max(lo);
                         }
                     }
                     let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
