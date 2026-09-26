@@ -391,6 +391,43 @@ impl Entities {
         self.stun_ms[i] > 0 || self.buffed(table, i, Sel::Speed, 100) == 0
     }
 
+    /// Is entity `i` travelling UNDER the arena (a Miner's or a Goblin Drill's way to its
+    /// tap)? No card the engine loads does that yet, so this is false for every entity; the
+    /// window that loads the first one makes it read that state, and `status_flags` bit 0
+    /// follows without a change.
+    #[inline]
+    pub fn underground(&self, _i: usize) -> bool {
+        false
+    }
+
+    /// May NO enemy target entity `i` whatever its range (an invisible unit)? No card the
+    /// engine loads is invisible yet, so this is false for every entity; the window that
+    /// loads the first one makes target.rs `can_target` read this same predicate, and
+    /// `status_flags` bit 1 follows without a change.
+    #[inline]
+    pub fn invisible_to_enemies(&self, _i: usize) -> bool {
+        false
+    }
+
+    /// THE STATUS BITS of entity `i`, as the protocol's `status_flags` column reports
+    /// them (py.rs ENTITY_FIELDS): bit 0 `underground`, bit 1 `invisible_to_enemies`,
+    /// bit 2 under ground by its own hide (`HideState::Hidden`: a Tesla with nothing to
+    /// shoot). Each bit is the predicate the engine itself acts on, so an observation
+    /// built from it reads what the battle does, never a second derivation of it.
+    pub fn status_flags(&self, i: usize) -> i32 {
+        let mut bits = 0;
+        if self.underground(i) {
+            bits |= 1;
+        }
+        if self.invisible_to_enemies(i) {
+            bits |= 2;
+        }
+        if self.hide[i] == HideState::Hidden {
+            bits |= 4;
+        }
+        bits
+    }
+
     #[inline]
     pub fn id_of(&self, index: usize) -> EntityId {
         EntityId { index: index as u32, generation: self.generation[index] }

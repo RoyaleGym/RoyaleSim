@@ -38,11 +38,14 @@ def battle():
 def test_catalogue_carries_the_footprint_in_tiles(battle):
     rows = json.loads(battle.catalogue_json())
     by_name = {r[0]: r for r in rows}
-    assert len(rows[0]) == 8, "a catalogue row carries the footprint as its 8th element"
-    assert by_name["Cannon"][7] == 3, "a Cannon is 3x3 tiles"
-    assert by_name["Tesla"][7] == 2, "a Tesla is 2x2 tiles"
-    assert by_name["Knight"][7] is None, "a troop has no placement footprint"
-    assert by_name["Fireball"][7] is None, "nor does a spell"
+    # BY THE PUBLISHED FIELD LIST, as the entity rows below: a catalogue row may grow at its end.
+    fields = royalesim.CATALOGUE_FIELDS
+    assert all(len(r) == len(fields) for r in rows), "a catalogue row is not as long as royalesim.CATALOGUE_FIELDS"
+    fp = fields.index("footprint_tiles")
+    assert by_name["Cannon"][fp] == 3, "a Cannon is 3x3 tiles"
+    assert by_name["Tesla"][fp] == 2, "a Tesla is 2x2 tiles"
+    assert by_name["Knight"][fp] is None, "a troop has no placement footprint"
+    assert by_name["Fireball"][fp] is None, "nor does a spell"
 
 
 def test_state_rows_carry_the_footprint_box(battle):

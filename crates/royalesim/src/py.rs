@@ -14,7 +14,10 @@
 //!       maps names to its enum. Tower-slot naming (which engine lane is a team's
 //!       own-LEFT under protocol.py's 180-degree seat rotation) is a table the
 //!       adapter derives from positions and passes in. Card ids are the adapter's
-//!       catalogue order.
+//!       catalogue order. Spell motions and card kinds go out by name the same way
+//!       (`SPELL_MOTIONS`, `CARD_KINDS`), and every positional row publishes its
+//!       columns (`ENTITY_FIELDS`, `PROJECTILE_FIELDS`, `SPELL_FIELDS`, `CATALOGUE_FIELDS`),
+//!       so a decoder refuses a mismatch at construction instead of reading a shifted row.
 //!
 //! FRAMES
 //!     Positions cross this boundary untouched: the engine frame of protocol.py
@@ -156,7 +159,7 @@ pub const DEPLOY_REASONS: [&str; 14] = [
 /// ints, and a swap would decode without error and be drawn with confidence. The length
 /// is pinned to the serializer by a test in this file, so this is the half that cannot
 /// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
-pub const ENTITY_FIELDS: [&str; 20] = [
+pub const ENTITY_FIELDS: [&str; 21] = [
     "uid",
     "team",
     "kind",
@@ -178,11 +181,50 @@ pub const ENTITY_FIELDS: [&str; 20] = [
     "facing",
     "shield",
     "buffs",
+    // added 2026-09-25: the engine's own status bits (entity.rs `Entities::status_flags`):
+    // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide
+    "status_flags",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
 /// reason as ENTITY_FIELDS, and pinned to the serializer the same way.
 pub const PROJECTILE_FIELDS: [&str; 8] = ["team", "x", "y", "aim_x", "aim_y", "target_uid", "splash", "firer_card_id"];
+
+/// THE SPELL ROW'S FIELDS, in `state_json`'s order (its `spells` key), named as protocol.py
+/// `SpellState` names them. Same reason as ENTITY_FIELDS: a spell column added here and not
+/// there would otherwise be dropped without a word. Pinned to the serializer by a test here.
+pub const SPELL_FIELDS: [&str; 11] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits"];
+
+/// THE SPELL MOTIONS BY NAME, index = the `motion` code a spell row carries, named as
+/// protocol.py `SpellMotion` names them, so a decoder refuses a code it has no name for at
+/// construction instead of drawing it as something else. A new motion is APPENDED here with
+/// its code; codes are never renumbered.
+pub const SPELL_MOTIONS: [&str; 5] = ["FLIGHT", "AIRBORNE", "ROLLING", "AREA", "PULSING"];
+const MOTION_FLIGHT: u8 = 0;
+const MOTION_AIRBORNE: u8 = 1;
+const MOTION_ROLLING: u8 = 2;
+const MOTION_AREA: u8 = 3;
+const MOTION_PULSING: u8 = 4;
+
+/// THE CATALOGUE ROW'S FIELDS, in `catalogue_json`'s order, named as protocol.py `CardInfo`
+/// names them where it has the field (`placement` is the kind code, the card's deploy rule;
+/// `card_kind` is a name from CARD_KINDS). A catalogue row may grow at its end; a decoder takes
+/// the columns it knows by position.
+pub const CATALOGUE_FIELDS: [&str; 9] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind"];
+
+/// WHAT A CARD IS, by name (card.rs `CardKind`), the catalogue's `card_kind` column. The
+/// `placement` code says where a card may be played; it does not say what the card is, and
+/// nothing makes the two agree.
+pub const CARD_KINDS: [&str; 3] = ["TROOP", "BUILDING", "SPELL"];
+
+/// A card kind's name in CARD_KINDS.
+pub fn card_kind_name(kind: CardKind) -> &'static str {
+    match kind {
+        CardKind::Troop => CARD_KINDS[0],
+        CardKind::Building => CARD_KINDS[1],
+        CardKind::Spell => CARD_KINDS[2],
+    }
+}
 
 /// AN EXPERIMENT'S CALIBRATION: the compiled-in ledger with some `value`s replaced.
 ///
@@ -438,8 +480,9 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
     id_of_idx
 }
 
-/// `Battle.catalogue_json` without Python: rows [name, kind code, elixir, count,
-/// radius, flying, hitpoints at `level`].
+/// `Battle.catalogue_json` without Python: one row per card, its columns named by
+/// CATALOGUE_FIELDS [name, kind code, elixir, count, radius, flying, hitpoints at `level`,
+/// footprint tiles, card kind].
 pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i32) -> Result<String, String> {
     let mut out = String::from("[");
     for (k, idx) in catalogue.iter().enumerate() {
@@ -460,7 +503,9 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
             CardKind::Building => crate::arena::placement_tiles(c.collision_radius).to_string(),
             _ => "null".to_string(),
         };
-        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint}]", c.elixir);
+        // The 9th element: what the card IS (CARD_KINDS), which the kind code above does not say.
+        let card_kind = card_kind_name(c.kind);
+        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\"]", c.elixir);
     }
     out.push(']');
     Ok(out)
@@ -595,7 +640,7 @@ pub fn state_json_text(
         buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -610,6 +655,7 @@ pub fn state_json_text(
             e.facing.x,
             e.facing.y,
             e.shield,
+            e.status_flags,
         );
     }
     o.push_str("],\"spells\":[");
@@ -620,13 +666,13 @@ pub fn state_json_text(
         let card_id = id_of_idx.get(sp.card as usize).copied().unwrap_or(-1);
         let fwd = crate::spell::forward_dy(sp.team);
         let (motion, pos, aim, delay_ms, travelled, len, hits) = match &sp.motion {
-            SpellMotion::Flight { pos, aim, delay_ms, .. } => (0, *pos, *aim, *delay_ms, 0, 0, 0),
-            SpellMotion::Airborne { pos, aim, .. } => (1, *pos, *aim, 0, 0, 0, 0),
-            SpellMotion::Rolling { pos, travelled, len, hit } => (2, *pos, Vec2::new(pos.x, pos.y + fwd * (len - travelled)), 0, *travelled, *len, hit.len()),
-            SpellMotion::Area { pos } => (3, *pos, *pos, 0, 0, 0, 0),
+            SpellMotion::Flight { pos, aim, delay_ms, .. } => (MOTION_FLIGHT, *pos, *aim, *delay_ms, 0, 0, 0),
+            SpellMotion::Airborne { pos, aim, .. } => (MOTION_AIRBORNE, *pos, *aim, 0, 0, 0, 0),
+            SpellMotion::Rolling { pos, travelled, len, hit } => (MOTION_ROLLING, *pos, Vec2::new(pos.x, pos.y + fwd * (len - travelled)), 0, *travelled, *len, hit.len()),
+            SpellMotion::Area { pos } => (MOTION_AREA, *pos, *pos, 0, 0, 0, 0),
             // a pulsing area: `delay_ms` carries its remaining life, so the viewer can
             // draw a Poison cloud shrinking rather than a one-frame flash.
-            SpellMotion::Pulsing(p) => (4, p.pos, p.pos, p.life_ms, 0, 0, 0),
+            SpellMotion::Pulsing(p) => (MOTION_PULSING, p.pos, p.pos, p.life_ms, 0, 0, 0),
         };
         let _ = write!(
             o,
@@ -1133,10 +1179,9 @@ impl Battle {
 
     /// HIDE (Tesla): the protocol uids of every live entity that is
     /// under ground right now (entity.rs `HideState::Hidden`: untargetable and, under
-    /// calibration hide.HIDDEN_IMMUNE_TO_DAMAGE, immune). Deliberately a SEPARATE
-    /// accessor: the positional EntityState rows of `state_json` keep their shape,
-    /// and the Python protocol grows a `hidden` field only when RoyaleGym is ready
-    /// to read one. Rising buildings are not listed (they are targetable per
+    /// calibration hide.HIDDEN_IMMUNE_TO_DAMAGE, immune). The same state is bit 2 of each
+    /// entity row's `status_flags`; this accessor stays for the viewer and the tests.
+    /// Rising buildings are not listed (they are targetable per
     /// hide.TARGETABLE_WHILE_RISING and take damage); `hide_states` has them.
     fn hidden_uids(&self) -> PyResult<Vec<i64>> {
         let s = self.s()?;
@@ -1371,6 +1416,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
     m.add("ENTITY_FIELDS", ENTITY_FIELDS.to_vec())?;
     m.add("PROJECTILE_FIELDS", PROJECTILE_FIELDS.to_vec())?;
+    m.add("SPELL_FIELDS", SPELL_FIELDS.to_vec())?;
+    m.add("SPELL_MOTIONS", SPELL_MOTIONS.to_vec())?;
+    m.add("CATALOGUE_FIELDS", CATALOGUE_FIELDS.to_vec())?;
+    m.add("CARD_KINDS", CARD_KINDS.to_vec())?;
     m.add("EMBEDDED_CALIBRATION_JSON", EMBEDDED_CALIBRATION_JSON)?;
     m.add("EMBEDDED_ARENA_JSON", EMBEDDED_ARENA_JSON)?;
     m.add("EMBEDDED_RARITIES_CSV", EMBEDDED_RARITIES_CSV)?;
@@ -1607,11 +1656,14 @@ mod tests {
         // AND NOT ONLY THE LENGTH. A row of the right length full of -1s and empty lists
         // passes a length check, so every new field must be SEEN carrying real data in
         // this scene: a tower's shot and a troop's shot, a target that resolves to a uid
-        // on the board, a named buff with time left.
+        // on the board, a named buff with time left, a spell in play, and a Tesla hidden by
+        // its own hide in the status bits.
         let db = cards();
         let ids = catalogue_without(&db, &[]);
         let musketeer = ids[db.index("Musketeer").unwrap() as usize];
         assert!(musketeer >= 0);
+        let tesla = ids[db.index("Tesla").unwrap() as usize];
+        assert!(tesla >= 0);
         let mut s = battle(&db, &["Musketeer", "Knight", "Archer", "Giant", "Minions", "Cannon", "Tesla", "Zap"]);
         let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
         // a red Knight inside the blue left princess tower's range: the TOWER's shots
@@ -1619,9 +1671,13 @@ mod tests {
         // mid-field, out of every tower's range: the MUSKETEER's shots
         s.scenario_spawn_now(Team::Blue, "Musketeer", at(9, 14), None).unwrap();
         s.scenario_spawn_now(Team::Red, "Giant", at(9, 18), None).unwrap();
+        // a blue Tesla far from every enemy: it goes under ground by its own hide
+        s.scenario_spawn_now(Team::Blue, "Tesla", at(16, 2), None).unwrap();
         // a Poison on the red Knight: a BUFF with a name and time left
         s.spawn_unit(Team::Blue, "Poison", at(3, 9), None).unwrap();
         let (mut tower_shot, mut troop_shot, mut resolved_target, mut named_buff) = (false, false, false, false);
+        let (mut spell_row, mut hidden_tesla) = (false, false);
+        let status = ENTITY_FIELDS.iter().position(|f| *f == "status_flags").unwrap();
         for _ in 0..200 {
             s.tick();
             let v: serde_json::Value =
@@ -1629,6 +1685,8 @@ mod tests {
             assert!(v.get("calibration_overrides").is_none(), "an unmodified engine's frame claims overrides");
             let ents = v["entities"].as_array().unwrap();
             let uids: Vec<i64> = ents.iter().map(|r| r[0].as_i64().unwrap()).collect();
+            // The engine's own hide state, per uid, for the status bits to be held against.
+            let hidden: Vec<i64> = s.entities().filter(|e| e.hidden).map(|e| (e.team_seq as i64) * 2 + e.team as i64).collect();
             for r in ents {
                 let r = r.as_array().unwrap();
                 assert_eq!(r.len(), ENTITY_FIELDS.len(), "an entity row is not ENTITY_FIELDS long: {r:?}");
@@ -1640,12 +1698,28 @@ mod tests {
                     assert!(uids.contains(&target), "target_uid {target} names nothing on the board");
                     resolved_target = true;
                 }
+                // status_flags: reported (never -1), bits 0 and 1 unset while no card goes
+                // underground or invisible, bit 2 exactly the engine's hidden set.
+                let bits = r[status].as_i64().unwrap();
+                assert!((0..8).contains(&bits), "status_flags {bits} is not three bits: {r:?}");
+                assert_eq!(bits & 3, 0, "a unit reports underground or invisible, which no loaded card is: {r:?}");
+                assert_eq!(bits & 4 != 0, hidden.contains(&r[0].as_i64().unwrap()), "status bit 2 disagrees with the engine's hide: {r:?}");
+                if bits & 4 != 0 && r[3].as_i64() == Some(tesla as i64) {
+                    hidden_tesla = true;
+                }
                 for b in r[19].as_array().unwrap() {
                     let (name, ms) = (b[0].as_str().unwrap(), b[1].as_i64().unwrap());
                     if name.split('|').any(|n| n == "Poison") && ms > 0 {
                         named_buff = true;
                     }
                 }
+            }
+            for sp in v["spells"].as_array().unwrap() {
+                let sp = sp.as_array().unwrap();
+                assert_eq!(sp.len(), SPELL_FIELDS.len(), "a spell row is not SPELL_FIELDS long: {sp:?}");
+                let motion = sp[2].as_u64().unwrap() as usize;
+                assert!(motion < SPELL_MOTIONS.len(), "motion {motion} has no name in SPELL_MOTIONS: {sp:?}");
+                spell_row = true;
             }
             for p in v["projectiles"].as_array().unwrap() {
                 let p = p.as_array().unwrap();
@@ -1662,5 +1736,37 @@ mod tests {
         assert!(troop_shot, "no projectile in 200 ticks reported the Musketeer as its firer");
         assert!(resolved_target, "no entity in 200 ticks reported a target that is on the board");
         assert!(named_buff, "no entity in 200 ticks carried a buff named Poison with time left");
+        assert!(spell_row, "no spell row in 200 ticks, so SPELL_FIELDS was held against nothing");
+        assert!(hidden_tesla, "the Tesla never reported status bit 2 in 200 ticks");
+    }
+
+    #[test]
+    fn the_protocol_name_lists_match_what_the_rows_carry() {
+        // SPELL_MOTIONS by code: each code the serializer writes indexes its own name.
+        for (code, name) in [(MOTION_FLIGHT, "FLIGHT"), (MOTION_AIRBORNE, "AIRBORNE"), (MOTION_ROLLING, "ROLLING"), (MOTION_AREA, "AREA"), (MOTION_PULSING, "PULSING")] {
+            assert_eq!(SPELL_MOTIONS[code as usize], name);
+        }
+        // Every catalogue row is CATALOGUE_FIELDS long, and its card_kind is the card's own
+        // kind, named from CARD_KINDS; today the kind code bands agree with it.
+        let db = cards();
+        let calib = crate::state::Calib::shipped();
+        let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
+        let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &catalogue, db.lowest_level_valid_for_every_rarity()).unwrap()).unwrap();
+        let kind_col = CATALOGUE_FIELDS.iter().position(|f| *f == "card_kind").unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        for (r, idx) in rows.as_array().unwrap().iter().zip(&catalogue) {
+            let r = r.as_array().unwrap();
+            assert_eq!(r.len(), CATALOGUE_FIELDS.len(), "a catalogue row is not CATALOGUE_FIELDS long: {r:?}");
+            let kind = r[kind_col].as_str().unwrap();
+            assert_eq!(kind, card_kind_name(db.get(*idx).kind), "{r:?}");
+            let band = match r[1].as_u64().unwrap() {
+                0 => "TROOP",
+                1 => "BUILDING",
+                _ => "SPELL",
+            };
+            assert_eq!(kind, band, "{r:?}");
+            seen.insert(kind);
+        }
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec!["BUILDING", "SPELL", "TROOP"], "the catalogue should carry every kind");
     }
 }

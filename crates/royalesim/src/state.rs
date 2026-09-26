@@ -2137,6 +2137,9 @@ pub struct EntityView<'a> {
     pub hide_ms: i32,
     /// `hide_state == Hidden`: under ground, untargetable, immune (hide.*).
     pub hidden: bool,
+    /// The protocol's status bits (entity.rs `Entities::status_flags`; py.rs ENTITY_FIELDS
+    /// `status_flags`): bit 0 underground, bit 1 invisible to enemies, bit 2 hidden.
+    pub status_flags: i32,
     /// Periodic spawner (card.rs `SpawnerDef`; 0 / 0 on every other entity): ms until
     /// its next emission (entity.rs `spawn_ms`) and the units of the current wave
     /// still to come (`spawn_wave_left`, 0 between waves).
@@ -6949,6 +6952,7 @@ impl BattleState {
             hide_state: e.hide[i],
             hide_ms: e.hide_ms[i],
             hidden: e.hide[i] == HideState::Hidden,
+            status_flags: e.status_flags(i),
             spawn_ms: e.spawn_ms[i],
             spawn_wave_left: e.spawn_wave_left[i],
             spawned_by: e.spawned_by[i],
