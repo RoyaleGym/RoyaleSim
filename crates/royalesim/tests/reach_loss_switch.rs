@@ -217,9 +217,9 @@ fn a_crown_tower_drops_a_started_shot_500_past_its_reach() {
 }
 
 #[test]
-fn the_shipped_values_are_every_attacker_and_keep_when_dead() {
+fn the_shipped_values_are_projectile_attackers_only_and_keep_when_dead_or_in_reach() {
     let c = Calib::shipped();
     assert!(c.preserve_target_if_hit_started);
-    assert_eq!(c.preserve_target_scope, PreserveTargetScope::AllAttackers);
-    assert_eq!(c.retarget_progress, RetargetProgress::KeepWhenDead);
+    assert_eq!(c.preserve_target_scope, PreserveTargetScope::ProjectileAttackersOnly);
+    assert_eq!(c.retarget_progress, RetargetProgress::KeepWhenDeadOrInReach);
 }

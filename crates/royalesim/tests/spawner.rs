@@ -622,7 +622,10 @@ fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     // on its centre (zero).
     for b in &laid {
         if at_emission {
-            assert_eq!(c.spawner_spawn_point, SpawnPoint::Client16402Measured, "the emission point this test computes");
+            assert!(
+                matches!(c.spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree),
+                "the emission point this test computes (the rounded arm moves only a SpawnAngleShift ring)"
+            );
             assert_eq!(*b, Vec2::new(pos.x, pos.y + tomb_r + skel_r), "{unit} not on the emission point");
         } else if c.death_spawn_radius_default == DeathSpawnRadius::OwnCollisionRadius {
             assert!(b.dist2(pos) <= (tomb_r as i64) * (tomb_r as i64), "{unit} at {b:?} outside the Tombstone's own radius");
@@ -1056,7 +1059,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         assert_eq!((g.len(), ring.1), (2, 2), "vacuous: the two arms did not both spawn the pair");
         assert_ne!(g[0].pos.sub(death), ring.0, "engine_grid_within_radius: the same point as the facing ring");
     }
-    for (key, from, to) in [("LIMIT_RULE", "skip_unit_keep_cadence", "hold_until_room"), ("DEATH_SPAWN_LAYOUT", "facing_ring", "ring_at_radius")] {
+    for (key, from, to) in [("LIMIT_RULE", "skip_unit_keep_cadence", "hold_until_room"), ("DEATH_SPAWN_LAYOUT", "facing_ring_rounded", "ring_at_radius")] {
         let err = Calib::from_json(&json(key, from, to)).err().unwrap_or_else(|| panic!("{key} = {to} loaded"));
         assert!(err.contains(key) && err.contains("no engine implementation"), "{key}: {err}");
     }
@@ -1240,7 +1243,8 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     // touching pair by its minimum push (1 native = 18 subtiles) on the materialisation
     // tick, which is the tolerance in both branches.
     let nudge = royalesim::fixed::SUBTILE_PER_MILLITILE;
-    if calib().spawner_spawn_point == SpawnPoint::Client16402Measured {
+    // The rounded arm lays the same ring (it rounds a SpawnAngleShift ring's degree; the Dark Witch has none).
+    if matches!(calib().spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree) {
         // Squared, so there is no square root and no floating point.
         let lo = ((radius - nudge) as i64).pow(2);
         let hi = ((radius + nudge) as i64).pow(2);

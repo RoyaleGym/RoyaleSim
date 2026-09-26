@@ -235,7 +235,13 @@ fn target_is_locked_once_the_windup_has_started() {
     let half = SUBTILE / 2;
     assert!(milli(25) < half && half < calib.cancel_hit_from_long_distance_range, "scenario assumes keep-ext < 0.5 tile < cancel range");
     for (beyond, expect_hit) in [(half, true), (2 * SUBTILE, false)] {
-        let mut s = BattleState::new(1, config());
+        // THE LOCK ITSELF is under test, and under the shipped
+        // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" a melee swing does
+        // not lock (tests/reach_loss_switch.rs pins that), so this scene runs every attacker's lock, the
+        // key's other value.
+        let mut cfg = config();
+        cfg.calib.preserve_target_scope = royalesim::state::PreserveTargetScope::AllAttackers;
+        let mut s = BattleState::new(1, cfg);
         // the reach is Range + the Knight's own radius + the target's
         // (targeting.ATTACK_RANGE_RULE = range_plus_both_radii)
         let range = card_stat(&s, "Knight").range + card_stat(&s, "Knight").collision_radius;

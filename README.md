@@ -503,7 +503,7 @@ Not modelled yet, in plain words:
   of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
   mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
-- Dash and morph, air units beyond flying straight at their target, evolutions, champions' abilities
+- Morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
 - Damage that grows the longer a unit keeps one target, which the Inferno Tower and Inferno Dragon
   depend on, and the Mortar's minimum range. All three cards load, so a random deck can hold one,

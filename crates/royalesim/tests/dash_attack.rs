@@ -18,7 +18,7 @@
 //! WHAT IS PINNED, each with its precondition:
 //!   1. the loader reads the Bandit's and the Mega Knight's blocks, gives no other loaded card a dash, and loads a
 //!      DashDef for every dash block that carries its speed (no block is dropped quietly);
-//!   2. the shipped value is none, and under it the Bandit walks in;
+//!   2. the shipped value is client_dash, and under none the Bandit walks in;
 //!   3. the Bandit's stand, entry, half-steps, stop and blow against a Knight at a princess tower, from six starting
 //!      points (the half-step stop is a property of every dash, not of one scene's geometry);
 //!   4. the Bandit dashing at a princess tower takes none of the tower's arrows from its entry to the arrival + 1, and
@@ -221,9 +221,9 @@ fn the_loader_reads_the_dash_blocks_and_drops_none() {
 }
 
 #[test]
-fn the_shipped_value_is_none_and_the_bandit_walks_in_under_it() {
+fn the_shipped_value_is_client_dash_and_under_none_the_bandit_walks_in() {
     let s = BattleState::new(0, config());
-    assert_eq!(s.config().calib.dash_attack, DashAttack::None, "shipped combat.DASH_ATTACK");
+    assert_eq!(s.config().calib.dash_attack, DashAttack::ClientDash, "shipped combat.DASH_ATTACK");
     let (_, _, _, rows) = scene(DashAttack::None, "Assassin", BANDIT_AT, "Knight", KNIGHT_AT, 80);
     let d = trigger(&rows, BANDIT_TRIGGER);
     assert!(rows[d].step > 0, "none: the Bandit stood at the trigger distance");

@@ -183,6 +183,6 @@ fn a_rescan_never_takes_a_doomed_unit_the_attacker_has_shot_at() {
 }
 
 #[test]
-fn the_shipped_value_is_projectile_attackers() {
-    assert_eq!(Calib::shipped().doomed_target_drop, DoomedTargetDrop::ProjectileAttackers);
+fn the_shipped_value_is_projectile_attackers_rescan() {
+    assert_eq!(Calib::shipped().doomed_target_drop, DoomedTargetDrop::ProjectileAttackersRescan);
 }

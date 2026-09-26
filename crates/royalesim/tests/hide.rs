@@ -99,6 +99,10 @@ fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
 fn rising_untargetable() -> BattleConfig {
     let mut c = config();
     c.calib.hide_targetable_while_rising = false;
+    // The Knight's LOCK on the deploying Tesla is this file's premise, and under the shipped
+    // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" a melee swing does
+    // not lock (tests/reach_loss_switch.rs pins that): these scenes run every attacker's lock.
+    c.calib.preserve_target_scope = royalesim::state::PreserveTargetScope::AllAttackers;
     c
 }
 
