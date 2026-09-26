@@ -208,6 +208,7 @@ pub struct Deploy {
 ///   - Rascals 941 -> 1,106 of 1,106;
 ///   - RoyalRecruits_Chess 2,380 -> 2,650 of 2,650;
 ///   - SkeletonWarriors_SpookyChess 2,230 -> 2,457 of 2,457.
+///
 /// Plant: replay_plays_the_centroid.
 pub fn play_point(d: &Deploy) -> [i32; 2] {
     #[cfg(clash_plant = "replay_plays_the_centroid")]
