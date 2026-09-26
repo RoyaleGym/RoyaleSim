@@ -67,9 +67,9 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 101 of the 144 cards in the 15.535 client's card table and refuses 43, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35928386686 at `49777a6`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 101 of the 144 cards in the 15.535 client's card table and refuses 43, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35928386686 at `e45864e`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 162 carry a status from guess to measured: 71 are measured and one is an owner's ruling (RoyaleSim e8e307a). 109 also name the rivals they were chosen against, and 117 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 162 carry a status from guess to measured: 71 are measured and one is an owner's ruling (RoyaleSim 32a2997). 109 also name the rivals they were chosen against, and 117 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
 </table>
 
@@ -197,7 +197,7 @@ and `tests/test_card_reads.py` load it by that name, and the ledger cites it as 
 shipped in 2018. It simply no longer writes over `cards.json`.
 
 A 2018-only checkout runs the engine, the example below and the Python suite. **The PYTHON suite
-on a fresh clone is 179 passed, 10 skipped, nothing failing** (2026-09-22, commit `2b85ce1`; a
+on a fresh clone is 179 passed, 10 skipped, nothing failing** (2026-09-22, commit `75a2682`; a
 clone count is a fact about the commit it was taken at, so it carries one). That figure is the
 Python suite only and says nothing about the Rust one, which is a separate command and a separate
 result. On a machine that also has the
@@ -269,7 +269,7 @@ t=490  giant at (3.77, 22.57)  hp=2442  red left tower hp=2293
 t=570  giant at (3.77, 22.57)  hp=1897  red left tower hp=1534
 ```
 
-Run on engine build `cb784bb583586789`, RoyaleSim `09a3b84`, with the 15.535 card table. The
+Run on engine build `cb784bb583586789`, RoyaleSim `2e5895c`, with the 15.535 card table. The
 `play: OK` line is there on purpose. `step` does not raise when a play is refused, it returns the
 reason. An earlier version of this program played at tick 0, was refused as `TOO_EARLY`, and then
 failed looking for a Giant that was never placed.
@@ -373,7 +373,7 @@ and 99.6%. That is the whole reason the towers-left-out column is the one to rea
 tile, of the recording, up from 49.4 % before the spawner emission point was corrected. The same
 fixtures and the same harness produced both, so the 7.1 points is a before-and-after rather than
 two measurements of different things. Build digest `d872d792711934c2`, ledger `97e9ee7be7a10c57`,
-engine `7ea8645`. The population is 270,972 non-tower unit-ticks: 67 of the 73 fixtures play, 40 of
+engine `3258c87`. The population is 270,972 non-tower unit-ticks: 67 of the 73 fixtures play, 40 of
 those only as prefixes that stop at the first card the engine cannot load, and 6 do not play at
 all. Those are not whole battles and the number should not be read as if they were.
 
@@ -472,7 +472,7 @@ Working:
   Princess towers, and the 12 summon-only are unit definitions that are not rows of the card table
   at all - a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon*
   drops, and no hand can play either. The three lists are disjoint and their union is 158: the 144
-  rows plus the 2 towers plus those 12. Counts from RoyaleSim CI run 35928386686 at `49777a6`,
+  rows plus the 2 towers plus those 12. Counts from RoyaleSim CI run 35928386686 at `e45864e`,
   green on Linux and Windows, against `cards.json` 5a1dac3d2fb1b4a9. The card that moved from
   refused to loadable since the previous run is Tornado.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
@@ -517,7 +517,7 @@ Not modelled yet, in plain words:
 Tests. Both blocks below start from the `Royale` folder you made in stage 1, so go back there
 before you run the second one.
 
-**Both suites are green on a clean runner, on Linux and Windows, at `6446229`.** The Rust suite is
+**Both suites are green on a clean runner, on Linux and Windows, at `38346f2`.** The Rust suite is
 31 binaries, 374 passed, 0 failed and 3 ignored. The Python suite is 280 passed and 11 skipped.
 Ruff clean. The two commands are below.
 
@@ -570,14 +570,14 @@ cd RoyaleSim\crates\royalesim
 cargo test --release
 ```
 
-On a clean runner at `6446229` the Python suite was 280 passed and 11 skipped, and it takes a few minutes. Tests have been added since, so a run today collects more. A machine with the recordings collects more again.
+On a clean runner at `38346f2` the Python suite was 280 passed and 11 skipped, and it takes a few minutes. Tests have been added since, so a run today collects more. A machine with the recordings collects more again.
 
 ```
 cd RoyaleSim
 ..\.venv\Scripts\python -m pytest -q
 ```
 
-Both counts come from the clean runner at `6446229`, so they describe that commit and not a later one.
+Both counts come from the clean runner at `38346f2`, so they describe that commit and not a later one.
 
 The cargo run above assumes the 15.535 card table, as described under Install. On a 2018-only
 checkout `levels.rs` and `jump16402.rs` go red for want of it. RoyaleGym's suite drives the engine

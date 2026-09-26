@@ -81,7 +81,7 @@ jobs:
             ref="${{ inputs.sim_ref }}"; why="the caller pinned it"
           # THE GUARD ON THE NEXT LINE IS LOAD-BEARING AND ITS OWN LABEL IS A LIE WITHOUT IT.
           # `github.sha` in a reusable workflow is the CALLER's sha -- gym's log shows
-          # ref="377f6f30...", a RoyaleGym commit, expanded in the echoed source of a branch that
+          # ref="068121fc...", a RoyaleGym commit, expanded in the echoed source of a branch that
           # was correctly not taken. So "RoyaleSim triggered this run, so its own commit" is true
           # only because github.repository said so; delete the guard and this branch checks out
           # RoyaleSim at a commit that does not exist in RoyaleSim.

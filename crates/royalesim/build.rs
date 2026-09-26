@@ -46,7 +46,7 @@ fn main() {
     // cargo's default of re-running this script on any change in the package, so with only
     // the two git files above an EDITED-BUT-UNSTAGED source file recompiled the crate and left
     // this stamp at its previous value. On 2026-09-24 that shipped a wheel containing
-    // uncommitted changes to four files while `provenance()` reported ("f3cd4ca...", "clean"):
+    // uncommitted changes to four files while `provenance()` reported ("a44ef09...", "clean"):
     // the lie this file exists to prevent, told by the file itself. The sources, the manifest
     // and the data the crate `include_str!`s all re-stamp now; a directory is scanned whole.
     for path in ["src", "Cargo.toml", "../../data"] {
