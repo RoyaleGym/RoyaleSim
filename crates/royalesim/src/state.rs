@@ -5203,7 +5203,8 @@ impl BattleState {
                             continue;
                         }
                     }
-                    dash_stand = dash_state[i] == DashState::Standing;
+                    // a first sight within the trigger stood above; a running stand stands too
+                    dash_stand = dash_stand || dash_state[i] == DashState::Standing;
                     if dash_state[i] == DashState::Dashing {
                         // THE MOVE, straight at the goal's centre, never past it, with no scan.
                         //
