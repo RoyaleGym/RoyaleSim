@@ -70,10 +70,21 @@ use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor,
-    ReleaseTiming, SpawnPoint, SpawnedDeploy, SpawnerEmission, StartTimeOrigin, TimerLeftover,
+    ReleaseTiming, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
 };
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
+
+/// The shipped config with spawner.SPAWNED_FIRST_STEP = none, for every scene in this file. It shadows
+/// `common::config`. These scenes read where a spawner's unit, or a death spawn's, is CREATED, and under
+/// the shipped client16402_same_tick the unit has already taken its first step (or entered its attack)
+/// on its first frame. Under none it stands on the point it was created at. The first step is its own
+/// key, pinned in tests/spawned_first_step.rs.
+fn config() -> BattleConfig {
+    let mut cfg = common::config();
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    cfg
+}
 
 // ---------------------------------------------------------------------------
 // data, read not typed
