@@ -14,12 +14,16 @@
 //!   2. the 600 ms gate: with a slow arrow they keep the Knight while the ETA read at the end of the previous tick is
 //!      above 600 ms, and drop it on the first tick after it reads 600 or less;
 //!   3. a Minion that has fired at its target and is in reach keeps it once it is doomed;
-//!   4. a Knight, which has no projectile, walking at the doomed Knight keeps it.
+//!   4. a Knight, which has no projectile, walking at the doomed Knight keeps it;
+//!   5. projectile_attackers_rescan: a Minion that spits at a doomed Knight from beyond its reach re-evaluates on the
+//!      next tick and never takes the Knight back, while projectile_attackers takes it back and a Knight the spit
+//!      does not doom is taken back under both (client 15.535.29: 4 of 4 such launches were followed by a drop).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test doomed_target_drop`):
 //!   * `doomed_eta_ignored` -- damage counts whenever it lands: (2) goes red.
 //!   * `doomed_drop_ignores_fired` -- an attacker that has fired drops it too: (3) goes red.
 //!   * `doomed_drop_every_attacker` -- an attacker with no projectile drops it too: (4) goes red.
+//!   * `doomed_rescan_takes_fired` -- a rescan takes back a doomed unit the attacker has shot at: (5) goes red.
 mod common;
 
 use common::*;
@@ -151,6 +155,31 @@ fn a_knight_with_no_projectile_keeps_a_doomed_target() {
         let lost = not_targeting(&run, &ids, &[1], 0, d + 1..k);
         assert!(lost.is_empty(), "{arm:?}: the blue Knight let go of the doomed Knight, (spawn, tick) with D={d}, K={k}: {lost:?}");
     }
+}
+
+/// A red Knight walking down the right lane and a blue Minion 5000 to its left: the Minion begins its swing in range
+/// and spits once the Knight has walked out of its reach (Range 2500 + radii 1000 + 25), so it re-evaluates on the
+/// next tick. The spit (107) dooms a 60-hp Knight and not a 300-hp one.
+fn lane(knight_hp: i32) -> [Spawn; 2] {
+    [(Team::Red, "Knight", (14500, 20000), Some(knight_hp)), (Team::Blue, "Minions", (9500, 20000), None)]
+}
+
+#[test]
+fn a_rescan_never_takes_a_doomed_unit_the_attacker_has_shot_at() {
+    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersRescan, &lane(60), 45);
+    let (d, k) = doom(&run, 0, 0);
+    assert!(d + 1 < k, "precondition: the Knight died on {k}, before the tick after the spit ({})", d + 1);
+    assert!(not_targeting(&run, &ids, &[1], 0, d..d + 1).is_empty(), "precondition: the Minion was not after the Knight at D={d}");
+    let held = targeting(&run, &ids, &[1], 0, d + 1..k);
+    assert!(held.is_empty(), "took the doomed Knight back, (spawn, tick) with D={d}, K={k}: {held:?}");
+    // projectile_attackers, the old arm: its fired-at exemption covers the rescan, so the Knight is taken back on D+1
+    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackers, &lane(60), 45);
+    let (d, _) = doom(&run, 0, 0);
+    assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "projectile_attackers: let go of the Knight on D+1={}", d + 1);
+    // control: a Knight the spit does not doom is taken back under the new arm
+    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersRescan, &lane(300), 45);
+    let d = (0..run.len()).find(|&t| run[t].shots_at[0] > 0).expect("no shot ever flew at the Knight: the scene drifted");
+    assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "control: let go of a Knight that was not doomed on {}", d + 1);
 }
 
 #[test]

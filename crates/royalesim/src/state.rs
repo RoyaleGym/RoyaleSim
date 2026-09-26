@@ -1051,8 +1051,19 @@ calib_enum!(
         /// last does so within target.rs DOOMED_ETA_LIMIT_MS. An attacker with no projectile, and one
         /// that has fired at the target, keeps it.
         ProjectileAttackers = "projectile_attackers",
+        /// As projectile_attackers, except that the fired-at exemption covers keeping only: a rescan
+        /// never takes a doomed unit, even one the attacker has shot at (target.rs `can_target`,
+        /// `keeping`). Measured on client 15.535.29: after a launch from beyond reach at a doomed
+        /// target, the re-evaluation dropped it in 4 of 4 cases and took it back in none.
+        ProjectileAttackersRescan = "projectile_attackers_rescan",
     }
 );
+impl DoomedTargetDrop {
+    /// Whether doomed targets are dropped at all (every arm but keep).
+    pub fn drops(self) -> bool {
+        self != DoomedTargetDrop::Keep
+    }
+}
 calib_enum!(
     /// movement.ATTACK_FACING -- where a unit faces while it is in its attack state. A walking
     /// unit faces along its route under either value (the move pass writes that).
@@ -4122,7 +4133,7 @@ impl BattleState {
         }
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
         // the tick's start, before any decision reads it.
-        let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers {
+        let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() {
             combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS)
         } else {
             Vec::new()
@@ -6028,7 +6039,7 @@ impl BattleState {
                 );
                 // targeting.DOOMED_TARGET_DROP = projectile_attackers: a projectile attacker has now
                 // launched at its target, so it keeps that target even once it is doomed.
-                if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers && self.cfg.cards.get(self.ents.card[i]).projectile.is_some() {
+                if self.cfg.calib.doomed_target_drop.drops() && self.cfg.cards.get(self.ents.card[i]).projectile.is_some() {
                     self.ents.fired_at[i] = Some(t);
                 }
                 // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only": a projectile
@@ -8050,7 +8061,7 @@ impl BattleState {
                 if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly {
                     h.bool(e.launched_beyond[i]);
                 }
-                if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers {
+                if self.cfg.calib.doomed_target_drop.drops() {
                     let f = e.fired_at[i];
                     h.bool(f.is_some());
                     h.u32(f.map_or(0, |t| t.index));

@@ -152,9 +152,10 @@ pub fn hidden_from_targeting(calib: &Calib, e: &Entities, c: usize) -> bool {
     }
 }
 
-/// Can attacker `a` ever target `c` (ignoring distance)?
+/// Can attacker `a` ever target `c` (ignoring distance)? `keeping` is true when `c` is `a`'s current
+/// target being kept (`decide`), false when `c` is a candidate of a scan or a wake test.
 #[inline]
-pub fn can_target(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     let e = ctx.ents;
     if !e.alive[c] || e.team[c] == e.team[a] || e.hp[c] <= 0 {
         return false;
@@ -184,13 +185,19 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     // targeting.DOOMED_TARGET_DROP = projectile_attackers: an attacker whose card fires a projectile
     // neither keeps nor takes a unit the shots already in flight will kill (`ctx.doomed`), unless it has
     // launched a shot at that unit since acquiring it (entity.rs `fired_at`). So it drops the target on
-    // the tick after the doom and does not take it back while it lives.
+    // the tick after the doom and does not take it back while it lives. Under
+    // projectile_attackers_rescan that exemption covers KEEPING only: a scan never takes a doomed unit,
+    // the one the attacker has just shot at included (client 15.535.29: 4 of 4 launches beyond reach
+    // at a doomed target were followed by a drop, none retaken).
+    #[cfg(clash_plant = "doomed_rescan_takes_fired")]
+    let keeping = true; // PLANT (regression): a rescan takes back a doomed unit the attacker has shot at.
     #[cfg(not(clash_plant = "doomed_drop_every_attacker"))]
     let applies = card.projectile.is_some();
     #[cfg(clash_plant = "doomed_drop_every_attacker")]
     let applies = true; // PLANT (regression): an attacker with no projectile drops it too.
     #[cfg(not(clash_plant = "doomed_drop_ignores_fired"))]
-    let exempt = e.fired_at[a] == Some(e.id_of(c));
+    let exempt = e.fired_at[a] == Some(e.id_of(c))
+        && (keeping || ctx.calib.doomed_target_drop == crate::state::DoomedTargetDrop::ProjectileAttackers);
     #[cfg(clash_plant = "doomed_drop_ignores_fired")]
     let exempt = false; // PLANT (regression): an attacker that has fired drops it too.
     if applies && !exempt && ctx.doomed.get(c).copied().unwrap_or(false) {
@@ -256,7 +263,7 @@ pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityI
     let mut best: Option<((i32, i32, i32, u32), usize)> = None;
     for &c in scratch.iter() {
         let c = c as usize;
-        if !can_target(ctx, a, c) {
+        if !can_target(ctx, a, c, false) {
             continue;
         }
         #[cfg(not(clash_plant = "sight_ignored"))]
@@ -288,7 +295,7 @@ pub fn enemy_in_wake_range(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) ->
     ctx.hash.neighbours_within(e, e.pos[a], query, scratch);
     scratch.iter().any(|&c| {
         let c = c as usize;
-        if !can_target(ctx, a, c) {
+        if !can_target(ctx, a, c, false) {
             return false;
         }
         let reach = match ctx.calib.hide_rise_trigger {
@@ -336,7 +343,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     let card = ctx.cards.get(e.card[a]);
     let mut cancel = false;
     if let Some(t) = cur {
-        if e.is_alive(t) && can_target(ctx, a, t.index as usize) {
+        if e.is_alive(t) && can_target(ctx, a, t.index as usize, true) {
             let ti = t.index as usize;
             #[cfg(not(clash_plant = "no_target_lock"))]
             let locked = e.target_locked[a];
