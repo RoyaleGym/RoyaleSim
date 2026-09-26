@@ -72,8 +72,9 @@ pub fn symmetric_config() -> BattleConfig {
     // The death-spawn slide (spawner.DEATH_SPAWN_PUSHBACK): client_ring_slide lays its ring
     // in the ABSOLUTE frame for both seats (side 1 is unmeasured), so a Red death is not the
     // rotation of a Blue one. not_read is the shipped arm today, so this overrides nothing
-    // yet; the day the ledger flips, mirror.rs `every_asymmetric_calib_key_is_selectable_from_python`
-    // asks for the Python selector.
+    // yet. Battle::new's `death_spawn_pushback` kwarg is the Python selector; the day the ledger
+    // flips, the name joins py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS (mirror.rs
+    // `every_asymmetric_calib_key_is_selectable_from_python` asks for it).
     c.calib.death_spawn_pushback = royalesim::state::DeathSpawnPushback::NotRead;
     c
 }

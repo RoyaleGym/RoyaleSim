@@ -307,6 +307,9 @@ pub struct Battle {
     /// object starts (None = the ledger's value).
     ground_y_clamp: Option<crate::state::GroundYClamp>,
     ground_deploy_point: Option<crate::state::GroundDeployPoint>,
+    /// An override of calibration spawner.DEATH_SPAWN_PUSHBACK for every battle this object starts (None = the
+    /// ledger's value).
+    death_spawn_pushback: Option<crate::state::DeathSpawnPushback>,
     /// An EXPERIMENT's whole calibration (`calibration_overrides`), in place of the
     /// ledger's for every battle this object starts. None = the ledger.
     calib: Option<Calib>,
@@ -797,8 +800,13 @@ impl Battle {
     /// answering for the whole battle (tests/common `symmetric_config()` selects it
     /// for the Rust seat-symmetry gates, and the env layer's symmetric engine wants
     /// the same). "none" drops the clamp entirely.
+    ///
+    /// `death_spawn_pushback`: None = the ledger's spawner.DEATH_SPAWN_PUSHBACK. Its measured arm,
+    /// "client_ring_slide", lays the slide's ring in the ARENA's frame for both seats (measured on side 0),
+    /// so a Red death is not the rotation of a Blue one. "not_read" is the rotation-symmetric arm a rotation
+    /// gate wants. It is the LAST argument: callers pass the first five by position.
     #[new]
-    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None))]
+    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None, death_spawn_pushback = None))]
     fn new(
         card_names: Option<Vec<String>>,
         slot_of_k: [[i32; 3]; 2],
@@ -806,6 +814,7 @@ impl Battle {
         ground_y_clamp: Option<String>,
         ground_deploy_point: Option<String>,
         calibration_overrides: Option<BTreeMap<String, String>>,
+        death_spawn_pushback: Option<String>,
     ) -> PyResult<Self> {
         let (calib, calib_overrides) = match calibration_overrides {
             Some(m) if !m.is_empty() => {
@@ -833,6 +842,13 @@ impl Battle {
             Some(name) => Some(
                 crate::state::GroundDeployPoint::from_calibration_name(name)
                     .ok_or_else(|| PyValueError::new_err(format!("ground_deploy_point {name:?} has no engine implementation")))?,
+            ),
+        };
+        let death_spawn_pushback = match death_spawn_pushback.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::DeathSpawnPushback::from_calibration_name(name)
+                    .ok_or_else(|| PyValueError::new_err(format!("death_spawn_pushback {name:?} has no engine implementation")))?,
             ),
         };
         let db = CardDb::load_repo().map_err(|e| PyRuntimeError::new_err(format!("cards.json: {e}")))?;
@@ -865,7 +881,7 @@ impl Battle {
             }
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, calib, calib_overrides, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, calib, calib_overrides, state: None })
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -1025,6 +1041,9 @@ impl Battle {
         }
         if let Some(gd) = self.ground_deploy_point {
             cfg.calib.formation_ground_deploy_point = gd;
+        }
+        if let Some(dp) = self.death_spawn_pushback {
+            cfg.calib.death_spawn_pushback = dp;
         }
         match shuffle {
             0 => cfg.shuffle_decks = false,
