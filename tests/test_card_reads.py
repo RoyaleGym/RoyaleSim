@@ -114,7 +114,7 @@ def test_each_plant_lands(cards, plant):
 
 def test_the_prologue_table_still_covers_the_extractor(cards):
     """`ast` reads which card-table column becomes which cards.json field out of
-    `norm_unit`'s dict literal; five columns are read before it and are listed by
+    `norm_unit`'s dict literal; six columns are read outside it and are listed by
     hand. `ccr.load` raises when that list stops covering the function, which is the
     only way a column can go missing from the map and so look unread."""
     ccr.load(cards)  # raises SystemExit with the missing names

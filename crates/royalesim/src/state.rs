@@ -467,6 +467,12 @@ pub struct Calib {
     pub projectile_launch: ProjectileLaunch,
     /// spawner.DEATH_SPAWN_LAYOUT: where a death spawn's units appear.
     pub death_spawn_layout: DeathSpawnLayout,
+    /// spawner.DEATH_SPAWN_PUSHBACK: whether a dying unit whose row sets DeathSpawnPushback
+    /// (card.rs `CardDef::death_spawn_pushback`) lays its death spawn on the small fixed ring
+    /// and slides it out, instead of by DEATH_SPAWN_LAYOUT. Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is `NotRead`, what a battle saved before it actually ran.
+    #[serde(default = "death_spawn_pushback_default")]
+    pub death_spawn_pushback: DeathSpawnPushback,
 
     // --- status effects (status.rs). Each is one calibration.json
     // key; a candidate with no implementation is refused in from_json.
@@ -589,6 +595,10 @@ fn timer_leftover_default() -> TimerLeftover {
 
 fn death_at_emission_default() -> DeathAtEmission {
     DeathAtEmission::None
+}
+
+fn death_spawn_pushback_default() -> DeathSpawnPushback {
+    DeathSpawnPushback::NotRead
 }
 
 macro_rules! calib_enum {
@@ -1453,6 +1463,26 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_SPAWN_PUSHBACK -- see `BattleState::death_spawn_points` (`fixed_slide_ring`) and the
+    /// slide in the Path phase (`move16402::death_slide_to`).
+    DeathSpawnPushback {
+        /// Today's engine: the column is not acted on, and every death spawn is laid by
+        /// spawner.DEATH_SPAWN_LAYOUT.
+        NotRead = "not_read",
+        /// For a dying unit whose row sets DeathSpawnPushback: member k of n is born
+        /// `move16402::DEATH_SLIDE_START` (250) native from the death point at the fixed
+        /// angle -(k + 1) x 360 / n in the native frame (0 = +x), whatever the parent's
+        /// heading; each Path phase then moves it `move16402::DEATH_SLIDE_STEP` (250)
+        /// straight out, neither walking nor attacking, until it is exactly DeathSpawnRadius
+        /// from the death point, and its ordinary update starts the next tick. Measured on
+        /// client 16.402 (3 Golem deaths, 1 Lava Hound death, side 0): the Golemites'
+        /// radius per tick 250, 650, 900, 1150, 1400, 1500 and 250, 601, 851, 1101, 1351,
+        /// 1500. A row that leaves the column blank (the Battle Ram) keeps
+        /// DEATH_SPAWN_LAYOUT.
+        ClientRingSlide = "client_ring_slide",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -1857,6 +1887,7 @@ impl Calib {
             charged_hit_timing: pick(&v, &["charge", "CHARGED_HIT_TIMING", "value"], ChargedHitTiming::from_calibration_name)?,
             projectile_launch: pick(&v, &["combat", "PROJECTILE_LAUNCH", "value"], ProjectileLaunch::from_calibration_name)?,
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
+            death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -2108,12 +2139,22 @@ struct PendingSpawn {
     /// (entity.rs `stagger_ms`); 0 for everything that is not a staggered member.
     #[serde(default)]
     stagger_ms: i32,
+    /// The death-spawn slide this member starts with (spawner.DEATH_SPAWN_PUSHBACK =
+    /// client_ring_slide; entity.rs `death_slide_centre` / `death_slide_radius`): the death
+    /// point, WORLD subtiles, and the radius it stops at, subtiles. 0 / (0, 0) on every other
+    /// spawn. Added after SNAPSHOT_FORMAT 20; `default`, the no-slide value a queue saved
+    /// before it held.
+    #[serde(default)]
+    slide_centre: Vec2,
+    #[serde(default)]
+    slide_radius: i32,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
 /// block's count and radius, the spawned unit's own radius and whether it flies, and
 /// the ring's base direction (the dying unit's, `phase_reap`) with its
-/// SpawnAngleShift.
+/// SpawnAngleShift. `slide`: the small fixed ring of spawner.DEATH_SPAWN_PUSHBACK =
+/// client_ring_slide instead of DEATH_SPAWN_LAYOUT (`fixed_slide_ring`).
 #[derive(Clone, Copy, Debug)]
 struct DeathSpawnRing {
     count: i32,
@@ -2122,6 +2163,76 @@ struct DeathSpawnRing {
     facing: Vec2,
     angle_shift_deg: i32,
     radius: i32,
+    slide: bool,
+}
+
+/// WHERE A DEATH SPAWN WHOSE ROW SETS DeathSpawnPushback IS BORN (calibration
+/// spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide; `BattleState::death_spawn_points`, which
+/// water-ejects these points like every other layout's).
+///
+/// Member k of n is born `move16402::DEATH_SLIDE_START` (250) native from the death point
+/// `pos` at the FIXED angle -(k + 1) x 360 / n degrees in the native frame (0 = +x, 90 = +y):
+/// the two Golemites at 180 and 0, the six Pups at 300, 240, 180, 120, 60 and 0. Measured on
+/// client 16.402 (3 Golem deaths, one of them walking at 134 degrees, and 1 Lava Hound death,
+/// all side 0): the angles do not turn with the dying unit's heading, and they are the same
+/// on both halves of the arena (deaths at x 7114, 11384, 14254 and 3292). The Path phase then
+/// slides each member out to DeathSpawnRadius (`phase_path16402`; `move16402::death_slide_to`).
+///
+/// SIDE 1 IS NOT MEASURED. This lays the same absolute ring for both seats, so a Red death is
+/// not the seat rotation of a Blue one: for an even count the member SET rotates onto itself,
+/// but the creation order does not (Red's first member sits on -x where the rotation would
+/// put it on +x).
+///
+/// The angles are `fixed_ring_offset`'s. A `radius` (subtiles) at or inside the start radius
+/// -- none on a loaded card -- is where the members are born, with nothing left to slide
+/// (`phase_reap` gives them no slide).
+fn fixed_slide_ring(pos: Vec2, count: i32, radius: i32) -> Vec<Vec2> {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let n = count.max(1);
+    let start = move16402::DEATH_SLIDE_START.min(radius.max(0) / K);
+    (0..n)
+        .map(|k| {
+            let (dx, dy) = fixed_ring_offset(k, n, start);
+            pos.add(Vec2::new(dx * K, dy * K))
+        })
+        .collect()
+}
+
+/// THE FIXED RING'S ANGLE LAW, one member: the NATIVE offset of member `k` of `n` (k in
+/// creation order) at `r` native from the death point, at the angle -(k + 1) x 360 / n
+/// degrees in the native frame (0 = +x, 90 = +y), whatever the dying unit's heading and
+/// seat. Integer degrees through formation.rs's sine table, each axis truncated toward zero.
+/// A count that does not divide 360 is outside the measurement: its degree is rounded away
+/// from zero, which keeps the last member on +x.
+///
+/// Kept apart from the start radius (`fixed_slide_ring`), the slide and the
+/// DeathSpawnPushback flag (`phase_reap`), so that a layout on the same measured angles at
+/// another radius and without the slide can lay its members from here. Which member takes which angle is
+/// the engine's reading: the measurement gives the members in key order, not shown to be
+/// creation order (tests/death_spawn_pushback.rs pins it, marked open).
+fn fixed_ring_offset(k: i32, n: i32, r: i32) -> (i32, i32) {
+    let n = n.max(1);
+    // -(k + 1) x 360 / n, rounded away from zero when n does not divide 360
+    #[cfg(not(clash_plant = "death_ring_angle_sign"))]
+    let deg = -(((k + 1) * 360 + n - 1) / n);
+    #[cfg(clash_plant = "death_ring_angle_sign")]
+    let deg = ((k + 1) * 360 + n - 1) / n; // PLANT: the ring runs the other way round, member k at +(k + 1) x 360 / n.
+    (r * crate::formation::sin1024(deg + 90) / 1024, r * crate::formation::sin1024(deg) / 1024)
+}
+
+/// ONE TICK OF THE DEATH-SPAWN SLIDE under a FRAME-PLANNED path arm (spawner.DEATH_SPAWN_PUSHBACK
+/// = client_ring_slide; `phase_path_2026`, `phase_path`): the delta, subtiles, that moves
+/// entity `i` move16402::DEATH_SLIDE_STEP further out from its death point, never past its
+/// radius (`move16402::death_slide_to`), and whether that ends the slide. A plain radial step:
+/// these arms have no contact law inside the pass (the Move phase's separation runs after
+/// it), so the measured first-step split of `phase_path16402` is not reproduced here.
+fn frame_planned_slide(e: &Entities, i: usize) -> (Vec2, bool) {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let (p, c) = (e.pos[i], e.death_slide_centre[i]);
+    let ((x, y), done) = move16402::death_slide_to((p.x, p.y), (c.x, c.y), e.death_slide_radius[i], move16402::DEATH_SLIDE_STEP * K);
+    #[cfg(clash_plant = "frame_planned_slide_ignored")]
+    let ((x, y), done) = ((p.x, p.y), false); // PLANT (regression): the frame-planned arms hold a sliding member where it was born.
+    (Vec2::new(x, y).sub(p), done)
 }
 
 /// A read-only view of one entity, for observation builders.
@@ -2221,6 +2332,12 @@ pub struct EntityView<'a> {
     /// charge today; rage and slow when they exist). Equal to `speed` for every
     /// unbuffed entity.
     pub effective_speed: i32,
+    /// THE DEATH-SPAWN SLIDE (spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide; entity.rs
+    /// `death_slide_centre` / `death_slide_radius`): the death point the unit is sliding
+    /// away from, world subtiles, and the radius it stops at, subtiles. 0 / (0, 0) on
+    /// every unit that is not sliding, which is every unit under the shipped `not_read`.
+    pub death_slide_centre: Vec2,
+    pub death_slide_radius: i32,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -2699,6 +2816,8 @@ impl BattleState {
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at release");
             self.ents.spawned_by[id.index as usize] = p.owner;
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
+            self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
+            self.ents.death_slide_radius[id.index as usize] = p.slide_radius;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -2755,10 +2874,12 @@ impl BattleState {
     /// slides a unit that overlaps the spawner's circle out of it, as it does every
     /// unit (move16402.rs separation, capped at 150 native per tick, deploying units
     /// included; under the trace-fitted arm collide.rs's static pass, in one tick).
-    /// NOT READ (the data ships them; the ring arm of DEATH_SPAWN_LAYOUT and a
+    /// NOT READ HERE (the data ships them; the ring arm of DEATH_SPAWN_LAYOUT and a
     /// flank spawn would need them): SpawnAngleShift (DarkWitch 90: the Bats on her
-    /// flanks; BattleRam 180: the Barbarians behind), DeathSpawnPushback (Golem,
-    /// LavaHound, DarkWitch true), DeathSpawnMinRadius (SkeletonContainer 100).
+    /// flanks; BattleRam 180: the Barbarians behind), DeathSpawnMinRadius
+    /// (SkeletonContainer 100). DeathSpawnPushback (Golem, LavaHound and, in the 2018
+    /// table only, DarkWitch true) is a death-spawn column and only the death spawn reads
+    /// it (spawner.DEATH_SPAWN_PUSHBACK, `death_spawn_points`).
     fn spawn_point(&self, i: usize, sp: &SpawnerDef) -> Vec2 {
         let c = self.ents.pos[i];
         match self.cfg.calib.spawner_spawn_point {
@@ -2935,7 +3056,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0 }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0 }));
                     k += 1;
                 }
                 left -= 1;
@@ -3001,6 +3122,8 @@ impl BattleState {
             let i = id.index as usize;
             self.ents.spawned_by[i] = p.owner;
             self.ents.stagger_ms[i] = p.stagger_ms;
+            self.ents.death_slide_centre[i] = p.slide_centre;
+            self.ents.death_slide_radius[i] = p.slide_radius;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[i] = d;
                 if d == 0 {
@@ -3031,11 +3154,21 @@ impl BattleState {
     /// coincident-push rule spreads them in the owner's frame.
     ///
     /// Both arms water-eject each point like a release.
+    ///
+    /// Under spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide a row that sets
+    /// DeathSpawnPushback (the Golem, the Lava Hound) takes neither arm: `ring.slide` lays
+    /// its members on the small fixed ring of `fixed_slide_ring`, whatever the layout key
+    /// says, and they slide out from there (`phase_path16402`).
     fn death_spawn_points(&self, team: Team, pos: Vec2, ring: DeathSpawnRing) -> Vec<Vec2> {
-        let DeathSpawnRing { count, unit_radius, flying, facing, angle_shift_deg, radius } = ring;
+        let DeathSpawnRing { count, unit_radius, flying, facing, angle_shift_deg, radius, slide } = ring;
         let arena = &self.cfg.arena;
         let r = radius.max(0) as i64;
         let points: Vec<Vec2> = match self.cfg.calib.death_spawn_layout {
+            #[cfg(not(clash_plant = "death_ring_seat_rotated"))]
+            _ if slide => fixed_slide_ring(pos, count, radius),
+            // PLANT: Red's ring is the seat rotation of Blue's (turned 180 degrees about the death point).
+            #[cfg(clash_plant = "death_ring_seat_rotated")]
+            _ if slide => fixed_slide_ring(pos, count, radius).into_iter().map(|p| if team == Team::Red { pos.add(pos).sub(p) } else { p }).collect(),
             DeathSpawnLayout::FacingRing => {
                 let n = count.max(1);
                 let u = if facing == Vec2::default() {
@@ -3483,6 +3616,8 @@ impl BattleState {
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
             self.ents.spawned_by[id.index as usize] = p.owner;
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
+            self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
+            self.ents.death_slide_radius[id.index as usize] = p.slide_radius;
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -3999,6 +4134,10 @@ impl BattleState {
         let mut push_speed = std::mem::take(&mut self.ents.push_speed);
         let mut push_active = std::mem::take(&mut self.ents.push_active);
         let mut jumping = std::mem::take(&mut self.ents.jumping);
+        // spawner.DEATH_SPAWN_PUSHBACK: the death-spawn slide's state, zeroed here the tick
+        // a member reaches its radius.
+        let mut slide_c = std::mem::take(&mut self.ents.death_slide_centre);
+        let mut slide_r = std::mem::take(&mut self.ents.death_slide_radius);
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -4133,6 +4272,65 @@ impl BattleState {
                         routes[i].clear();
                         goals[i] = None;
                         segs[i] = Vec2::default();
+                    }
+                    continue;
+                }
+                // ---- THE DEATH-SPAWN SLIDE (spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide;
+                // the member was born on `fixed_slide_ring`'s small ring). It REPLACES the
+                // walk -- no path request, no avoidance scan, no offset decay, no facing change,
+                // no stomp clock -- with a step of move16402::DEATH_SLIDE_STEP straight out from
+                // the death point, never past DeathSpawnRadius, plus the contact law's
+                // separation mean in the same position write (move16402.rs `death_slide_step`).
+                //
+                // HERE, at the member's own place in the creation-order move pass, because that
+                // is what gives the measured first step: on a Golem death the first-created
+                // Golemite finds its sibling still 500 away (radii 500 + 500) and takes the
+                // 150 cap on top of its 250 (250 -> 650), the second finds the first already
+                // moved, 900 away, and takes 101 (250 -> 601); from then on the pair is out of
+                // contact and steps 250 a tick to exactly 1500 on the fifth tick, both of them,
+                // as measured on client 16.402. The members exist on the death frame and are
+                // inert there (spawner.RELEASE_TIMING), so the first slide step is the next
+                // tick's. A slide in a phase of its own before or after the pass would have to
+                // invent that 150 / 101 split, or lose it.
+                //
+                // The tick the step reaches the radius the slide ends, and the member's
+                // ordinary update starts on the next tick. Taken after the knockback ladder (a
+                // push landed on a sliding member runs first and the slide waits) and before
+                // the holds, as the ladder is: whether a stun or a freeze stops the slide is
+                // not measured, and a held member is not collidable, so it slides alone. A
+                // fixed-distance knockback (knockback.DISPLACEMENT_LAW = fixed_distance,
+                // `knock_ms`) makes the slide wait too: the Move phase slides the member and the
+                // frozen hold below keeps it out of this pass, as the frame-planned arms'
+                // `knocked` test does, so no tick carries both.
+                #[cfg(not(clash_plant = "death_slide_never"))]
+                let sliding = slide_r[i] > 0 && e.knock_ms[i] == 0;
+                #[cfg(clash_plant = "death_slide_never")]
+                let sliding = false; // PLANT (regression): the member walks from where it was born.
+                if sliding {
+                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                    move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
+                    let c = slide_c[i];
+                    let (m, done) = move16402::death_slide_step(
+                        (bodies[i].x, bodies[i].y),
+                        (c.x / K, c.y / K),
+                        slide_r[i] / K,
+                        &mut con,
+                        deploying && !flying,
+                        is_water,
+                        arena.cols,
+                        arena.rows,
+                        attract[i],
+                    );
+                    // not a walk: the charge accumulator reads no step
+                    walk_step[i] = 0;
+                    push_applied[i] = Vec2::new(m.push.0, m.push.1);
+                    push_neighbours[i] = m.push_count;
+                    bodies[i].x = m.x;
+                    bodies[i].y = m.y;
+                    deltas[i] = Vec2::new(m.x * K, m.y * K).sub(e.pos[i]);
+                    if done {
+                        slide_r[i] = 0;
+                        slide_c[i] = Vec2::default();
                     }
                     continue;
                 }
@@ -4503,6 +4701,8 @@ impl BattleState {
         self.ents.push_speed = push_speed;
         self.ents.push_active = push_active;
         self.ents.jumping = jumping;
+        self.ents.death_slide_centre = slide_c;
+        self.ents.death_slide_radius = slide_r;
         self.scratch.deltas = deltas;
         self.scratch.walk_step = walk_step;
         self.scratch.pushed = pushed;
@@ -4839,6 +5039,7 @@ impl BattleState {
         // This tick's stomp-clock advance per entity, taken before `ents` is
         // borrowed: it reads the buff list and the calibration, not the walk.
         let advances: Vec<i32> = (0..cap).map(|i| self.stomp_advance(i)).collect();
+        let mut slide_done: Vec<usize> = Vec::new();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -4854,7 +5055,20 @@ impl BattleState {
                 king_active: self.king_active,
             };
             for i in 0..cap {
-                if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
+                if !e.alive[i] || e.kind[i] != EntityKind::Troop {
+                    continue;
+                }
+                // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: the death-spawn slide
+                // replaces the walk (`frame_planned_slide`).
+                if e.death_sliding(i) && !e.knocked(i) {
+                    let (d, done) = frame_planned_slide(e, i);
+                    deltas[i] = d;
+                    if done {
+                        slide_done.push(i);
+                    }
+                    continue;
+                }
+                if e.speed[i] <= 0 {
                     continue;
                 }
                 if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
@@ -5017,6 +5231,17 @@ impl BattleState {
         self.ents.move_ticks = kticks;
         self.ents.stomp_clock = clocks;
         self.scratch.deltas = deltas;
+        self.end_death_slides(slide_done);
+    }
+
+    /// The death-spawn slides that reached their radius this Path phase end
+    /// (spawner.DEATH_SPAWN_PUSHBACK; the frame-planned arms): the member's ordinary update
+    /// starts on the next tick.
+    fn end_death_slides(&mut self, done: Vec<usize>) {
+        for i in done {
+            self.ents.death_slide_radius[i] = 0;
+            self.ents.death_slide_centre[i] = Vec2::default();
+        }
     }
 
     fn phase_path(&mut self) {
@@ -5031,6 +5256,7 @@ impl BattleState {
         let mut planned = std::mem::take(&mut self.ents.last_plan_tick);
         let mut nb = std::mem::take(&mut self.scratch.nb);
         let mut blockers = std::mem::take(&mut self.scratch.blockers);
+        let mut slide_done: Vec<usize> = Vec::new();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -5052,7 +5278,20 @@ impl BattleState {
             // strictly closer to the 15.535.29 measurements than the old folklore 10-tick cadence.
             let repath = calib.repath_interval_ticks.map(|r| r.max(1) as u32);
             for i in 0..cap {
-                if !e.alive[i] || e.kind[i] != EntityKind::Troop || e.speed[i] <= 0 {
+                if !e.alive[i] || e.kind[i] != EntityKind::Troop {
+                    continue;
+                }
+                // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: the death-spawn slide
+                // replaces the walk (`frame_planned_slide`).
+                if e.death_sliding(i) && !e.knocked(i) {
+                    let (d, done) = frame_planned_slide(e, i);
+                    deltas[i] = d;
+                    if done {
+                        slide_done.push(i);
+                    }
+                    continue;
+                }
+                if e.speed[i] <= 0 {
                     continue;
                 }
                 if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
@@ -5160,6 +5399,7 @@ impl BattleState {
         self.ents.move_frac = fracs;
         self.ents.last_plan_tick = planned;
         self.scratch.deltas = deltas;
+        self.end_death_slides(slide_done);
     }
 
     /// Whether the Path phase is the measured 16.402 move update
@@ -5238,8 +5478,13 @@ impl BattleState {
             let e = &self.ents;
             // stunned, mid-slide or mid-ladder: the attack timers freeze (a landed
             // push already reset a running windup in `apply_effects`)
-            // ... and a unit in its post-kill retarget wait (combat.POST_KILL_RETARGET_WAIT).
-            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || e.retarget_wait[i] > 0;
+            // ... and a unit in its post-kill retarget wait (combat.POST_KILL_RETARGET_WAIT),
+            // and a death-spawn member still sliding out (spawner.DEATH_SPAWN_PUSHBACK), which
+            // neither walks nor attacks until the slide ends. That last term is belt and
+            // braces, not a gate: a sliding member is born idle with no target and target.rs
+            // `decide` gives it none until the slide ends, so both attack cycles already leave
+            // it idle, and removing the term turns no test red.
+            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || e.retarget_wait[i] > 0 || e.death_sliding(i);
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing).
@@ -5360,7 +5605,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0 });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0 });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -5815,7 +6060,28 @@ impl BattleState {
                 None => self.ents.facing[i],
             };
             let shift = card.formation.spawn_angle_shift_deg;
-            let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing, angle_shift_deg: shift, radius };
+            // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: a dying unit whose ROW sets
+            // DeathSpawnPushback (card.rs `death_spawn_pushback`: the Golem and the Lava Hound
+            // among the loaded cards; the Battle Ram leaves it blank) lays its members on the
+            // small fixed ring (`death_spawn_points` -> `fixed_slide_ring`), and each carries
+            // the slide out to DeathSpawnRadius that the Path phase runs. Every other row, and
+            // every row under the shipped not_read, keeps DEATH_SPAWN_LAYOUT.
+            #[cfg(not(any(clash_plant = "death_ring_slide_facing", clash_plant = "death_ring_slide_ignores_flag", clash_plant = "death_ring_slide_ignores_arm")))]
+            let slide = self.cfg.calib.death_spawn_pushback == DeathSpawnPushback::ClientRingSlide && card.death_spawn_pushback;
+            #[cfg(clash_plant = "death_ring_slide_facing")]
+            let slide = false; // PLANT (regression): a flagged row keeps the facing ring under the new arm.
+            #[cfg(clash_plant = "death_ring_slide_ignores_flag")]
+            let slide = self.cfg.calib.death_spawn_pushback == DeathSpawnPushback::ClientRingSlide; // PLANT: the Battle Ram slides too.
+            #[cfg(clash_plant = "death_ring_slide_ignores_arm")]
+            let slide = card.death_spawn_pushback; // PLANT: the flagged rows slide under not_read as well.
+            // ONLY A TROOP DEATH SPAWN takes the ring and the slide: the slide runs, and ends,
+            // in the Path phase's troop loops alone, so a building laid on the small ring would
+            // keep its slide for ever and never take a target. No loaded row pairs the flag
+            // with a building (every flagged row in the 15.535 table spawns troops); such a row
+            // keeps DEATH_SPAWN_LAYOUT. Plant death_slide_on_a_building drops this line.
+            #[cfg(not(clash_plant = "death_slide_on_a_building"))]
+            let slide = slide && unit.kind == CardKind::Troop;
+            let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing, angle_shift_deg: shift, radius, slide };
             // spawner.DEATH_SPAWN_AT_EMISSION_POINT = client16402_measured_list: a LISTED unit
             // with a spawner puts every member on the point its periodic units come out at
             // (`spawn_point`, through the one-member formation its timed waves use), all
@@ -5831,8 +6097,17 @@ impl BattleState {
                 Some(p) => vec![p; ds.count.max(1) as usize],
                 None => self.death_spawn_points(team, self.ents.pos[i], ring),
             };
+            // The slide each member of the fixed ring carries: from the death point out to
+            // DeathSpawnRadius, subtiles. None when the radius is at or inside the ring's own
+            // start radius (the members are born on it: nothing to slide), and none on any
+            // other layout.
+            let (slide_centre, slide_radius) = if slide && emission.is_none() && radius > crate::fixed::milli(move16402::DEATH_SLIDE_START) {
+                (self.ents.pos[i], radius)
+            } else {
+                (Vec2::default(), 0)
+            };
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0 }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -6106,7 +6381,7 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0 });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0 });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -6162,7 +6437,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0 }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -7057,6 +7332,8 @@ impl BattleState {
             charged: e.charged[i],
             charge_progress: e.charge_progress[i],
             effective_speed: self.effective_speed(i),
+            death_slide_centre: e.death_slide_centre[i],
+            death_slide_radius: e.death_slide_radius[i],
         }
     }
     /// Live entities in slot order.
@@ -7235,6 +7512,12 @@ impl BattleState {
                 if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
                     h.i32(e.stagger_ms[i]);
                 }
+                // spawner.DEATH_SPAWN_PUSHBACK: only while a slide runs, so a battle with none
+                // (every battle under the shipped not_read) hashes as it did before the columns.
+                if e.death_slide_radius[i] > 0 {
+                    h.vec(e.death_slide_centre[i]);
+                    h.i32(e.death_slide_radius[i]);
+                }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
@@ -7376,6 +7659,10 @@ impl BattleState {
                 if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
                     h.i32(s.stagger_ms);
                 }
+                if s.slide_radius > 0 {
+                    h.vec(s.slide_centre);
+                    h.i32(s.slide_radius);
+                }
             }
         }
         h.u32(self.dmg.hits.len() as u32);
@@ -7493,6 +7780,17 @@ impl BattleState {
 ///    format-3 fingerprint is untouched: migrate_v3 strips the new field with the
 ///    rest of the post-format-3 tail, and no card's index moves (a card that was
 ///    rejected for its area and is now loaded stays where it sat in `cards`).
+/// 20, unchanged, the death-spawn slide (spawner.DEATH_SPAWN_PUSHBACK): Calib gained
+///    death_spawn_pushback (serde default not_read), Entities gained death_slide_centre /
+///    death_slide_radius and PendingSpawn gained slide_centre / slide_radius (serde
+///    default no slide, the columns sized on load, all hashed only while a slide runs),
+///    so a format-20 blob saved before them still deserializes and hashes as it did.
+///    A blob saved by this build carries the new fields at their neutral values, so its
+///    BYTES differ from an earlier build's even under the shipped not_read; its
+///    state_hash does not. CardDef gained `death_spawn_pushback`, so the card fingerprint
+///    moves: a snapshot saved by an earlier build is refused as saved against other card
+///    data. migrate_v3 strips the field with the rest of the post-format-3 tail and runs a
+///    migrated battle at not_read; no card's index moves.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -7652,9 +7950,15 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... formation~~ -- format 16 added `projectile_start_radius` and `kamikaze` after it.
                 // ~~... kamikaze~~ -- format 18 added `attack_buff` after them.
                 // ~~... attack_buff~~ -- format 20 added `death_area_effect` after it.
+                // `projectile_homing` (combat.POST_KILL_RETARGET_WAIT's condition, also after
+                // format 3) is declared between `attack_buff` and `death_area_effect` and was
+                // missing from this string, which no card's Debug text could then end with: it
+                // is in its declared place now.
+                // ~~... death_area_effect~~ -- the death-spawn slide (still format 20) added
+                // `death_spawn_pushback` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, death_area_effect: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.death_area_effect
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.projectile_homing, c.death_area_effect, c.death_spawn_pushback
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -7703,6 +8007,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("charged_hit_timing".into(), serde_json::to_value(ChargedHitTiming::AfterLoadTimeWindup).map_err(|e| e.to_string())?);
     sh.insert("projectile_launch".into(), serde_json::to_value(ProjectileLaunch::AttackerCentreSameTick).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
+    // The death-spawn slide: a format-3 battle laid every death spawn by the layout key and
+    // slid none; it keeps that whatever the ledger ships (the same rule).
+    sh.insert("death_spawn_pushback".into(), serde_json::to_value(DeathSpawnPushback::NotRead).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -7891,6 +8198,14 @@ impl BattleState {
             snap.ents.push_speed.iter_mut().for_each(|v| *v = 0);
             snap
         };
+        #[cfg(clash_plant = "save_drops_death_slide")]
+        let snap = {
+            // PLANT: the death-spawn slides are lost across a save.
+            let mut snap = snap;
+            snap.ents.death_slide_radius.iter_mut().for_each(|r| *r = 0);
+            snap.ents.death_slide_centre.iter_mut().for_each(|c| *c = Vec2::default());
+            snap
+        };
         serde_json::to_vec(&snap).expect("snapshot serializes")
     }
 
@@ -7937,6 +8252,8 @@ impl BattleState {
         snap.ents.retarget_wait.resize(n, 0);
         snap.ents.target_doomed.resize(n, false);
         snap.ents.stagger_ms.resize(n, 0);
+        snap.ents.death_slide_centre.resize(n, Vec2::default());
+        snap.ents.death_slide_radius.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

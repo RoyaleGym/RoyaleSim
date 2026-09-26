@@ -445,21 +445,9 @@ pub fn move_towards_extra(
         sx = t.0;
         sy = t.1;
     }
-    let mut push = (0, 0);
-    let mut push_count = 0;
-    if con.count > 0 {
-        // the collision mean, capped at 150
-        let mut t = (tdiv(con.acc.0, con.count), tdiv(con.acc.1, con.count));
-        if len_sq(t.0, t.1) >= 22501 {
-            normalize_to(&mut t, 150);
-        }
-        push = t;
-        push_count = con.count;
-        con.count = 0;
-        con.acc = (0, 0);
-        sx += t.0;
-        sy += t.1;
-    }
+    let (push, push_count) = collision_mean(con);
+    sx += push.0;
+    sy += push.1;
     // THE ATTRACT, added after the collision mean and before the one position write.
     sx += extra.0;
     sy += extra.1;
@@ -469,6 +457,103 @@ pub fn move_towards_extra(
     let (rx, ry) = (tx - nx, ty - ny);
     let proj = trunc_shr8(rx.wrapping_mul(seg.0)) + trunc_shr8(ry.wrapping_mul(seg.1));
     Moved { x: nx, y: ny, dir: new_dir, reached: proj <= 1000, push, push_count }
+}
+
+/// THE COLLISION MEAN a separation scan left in `con`: the accumulator over its count,
+/// scaled back to 150 when it is longer (`len_sq >= 22501`), with the count; `con` is
+/// drained. (0, 0) and 0 when nothing overlapped (the accumulator is then untouched). The
+/// one reading of the 150 cap, shared by the walk (`move_towards_extra`) and the
+/// death-spawn slide (`death_slide_step`).
+#[inline]
+fn collision_mean(con: &mut Contact) -> ((i32, i32), i32) {
+    if con.count <= 0 {
+        return ((0, 0), 0);
+    }
+    let mut t = (tdiv(con.acc.0, con.count), tdiv(con.acc.1, con.count));
+    if len_sq(t.0, t.1) >= 22501 {
+        normalize_to(&mut t, 150);
+    }
+    let n = con.count;
+    con.count = 0;
+    con.acc = (0, 0);
+    (t, n)
+}
+
+// ---------------------------------------------------------------------------
+// the death-spawn slide (calibration spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide)
+
+/// How far from the death point, native, a member of a death spawn whose row sets
+/// DeathSpawnPushback is born, and how far it slides out each tick until it is at
+/// DeathSpawnRadius. Constants of the measured law, like the 250 step cap and the 150
+/// impulse cap above -- not columns, and named in the ledger key's `meaning` rather than
+/// in its value. Measured on client 16.402 (3 Golem deaths and 1 Lava Hound death): every
+/// child first seen 250 from the death point, then 250 further out each tick after larger
+/// early steps, for both cards. The Golemites' larger first step (400 and 351) is what the
+/// contact law's push between the two newborns adds here (`death_slide_step`); what makes
+/// the Pups' first two steps 263 to 398 is open, and so is what the 250 is in the client.
+pub const DEATH_SLIDE_START: i32 = 250;
+pub const DEATH_SLIDE_STEP: i32 = 250;
+
+/// THE SLIDE'S RADIAL STEP: the point `step` further from `centre` than `p`, on the ray from
+/// `centre` through `p`, and never past `radius`, each axis truncated toward zero; and
+/// whether that point is AT `radius`, which is the slide's last tick. Unit-free: the 16.402
+/// move pass calls it in native units (`death_slide_step`), the frame-planned path arms in
+/// subtiles. The ray is the member's CURRENT direction from the death point, so a contact
+/// push that turned it is kept. A point on the centre has no ray: it stays, and the slide
+/// ends. A point already AT OR PAST `radius` (a push carried it out mid-slide) also stays
+/// where it is, and the slide ends: nothing measured puts a member past the radius
+/// mid-slide, and this reading moves it nowhere rather than pull it back in by any
+/// distance in one tick.
+pub fn death_slide_to(p: (i32, i32), centre: (i32, i32), radius: i32, step: i32) -> ((i32, i32), bool) {
+    let (vx, vy) = ((p.0 - centre.0) as i64, (p.1 - centre.1) as i64);
+    let d = isqrt64(vx * vx + vy * vy);
+    if d == 0 {
+        return (p, true);
+    }
+    // Plant death_slide_pulls_back (regression) drops this test: a member past the radius is
+    // then brought back onto it in one tick.
+    #[cfg(not(clash_plant = "death_slide_pulls_back"))]
+    if d >= radius as i64 {
+        return (p, true);
+    }
+    let reach = d + step as i64;
+    #[cfg(not(clash_plant = "death_slide_unclamped"))]
+    let r = reach.min(radius as i64);
+    #[cfg(clash_plant = "death_slide_unclamped")]
+    let r = reach; // PLANT (regression): the slide runs past DeathSpawnRadius.
+    ((centre.0 + (vx * r / d) as i32, centre.1 + (vy * r / d) as i32), reach >= radius as i64)
+}
+
+/// ONE TICK OF THE DEATH-SPAWN SLIDE in the 16.402 move pass (state.rs `phase_path16402`):
+/// `death_slide_to`'s radial step of DEATH_SLIDE_STEP, plus the collision mean of `con` (the
+/// separation scan the caller ran for this member, capped at 150 as in the walk) and `extra`
+/// (the Tornado's pull), in ONE position write through `grid_move`. No heading, no avoidance
+/// rotation, no reached test. Returns what moved (`dir` None) and whether this was the
+/// slide's last tick; the contact push is added after that test, so a member pushed on its
+/// last tick ends where the push leaves it.
+///
+/// On a Golem death this gives the measured tracks exactly: the first-moved Golemite's
+/// radius 250, 650, 900, 1150, 1400, 1500 (its sibling 500 away takes the 150 cap on the
+/// first tick) and the other's 250, 601, 851, 1101, 1351, 1500 (it finds the first already
+/// moved, 900 away, and takes 101).
+#[allow(clippy::too_many_arguments)]
+pub fn death_slide_step(
+    u: (i32, i32),
+    centre: (i32, i32),
+    radius: i32,
+    con: &mut Contact,
+    state4_ground: bool,
+    is_water: impl Fn(i32, i32) -> bool,
+    width_cells: i32,
+    height_cells: i32,
+    extra: (i32, i32),
+) -> (Moved, bool) {
+    let ((tx, ty), done) = death_slide_to(u, centre, radius, DEATH_SLIDE_STEP);
+    let (push, push_count) = collision_mean(con);
+    let sx = tx - u.0 + push.0 + extra.0;
+    let sy = ty - u.1 + push.1 + extra.1;
+    let (nx, ny) = grid_move(u.0, u.1, sx, sy, state4_ground, &is_water, width_cells, height_cells);
+    (Moved { x: nx, y: ny, dir: None, reached: false, push, push_count }, done)
 }
 
 /// The position write: `pos += step`, then, with the flag, an axis that

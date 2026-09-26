@@ -481,14 +481,26 @@ pub struct CardDef {
     /// None on every card without the column; a card whose area the loader refuses
     /// is rejected WHOLE, never run as a card whose death does nothing.
     pub death_area_effect: Option<SpellDef>,
-    // ^ DECLARED LAST ON PURPOSE. state.rs `migrate_v3` rebuilds the FORMAT-3 card
+    /// characters / buildings DeathSpawnPushback (cards.json `death_spawn_pushback`, 15.535
+    /// only; absent, as in the 2018 file, reads false): this card's DEATH SPAWN is born on a
+    /// small fixed ring and slides out to DeathSpawnRadius, instead of being laid at the
+    /// radius by spawner.DEATH_SPAWN_LAYOUT. True on the Golem and the Lava Hound among the
+    /// loaded cards; blank on the Battle Ram, whose Barbarians the facing ring places.
+    /// Acted on only under spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide (state.rs
+    /// `death_spawn_points` / `fixed_slide_ring` and the slide in the Path phase); inert without a
+    /// `death_spawn` and under the shipped `not_read`.
+    pub death_spawn_pushback: bool,
+    // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
+    // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
-    // struct's Debug text, so a new field anywhere else, or a changed value in a
-    // field format 3 also printed, puts that rebuild permanently out of reach of a
-    // format-3 snapshot's saved hash. The in-repo fixture that used to prove the
-    // rebuild was retired on 2026-09-21 for exactly that (tests/stacked_tie.rs says
-    // what went with it); the discipline is kept for any format-3 snapshot a caller
-    // still holds, and nothing in the suite would now catch breaking it.
+    // struct's Debug text, so a new field anywhere but after the last one, or a changed
+    // value in a field format 3 also printed, puts that rebuild permanently out of reach
+    // of a format-3 snapshot's saved hash. A new
+    // field goes HERE, after `death_spawn_pushback`, and onto the end of that tail
+    // string. The in-repo fixture that used to prove the rebuild was retired on
+    // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
+    // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
+    // the suite would now catch breaking it.
 }
 
 impl CardDef {
@@ -640,6 +652,9 @@ struct RawCard {
     /// table does not carry, or an area whose mechanic the loader does not read,
     /// refuses the card AFTER its push, which keeps the format-3 card list intact.
     death_area_effect: Option<String>,
+    /// cards.json `death_spawn_pushback` (characters / buildings DeathSpawnPushback; written
+    /// on the 15.535 rows only, so absent in the 2018 file): `CardDef::death_spawn_pushback`.
+    death_spawn_pushback: Option<bool>,
     /// spells_characters SummonCharacter: the unit the card deploys (`CardDef::unit_name`).
     summon_character: Option<String>,
     // --- the summon layout and stagger (`FormationDef`). Every one null in the
@@ -1238,6 +1253,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         attack_buff: None,
         projectile_homing: false,
         death_area_effect: None,
+        death_spawn_pushback: false,
     }
 }
 
@@ -1999,6 +2015,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // Resolved by `CardDb::from_json_str` against the file's `area_effect_objects`
         // table, with the card's `death_area_effect` name (pushed on `units` above).
         death_area_effect: None,
+        // A blank (or a 2018 row, which never carries the key) is false.
+        #[cfg(not(clash_plant = "death_spawn_pushback_unread"))]
+        death_spawn_pushback: raw.death_spawn_pushback.unwrap_or(false),
+        #[cfg(clash_plant = "death_spawn_pushback_unread")]
+        death_spawn_pushback: false, // PLANT: the loader drops the column, so no row slides.
     }, display, units))
 }
 
@@ -2603,7 +2624,9 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // radius_milli, hit_speed_ms, damage, crown_tower_damage_percent, buff, buff_time_ms,
 // only_enemies, only_own_troops, hits_ground, hits_air, ignore_buildings, pushback_milli,
 // maximum_targets, projectile, spawn_character, action_graph}; a named row the map does
-// not carry refuses the card (`convert_area_effect`). Unknown fields are ignored.
+// not carry refuses the card (`convert_area_effect`). Also "death_spawn_pushback", a
+// boolean beside the "death_spawn" block (15.535 rows only; absent reads false). Unknown
+// fields are ignored.
 
 #[cfg(test)]
 mod tests {

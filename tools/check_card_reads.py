@@ -24,10 +24,11 @@ HOW THE READ SET IS DERIVED -- three mechanical links, no hand-written map
        it in and nothing reads it, which is the same silence as not declaring it.
     2. tools/extract_cards.py -> which card-table column becomes which cards.json
        field.  `norm_unit`'s dict literal is walked with `ast`, so `c["ChargeRange"]`
-       under the `charge` block gives ChargeRange -> charge.charge_range_raw.  Five
-       columns are read in that function's prologue rather than in the literal;
-       those are listed in PROLOGUE below and the gate refuses to run if the
-       prologue grows a column the list does not name.
+       under the `charge` block gives ChargeRange -> charge.charge_range_raw.  Six
+       columns are read outside the literal (five in the prologue, and
+       DeathSpawnPushback after it, on the 15.535 rows only); those are listed in
+       PROLOGUE below and the gate refuses to run if the function reads a column
+       outside the literal that the list does not name.
     3. cards.json `units[*].raw` -> which columns each character row actually ships.
        A column is UNREAD when link 2 gives it no cards.json field, or gives it one
        that link 1 says nothing reads.
@@ -146,16 +147,19 @@ REGISTER = ROOT / "data" / "derived" / "mechanic_register.json"
 
 # --- the two hand-written tables, and what keeps each of them honest -------------
 
-# `norm_unit` reads these five in its prologue instead of inside the dict literal
+# `norm_unit` reads these outside its dict literal: the first five in its prologue
 # (damage and the area radius fall back to the projectile row, so they are computed
-# before the literal is built).  The gate refuses to run if the prologue reads a
-# column this list does not name: an unlisted one would silently look unread.
+# before the literal is built), DeathSpawnPushback after it (written on the 15.535 rows
+# only, so the 2018 file does not grow the key).  The gate refuses to run if the
+# function reads a column outside the literal that this list does not name: an
+# unlisted one would silently look unread.
 PROLOGUE = {
     "Damage": "damage",
     "CrownTowerDamagePercent": "crown_tower_damage_percent",
     "AreaDamageRadius": "area_damage_radius_milli",
     "HitSpeed": "hit_speed_ms",
     "Projectile": "projectile",
+    "DeathSpawnPushback": "death_spawn_pushback",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was
@@ -841,7 +845,7 @@ def load(cards_path: Path | str) -> tuple[dict, Consumed, dict[str, set[str]], d
     missed = [c for c in prologue if c not in PROLOGUE]
     if missed:
         raise SystemExit(
-            f"tools/extract_cards.py `norm_unit` reads {missed} before its dict literal and "
+            f"tools/extract_cards.py `norm_unit` reads {missed} outside its dict literal and "
             "check_card_reads.py's PROLOGUE does not name them: add each one with the cards.json "
             "field it becomes, or this gate would call those columns unread"
         )

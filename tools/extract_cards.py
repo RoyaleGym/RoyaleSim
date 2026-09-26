@@ -464,7 +464,7 @@ SCALAR_STAT_COLUMNS = {
     "AreaDamageRadius", "SelfAsAoeCenter", "Projectile", "ShieldHitpoints",
     "CrownTowerDamagePercent", "LifeTime", "IgnorePushback", "TileSizeOverride", "DeathDamage",
     "DeathDamageRadius", "DeathSpawnCharacter", "DeathSpawnCount", "DeathSpawnRadius",
-    "DeathSpawnDeployTime", "DeathAreaEffect", "SpawnCharacter", "SpawnNumber", "SpawnInterval",
+    "DeathSpawnDeployTime", "DeathSpawnPushback", "DeathAreaEffect", "SpawnCharacter", "SpawnNumber", "SpawnInterval",
     "SpawnStartTime", "SpawnPauseTime", "SpawnLimit", "SpawnRadius", "DamageSpecial", "ChargeRange",
     "ChargeSpeedMultiplier", "DashDamage", "DashMinRange", "DashMaxRange", "DashRadius",
     "DashCooldown", "DashImmuneToDamageTime", "DashPushBack", "JumpEnabled", "JumpHeight",
@@ -1227,6 +1227,13 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     if isinstance(c, Row):
         # 15.535: the scripted actions the row reaches (None when it names none).
         u["action_graph"] = action_graph(t, c)
+        # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
+        # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
+        # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
+        # Hound, which set it, against the Battle Ram, which leaves it blank). Written here,
+        # after the literal and on the 15.535 rows only, so the 2018 file stays byte-identical;
+        # tools/check_card_reads.py's PROLOGUE names it for that reason.
+        u["death_spawn_pushback"] = flag(c, "DeathSpawnPushback")
     if with_raw:
         u["raw"] = raw_logic(c)
         if c.get("base_ops"):
@@ -1485,6 +1492,10 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card[f] = u[f]
     if "action_graph" in u:
         card["action_graph"] = u["action_graph"]
+    # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
+    # carries the flag that qualifies it (the loader reads both off the same row).
+    if "death_spawn_pushback" in u:
+        card["death_spawn_pushback"] = u["death_spawn_pushback"]
     if s["CustomDeployTime"] is not None:
         card["deploy_time_ms"] = s["CustomDeployTime"]
     card["count"] = res["count"]

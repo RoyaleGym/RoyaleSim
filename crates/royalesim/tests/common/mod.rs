@@ -69,6 +69,12 @@ pub fn symmetric_config() -> BattleConfig {
     // rather than the system under test. `none` lays the ring on the tap itself,
     // which is what a flying summon measures on both seats.
     c.calib.formation_ground_deploy_point = royalesim::state::GroundDeployPoint::None;
+    // The death-spawn slide (spawner.DEATH_SPAWN_PUSHBACK): client_ring_slide lays its ring
+    // in the ABSOLUTE frame for both seats (side 1 is unmeasured), so a Red death is not the
+    // rotation of a Blue one. not_read is the shipped arm today, so this overrides nothing
+    // yet; the day the ledger flips, mirror.rs `every_asymmetric_calib_key_is_selectable_from_python`
+    // asks for the Python selector.
+    c.calib.death_spawn_pushback = royalesim::state::DeathSpawnPushback::NotRead;
     c
 }
 

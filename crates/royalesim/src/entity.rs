@@ -191,6 +191,18 @@ pub struct Entities {
     /// and sized on load like `retarget_wait`.
     #[serde(default)]
     pub stagger_ms: Vec<i32>,
+    /// THE DEATH-SPAWN SLIDE (calibration spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide;
+    /// state.rs `fixed_slide_ring`, `phase_path16402`): the death point a death-spawned
+    /// member slides away from, WORLD subtiles, and the radius it stops at (its parent's
+    /// DeathSpawnRadius), subtiles. Set from PendingSpawn when the member is created; while
+    /// `death_slide_radius > 0` the member neither walks nor attacks nor takes a target, the
+    /// Path phase moves it straight out, and the tick it reaches the radius both are zeroed.
+    /// (0, 0) / 0 on every unit that is not sliding, which is every unit under the shipped
+    /// not_read. `default` and sized on load like `stagger_ms`.
+    #[serde(default)]
+    pub death_slide_centre: Vec<Vec2>,
+    #[serde(default)]
+    pub death_slide_radius: Vec<i32>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -349,6 +361,16 @@ impl Entities {
         self.knock_ms[i] > 0 || self.push_active[i]
     }
 
+    /// Mid death-spawn slide (calibration spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide;
+    /// `death_slide_radius`): the member neither walks nor attacks and takes no target until
+    /// the slide ends. Read beside `knocked` at the same "does not walk, does not attack"
+    /// sites (target.rs `decide`, state.rs `phase_attack` and the three Path arms). False on
+    /// every entity under the shipped not_read.
+    #[inline]
+    pub fn death_sliding(&self, i: usize) -> bool {
+        self.death_slide_radius[i] > 0
+    }
+
     /// Entity `i`'s buff slots, empty ones included.
     #[inline]
     pub fn buff_slots(&self, i: usize) -> &[BuffSlot] {
@@ -487,6 +509,8 @@ impl Entities {
             self.retarget_wait[i] = 0;
             self.target_doomed[i] = false;
             self.stagger_ms[i] = 0;
+            self.death_slide_centre[i] = Vec2::default();
+            self.death_slide_radius[i] = 0;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -546,6 +570,8 @@ impl Entities {
             self.retarget_wait.push(0);
             self.target_doomed.push(false);
             self.stagger_ms.push(0);
+            self.death_slide_centre.push(Vec2::default());
+            self.death_slide_radius.push(0);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);

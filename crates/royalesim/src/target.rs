@@ -252,8 +252,14 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
         return TargetDecision { target: None, cancel_attack: true, resumed: false };
     }
     // Stunned or mid-knockback (the slide, or the 16.402 ladder): keep what it
-    // had, scan nothing.
-    if e.stun_ms[a] > 0 || e.knocked(a) {
+    // had, scan nothing. The same for a death-spawn member still sliding out
+    // (spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide): born with no target, it takes
+    // none until the slide ends.
+    #[cfg(not(clash_plant = "death_slide_targets"))]
+    let sliding = e.death_sliding(a);
+    #[cfg(clash_plant = "death_slide_targets")]
+    let sliding = false; // PLANT: a sliding member scans and takes a target.
+    if e.stun_ms[a] > 0 || e.knocked(a) || sliding {
         return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false };
     }
     if e.kind[a] == EntityKind::KingTower && !ctx.king_active[e.team[a] as usize] {
