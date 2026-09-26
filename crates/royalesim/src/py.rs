@@ -1253,6 +1253,24 @@ impl Battle {
             .collect())
     }
 
+    /// DEBUG ONLY: each live troop's contact state as the 16.402 move pass left it, one row per
+    /// troop in slot order: (uid, avoidance offset, segment direction x, y, facing x, y). The uid is
+    /// `debug_units`' element 0 and `state_json`'s; the offset is move16402.rs `Contact::offset`
+    /// between ticks, the segment direction the frozen direction toward the route's last node
+    /// ((0, 0) with none), the facing the unit's heading, both of length 256.
+    ///
+    /// WHY IT EXISTS: the contact law is exact on recorded client 15.535.29 crowds when it is fed
+    /// the client's own state, so where the engine parts from a recording the first of these fields
+    /// to part names the input that went wrong. `debug_units` keeps its seven fields, which callers
+    /// unpack by position; this is a separate row.
+    fn debug_contact(&self) -> PyResult<Vec<(i64, i32, i32, i32, i32, i32)>> {
+        let s = self.s()?;
+        Ok(s.entities()
+            .filter(|e| e.kind == EntityKind::Troop)
+            .map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.avoid_offset, e.seg_dir.x, e.seg_dir.y, e.facing.x, e.facing.y))
+            .collect())
+    }
+
     /// TEST ENTRY POINT: move a live entity (by protocol uid) by (dx, dy) subtiles. Used
     /// by the Python plants to prove the determinism tests see a one-subtile change.
     fn debug_nudge(&mut self, uid: i64, dx: i32, dy: i32) -> PyResult<bool> {

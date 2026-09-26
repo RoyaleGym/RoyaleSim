@@ -214,8 +214,8 @@ pub struct Entities {
     /// state.rs `delay_acquisition`, the one setter; target.rs `can_target`, the one reader):
     /// the first tick whose Target phase may give this unit to an enemy as its target. A troop
     /// created by a death spawn is born with its own first tick + `target::ACQUIRE_DELAY_TICKS`
-    /// (7), so it is first targeted on its 8th frame. 0 on every other unit, which is every
-    /// unit under the shipped `none`. A value in the past is inert (`acquire_delayed`), so the
+    /// (7), so it is first targeted on its 8th frame. 0 on every other unit, and on every unit
+    /// under `none`. A value in the past is inert (`acquire_delayed`), so the
     /// state hash reads it only while it is in the future. `default` and sized on load like
     /// `stagger_ms`.
     #[serde(default)]

@@ -2441,12 +2441,15 @@ pub struct EntityView<'a> {
     pub death_slide_radius: i32,
     /// THE ACQUIRE DELAY (targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame; entity.rs
     /// `acquirable_from`): the first tick whose Target phase may give this unit to an enemy.
-    /// Its own first tick + 7 on a troop a death spawn created; 0 on every other unit, which
-    /// is every unit under the shipped `none`.
+    /// Its own first tick + 7 on a troop a death spawn created; 0 on every other unit, and on
+    /// every unit under `none`.
     pub acquirable_from: u32,
     /// The avoidance offset the 16.402 move pass carries between ticks (move16402.rs `Contact::offset`):
     /// multiples of 10 in [-190, 190], 0 when the unit is not steering round a blocker.
     pub avoid_offset: i32,
+    /// The frozen segment direction of the 16.402 move pass (entity.rs `seg_dir`): the direction toward
+    /// the route's last node, fixed when the segment starts; (0, 0) with no segment.
+    pub seg_dir: Vec2,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -7718,6 +7721,7 @@ impl BattleState {
             death_slide_radius: e.death_slide_radius[i],
             acquirable_from: e.acquirable_from[i],
             avoid_offset: e.avoid_offset[i],
+            seg_dir: e.seg_dir[i],
         }
     }
     /// Live entities in slot order.
@@ -7910,7 +7914,7 @@ impl BattleState {
                 }
                 // targeting.SPAWNED_UNIT_ACQUIRE_DELAY: only while the delay can still refuse a
                 // scan (`acquire_delayed` from the next tick on), so a battle with none -- every
-                // battle under the shipped `none` -- hashes as it did before the column, and a
+                // battle under the old arm, `none` -- hashes as it did before the column, and a
                 // delay that has run out hashes like one that never was, which is what it is.
                 if e.acquire_delayed(i, self.tick) {
                     h.u32(e.acquirable_from[i]);
