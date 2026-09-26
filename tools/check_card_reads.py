@@ -22,6 +22,12 @@ HOW THE READ SET IS DERIVED -- three mechanical links, no hand-written map
        in one of them AND accessed (`.field`) somewhere outside the struct
        declarations.  Declared-but-never-accessed is reported separately: serde fills
        it in and nothing reads it, which is the same silence as not declaring it.
+       The loader also reads a few card-table columns straight out of a unit row's
+       `raw` block (MultipleProjectiles, MultipleTargets, AllTargetsHit,
+       CustomFirstProjectile: `ctx.units` ... `.get("raw")`).  Those are found the
+       same way, off the source: a capitalised string literal passed alone to a call
+       (`r.get("AllTargetsHit")`, `raw_count("MultipleProjectiles")`) that names a
+       column some row's `raw` carries.
     2. tools/extract_cards.py -> which card-table column becomes which cards.json
        field.  `norm_unit`'s dict literal is walked with `ast`, so `c["ChargeRange"]`
        under the `charge` block gives ChargeRange -> charge.charge_range_raw.  Nine
@@ -63,6 +69,15 @@ WHAT COULD MAKE THIS WRONG (read this before trusting a green run)
       `.name` is accessed for one of them and the search cannot tell which.  The
       report names every such collision.
     - A field accessed only under `#[cfg(test)]` counts as consumed.
+    - A raw-block read is found by its literal (link 1): a capitalised string passed
+      alone to a call that happens to spell a `raw` column's name would count as a
+      read of that column.  Section A lists every one it found, so a reader can check.
+    - LOADED_NOT_RUN is per column (or per cards.json key), never per row.  A troop
+      projectile's range columns are read for a RANGE projectile only (ProjectileRange
+      and ProjectileRadius set), so once combat.RANGE_PROJECTILE ships straight_to_range
+      the table calls them run on the Wizard's projectile too, which still never reads
+      them.  The per-card splash check below (AoeToAir / AoeToGround against the
+      attacker's own flags) does not depend on it.
     - "Loaded" is the engine's own catalogue when the extension module imports
       (royalesim.Battle(None, ...)); without it the gate falls back to every card in
       the file and says so.  The thin slice is loaded under either reading.
@@ -239,18 +254,24 @@ KNOWN_SLICE_GAPS = {
         "of the column changes anything the engine does. It is a gap all the same: "
         "84 of the 166 projectile rows in the 15.535 table ship it false",
     ),
+    # The next three are LOADED since 2026-09-26: card.rs `RawProjectileObj` reads them for a
+    # range projectile's hit (a row with ProjectileRange and ProjectileRadius, run only under
+    # combat.RANGE_PROJECTILE = straight_to_range). No slice card's projectile is such a row, so
+    # for the slice nothing runs them under any value; LOADED_NOT_RUN keeps them in view under
+    # the shipped value, and the flip turns these three entries stale ON PURPOSE, to be re-read.
     "projectile.only_enemies": (
         "both",
         "true on every slice projectile. The engine's projectile damages the team "
         "opposite its owner and no other, so a false here would have nothing to act "
-        "on; 6 of 166 rows ship false",
+        "on; 6 of 166 rows ship false. Loaded for range projectiles only (LOADED_NOT_RUN)",
     ),
     "projectile.aoe_to_air": (
         "both",
         "Wizard, Baby Dragon, Arrows. The engine filters a splash by the ATTACKER's "
         "AttacksAir / AttacksGround (`combat.rs` fire -> splash), never by these two "
         "columns. The gate checks the two agree on every row it scores, so the gap "
-        "is inert where they do and named per card where they do not",
+        "is inert where they do and named per card where they do not. Loaded for range "
+        "projectiles only (LOADED_NOT_RUN)",
     ),
     "projectile.aoe_to_ground": (
         "both",
@@ -293,7 +314,62 @@ LOADED_NOT_RUN = {
     "DashConstantTime": ("combat.DASH_ATTACK", ("client_dash",)),
     "DashPushBack": ("combat.DASH_ATTACK", ()),
     "DashLandingTime": ("combat.DASH_ATTACK", ()),
+    # The damage ramp (card.rs `VariableDamageDef`, the `variable_damage` block): the Inferno Tower,
+    # the Inferno Dragon and the Mighty Miner. The Monk's and the Mega Monk's two damages come with
+    # no times, so their block is not written and the columns stay unread under every value.
+    "VariableDamage2": ("combat.VARIABLE_DAMAGE", ("client16402_attack_progress_stages",)),
+    "VariableDamage3": ("combat.VARIABLE_DAMAGE", ("client16402_attack_progress_stages",)),
+    "VariableDamageTime1": ("combat.VARIABLE_DAMAGE", ("client16402_attack_progress_stages",)),
+    "VariableDamageTime2": ("combat.VARIABLE_DAMAGE", ("client16402_attack_progress_stages",)),
+    # The Sparky's first hit timed from its deploy end, and the recoil of its launches.
+    "LoadFirstHit": ("combat.LOAD_FIRST_HIT", ("load_time_from_deploy_end",)),
+    "AttackPushBack": ("knockback.ATTACK_PUSHBACK", ("ladder_away_from_target",)),
+    # The Fisherman's hook (card.rs `SpecialDef`, the `special` block).
+    "SpecialRange": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),
+    "SpecialMinRange": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),
+    "SpecialLoadTime": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),
+    "ProjectileSpecial": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),
+    # The Mortar's minimum range (card.rs `CardDef::minimum_range`).
+    "MinimumRange": ("targeting.MINIMUM_RANGE", ("client16402_edge_distance",)),
+    # The Battle Healer's river crossing (card.rs `CardDef::hovering`).
+    "Hovering": ("pathfinding.HOVERING_WATER_RULE", ("priced_water_no_hop",)),
+    # The Phoenix's fireball and egg, and the Battle Healer's heal where she appears.
+    "DeathSpawnProjectile": ("spawner.DEATH_SPAWN_PROJECTILE", ("client_projectile",)),
+    "SpawnAreaObject": ("spawner.SPAWN_AREA_OBJECT_SCOPE", ("every_row",)),
+    # Read straight out of the unit row's `raw` block (link 1): the Hunter's fan, the Electro
+    # Wizard's second bolt and the Princess's first arrow.
+    "MultipleProjectiles": ("combat.MULTIPLE_PROJECTILES", ("client_fan",)),
+    "MultipleTargets": ("combat.MULTIPLE_TARGETS", ("client_bolts_per_target",)),
+    "AllTargetsHit": ("combat.MULTIPLE_TARGETS", ("client_bolts_per_target",)),
+    "CustomFirstProjectile": ("combat.CUSTOM_FIRST_PROJECTILE", ("client_first_of_volley",)),
+    # CARDS.JSON KEYS, not card-table columns (a lower-case name is a cards.json path): what the
+    # loader reads behind an arm and no character column of the row carries, so pass C's column
+    # check cannot see the arm. `derived_gaps` reads these. A troop's or a building's `projectile`
+    # block is the RawProjectileObj; its range columns and the pingpong time are read for a range
+    # projectile (ProjectileRange and ProjectileRadius both set) and run only under
+    # combat.RANGE_PROJECTILE = straight_to_range (the Hunter's pellets also under
+    # combat.MULTIPLE_PROJECTILES = client_fan, which this one-key table does not name: a column
+    # it calls unread may run there). A SPELL's `projectile` is its damage carrier, read as the
+    # RawSpellProjectile and run under every value, so these never apply to a spell row.
+    "projectile.aoe_to_air": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.aoe_to_ground": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.only_enemies": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.projectile_range_milli": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.projectile_radius_milli": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.pushback_milli": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.pushback_all": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    "projectile.pingpong_visual_time_ms": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
+    # The card row's own deploy blow (the Mega Knight's, spells_characters Projectile) and deploy
+    # area (the Electro Wizard's zap, the Ice Wizard's chill: the spells row's AreaEffectObject).
+    "deploy_projectile": ("combat.DEPLOY_PROJECTILE", ("client_on_landing",)),
+    "deploy_area_effect": ("spells.DEPLOY_AREA_EFFECT", ("client_area_effect",)),
 }
+
+
+def is_cards_json_path(name: str) -> bool:
+    """A LOADED_NOT_RUN name that is a cards.json key (`projectile.aoe_to_air`,
+    `deploy_projectile`) rather than a card-table column (`MinimumRange`)."""
+    return name == name.lower()
 
 # Mechanic families the register names whose fields never reach a CHARACTER row, so
 # the derived read set cannot see them and pass D would report a family the engine
@@ -348,6 +424,10 @@ PROVENANCE = {
 STRUCT_RE = re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)\s*\{", re.M)
 FIELD_RE = re.compile(r"^\s{4}(?:pub(?:\([^)]*\))?\s+)?(\w+)\s*:\s*(.+?),\s*$", re.M)
 JSON_KEY_RE = re.compile(r'\.get\("([a-z_0-9]+)"\)')
+# A card-table column read straight out of a unit row's `raw` block: a capitalised string
+# literal passed alone to a call (`r.get("AllTargetsHit")`, `raw_count("MultipleProjectiles")`).
+# Only a literal that names a column some row's `raw` carries counts (`Consumed.raw_reads`).
+RAW_COLUMN_RE = re.compile(r'\(\s*"([A-Z][A-Za-z0-9_]*)"\s*\)')
 
 # Which cards.json block each `Raw*` struct deserialises.  A block path is the one
 # the report and KNOWN_SLICE_GAPS use: "" is a card / tower / unit row itself.
@@ -362,6 +442,8 @@ BLOCKS = {
     "spawn_pathfind": "RawSpawnPathfind",
     "buff_on_damage": "RawBuffOnDamage",
     "reflected_attack": "RawReflectedAttack",
+    "variable_damage": "RawVariableDamage",
+    "special": "RawSpecial",
     "action_graph": "RawActionGraph",
     "level_scaling": "RawLevelScaling",
     "projectile": "RawProjectileObj",
@@ -400,6 +482,10 @@ class Consumed:
             rest = rest[:a] + rest[b:]
         self.rest = rest
         self.literal_keys = set(JSON_KEY_RE.findall(rest))
+        # Capitalised single-argument literals: candidate `raw` columns, narrowed to the ones a
+        # row's `raw` actually carries by `raw_reads`. Only meaningful when the loader reads the
+        # `raw` block at all.
+        self.raw_literals = set(RAW_COLUMN_RE.findall(rest)) if "raw" in self.literal_keys else set()
         # A field name declared by more than one struct cannot be attributed: an
         # access to `.name` could be either one's.  Named in the report.
         owners: dict[str, list[str]] = defaultdict(list)
@@ -414,6 +500,15 @@ class Consumed:
         # `load` fills it from calibration.json; empty until then.
         self.off: dict[str, str] = {}
 
+    def raw_reads(self, units: dict) -> set[str]:
+        """The card-table columns the loader reads straight out of a unit row's `raw` block:
+        the capitalised single-argument literals of the source that name a column some row's
+        `raw` carries. NOT_BEHAVIOUR columns (Name) are left out: they say which row it is."""
+        carried: set[str] = set()
+        for rec in units.values():
+            carried |= set(rec.get("raw") or {})
+        return {c for c in self.raw_literals if c in carried and c not in NOT_BEHAVIOUR}
+
     def keys(self, block: str, kind: str = "troop") -> set[str]:
         """Every cards.json key the loader consumes in `block` (a BLOCKS path).
 
@@ -426,7 +521,8 @@ class Consumed:
         st = BLOCKS.get(block)
         if block == "projectile" and kind == "spell":
             st = "RawSpellProjectile"
-        if st is None:
+        if st is None or st not in self.structs:
+            # A block whose struct card.rs does not declare (yet) reads nothing.
             return set()
         out = {f for f in self.structs[st] if f in self.accessed}
         if block == "":
@@ -671,6 +767,8 @@ def check(
     if consumed.ambiguous:
         shared = " ".join(sorted(consumed.ambiguous))
         r.say(f"   field names shared by more than one Raw* struct (an access cannot be attributed): {shared}")
+    raw_read = consumed.raw_reads(units)
+    r.say(f"   {'unit row raw block':28s} {len(raw_read):3d}  {' '.join(sorted(raw_read))}")
     r.say()
 
     # --- B. schema drift, both ways ---
@@ -726,17 +824,30 @@ def check(
         and that no `Raw*` field reads. PROVENANCE keys are skipped and counted."""
         out = []
         kind = rec.get("kind", "troop")
+
+        def off(path: str) -> str | None:
+            # LOADED_NOT_RUN's cards.json keys; a spell's projectile block is its damage carrier,
+            # read through another struct and run under every value (the table's note).
+            if kind == "spell" and path.startswith("projectile."):
+                return None
+            return consumed.off.get(path)
+
         for k, v in rec.items():
             if k in PROVENANCE:
                 provenance_seen.add(k)
             elif carries(v) and k not in consumed.keys("", kind):
                 out.append((k, f"cards.json `{k}`", family_of_path(k)))
+            elif carries(v) and off(k):
+                out.append((k, f"cards.json `{k}` (loaded, not run: {off(k)})", family_of_path(k)))
             if isinstance(v, dict) and k in BLOCKS and k in consumed.keys("", kind):
                 for k2, v2 in v.items():
                     if f"{k}.{k2}" in PROVENANCE:
                         provenance_seen.add(f"{k}.{k2}")
                     elif carries(v2) and k2 not in consumed.keys(k, kind):
                         out.append((f"{k}.{k2}", f"cards.json `{k}.{k2}`", family_of_path(f"{k}.{k2}")))
+                    elif carries(v2) and off(f"{k}.{k2}"):
+                        path = f"{k}.{k2}"
+                        out.append((path, f"cards.json `{path}` (loaded, not run: {off(path)})", family_of_path(path)))
         return out
 
     def on_row(rec: dict, path: str) -> bool:
@@ -757,6 +868,12 @@ def check(
         kind = rec.get("kind", "troop")
         for col in rec.get("raw") or {}:
             if col in NOT_BEHAVIOUR:
+                continue
+            if col in raw_read:
+                # Read out of `raw` itself (link 1), so there is no cards.json field to find on
+                # the row: loaded, and unread only while its calibration arm is off.
+                if col in consumed.off:
+                    out.append((col, f"{col} (read from `raw`, not run: {consumed.off[col]})", family_of(col)))
                 continue
             paths = colmap.get(col)
             # Read only where the field is ON THIS ROW: a column the extractor writes into a block
@@ -884,6 +1001,7 @@ def check(
             # A column loaded behind an arm that is off does not make its family read.
             if col not in consumed.off and any(consumed.reads_path(p) for p in paths):
                 read_families.add(family_of(col))
+        read_families |= {family_of(c) for c in raw_read if c not in consumed.off}
         read_families |= set(REGISTER_FAMILIES_READ)
         r.say(f"   families the read columns fall into: {' '.join(sorted(read_families))}")
         for fam, note in sorted(REGISTER_FAMILIES_READ.items()):
@@ -911,17 +1029,20 @@ def check(
 
 def plant_slice_mechanic(doc, consumed, colmap):
     # Any column the engine does not read will do. It was ReflectedAttackDamage until
-    # card.rs began loading the reflect (combat.REFLECT_ATTACK, 2026-09-25), which made it
-    # the loaded_not_run plant's column; the Inferno ramp's column is not carried into
-    # cards.json at all.
-    doc["units"]["Knight"]["raw"]["VariableDamage2"] = 120
+    # card.rs began loading the reflect (combat.REFLECT_ATTACK, 2026-09-25), then the Inferno
+    # ramp's VariableDamage2 until the extractor carried it into `variable_damage` (2026-09-26).
+    # A champion's Ability is carried into cards.json by nothing and read by nothing.
+    doc["units"]["Knight"]["raw"]["Ability"] = "KnightAbility"
     return doc, consumed, colmap
 
 
 def plant_unread_field(doc, consumed, colmap):
+    # A cards.json key no Raw* struct declares. It was minimum_range_milli until card.rs began
+    # reading it (targeting.MINIMUM_RANGE, 2026-09-26); `attached_character` is written on
+    # every unit row and read by nothing.
     for c in doc["cards"]:
         if c["name"] == "Giant":
-            c["minimum_range_milli"] = 3500
+            c["attached_character"] = "Knight"
     return doc, consumed, colmap
 
 

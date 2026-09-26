@@ -90,7 +90,7 @@ def test_the_2018_table_scores_too():
 # gate for some OTHER reason is not evidence for the pass it was aimed at.
 PLANT_AIM = {
     "slice_mechanic": "Knight",
-    "unread_field": "minimum_range_milli",
+    "unread_field": "attached_character",
     "stale_gap": "retire the entry",
     "blind_ledger": "ChargeRange",
     "null_block": "is not on this row",
@@ -153,11 +153,19 @@ def test_register_families_called_read_name_what_is_still_unread():
 def test_loaded_not_run_names_columns_card_rs_loads(cards):
     """An entry for a column the loader does not read at all changes nothing (the chain
     already calls it unread), so a misspelt column would sit in LOADED_NOT_RUN looking like
-    a control. Each entry must name a column the extractor carries into a field card.rs reads."""
-    _, consumed, colmap, _ = ccr.load(cards)
+    a control. Each entry must name a column the extractor carries into a field card.rs reads,
+    a column card.rs reads straight out of a unit row's `raw` block, or (a lower-case name)
+    a cards.json key card.rs reads."""
+    doc, consumed, colmap, _ = ccr.load(cards)
+    raw_read = consumed.raw_reads(doc["units"])
     for col in ccr.LOADED_NOT_RUN:
+        if ccr.is_cards_json_path(col):
+            assert consumed.reads_path(col), f"{col}: a cards.json key card.rs does not read"
+            continue
+        if col in raw_read:
+            continue
         paths = colmap.get(col)
-        assert paths, f"{col}: the extractor carries no such column"
+        assert paths, f"{col}: the extractor carries no such column, and card.rs reads it from no `raw` block"
         assert any(consumed.reads_path(p) for p in paths), f"{col}: carried as {sorted(paths)}, and card.rs loads none"
 
 
@@ -251,6 +259,11 @@ def test_the_report_names_the_cards_the_mechanics_doc_calls_out(cards):
     # while calibration.json ships another value. The flip turns this entry red ON PURPOSE:
     # rewrite docs/mechanics.md's Electro Giant row, then point the entry at
     # ReflectAttackCrownTowerDamage, which no value runs.
+    # The same holds, since 2026-09-26, for the Inferno Dragon's ramp (combat.VARIABLE_DAMAGE)
+    # and the Mortar's MinimumRange (targeting.MINIMUM_RANGE): loaded, seen through
+    # LOADED_NOT_RUN, and each entry turns red ON PURPOSE when its key flips (rewrite that
+    # docs/mechanics.md row, then drop the entry). The Monk stays on the list under every value:
+    # its two damages come with no times, so no `variable_damage` block is written for it.
     want = {
         "InfernoDragon": "VariableDamage2",
         "Mortar": "MinimumRange",
@@ -343,6 +356,16 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # columns now run (LOADED_NOT_RUN reads the shipped value), and they were its only unread ones. The WHOLE
     # delta: the outside sets before and after the flip differ by Assassin alone. The Mega Knight and the
     # Electro Giant stay (the jump's push and the deploy blow; ReflectAttackCrownTowerDamage).
+    # NOT MOVED on 2026-09-26, when card.rs began loading twenty-odd more columns and keys
+    # behind calibration arms that ship off (the ramp, the hook, the recoil, the minimum range,
+    # hovering, the death projectile, the spawn and deploy areas, the range projectile's
+    # columns, the raw-read MultipleProjectiles / MultipleTargets / CustomFirstProjectile): every
+    # one is in LOADED_NOT_RUN, so the same cards stay flagged with the same slice gaps (75 on the table before the eight-key flip).
+    # Measured with the engine catalogue stood in by crates/royalesim/tests/loadable_census.rs's
+    # LOADABLE_15535 (no built module) and the register present. Retiring the three projectile
+    # slice gaps instead, as the loader reading their fields suggested, took that 75 to 72: the Baby
+    # Dragon's gaps, the Mega Minion, the Skeleton Dragons and the mounted Merge Maiden left the
+    # report while the shipped engine still never read those columns for them.
     outside_by_vintage = {"2018": 40, "15.535": 74}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"

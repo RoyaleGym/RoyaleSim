@@ -62,6 +62,9 @@ SKIP_SECTIONS = {"STATS", "EXT", "VARIABLE", "DAMAGE_TYPE", "SHAPE", "TARGET_RES
 
 # A field whose NAME matches this is cosmetic: animation, sound, sprite, UI. It never reaches the
 # tick. Whitelisted mechanic fields that would otherwise match are listed right after.
+# Hovering left this list on 2026-09-26: it reaches the tick (the Battle Healer and the Royal
+# Ghost cross the river without a leap; calibration pathfinding.HOVERING_WATER_RULE), and
+# tools/extract_cards.py carries it as `hovering`, so it is now in a 15.535 character row's `raw`.
 COSMETIC = re.compile(
     r"(Effect|Export|FileName|Filename|File$|Clip|Anim|Frame|Scale|Shadow|Icon|^TID|Sound|Audio|Color|Prestige|Label|Sprite|"
     r"Layer|HealthBar|HealthNumber|Indicator|Skin|Popover|Visual|SWF|Placeholder|Highres|Pivot|Alpha|Wobble|Tribe|^Rarity$|"
@@ -79,7 +82,7 @@ COSMETIC = re.compile(
     r"CustomDummyObjectLabel|^SegHpPercentage$|HasIntroAnim|HasDamageVisualPivot|EffectAbsolutePosition|SecondaryEffect|"
     r"LoopSecondaryEffect|Wobble|VisualWaitTime|UseLerpForSouls|FlipPivot|DamageLevelTransition|ProjectileYOffset|"
     r"ProjectileOffsetToCharacterLookDirection|ShakesTargets|ShakesShooter|AttackShakeTime|RotateAngleSpeed|TurretMovement|"
-    r"UseCustomMovement|HideWhenDelayed|CustomStateNumber|Hovering|StretchingClip|StretcingClip|PullEnd(Clip|Idle|Grab)|"
+    r"UseCustomMovement|HideWhenDelayed|CustomStateNumber|StretchingClip|StretcingClip|PullEnd(Clip|Idle|Grab)|"
     r"PullStartEffect|PullGrabEffect|Capture(Animation)|IdleAnimation|GrabPointOffset|PullCenterOffset|PullFileName|"
     r"AbilityAnimationController|ReplacementFileName|ReplacementExportName|PlaceholderInstanceName|ContextMode|PlaybackDuration|"
     r"^IconFile$|^HighresImageFilename$|^HighresPlaceholderAsset$|^IconSWF$|CharacterSkin|PveDefenseType|^PrestigeCount$|"

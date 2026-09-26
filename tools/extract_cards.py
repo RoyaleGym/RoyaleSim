@@ -916,7 +916,7 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
     b = t["character_buffs"].get(name)
     if b is None:
         return None
-    return {
+    out = {
         "name": name,
         # Encoding of these three is UNVERIFIED: Rage ships 135 and
         # IceWizardSlowDown ships -35, which reads as "positive = absolute
@@ -950,6 +950,12 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
             flag(b, "HitTickFromSource") if isinstance(b, Row) or "HitTickFromSource" in b else None
         ),
     }
+    if isinstance(b, Row):
+        # ControlledByParent (15.535 only, so the 2018 file stays byte-identical): the buff ends
+        # with the area that applies it (the Tornado's), read with the area's ControlsBuff under
+        # calibration status.AREA_BUFF_SOURCE_BINDING.
+        out["controlled_by_parent"] = flag(b, "ControlledByParent")
+    return out
 
 
 def norm_projectile(t: dict[str, Table], name: str | None, chain: tuple[str, ...] = ()) -> dict | None:
@@ -996,6 +1002,11 @@ def norm_projectile(t: dict[str, Table], name: str | None, chain: tuple[str, ...
     }
     if isinstance(p, Row):
         out["action_graph"] = action_graph(t, p)
+        # PingpongVisualTime (15.535 only, like action_graph, so the 2018 file stays byte-identical):
+        # a range projectile that flies out and comes back over this many ms (the Executioner's
+        # axe, 1500), read under calibration combat.RANGE_PROJECTILE. Despite the name it is not
+        # cosmetic (tools/mechanic_register.py KEPT_BY_AUDIT).
+        out["pingpong_visual_time_ms"] = p["PingpongVisualTime"]
     return out
 
 
@@ -1034,6 +1045,10 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
     }
     if isinstance(a, Row):
         out["action_graph"] = action_graph(t, a)
+        # ControlsBuff (15.535 only, so the 2018 file stays byte-identical): the buff this area
+        # applies lives only as long as the area does (the Tornado), read with the buff's own
+        # ControlledByParent under calibration status.AREA_BUFF_SOURCE_BINDING.
+        out["controls_buff"] = flag(a, "ControlsBuff")
     return out
 
 
@@ -1045,11 +1060,36 @@ def unit_record(t: dict[str, Table], name: str) -> tuple[str, dict]:
     raise KeyError(name)
 
 
+def sequence_damage(tb, name: str) -> int | None:
+    """The Damage of a row's AttackSequenceList (15.535 overlays: a list of inline tables,
+    one per attack of the sequence), when EVERY entry carries one and they are all the same
+    number; None otherwise. The Berserker's row leaves Damage blank and ships three entries
+    of 40, so without this its hits resolve to nothing. A sequence whose entries differ, or
+    whose entries carry a projectile instead (the Musketeer's and the Princess's
+    evolutions), is a different mechanic and gives None, so no damage is guessed for it.
+    The list never reaches `raw` (an inline table is not a column value there), so
+    tools/check_card_reads.py has no column to score for it."""
+    seq = tb.arrays.get(name, {}).get("AttackSequenceList")
+    if seq is None:
+        one = tb.get(name).get("AttackSequenceList")
+        seq = [one] if isinstance(one, dict) else None
+    if not seq or not all(isinstance(e, dict) for e in seq):
+        return None
+    dmg = {e.get("Damage") for e in seq}
+    if len(dmg) != 1:
+        return None
+    (d,) = dmg
+    return d if isinstance(d, int) and not isinstance(d, bool) else None
+
+
 def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     table, c = unit_record(t, name)
     defaults: list[str] = []
     proj = norm_projectile(t, c["Projectile"])
-    attacks = c["HitSpeed"] is not None and (c["Damage"] is not None or proj is not None)
+    # A blank Damage with no damaging projectile falls back to the attack sequence's one
+    # Damage (`sequence_damage`: the Berserker's 40, client 15.535.29; 102 at level 11).
+    seq_damage = sequence_damage(t[table], name) if c["Damage"] is None else None
+    attacks = c["HitSpeed"] is not None and (c["Damage"] is not None or proj is not None or seq_damage is not None)
 
     if c["Damage"] is not None:
         damage, dmg_src = c["Damage"], f"{table}.{name}.Damage"
@@ -1059,6 +1099,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         damage, dmg_src = proj["damage"], f"projectiles.{proj['name']}.Damage"
         ct_raw = proj["crown_tower_damage_percent_raw"]
         ct = proj["crown_tower_damage_percent"]
+    elif seq_damage is not None:
+        damage, dmg_src = seq_damage, f"{table}.{name}.AttackSequenceList.Damage"
+        ct_raw = c["CrownTowerDamagePercent"]
+        ct = ct_percent(ct_raw)
     else:
         damage, dmg_src, ct_raw, ct = None, None, c["CrownTowerDamagePercent"], None
     if damage is not None and ct_raw is None:
@@ -1137,6 +1181,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "deploy_time_ms": c["DeathSpawnDeployTime"],
         },
         "death_area_effect": c["DeathAreaEffect"],
+        # DeathSpawnProjectile: the NAME of a `projectiles` row the unit leaves where it dies (the
+        # Phoenix's PhoenixFireball, whose SpawnCharacter is the egg), read under calibration
+        # spawner.DEATH_SPAWN_PROJECTILE. 15.535 rows only (dropped below on 2018 rows).
+        "death_spawn_projectile": c.get("DeathSpawnProjectile"),
         "spawner": None
         if c["SpawnCharacter"] is None
         else {
@@ -1148,6 +1196,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "limit": c["SpawnLimit"],
             "radius_milli": c["SpawnRadius"],
         },
+        # SpawnAreaObject: the NAME of an `area_effect_objects` row the unit puts down where it
+        # appears (the Battle Healer's BattleHealerSpawnHeal), read under calibration
+        # spawner.SPAWN_AREA_OBJECT_SCOPE. SpawnAreaObjectLevelIndex is not carried. 15.535 rows only.
+        "spawn_area_object": c.get("SpawnAreaObject"),
         # THE SUMMON RING'S RADIUS FALLBACK (calibration.json formation.LAYOUT): a
         # card with a blank SummonRadius lays its summons on the character's
         # SpawnRadius when that is set, else its CollisionRadius (the Skeleton
@@ -1217,12 +1269,54 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "height_raw": c["JumpHeight"],
             "speed": c["JumpSpeed"],
         },
+        # Hovering, beside the jump: a ground unit that crosses the river without a leap (the
+        # Battle Healer, the Royal Ghost), priced like a jumper by the path search under
+        # calibration pathfinding.HOVERING_WATER_RULE. 15.535 rows only (dropped below on 2018
+        # rows); null where the table has no such column.
+        "hovering": flag(c, "Hovering") if isinstance(c, Row) else None,
         "hides_when_not_attacking": flag(c, "HidesWhenNotAttacking"),
         "hide_time_ms": c["HideTimeMs"],
         "up_time_ms": c["UpTimeMs"],
         "buff_on_damage": None
         if c["BuffOnDamage"] is None
         else {"buff": norm_buff(t, c["BuffOnDamage"]), "time_ms": c["BuffOnDamageTime"]},
+        # THE DAMAGE RAMP (VariableDamage2 / VariableDamage3 / VariableDamageTime1 /
+        # VariableDamageTime2): a hit deals Damage, then damage2, then damage3 as the attack
+        # progress on one target passes time1_ms and time1_ms + time2_ms (calibration
+        # combat.VARIABLE_DAMAGE). Written only when ALL FOUR are set (Inferno Tower, Inferno Dragon,
+        # Mighty Miner): the loader refuses a half-blank block, and the Monk and the Mega Monk carry
+        # the two damages with no times, which is not this ramp -- their columns stay in `raw`,
+        # unread, rather than be given times the table does not have. 15.535 rows only.
+        "variable_damage": None
+        if c.get("VariableDamage2") is None
+        or c.get("VariableDamage3") is None
+        or c.get("VariableDamageTime1") is None
+        or c.get("VariableDamageTime2") is None
+        else {
+            "damage2": c.get("VariableDamage2"),
+            "damage3": c.get("VariableDamage3"),
+            "time1_ms": c.get("VariableDamageTime1"),
+            "time2_ms": c.get("VariableDamageTime2"),
+        },
+        # AttackPushBack: the recoil of each of the unit's own attacks, away from its target (the
+        # Sparky 750, the Firecracker 1000), under calibration knockback.ATTACK_PUSHBACK. 15.535
+        # rows only.
+        "attack_pushback_milli": c.get("AttackPushBack"),
+        # THE SPECIAL (SpecialRange / SpecialMinRange / SpecialLoadTime / ProjectileSpecial): the
+        # Fisherman's hook, under calibration combat.SPECIAL_HOOK. `projectile` is the
+        # ProjectileSpecial row in the shape of every projectile object, and `drag_margin_milli`
+        # that row's DragMargin, which the projectile object does not carry. Written when
+        # SpecialRange is set (the Firecracker evolution names a ProjectileSpecial with no range,
+        # which is not this special). 15.535 rows only.
+        "special": None
+        if c.get("SpecialRange") is None
+        else {
+            "range_milli": c.get("SpecialRange"),
+            "min_range_milli": c.get("SpecialMinRange"),
+            "load_time_ms": c.get("SpecialLoadTime"),
+            "projectile": norm_projectile(t, c.get("ProjectileSpecial")),
+            "drag_margin_milli": (t["projectiles"].get(c.get("ProjectileSpecial")) or {}).get("DragMargin"),
+        },
         # THE REFLECT (ReflectedAttackDamage / ReflectAttackCrownTowerDamage / ReflectedAttackRadius /
         # ReflectedAttackBuff / ReflectedAttackBuffDuration): a melee hit on the unit is answered
         # with damage and a stun on the attacker (calibration.json combat.REFLECT_ATTACK). 15.535
@@ -1248,6 +1342,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     }
     if u["reflected_attack"] is None:
         del u["reflected_attack"]
+    if not isinstance(c, Row):
+        # The 2018 file stays byte-identical: it does not grow the keys written for the 15.535
+        # rows alone (UNIT_FIELDS_15535).
+        for k in UNIT_FIELDS_15535:
+            del u[k]
     if isinstance(c, Row):
         # 15.535: the scripted actions the row reaches (None when it names none).
         u["action_graph"] = action_graph(t, c)
@@ -1394,6 +1493,19 @@ UNIT_FIELDS_FOR_CARD = [
     "defaults_applied",
 ]
 
+# Unit fields written on the 15.535 rows only (`norm_unit` drops them from a 2018 row, so the
+# 2018 file stays byte-identical), and copied onto the card and tower rows built from those
+# units beside UNIT_FIELDS_FOR_CARD. A spell card row carries none of them (absent reads as
+# blank in card.rs).
+UNIT_FIELDS_15535 = [
+    "death_spawn_projectile",
+    "spawn_area_object",
+    "hovering",
+    "variable_damage",
+    "attack_pushback_milli",
+    "special",
+]
+
 
 def level_scaling(t: Tables, rarities: dict, rarity: str, object_rarity: str | None = None) -> dict:
     """The per-card ladder (module doc, LEVEL SCALING). `rarity` is the CARD's
@@ -1518,6 +1630,26 @@ def resolve_summon(t: dict, key: str, s: dict) -> dict:
     raise SystemExit(f"{key}.{name}: no SummonCharacter and no resolvable spawn graph")
 
 
+def deploy_area_effect(t: dict, s: dict, character: str) -> str | None:
+    """The card row's AreaEffectObject (spells_characters / spells_buildings) when that area is
+    the deploy of the card's own unit: its OnStartingAction graph spawns exactly one character,
+    `character`, straight from the area with no second area in between. The Electro Wizard's
+    ElectroWizardZap and the Ice Wizard's IceWizardCold: the zap and the chill land where the
+    wizard appears (calibration spells.DEPLOY_AREA_EFFECT). None for every other card, and for
+    TriWizards, whose TriWizardSpawn spawns two wizards through two further areas: that is not
+    one area on one unit, and its zap and chill are not carried."""
+    name = s.get("AreaEffectObject")
+    if not isinstance(name, str) or not name or "actions" not in t:
+        return None
+    found = spawned_characters(t, name)
+    if len(found) != 1:
+        return None
+    unit, path = found[0]
+    if unit != character or path.count("area_effect_objects.") != 1:
+        return None
+    return name
+
+
 def summon_card(t, rarities, kind, key, s) -> dict:
     res = resolve_summon(t, key, s)
     u = norm_unit(t, res["character"])
@@ -1531,6 +1663,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     }
     for f in UNIT_FIELDS_FOR_CARD:
         card[f] = u[f]
+    for f in UNIT_FIELDS_15535:
+        if f in u:
+            card[f] = u[f]
     if "action_graph" in u:
         card["action_graph"] = u["action_graph"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
@@ -1570,6 +1705,10 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["second_summon"] = {"character": second, "count": res["others"].count(second)}
     if not res["source"].endswith(".SummonCharacter"):
         card["summon_resolution"] = {"source": res["source"], "characters": [res["character"], *res["others"]]}
+    if not t.vintage.is_2018:
+        # 15.535 only, so the 2018 file stays byte-identical: the card row's own AreaEffectObject
+        # column when that area IS the deploy of the card's unit (`deploy_area_effect`).
+        card["deploy_area_effect"] = deploy_area_effect(t, s, res["character"])
     card["deploy_projectile"] = norm_projectile(t, s["Projectile"])
     # The ladder is the UNIT row's Rarity (15.535: Common on every base card, so a
     # Rare card scales on the Common ladder from unified level 1; module doc).
@@ -1741,6 +1880,9 @@ def build(t: Tables) -> dict:
         }
         for f in UNIT_FIELDS_FOR_CARD:
             rec[f] = u[f]
+        for f in UNIT_FIELDS_15535:
+            if f in u:
+                rec[f] = u[f]
         if "reflected_attack" in u:
             rec["reflected_attack"] = u["reflected_attack"]
         rec["count"] = 1
