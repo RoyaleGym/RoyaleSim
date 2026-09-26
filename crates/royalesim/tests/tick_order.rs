@@ -130,9 +130,12 @@ fn a_knight_whose_skeleton_target_dies_walks_the_tick_after_it_is_gone() {
     // tick later under the shipped attack cycle (its Move pass runs before the
     // Attack that leaves the cycle); the comment on `walks` below says why.
     for mut cfg in [config(), legacy_config()] {
-        // combat.POST_KILL_RETARGET_WAIT pinned to none: under the measured list a Knight
-        // waits 6 ticks after its kill before it walks. This test is about the TICK ORDER;
-        // the wait is pinned in tests/test_post_kill_retarget_wait.py.
+        // combat.POST_KILL_RETARGET_WAIT pinned to none: under the shipped arm,
+        // client16402_attack_finish (as under the measured list before it), a Knight waits
+        // 6 ticks after its own kill before it walks, its attack progress being past 0 at
+        // the kill. This test is about the TICK ORDER; the wait is pinned in
+        // tests/test_post_kill_retarget_wait.py (the Knight, under both arms) and
+        // tests/test_post_kill_retarget_condition.py (who waits under the shipped arm).
         cfg.calib.post_kill_wait = PostKillWait::None;
         let order = cfg.calib.tick_order;
         let mut s = bare(cfg);

@@ -1117,18 +1117,21 @@ calib_enum!(
 calib_enum!(
     /// combat.POST_KILL_RETARGET_WAIT -- what a unit does in the ticks after its target dies.
     PostKillWait {
-        /// Today's engine: the next Target phase takes the next target (the loss + 1).
+        /// The engine before the wait: the next Target phase takes the next target (the loss + 1).
         None = "none",
         /// Measured on both clients for the LISTED units: held as attacking with no target and
         /// standing still, the attack timer frozen and zeroed on the loss + 5, the next target
-        /// taken on the loss + 6 even with another enemy already in range. Unlisted units keep
-        /// today's behaviour (the list predates the condition, `AttackFinish`).
+        /// taken on the loss + 6 even with another enemy already in range. Unlisted units take
+        /// the next target on the loss + 1, as under `None`. It shipped first; the condition,
+        /// `AttackFinish`, explains the list and replaced it as the shipped arm.
         MeasuredList = "client16402_measured_list",
         /// The CONDITION (measured per event on the 16.402 corpus, 1,138 of 1,152): the wait
-        /// is skipped when (a) the unit is on value.attack_finish_override_units (the 15.535
-        /// OverrideAttackFinishTime cards), (b) its attack progress is 0 at the loss, or (c) its
+        /// is skipped when (a) the unit is on value.attack_finish_override_units (four of the
+        /// 15.535 OverrideAttackFinishTime units; the column marks three more, see the ledger's
+        /// open), (b) its attack progress is 0 at the loss, or (c) its
         /// card has a projectile and its victim was doomed on its last live tick
-        /// (entity.rs `target_doomed`); every other unit waits, whatever its name.
+        /// (entity.rs `target_doomed`); every other unit waits, whatever its name. It is the
+        /// shipped arm (tests/post_kill_wait.rs pins it).
         AttackFinish = "client16402_attack_finish",
     }
 );
@@ -3559,9 +3562,11 @@ impl BattleState {
         };
         for &(i, d) in &decisions {
             let e = &mut self.ents;
-            // combat.POST_KILL_RETARGET_WAIT = client16402_measured_list. The loss L is the victim's
-            // death tick (the first frame whose target reads none); this Target phase, L + 1, is the
-            // first to find the target dead. A LISTED unit then holds with no target -- the
+            // combat.POST_KILL_RETARGET_WAIT, either waiting arm. The loss L is the victim's death
+            // tick (the first frame whose target reads none); this Target phase, L + 1, is the first
+            // to find the target dead. A unit the arm makes wait (a LISTED unit under
+            // client16402_measured_list; under the shipped client16402_attack_finish, one that none
+            // of (a)-(c) below frees) then holds with no target -- the
             // decision below is not taken, whatever it found, an enemy already in range included --
             // for L + 1 .. L + 5, its attack timer zeroed on L + 5, and takes this phase's decision
             // on L + 6. The hold keeps it out of the walk (the Path phase holds a waiting unit like

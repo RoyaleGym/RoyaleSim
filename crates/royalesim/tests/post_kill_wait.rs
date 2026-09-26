@@ -1,20 +1,38 @@
-//! combat.POST_KILL_RETARGET_WAIT's unit list is matched by NAME against each unit's `unit_name` (the
-//! game's unit name, so Goblin_Stab for a Goblins or Goblin Gang member), and a misspelt or wrong-
-//! vocabulary entry is not an error anywhere else: that unit would simply never wait. This pins that
-//! every listed name is a unit the card table knows, loadable or refused with a reason, and that the
-//! multi-unit cards resolve to their unit (the case that first failed here: Goblin_Stab matched nothing).
-//! The behaviour itself is pinned in tests/test_post_kill_retarget_wait.py (Python, through the
-//! module's calibration_overrides, on the measured arm and the old one).
+//! combat.POST_KILL_RETARGET_WAIT names units in two lists, both matched by NAME against each unit's
+//! `unit_name` (the game's unit name, so Goblin_Stab for a Goblins or Goblin Gang member):
+//! value.attack_finish_override_units, clause (a) of the shipped arm client16402_attack_finish, and
+//! value.units, read only by the client16402_measured_list arm, which shipped before it and stays a
+//! candidate. A misspelt or wrong-vocabulary entry is not an error anywhere else: that unit would
+//! simply never match. This pins which arm ships, that every listed name is a unit the card table
+//! knows, loadable or refused with a reason, and that the multi-unit cards resolve to their unit (the
+//! case that first failed here: Goblin_Stab matched nothing).
+//! The behaviour itself is pinned in Python, through the module's calibration_overrides:
+//! tests/test_post_kill_retarget_condition.py for the shipped arm (and the shipped build with no
+//! override), tests/test_post_kill_retarget_wait.py for the list arm and for the Knight's wait under
+//! both arms.
 mod common;
 
 use common::cards;
-use royalesim::state::Calib;
+use royalesim::state::{Calib, PostKillWait};
+
+/// The shipped arm, asserted, so a ledger change re-points this file and the two Python files
+/// rather than leaving them describing an arm that no longer ships.
+#[test]
+fn the_shipped_arm_is_the_attack_finish_condition() {
+    let c = Calib::shipped();
+    assert_eq!(c.post_kill_wait, PostKillWait::AttackFinish, "combat.POST_KILL_RETARGET_WAIT's shipped value.arm");
+    assert_eq!(
+        PostKillWait::from_calibration_name("client16402_measured_list"),
+        Some(PostKillWait::MeasuredList),
+        "the list arm stays a loadable candidate"
+    );
+}
 
 #[test]
 fn every_unit_on_the_post_kill_wait_list_is_one_the_card_table_knows() {
     let c = Calib::shipped();
     let db = cards();
-    assert!(!c.post_kill_wait_units.is_empty(), "the list is empty, so nothing could ever wait");
+    assert!(!c.post_kill_wait_units.is_empty(), "value.units is empty, so under the list arm nothing could ever wait");
     assert_eq!(c.post_kill_wait_ticks, 6, "the measured loss-to-next-target interval");
     for u in &c.post_kill_wait_units {
         let loaded = (0..db.cards.len()).any(|i| db.get(i as u16).unit_name == *u);
@@ -27,7 +45,7 @@ fn every_unit_on_the_post_kill_wait_list_is_one_the_card_table_knows() {
 fn every_attack_finish_override_unit_is_one_the_card_table_knows() {
     let c = Calib::shipped();
     let db = cards();
-    assert_eq!(c.post_kill_wait_override_units.len(), 4, "the four 15.535 OverrideAttackFinishTime cards");
+    assert_eq!(c.post_kill_wait_override_units.len(), 4, "the four names clause (a) reads");
     for u in &c.post_kill_wait_override_units {
         let loaded = (0..db.cards.len()).any(|i| db.get(i as u16).unit_name == *u);
         let refused = db.rejected.iter().any(|(n, _)| n == u);

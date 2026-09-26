@@ -1,23 +1,29 @@
 """The post-kill retarget wait decided by the attack-finish condition (combat.POST_KILL_RETARGET_WAIT =
 client16402_attack_finish).
 
-WHAT THIS PINS. A unit whose target is removed takes its next target after 1 tick if its card sets
-OverrideAttackFinishTime, or its attack progress is 0 on the loss tick, or it has a Projectile and its victim was
-already doomed (the homing shots flying at the victim covered its hitpoints on its last live tick). Otherwise it
-waits the 250 ms attack-finish time: 6 ticks. The ledger entry carries the 16.402 evidence (1,138 of 1,152 events).
+WHAT THIS PINS. A unit whose target is removed takes its next target after 1 tick if it is one of the four units
+named in value.attack_finish_override_units (cards that set OverrideAttackFinishTime; the column marks three more,
+which the engine does not read yet), or its attack progress is 0 on the loss tick, or it has a Projectile and its
+victim was already doomed (the homing shots flying at the victim covered its hitpoints on its last live tick).
+Otherwise it waits the 250 ms attack-finish time: 6 ticks. The ledger entry carries the 16.402 evidence (1,138 of
+1,152 events).
+It is the SHIPPED arm since 2026-09-25: the tests below pin each arm by name through the battle's calibration, and
+the last one runs the shipped build with no override at all.
 
 THE PAIR THAT SEPARATES THE ARMS. The same Musketeer, with a second red Skeleton waiting in its reach:
   A. it kills its first Skeleton with its own shot: the shot was in flight at the victim, so the victim was doomed
      -> 1 tick;
   B. a blue Knight kills that Skeleton first, while the Musketeer is winding up with no shot fired: not doomed
      -> 6 ticks.
-The measured-list arm (and today's engine) give the Musketeer 1 in both, so B is the discriminating case, and A is
-its control. Each scenario asserts its own premise (a shot in flight at the victim, or none), so a geometry change
-that loses the point fails loudly rather than passing.
+The list arm (client16402_measured_list, shipped before this one) and none give the Musketeer 1 in both, so B is
+the discriminating case, and A is its control. Each scenario asserts its own premise (a shot in flight at the
+victim, or none), so a geometry change that loses the point fails loudly rather than passing.
 
 NOT PINNED HERE: the override clause. Valkyrie's own first hit kills its victim with its progress reset, so clause
 (b) would give 1 anyway; the four named cards rest on the corpus (Valkyrie 7/7, Bowler 7/7, Princess 3/3,
-ElectroWizard 1/1 at 1 tick).
+ElectroWizard 1/1 at 1 tick). Nor is it pinned anywhere else: crates/royalesim/tests/post_kill_wait.rs checks only
+that the four names load. The missing test frees a unit by clause (a) alone: another unit kills its target while
+its attack progress is past 0 and it has no projectile (1 tick; 6 with its name taken off the list).
 """
 
 from __future__ import annotations
@@ -52,9 +58,9 @@ def arm(name: str) -> dict:
     return {KEY: json.dumps({**value, "arm": name})}
 
 
-def musketeer_first_loss(units: list, overrides: dict) -> dict:
+def musketeer_first_loss(units: list, overrides: dict | None) -> dict:
     """The Musketeer's first target, the tick it is lost, the tick of the next one, and the shots flying at the
-    victim on its last live tick."""
+    victim on its last live tick. `overrides` None runs the shipped build."""
     b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
     b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, units)
     first = loss = None
@@ -95,6 +101,20 @@ def test_the_list_arm_gives_the_musketeer_one_either_way():
     assert (a["wait"], b["wait"]) == (1, 1), f"the list arm gave {a['wait']} and {b['wait']}"
 
 
-def test_the_none_arm_is_todays_engine():
+def test_the_none_arm_gives_one():
     b = musketeer_first_loss(SCENARIO_B, arm("none"))
-    assert b["wait"] == 1, f"the none arm must reproduce today's engine (1); it gave {b['wait']}"
+    assert b["wait"] == 1, f"the none arm must reproduce the engine before the wait (1); it gave {b['wait']}"
+
+
+def test_the_shipped_build_runs_the_condition():
+    """No override at all. The compiled-in ledger ships client16402_attack_finish, so the shipped build gives
+    scenario B's 6, where the list arm and none give 1, and scenario A's 1."""
+    ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+    shipped = ledger["combat"]["POST_KILL_RETARGET_WAIT"]["value"]["arm"]
+    assert shipped == "client16402_attack_finish", f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    b = musketeer_first_loss(SCENARIO_B, None)
+    assert b["shots_at_victim"] == 0, f"scenario B lost its point: a shot was flying at the victim ({b})"
+    assert b["wait"] == 6, f"the shipped build freed the Musketeer after {b['wait']}; an undoomed victim holds it 6"
+    a = musketeer_first_loss(SCENARIO_A, None)
+    assert a["shots_at_victim"] >= 1, f"scenario A lost its point: no Musketeer shot was flying at the victim ({a})"
+    assert a["wait"] == 1, f"the shipped build held the Musketeer {a['wait']} after a doomed victim; the game takes 1"
