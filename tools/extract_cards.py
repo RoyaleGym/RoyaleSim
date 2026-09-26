@@ -1326,7 +1326,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # rows); null where the table has no such column.
         "hovering": flag(c, "Hovering") if isinstance(c, Row) else None,
         "hides_when_not_attacking": flag(c, "HidesWhenNotAttacking"),
-        "hide_time_ms": c["HideTimeMs"],
+        # HideTimeMs is the hide state machine's (the Tesla's), so a 15.535 row that does not hide
+        # carries none: the Royal Ghost ships 400 beside a blank HidesWhenNotAttacking. The 2018
+        # rows keep what they wrote, so that file stays byte-identical.
+        "hide_time_ms": c["HideTimeMs"] if (not isinstance(c, Row) or flag(c, "HidesWhenNotAttacking")) else None,
         "up_time_ms": c["UpTimeMs"],
         "buff_on_damage": None
         if c["BuffOnDamage"] is None
@@ -1406,6 +1409,18 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         ls = life_state_spawner(t, c)
         if ls is not None:
             u["life_state_spawner"] = ls
+        # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
+        # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
+        # every other row are unchanged.
+        idle = c["BuffWhenNotAttacking"]
+        idle_row = t["character_buffs"].get(idle) if isinstance(idle, str) and idle else None
+        if idle_row is not None and flag(idle_row, "Invisible"):
+            u["idle_invisibility"] = {
+                "buff": idle,
+                "time_ms": c["BuffWhenNotAttackingTime"],
+                "use_attack_range": flag(c, "BuffWhenNotAttackingUseAttackRange"),
+                "area_damage_when_invisible": flag(c, "AllowAreaDmgWhenInvisible"),
+            }
         # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
         # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
         # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
@@ -1726,6 +1741,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["action_graph"] = u["action_graph"]
     if "life_state_spawner" in u:
         card["life_state_spawner"] = u["life_state_spawner"]
+    if "idle_invisibility" in u:
+        card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:

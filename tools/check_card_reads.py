@@ -194,6 +194,13 @@ PROLOGUE = {
     "JumpSpeed": "dash.speed",
     "DashConstantTime": "dash.constant_time_ms",
     "DashLandingTime": "dash.landing_time_ms",
+    # The idle invisibility (the Royal Ghost), written after the literal on the 15.535 rows whose
+    # idle buff's own row sets Invisible; that buff column is read off the buff row.
+    "BuffWhenNotAttacking": "idle_invisibility.buff",
+    "BuffWhenNotAttackingTime": "idle_invisibility.time_ms",
+    "BuffWhenNotAttackingUseAttackRange": "idle_invisibility.use_attack_range",
+    "AllowAreaDmgWhenInvisible": "idle_invisibility.area_damage_when_invisible",
+    "Invisible": "idle_invisibility",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was

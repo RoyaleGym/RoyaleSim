@@ -178,6 +178,37 @@ pub fn hidden_from_targeting(calib: &Calib, e: &Entities, c: usize) -> bool {
     }
 }
 
+/// INVISIBLE WHEN IDLE (targeting.INVISIBILITY = client_until_hit; card.rs `CardDef::invisible_when_idle`), measured on
+/// client 15.535.29 on the Royal Ghost: invisible from its deploy; its own hit reveals it, and enemies may target it
+/// from the tick after (`reveal_from`, set in the attack pass: the enemies' targeting on the hit tick runs before the
+/// hit); it hides again INVIS_VISIBLE_AFTER_HIT_EXTRA ticks past its idle time after that (one sample: hit + 46 for the
+/// 2000 ms idle time, which attack end + 40 fits equally). Only targeting reads it: area damage lands on an invisible
+/// unit.
+#[inline]
+pub fn invisible(ctx: &TargetCtx, c: usize) -> bool {
+    if ctx.calib.invisibility != crate::state::Invisibility::ClientUntilHit {
+        return false;
+    }
+    let Some(idle_ms) = ctx.cards.get(ctx.ents.card[c]).invisible_when_idle else { return false };
+    let from = ctx.ents.reveal_from[c];
+    if from == 0 {
+        return true;
+    }
+    #[cfg(not(clash_plant = "rehide_never"))]
+    let until = from + (idle_ms / ctx.calib.tick_ms.max(1)) as u32 + INVIS_VISIBLE_AFTER_HIT_EXTRA;
+    #[cfg(clash_plant = "rehide_never")]
+    let until = {
+        let _ = idle_ms;
+        u32::MAX // PLANT: once revealed, never hidden again.
+    };
+    ctx.tick < from || ctx.tick >= until
+}
+
+/// targeting.INVISIBILITY: the ticks an invisible unit stays visible after its idle time, counted from the tick after
+/// its hit. Measured on client 15.535.29 (one sample): an enemy tower held the Royal Ghost on hit + 1 .. hit + 45 and
+/// dropped it on hit + 46, with an idle time of 2000 ms (40 ticks).
+pub const INVIS_VISIBLE_AFTER_HIT_EXTRA: u32 = 5;
+
 /// hide.RISE_LAW = client16402_surface_attacking: a hidden building that wakes surfaces straight
 /// into its attack. Its wake enters Rising with no timer (state.rs `hide_pass`), and on that one
 /// tick it takes its target and runs its attack cycle as an Up building does (`hide_acts`), while
@@ -217,6 +248,12 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     }
     #[cfg(not(clash_plant = "hidden_targetable"))]
     if hidden_from_targeting(ctx.calib, e, c) {
+        return false;
+    }
+    // targeting.INVISIBILITY = client_until_hit: an invisible unit (the Royal Ghost) is nobody's target, a kept one
+    // included -- going invisible drops a lock (measured on client 15.535.29).
+    #[cfg(not(clash_plant = "invisible_targetable"))]
+    if invisible(ctx, c) {
         return false;
     }
     // formation.STAGGER_WAIT: a member still waiting out its deploy stagger is nobody's target

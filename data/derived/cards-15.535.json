@@ -7186,7 +7186,7 @@
    "dash": null,
    "jump": null,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "defaults_applied": [
@@ -7201,6 +7201,12 @@
    "attack_pushback_milli": null,
    "special": null,
    "action_graph": null,
+   "idle_invisibility": {
+    "buff": "Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -12584,6 +12590,12 @@
    "attack_pushback_milli": null,
    "special": null,
    "action_graph": null,
+   "idle_invisibility": {
+    "buff": "BushInvisibility",
+    "time_ms": null,
+    "use_attack_range": false,
+    "area_damage_when_invisible": true
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -24638,7 +24650,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -24651,6 +24663,12 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "idle_invisibility": {
+    "buff": "Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": false
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "GhostOverlay",
@@ -24726,7 +24744,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -24739,6 +24757,12 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "idle_invisibility": {
+    "buff": "Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Ghost",
@@ -36698,7 +36722,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -36724,6 +36748,12 @@
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "idle_invisibility": {
+    "buff": "Ghost_EV1_Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -36809,7 +36839,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -36833,6 +36863,12 @@
      "BuffType:Invisibility"
     ],
     "mechanic": true
+   },
+   "idle_invisibility": {
+    "buff": "Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -36912,7 +36948,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -36935,6 +36971,12 @@
     ],
     "spawns": [],
     "mechanic": false
+   },
+   "idle_invisibility": {
+    "buff": "Ghost_EV1_Summon_Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -37020,7 +37062,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -37043,6 +37085,12 @@
     ],
     "spawns": [],
     "mechanic": false
+   },
+   "idle_invisibility": {
+    "buff": "Ghost_EV1_Summon_Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -37128,7 +37176,7 @@
    "jump": null,
    "hovering": true,
    "hides_when_not_attacking": false,
-   "hide_time_ms": 400,
+   "hide_time_ms": null,
    "up_time_ms": null,
    "buff_on_damage": null,
    "variable_damage": null,
@@ -37151,6 +37199,12 @@
     ],
     "spawns": [],
     "mechanic": false
+   },
+   "idle_invisibility": {
+    "buff": "Ghost_EV1_Summon_Invisibility",
+    "time_ms": 2000,
+    "use_attack_range": true,
+    "area_damage_when_invisible": true
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -40530,6 +40584,12 @@
     ],
     "mechanic": true
    },
+   "idle_invisibility": {
+    "buff": "GhostInvisibility",
+    "time_ms": null,
+    "use_attack_range": false,
+    "area_damage_when_invisible": false
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "RageBarbarian",
@@ -41460,6 +41520,12 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "idle_invisibility": {
+    "buff": "BushInvisibility",
+    "time_ms": null,
+    "use_attack_range": false,
+    "area_damage_when_invisible": true
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",

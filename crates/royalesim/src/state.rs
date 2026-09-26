@@ -456,6 +456,10 @@ pub struct Calib {
     pub life_state_wake_targets: LifeWakeTargets,
     #[serde(default = "action_spawner_spawn_speed_default")]
     pub action_spawner_spawn_speed: ActionSpawnSpeed,
+    /// targeting.INVISIBILITY (target.rs `invisible`). Added after SNAPSHOT_FORMAT 20; no battle saved before it held
+    /// an invisible unit.
+    #[serde(default = "invisibility_default")]
+    pub invisibility: Invisibility,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -1002,6 +1006,10 @@ fn life_state_wake_targets_default() -> LifeWakeTargets {
 
 fn action_spawner_spawn_speed_default() -> ActionSpawnSpeed {
     ActionSpawnSpeed::Buffed
+}
+
+fn invisibility_default() -> Invisibility {
+    Invisibility::ClientUntilHit
 }
 
 macro_rules! calib_enum {
@@ -2102,6 +2110,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.INVISIBILITY -- whether an invisible-when-idle unit (the Royal Ghost) can be targeted (target.rs
+    /// `invisible`).
+    Invisibility {
+        /// Measured on client 15.535.29: invisible from its deploy until its own hit, visible from the next tick,
+        /// hidden again after its idle time, the lock dropped; area damage lands on it throughout.
+        ClientUntilHit = "client_until_hit",
+        /// The idle buff is not read: always targetable.
+        NotRead = "not_read",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -2948,6 +2967,7 @@ impl Calib {
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
+            invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -7940,6 +7960,12 @@ impl BattleState {
             }
             self.ents.attack_ms[i] = step.ms;
             self.ents.attack_load_ms[i] = step.load_ms;
+            // targeting.INVISIBILITY: a hit reveals an invisible-when-idle unit from the next tick (target.rs
+            // `invisible`).
+            #[cfg(not(clash_plant = "reveal_never"))]
+            if step.fired_at.is_some() && self.cfg.cards.get(self.ents.card[i]).invisible_when_idle.is_some() {
+                self.ents.reveal_from[i] = self.tick + 1;
+            }
             // hide.HIDE_DELAY_MEANING = time_since_last_shot: a shot re-arms the hide
             // countdown (its own column, in its own iteration).
             if step.fired_at.is_some() && self.cfg.calib.hide_delay_meaning == HideDelayMeaning::TimeSinceLastShot {
@@ -10448,6 +10474,10 @@ impl BattleState {
                     h.u32(e.life_target[i].map_or(0, |t| t.generation));
                     h.u32(e.life_n[i]);
                 }
+                #[cfg(not(clash_plant = "hash_skips_reveal"))]
+                if self.cfg.cards.get(e.card[i]).invisible_when_idle.is_some() {
+                    h.u32(e.reveal_from[i]);
+                }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
                 // it did before the columns.
@@ -11143,7 +11173,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -11179,7 +11209,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.minimum_range,
                     c.spark,
                     c.projectile_area,
-                    c.life_state
+                    c.life_state,
+                    c.invisible_when_idle
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -11541,6 +11572,7 @@ impl BattleState {
         snap.ents.life_ms.resize(n, 0);
         snap.ents.life_target.resize(n, None);
         snap.ents.life_n.resize(n, 0);
+        snap.ents.reveal_from.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);

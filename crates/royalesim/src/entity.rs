@@ -225,6 +225,12 @@ pub struct Entities {
     pub life_target: Vec<Option<EntityId>>,
     #[serde(default)]
     pub life_n: Vec<u32>,
+    /// INVISIBLE WHEN IDLE (targeting.INVISIBILITY; target.rs `can_target`): the first tick of the window in which
+    /// an enemy may target this unit, the tick after its last hit (state.rs, the attack pass); 0 before any hit.
+    /// 0 on every other entity, hashed only for a card that carries the idle invisibility. `default` and sized on
+    /// load like `launched_beyond`.
+    #[serde(default)]
+    pub reveal_from: Vec<u32>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -655,6 +661,7 @@ impl Entities {
             self.life_ms[i] = 0;
             self.life_target[i] = None;
             self.life_n[i] = 0;
+            self.reveal_from[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -736,6 +743,7 @@ impl Entities {
             self.life_ms.push(0);
             self.life_target.push(None);
             self.life_n.push(0);
+            self.reveal_from.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);

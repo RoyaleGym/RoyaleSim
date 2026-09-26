@@ -464,6 +464,15 @@
       "provenance": "globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE (vendored 2018)",
       "vintage": "2018 client data",
       "meaning": "UNKNOWN beyond the name. Plausibly orders multi-unit deploys by lane. Not implemented anywhere."
+    },
+    "INVISIBILITY": {
+      "value": "client_until_hit",
+      "status": "measured",
+      "confidence": "HIGH for invisible-until-the-hit and area damage landing (the corpus battle and four scenario runs on client 15.535.29); LOW for the hide-again delay (one sample).",
+      "provenance": "Measured on client 15.535.29 on the Royal Ghost (BuffWhenNotAttacking Invisibility, BuffWhenNotAttackingTime 2000, AllowAreaDmgWhenInvisible). Invisible from its deploy: it walked inside a princess tower's acquisition distance and was never targeted before its first hit. Its own hit reveals it: the tower first targets it on the tick after its first hit in all 4 runs; being in its attack does not (a Zap killed its targets after 11 and 14 frames of attack, and it stayed invisible until its first real hit). It hides again: a tower held it on hit + 1 .. hit + 45 and dropped it on hit + 46, so going invisible drops a lock; attack end + 40 fits that one sample equally. Area damage lands on it while invisible (a Zap for 192 and 10 frames of stun, Arrows 122 three times) and does not reveal it.",
+      "candidates": ["client_until_hit", "not_read"],
+      "promotion_rules": "Settle the hide-again delay (hit + 46 against attack end + 40) and whether a freeze pauses it.",
+      "engine": "target.rs invisible and can_target (INVIS_VISIBLE_AFTER_HIT_EXTRA); state.rs, the attack pass (reveal_from)"
     }
   },
   "collision": {
@@ -1359,7 +1368,8 @@
           "Bat",
           "Tesla",
           "Fisherman",
-          "Hunter"
+          "Hunter",
+          "Ghost"
         ],
         "ticks": 6,
         "attack_finish_override_units": [

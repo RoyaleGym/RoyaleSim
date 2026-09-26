@@ -939,13 +939,17 @@ pub struct CardDef {
     /// THE LIFE-STATE CONTROLLER (the Goblin Hut; `LifeStateDef`, state.rs `life_state_pass`). None on every other
     /// card.
     pub life_state: Option<LifeStateDef>,
+    /// INVISIBLE WHEN IDLE (the Royal Ghost; targeting.INVISIBILITY): `Some(idle ms)` when the row's
+    /// BuffWhenNotAttacking is an invisibility, None on every other card. Read by target.rs `can_target` through
+    /// the entity's `reveal_from`.
+    pub invisible_when_idle: Option<i32>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `life_state`, and onto the end of that tail
+    // field goes HERE, after `invisible_when_idle`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1123,6 +1127,8 @@ struct RawCard {
     action_graph: Option<RawActionGraph>,
     /// The Goblin Hut's controller (`LifeStateDef`), 15.535 only.
     life_state_spawner: Option<RawLifeState>,
+    /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
+    idle_invisibility: Option<RawIdleInvisibility>,
     /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
     /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
     /// Barbarian's bottle dummy). A NAME, and nothing more: FreezeIceGolemite is a
@@ -1362,6 +1368,14 @@ pub struct LifeStateDef {
     pub offset: i32,
     /// SingleDeployOffsetAngle: a wave stands this many degrees to one side of the line to its aim.
     pub offset_angle_deg: i32,
+}
+
+/// cards.json `idle_invisibility`, every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawIdleInvisibility {
+    time_ms: Option<i32>,
+    area_damage_when_invisible: Option<bool>,
 }
 
 /// cards.json `life_state_spawner`, every field nullable.
@@ -2025,6 +2039,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         spark: None,
         projectile_area: None,
         life_state: None,
+        invisible_when_idle: None,
     }
 }
 
@@ -2908,6 +2923,17 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         Some(ls) => Some(life_state_of(ls, &raw.action_graph)?),
     };
     refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
+    // INVISIBLE WHEN IDLE: the idle time, with area damage still landing (AllowAreaDmgWhenInvisible) -- the one
+    // reading the engine runs (target.rs `can_target`); a row that would keep area damage off is refused.
+    let invisible_when_idle = match &raw.idle_invisibility {
+        None => None,
+        Some(iv) => {
+            if !iv.area_damage_when_invisible.unwrap_or(false) {
+                return Err("an invisibility that keeps area damage off is not simulated".into());
+            }
+            Some(iv.time_ms.filter(|t| *t > 0).ok_or("an invisibility with no BuffWhenNotAttackingTime")?)
+        }
+    };
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
     let mut attack_buff: Option<BuffApply> = None;
@@ -3214,6 +3240,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         spark,
         projectile_area: None,
         life_state: life_state.map(|(d, _)| d),
+        invisible_when_idle,
     }, display, units))
 }
 
