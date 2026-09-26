@@ -30,10 +30,9 @@
 //!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 103
 //!      loadable rows (the 101 catalogue cards, then PrincessTower and KingTower) and
 //!      43 rejected ones, and every row of the file is one or the other, once;
-//!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json.
-//!      ITS LISTS ARE A PLACEHOLDER (`PIN_2018`): until they are filled from a build
-//!      of the loader before the change that lands this file, this test FAILS, table
-//!      or no table, and prints the lists to paste;
+//!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
+//!      69 loadable rows (the catalogue, then the towers) and 11 rejected ones, the
+//!      lists the loader gave BEFORE the change that landed this file;
 //!   3. `the_census_of_a_small_file_is_exact`: the census itself on a synthetic file
 //!      (a summon-only unit left out, a row refused before its push and one after,
 //!      the fallback towers last);
@@ -47,7 +46,7 @@
 //! cargo test --test loadable_census`: `from_json_str` keeps a card it rejects after
 //! its push registered, its blocks dropped, running as the plain unit -> 1 red with
 //! ElixirGolem newly loadable and no longer rejected; 2 red with MovingCannon the same,
-//! once its lists are filled (while the placeholder stands it is red anyway); 3, 4 and
+//! read from the loader before this file landed; 3, 4 and
 //! 5 are synthetic and stay green. The two rows are ones no other test pins in that
 //! table, which is the point: a row another test names is covered already. When the
 //! 15.535.29 ElixirGolem loads for real, the plant lands on the 2018 table alone and
@@ -254,16 +253,96 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("WitchMother", "the unit's projectile"),
 ];
 
-/// cards-2018.json: A PLACEHOLDER, NOT A PIN. The 2018 lists could not be read without
-/// a build of this file. TAKE THEM FROM THE LOADER BEFORE THE CHANGE THAT LANDS THIS
-/// FILE, which compiles it unchanged: lists printed by a build of that change would
-/// only restate what it does, and could never show it moving a 2018 row. On that build
-/// run `the_2018_table_loads_exactly_the_pinned_rows`, paste the two constants its
-/// failure prints (`LOADABLE_2018`, `REJECTED_2018`) above this line, set this to
-/// `Some(Pin { loadable: LOADABLE_2018, rejected: REJECTED_2018 })`, and name the bytes
-/// they came from here, as PIN_15535 does. Until then that test FAILS, whether or not
-/// the table is on disk: a placeholder must never read as a pass, or as a skip.
-const PIN_2018: Option<Pin> = None;
+/// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a
+/// 64 2c4978693f313a1a. The lists are what the loader BEFORE the change that landed this file gave for that
+/// file: this file compiled unchanged on its parent, run there, `the_2018_table_loads_exactly_the_pinned_rows`
+/// failing with these two constants as its paste. Lists printed by the change itself would only restate it.
+const PIN_2018: Option<Pin> = Some(Pin { loadable: LOADABLE_2018, rejected: REJECTED_2018 });
+
+const LOADABLE_2018: &[&str] = &[
+    "Knight",
+    "Archer",
+    "Goblins",
+    "Giant",
+    "Pekka",
+    "Minions",
+    "Balloon",
+    "Witch",
+    "Barbarians",
+    "Golem",
+    "Skeletons",
+    "Valkyrie",
+    "SkeletonArmy",
+    "Bomber",
+    "Musketeer",
+    "BabyDragon",
+    "Prince",
+    "Wizard",
+    "MiniPekka",
+    "SpearGoblins",
+    "GiantSkeleton",
+    "HogRider",
+    "MinionHorde",
+    "IceWizard",
+    "RoyalGiant",
+    "SkeletonWarriors",
+    "Princess",
+    "DarkPrince",
+    "ThreeMusketeers",
+    "LavaHound",
+    "IceSpirits",
+    "FireSpirits",
+    "ZapMachine",
+    "Bowler",
+    "BattleRam",
+    "InfernoDragon",
+    "IceGolemite",
+    "MegaMinion",
+    "BlowdartGoblin",
+    "GoblinGang",
+    "ElectroWizard",
+    "AngryBarbarians",
+    "AxeMan",
+    "Assassin",
+    "DarkWitch",
+    "Bats",
+    "MegaKnight",
+    "DartBarrell",
+    "Cannon",
+    "GoblinHut",
+    "Mortar",
+    "InfernoTower",
+    "BombTower",
+    "BarbarianHut",
+    "Tesla",
+    "Xbow",
+    "Tombstone",
+    "FirespiritHut",
+    "Fireball",
+    "Arrows",
+    "Rocket",
+    "GoblinBarrel",
+    "Freeze",
+    "Zap",
+    "Poison",
+    "Log",
+    "Tornado",
+    "PrincessTower",
+    "KingTower",
+];
+const REJECTED_2018: &[(&str, &str)] = &[
+    ("Clone", "own-troop area effect Clone is not simulated"),
+    ("Elixir Collector", "missing hit_speed_ms"),
+    ("Graveyard", "own-troop area effect Graveyard is not simulated"),
+    ("Heal", "own-troop area effect Heal is not simulated"),
+    ("Lightning", "pulsing area effect Lightning pulses no buff"),
+    ("Miner", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 650)"),
+    ("Mirror", "spell with no projectile and no area effect"),
+    ("MovingCannon", "units.BrokenCannon is a troop with a LifeTime"),
+    ("Rage", "own-troop area effect Rage is not simulated"),
+    ("RageBarbarian", "units.RageBarbarianBottle"),
+    ("SkeletonBalloon", "units.SkeletonContainer"),
+];
 
 // ---------------------------------------------------------------------------
 // the census and the comparison
