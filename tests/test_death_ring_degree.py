@@ -38,9 +38,23 @@ ENGINE_POINTS = sorted([(3195, 9261), (3326, 8068)])
 ENGINE_HEADING = (0, -256)
 
 
+#: THE OTHER FLIPPED KEYS, held at their values before the eight-key flip: this file measures its own key on the
+#: scene it was verified on, and another key's measured law moves that scene by a native unit or two.
+HELD = {
+    "targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED": "true",
+    "combat.RETARGET_PROGRESS": "\"keep_when_dead\"",
+    "spawner.SPAWN_POINT": "\"client16402_measured\"",
+    "spawner.DEATH_SPAWN_LAYOUT": "\"facing_ring\"",
+    "targeting.DOOMED_TARGET_DROP": "\"projectile_attackers\"",
+    "pathfinding.ZERO_STEP_WAYPOINT_TEST": "\"skipped\"",
+    "combat.DASH_ATTACK": "\"none\"",
+    "combat.REFLECT_ATTACK": "\"not_read\"",
+}
+
+
 def overrides(arm) -> dict:
     """The battle's calibration pinning `arm` BY NAME."""
-    return {KEY: json.dumps(arm)}
+    return {**{k: v for k, v in HELD.items() if k != KEY}, KEY: json.dumps(arm)}
 
 
 def barbarians(arm):

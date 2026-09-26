@@ -22,7 +22,8 @@ are ranged flyers, so a walking Inferno Dragon (a ranged flyer with no projectil
 damage is below its hitpoints is not doomed. The four controls hold on both arms. The ETA test refuses a rule that
 ignores the 600 ms, and the two-shot test refuses a rule that asks one shot to be lethal on its own.
 
-WHICH ARM. projectile_attackers is the SHIPPED arm since the 2026-09-26 flip. keep is the engine before the flip.
+WHICH ARM. projectile_attackers shipped with the seven-key flip; projectile_attackers_rescan (the same drop, and a
+rescan never takes a doomed unit back) ships since the eight-key flip. keep is the engine before both.
 The tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last
 one runs the shipped build with no override at all.
 """
@@ -330,10 +331,11 @@ def test_the_keep_arm_keeps_the_doomed_target():
 
 
 def test_the_shipped_build_drops_the_doomed_target():
-    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    """No override at all. The compiled-in ledger ships the rescan arm, which drops the doomed target as
+    SHIPPED_ARM does, so the shipped build behaves as the client."""
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
     shipped = ledger["targeting"]["DOOMED_TARGET_DROP"]["value"]
-    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    assert shipped == "projectile_attackers_rescan", f"{KEY} ships {shipped!r}, not the rescan arm"
     states, knight, minions = walk_scene(None)
     doom = Doom(states, knight, firer_card=TOWER_FIRER)
     assert_dropped_for_good(states, doom, knight, minions, doom.d + 1, towers(states))

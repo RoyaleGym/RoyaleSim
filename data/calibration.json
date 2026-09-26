@@ -308,23 +308,11 @@
       "provenance": "globals.csv Flipped with combat.RETARGET_PROGRESS at the 2026-09-26 integration flip (RoyaleSim fc3a790). Reverted alone on that build: sweep -485 within 250 / -70 both alive / -220 hp exact (Skeleton Dragons -310, Battle Ram -261, Hog Rider -247 hp), corpus -1,099 / -1,197 / -1,250 (20260918-124946 -1,166). Every loss sits in a scene where this arm stops masking a mechanism the engine does not model yet: the chase drop (targeting.CHASE_DROP_RANGE; the Battle Ram and the Hog Rider), a walking projectile attacker's doomed target (the Skeleton Dragons) and a Goblin crowd (124946).",
       "supersedes": ["true, status datamined, shipped until the 2026-09-26 integration flip (RoyaleSim fc3a790). Its confidence: 'LOW (true fits 2 of the 10 deciding swings in the recorded corpus, false 8; measured_2026_09_22)'. Its provenance: 'globals.csv'"],
       "meaning": "Once the attack windup begins the target is locked. The old engine recomputed targets from scratch every tick with no lock at all, which silently broke every card mechanic that reads the current target.",
-      "candidates": [
-        true,
-        false,
-        "projectile_attackers_only"
-      ],
+      "candidates": [true, false, "projectile_attackers_only"],
       "measured_2026_09_22": "Read from the attack timers of the recorded corpus (data/derived/replay). The deciding case: a swing under way (attack_progress_ms % HitSpeed > 50), its target out of range by more than LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET (25) and less than LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE, and another valid enemy strictly nearer, edge to edge (the other side, not deploying, a layer the attacker hits, inside its SightRange). Inside range the engine keeps the target under both values, through the 25 hysteresis, so the 8,297 in-range frames with a nearer enemy (8,282 kept, 6 switched, 9 dropped) do not separate them. Ten swings in 6 distinct battles reach the deciding case. Eight, all ground attackers that strike directly (a Valkyrie, a Prince, a Mini P.E.K.K.A, a Knight, three Skeletons and a Goblin), switched to the nearer enemy on the first tick the old target stood 27-122 beyond range, the old target still alive and on the board; the swing ran on (the counter kept adding 50 across the switch) and the next hit landed on the new target. That is what false predicts. Two, both Lava Pups in one battle (20260920-071744-A, key 59 ticks 1941-1949, key 58 tick 1954), kept a Goblin walking out of range (to 578 beyond) while another Goblin stood 150-803 away, fired, and switched only after the hit. That is what true predicts. The two that kept fly and fire a projectile; the eight that switched walk and strike directly; this corpus cannot say which difference matters. A Spear Goblin on a Tombstone is left out: this reading does not measure a building by its footprint. Reproduce from 20260918-121158 (Prince, tick 1638), 20260919-182539-B (Skeleton key 39, tick 545) and 20260920-071744-A (Lava Pup key 59). Recorded on client 16.402 by the client instrument that records ground-truth traces from the real game.",
       "proposed_value": "Not a flip to false: the corpus asks for a lock that depends on the attacker, which no candidate implements. Implement projectile_attackers_only (flying_attackers_only fits the same ten swings), score it against them and the parity run, and leave true until that rebuild.",
-      "history": [
-        {
-          "value": true,
-          "status": "datamined",
-          "confidence": "medium",
-          "provenance": "globals.csv",
-          "date": "2026-09-22",
-          "overturned_by": "confidence only, the value stands until a rebuild: in the replay corpus eight ground melee swings drop an out-of-range target for a nearer enemy mid-swing, and two Lava Pup swings keep theirs"
-        }
-      ]
+      "history": [{"value": true, "status": "datamined", "confidence": "medium", "provenance": "globals.csv", "date": "2026-09-22", "overturned_by": "confidence only, the value stands until a rebuild: in the replay corpus eight ground melee swings drop an out-of-range target for a nearer enemy mid-swing, and two Lava Pup swings keep theirs"}],
+      "supersedes_globals": {"key": "LOGIC_PRESERVE_TARGET_IF_HIT_STARTED", "value": true, "why": "globals.csv's switch is on, for every attacker; measured on client 15.535.29 the hold covers projectile attackers only, so the value names that scope (see the provenance)"}
     },
     "SPAWNED_UNIT_ACQUIRE_DELAY": {
       "value": "client_8th_frame",

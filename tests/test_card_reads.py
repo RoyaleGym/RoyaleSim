@@ -253,9 +253,7 @@ def test_the_report_names_the_cards_the_mechanics_doc_calls_out(cards):
     # ReflectAttackCrownTowerDamage, which no value runs.
     want = {
         "InfernoDragon": "VariableDamage2",
-        "MegaKnight": "DashDamage",
         "Mortar": "MinimumRange",
-        "ElectroGiant": "ReflectedAttackDamage",
         "GoldenKnight": "DashDamage",
         "Monk": "VariableDamage2",
     }
@@ -341,7 +339,11 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # under combat.REFLECT_ATTACK = client_reflect_stun, and ReflectAttackCrownTowerDamage runs
     # under no value, so the flip does not move this pin either. Without that table he left it
     # (75 -> 74) while still playing as a plain giant.
-    outside_by_vintage = {"2018": 40, "15.535": 75}
+    # 75 -> 74 on 2026-09-26: THE BANDIT (Assassin), when combat.DASH_ATTACK shipped client_dash: its dash
+    # columns now run (LOADED_NOT_RUN reads the shipped value), and they were its only unread ones. The WHOLE
+    # delta: the outside sets before and after the flip differ by Assassin alone. The Mega Knight and the
+    # Electro Giant stay (the jump's push and the deploy blow; ReflectAttackCrownTowerDamage).
+    outside_by_vintage = {"2018": 40, "15.535": 74}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

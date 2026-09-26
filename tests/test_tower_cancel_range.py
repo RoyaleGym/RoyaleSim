@@ -41,8 +41,22 @@ TOWER_HIT, KNIGHT_HIT = 109, 202
 KNIGHT_ON_GIANT = 2450
 
 
+#: THE OTHER FLIPPED KEYS, held at their values before the eight-key flip: this file measures its own key on the
+#: scene it was verified on, and another key's measured law moves that scene by a native unit or two.
+HELD = {
+    "targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED": "true",
+    "combat.RETARGET_PROGRESS": "\"keep_when_dead\"",
+    "spawner.SPAWN_POINT": "\"client16402_measured\"",
+    "spawner.DEATH_SPAWN_LAYOUT": "\"facing_ring\"",
+    "targeting.DOOMED_TARGET_DROP": "\"projectile_attackers\"",
+    "pathfinding.ZERO_STEP_WAYPOINT_TEST": "\"skipped\"",
+    "combat.DASH_ATTACK": "\"none\"",
+    "combat.REFLECT_ATTACK": "\"not_read\"",
+}
+
+
 def overrides(arm) -> dict:
-    return {KEY: json.dumps(arm)}
+    return {**{k: v for k, v in HELD.items() if k != KEY}, KEY: json.dumps(arm)}
 
 
 def battle(arm, spawns):

@@ -8,6 +8,11 @@ every 33 ticks instead of 24. Today's engine reads none of the ReflectedAttack c
 WHY THE CONTROLS ARE HERE. "The Knight lost hp" could come from anything near it, so each reflected hit must fall on the
 same tick as a Knight hit on the Giant, and a plain Giant in the same place must reflect nothing. The period pins the
 stun: a reflect without the stun keeps 24, and a stun that resets progress would stretch it further.
+
+WHY TWO HITS. In this scene the Electro Giant walks on toward a tower while the Knight is stunned, so the Knight's third
+swing ends with the Giant 3117 away. That is beyond the Knight's reach (Range 1200 plus both radii) and beyond the
+reflect's radius. The client cancels such a hit (a melee hit on a target beyond the cancel range deals nothing), so
+there is nothing to reflect. Only the first two hits, both in reach, are this key's.
 """
 
 from __future__ import annotations
@@ -50,10 +55,10 @@ def run(card: str, arm: str, ticks: int = 110):
 
 def test_each_knight_hit_is_reflected_and_stuns():
     on_giant, on_knight = run("ElectroGiant", NEW_ARM)
-    assert len(on_giant) >= 3, on_giant
-    assert [a for _, a in on_knight[:3]] == [REFLECT] * 3, on_knight
-    assert [t for t, _ in on_knight[:3]] == [t for t, _ in on_giant[:3]], (on_giant, on_knight)
-    assert [b - a for (a, _), (b, _) in pairwise(on_giant[:3])] == [PERIOD_STUNNED] * 2, on_giant
+    assert len(on_giant) >= 2, on_giant
+    assert [a for _, a in on_knight[:2]] == [REFLECT] * 2, on_knight
+    assert [t for t, _ in on_knight[:2]] == [t for t, _ in on_giant[:2]], (on_giant, on_knight)
+    assert on_giant[1][0] - on_giant[0][0] == PERIOD_STUNNED, on_giant
 
 
 def test_a_plain_giant_reflects_nothing():
