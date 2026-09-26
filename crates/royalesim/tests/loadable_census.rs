@@ -96,7 +96,7 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 5a1dac3d2fb1b4a9. The lists are what the loader gives for that file.
+/// 51c67a4b9e79d10e (the rows gained `death_spawn_pushback` with no row loading or refusing differently). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
 /// --census`), written from the same file, holds the same 103 loadable rows in the
 /// same order and the same 43 refusals, word for word.
