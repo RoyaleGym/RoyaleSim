@@ -2335,6 +2335,17 @@
       "candidates": ["zero", "unit_own_deploy_time"],
       "promotion_rules": "Settled by the measurement above.",
       "engine": "state.rs Calib::spawner_spawned_deploy_time, read by BattleState::spawner_pass"
+    },
+    "SPAWNED_FIRST_STEP": {
+      "value": "none",
+      "candidates": ["none", "client16402_same_tick"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm none, which is today's engine: both clients show the step. HIGH for client16402_same_tick on spawner emissions and on the Tombstone's death spawn; OPEN on released units (Goblin Barrel) and on other death spawns",
+      "provenance": "MEASURED. The 16.402 corpus: every periodic Tombstone Skeleton follows the truth's own path in the engine, shifted in time. The shift minimising the distance over the first 10 frames is 1 tick on a Tombstone's first emission (7 of 8) and 2 ticks on later emissions (115 of 124); spawner.TIMER_LEFTOVER is the second tick, and this key the first. On its first frame the game's emitted unit has already moved one step, and the engine's stands on the emission point. A dying Tombstone's four Skeletons show the same step on their first frame, all four identical: (+-63, 1563) in the owner's frame, the tangent 1500 plus one diagonal step at Skeleton speed. A Barbarian Hut's death Barbarian stands at 1544, the tangent plus one step at Barbarian speed. The 15.535.29 client agrees: the first member of 8 of 8 Tombstone waves is displaced 89.8 from the tangent point with no scatter, against a Skeleton speed of 90, and a wave's second member travels 77.8, less than a full step, because the first member blocks it.",
+      "meaning": "client16402_same_tick: a unit a spawner emits, and a death-spawned unit, takes its first update on the tick it is created: with an enemy in range it acquires it and enters its attack there (attack progress LoadTime + 50 on that frame, combat.ATTACK_CYCLE's entry credit), otherwise it takes its first movement step, through the ordinary walk and contact law against the units already on the board. Members created in the same batch do not push each other on that step (the four death Skeletons take identical steps). The attack half: on the 16.402 corpus, 20 spawned units are attacking on their first frame (Tombstone Skeletons 16, a Witch Skeleton, GoblinHut SpearGoblins, an ElixirGolem half), 18 of them at progress LoadTime + 50 (Skeleton 650, SpearGoblin 1150), the rest one tick further on. none: today's engine, the unit first moves or acquires on the next tick.",
+      "open": "Released units (a Goblin Barrel's Goblins) and other death spawns are not measured here and keep today's behaviour unless the engine shares the path; if it does, the corpus must be re-read for them before the flip.",
+      "promotion_rules": "Score client16402_same_tick with replay_parity --calibration-override on a build where TIMER_LEFTOVER and DEATH_SPAWN_AT_EMISSION_POINT are at their measured arms (the three stack), then flip.",
+      "engine": "state.rs spawner_pass (the emissions) and the death-spawn step: the new units take one move step on creation"
     }
   },
   "lifetime": {

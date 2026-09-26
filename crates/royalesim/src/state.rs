@@ -484,6 +484,12 @@ pub struct Calib {
     /// battle saved before it actually ran.
     #[serde(default = "spawned_unit_acquire_delay_default")]
     pub spawned_unit_acquire_delay: SpawnedUnitAcquireDelay,
+    /// spawner.SPAWNED_FIRST_STEP: whether a unit created after the tick's passes (a periodic
+    /// emission at the end of Move, a death spawn at the end of Reap) takes its first update on
+    /// that tick (`BattleState::first_update`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// `None`, what a battle saved before it actually ran.
+    #[serde(default = "spawned_first_step_default")]
+    pub spawned_first_step: SpawnedFirstStep,
 
     // --- status effects (status.rs). Each is one calibration.json
     // key; a candidate with no implementation is refused in from_json.
@@ -618,6 +624,10 @@ fn death_spawn_pushback_default() -> DeathSpawnPushback {
 
 fn spawned_unit_acquire_delay_default() -> SpawnedUnitAcquireDelay {
     SpawnedUnitAcquireDelay::None
+}
+
+fn spawned_first_step_default() -> SpawnedFirstStep {
+    SpawnedFirstStep::None
 }
 
 macro_rules! calib_enum {
@@ -1539,6 +1549,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SPAWNED_FIRST_STEP -- see `BattleState::first_update`.
+    SpawnedFirstStep {
+        /// Today's engine: a unit created after the tick's passes stands where it was created
+        /// until the next tick's passes.
+        None = "none",
+        /// It takes its whole first update on the tick it is created: it acquires, enters its
+        /// attack when a target is in range, and otherwise takes one move step through the
+        /// ordinary walk and contact law against the units already on the board. Measured on
+        /// client 15.535.29: the first Skeleton of 8 of 8 Tombstone waves stands one Skeleton step
+        /// from the emission point on its first frame, and a dying Tombstone's four Skeletons
+        /// stand together on one point one step past it.
+        SameTick = "client16402_same_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -1946,6 +1971,7 @@ impl Calib {
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             spawned_unit_acquire_delay: pick(&v, &["targeting", "SPAWNED_UNIT_ACQUIRE_DELAY", "value"], SpawnedUnitAcquireDelay::from_calibration_name)?,
+            spawned_first_step: pick(&v, &["spawner", "SPAWNED_FIRST_STEP", "value"], SpawnedFirstStep::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -2216,6 +2242,13 @@ struct PendingSpawn {
     /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     acquire_delay: bool,
+    /// A release that takes its first update on the tick it is created (spawner.SPAWNED_FIRST_STEP;
+    /// `BattleState::first_update`, called from `materialise_released`): true on a death-spawn member
+    /// whose parent's row does not carry DeathSpawnPushback, false on everything else. A periodic
+    /// emission does not need it: `create_emissions` gives the units it creates their first update
+    /// itself. Added after SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
+    #[serde(default)]
+    first_update: bool,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -2882,6 +2915,7 @@ impl BattleState {
     /// `phase_spawn` gives a queued one -- except that nothing counts down or steps: they
     /// are created after every phase that would.
     fn materialise_released(&mut self) {
+        let mut fresh: Vec<usize> = Vec::new();
         for p in std::mem::take(&mut self.released) {
             let kind = match self.cfg.cards.get(p.card).kind {
                 CardKind::Building => EntityKind::Building,
@@ -2902,7 +2936,16 @@ impl BattleState {
                     self.on_deployed(id.index as usize);
                 }
             }
+            if p.first_update {
+                fresh.push(id.index as usize);
+            }
         }
+        // spawner.SPAWNED_FIRST_STEP: the death spawns take their first update now.
+        #[cfg(not(clash_plant = "first_step_siblings_push"))]
+        let apart = true;
+        #[cfg(clash_plant = "first_step_siblings_push")]
+        let apart = false; // PLANT (regression): the members push each other on the first step.
+        self.first_update(&fresh, apart);
     }
 
     /// THE ONE SETTER of targeting.SPAWNED_UNIT_ACQUIRE_DELAY: entity `i`, created this tick
@@ -3182,7 +3225,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false }));
                     k += 1;
                 }
                 left -= 1;
@@ -3238,6 +3281,7 @@ impl BattleState {
         if emissions.is_empty() {
             return;
         }
+        let mut fresh: Vec<usize> = Vec::new();
         for (_, _, _, p) in emissions {
             let kind = match self.cfg.cards.get(p.card).kind {
                 CardKind::Building => EntityKind::Building,
@@ -3246,6 +3290,7 @@ impl BattleState {
             };
             let Ok(id) = self.spawn_now(p.team, p.card, p.level, p.pos, kind) else { continue };
             let i = id.index as usize;
+            fresh.push(i);
             self.ents.spawned_by[i] = p.owner;
             self.ents.stagger_ms[i] = p.stagger_ms;
             self.ents.death_slide_centre[i] = p.slide_centre;
@@ -3261,6 +3306,74 @@ impl BattleState {
                 self.ents.deploy_ms[i] = d;
                 if d == 0 {
                     self.on_deployed(i);
+                }
+            }
+        }
+        self.hash.rebuild(&self.ents);
+        // spawner.SPAWNED_FIRST_STEP: the units this pass emitted take their first update now.
+        self.first_update(&fresh, true);
+    }
+
+    /// THE FIRST UPDATE OF A UNIT CREATED AFTER THE TICK'S PASSES (spawner.SPAWNED_FIRST_STEP =
+    /// client16402_same_tick): a periodic emission at the end of Move (`create_emissions`, under
+    /// spawner.EMISSION_TIMING = move_phase_immediate) and a death spawn at the end of Reap
+    /// (`materialise_released`, under spawner.RELEASE_TIMING = end_of_event_phase). A unit created
+    /// in the Spawn phase, before the passes, already takes its first update on its creation tick
+    /// and is never passed here.
+    ///
+    /// THE LAW, measured on client 15.535.29: on its first frame the unit has taken its whole
+    /// first update. With an enemy in range it has acquired it and entered its attack (on the 16.402
+    /// corpus, 18 of 20 such units read attack progress LoadTime + 50 there, combat.ATTACK_CYCLE's
+    /// entry credit); otherwise it has taken one move step through the ordinary walk and contact
+    /// law, against the units already on the board at their current positions. The first Skeleton
+    /// of 8 of 8 Tombstone waves stands one step from the emission point; a wave's second member
+    /// steps less, pushed by the first. A dying Tombstone's four Skeletons stand together on one
+    /// point one step past its emission point: the members of one death do not push each other on
+    /// that step, and the dying parent is already gone.
+    ///
+    /// So this runs the tick's own Target, Attack and Path passes for `fresh` alone, in that order,
+    /// and writes the positions as the Move phase does. `apart` (every caller): each member steps
+    /// with the other members of its batch hidden from its scans, as the four death Skeletons do.
+    /// A batch is what one call creates, so the engine also reads two deaths on one tick, and two
+    /// spawners emitting on one tick, as one batch; neither is measured, and no loaded spawner
+    /// emits two units on one tick. Otherwise they step in creation order, each seeing the
+    /// others' bodies as the move pass does.
+    ///
+    /// ONLY UNDER THE 16.402 MODEL (PathSearch::Client16402 and match.TICK_ORDER = client16402):
+    /// the step is that model's move pass, and under the legacy tick order the Attack phase runs
+    /// after Move anyway. Troops only: a building takes no step.
+    fn first_update(&mut self, fresh: &[usize], apart: bool) {
+        #[cfg(not(clash_plant = "first_step_unread"))]
+        let on = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick;
+        #[cfg(clash_plant = "first_step_unread")]
+        let on = false; // PLANT (regression): the new arm stands on the creation point.
+        if !on || !self.arm16402() || self.tick_order() != TickOrder::Client16402 {
+            return;
+        }
+        let fresh: Vec<usize> = fresh.iter().copied().filter(|&i| self.ents.alive[i] && self.ents.kind[i] == EntityKind::Troop).collect();
+        if fresh.is_empty() {
+            return;
+        }
+        #[cfg(not(clash_plant = "first_step_walks_only"))]
+        {
+            self.phase_target_for(Some(&fresh));
+            self.phase_attack_for(Some(&fresh));
+        }
+        let batches: Vec<(Vec<usize>, Vec<usize>)> = if apart {
+            fresh.iter().map(|&i| (vec![i], fresh.iter().copied().filter(|&j| j != i).collect())).collect()
+        } else {
+            vec![(fresh.clone(), Vec::new())]
+        };
+        for (movers, unseen) in batches {
+            self.phase_path16402_for(Some(&movers), &unseen);
+            // the Move phase's position write under the 16.402 contact law: the delta IS the
+            // position write, clamped to the arena
+            let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
+            for &i in &movers {
+                let d = self.scratch.deltas.get(i).copied().unwrap_or_default();
+                if d != Vec2::default() {
+                    let old = self.ents.pos[i];
+                    self.ents.pos[i] = Vec2::new((old.x + d.x).clamp(0, w), (old.y + d.y).clamp(0, h));
                 }
             }
         }
@@ -3868,11 +3981,19 @@ impl BattleState {
     }
 
     fn phase_target(&mut self) {
+        self.phase_target_for(None);
+    }
+
+    /// The Target phase, for every unit (`only` None) or for a first update's fresh units alone
+    /// (`first_update`), which leaves the hide pass to the tick's own phase.
+    fn phase_target_for(&mut self, only: Option<&[usize]>) {
         self.hash.rebuild(&self.ents);
         let mut decisions = std::mem::take(&mut self.scratch.decisions);
         let mut nb = std::mem::take(&mut self.scratch.nb);
         decisions.clear();
-        self.hide_pass(&mut nb);
+        if only.is_none() {
+            self.hide_pass(&mut nb);
+        }
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
         // the tick's start, before any decision reads it.
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers {
@@ -3894,7 +4015,7 @@ impl BattleState {
                 doomed: &doomed_drop,
             };
             for i in 0..self.ents.capacity() {
-                if self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 {
+                if self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 && only.map_or(true, |o| o.contains(&i)) {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
             }
@@ -4149,9 +4270,20 @@ impl BattleState {
     ///      moves it -- with the avoidance rotation, the position write and the
     ///      reached test that pops the waypoint and refreezes the segment direction.
     fn phase_path16402(&mut self) {
+        self.phase_path16402_for(None, &[]);
+    }
+
+    /// The 16.402 movement update, for every troop (`only` None) or for a first update's fresh
+    /// units alone (`first_update`). Those step against the board as the tick's pass left it: the
+    /// obstacle set, the grid and the doomed mask are the pass's own and are not rebuilt, and a unit
+    /// the mask dooms, which the pass dropped at its own place, is hidden from their scans, as are
+    /// the `unseen` ones. The per-tick diagnostics of every other unit stay as the pass wrote them.
+    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize]) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        self.build_obstacles();
-        self.doomed_mask();
+        if only.is_none() {
+            self.build_obstacles();
+            self.doomed_mask();
+        }
         let mut g = self.scratch.grid16402.take().unwrap_or_else(|| Grid16402::new(&self.cfg.arena, &self.cfg.calib));
         g.refresh(self.scratch.occluder_epoch, &self.scratch.obstacles[0]);
         let cap = self.ents.capacity();
@@ -4282,8 +4414,18 @@ impl BattleState {
         // so the reader tells absent from zero by whether the row carries the field at all.
         let mut push_applied = std::mem::take(&mut self.ents.push_applied);
         let mut push_neighbours = std::mem::take(&mut self.ents.push_neighbours);
-        push_applied.iter_mut().for_each(|p| *p = Vec2::default());
-        push_neighbours.iter_mut().for_each(|c| *c = 0);
+        match only {
+            None => {
+                push_applied.iter_mut().for_each(|p| *p = Vec2::default());
+                push_neighbours.iter_mut().for_each(|c| *c = 0);
+            }
+            Some(o) => {
+                for &i in o {
+                    push_applied[i] = Vec2::default();
+                    push_neighbours[i] = 0;
+                }
+            }
+        }
         let mut push_speed = std::mem::take(&mut self.ents.push_speed);
         let mut push_active = std::mem::take(&mut self.ents.push_active);
         let mut jumping = std::mem::take(&mut self.ents.jumping);
@@ -4366,6 +4508,14 @@ impl BattleState {
             #[cfg(clash_plant = "slot_order_move_pass")]
             order.sort_by_key(|&i| (e.spawn_tick[i], i)); // PLANT (regression): the pre-counter order, a reused slot jumps the queue.
             let doomed = &self.scratch.doomed;
+            if let Some(o) = only {
+                order.retain(|i| o.contains(i));
+                for (j, b) in bodies.iter_mut().enumerate() {
+                    if unseen.contains(&j) || doomed.get(j).copied().unwrap_or(false) {
+                        b.collidable = false;
+                    }
+                }
+            }
             for i in order {
                 if doomed.get(i).copied().unwrap_or(false) {
                     // ---- A UNIT DYING THIS TICK (calibration movement.DYING_UNIT_VISIBILITY
@@ -5626,9 +5776,14 @@ impl BattleState {
     }
 
     fn phase_attack(&mut self) {
+        self.phase_attack_for(None);
+    }
+
+    /// The Attack phase, for every unit or for a first update's fresh units alone.
+    fn phase_attack_for(&mut self, only: Option<&[usize]>) {
         let preserve = self.cfg.calib.preserve_target_if_hit_started;
         for i in 0..self.ents.capacity() {
-            if !self.ents.alive[i] || self.cfg.cards.get(self.ents.card[i]).hit_speed_ms <= 0 {
+            if !self.ents.alive[i] || self.cfg.cards.get(self.ents.card[i]).hit_speed_ms <= 0 || !only.map_or(true, |o| o.contains(&i)) {
                 continue;
             }
             #[cfg(clash_plant = "inline_damage")]
@@ -5771,7 +5926,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -6272,8 +6427,17 @@ impl BattleState {
             } else {
                 (Vec2::default(), 0)
             };
+            // spawner.SPAWNED_FIRST_STEP: a death spawn takes its first update on its death frame,
+            // except the members of a DeathSpawnPushback row, whose first movement is the slide:
+            // measured on client 16.402, a Golem's Golemites exist on the death frame and are inert
+            // there, whatever this key says. Read off the row, not the slide's arm, so a Golemite
+            // laid by DEATH_SPAWN_LAYOUT under not_read is not stepped either.
+            #[cfg(not(clash_plant = "first_step_moves_pushback_spawns"))]
+            let first_update = !card.death_spawn_pushback;
+            #[cfg(clash_plant = "first_step_moves_pushback_spawns")]
+            let first_update = true; // PLANT (regression): a Golemite steps on its death frame.
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -6547,7 +6711,7 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -6603,7 +6767,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -7848,6 +8012,11 @@ impl BattleState {
                 // alone, like `stagger_ms` under its own.
                 if self.cfg.calib.spawned_unit_acquire_delay == SpawnedUnitAcquireDelay::Client8thFrame {
                     h.bool(s.acquire_delay);
+                }
+                // The same for spawner.SPAWNED_FIRST_STEP's flag, acted on only under
+                // client16402_same_tick (`materialise_released`).
+                if self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick {
+                    h.bool(s.first_update);
                 }
             }
         }
