@@ -39,7 +39,12 @@ def run(card: str, killer: str, killer_y: int, arm: str | None, ticks: int = 140
     degrees about the arena centre for side 1: the killer's first hit kills it while it walks, so its heading is well
     off the x axis. Returns (parent heading in degrees, the death centre, and per child, in creation (uid) order, the
     list of (tick, x, y)); the centre is the mean of the children's first positions."""
-    overrides = {} if arm is None else {KEY: json.dumps(arm)}
+    # spawner.SPAWNED_FIRST_STEP at none: these scenes read where the children are CREATED, and under the shipped
+    # client16402_same_tick a child of a row without DeathSpawnPushback (the Battle Ram's Barbarians) has already
+    # stepped on its first frame. The first step is pinned in tests/test_spawned_first_step.py.
+    overrides = {"spawner.SPAWNED_FIRST_STEP": json.dumps("none")}
+    if arm is not None:
+        overrides[KEY] = json.dumps(arm)
     b = royalesim.Battle([card, killer], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
 
     def at(x, y):

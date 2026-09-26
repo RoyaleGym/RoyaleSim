@@ -131,8 +131,11 @@ def test_the_old_leftover_arm_is_todays_engine():
 @pytest.mark.parametrize(("card", "n"), [(TS, 4), (BH, 1)], ids=["Tombstone", "BarbarianHut"])
 def test_a_dying_spawner_building_spawns_at_its_emission_point(card, n):
     """Every death-spawn member appears on the point its spawner emits at, all together. The tolerance is one
-    unit step, so a later spawn-tick step does not turn this red."""
-    periodic, dead = death_spawn({DEATH: death_arm("client16402_measured_list")}, card)
+    unit step. spawner.SPAWNED_FIRST_STEP is held at none: both the periodic unit and the death spawn are read on
+    their first frames, and under the shipped client16402_same_tick each has stepped there, the death spawn pushed
+    back by the periodic unit standing ahead of it. The first step is pinned in tests/test_spawned_first_step.py."""
+    periodic, dead = death_spawn({DEATH: death_arm("client16402_measured_list"),
+                                  "spawner.SPAWNED_FIRST_STEP": json.dumps("none")}, card)
     assert len(dead) == n, f"expected {n} death-spawn units: {dead}"
     assert half_width(dead) == 0, f"the death spawn is not on one point: {dead}"
     off = math.hypot(dead[0][0] - periodic[0], dead[0][1] - periodic[1])

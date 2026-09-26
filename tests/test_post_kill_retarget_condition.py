@@ -8,7 +8,12 @@ victim was already doomed (the homing shots flying at the victim covered its hit
 Otherwise it waits the 250 ms attack-finish time: 6 ticks. The ledger entry carries the 16.402 evidence (1,138 of
 1,152 events).
 It is the SHIPPED arm since 2026-09-25: the tests below pin each arm by name through the battle's calibration, and
-the last one runs the shipped build with no override at all.
+the last one runs the shipped wait arm with no override of this key.
+
+EVERY SCENE HOLDS targeting.DOOMED_TARGET_DROP AT keep. Under its shipped projectile_attackers the blue crown
+tower's arrow in flight at FAR dooms it, the Musketeer (which has not fired at FAR) does not take it, and the
+tower kills it, so there is no next target to time the wait by. That is the doomed drop working as measured; the
+wait is what these scenes pin, and tests/test_doomed_target_drop.py pins the drop.
 
 THE PAIR THAT SEPARATES THE ARMS. The same Musketeer, with a second red Skeleton waiting in its reach:
   A. it kills its first Skeleton with its own shot: the shot was in flight at the victim, so the victim was doomed
@@ -47,6 +52,8 @@ SCENARIO_A = [MUSKETEER, (1, SK, 9 * TILE, 12 * TILE, -1), FAR]
 SCENARIO_B = [MUSKETEER, (0, KN, 9 * TILE, int(12.6 * TILE), -1), (1, SK, 9 * TILE, int(13.3 * TILE), -1), FAR]
 # ENTITY_FIELDS: 1 team, 3 card_id, 4 tower_slot, 15 target_uid; a projectile row's index 5 is its target uid
 TEAM, CARD, SLOT, TARGET, P_TARGET = 1, 3, 4, 15, 5
+#: every scene's hold on the doomed drop (module doc)
+DOOMED_HELD = {"targeting.DOOMED_TARGET_DROP": json.dumps("keep")}
 
 
 def arm(name: str) -> dict:
@@ -55,12 +62,13 @@ def arm(name: str) -> dict:
     value = ledger.get("combat", {}).get("POST_KILL_RETARGET_WAIT", {}).get("value")
     if value is None or "attack_finish_override_units" not in value:
         pytest.fail(f"{KEY} has no attack-finish arm in the compiled-in ledger: this build predates it")
-    return {KEY: json.dumps({**value, "arm": name})}
+    return {KEY: json.dumps({**value, "arm": name}), **DOOMED_HELD}
 
 
 def musketeer_first_loss(units: list, overrides: dict | None) -> dict:
     """The Musketeer's first target, the tick it is lost, the tick of the next one, and the shots flying at the
-    victim on its last live tick. `overrides` None runs the shipped build."""
+    victim on its last live tick. `overrides` None runs the shipped wait arm, the doomed drop held (module doc)."""
+    overrides = DOOMED_HELD if overrides is None else overrides
     b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
     b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, units)
     first = loss = None
@@ -106,9 +114,10 @@ def test_the_none_arm_gives_one():
     assert b["wait"] == 1, f"the none arm must reproduce the engine before the wait (1); it gave {b['wait']}"
 
 
-def test_the_shipped_build_runs_the_condition():
-    """No override at all. The compiled-in ledger ships client16402_attack_finish, so the shipped build gives
-    scenario B's 6, where the list arm and none give 1, and scenario A's 1."""
+def test_the_shipped_wait_arm_runs_the_condition():
+    """No override of the wait key; the doomed drop held (module doc). The compiled-in ledger ships
+    client16402_attack_finish, so the shipped arm gives scenario B's 6, where the list arm and none give 1, and
+    scenario A's 1."""
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
     shipped = ledger["combat"]["POST_KILL_RETARGET_WAIT"]["value"]["arm"]
     assert shipped == "client16402_attack_finish", f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
