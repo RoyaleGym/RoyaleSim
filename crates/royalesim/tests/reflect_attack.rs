@@ -62,6 +62,7 @@ const REGENERATE: &str = "cards.json carries no reflected_attack on the Electro 
 
 /// The hp drops, (tick, amount), of the Blue `card` and of the Red Knight over `ticks` ticks of the
 /// duel, under `arm`.
+#[allow(clippy::type_complexity)]
 fn duel(card: &str, arm: ReflectAttack, ticks: u32) -> (Vec<(u32, i32)>, Vec<(u32, i32)>) {
     let mut cfg = config();
     cfg.calib.reflect_attack = arm;
