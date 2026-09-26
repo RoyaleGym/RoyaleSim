@@ -229,7 +229,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("Goblinstein", "the unit runs an action graph this loader does not read (ActionActivateOnCardDeploy, ActionEnabbleHPBarConditionForDuration, ActionGroup, ActionWithDuration)"),
     ("Graveyard", "area effect Graveyard_rework runs an action graph this loader does not read (ActionGroup, ActionSpawnToLocation; spawns CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton)"),
     ("Heal", "spell with no projectile and no area effect"),
-    ("Lightning", "pulsing area effect Lightning pulses no buff"),
     ("LittlePrince", "the unit runs an action graph this loader does not read (ActionFilter, ActionGroup, ActionInterval, ActionSetAttackSequenceIndex, ActionSetVariable)"),
     ("MergeMaiden", "spell with no projectile and no area effect"),
     ("Miner", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 650)"),

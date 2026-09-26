@@ -436,6 +436,14 @@ pub struct Calib {
     /// saved before it held an own-side area.
     #[serde(default = "own_side_area_scope_default")]
     pub own_side_area_scope: OwnSideScope,
+    /// spells.STRIKE_TIMER_LEFTOVER, spells.STRIKE_HP_RANK and spells.STRIKE_REACH (a striking area: spell.rs
+    /// `strike`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held a striking area.
+    #[serde(default = "strike_timer_leftover_default")]
+    pub strike_timer_leftover: StrikeLeftover,
+    #[serde(default = "strike_hp_rank_default")]
+    pub strike_hp_rank: StrikeHpRank,
+    #[serde(default = "strike_reach_default")]
+    pub strike_reach: StrikeReach,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -954,6 +962,18 @@ fn child_area_birth_default() -> ChildAreaBirth {
 
 fn own_side_area_scope_default() -> OwnSideScope {
     OwnSideScope::AllKinds
+}
+
+fn strike_timer_leftover_default() -> StrikeLeftover {
+    StrikeLeftover::Carried
+}
+
+fn strike_hp_rank_default() -> StrikeHpRank {
+    StrikeHpRank::CurrentHp
+}
+
+fn strike_reach_default() -> StrikeReach {
+    StrikeReach::RadiusPlusTargetPlus200
 }
 
 macro_rules! calib_enum {
@@ -2054,6 +2074,36 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.STRIKE_TIMER_LEFTOVER -- where a striking area's next strike is timed from (spell.rs `step_spells`).
+    StrikeLeftover {
+        /// An exact ms clock from the cast: strike k on the cast tick + floor(k x HitSpeed / TICK_MS). Measured on
+        /// client 15.535.29: Lightning (HitSpeed 460) strikes on D+9, D+18 and D+27 (28 casts, 40 strikes).
+        Carried = "carried",
+        /// The clock restarts at HitSpeed from the end of each strike's tick, the leftover dropped: D+9, D+19, D+29.
+        Dropped = "dropped",
+    }
+);
+calib_enum!(
+    /// spells.STRIKE_HP_RANK -- which hitpoints a striking area ranks its candidates by (spell.rs `strike`).
+    StrikeHpRank {
+        /// Current hitpoints. Measured on client 15.535.29: a full-hp Musketeer is struck before a damaged Knight of
+        /// higher maximum.
+        CurrentHp = "current_hp",
+        /// Maximum hitpoints.
+        MaxHp = "max_hp",
+    }
+);
+calib_enum!(
+    /// spells.STRIKE_REACH -- which enemies a striking area can pick, by centre distance (spell.rs `strike`).
+    StrikeReach {
+        /// Radius + the target's radius + 200 native: the interim reading. Measured on client 15.535.29: a target of
+        /// radius 600 was struck at 4242.6 from a Lightning of Radius 3500.
+        RadiusPlusTargetPlus200 = "radius_plus_target_radius_plus_200",
+        /// Radius + the target's radius: refuted by the same strike.
+        RadiusPlusTarget = "radius_plus_target_radius",
+    }
+);
+calib_enum!(
     /// spells.OWN_SIDE_AREA_SCOPE -- which kinds of the caster's side an OnlyOwnTroops area reaches.
     OwnSideScope {
         /// Every kind: troops, buildings and crown towers.
@@ -2816,6 +2866,9 @@ impl Calib {
             summon_fuse_start: pick(&v, &["spells", "SUMMON_FUSE_START", "value"], SummonFuseStart::from_calibration_name)?,
             child_area_birth: pick(&v, &["spells", "CHILD_AREA_BIRTH", "value"], ChildAreaBirth::from_calibration_name)?,
             own_side_area_scope: pick(&v, &["spells", "OWN_SIDE_AREA_SCOPE", "value"], OwnSideScope::from_calibration_name)?,
+            strike_timer_leftover: pick(&v, &["spells", "STRIKE_TIMER_LEFTOVER", "value"], StrikeLeftover::from_calibration_name)?,
+            strike_hp_rank: pick(&v, &["spells", "STRIKE_HP_RANK", "value"], StrikeHpRank::from_calibration_name)?,
+            strike_reach: pick(&v, &["spells", "STRIKE_REACH", "value"], StrikeReach::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -10330,6 +10383,20 @@ impl BattleState {
                         h.vec(*pos);
                         h.i32(*ms);
                     }
+                    #[cfg(not(clash_plant = "hash_skips_strikes"))]
+                    spell::SpellMotion::Strikes { pos, life_ms, next_ms, k, struck } => {
+                        h.u32(6);
+                        h.vec(*pos);
+                        h.i32(*life_ms);
+                        h.i32(*next_ms);
+                        h.u32(*k as u32);
+                        h.u32(struck.len() as u32);
+                        for id in struck {
+                            h.id(*id);
+                        }
+                    }
+                    #[cfg(clash_plant = "hash_skips_strikes")]
+                    spell::SpellMotion::Strikes { .. } => {} // PLANT: a striking area's state is not hashed.
                 }
             }
         }

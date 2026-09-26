@@ -1071,6 +1071,10 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         # row the loader reads). 15.535 only, so the 2018 file stays byte-identical.
         out["spawn_area_effect_object"] = a["SpawnAreaEffectObject"]
         out["buff_number"] = a["BuffNumber"]
+        # HitBiggestTargets: the area strikes its highest-hp enemies one at a time through its
+        # Projectile row (Lightning; spells.STRIKE_*). 15.535 only, so the 2018 file stays
+        # byte-identical.
+        out["hit_biggest_targets"] = flag(a, "HitBiggestTargets")
     return out
 
 

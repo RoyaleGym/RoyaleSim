@@ -16480,7 +16480,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": 1
+     "buff_number": 1,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -16755,7 +16756,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": true
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -16901,7 +16903,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17047,7 +17050,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": 1
+     "buff_number": 1,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17194,7 +17198,8 @@
      },
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17509,7 +17514,8 @@
      "action_graph": null,
      "controls_buff": true,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": true,
     "can_place_on_buildings": true,
@@ -17649,7 +17655,8 @@
      },
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17795,7 +17802,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": 1
+     "buff_number": 1,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -18383,7 +18391,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": true,
     "can_place_on_buildings": true,
@@ -18541,7 +18550,8 @@
      },
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -18808,7 +18818,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": 1
+     "buff_number": 1,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -18947,7 +18958,8 @@
      },
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19070,7 +19082,8 @@
      "action_graph": null,
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19211,7 +19224,8 @@
      },
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19449,7 +19463,8 @@
      },
      "controls_buff": false,
      "spawn_area_effect_object": null,
-     "buff_number": null
+     "buff_number": null,
+     "hit_biggest_targets": false
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -61986,7 +62001,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "RageDamage",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Freeze": {
    "name": "Freeze",
@@ -62034,7 +62050,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Lightning": {
    "name": "Lightning",
@@ -62117,7 +62134,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": true
   },
   "Zap": {
    "name": "Zap",
@@ -62165,7 +62183,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Poison": {
    "name": "Poison",
@@ -62213,7 +62232,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Graveyard": {
    "name": "Graveyard",
@@ -62243,7 +62263,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "FreezeIceGolemite": {
    "name": "FreezeIceGolemite",
@@ -62291,7 +62312,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Clone": {
    "name": "Clone",
@@ -62333,7 +62355,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Tornado": {
    "name": "Tornado",
@@ -62381,7 +62404,8 @@
    "action_graph": null,
    "controls_buff": true,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BarbarianRage": {
    "name": "BarbarianRage",
@@ -62429,7 +62453,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "BarbarianRageDamage",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Heal": {
    "name": "Heal",
@@ -62477,7 +62502,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "IceWizardCold": {
    "name": "IceWizardCold",
@@ -62536,7 +62562,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SuperWitchCurse": {
    "name": "SuperWitchCurse",
@@ -62584,7 +62611,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "GoldenKnightShield": {
    "name": "GoldenKnightShield",
@@ -62632,7 +62660,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Earthquake": {
    "name": "Earthquake",
@@ -62680,7 +62709,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "SkeletonKingGraveyard": {
    "name": "SkeletonKingGraveyard",
@@ -62710,7 +62740,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Deflect": {
    "name": "Deflect",
@@ -62740,7 +62771,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "GlobalClone": {
    "name": "GlobalClone",
@@ -62800,7 +62832,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BoostRage": {
    "name": "BoostRage",
@@ -62848,7 +62881,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostClone": {
    "name": "BoostClone",
@@ -62896,7 +62930,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostHeal": {
    "name": "BoostHeal",
@@ -62944,7 +62979,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostGrowth": {
    "name": "BoostGrowth",
@@ -62992,7 +63028,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostSpearGoblins": {
    "name": "BoostSpearGoblins",
@@ -63040,7 +63077,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostShield": {
    "name": "BoostShield",
@@ -63070,7 +63108,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostRageBottle": {
    "name": "BoostRageBottle",
@@ -63118,7 +63157,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostCloneBottle": {
    "name": "BoostCloneBottle",
@@ -63166,7 +63206,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "ElectroWizardZap": {
    "name": "ElectroWizardZap",
@@ -63225,7 +63266,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "DarkElixir": {
    "name": "DarkElixir",
@@ -63273,7 +63315,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "ElixirDrop": {
    "name": "ElixirDrop",
@@ -63321,7 +63364,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "GraveyardOrb": {
    "name": "GraveyardOrb",
@@ -63351,7 +63395,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "HealSpirit": {
    "name": "HealSpirit",
@@ -63399,7 +63444,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BattleHealerHeal": {
    "name": "BattleHealerHeal",
@@ -63447,7 +63493,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "SuperFreezeIceGolemite": {
    "name": "SuperFreezeIceGolemite",
@@ -63495,7 +63542,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "SuperMiniPekkaPancakesHeal": {
    "name": "SuperMiniPekkaPancakesHeal",
@@ -63543,7 +63591,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "RoyalDeliveryArea": {
    "name": "RoyalDeliveryArea",
@@ -63608,7 +63657,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SuperArcherChargePull": {
    "name": "SuperArcherChargePull",
@@ -63656,7 +63706,8 @@
    "action_graph": null,
    "controls_buff": true,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BattleHealerSpawnHeal": {
    "name": "BattleHealerSpawnHeal",
@@ -63704,7 +63755,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "GoblinDrillDamage": {
    "name": "GoblinDrillDamage",
@@ -63734,7 +63786,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BoostInvisibilityBottle": {
    "name": "BoostInvisibilityBottle",
@@ -63782,7 +63835,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "InvisibilityArea": {
    "name": "InvisibilityArea",
@@ -63830,7 +63884,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BoostHealBottle": {
    "name": "BoostHealBottle",
@@ -63878,7 +63933,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostLevelUp": {
    "name": "BoostLevelUp",
@@ -63926,7 +63982,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostShieldBottle": {
    "name": "BoostShieldBottle",
@@ -63974,7 +64031,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "ShieldArea": {
    "name": "ShieldArea",
@@ -64022,7 +64080,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SantaPresentBoostClone": {
    "name": "SantaPresentBoostClone",
@@ -64070,7 +64129,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "RageDamage": {
    "name": "RageDamage",
@@ -64100,7 +64160,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BarbarianRageDamage": {
    "name": "BarbarianRageDamage",
@@ -64130,7 +64191,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SantaPresentBoostHeal": {
    "name": "SantaPresentBoostHeal",
@@ -64178,7 +64240,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "SantaPresentBoostInvisibility": {
    "name": "SantaPresentBoostInvisibility",
@@ -64226,7 +64289,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "SantaPresentBoostRage": {
    "name": "SantaPresentBoostRage",
@@ -64274,7 +64338,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "GoblinMorphAOEFriend": {
    "name": "GoblinMorphAOEFriend",
@@ -64322,7 +64387,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "GoblinMorphAOEFoe",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "DummySpawnLittlePrinceGuard": {
    "name": "DummySpawnLittlePrinceGuard",
@@ -64361,7 +64427,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "GoblinMorphAOEFoe": {
    "name": "GoblinMorphAOEFoe",
@@ -64409,7 +64476,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "GoblinMorphAOEDamage",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "GoblinMorphAOEDamage": {
    "name": "GoblinMorphAOEDamage",
@@ -64439,7 +64507,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostRageBottle_Battleground": {
    "name": "BoostRageBottle_Battleground",
@@ -64487,7 +64556,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostCloneBottle_Battleground": {
    "name": "BoostCloneBottle_Battleground",
@@ -64535,7 +64605,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostInvisibilityBottle_Battleground": {
    "name": "BoostInvisibilityBottle_Battleground",
@@ -64583,7 +64654,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostHealBottle_Battleground": {
    "name": "BoostHealBottle_Battleground",
@@ -64631,7 +64703,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "MegaDeflect": {
    "name": "MegaDeflect",
@@ -64661,7 +64734,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "MegaDeflectBuff",
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "MegaDeflectBuff": {
    "name": "MegaDeflectBuff",
@@ -64709,7 +64783,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "WarmAOE": {
    "name": "WarmAOE",
@@ -64757,7 +64832,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_Event_LoveBuff": {
    "name": "BoostAOE_Event_LoveBuff",
@@ -64805,7 +64881,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "DarkElixirAOE": {
    "name": "DarkElixirAOE",
@@ -64853,7 +64930,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_TrickOrTreat_Pekka": {
    "name": "BoostAOE_TrickOrTreat_Pekka",
@@ -64901,7 +64979,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_TrickOrTreat_Bomb": {
    "name": "BoostAOE_TrickOrTreat_Bomb",
@@ -64949,7 +65028,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_TrickOrTreat_Clone": {
    "name": "BoostAOE_TrickOrTreat_Clone",
@@ -64997,7 +65077,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_TrickOrTreat_Elixir": {
    "name": "BoostAOE_TrickOrTreat_Elixir",
@@ -65045,7 +65126,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_TrickOrTreat_Skeletons": {
    "name": "BoostAOE_TrickOrTreat_Skeletons",
@@ -65093,7 +65175,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BoostAOE_TrickOrTreat_SuperRage": {
    "name": "BoostAOE_TrickOrTreat_SuperRage",
@@ -65141,7 +65224,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "TrickOrTreat_Bomb_AOE": {
    "name": "TrickOrTreat_Bomb_AOE",
@@ -65171,7 +65255,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Morph_SkeletonsFriend_AOE": {
    "name": "Morph_SkeletonsFriend_AOE",
@@ -65219,7 +65304,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "Morph_SkeletonsFoe_AOE",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Morph_SkeletonsFoe_AOE": {
    "name": "Morph_SkeletonsFoe_AOE",
@@ -65267,7 +65353,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "Morph_SkeletonsDamage_AOE",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Morph_SkeletonsDamage_AOE": {
    "name": "Morph_SkeletonsDamage_AOE",
@@ -65297,7 +65384,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "SuperRage_AOE": {
    "name": "SuperRage_AOE",
@@ -65345,7 +65433,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "LoveBuffAOE": {
    "name": "LoveBuffAOE",
@@ -65393,7 +65482,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "DarkMagicAOE": {
    "name": "DarkMagicAOE",
@@ -65423,7 +65513,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Lightning_Charge1": {
    "name": "Event_Global_Lightning_Charge1",
@@ -65464,7 +65555,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Lightning_Charge2": {
    "name": "Event_Global_Lightning_Charge2",
@@ -65505,7 +65597,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Lightning": {
    "name": "Event_Global_Lightning",
@@ -65588,7 +65681,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": true
   },
   "Event_Global_Lightning_Setup": {
    "name": "Event_Global_Lightning_Setup",
@@ -65629,7 +65723,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Rage": {
    "name": "Event_Global_Rage",
@@ -65677,7 +65772,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Heal": {
    "name": "Event_Global_Heal",
@@ -65725,7 +65821,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Freeze": {
    "name": "Event_Global_Freeze",
@@ -65773,7 +65870,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Rage_Setup": {
    "name": "Event_Global_Rage_Setup",
@@ -65814,7 +65912,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Heal_Setup": {
    "name": "Event_Global_Heal_Setup",
@@ -65855,7 +65954,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Freeze_Setup": {
    "name": "Event_Global_Freeze_Setup",
@@ -65896,7 +65996,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "TriWizardSpawn": {
    "name": "TriWizardSpawn",
@@ -65939,7 +66040,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Invisibility": {
    "name": "Event_Global_Invisibility",
@@ -65987,7 +66089,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Invisibility_Setup": {
    "name": "Event_Global_Invisibility_Setup",
@@ -66028,7 +66131,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Event_Global_Clone_Setup": {
    "name": "Event_Global_Clone_Setup",
@@ -66069,7 +66173,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "EvoRoyalGiantPush_EV1": {
    "name": "EvoRoyalGiantPush_EV1",
@@ -66099,7 +66204,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "FirecrackerFireworksBig_EV1": {
    "name": "FirecrackerFireworksBig_EV1",
@@ -66147,7 +66253,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "FirecrackerFireworksSmall_EV1": {
    "name": "FirecrackerFireworksSmall_EV1",
@@ -66195,7 +66302,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "IceSpiritsAOE_EV1": {
    "name": "IceSpiritsAOE_EV1",
@@ -66243,7 +66351,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Valkyrie_MiniTornado_EV1": {
    "name": "Valkyrie_MiniTornado_EV1",
@@ -66291,7 +66400,8 @@
    "action_graph": null,
    "controls_buff": true,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Zap_EV1": {
    "name": "Zap_EV1",
@@ -66352,7 +66462,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "DummyZap_EV1_Visual": {
    "name": "DummyZap_EV1_Visual",
@@ -66382,7 +66493,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Zap_EV1_SpawnAOE_medium": {
    "name": "Zap_EV1_SpawnAOE_medium",
@@ -66430,7 +66542,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Zap_EV1_SpawnAOE_large": {
    "name": "Zap_EV1_SpawnAOE_large",
@@ -66478,7 +66591,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Tesla_EV1_AppearStun": {
    "name": "Tesla_EV1_AppearStun",
@@ -66519,7 +66633,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Wizard_EV1_ShieldLostExplosion": {
    "name": "Wizard_EV1_ShieldLostExplosion",
@@ -66549,7 +66664,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Wizard_EV1_BurningAOE": {
    "name": "Wizard_EV1_BurningAOE",
@@ -66579,7 +66695,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Tesla_EV1_DummyAEO": {
    "name": "Tesla_EV1_DummyAEO",
@@ -66620,7 +66737,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "AngryBarbarian_EV1_RageAEO": {
    "name": "AngryBarbarian_EV1_RageAEO",
@@ -66677,7 +66795,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BabyDragon_EV1_wind_aeo": {
    "name": "BabyDragon_EV1_wind_aeo",
@@ -66724,7 +66843,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BlowDartPoisonAeO_midDamage": {
    "name": "BlowDartPoisonAeO_midDamage",
@@ -66782,7 +66902,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BlowDartPoisonAeO_fullDamage": {
    "name": "BlowDartPoisonAeO_fullDamage",
@@ -66840,7 +66961,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BlowDartPoisonAeO_baseDamage": {
    "name": "BlowDartPoisonAeO_baseDamage",
@@ -66898,7 +67020,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Cannon_EV1_barrage_aeo_slow": {
    "name": "Cannon_EV1_barrage_aeo_slow",
@@ -66940,7 +67063,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Cannon_EV1_barrage_visualizer_slow": {
    "name": "Cannon_EV1_barrage_visualizer_slow",
@@ -66970,7 +67094,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Cannon_EV1_barrage_aeo_fast": {
    "name": "Cannon_EV1_barrage_aeo_fast",
@@ -67012,7 +67137,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Cannon_EV1_barrage_visualizer_fast": {
    "name": "Cannon_EV1_barrage_visualizer_fast",
@@ -67042,7 +67168,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Cannon_EV1_barrage_aeo_JULIO": {
    "name": "Cannon_EV1_barrage_aeo_JULIO",
@@ -67084,7 +67211,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Cannon_EV1_barrage_visualizer_JULIO": {
    "name": "Cannon_EV1_barrage_visualizer_JULIO",
@@ -67114,7 +67242,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Ghost_EV1_Summon_Spawn_Area": {
    "name": "Ghost_EV1_Summon_Spawn_Area",
@@ -67144,7 +67273,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Ghost_EV1_Summon_Damage_Area": {
    "name": "Ghost_EV1_Summon_Damage_Area",
@@ -67174,7 +67304,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "GoblinCurse": {
    "name": "GoblinCurse",
@@ -67217,7 +67348,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "GoblinCurseBase": {
    "name": "GoblinCurseBase",
@@ -67256,7 +67388,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "CancelTauntAEO": {
    "name": "CancelTauntAEO",
@@ -67295,7 +67428,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "goblin_machine_rocket_target_signal": {
    "name": "goblin_machine_rocket_target_signal",
@@ -67335,7 +67469,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "dead_goblinstein": {
    "name": "dead_goblinstein",
@@ -67365,7 +67500,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "AOE_goblinstein_ability": {
    "name": "AOE_goblinstein_ability",
@@ -67406,7 +67542,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Graveyard_rework": {
    "name": "Graveyard_rework",
@@ -67455,7 +67592,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Princess_EV1_projectile_aeo": {
    "name": "Princess_EV1_projectile_aeo",
@@ -67503,7 +67641,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Princess_EV1_DeathFreeze_Damage": {
    "name": "Princess_EV1_DeathFreeze_Damage",
@@ -67533,7 +67672,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Princess_EV1_DeathFreeze": {
    "name": "Princess_EV1_DeathFreeze",
@@ -67581,7 +67721,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": "Princess_EV1_DeathFreeze_Damage",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "RageBarbarianDummyForSpawn": {
    "name": "RageBarbarianDummyForSpawn",
@@ -67622,7 +67763,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BarbarianRageEvoAeO": {
    "name": "BarbarianRageEvoAeO",
@@ -67681,7 +67823,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": "BarbarianRageDamage",
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "RageBarbarianEvoDummyForSpawn": {
    "name": "RageBarbarianEvoDummyForSpawn",
@@ -67722,7 +67865,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "RoyalHog_EV1_Landing_Damage_Area": {
    "name": "RoyalHog_EV1_Landing_Damage_Area",
@@ -67752,7 +67896,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SkeletonBalloonEvoDummyAeO_DEATH": {
    "name": "SkeletonBalloonEvoDummyAeO_DEATH",
@@ -67795,7 +67940,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SkeletonBalloonEvoDummyAeO_EXTRA": {
    "name": "SkeletonBalloonEvoDummyAeO_EXTRA",
@@ -67838,7 +67984,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SkeletonBalloonEvoDummyAeO": {
    "name": "SkeletonBalloonEvoDummyAeO",
@@ -67877,7 +68024,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SuspiciousBush_DummyAEO": {
    "name": "SuspiciousBush_DummyAEO",
@@ -67920,7 +68068,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Vines_AeO": {
    "name": "Vines_AeO",
@@ -67969,7 +68118,8 @@
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "Gift_Delivery_AEO": {
    "name": "Gift_Delivery_AEO",
@@ -68034,7 +68184,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "BushStatic": {
    "name": "BushStatic",
@@ -68082,7 +68233,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "BushStatic_Middle": {
    "name": "BushStatic_Middle",
@@ -68130,7 +68282,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Event_Rage": {
    "name": "Event_Rage",
@@ -68178,7 +68331,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Event_Heal": {
    "name": "Event_Heal",
@@ -68226,7 +68380,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Event_Invisibility": {
    "name": "Event_Invisibility",
@@ -68274,7 +68429,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": 1
+   "buff_number": 1,
+   "hit_biggest_targets": false
   },
   "Event_HolidayFeast_AEO": {
    "name": "Event_HolidayFeast_AEO",
@@ -68322,7 +68478,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   },
   "SuperKnight_ShieldAEO": {
    "name": "SuperKnight_ShieldAEO",
@@ -68370,7 +68527,8 @@
    "action_graph": null,
    "controls_buff": false,
    "spawn_area_effect_object": null,
-   "buff_number": null
+   "buff_number": null,
+   "hit_biggest_targets": false
   }
  },
  "buffs": {

@@ -2010,6 +2010,33 @@
       "candidates": ["own_side_all_kinds", "own_side_except_crown_towers", "own_troops_only"],
       "promotion_rules": "An own Cannon and an own princess tower inside a Rage with enemies in range: their attack cadence under the buff.",
       "engine": "spell.rs eligible"
+    },
+    "STRIKE_TIMER_LEFTOVER": {
+      "value": "carried",
+      "status": "measured",
+      "confidence": "HIGH for Lightning: 28 casts and 40 strikes on client 15.535.29.",
+      "provenance": "A striking area (Lightning: HitBiggestTargets over a Projectile row, HitSpeed 460, LifeDuration 1500) strikes on the cast tick D + 9, D + 18 and D + 27, floor(k x 460 / 50), at most 3 (measured on client 15.535.29, 28 casts, 40 strikes). carried keeps an exact ms clock from the cast and gives those ticks; dropped restarts the clock at HitSpeed from each strike tick's end and gives D + 19 and D + 29 for the second and third. The 16.402 corpus's Lightning (HitSpeed 500) strikes on D + 10 and D + 20, which carried also gives.",
+      "candidates": ["carried", "dropped"],
+      "promotion_rules": "Settled for HitSpeed 460. A second striking area with another HitSpeed, measured the same way.",
+      "engine": "spell.rs step_spells (the Strikes arm)"
+    },
+    "STRIKE_HP_RANK": {
+      "value": "current_hp",
+      "status": "measured",
+      "confidence": "MEDIUM: the deciding strikes on client 15.535.29 are few.",
+      "provenance": "Measured on client 15.535.29: a full-hp Musketeer is struck before a damaged Knight whose maximum hitpoints are higher, so a striking area ranks its candidates by current hitpoints. Ties go to the earliest created (a law of the engine, not a key: every candidate is of one team, so the creation order is the same for both seats). A target already struck by the same cast is never struck again.",
+      "candidates": ["current_hp", "max_hp"],
+      "promotion_rules": "A shielded unit among the candidates: whether the shield counts.",
+      "engine": "spell.rs strike"
+    },
+    "STRIKE_REACH": {
+      "value": "radius_plus_target_radius_plus_200",
+      "status": "hypothesis",
+      "confidence": "LOW: an interim that fits every strike, pending a scenario that brackets the edge.",
+      "provenance": "Measured on client 15.535.29: a target of radius 600 was struck by a Lightning (Radius 3500) at a centre distance of 4242.6, which Radius + the target's radius (4100) refutes. The interim reach is the centre distance at most Radius + the target's radius + 200. Whether the reach is a circle or a square, and whether the target's radius enters at all, is open.",
+      "candidates": ["radius_plus_target_radius_plus_200", "radius_plus_target_radius"],
+      "promotion_rules": "A scenario that strikes, and fails to strike, targets at a range of centre distances around 3500 to 4400.",
+      "engine": "spell.rs strike"
     }
   },
   "knockback": {

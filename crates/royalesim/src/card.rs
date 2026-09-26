@@ -283,10 +283,111 @@ pub enum SpellShape {
     /// with it -- so it is a spell object that counts `fuse_ms` down and releases `then` where it
     /// stands (spells.SUMMON_FUSE_START).
     Fuse { fuse_ms: i32, then: Box<SpellShape> },
+    /// A STRIKING AREA (Lightning: HitBiggestTargets over a Projectile row). It is not an area on the
+    /// ground: it strikes one enemy at a time on its own schedule (`StrikeDef`; spell.rs `strike`).
+    Strikes(Box<StrikeDef>),
     /// A SPELL THAT DEPLOYS A UNIT (the Heal Spirit card: SpellAsDeploy + SummonCharacter). It puts
     /// its unit down the way a troop card does -- the troop formation, the troop deploy timer, one
     /// tick of latency -- so state.rs `enqueue` expands it and it is never cast.
     Summon { unit: u16, count: i32 },
+}
+
+/// A STRIKING AREA (`SpellShape::Strikes`; Lightning). Every number is the area row's or its Projectile row's.
+/// Measured on client 15.535.29 (28 casts, 40 strikes): strike k falls on the cast tick + floor(k x HitSpeed / TICK_MS)
+/// (spells.STRIKE_TIMER_LEFTOVER), on the eligible enemy with the highest hp (spells.STRIKE_HP_RANK) that this cast has
+/// not struck, ties to the earliest created, within spells.STRIKE_REACH of the area's centre; the strike's damage and
+/// TargetBuff land on the next tick, as a projectile born on the victim (spell.rs `strike`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct StrikeDef {
+    /// One strike's hit on its one victim: `radius` the AREA's Radius (the selection radius, SUBTILES), `damage` and
+    /// `crown_pct` the PROJECTILE row's (Lightning 413 and 25; the area's own crown percent, 100, is never read), the
+    /// air / ground / enemy / building filters the area's, `buff` the projectile's TargetBuff (ZapFreeze 500 ms).
+    pub hit: SpellHit,
+    /// LifeDuration, ms (Lightning 1500).
+    pub life_ms: i32,
+    /// ms from each strike to the next, the first from the cast: HitSpeed repeated while the running sum is at most
+    /// LifeDuration (Lightning [460, 460, 460]).
+    pub gaps_ms: Vec<i32>,
+    /// The projectile row's Speed, raw. The strike lands the next tick whatever it is: the projectile is born on its
+    /// victim.
+    pub speed: i32,
+}
+
+/// THE STRIKING AREA a HitBiggestTargets row is (`StrikeDef`), or the reason it is refused. Exactly one shape is
+/// accepted, Lightning's: HitSpeed and LifeDuration set, a Projectile row, and no Damage, Buff, MaximumTargets,
+/// SpawnCharacter, child area or own-side filter of the area's own; the projectile deals Damage to one target (no
+/// Radius, no Pushback) and releases nothing.
+fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef, String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: &str| Err(format!("striking area effect {what}: {why}; not simulated"));
+    let hit_speed_ms = match aeo.hit_speed_ms {
+        Some(h) if h > 0 => h,
+        _ => return refuse("no HitSpeed"),
+    };
+    let life_ms = match aeo.life_duration_ms {
+        Some(l) if l > 0 => l,
+        _ => return refuse("no LifeDuration"),
+    };
+    if aeo.damage.is_some() || aeo.buff.is_some() || aeo.maximum_targets.is_some() || aeo.spawn_character.is_some() {
+        return refuse("the area carries its own Damage, Buff, MaximumTargets or SpawnCharacter");
+    }
+    if aeo.spawn_area_effect_object.is_some() || aeo.only_own_troops.unwrap_or(false) || aeo.pushback_milli.is_some() {
+        return refuse("the area makes a child area, reaches its own side or pushes");
+    }
+    let p: RawSpellProjectile = match &aeo.projectile {
+        Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(|e| format!("striking area effect {what}: its projectile: {e}"))?,
+        _ => return refuse("no Projectile"),
+    };
+    let pname = p.name.clone().unwrap_or_default();
+    if p.radius_milli.is_some_and(|r| r > 0) || p.pushback_milli.is_some() || p.maximum_targets.is_some() {
+        return refuse(&format!("its projectile {pname} splashes, pushes or caps its targets"));
+    }
+    if p.spawn_character.is_some() || p.spawn_area_effect_object.is_some() || p.spawn_projectile.is_some() || p.action_graph.is_some() {
+        return refuse(&format!("its projectile {pname} releases something"));
+    }
+    let damage = p.damage.ok_or_else(|| format!("striking area effect {what}: its projectile {pname} deals no Damage"))?;
+    let speed = p.speed.ok_or_else(|| format!("striking area effect {what}: its projectile {pname} has no Speed"))?;
+    let buff = match &p.target_buff {
+        None => None,
+        Some(v) if v.is_null() => None,
+        Some(b) => Some(buffs.apply(b, p.buff_time_ms, &format!("striking area effect {what}'s projectile"))?),
+    };
+    let mut gaps_ms = Vec::new();
+    let mut sum = hit_speed_ms;
+    while sum <= life_ms {
+        gaps_ms.push(hit_speed_ms);
+        sum += hit_speed_ms;
+    }
+    if gaps_ms.is_empty() {
+        return refuse("its HitSpeed outlasts its LifeDuration: it never strikes");
+    }
+    let hit = SpellHit {
+        damage,
+        // THE PROJECTILE's share (Lightning 25): measured on client 15.535.29, a princess tower loses 265 of a 1057
+        // strike, ceil(1057 x 25 / 100); the area's own 100 is never read.
+        #[cfg(not(clash_plant = "strike_crown_from_area"))]
+        crown_pct: crown(p.crown_tower_damage_percent),
+        #[cfg(clash_plant = "strike_crown_from_area")]
+        crown_pct: crown(aeo.crown_tower_damage_percent), // PLANT: the area's 100.
+        radius: milli(aeo.radius_milli.ok_or_else(|| format!("striking area effect {what} without radius"))?),
+        hits_air: aeo.hits_air.unwrap_or(false),
+        hits_ground: aeo.hits_ground.unwrap_or(false),
+        only_enemies: aeo.only_enemies.unwrap_or(false),
+        only_own_troops: false,
+        ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
+        no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
+        knockback: None,
+        buff,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    if !hit.only_enemies {
+        return refuse("it strikes both sides");
+    }
+    if !hit.hits_air && !hit.hits_ground {
+        return refuse("it hits neither ground nor air");
+    }
+    Ok(StrikeDef { hit, life_ms, gaps_ms, speed })
 }
 
 impl SpellShape {
@@ -1634,6 +1735,8 @@ struct RawAreaEffect {
     spawn_area_effect_object: Option<String>,
     /// BuffNumber: how many of the buff one application stacks (1, or blank, on every row read).
     buff_number: Option<i32>,
+    /// HitBiggestTargets (`StrikeDef`; 15.535 only).
+    hit_biggest_targets: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1903,6 +2006,10 @@ fn convert_spawn_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &L
 /// is read from every caller: the filter is `SpellHit::only_own_troops`.
 fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
+    // A STRIKING AREA is recognised first: its HitSpeed and its Projectile are its strikes, not a pulse.
+    if aeo.hit_biggest_targets == Some(true) {
+        return strike_shape(aeo, buffs).map(|d| (SpellShape::Strikes(Box::new(d)), Vec::new()));
+    }
     // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
     // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
     // pulse that carries a BUFF and nothing else -- Poison and
@@ -3860,6 +3967,10 @@ impl CardDb {
                         | Some(SpellShape::PulsingAreaEffect { hit: h, .. })
                         | Some(SpellShape::Rolling { hit: h, .. }) => h.crown_pct = pct,
                         Some(SpellShape::Projectile { hit: None, .. }) => return Err(format!("{what}: the spell deals no damage")),
+                        Some(SpellShape::Strikes(d)) => d.hit.crown_pct = pct,
+                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. }) => {
+                            return Err(format!("{what}: the spell's own object carries no crown-tower share"))
+                        }
                         None => c.crown_tower_damage_percent = pct,
                     }
                 }
@@ -4315,7 +4426,7 @@ mod tests {
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
         // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
         // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes).
-        for n in ["Lightning", "Graveyard", "Clone", "Mirror"] {
+        for n in ["Graveyard", "Clone", "Mirror"] {
             assert!(db.index(n).is_none(), "{n} must not be simulable");
             assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         }

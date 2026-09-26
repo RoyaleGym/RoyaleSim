@@ -62,7 +62,7 @@ use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollHitShape, SummonFuseStart, TargetBuffScope};
+use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollHitShape, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -83,6 +83,10 @@ pub enum SpellMotion {
     Pulsing(Pulse),
     /// A bottle standing out its fuse (`SpellShape::Fuse`): `ms` of it left.
     Fuse { pos: Vec2, ms: i32 },
+    /// A STRIKING AREA at `pos` (`SpellShape::Strikes`; Lightning): `next_ms` to its next strike on the clock
+    /// spells.STRIKE_TIMER_LEFTOVER names, `k` strikes done, `struck` every enemy it has struck, sorted (each at
+    /// most once).
+    Strikes { pos: Vec2, life_ms: i32, next_ms: i32, k: u8, struck: Vec<EntityId> },
 }
 
 /// One live spell object.
@@ -417,6 +421,11 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         }
         // Never cast: state.rs `enqueue` puts the unit down as a troop deploy.
         SpellShape::Summon { .. } => {}
+        // A striking area: its damage is the strike's, scaled once here; nothing happens on the cast tick.
+        SpellShape::Strikes(d) => {
+            let motion = SpellMotion::Strikes { pos: tap, life_ms: d.life_ms, next_ms: d.gaps_ms[0], k: 0, struck: Vec::new() };
+            out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion, depth });
+        }
     }
     Ok(out)
 }
@@ -695,6 +704,87 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
     }
 }
 
+/// ONE STRIKE of a striking area at `pos` (`SpellShape::Strikes`; Lightning). Measured on client 15.535.29 (28 casts,
+/// 40 strikes):
+/// - the candidates are the enemies `eligible` admits whose centre is within spells.STRIKE_REACH of `pos`, on this
+///   tick's post-move positions, less every enemy this cast has struck;
+/// - the pick is the highest hp (spells.STRIKE_HP_RANK), ties to the earliest created (`team_seq`: every candidate is
+///   of one team, so this is the creation order and the same for both seats);
+/// - the strike is a projectile born on the victim, appended after this tick's projectiles stepped, so its damage and
+///   its buff land on the next tick; a victim that dies before then wastes it (combat.rs `step_projectiles`).
+///
+/// No candidate: no strike, and the strike is spent.
+#[allow(clippy::too_many_arguments)]
+fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, pos: Vec2, struck: &mut Vec<EntityId>, launched: &mut Vec<Projectile>, nb: &mut Vec<u32>) {
+    let e = ctx.ents;
+    #[cfg(not(clash_plant = "strike_reach_bare"))]
+    let reach_rule = ctx.calib.strike_reach;
+    #[cfg(clash_plant = "strike_reach_bare")]
+    let reach_rule = StrikeReach::RadiusPlusTarget; // PLANT: the refuted Radius + r.
+    let extra = match reach_rule {
+        StrikeReach::RadiusPlusTargetPlus200 => 200 * K,
+        StrikeReach::RadiusPlusTarget => 0,
+    };
+    ctx.hash.neighbours_within(e, pos, def.hit.radius + extra + ctx.hash.max_radius(), nb);
+    // (rank hp, -team_seq, index): the greatest wins
+    let mut best: Option<(i32, i64, usize)> = None;
+    for &v in nb.iter() {
+        let v = v as usize;
+        if !eligible(e, v, team, &def.hit, ctx.calib) {
+            continue;
+        }
+        let id = e.id_of(v);
+        #[cfg(not(clash_plant = "strike_repeats_target"))]
+        if struck.binary_search(&id).is_ok() {
+            continue;
+        }
+        let (dx, dy) = ((e.pos[v].x / K - pos.x / K) as i64, (e.pos[v].y / K - pos.y / K) as i64);
+        let reach = ((def.hit.radius + e.radius[v] + extra) / K) as i64;
+        if dx * dx + dy * dy > reach * reach {
+            continue;
+        }
+        let hp = match ctx.calib.strike_hp_rank {
+            StrikeHpRank::CurrentHp => e.hp[v],
+            StrikeHpRank::MaxHp => e.max_hp[v],
+        };
+        #[cfg(not(clash_plant = "strike_tie_by_slot"))]
+        let order = -(e.team_seq[v] as i64);
+        #[cfg(clash_plant = "strike_tie_by_slot")]
+        let order = v as i64; // PLANT: ties to the highest slot, which is not the creation order.
+        let key = (hp, order, v);
+        if best.is_none_or(|b| (key.0, key.1) > (b.0, b.1)) {
+            best = Some(key);
+        }
+    }
+    let Some((_, _, v)) = best else { return };
+    let id = e.id_of(v);
+    if let Err(at) = struck.binary_search(&id) {
+        struck.insert(at, id);
+    }
+    let at = e.pos[v];
+    launched.push(Projectile {
+        team,
+        pos: at,
+        target: id,
+        aim: at,
+        speed: (def.speed * ctx.calib.projectile_speed_to_subtiles_per_tick).max(1),
+        damage,
+        crown_pct: def.hit.crown_pct,
+        splash: 0,
+        hits_air: true,
+        hits_ground: true,
+        frac: Vec2::default(),
+        fresh: false,
+        buff: def.hit.buff,
+        pulse: 0,
+        firer_card: Some(card),
+        straight: None,
+        hook: None,
+        carrier: None,
+        release: None,
+    });
+}
+
 /// One tick of a rolling projectile: move, sweep, hit each new victim once.
 /// Returns true while it still has distance to roll.
 #[allow(clippy::too_many_arguments)]
@@ -950,6 +1040,28 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // 0: a 500 ms bottle cast on tick C releases on C + 9, and what it releases first acts on
             // C + 10. death_bomb_flight is the arithmetic a death bomb's delayed flight runs (one tick
             // later).
+            // A STRIKING AREA (spells.STRIKE_TIMER_LEFTOVER): each update takes a tick off its clock, and the
+            // update whose clock falls below zero strikes (`strike`). Under carried the next strike is timed from
+            // the strike time itself, so strike k falls on the cast tick + floor(k x HitSpeed / TICK_MS); under
+            // dropped from the end of the strike's tick. The object goes with its last strike.
+            (SpellMotion::Strikes { pos, life_ms, next_ms, k, struck }, SpellShape::Strikes(def)) => {
+                *next_ms -= tick;
+                *life_ms -= tick;
+                if *next_ms < 0 && (*k as usize) < def.gaps_ms.len() {
+                    strike(ctx, s.team, s.card, s.damage, def, *pos, struck, &mut out.launched, nb);
+                    *k += 1;
+                    let gap = def.gaps_ms.get(*k as usize).copied().unwrap_or(0);
+                    #[cfg(not(clash_plant = "strike_timer_restarts"))]
+                    let rule = ctx.calib.strike_timer_leftover;
+                    #[cfg(clash_plant = "strike_timer_restarts")]
+                    let rule = StrikeLeftover::Dropped; // PLANT: the leftover dropped, D+9, D+19, D+29.
+                    *next_ms = match rule {
+                        StrikeLeftover::Carried => *next_ms + gap,
+                        StrikeLeftover::Dropped => gap,
+                    };
+                }
+                (*k as usize) < def.gaps_ms.len() && *life_ms > 0
+            }
             (SpellMotion::Fuse { pos, ms }, SpellShape::Fuse { then, .. }) => {
                 #[cfg(not(clash_plant = "fuse_counts_from_next_tick"))]
                 let start = ctx.calib.summon_fuse_start;
