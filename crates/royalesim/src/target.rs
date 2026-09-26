@@ -243,7 +243,9 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     // the tick after the doom and does not take it back while it lives. Under
     // projectile_attackers_rescan that exemption covers KEEPING only: a scan never takes a doomed unit,
     // the one the attacker has just shot at included (client 15.535.29: 4 of 4 launches beyond reach
-    // at a doomed target were followed by a drop, none retaken).
+    // at a doomed target were followed by a drop, none retaken). Under projectile_attackers_walk_drop
+    // `decide` passes `keeping` only while the attacker may still keep a unit it has shot at
+    // (`keeps_fired`: in its attack, or the target within its keep reach).
     #[cfg(clash_plant = "doomed_rescan_takes_fired")]
     let keeping = true; // PLANT (regression): a rescan takes back a doomed unit the attacker has shot at.
     #[cfg(not(clash_plant = "doomed_drop_every_attacker"))]
@@ -275,6 +277,33 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     } else {
         card.attacks_ground
     }
+}
+
+/// targeting.DOOMED_TARGET_DROP = projectile_attackers_walk_drop: may attacker `a`, keeping its current target `c`,
+/// still keep it through the fired-at exemption (`can_target`'s `keeping`)? Under every other arm, yes. Under
+/// projectile_attackers_walk_drop only while `a` is in its attack (its attack phase, which the previous tick's Attack
+/// phase left, is not Idle) or `c` stands within its keep reach, Range + both radii +
+/// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET, on the start-of-tick positions. So a WALKING attacker beyond it drops a doomed
+/// target it has shot at on the tick after the doom and, its rescans skipping every doomed unit, does not take it back.
+/// Measured on client 15.535.29, the Skeleton Dragons sweep scene: a Skeleton Dragon spat at the Knight
+/// from 5356 (keep reach 4925), kept it and walked after it, and on 348, 5041 from it, dropped it for the tower, the
+/// tick after the tower's arrow joined the spit in flight (151 + 109 against 248 hp). Attackers in their attack that
+/// had fired kept a doomed target in 1,007 of 1,007 episodes of the 15.535.29 records, one of them 234 beyond reach.
+/// A knocked or recoiling unit never gets here (`decide` keeps its target without deciding).
+#[inline]
+fn keeps_fired(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    if ctx.calib.doomed_target_drop != crate::state::DoomedTargetDrop::ProjectileAttackersWalkDrop {
+        return true;
+    }
+    let e = ctx.ents;
+    #[cfg(not(any(clash_plant = "doomed_walker_keeps_fired", clash_plant = "doomed_walk_drop_ignores_phase")))]
+    let attacking = e.attack_phase[a] != crate::entity::AttackPhase::Idle;
+    #[cfg(clash_plant = "doomed_walker_keeps_fired")]
+    let attacking = true; // PLANT (regression): a walking attacker keeps a doomed target it has shot at.
+    #[cfg(all(clash_plant = "doomed_walk_drop_ignores_phase", not(clash_plant = "doomed_walker_keeps_fired")))]
+    let attacking = false; // PLANT (regression): the keep reach alone decides, so an attacker in its attack drops too.
+    let keep = ctx.cards.get(e.card[a]).range + ctx.calib.range_extension_to_keep_target;
+    attacking || in_attack_range(ctx.calib, e.pos[a], keep, e.radius[a], e.pos[c], e.radius[c])
 }
 
 /// targeting.MINIMUM_RANGE = client16402_edge_distance: does `c` stand inside attacker `a`'s MinimumRange, its edge
@@ -503,7 +532,9 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     let card = ctx.cards.get(e.card[a]);
     let mut cancel = false;
     if let Some(t) = cur {
-        let targetable = e.is_alive(t) && can_target(ctx, a, t.index as usize, true);
+        // targeting.DOOMED_TARGET_DROP = projectile_attackers_walk_drop: a walking attacker beyond its keep reach no
+        // longer keeps a doomed target through the fired-at exemption (`keeps_fired`); true under every other arm.
+        let targetable = e.is_alive(t) && can_target(ctx, a, t.index as usize, keeps_fired(ctx, a, t.index as usize));
         // targeting.MINIMUM_RANGE = client16402_edge_distance: a target inside the attacker's MinimumRange is dropped
         // on this tick with its swing cancelled (idle, progress 0), as a lost target and not a kill, so no post-kill
         // wait follows; the rescan below does not take it back while it stands there. Always false under not_read.

@@ -1368,6 +1368,14 @@ calib_enum!(
         /// `keeping`). Measured on client 15.535.29: after a launch from beyond reach at a doomed
         /// target, the re-evaluation dropped it in 4 of 4 cases and took it back in none.
         ProjectileAttackersRescan = "projectile_attackers_rescan",
+        /// As projectile_attackers_rescan, except that keeping needs the attacker in its attack, or the
+        /// target within its keep reach (Range + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET): a
+        /// WALKING attacker beyond it drops a doomed target it has shot at on the next tick (target.rs
+        /// `keeps_fired`). Measured on client 15.535.29 (the Skeleton Dragons sweep scene): a
+        /// Skeleton Dragon that spat from beyond its reach and walked after the Knight, 5041 from it
+        /// (keep reach 4925), dropped it on the tick after a tower arrow doomed it, while every attacker
+        /// in its attack that had fired kept a doomed target (1,007 episodes, one 234 beyond reach).
+        ProjectileAttackersWalkDrop = "projectile_attackers_walk_drop",
     }
 );
 impl DoomedTargetDrop {

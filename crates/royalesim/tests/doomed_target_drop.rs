@@ -17,16 +17,25 @@
 //!   4. a Knight, which has no projectile, walking at the doomed Knight keeps it;
 //!   5. projectile_attackers_rescan: a Minion that spits at a doomed Knight from beyond its reach re-evaluates on the
 //!      next tick and never takes the Knight back, while projectile_attackers takes it back and a Knight the spit
-//!      does not doom is taken back under both (client 15.535.29: 4 of 4 such launches were followed by a drop).
+//!      does not doom is taken back under both (client 15.535.29: 4 of 4 such launches were followed by a drop);
+//!   6. projectile_attackers_walk_drop: a Skeleton Dragon that spat from beyond its keep reach and walks after the
+//!      Knight drops it on the tick after a tower arrow dooms it, while projectile_attackers_rescan keeps it and a
+//!      Knight the shots do not doom is kept (client 15.535.29, the Skeleton Dragons sweep scene);
+//!   7. a Skeleton Dragon still in its attack keeps a doomed Knight it has shot at from beyond its keep reach, under
+//!      projectile_attackers_walk_drop and projectile_attackers_rescan (1,007 of 1,007 such keeps on client 15.535.29).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test doomed_target_drop`):
 //!   * `doomed_eta_ignored` -- damage counts whenever it lands: (2) goes red.
 //!   * `doomed_drop_ignores_fired` -- an attacker that has fired drops it too: (3) goes red.
 //!   * `doomed_drop_every_attacker` -- an attacker with no projectile drops it too: (4) goes red.
 //!   * `doomed_rescan_takes_fired` -- a rescan takes back a doomed unit the attacker has shot at: (5) goes red.
+//!   * `doomed_walker_keeps_fired` -- a walking attacker keeps a doomed target it has shot at: (6) goes red.
+//!   * `doomed_walk_drop_ignores_phase` -- the keep reach alone decides, so an attacker in its attack drops too: (7)
+//!     goes red.
 mod common;
 
 use common::*;
+use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleState, Calib, DoomedTargetDrop};
 use royalesim::{EntityId, Team};
@@ -40,6 +49,8 @@ struct Tick {
     target: Vec<Option<EntityId>>,
     shots_at: Vec<usize>,
     hp: Vec<i32>,
+    phase: Vec<Option<AttackPhase>>,
+    pos: Vec<Vec2>,
 }
 
 type Spawn = (Team, &'static str, (i32, i32), Option<i32>);
@@ -58,6 +69,8 @@ fn play(arm: DoomedTargetDrop, spawns: &[Spawn], ticks: u32) -> (Vec<EntityId>, 
         target: ids.iter().map(|id| s.entity(*id).and_then(|e| e.target)).collect(),
         shots_at: ids.iter().map(|id| s.projectiles().iter().filter(|p| p.target == *id).count()).collect(),
         hp: ids.iter().map(|id| s.entity(*id).map_or(0, |e| e.hp)).collect(),
+        phase: ids.iter().map(|id| s.entity(*id).map(|e| e.attack_phase)).collect(),
+        pos: ids.iter().map(|id| s.entity(*id).map_or(Vec2::default(), |e| e.pos)).collect(),
     };
     let mut out = vec![snap(&s)];
     for _ in 0..ticks {
@@ -180,6 +193,85 @@ fn a_rescan_never_takes_a_doomed_unit_the_attacker_has_shot_at() {
     let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersRescan, &lane(300), 45);
     let d = (0..run.len()).find(|&t| run[t].shots_at[0] > 0).expect("no shot ever flew at the Knight: the scene drifted");
     assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "control: let go of a Knight that was not doomed on {}", d + 1);
+}
+
+/// Cases 6 and 7, tests/test_doomed_target_walk_drop.py's scenes: a red Knight walks down the right lane to the blue
+/// right princess tower and a blue Skeleton Dragon attacks it. In case 6 the dragon, from (9351, 12287), spits first
+/// from beyond its keep reach, so it re-evaluates, keeps the Knight and walks after it; the tower's first arrow then
+/// joins the spit in flight, which dooms a 248-hp Knight and not a 400-hp one.
+fn walk_scene(knight_hp: i32) -> [Spawn; 2] {
+    [(Team::Red, "Knight", (14231, 10500), Some(knight_hp)), (Team::Blue, "SkeletonDragons", (9351, 12287), None)]
+}
+
+/// Case 7: the dragon, from (9551, 11787), spits once in reach and stays in its attack while the 330-hp Knight walks
+/// on out of its keep reach, where the tower's second arrow dooms it (70 hp against 109).
+const ATTACK_SCENE: [Spawn; 2] = [(Team::Red, "Knight", (14231, 11000), Some(330)), (Team::Blue, "SkeletonDragons", (9551, 11787), None)];
+
+/// Is spawn `a` farther than the dragon's keep reach on the Knight (Range + both radii +
+/// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET, from the loaded cards and the shipped ledger) from spawn `b` after tick `t`?
+fn beyond_keep_reach(run: &[Tick], t: usize, a: usize, b: usize) -> bool {
+    let db = cards();
+    let dragon = db.get(db.index("SkeletonDragons").expect("SkeletonDragons not simulable"));
+    let knight = db.get(db.index("Knight").expect("Knight not simulable"));
+    let keep = (dragon.range + dragon.collision_radius + knight.collision_radius + Calib::shipped().range_extension_to_keep_target) as i64;
+    let (p, q) = (run[t].pos[a], run[t].pos[b]);
+    let (dx, dy) = ((p.x - q.x) as i64, (p.y - q.y) as i64);
+    dx * dx + dy * dy > keep * keep
+}
+
+/// Case 6's preconditions: (L, D), the dragon's first spit, from beyond its keep reach, and the tick an arrow joins it
+/// in flight, with the dragon walking after the Knight in between and still beyond its keep reach on D.
+fn walk_preconditions(run: &[Tick], ids: &[EntityId]) -> (usize, usize) {
+    let l = (1..run.len()).find(|&t| run[t].phase[1] == Some(AttackPhase::Cooldown)).expect("the dragon never fired: the scene drifted");
+    assert!(run[l].shots_at[0] == 1 && run[l].target[1] == Some(ids[0]), "precondition: the spit on {l} is not the only shot at the Knight");
+    assert!(beyond_keep_reach(run, l, 0, 1), "precondition: the spit on {l} left from within the dragon's keep reach");
+    let d = (l + 1..run.len()).find(|&t| run[t].shots_at[0] == 2).expect("precondition: no arrow ever joined the spit in flight");
+    let off: Vec<usize> = (l + 1..=d).filter(|&t| run[t].phase[1] != Some(AttackPhase::Idle) || run[t].target[1] != Some(ids[0])).collect();
+    assert!(off.is_empty(), "precondition: the dragon was not walking after the Knight on {off:?} (spit {l}, arrow {d})");
+    assert!(beyond_keep_reach(run, d, 0, 1), "precondition: on the arrow's tick {d} the dragon is within its keep reach");
+    (l, d)
+}
+
+/// (D, K): the Knight is gone on K and D is the last tick a shot at it was launched, so the shots in flight on D
+/// killed it; they land within the 600 ms gate.
+fn realised_doom(run: &[Tick]) -> (usize, usize) {
+    let k = (0..run.len()).find(|&t| !run[t].alive[0]).expect("the Knight never died: the scene drifted");
+    let d = (1..k).filter(|&t| run[t].shots_at[0] > run[t - 1].shots_at[0]).last().expect("no shot ever flew at the Knight");
+    assert!((k - d) * TICK_MS <= ETA_LIMIT_MS, "precondition: the lethal shots land {} ms after D={d}", (k - d) * TICK_MS);
+    assert!(d + 1 < k, "precondition: the Knight died on {k}, before the tick after the doom ({})", d + 1);
+    (d, k)
+}
+
+#[test]
+fn a_walking_attacker_drops_a_doomed_target_it_has_shot_at() {
+    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersWalkDrop, &walk_scene(248), 45);
+    let (_, arrow) = walk_preconditions(&run, &ids);
+    let (d, k) = realised_doom(&run);
+    assert_eq!(d, arrow, "precondition: the Knight was doomed on {d}, not on the arrow's tick {arrow}");
+    let held = targeting(&run, &ids, &[1], 0, d + 1..k);
+    assert!(held.is_empty(), "the walking dragon kept (or took back) the doomed Knight, (spawn, tick) with D={d}, K={k}: {held:?}");
+    // projectile_attackers_rescan, the old arm: its fired-at exemption covers every keep, so the dragon keeps it on D+1
+    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersRescan, &walk_scene(248), 45);
+    let (_, d) = walk_preconditions(&run, &ids);
+    assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "projectile_attackers_rescan: let go of the Knight on D+1={}", d + 1);
+    // control: a Knight the spit and the arrow do not doom is kept by the walking dragon under the new arm
+    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersWalkDrop, &walk_scene(400), 45);
+    let (_, d) = walk_preconditions(&run, &ids);
+    assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "control: let go of a Knight that was not doomed on {}", d + 1);
+}
+
+#[test]
+fn an_attacker_in_its_attack_keeps_a_doomed_target_beyond_its_keep_reach() {
+    for arm in [DoomedTargetDrop::ProjectileAttackersWalkDrop, DoomedTargetDrop::ProjectileAttackersRescan] {
+        let (ids, run) = play(arm, &ATTACK_SCENE, 45);
+        let (d, k) = realised_doom(&run);
+        let fired = (1..d).any(|t| run[t].phase[1] == Some(AttackPhase::Cooldown) && run[t].target[1] == Some(ids[0]));
+        assert!(fired, "{arm:?}: precondition: the dragon had not fired at the Knight before D={d}");
+        assert!(run[d].phase[1] != Some(AttackPhase::Idle), "{arm:?}: precondition: the dragon was not in its attack on D={d}");
+        assert!(beyond_keep_reach(&run, d, 0, 1), "{arm:?}: precondition: on D={d} the dragon is within its keep reach");
+        let lost = not_targeting(&run, &ids, &[1], 0, d + 1..k);
+        assert!(lost.is_empty(), "{arm:?}: the dragon in its attack let go of the doomed Knight, (spawn, tick) with D={d}, K={k}: {lost:?}");
+    }
 }
 
 #[test]
