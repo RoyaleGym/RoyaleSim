@@ -598,6 +598,56 @@ pub fn step_projectiles(
     });
 }
 
+/// The whole ticks until projectile `p`'s hit resolves, read at the end of a tick: the steps it still
+/// takes toward its target as the target stands now (`step_projectiles`' own `advance`, arriving on
+/// the step that reaches it), plus one for a shot whose first step is next tick's (`fresh`). A moving
+/// target's count is re-read each tick; for a still target it is the countdown fixed at launch.
+pub fn ticks_to_land(ents: &Entities, p: &Projectile) -> i32 {
+    let aim = if ents.is_alive(p.target) { ents.pos[p.target.index as usize] } else { p.aim };
+    let (mut pos, mut frac) = (p.pos, p.frac);
+    let mut n = i32::from(p.fresh);
+    // A shot always lands: `advance` moves it at least `speed` closer each step. The bound only
+    // guards a zero speed, which no card ships.
+    for _ in 0..100_000 {
+        n += 1;
+        let (np, _) = advance(pos, aim, p.speed, &mut frac);
+        if np == aim {
+            break;
+        }
+        pos = np;
+    }
+    n
+}
+
+/// THE DOOMED SET of targeting.DOOMED_TARGET_DROP = projectile_attackers, read from the projectiles in
+/// flight at the tick's start (the state the previous tick ended in): a unit is doomed when the summed
+/// damage of the shots flying at it, crown-tower arrows included, covers its hitpoints and shield, and
+/// the shot of those that lands LAST does so within `limit_ms` (measured on client 15.535.29: 62 of 62
+/// drops, 44 of 44 keeps while the lethal damage was 650-750 ms away).
+pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32) -> Vec<bool> {
+    let cap = ents.capacity();
+    let mut pending = vec![0i64; cap];
+    let mut last_ms = vec![0i32; cap];
+    for p in projectiles {
+        if !ents.is_alive(p.target) {
+            continue;
+        }
+        let t = p.target.index as usize;
+        pending[t] += damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) as i64;
+        last_ms[t] = last_ms[t].max(ticks_to_land(ents, p) * tick_ms);
+    }
+    #[cfg(not(clash_plant = "doomed_eta_ignored"))]
+    let within = |t: usize| last_ms[t] <= limit_ms;
+    #[cfg(clash_plant = "doomed_eta_ignored")]
+    let within = |_t: usize| {
+        let _ = (limit_ms, &last_ms);
+        true // PLANT (regression): damage lands whenever it lands.
+    };
+    (0..cap)
+        .map(|t| pending[t] > 0 && pending[t] >= (ents.hp[t].max(0) + ents.shield[t].max(0)) as i64 && within(t))
+        .collect()
+}
+
 /// Result of applying the buffer.
 #[derive(Clone, Debug, Default)]
 pub struct ResolveOut {

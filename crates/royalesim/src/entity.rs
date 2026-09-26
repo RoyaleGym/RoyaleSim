@@ -183,6 +183,13 @@ pub struct Entities {
     /// client16402_attack_finish. `default` and sized on load like `retarget_wait`.
     #[serde(default)]
     pub target_doomed: Vec<bool>,
+    /// The target this unit has LAUNCHED a projectile at since it acquired it, or None: set in the
+    /// attack pass when a projectile attacker fires, cleared in the Target phase whenever the target
+    /// changes. Read by target.rs `can_target` under targeting.DOOMED_TARGET_DROP =
+    /// projectile_attackers (an attacker keeps a doomed target it has already shot at), and written
+    /// under that arm only. `default` and sized on load like `target_doomed`.
+    #[serde(default)]
+    pub fired_at: Vec<Option<EntityId>>,
     /// What is left of a formation member's DEPLOY_STAGGER wait, ms: set from PendingSpawn.stagger_ms
     /// when the member is created and counted down beside `deploy_ms`, so `deploy_ms - stagger_ms`
     /// stays the unit's own DeployTime. 0 for every unit that never staggered (a spell release and
@@ -527,6 +534,7 @@ impl Entities {
             self.retarget_on_resume[i] = false;
             self.retarget_wait[i] = 0;
             self.target_doomed[i] = false;
+            self.fired_at[i] = None;
             self.stagger_ms[i] = 0;
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
@@ -589,6 +597,7 @@ impl Entities {
             self.retarget_on_resume.push(false);
             self.retarget_wait.push(0);
             self.target_doomed.push(false);
+            self.fired_at.push(None);
             self.stagger_ms.push(0);
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);

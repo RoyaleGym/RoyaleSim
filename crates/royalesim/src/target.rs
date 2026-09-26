@@ -69,7 +69,16 @@ pub struct TargetCtx<'a> {
     /// The tick being run (`BattleState::tick`), which a candidate's `acquirable_from` is
     /// compared with (targeting.SPAWNED_UNIT_ACQUIRE_DELAY, `can_target`).
     pub tick: u32,
+    /// targeting.DOOMED_TARGET_DROP = projectile_attackers: per slot, whether the unit is doomed by the
+    /// shots in flight at the tick's start (combat.rs `doomed_by_shots_in_flight`). Empty under keep and
+    /// outside the Target phase.
+    pub doomed: &'a [bool],
 }
+
+/// targeting.DOOMED_TARGET_DROP: damage that lands later than this does not doom its target. The client
+/// 15.535.29 global LOGIC_PENDING_DAMAGE_IGNORE_IF_DURATION_LESS, 600 ms; the drops read 600 and the keeps
+/// 650 and above.
+pub const DOOMED_ETA_LIMIT_MS: i32 = 600;
 
 /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame: the ticks from a death-spawned
 /// troop's first tick F to the first Target phase that may give it to an enemy. Measured on
@@ -161,6 +170,21 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize) -> bool {
         return false;
     }
     let card = ctx.cards.get(e.card[a]);
+    // targeting.DOOMED_TARGET_DROP = projectile_attackers: an attacker whose card fires a projectile
+    // neither keeps nor takes a unit the shots already in flight will kill (`ctx.doomed`), unless it has
+    // launched a shot at that unit since acquiring it (entity.rs `fired_at`). So it drops the target on
+    // the tick after the doom and does not take it back while it lives.
+    #[cfg(not(clash_plant = "doomed_drop_every_attacker"))]
+    let applies = card.projectile.is_some();
+    #[cfg(clash_plant = "doomed_drop_every_attacker")]
+    let applies = true; // PLANT (regression): an attacker with no projectile drops it too.
+    #[cfg(not(clash_plant = "doomed_drop_ignores_fired"))]
+    let exempt = e.fired_at[a] == Some(e.id_of(c));
+    #[cfg(clash_plant = "doomed_drop_ignores_fired")]
+    let exempt = false; // PLANT (regression): an attacker that has fired drops it too.
+    if applies && !exempt && ctx.doomed.get(c).copied().unwrap_or(false) {
+        return false;
+    }
     #[cfg(not(clash_plant = "giant_hits_troops"))]
     if card.target_only_buildings && !e.kind[c].is_building() {
         return false;

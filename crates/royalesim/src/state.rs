@@ -242,6 +242,11 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "attack_facing_default")]
     pub attack_facing: AttackFacing,
+    /// targeting.DOOMED_TARGET_DROP: whether a projectile attacker drops a target the shots in flight
+    /// will kill (`phase_target`, target.rs `can_target`). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is the old arm, what a battle saved before it actually ran.
+    #[serde(default = "doomed_target_drop_default")]
+    pub doomed_target_drop: DoomedTargetDrop,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -561,6 +566,10 @@ fn attacking_unit_movement_default() -> AttackingUnitMovement {
 
 fn attack_facing_default() -> AttackFacing {
     AttackFacing::Kept
+}
+
+fn doomed_target_drop_default() -> DoomedTargetDrop {
+    DoomedTargetDrop::Keep
 }
 
 fn deploying_heading_default() -> DeployingHeading {
@@ -971,6 +980,21 @@ calib_enum!(
 calib_enum!(
     /// spells.PULSING_AREA_EFFECT -- when a standing area effect applies.
     PulsingArea { FromLanding = "hit_speed_period_from_landing", Delayed = "hit_speed_period_delayed" }
+);
+calib_enum!(
+    /// targeting.DOOMED_TARGET_DROP -- what an attacker does with a target that the shots already in
+    /// flight at it will kill.
+    DoomedTargetDrop {
+        /// Keeps it like any other target.
+        Keep = "keep",
+        /// Measured on client 15.535.29: an attacker whose card fires a projectile (troops, buildings
+        /// and crown towers) and that has not launched a shot at its target since acquiring it drops
+        /// the target on the tick after it is doomed, cancelling its windup, and does not take it back
+        /// while it lives. Doomed: the shots in flight at it cover its hitpoints, and the one that lands
+        /// last does so within target.rs DOOMED_ETA_LIMIT_MS. An attacker with no projectile, and one
+        /// that has fired at the target, keeps it.
+        ProjectileAttackers = "projectile_attackers",
+    }
 );
 calib_enum!(
     /// movement.ATTACK_FACING -- where a unit faces while it is in its attack state. A walking
@@ -1807,6 +1831,7 @@ impl Calib {
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
+            doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
@@ -3782,6 +3807,7 @@ impl BattleState {
                 towers: &self.towers,
                 king_active: self.king_active,
                 tick: self.tick,
+                doomed: &[],
             };
             let e = &self.ents;
             for i in 0..e.capacity() {
@@ -3847,6 +3873,13 @@ impl BattleState {
         let mut nb = std::mem::take(&mut self.scratch.nb);
         decisions.clear();
         self.hide_pass(&mut nb);
+        // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
+        // the tick's start, before any decision reads it.
+        let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers {
+            combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS)
+        } else {
+            Vec::new()
+        };
         {
             let ctx = TargetCtx {
                 ents: &self.ents,
@@ -3858,6 +3891,7 @@ impl BattleState {
                 towers: &self.towers,
                 king_active: self.king_active,
                 tick: self.tick,
+                doomed: &doomed_drop,
             };
             for i in 0..self.ents.capacity() {
                 if self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 {
@@ -3979,6 +4013,9 @@ impl BattleState {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
+            }
+            if changed {
+                e.fired_at[i] = None;
             }
             e.target[i] = d.target;
             if wait_mode == PostKillWait::AttackFinish {
@@ -4268,6 +4305,7 @@ impl BattleState {
                 towers: &self.towers,
                 king_active: self.king_active,
                 tick: self.tick,
+                doomed: &[],
             };
             // EVERY ENTITY AS THE CONTACT LAW SEES IT: every alive entity, troops and
             // buildings and towers, in native units. Positions are updated in place as
@@ -4995,6 +5033,7 @@ impl BattleState {
                 towers: &self.towers,
                 king_active: self.king_active,
                 tick: self.tick,
+                doomed: &[],
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -5172,6 +5211,7 @@ impl BattleState {
                 towers: &self.towers,
                 king_active: self.king_active,
                 tick: self.tick,
+                doomed: &[],
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -5391,6 +5431,7 @@ impl BattleState {
                 towers: &self.towers,
                 king_active: self.king_active,
                 tick: self.tick,
+                doomed: &[],
             };
             // None = the measured "no periodic replan" (calibration
             // pathfinding.REPATH_INTERVAL_TICKS). For these pre-2026 models that
@@ -5667,6 +5708,11 @@ impl BattleState {
                     &mut self.projectiles,
                     &mut self.scratch.nb,
                 );
+                // targeting.DOOMED_TARGET_DROP = projectile_attackers: a projectile attacker has now
+                // launched at its target, so it keeps that target even once it is doomed.
+                if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers && self.cfg.cards.get(self.ents.card[i]).projectile.is_some() {
+                    self.ents.fired_at[i] = Some(t);
+                }
                 // CHARGE (calibration charge.RESET_ON_ATTACK): the LANDED hit -- this
                 // completed windup, not entering range and not a cancelled swing --
                 // consumes the charge (`fire` read `charged` for its damage just above).
@@ -7630,6 +7676,12 @@ impl BattleState {
                 if self.cfg.calib.post_kill_wait == PostKillWait::AttackFinish {
                     h.bool(e.target_doomed[i]);
                 }
+                if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers {
+                    let f = e.fired_at[i];
+                    h.bool(f.is_some());
+                    h.u32(f.map_or(0, |t| t.index));
+                    h.u32(f.map_or(0, |t| t.generation));
+                }
                 if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
                     h.i32(e.stagger_ms[i]);
                 }
@@ -8410,6 +8462,7 @@ impl BattleState {
         snap.ents.push_neighbours.resize(n, 0);
         snap.ents.retarget_wait.resize(n, 0);
         snap.ents.target_doomed.resize(n, false);
+        snap.ents.fired_at.resize(n, None);
         snap.ents.stagger_ms.resize(n, 0);
         snap.ents.death_slide_centre.resize(n, Vec2::default());
         snap.ents.death_slide_radius.resize(n, 0);
