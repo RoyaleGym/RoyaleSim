@@ -3353,8 +3353,9 @@ impl BattleState {
     /// frame (the scan's -200 and one decay). The scan in each birth's creation-tick update predicts the
     /// first-frame offset, sign included, for 30 of 30 births beside a dying building on client 15.535.29
     /// (the Goblin Cage's Brawler 3, the Goblin Drill's goblins 13, the Tombstone's Skeletons 14). A dying
-    /// TROOP is not a blocker here: a moving parent (the Elixir Golem's halves) is not settled, and a
-    /// DeathSpawnPushback row's members take no first update at all.
+    /// TROOP is not a blocker here, because troops disagree: the Elixir Golem's halves read the +-190 of a
+    /// blocker (42 of 48) and the Battle Ram's Barbarians read 0 (24 of 25). A DeathSpawnPushback row's
+    /// members take no first update at all.
     ///
     /// ONLY UNDER THE 16.402 MODEL (PathSearch::Client16402 and match.TICK_ORDER = client16402):
     /// the step is that model's move pass, and under the legacy tick order the Attack phase runs
@@ -6475,8 +6476,9 @@ impl BattleState {
             #[cfg(clash_plant = "first_step_moves_pushback_spawns")]
             let first_update = true; // PLANT (regression): a Golemite steps on its death frame.
             // A DYING BUILDING STAYS IN ITS MEMBERS' FIRST AVOIDANCE SCAN, as a static blocker, and out of
-            // their separation push (`first_update`). A dying troop does not: a moving parent (the Elixir
-            // Golem) is not settled.
+            // their separation push (`first_update`). A dying troop does not, because the troops disagree on
+            // client 15.535.29: the Elixir Golem's halves read the +-190 of a blocker (42 of 48), the Battle
+            // Ram's Barbarians read 0 where its body would block (24 of 25).
             #[cfg(not(clash_plant = "first_step_parent_gone"))]
             let blocks = first_update && self.ents.kind[i].is_building();
             #[cfg(clash_plant = "first_step_parent_gone")]
