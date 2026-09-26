@@ -52,7 +52,7 @@
 
 use royalesim::card::{CardDb, CardKind, UnitRef};
 use royalesim::entity::{AttackPhase, EntityKind};
-use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE, SUBTILE_PER_MILLITILE};
 use royalesim::state::{BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 use serde::{Deserialize, Serialize};
@@ -182,6 +182,49 @@ pub struct Deploy {
     pub first_seen_gap: u32,
     #[serde(default)]
     pub families: Vec<String>,
+    /// The tap, native, as the 15.535.29 scenario emitter writes it: an [x, y] pair. A corpus fixture writes
+    /// an object here, which this harness does not play from (`play_point`).
+    #[serde(default)]
+    pub tap: Option<serde_json::Value>,
+    /// Where `pos` came from, as the scenario emitter labels it (observed_spawn, observed_spawn_centroid,
+    /// tap_request_no_unit_observed, ...). Absent from a corpus fixture.
+    #[serde(default)]
+    pub pos_source: Option<String>,
+}
+
+/// THE POINT A DEPLOY IS PLAYED AT, native.
+///
+/// A scenario fixture's `pos` is what was SEEN. For a multi-unit troop that is the members' centroid
+/// (pos_source observed_spawn_centroid), which lies off the tile the formation was laid around (the Rascals'
+/// sits 238 below it). For a spell request no unit was seen at, it is the raw request
+/// (tap_request_no_unit_observed), which the game plays at its tile centre. Both are played here at the TAP's
+/// tile centre, and the engine's own placement then does what it does for the side, a side-1 ground
+/// formation's one-unit offset included.
+///
+/// Every other deploy is played at `pos` as before, and so is every corpus deploy: a corpus fixture carries no
+/// pos_source, and its taps are what a reader saw, not what the client resolved.
+///
+/// Measured on the client 15.535.29 sweep, within 250 from the tap:
+///   - Rascals 941 -> 1,106 of 1,106;
+///   - RoyalRecruits_Chess 2,380 -> 2,650 of 2,650;
+///   - SkeletonWarriors_SpookyChess 2,230 -> 2,457 of 2,457.
+/// Plant: replay_plays_the_centroid.
+pub fn play_point(d: &Deploy) -> [i32; 2] {
+    #[cfg(clash_plant = "replay_plays_the_centroid")]
+    {
+        return d.pos; // PLANT (regression): every deploy at what was seen.
+    }
+    #[allow(unreachable_code)]
+    let tile = SUBTILE / SUBTILE_PER_MILLITILE;
+    let tapped = d.tap.as_ref().and_then(|t| {
+        let a = t.as_array()?;
+        let (x, y) = (a.first()?.as_i64()? as i32, a.get(1)?.as_i64()? as i32);
+        Some([x.div_euclid(tile) * tile + tile / 2, y.div_euclid(tile) * tile + tile / 2])
+    });
+    match (d.pos_source.as_deref(), tapped) {
+        (Some("observed_spawn_centroid" | "tap_request_no_unit_observed"), Some(t)) => t,
+        _ => d.pos,
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -1121,7 +1164,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             for d in list {
                 let team = team_of(d.side);
                 let name = d.card.clone().unwrap_or_default();
-                let pos = from_native(d.pos[0], d.pos[1]);
+                let p = play_point(d);
+                let pos = from_native(p[0], p[1]);
                 let r = s.spawn_unit(team, &name, pos, d.level);
                 if r.is_ok() {
                     if let Some(idx) = db.index(&name) {

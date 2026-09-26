@@ -354,3 +354,25 @@ fn a_runs_overrides_are_in_its_notes_and_its_own_field_not_among_the_level_devia
     assert!(!r.level_deviations.iter().any(|n| n.contains("calibration override")), "an override is filed as a level deviation");
     assert!(play(&f).calibration_overrides.is_empty(), "the shipped run names no override");
 }
+
+/// A scenario deploy seen only as its members' centroid, or a spell request no unit was seen at, is played at the
+/// tapped tile's centre. A deploy seen where it stands, and a corpus deploy (no pos_source; its `tap` an object), is
+/// played at `pos`. Plant: replay_plays_the_centroid.
+#[test]
+fn a_scenario_deploy_seen_as_a_centroid_or_never_seen_is_played_at_its_tapped_tile() {
+    let deploy = |extra: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 218, "side": 0, "card": "Rascals", "card_id": 26000053, "kind": "troop", "level": 11, "count": 3,
+                "pos": [9500, 11262], "source": "tap_tile"{extra}}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let centroid = deploy(r#", "tap": [9500, 11500], "pos_source": "observed_spawn_centroid""#);
+    assert_eq!(play_point(&centroid), [9500, 11500], "a centroid is played at the tapped tile");
+    let request = deploy(r#", "tap": [14188, 13556], "pos_source": "tap_request_no_unit_observed""#);
+    assert_eq!(play_point(&request), [14500, 13500], "a raw request is played at its tile centre");
+    let seen = deploy(r#", "tap": [9500, 11500], "pos_source": "observed_spawn""#);
+    assert_eq!(play_point(&seen), [9500, 11262], "a deploy seen where it stands is played there");
+    let corpus = deploy(r#", "tap": {"x": 9500, "y": 11500}"#);
+    assert_eq!(play_point(&corpus), [9500, 11262], "a corpus deploy is played at pos");
+}
