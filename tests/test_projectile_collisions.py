@@ -14,6 +14,12 @@ boulder, the Firecracker's spark). The pellets ride on
 combat.RANGE_PROJECTILE = straight_to_range and combat.MULTIPLE_PROJECTILES = client_fan, so every case names all
 three keys.
 
+THE KILL INSIDE A TICK. One point-blank volley met a Knight that fewer than 10 pellets kill (347 hp; one scene,
+recorded from both sides). The first five pellets in creation order (offsets 0, +7, -7, +14, -14) hit it for 420 on
+the creation tick. The other five (+21, -21, +28, -28, +35) were seen at the launch point on that tick and flew on to
+their range. The client applies each pellet's hit before it tests the next, so the pellets after a kill pass the dead
+unit. The engine buffers a tick's damage for Resolve, so the new arm reads the hits already written this tick.
+
 WHY THE CONTROL IS HERE. An Elite Archer's arrow (no CheckCollisions) passes through the Knight it hits under both
 arms of this key, which refuses "client_columns stops every straight shot".
 
@@ -26,6 +32,8 @@ in a scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target
     test_a_point_blank_volley_lands_on_its_creation_tick.
   * `random_delay_unread` -- the new arm reads no delay, so every pellet steps on the tick after its creation:
     test_each_pellet_waits_one_to_five_ticks.
+  * `kill_inside_tick_unread` -- the new arm stops every pellet in reach on a unit killed earlier in the tick:
+    test_the_pellets_after_a_kill_fly_on.
 """
 
 from __future__ import annotations
@@ -47,6 +55,8 @@ F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 P = {name: i for i, name in enumerate(royalesim.PROJECTILE_FIELDS)}
 PELLET = 84  # HunterProjectile Damage 33 at level 11
 STEP = 550
+#: the fan's offsets in creation order, degrees (combat.MULTIPLE_PROJECTILES = client_fan)
+FAN = (0, 7, -7, 14, -14, 21, -21, 28, -28, 35)
 #: a blue attacker on the red half and a red Knight walking at it, clear of every tower
 AT_RANGE = ((9000, 18000), (9000, 23000))
 #: the Knight 2200 from the Hunter, inside its own reach, so it stands: 1200 from the pellets' launch point
@@ -57,8 +67,9 @@ def overrides(arms) -> dict:
     return {k: json.dumps(v) for k, v in zip(KEYS, arms, strict=True)}
 
 
-def run(arms, attacker, scene, ticks=60):
-    """Per tick: the Knight (native position and hp, None once gone) and the attacker's projectiles (x, y, aim)."""
+def run(arms, attacker, scene, ticks=60, knight_hp=-1):
+    """Per tick: the Knight (native position and hp, None once gone), the attacker's projectiles (x, y, aim) and the
+    attacker's native position (None once gone). `knight_hp` is the Knight's starting hp (-1: full)."""
     (ax, ay), (kx, ky) = scene
     b = royalesim.Battle(["Knight", attacker], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arms))
     b.reset(
@@ -68,18 +79,25 @@ def run(arms, attacker, scene, ticks=60):
         200,
         [10_000, 10_000],
         None,
-        [(1, 0, kx * SUB, ky * SUB, -1), (0, 1, ax * SUB, ay * SUB, -1)],
+        [(1, 0, kx * SUB, ky * SUB, knight_hp), (0, 1, ax * SUB, ay * SUB, -1)],
     )
     rows = []
     for _ in range(ticks + 1):
         st = json.loads(b.state_json())
         kn = next((e for e in st["entities"] if e[F["tower_slot"]] < 0 and e[F["team"]] == 1), None)
+        me = next((e for e in st["entities"] if e[F["tower_slot"]] < 0 and e[F["team"]] == 0), None)
         shots = [
             (p[P["x"]] // SUB, p[P["y"]] // SUB, p[P["aim_x"]] // SUB, p[P["aim_y"]] // SUB)
             for p in st.get("projectiles", [])
             if p[P["firer_card_id"]] == 1
         ]
-        rows.append((None if kn is None else (kn[F["x"]] // SUB, kn[F["y"]] // SUB, kn[F["hp"]]), shots))
+        rows.append(
+            (
+                None if kn is None else (kn[F["x"]] // SUB, kn[F["y"]] // SUB, kn[F["hp"]]),
+                shots,
+                None if me is None else (me[F["x"]] // SUB, me[F["y"]] // SUB),
+            )
+        )
         b.step([], 1)
     return rows
 
@@ -133,6 +151,36 @@ def test_a_point_blank_volley_lands_on_its_creation_tick():
     seen = [i for i, r in enumerate(rows[: t + 1]) if r[1]]
     assert not seen, f"Hunter projectiles seen on {seen}, up to the Knight's first loss on {t}"
     assert first == 10 * PELLET, f"the Knight's first loss is {first} on {t}, 10 x {PELLET} expected"
+
+
+@pytest.mark.parametrize("hp", [347, 336, 100])
+def test_the_pellets_after_a_kill_fly_on(hp):
+    """A point-blank volley on a Knight that fewer than 10 pellets kill: the first ceil(hp / 84) in creation order hit
+    it on the creation tick and the rest fly on. 347 is the Knight measured on client 15.535.29 (5 hit it, 5 flew on).
+    336 is 4 pellets exactly: the fourth takes it to 0, which is death, so 6 fly on. 100 leaves 8."""
+    rows = run(NEW, "Hunter", POINT_BLANK, ticks=40, knight_hp=hp)
+    died = next((t for t, r in enumerate(rows) if r[0] is None), None)
+    assert died is not None, f"the Knight with {hp} hp outlived the window"
+    before = rows[died - 1][0]
+    assert before[2] == hp, f"the scenario drifted: the Knight had {before[2]} hp on {died - 1}, not {hp}"
+    seen = [t for t, r in enumerate(rows[:died]) if r[1]]
+    assert not seen, f"the scenario drifted: Hunter projectiles seen on {seen}, before the Knight died on {died}"
+    hits = -(-hp // PELLET)
+    # the fan turns about the bearing from the Hunter's start-of-tick centre to the Knight's
+    ax, ay = rows[died - 1][2]
+    bearing = math.degrees(math.atan2(before[1] - ay, before[0] - ax))
+    flown = rows[died][1]
+    offsets = sorted(
+        round(abs((math.degrees(math.atan2(s[3] - ay, s[2] - ax)) - bearing + 180) % 360 - 180)) for s in flown
+    )
+    want = sorted(abs(d) for d in FAN[hits:])
+    assert offsets == want, (
+        f"the Knight ({hp} hp) died on {died} with {len(flown)} pellets in flight at offsets {offsets}; "
+        f"{10 - hits} expected at {want}: the first {hits} in creation order hit it and the rest fly on"
+    )
+    aims = {(s[2], s[3]) for s in flown}
+    later = [s for s in rows[died + 6][1] if (s[2], s[3]) in aims]
+    assert len(later) == len(aims), f"{len(aims) - len(later)} of the pellets that passed the kill were gone 6 ticks on"
 
 
 def test_each_pellet_waits_one_to_five_ticks():

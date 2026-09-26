@@ -1710,12 +1710,14 @@ calib_enum!(
     AttackPushback {
         /// Today's engine: nothing; AttackPushBack is not read.
         None = "none",
-        /// Measured on client 15.535.29 (5 of 5 Sparky launches, 3 of 3 gaps): the launch arms
-        /// the knockback ladder (knockback.DISPLACEMENT_LAW = client16402) for AttackPushBack
-        /// straight away from the target, its first step on the launch tick (175, 150, ..., 25,
-        /// 0, then 25 back for 750); the unit is out of the attack while the ladder runs and
-        /// re-enters it on the launch + 9 with a fresh cycle, which reads progress 500, so
-        /// launches are 79 ticks apart instead of 80.
+        /// Measured on client 15.535.29 (5 of 5 Sparky launches, 3 of 3 gaps; 2 of 2 Firecracker
+        /// launches, 1 of 1 gap): the launch arms the knockback ladder (knockback.DISPLACEMENT_LAW
+        /// = client16402) for AttackPushBack straight away from the target, its first step on the
+        /// launch tick (175, 150, ..., 25, 0, then 25 back for 750; 200, 175, ..., 0, then 25
+        /// back for 1000); the unit is out of the attack while the ladder runs and re-enters it
+        /// on the tick after with a fresh cycle (the launch + 9 with progress 500 for the Sparky,
+        /// the launch + 10 with 550 for the Firecracker), so launches are 79 ticks apart instead
+        /// of 80, and 59 instead of 60.
         LadderAwayFromTarget = "ladder_away_from_target",
     }
 );
@@ -2893,8 +2895,8 @@ impl Calib {
         only(&v, &["combat", "KAMIKAZE_DEATH", "value"], "at_fire")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
-        // knockback ladder, and its measured re-entry (progress 500 on the launch + 9) is the
-        // progress counter's too. The other pairings have no code and are refused here rather
+        // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
+        // Sparky, 550 on the launch + 10 for the Firecracker) is the progress counter's too. The other pairings have no code and are refused here rather
         // than run as the nearest thing.
         if c.variable_damage == VariableDamage::AttackProgressStages && c.attack_cycle != AttackCycle::ProgressCredit {
             return Err("combat.VARIABLE_DAMAGE = client16402_attack_progress_stages has no engine implementation under combat.ATTACK_CYCLE other than progress_credit".into());
@@ -7558,6 +7560,7 @@ impl BattleState {
                     &mut self.scratch.nb,
                     &mut self.rng,
                     &bolts,
+                    self.tick,
                 );
                 // match.TICK_ORDER = client_sequential_strike: a DIRECT strike (no projectile: the
                 // single hit, or the melee splash) lands at once, so every later unit of the pass
@@ -7726,16 +7729,23 @@ impl BattleState {
     /// ladder (`arm_ladder`, knockback.DISPLACEMENT_LAW = client16402) for AttackPushBack
     /// straight away from the target, in the Attack phase, so its first step is this tick's
     /// Path phase: 175, 150, 125, 100, 75, 50, 25, 0, then 25 back for the Sparky's 750, a net
-    /// of 675, as measured on client 15.535.29 on 5 of 5 launches. The ladder is armed here
-    /// rather than through the effect buffer, so IgnorePushback (which the Sparky sets, and
-    /// which the buffer's `pushable` gate reads) does not refuse the unit's own recoil.
+    /// of 675, as measured on client 15.535.29 on 5 of 5 launches; 200, 175, ..., 25, 0, then 25
+    /// back for the Firecracker's 1000, a net of 875, on 2 of 2. The source is the target's
+    /// start-of-tick centre (Attack runs before Move): on the Firecracker it reproduces all 20
+    /// recorded positions to the unit, where the target's post-move centre gets 3 of the 10 on
+    /// the launch the target was walking through. The ladder is
+    /// armed here rather than through the effect buffer, so IgnorePushback (which the Sparky
+    /// sets, and which the buffer's `pushable` gate reads) does not refuse the unit's own recoil.
     ///
     /// THE ATTACK IT INTERRUPTS: the launch leaves the unit out of the attack (Idle, progress 0,
     /// the load timer at LoadTime, the target kept but unlocked) and the ladder holds it there
-    /// (`Entities::knocked`). It re-enters on the launch + 9 with a fresh cycle whose entry,
-    /// LoadTime - (LoadTime - 9 x 50) + 50, reads the measured progress 500, so the next launch
-    /// comes 79 ticks after this one (3 of 3 gaps), not the 80 its HitSpeed gives. A ladder
-    /// already running refuses the recoil (knockback.STACKING) and then nothing is reset.
+    /// (`Entities::knocked`). It re-enters on the tick after the ladder's last step with a fresh
+    /// cycle whose entry reads LoadTime less the timer on the tick before, plus 100. For the
+    /// Sparky's 9-tick ladder that is the launch + 9 with 3000 - 2600 + 100 = 500, so the next
+    /// launch comes 79 ticks after this one (3 of 3 gaps), not the 80 its HitSpeed gives. For the
+    /// Firecracker's 10-tick ladder it is the launch + 10 with 2350 - 1900 + 100 = 550, and 59
+    /// ticks, not 60 (1 of 1). A ladder already running refuses the recoil (knockback.STACKING)
+    /// and then nothing is reset.
     fn attack_recoil(&mut self, i: usize, t: EntityId) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         if !self.ents.is_alive(t) {
@@ -7969,7 +7979,7 @@ impl BattleState {
     }
 
     fn phase_projectile(&mut self) {
-        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb);
+        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb, self.tick);
         // No early return on an empty spell list: stepping no spell is a no-op, and what
         // the phase hands on (spell.rs `SpellOut`) need not come from a spell.
         let mut out = spell::SpellOut::default();

@@ -625,6 +625,8 @@ fn attack_step_windup(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, 
 /// client_fan), so a battle under the shipped arms consumes nothing from it here.
 /// `bolts` are the extra bolts of this attack (combat.MULTIPLE_TARGETS =
 /// client_bolts_per_target, state.rs `extra_bolts`), empty under the shipped arm.
+/// `tick` is the tick being run: a CheckCollisions shot's creation-tick test reads which of the
+/// hits already written this tick Resolve will land (`killed_this_tick`).
 #[allow(clippy::too_many_arguments)]
 pub fn fire(
     ents: &Entities,
@@ -639,6 +641,7 @@ pub fn fire(
     scratch: &mut Vec<u32>,
     rng: &mut Rng,
     bolts: &[EntityId],
+    tick: u32,
 ) {
     let card = cards.get(ents.card[a]);
     let ti = target.index as usize;
@@ -813,12 +816,14 @@ pub fn fire(
                     // a Knight 1280-1295 and a Giant 1555 from the launch point, and none on a Knight
                     // 2009 or a Giant 1834 out, so the reach less the victim's radius lies in
                     // 805-1084; 300 + 650 = 950. A CheckCollisions shot that hits here is gone
-                    // before it is ever seen.
+                    // before it is ever seen. The pellets are tested in creation order, each
+                    // after the hits of the ones before it: a pellet whose victim those hits have
+                    // killed passes it (`killed_this_tick`) and flies on.
                     if fresh && period == 0 {
                         if let Some(s) = shot.straight.as_mut() {
                             s.reach += start_extra;
                         }
-                        let hit = straight_hits(ents, hash, cards, calib, &mut shot, pos, dmg, fx, scratch);
+                        let hit = straight_hits(ents, hash, cards, calib, &mut shot, pos, dmg, fx, scratch, tick);
                         if let Some(s) = shot.straight.as_mut() {
                             s.reach -= start_extra;
                         }
@@ -1062,6 +1067,8 @@ fn apply_attack_buff(
 /// Pushback pushes it radially from `at` (spell.rs `push_from`, knockback.DIRECTION_ROLLING's
 /// radial law). Hits and pushes go to the buffers in neighbour order; neither depends on it
 /// (the hit set is sorted, the damage summed, and each unit is pushed once by one shot).
+/// A shot with `stop_on_hit` also passes a unit the hits already written this tick have killed
+/// (`killed_this_tick`, read at `tick`), so the pellets after a kill fly on.
 /// Returns whether anything was hit.
 #[allow(clippy::too_many_arguments)]
 fn straight_hits(
@@ -1074,6 +1081,7 @@ fn straight_hits(
     dmg: &mut DamageBuffer,
     fx: &mut EffectBuffer,
     nb: &mut Vec<u32>,
+    tick: u32,
 ) -> bool {
     let (team, damage, crown_pct, hits_air, hits_ground, buff, pulse) = (p.team, p.damage, p.crown_pct, p.hits_air, p.hits_ground, p.buff, p.pulse);
     let Some(s) = p.straight.as_mut() else { return false };
@@ -1091,6 +1099,14 @@ fn straight_hits(
         if !in_range_edge(at, ents.pos[v], s.reach, ents.radius[v]) {
             continue;
         }
+        // combat.PROJECTILE_COLLISIONS = client_columns: a CheckCollisions shot does not collide
+        // with a unit this tick's earlier hits have already killed; it flies on past it.
+        #[cfg(not(clash_plant = "kill_inside_tick_unread"))]
+        if s.stop_on_hit && killed_this_tick(ents, dmg, calib.hide_hidden_immune, tick, v) {
+            continue;
+        }
+        #[cfg(clash_plant = "kill_inside_tick_unread")]
+        let _ = (tick, killed_this_tick); // PLANT (regression): every pellet in reach stops on a unit killed earlier this tick.
         let id = ents.id_of(v);
         match s.hit.binary_search(&id) {
             Ok(_) => continue,
@@ -1111,6 +1127,31 @@ fn straight_hits(
     any
 }
 
+/// THE KILL INSIDE A TICK (calibration combat.PROJECTILE_COLLISIONS = client_columns, read by a
+/// `stop_on_hit` shot in `straight_hits`): whether the hits already written against unit `v` this
+/// tick take it to 0 hp when `resolve` lands them. The engine buffers a tick's damage for Resolve;
+/// the client applies each hit as it happens, so a pellet tested after the ones that killed a unit
+/// finds it dead and flies on. Measured on client 15.535.29 on the Hunter, the one volley recorded
+/// meeting a victim that fewer than 10 pellets kill (one scene, both sides): a point-blank volley,
+/// all 10 pellets within reach of a Knight with 347 hp. The first five in creation order (offsets
+/// 0, +7, -7, +14, -14) hit it for 420 on the creation tick and were never seen; the other five
+/// (+21, -21, +28, -28, +35) were seen at the launch point on that tick and flew on to their range.
+///
+/// The sum is `resolve`'s: a hit Resolve drops (on a hidden building, on a unit inside its dash
+/// immunity at `tick`) counts nothing, and a unit with a shield is never killed by the tick's hits,
+/// because a shield takes the whole sum. Every hit in the buffer counts, whatever wrote it; only
+/// pellets killing for pellets is measured. Whether a pellet passes a victim killed this tick by
+/// something else, and in which order the client runs the tick's other hits, are unmeasured.
+fn killed_this_tick(ents: &Entities, dmg: &DamageBuffer, hidden_immune: bool, tick: u32, v: usize) -> bool {
+    if ents.shield[v] > 0 || ents.dash_immune(v, tick) {
+        return false;
+    }
+    let id = ents.id_of(v);
+    let hidden = hidden_immune && ents.hide[v] == HideState::Hidden;
+    let dealt: i64 = dmg.hits.iter().filter(|h| h.target == id && h.amount > 0 && !(hidden && !h.ignores_hide)).map(|h| h.amount as i64).sum();
+    dealt >= ents.hp[v] as i64
+}
+
 /// One tick of a straight shot (`Projectile::straight`), after the move pass. Returns false
 /// once it is gone.
 ///   * A PINGPONG throw: `t` advances; the shot tests the positions it hits against its
@@ -1125,7 +1166,8 @@ fn straight_hits(
 ///     15.535.29: 6933-6939 of 7000 for the boulder, 10789-10796 of 11000 for the arrow).
 ///     Otherwise it moves and tests its new position against the post-move positions.
 ///   * A shot with `stop_on_hit` (combat.PROJECTILE_COLLISIONS = client_columns on a
-///     CheckCollisions row) is gone after any of these tests that hits.
+///     CheckCollisions row) is gone after any of these tests that hits, and a test passes a
+///     unit this tick's earlier hits have killed (`killed_this_tick`, at `tick`).
 #[allow(clippy::too_many_arguments)]
 fn step_straight(
     ents: &Entities,
@@ -1136,6 +1178,7 @@ fn step_straight(
     dmg: &mut DamageBuffer,
     fx: &mut EffectBuffer,
     nb: &mut Vec<u32>,
+    tick: u32,
 ) -> bool {
     let Some(s) = p.straight.as_mut() else { return false };
     // combat.PROJECTILE_COLLISIONS = client_columns on a CheckCollisions row: the shot is gone on
@@ -1152,14 +1195,14 @@ fn step_straight(
         }
         let (origin, start, t, period) = (s.origin, s.start, s.t, s.period);
         let prev = p.pos;
-        let hit = straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb);
+        let hit = straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb, tick);
         p.pos = pingpong_pos(origin, p.aim, start, t, period);
         return !(hit && stop);
     }
     if s.hold > 0 {
         s.hold -= 1;
         let here = p.pos;
-        let hit = straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb);
+        let hit = straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb, tick);
         return !(hit && stop);
     }
     let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac);
@@ -1168,10 +1211,10 @@ fn step_straight(
     }
     p.pos = np;
     #[cfg(not(clash_plant = "range_shot_ends_on_first_hit"))]
-    let hit = straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb);
+    let hit = straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb, tick);
     // PLANT (regression): a straight shot ends on the first unit it hits, as a homing shot does.
     #[cfg(clash_plant = "range_shot_ends_on_first_hit")]
-    let hit = if straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb) {
+    let hit = if straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb, tick) {
         return false;
     } else {
         false
@@ -1183,7 +1226,11 @@ fn step_straight(
 /// projectile depends only on its own state and the (unchanging during this
 /// phase) entity positions, so processing order is irrelevant. A straight shot
 /// (`step_straight`) writes its hits as it passes and keeps its own hit set, so no
-/// projectile reads another's state.
+/// projectile reads another's state. The one exception is a `stop_on_hit` shot
+/// (combat.PROJECTILE_COLLISIONS = client_columns), which reads the hits written before
+/// it this tick (`killed_this_tick`, at `tick`): the list is in creation order (shots are
+/// appended as they are made and `retain_mut` keeps the order), so it reads those of the
+/// shots created before it.
 #[allow(clippy::too_many_arguments)]
 pub fn step_projectiles(
     ents: &Entities,
@@ -1194,6 +1241,7 @@ pub fn step_projectiles(
     dmg: &mut DamageBuffer,
     fx: &mut EffectBuffer,
     scratch: &mut Vec<u32>,
+    tick: u32,
 ) {
     let rounding = calib.crown_rounding;
     // combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carriers landing this tick release,
@@ -1206,7 +1254,7 @@ pub fn step_projectiles(
             return true;
         }
         if p.straight.is_some() {
-            return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch);
+            return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch, tick);
         }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
         // A spark carrier flies to the point it was aimed at and never follows its target.
@@ -1234,7 +1282,7 @@ pub fn step_projectiles(
         }
         if let Some(c) = p.carrier {
             // It lands: it deals nothing itself (the rocket's row has no Damage) and releases its sparks.
-            release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released);
+            release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released, tick);
             return false;
         }
         if p.splash > 0 {
@@ -1277,6 +1325,7 @@ fn release_sparks(
     fx: &mut EffectBuffer,
     nb: &mut Vec<u32>,
     out: &mut Vec<Projectile>,
+    tick: u32,
 ) {
     let Some(sp) = cards.get(c.card).spark else { return };
     let at = p.aim;
@@ -1304,7 +1353,7 @@ fn release_sparks(
             straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),
             hook: None,
         };
-        straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb);
+        straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);
     }
 }

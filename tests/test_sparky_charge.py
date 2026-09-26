@@ -12,6 +12,11 @@ it locks, and one whose deploy ends with the Giant already in reach):
   tick: 175, 150, 125, 100, 75, 50, 25, then 0, then 25 back, a net of about 675 (the knockback ladder armed with the
   row's AttackPushBack, 750). It is out of the attack for the 8 ticks after the launch and re-enters it on launch + 9
   with progress 500, so launches are 79 ticks apart (3 of 3 gaps), not the 80 a HitSpeed of 4000 gives.
+- The recoil on a second row. The Firecracker (AttackPushBack 1000, LoadTime 2350, HitSpeed 3000; its catalogue
+  scenario against a Knight, 2 of 2 launches) is pushed away from its target over 10 ticks: 200, 175, ..., 25, then 0,
+  then 25 back, the ladder for 1000. It is out of the attack for the 9 ticks after the launch and re-enters it on
+  launch + 10 with progress 550 (2350 - 1900 + 100), so its launches are 59 ticks apart (1 of 1), not 60. The ladder
+  and the re-entry follow the row, not the Sparky's numbers.
 Today's engine ignores both columns: the first launch comes 19 ticks after the lock whatever came before, the Sparky
 never moves when it fires, and its launches are 80 ticks apart.
 
@@ -28,9 +33,9 @@ in a scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target
     test_first_launch_after_a_walk_is_79_ticks_after_the_deploy_end,
     test_first_launch_straight_out_of_the_deploy_is_79_ticks_after_the_deploy_end.
   * `attack_pushback_unread` -- AttackPushBack is not read, so the Sparky never moves when it fires:
-    test_launch_recoils_the_sparky_down_the_ladder.
+    test_launch_recoils_the_sparky_down_the_ladder, test_launch_recoils_the_firecracker_down_its_own_ladder.
   * `attack_pushback_keeps_cycle` -- the recoil leaves the cycle running, so launches are 88 ticks apart:
-    test_recoil_makes_the_cycle_79_ticks.
+    test_recoil_makes_the_cycle_79_ticks, test_launch_recoils_the_firecracker_down_its_own_ladder.
 """
 
 from __future__ import annotations
@@ -65,6 +70,11 @@ CYCLE = 79
 #: the recoil's step lengths from the launch tick on (the last one is back toward the target)
 LADDER = (175, 150, 125, 100, 75, 50, 25, 0, 25)
 MUSKETEER_FIRST = (1000 - 300) // 50 - 1
+#: the Firecracker's (AttackPushBack 1000): its ladder's step lengths, and its launch-to-launch gap
+FIRECRACKER_LADDER = (200, 175, 150, 125, 100, 75, 50, 25, 0, 25)
+FIRECRACKER_CYCLE = 59
+#: centre to centre, its Range 6000 plus its radius 500 and the Giant's 750: inside it the Firecracker can re-enter
+FIRECRACKER_REACH = 6000 + 500 + 750
 
 
 def overrides(arm) -> dict:
@@ -192,6 +202,37 @@ def test_recoil_makes_the_cycle_79_ticks():
         phases = [rows[t + j][1] for j in range(1, 10)]
         assert phases[:8] == [0] * 8, f"after the launch on {t} the attack phase on +1..+8 is {phases[:8]}, not out"
         assert phases[8] != 0, f"after the launch on {t} the attack phase on +9 is {phases[8]}, not back in the attack"
+
+
+def test_launch_recoils_the_firecracker_down_its_own_ladder():
+    """The same law on a second AttackPushBack, the Firecracker's 1000: a 10-tick ladder from the launch tick, 200
+    first; out of the attack for the 9 ticks after the launch, back in on launch + 10, and the next launch 59 ticks
+    after the first (HitSpeed 3000 gives 60). A recoil or a hold sized to the Sparky's 750 fails it."""
+    rows, launches = run("Firecracker", DEPLOY_TAP, DEPLOY_TICK, RECOIL_ONLY)
+    assert len(launches) >= 2, f"the scenario drifted: only {len(launches)} Firecracker launches"
+    first = launches[0]
+    pre = rows[first - 1]
+    assert pre[2], f"the scenario drifted: the Firecracker was not on the Giant on {first - 1}"
+    assert pre[5] is not None, f"the scenario drifted: the Giant was not alive on {first - 1}"
+    got = steps(rows, first, n=len(FIRECRACKER_LADDER))
+    lens = [round(math.hypot(*s), 1) for s in got]
+    assert all(abs(a - b) <= 2 for a, b in zip(lens, FIRECRACKER_LADDER, strict=True)), (
+        f"step lengths from the launch tick {first}: {lens}, not {list(FIRECRACKER_LADDER)}"
+    )
+    to_target = (pre[5] - pre[3], pre[6] - pre[4])
+    norm = math.hypot(*to_target)
+    cos_away = [(s[0] * to_target[0] + s[1] * to_target[1]) / (math.hypot(*s) * norm) for s in got[:8]]
+    assert max(cos_away) <= -0.99, f"the first 8 steps do not point away from the target (cosines {cos_away})"
+    phases = [rows[first + j][1] for j in range(1, 11)]
+    assert phases[:9] == [0] * 9, f"after the launch on {first} the attack phase on +1..+9 is {phases[:9]}, not out"
+    assert rows[first + 10][2], f"the scenario drifted: the Firecracker was not on the Giant on {first + 10}"
+    back = rows[first + 9]
+    reach = math.hypot(back[5] - back[3], back[6] - back[4])
+    assert reach <= FIRECRACKER_REACH, f"the scenario drifted: the Giant was {reach:.0f} away on {first + 9}"
+    assert phases[9] != 0, f"after the launch on {first} the attack phase on +10 is {phases[9]}, not back in"
+    assert launches[1] - first == FIRECRACKER_CYCLE, (
+        f"launches {launches[:2]} are {launches[1] - first} apart, not {FIRECRACKER_CYCLE}"
+    )
 
 
 def test_both_keys_give_the_measured_launch_ticks():
