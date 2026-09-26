@@ -183,6 +183,10 @@ pub fn splash(
         if ents.team[v] == team || ents.hp[v] <= 0 {
             continue;
         }
+        #[cfg(clash_plant = "acquire_delay_blocks_splash")]
+        if ents.acquirable_from[v] > 0 {
+            continue; // PLANT: a unit under targeting.SPAWNED_UNIT_ACQUIRE_DELAY is spared by a splash.
+        }
         if if ents.flying[v] { !hits_air } else { !hits_ground } {
             continue;
         }

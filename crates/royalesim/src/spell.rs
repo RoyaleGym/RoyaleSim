@@ -353,6 +353,10 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit) -> bool {
     if ents.flying[v] {
         return false; // PLANT: AoeToAir / HitsAir ignored.
     }
+    #[cfg(clash_plant = "acquire_delay_blocks_area")]
+    if ents.acquirable_from[v] > 0 {
+        return false; // PLANT: a unit under targeting.SPAWNED_UNIT_ACQUIRE_DELAY is spared by an area.
+    }
     let kind = ents.kind[v];
     if hit.ignore_buildings && kind != EntityKind::Troop {
         return false;

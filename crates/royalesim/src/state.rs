@@ -473,6 +473,12 @@ pub struct Calib {
     /// the `default` is `NotRead`, what a battle saved before it actually ran.
     #[serde(default = "death_spawn_pushback_default")]
     pub death_spawn_pushback: DeathSpawnPushback,
+    /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY: whether a troop a death spawn creates waits out
+    /// its first 7 ticks before an enemy may target it (`BattleState::delay_acquisition`;
+    /// target.rs `can_target`). Added after SNAPSHOT_FORMAT 20; the `default` is `None`, what a
+    /// battle saved before it actually ran.
+    #[serde(default = "spawned_unit_acquire_delay_default")]
+    pub spawned_unit_acquire_delay: SpawnedUnitAcquireDelay,
 
     // --- status effects (status.rs). Each is one calibration.json
     // key; a candidate with no implementation is refused in from_json.
@@ -599,6 +605,10 @@ fn death_at_emission_default() -> DeathAtEmission {
 
 fn death_spawn_pushback_default() -> DeathSpawnPushback {
     DeathSpawnPushback::NotRead
+}
+
+fn spawned_unit_acquire_delay_default() -> SpawnedUnitAcquireDelay {
+    SpawnedUnitAcquireDelay::None
 }
 
 macro_rules! calib_enum {
@@ -1483,6 +1493,28 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY -- see `BattleState::delay_acquisition` (the one
+    /// setter) and target.rs `can_target` (the one reader).
+    SpawnedUnitAcquireDelay {
+        /// Today's engine: a death spawn is an ordinary target from the first Target phase
+        /// after it appears (the tick after its first frame under spawner.RELEASE_TIMING =
+        /// end_of_event_phase).
+        None = "none",
+        /// A TROOP created by a death spawn (a troop's or a building's DeathSpawnCharacter)
+        /// is nobody's target before its 8th frame: F being its first tick, the Target phase
+        /// of F + 7 (`target::ACQUIRE_DELAY_TICKS`) is the first that may give it to an
+        /// enemy. Measured on client 15.535.29: 35 death spawns first targeted on exactly
+        /// F + 7 and none on F + 1 to F + 6 (the Goblin Cage's Brawler, the Golemites of both
+        /// seats). It is not the DeployDelay column, which the Golemite row lacks. Targeted at
+        /// once, as measured: a hand-played troop (on its first frame), a Tombstone's periodic
+        /// Skeleton (on F + 1) and the Goblin Drill's building (on F + 1; not a death spawn).
+        /// The engine exempts more than was measured: every periodic spawner's troops and
+        /// every building (`delay_acquisition`). Area damage still lands on the unit meanwhile,
+        /// because it is not a target scan; that is the engine's reading, not a measurement.
+        Client8thFrame = "client_8th_frame",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -1888,6 +1920,7 @@ impl Calib {
             projectile_launch: pick(&v, &["combat", "PROJECTILE_LAUNCH", "value"], ProjectileLaunch::from_calibration_name)?,
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
+            spawned_unit_acquire_delay: pick(&v, &["targeting", "SPAWNED_UNIT_ACQUIRE_DELAY", "value"], SpawnedUnitAcquireDelay::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -2148,6 +2181,16 @@ struct PendingSpawn {
     slide_centre: Vec2,
     #[serde(default)]
     slide_radius: i32,
+    /// A release the enemy target scan waits for (targeting.SPAWNED_UNIT_ACQUIRE_DELAY): true
+    /// on every death-spawn member, false on everything else. It says what KIND of spawn this
+    /// is, nothing more: the arm and the unit's kind are decided once, when the unit is
+    /// created, by `BattleState::delay_acquisition`, which every creation site calls for an
+    /// entry that carries it. A later release path the rule reaches (a Goblin Hut's waves, a
+    /// Graveyard, a Suspicious Bush) sets it here and changes nothing else; a container whose
+    /// release is its own death spawn is already a death-spawn member. Added after
+    /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
+    #[serde(default)]
+    acquire_delay: bool,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -2338,6 +2381,11 @@ pub struct EntityView<'a> {
     /// every unit that is not sliding, which is every unit under the shipped `not_read`.
     pub death_slide_centre: Vec2,
     pub death_slide_radius: i32,
+    /// THE ACQUIRE DELAY (targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame; entity.rs
+    /// `acquirable_from`): the first tick whose Target phase may give this unit to an enemy.
+    /// Its own first tick + 7 on a troop a death spawn created; 0 on every other unit, which
+    /// is every unit under the shipped `none`.
+    pub acquirable_from: u32,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -2761,6 +2809,8 @@ impl BattleState {
             self.lifetime_acc.resize(i + 1, 0);
         }
         self.lifetime_acc[i] = 0;
+        #[cfg(clash_plant = "acquire_delay_every_unit")]
+        self.delay_acquisition(i); // PLANT: every new troop waits, hand-played and periodic included.
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -2818,12 +2868,63 @@ impl BattleState {
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
             self.ents.death_slide_radius[id.index as usize] = p.slide_radius;
+            if p.acquire_delay {
+                self.delay_acquisition(id.index as usize);
+            }
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
                     self.on_deployed(id.index as usize);
                 }
             }
+        }
+    }
+
+    /// THE ONE SETTER of targeting.SPAWNED_UNIT_ACQUIRE_DELAY: entity `i`, created this tick
+    /// from a release that carries `PendingSpawn::acquire_delay`, becomes acquirable on its own
+    /// first tick + `target::ACQUIRE_DELAY_TICKS` -- F + 7, its 8th frame -- when the arm is
+    /// client_8th_frame and the unit is a TROOP. target.rs `can_target` refuses it to every
+    /// enemy before then. Nothing else is held: it walks, takes targets and attacks as it
+    /// would, and area damage lands on it.
+    ///
+    /// F IS THE UNIT'S OWN FIRST TICK (`spawn_tick`), not its parent's death: under
+    /// spawner.RELEASE_TIMING = end_of_event_phase the members exist on the death frame, under
+    /// next_spawn_phase one tick later, and either way the first enemy target lands 7 ticks
+    /// after the first frame the unit is on the board, which is what was measured.
+    ///
+    /// Called from every creation site (`materialise_released`, `phase_spawn`, the spawner
+    /// pass) for an entry that carries the flag, which today is a death spawn's alone. A later
+    /// release the rule reaches (a Goblin Hut's waves, a Graveyard's and a Suspicious Bush's
+    /// troops, all measured at F + 7 on client 15.535.29 and none loadable yet) sets the flag
+    /// on its PendingSpawn and comes through here. The Skeleton Barrel's Skeletons, measured at
+    /// F + 7 as well, are its container's own DeathSpawnCharacter: if the container loads as a
+    /// unit with a death spawn, `phase_reap` flags them and nothing more is needed.
+    ///
+    /// NEVER FLAGGED: a hand-played troop, a periodic spawner's troop and a building. Measured
+    /// on client 15.535.29 for three of them: a hand-played troop is targeted on its first
+    /// frame, a Tombstone's periodic Skeleton on F + 1 and the Goblin Drill's building (not a
+    /// death spawn) on F + 1. The rest is the engine's reading and is not measured: the troops
+    /// of every other periodic spawner (the Barbarian Hut's and the Witch's among them), and a
+    /// building a death spawn creates (no loaded row has one). The Barbarian Hut is the open
+    /// case: its row carries the same SpawnCharacter and SpawnInterval columns as the
+    /// Tombstone's, whose Skeletons are targeted on F + 1, and as the Goblin Hut's, whose waves
+    /// wait for F + 7.
+    ///
+    /// WITH THE DEATH-SPAWN SLIDE (spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide) the two
+    /// are independent columns set on the same creation: the slide keeps the member from
+    /// TAKING a target until it reaches DeathSpawnRadius (a Golemite's last slide step is on
+    /// F + 5), this keeps every enemy from taking IT until F + 7. Neither reads the other.
+    fn delay_acquisition(&mut self, i: usize) {
+        #[cfg(not(clash_plant = "acquire_delay_ignores_arm"))]
+        let on = self.cfg.calib.spawned_unit_acquire_delay == SpawnedUnitAcquireDelay::Client8thFrame;
+        #[cfg(clash_plant = "acquire_delay_ignores_arm")]
+        let on = true; // PLANT: the delay runs under `none` as well.
+        #[cfg(not(clash_plant = "acquire_delay_on_buildings"))]
+        let troop = self.ents.kind[i] == EntityKind::Troop;
+        #[cfg(clash_plant = "acquire_delay_on_buildings")]
+        let troop = true; // PLANT: a death-spawned building waits too.
+        if on && troop {
+            self.ents.acquirable_from[i] = self.ents.spawn_tick[i] + target::ACQUIRE_DELAY_TICKS;
         }
     }
 
@@ -3056,7 +3157,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0 }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false }));
                     k += 1;
                 }
                 left -= 1;
@@ -3124,6 +3225,13 @@ impl BattleState {
             self.ents.stagger_ms[i] = p.stagger_ms;
             self.ents.death_slide_centre[i] = p.slide_centre;
             self.ents.death_slide_radius[i] = p.slide_radius;
+            // No periodic emission carries the flag today: a Tombstone's periodic Skeleton is
+            // born targetable, as measured, and the other loaded spawners follow it here,
+            // unmeasured. A Goblin Hut's waves will carry it when that card loads, and then this
+            // line is their setter call.
+            if p.acquire_delay {
+                self.delay_acquisition(i);
+            }
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[i] = d;
                 if d == 0 {
@@ -3618,6 +3726,12 @@ impl BattleState {
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
             self.ents.death_slide_radius[id.index as usize] = p.slide_radius;
+            // A death spawn queued under spawner.RELEASE_TIMING = next_spawn_phase: its first
+            // tick is this one, and the delay counts from it.
+            #[cfg(not(clash_plant = "acquire_delay_dropped_in_queue"))]
+            if p.acquire_delay {
+                self.delay_acquisition(id.index as usize);
+            }
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -3667,6 +3781,7 @@ impl BattleState {
                 reading: self.cfg.tower_sight_reading,
                 towers: &self.towers,
                 king_active: self.king_active,
+                tick: self.tick,
             };
             let e = &self.ents;
             for i in 0..e.capacity() {
@@ -3742,6 +3857,7 @@ impl BattleState {
                 reading: self.cfg.tower_sight_reading,
                 towers: &self.towers,
                 king_active: self.king_active,
+                tick: self.tick,
             };
             for i in 0..self.ents.capacity() {
                 if self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 {
@@ -4151,6 +4267,7 @@ impl BattleState {
                 reading: self.cfg.tower_sight_reading,
                 towers: &self.towers,
                 king_active: self.king_active,
+                tick: self.tick,
             };
             // EVERY ENTITY AS THE CONTACT LAW SEES IT: every alive entity, troops and
             // buildings and towers, in native units. Positions are updated in place as
@@ -4877,6 +4994,7 @@ impl BattleState {
                 reading: self.cfg.tower_sight_reading,
                 towers: &self.towers,
                 king_active: self.king_active,
+                tick: self.tick,
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -5053,6 +5171,7 @@ impl BattleState {
                 reading: self.cfg.tower_sight_reading,
                 towers: &self.towers,
                 king_active: self.king_active,
+                tick: self.tick,
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -5271,6 +5390,7 @@ impl BattleState {
                 reading: self.cfg.tower_sight_reading,
                 towers: &self.towers,
                 king_active: self.king_active,
+                tick: self.tick,
             };
             // None = the measured "no periodic replan" (calibration
             // pathfinding.REPATH_INTERVAL_TICKS). For these pre-2026 models that
@@ -5605,7 +5725,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0 });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -6107,7 +6227,7 @@ impl BattleState {
                 (Vec2::default(), 0)
             };
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -6381,7 +6501,7 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0 });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -6437,7 +6557,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0 }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -7334,6 +7454,7 @@ impl BattleState {
             effective_speed: self.effective_speed(i),
             death_slide_centre: e.death_slide_centre[i],
             death_slide_radius: e.death_slide_radius[i],
+            acquirable_from: e.acquirable_from[i],
         }
     }
     /// Live entities in slot order.
@@ -7518,6 +7639,13 @@ impl BattleState {
                     h.vec(e.death_slide_centre[i]);
                     h.i32(e.death_slide_radius[i]);
                 }
+                // targeting.SPAWNED_UNIT_ACQUIRE_DELAY: only while the delay can still refuse a
+                // scan (`acquire_delayed` from the next tick on), so a battle with none -- every
+                // battle under the shipped `none` -- hashes as it did before the column, and a
+                // delay that has run out hashes like one that never was, which is what it is.
+                if e.acquire_delayed(i, self.tick) {
+                    h.u32(e.acquirable_from[i]);
+                }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
@@ -7663,6 +7791,12 @@ impl BattleState {
                     h.vec(s.slide_centre);
                     h.i32(s.slide_radius);
                 }
+                // The flag is set on every queued death spawn whatever the arm, and acted on
+                // only under client_8th_frame (`delay_acquisition`): hashed under that arm
+                // alone, like `stagger_ms` under its own.
+                if self.cfg.calib.spawned_unit_acquire_delay == SpawnedUnitAcquireDelay::Client8thFrame {
+                    h.bool(s.acquire_delay);
+                }
             }
         }
         h.u32(self.dmg.hits.len() as u32);
@@ -7791,6 +7925,14 @@ impl BattleState {
 ///    moves: a snapshot saved by an earlier build is refused as saved against other card
 ///    data. migrate_v3 strips the field with the rest of the post-format-3 tail and runs a
 ///    migrated battle at not_read; no card's index moves.
+/// 20, unchanged, the acquire delay (targeting.SPAWNED_UNIT_ACQUIRE_DELAY): Calib gained
+///    spawned_unit_acquire_delay (serde default none), Entities gained acquirable_from
+///    (serde default 0, sized on load, hashed only while it is in the future) and
+///    PendingSpawn gained acquire_delay (serde default false, hashed only under
+///    client_8th_frame), so a format-20 blob saved before them still deserializes and hashes
+///    as it did. A blob saved by this build carries the new fields, so its BYTES differ from
+///    an earlier build's even under the shipped none; its state_hash does not. No card
+///    fingerprint move: CardDef is untouched. migrate_v3 runs a migrated battle at none.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -8010,6 +8152,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // The death-spawn slide: a format-3 battle laid every death spawn by the layout key and
     // slid none; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_spawn_pushback".into(), serde_json::to_value(DeathSpawnPushback::NotRead).map_err(|e| e.to_string())?);
+    // The acquire delay: a format-3 battle let every death spawn be targeted from the tick
+    // after it appeared; it keeps that whatever the ledger ships (the same rule).
+    sh.insert("spawned_unit_acquire_delay".into(), serde_json::to_value(SpawnedUnitAcquireDelay::None).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -8206,6 +8351,20 @@ impl BattleState {
             snap.ents.death_slide_centre.iter_mut().for_each(|c| *c = Vec2::default());
             snap
         };
+        #[cfg(clash_plant = "save_drops_acquire_delay")]
+        let snap = {
+            // PLANT: the acquire delays are lost across a save.
+            let mut snap = snap;
+            snap.ents.acquirable_from.iter_mut().for_each(|t| *t = 0);
+            snap
+        };
+        #[cfg(clash_plant = "save_drops_queued_acquire_delay")]
+        let snap = {
+            // PLANT: a queued death spawn loses its acquire delay across a save.
+            let mut snap = snap;
+            snap.spawn_queue.iter_mut().for_each(|p| p.acquire_delay = false);
+            snap
+        };
         serde_json::to_vec(&snap).expect("snapshot serializes")
     }
 
@@ -8254,6 +8413,7 @@ impl BattleState {
         snap.ents.stagger_ms.resize(n, 0);
         snap.ents.death_slide_centre.resize(n, Vec2::default());
         snap.ents.death_slide_radius.resize(n, 0);
+        snap.ents.acquirable_from.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

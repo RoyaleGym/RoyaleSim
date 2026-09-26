@@ -203,6 +203,16 @@ pub struct Entities {
     pub death_slide_centre: Vec<Vec2>,
     #[serde(default)]
     pub death_slide_radius: Vec<i32>,
+    /// THE ACQUIRE DELAY (calibration targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame;
+    /// state.rs `delay_acquisition`, the one setter; target.rs `can_target`, the one reader):
+    /// the first tick whose Target phase may give this unit to an enemy as its target. A troop
+    /// created by a death spawn is born with its own first tick + `target::ACQUIRE_DELAY_TICKS`
+    /// (7), so it is first targeted on its 8th frame. 0 on every other unit, which is every
+    /// unit under the shipped `none`. A value in the past is inert (`acquire_delayed`), so the
+    /// state hash reads it only while it is in the future. `default` and sized on load like
+    /// `stagger_ms`.
+    #[serde(default)]
+    pub acquirable_from: Vec<u32>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -371,6 +381,15 @@ impl Entities {
         self.death_slide_radius[i] > 0
     }
 
+    /// Not yet acquirable as a target in the Target phase of `tick` (calibration
+    /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY; `acquirable_from`). The one predicate: target.rs
+    /// `can_target` and the state hash both read it. False on every entity under the shipped
+    /// `none`.
+    #[inline]
+    pub fn acquire_delayed(&self, i: usize, tick: u32) -> bool {
+        self.acquirable_from[i] > tick
+    }
+
     /// Entity `i`'s buff slots, empty ones included.
     #[inline]
     pub fn buff_slots(&self, i: usize) -> &[BuffSlot] {
@@ -511,6 +530,7 @@ impl Entities {
             self.stagger_ms[i] = 0;
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
+            self.acquirable_from[i] = 0;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -572,6 +592,7 @@ impl Entities {
             self.stagger_ms.push(0);
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);
+            self.acquirable_from.push(0);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);

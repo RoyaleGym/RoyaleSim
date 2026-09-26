@@ -66,7 +66,20 @@ pub struct TargetCtx<'a> {
     pub reading: TowerSightReading,
     pub towers: &'a TowerTable,
     pub king_active: [bool; 2],
+    /// The tick being run (`BattleState::tick`), which a candidate's `acquirable_from` is
+    /// compared with (targeting.SPAWNED_UNIT_ACQUIRE_DELAY, `can_target`).
+    pub tick: u32,
 }
+
+/// targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame: the ticks from a death-spawned
+/// troop's first tick F to the first Target phase that may give it to an enemy. Measured on
+/// client 15.535.29, in frames: 35 death spawns first targeted on exactly F + 7, their 8th
+/// frame, and none on F + 1 to F + 6. Not the DeployDelay column: the Golemite row has none
+/// and waits the same 7. Read by state.rs `delay_acquisition` alone.
+#[cfg(not(clash_plant = "acquire_delay_one_short"))]
+pub const ACQUIRE_DELAY_TICKS: u32 = 7;
+#[cfg(clash_plant = "acquire_delay_one_short")]
+pub const ACQUIRE_DELAY_TICKS: u32 = 6; // PLANT: the first target lands on F + 6.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct TargetDecision {
@@ -134,6 +147,17 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     // (0 of 972,681 corpus target rows point at one). The one definition, so the scan, a locked
     // target and a hidden building's wake all read it.
     if ctx.calib.formation_stagger_wait == crate::state::StaggerWait::Client16402 && e.stagger_ms[c] > 0 {
+        return false;
+    }
+    // targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame: a troop a death spawn created is
+    // nobody's target before its `acquirable_from` tick, its 8th frame (state.rs
+    // `delay_acquisition` sets it; the column is 0 on every other unit and under `none`). Here,
+    // in the one definition, like the stagger wait above, so the scan, a locked target and a
+    // hidden building's wake all read it. Area damage never asks this function, so it still
+    // lands (spell.rs `eligible`, combat.rs `splash`). The wake's reading and the landing are
+    // both the engine's, not measured; tests/spawn_acquire_delay.rs pins them as OPEN.
+    #[cfg(not(clash_plant = "acquire_delay_unread"))]
+    if e.acquire_delayed(c, ctx.tick) {
         return false;
     }
     let card = ctx.cards.get(e.card[a]);
@@ -220,6 +244,8 @@ pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityI
 /// same edge-to-edge rule as every range test. A boolean over the neighbour set:
 /// order-free, frame-free.
 pub fn enemy_in_wake_range(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> bool {
+    #[cfg(clash_plant = "acquire_delay_wakes_hidden")]
+    let ctx = &TargetCtx { tick: u32::MAX, ..*ctx }; // PLANT: a unit inside its acquire delay wakes a hidden building.
     let e = ctx.ents;
     let card = ctx.cards.get(e.card[a]);
     let extra = ctx.calib.extra_sight_range_to_crown_towers.max(0) + ctx.calib.extra_sight_range_to_building.max(0);
