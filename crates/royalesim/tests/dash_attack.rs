@@ -30,6 +30,8 @@
 //!   8. a Mini P.E.K.K.A (no dash block) walks in under both values.
 //!   9. a Mega Knight put down inside its trigger (the sweep's scene: 4,805 from a Knight, an edge of 3,555 over
 //!      DashMinRange 3,500) stands from its first tick and jumps on its eighteenth (first active + 18).
+//!  10. from the stand's first tick the Bandit faces its dash goal cell (measured on client 15.535.29: (225, -121)
+//!      on the first stand tick, where the walk's heading was (254, 24)), and before the stand it did not.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test dash_attack`):
 //!   * `dash_unread` -- the loader drops the dash block: (1), (3), (4), (5) and (7) go red.
@@ -39,6 +41,7 @@
 //!   * `dash_not_immune` -- a dashing unit takes every hit: (4) goes red.
 //!   * `dash_keeps_the_cycle` -- the load timer is not reset after the dash: (5) goes red.
 //!   * `dash_first_sight_walks` -- a unit put down inside its trigger walks its first tick: (9) goes red.
+//!   * `dash_stand_keeps_walk_heading` -- a standing dasher keeps its walking heading: (10) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -353,4 +356,48 @@ fn a_mega_knight_put_down_inside_its_trigger_stands_from_its_first_tick_and_jump
     // first sight on tick 0 (it stands), the trigger on tick 1, the entry DashCooldown 900 / 50 - 1 = 17 later
     assert_eq!(rows[first].t, 1 + MK_ENTRY, "the Mega Knight first moved on {}", rows[first].t);
     assert!(rows[first].step > 200, "its first move is not the jump: {}", rows[first].step);
+}
+
+/// The heading `pos` would take toward the dash goal cell of a target at `target` (the engine's goal law, written
+/// out: the 500-cell holding the point both radii short of the target's centre, its centre; normalised to 256).
+fn goal_heading(pos: Vec2, target: Vec2, radii: i64) -> Vec2 {
+    let (px, py) = (pos.x / K, pos.y / K);
+    let (tx, ty) = (target.x / K, target.y / K);
+    let (dx, dy) = ((px - tx) as i64, (py - ty) as i64);
+    let n = isqrt(dx * dx + dy * dy).max(1);
+    let (gx, gy) = (tx + (dx * radii / n) as i32, ty + (dy * radii / n) as i32);
+    let (cx, cy) = (gx.div_euclid(500) * 500 + 250, gy.div_euclid(500) * 500 + 250);
+    let mut h = (cx - px, cy - py);
+    royalesim::move16402::normalize_to(&mut h, 256);
+    Vec2::new(h.0, h.1)
+}
+
+/// Plant: dash_stand_keeps_walk_heading.
+#[test]
+fn a_standing_bandit_faces_its_dash_goal_cell() {
+    let mut s = BattleState::new(0, with(DashAttack::ClientDash));
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Knight", at(KNIGHT_AT), None), (Team::Blue, "Assassin", at(BANDIT_AT), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let (k, a) = (ids[0], ids[1]);
+    let radii = (s.entity(a).unwrap().radius + s.entity(k).unwrap().radius) as i64 / K as i64;
+    // (the tick's start-of-tick distance, the Bandit's position and the Knight's at its start, the facing after it)
+    let mut rows: Vec<(i64, Vec2, Vec2, Vec2)> = Vec::new();
+    for _ in 0..80 {
+        let (Some(av), Some(kv)) = (s.entity(a), s.entity(k)) else { break };
+        let (a0, k0) = (av.pos, kv.pos);
+        s.tick();
+        let Some(av) = s.entity(a) else { break };
+        rows.push((dist(a0, k0), a0, k0, av.facing));
+    }
+    let d = rows.iter().position(|r| r.0 <= BANDIT_TRIGGER).expect("the scene drifted: the Bandit never came within its trigger");
+    assert!(d > 0, "the scene drifted: the Bandit started inside its trigger");
+    // BEFORE: the walk's heading is not already the goal cell's, or this test could not tell the arms apart.
+    let (_, p, t, f) = rows[d - 1];
+    assert_ne!(f, goal_heading(p, t, radii), "the scene drifted: the walking Bandit already faced its goal cell");
+    // THE STAND, entry tick excluded (it keeps the heading it has).
+    for j in d..d + BANDIT_STAND as usize - 1 {
+        let (_, p, t, f) = rows[j];
+        assert_eq!(f, goal_heading(p, t, radii), "stand tick {} (trigger + {}): the Bandit does not face its goal cell", j, j - d);
+    }
 }

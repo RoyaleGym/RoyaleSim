@@ -3793,6 +3793,20 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     }
 }
 
+/// THE DASH GOAL (combat.DASH_ATTACK = client_dash), native: the centre of the 500-cell holding the point `rr` (own
+/// radius + target radius, native) short of `target`'s centre on the line to `actor`, the target's centre itself when
+/// the two coincide. Measured on client 15.535.29: 7 of 7 Bandit dashes head at it within 0.1 degree, and the Mega
+/// Knight lands on it.
+fn dash_goal_native(actor: (i32, i32), target: Vec2, rr: i64) -> (i32, i32) {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let (tx, ty) = (target.x / K, target.y / K);
+    let (dx, dy) = ((actor.0 - tx) as i64, (actor.1 - ty) as i64);
+    let n = isqrt(dx * dx + dy * dy);
+    let (px, py) = if n == 0 { (tx, ty) } else { (tx + (dx * rr / n) as i32, ty + (dy * rr / n) as i32) };
+    let c = path16402::CELL;
+    (px.div_euclid(c) * c + c / 2, py.div_euclid(c) * c + c / 2)
+}
+
 impl BattleState {
     /// Build a battle; panics with the reason if the config is invalid.
     pub fn new(seed: u64, config: BattleConfig) -> BattleState {
@@ -6226,6 +6240,7 @@ impl BattleState {
                 // 0.1 degree; the Mega Knight lands on it). The unit stops being collidable, and with a
                 // DashImmuneToDamageTime it discards damage from here (`dash_immune_until`).
                 let mut dash_stand = false;
+                let mut stand_goal: Option<(i32, i32)> = None;
                 if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash) {
                     let tk = calib.tick_ms.max(1);
                     let live = |t: Option<EntityId>| t.filter(|t| e.is_alive(*t));
@@ -6263,13 +6278,8 @@ impl BattleState {
                     }
                     if dash_state[i] == DashState::Standing && self.tick >= dash_mark[i] {
                         let ti = dash_target[i].map_or(i, |t| t.index as usize);
-                        let (tx, ty) = (e.pos[ti].x / K, e.pos[ti].y / K);
-                        let (dx, dy) = ((actor.0 - tx) as i64, (actor.1 - ty) as i64);
-                        let rr = ((e.radius[i] + e.radius[ti]) / K) as i64;
-                        let n = isqrt(dx * dx + dy * dy);
-                        let (px, py) = if n == 0 { (tx, ty) } else { (tx + (dx * rr / n) as i32, ty + (dy * rr / n) as i32) };
-                        let c = path16402::CELL;
-                        dash_goal[i] = Vec2::new((px.div_euclid(c) * c + c / 2) * K, (py.div_euclid(c) * c + c / 2) * K);
+                        let (gx, gy) = dash_goal_native(actor, e.pos[ti], ((e.radius[i] + e.radius[ti]) / K) as i64);
+                        dash_goal[i] = Vec2::new(gx * K, gy * K);
                         dash_state[i] = DashState::Dashing;
                         dash_mark[i] = self.tick;
                         if d.immune_ms.is_some() {
@@ -6293,6 +6303,17 @@ impl BattleState {
                     }
                     // a first sight within the trigger stood above; a running stand stands too
                     dash_stand = dash_stand || dash_state[i] == DashState::Standing;
+                    // THE STAND FACES THE DASH GOAL CELL, the cell the entry will aim at, taken from this tick's
+                    // start positions. Measured on client 15.535.29: on a Bandit's first stand tick the heading
+                    // is already the goal cell's, (225, -121), where its walk's was (254, 24). Set after the
+                    // step, which a stand does not take.
+                    #[cfg(not(clash_plant = "dash_stand_keeps_walk_heading"))]
+                    if dash_stand {
+                        if let Some(t) = live(dash_target[i]) {
+                            let ti = t.index as usize;
+                            stand_goal = Some(dash_goal_native(actor, e.pos[ti], ((e.radius[i] + e.radius[ti]) / K) as i64));
+                        }
+                    }
                     if dash_state[i] == DashState::Dashing {
                         // THE MOVE, straight at the goal's centre, never past it, with no scan.
                         //
@@ -6642,6 +6663,14 @@ impl BattleState {
                 if let Some(d) = m.dir {
                     facing[i] = Vec2::new(d.0, d.1);
                     bodies[i].dir = d;
+                }
+                // combat.DASH_ATTACK = client_dash: a standing dasher faces its goal cell (above)
+                if let Some(g) = stand_goal {
+                    let mut d = (g.0 - actor.0, g.1 - actor.1);
+                    if move16402::normalize_to(&mut d, 256) != 0 {
+                        facing[i] = Vec2::new(d.0, d.1);
+                        bodies[i].dir = d;
+                    }
                 }
                 bodies[i].x = m.x;
                 bodies[i].y = m.y;
