@@ -45,7 +45,7 @@ fn every_unit_on_the_post_kill_wait_list_is_one_the_card_table_knows() {
 fn every_attack_finish_override_unit_is_one_the_card_table_knows() {
     let c = Calib::shipped();
     let db = cards();
-    assert_eq!(c.post_kill_wait_override_units.len(), 4, "the four names clause (a) reads");
+    assert_eq!(c.post_kill_wait_override_units.len(), 6, "the six names clause (a) reads");
     for u in &c.post_kill_wait_override_units {
         let loaded = (0..db.cards.len()).any(|i| db.get(i as u16).unit_name == *u);
         let refused = db.rejected.iter().any(|(n, _)| n == u);

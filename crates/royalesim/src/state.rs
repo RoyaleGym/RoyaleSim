@@ -1264,9 +1264,9 @@ calib_enum!(
         /// `AttackFinish`, explains the list and replaced it as the shipped arm.
         MeasuredList = "client16402_measured_list",
         /// The CONDITION (measured per event on the 16.402 corpus, 1,138 of 1,152): the wait
-        /// is skipped when (a) the unit is on value.attack_finish_override_units (four of the
-        /// 15.535 OverrideAttackFinishTime units; the column marks three more, see the ledger's
-        /// open), (b) its attack progress is 0 at the loss, or (c) its
+        /// is skipped when (a) the unit is on value.attack_finish_override_units (six of the
+        /// 15.535 OverrideAttackFinishTime units; the column also marks the Little Prince and a
+        /// hero form, see the ledger's open), (b) its attack progress is 0 at the loss, or (c) its
         /// card has a projectile and its victim was doomed on its last live tick
         /// (entity.rs `target_doomed`); every other unit waits, whatever its name. It is the
         /// shipped arm (tests/post_kill_wait.rs pins it).

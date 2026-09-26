@@ -1,9 +1,10 @@
 """The post-kill retarget wait decided by the attack-finish condition (combat.POST_KILL_RETARGET_WAIT =
 client16402_attack_finish).
 
-WHAT THIS PINS. A unit whose target is removed takes its next target after 1 tick if it is one of the four units
-named in value.attack_finish_override_units (cards that set OverrideAttackFinishTime; the column marks three more,
-which the engine does not read yet), or its attack progress is 0 on the loss tick, or it has a Projectile and its
+WHAT THIS PINS. A unit whose target is removed takes its next target after 1 tick if it is one of the six units
+named in value.attack_finish_override_units (cards that set OverrideAttackFinishTime; the column also marks the
+Little Prince and a hero form, which the engine does not read yet), or its attack progress is 0 on the loss tick,
+or it has a Projectile and its
 victim was already doomed (the homing shots flying at the victim covered its hitpoints on its last live tick).
 Otherwise it waits the 250 ms attack-finish time: 6 ticks. The ledger entry carries the 16.402 evidence (1,138 of
 1,152 events).
@@ -25,9 +26,10 @@ the discriminating case, and A is its control. Each scenario asserts its own pre
 victim, or none), so a geometry change that loses the point fails loudly rather than passing.
 
 NOT PINNED HERE: the override clause. Valkyrie's own first hit kills its victim with its progress reset, so clause
-(b) would give 1 anyway; the four named cards rest on the corpus (Valkyrie 7/7, Bowler 7/7, Princess 3/3,
-ElectroWizard 1/1 at 1 tick). Nor is it pinned anywhere else: crates/royalesim/tests/post_kill_wait.rs checks only
-that the four names load. The missing test frees a unit by clause (a) alone: another unit kills its target while
+(b) would give 1 anyway; four of the named cards rest on the corpus (Valkyrie 7/7, Bowler 7/7, Princess 3/3,
+ElectroWizard 1/1 at 1 tick), and MiniZapMachine and ElectroDragon on client 15.535.29 (8/8 and 1/1 at 1 tick; pinned
+by override in tests/test_attack_finish_units.py). crates/royalesim/tests/post_kill_wait.rs checks that the six
+names load. The missing test frees a unit by clause (a) alone: another unit kills its target while
 its attack progress is past 0 and it has no projectile (1 tick; 6 with its name taken off the list).
 """
 
