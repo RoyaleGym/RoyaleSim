@@ -211,7 +211,7 @@ RUSTFLAGS='--cfg clash_plant="id_tiebreak"' CARGO_TARGET_DIR=target/plant cargo 
 
 Use a separate `CARGO_TARGET_DIR`, or the plant build poisons the normal one.
 
-There are 140 of them, each declared at the site it corrupts and named in the header of the test
+There are 143 of them, each declared at the site it corrupts and named in the header of the test
 it is aimed at. To list them:
 
 ```
