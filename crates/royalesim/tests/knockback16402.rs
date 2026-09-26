@@ -20,8 +20,11 @@
 //!      deploying ground unit pushed at the river is clamped at the cell edge (as the
 //!      walk's position write clamps a deploying unit), a walking one enters the water
 //!      and is put on land at the start of the next ladder tick;
-//!   6. the Log's push on an off-axis Knight is pure forward (the owner's ruling
-//!      composed with the law through the source point) where a Fireball's is radial;
+//!   6. the Log's push on an off-axis Knight, each arm of knockback.DIRECTION_ROLLING
+//!      pinned through the battle's calibration: pure forward under travel_direction
+//!      (composed with the law through the source point), and under the shipped
+//!      radial_from_projectile_centre away from the point where the Log first touched
+//!      it, the vector to within the per-step truncation; a Fireball's is radial;
 //!   7. determinism, and a save / load mid-ladder that reproduces every later tick;
 //!   8. seat symmetry: a rotation-symmetric pair of Fireballs on off-centre victims
 //!      keeps the battle its own mirror image through the whole ladder;
@@ -42,7 +45,7 @@ use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
 use royalesim::move16402::{ladder_speed, PUSHBACK_DECEL};
-use royalesim::state::{BattleConfig, BattleState, Calib, KnockLaw, KnockZeroVector};
+use royalesim::state::{BattleConfig, BattleState, Calib, KnockLaw, KnockZeroVector, RollDirection};
 use royalesim::{EntityId, Team};
 use serde_json::Value;
 
@@ -63,6 +66,18 @@ fn log_push_native() -> i32 {
     let doc: Value = serde_json::from_str(&text).unwrap();
     let lg = doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Log").unwrap();
     lg["projectile"]["spawn_projectile"]["pushback_milli"].as_i64().unwrap() as i32
+}
+
+/// The rolling Log's half-depth (ProjectileRadiusY) and the Knight's collision radius,
+/// NATIVE units, from cards.json.
+fn log_half_depth_and_knight_radius_native() -> (i32, i32) {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
+    let doc: Value = serde_json::from_str(&text).unwrap();
+    let cards = doc["cards"].as_array().unwrap();
+    let lg = cards.iter().find(|c| c["name"] == "Log").unwrap();
+    let kn = cards.iter().find(|c| c["name"] == "Knight").unwrap();
+    let half_depth = lg["projectile"]["spawn_projectile"]["projectile_radius_y_milli"].as_i64().unwrap() as i32;
+    (half_depth, kn["collision_radius_milli"].as_i64().unwrap() as i32)
 }
 
 fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
@@ -471,35 +486,77 @@ fn deploying_units_ignore_pushback_and_the_water_edge_under_the_ladder() {
 }
 
 #[test]
-fn the_log_pushes_an_off_axis_knight_forward_where_a_fireball_pushes_it_radially() {
-    // A deploying Red Knight one tile off the Log's roll axis: the ruling composed with
-    // the law (the source point one native unit behind the victim on the axis) gives
-    // exactly (0, +carry) -- no sideways component; a Fireball landing on the axis
-    // beside it gives the radial ladder, with a sideways component of the same sign as
-    // the offset and a length of the carry to within the per-step truncation.
+fn each_log_arm_pushes_an_off_axis_knight_from_its_own_source_where_a_fireball_pushes_it_radially() {
+    // A deploying Red Knight one tile off the Log's roll axis and a tile and a half ahead
+    // of the tap, under each arm of knockback.DIRECTION_ROLLING pinned by name through
+    // the battle's calibration.
+    // * travel_direction composed with the law (the source point one native unit behind
+    //   the victim on the axis): exactly (0, +carry), no sideways component.
+    // * the shipped radial_from_projectile_centre: away from the Log's centre where it
+    //   first touched the Knight. That is the point on the roll axis where the Log's
+    //   front face (centre + half-depth) meets the Knight's near edge, or, if the Log was
+    //   already past that point when the Knight appeared, the Log's centre then. The
+    //   source comes from the data (the half-depth, the radius) and from the battle
+    //   (where the Log is when the Knight appears), never a pasted number, and the push
+    //   is pinned per axis to within the per-step truncation the Fireball diagonal below
+    //   allows. A wrong source point that still gives a diagonal is red. This pins the
+    //   engine's law on the tap as given: the angles measured on client 15.535.29 need
+    //   the tap snapped to its tile centre, which the shipped build does not do
+    //   (placement.TAP_SNAP = none).
+    // A Fireball landing on the axis beside it gives the radial ladder, with a sideways
+    // component of the same sign as the offset and a length of the carry to within the
+    // per-step truncation.
+    // Plants (read from spell.rs; not yet run): rolling_push_travel_direction (the
+    // shipped arm pushes pure forward) and rolling_push_from_tick_end (the source is a
+    // roll step further on, the Log's centre at the end of the touching tick).
     let stage = t(900, 1100);
     let at = Vec2::new(stage.x + SUBTILE, stage.y + 3 * SUBTILE / 2);
     let log_carry = ladder_travel(log_push_native());
-    let mut s = BattleState::new(3, config());
-    s.spawn_unit(Team::Blue, "Log", stage, None).unwrap();
-    let mut result = None;
-    for k in 0..80 {
-        if k == 10 {
-            s.spawn_unit(Team::Red, "Knight", at, None).unwrap();
-        }
-        let before = find_live(&s, Team::Red, "Knight").first().map(|e| (e.push_active, native(e.pos)));
-        s.tick();
-        if let (Some((true, _)), Some(e)) = (before, find_live(&s, Team::Red, "Knight").first()) {
-            if !e.push_active {
-                assert!(e.deploying);
-                result = Some(native(e.pos));
-                break;
+    // (the settled push, how far ahead of the tap the Log's roll is when the Knight
+    // appears), native
+    let log_push = |arm: RollDirection| -> ((i32, i32), i32) {
+        let mut s = BattleState::new(3, with_calib(|c| c.knock_direction_rolling = arm));
+        s.spawn_unit(Team::Blue, "Log", stage, None).unwrap();
+        let mut result = None;
+        let mut log_at = None;
+        for k in 0..80 {
+            if k == 10 {
+                s.spawn_unit(Team::Red, "Knight", at, None).unwrap();
+                // Blue rolls toward +y; a Log still in the air starts its roll at roll_start.
+                log_at = s.spells().iter().find_map(|sp| match &sp.motion {
+                    royalesim::spell::SpellMotion::Rolling { pos, .. } => Some(native(*pos).1 - native(stage).1),
+                    royalesim::spell::SpellMotion::Airborne { roll_start, .. } => Some(native(*roll_start).1 - native(stage).1),
+                    _ => None,
+                });
+            }
+            let before = find_live(&s, Team::Red, "Knight").first().map(|e| (e.push_active, native(e.pos)));
+            s.tick();
+            if let (Some((true, _)), Some(e)) = (before, find_live(&s, Team::Red, "Knight").first()) {
+                if !e.push_active {
+                    assert!(e.deploying);
+                    result = Some(native(e.pos));
+                    break;
+                }
             }
         }
-    }
-    let end = result.expect("the Log never pushed the off-axis Knight");
-    let start = native(at);
-    assert_eq!((end.0 - start.0, end.1 - start.1), (0, log_carry), "the Log: pure forward by the carry");
+        let end = result.unwrap_or_else(|| panic!("{arm:?}: the Log never pushed the off-axis Knight"));
+        let start = native(at);
+        let log_at = log_at.unwrap_or_else(|| panic!("{arm:?}: no Log in flight or rolling when the Knight appeared"));
+        ((end.0 - start.0, end.1 - start.1), log_at)
+    };
+    assert_eq!(log_push(RollDirection::TravelDirection).0, (0, log_carry), "the travel_direction arm: pure forward by the carry");
+    let (d, log_at) = log_push(RollDirection::RadialFromCentre);
+    let (half_depth, knight_radius) = log_half_depth_and_knight_radius_native();
+    let (across, ahead) = ((at.x - stage.x) / K, (at.y - stage.y) / K);
+    let source = (ahead - half_depth - knight_radius).max(log_at);
+    let (dx, dy) = (across, ahead - source);
+    let len = royalesim::move16402::isqrt(dx * dx + dy * dy);
+    let want = (log_carry * dx / len, log_carry * dy / len);
+    let tol = 2 * ladder_ticks(log_push_native());
+    assert!(
+        (d.0 - want.0).abs() <= tol && (d.1 - want.1).abs() <= tol,
+        "radial_from_projectile_centre: away from the point {source} native ahead of the tap on the axis (the Log's roll {log_at} ahead when the Knight appeared): want {want:?} to within {tol} per axis, got {d:?}"
+    );
 
     let fb_carry = ladder_travel(fireball_push_native());
     let mut s = BattleState::new(3, config());

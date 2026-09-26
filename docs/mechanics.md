@@ -232,12 +232,14 @@ the Giant of capture 20260918-122757.b1, ticks 1216..1223: steps of 150, 125, 10
 and then -25. `knockback.ATTACK_RESET` is measured with it. The earlier fixed-distance slide
 stays runnable under the same key, and the seat-symmetry gates use it.
 
-One part of the current model sits at `owner_ruling` rather than `measured` (see
-`calibration.md`). `knockback.DIRECTION_ROLLING = travel_direction` is HIGH confidence on the
-**sign** and LOW on the **vector** for an off-axis victim. The sign is settled: no victim is ever
-pushed backward, toward the caster. The vector is not. The code also asserts zero sideways
-component for a troop standing to the side of The Log's roll, and that half is unobserved. A
-single recording settles it.
+The Log pushes a troop away from the Log's centre (`knockback.DIRECTION_ROLLING =
+radial_from_projectile_centre`, measured). So a troop standing behind the tap is pushed back,
+toward the caster. Measured on client 15.535.29, in the log-behind scenarios: Knights 500 and
+1000 native units (half a tile and a tile) behind the tap were pushed back by the full ladder, on
+both sides, and a Knight 1500 (a tile and a half) behind was not touched. This corrects an
+earlier observation that the Log never pushes backward. Off the roll axis, the angle of the push
+depends on the tap being snapped to its tile centre, and the shipped build does not snap it yet
+(`placement.TAP_SNAP = none`).
 
 ## Open questions
 

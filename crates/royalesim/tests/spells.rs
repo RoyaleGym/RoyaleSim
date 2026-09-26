@@ -37,36 +37,40 @@
 //!   ignore_flag_not_read               fireball_knockback_*
 //!   push_buildings                     fireball_knockback_*
 //!   knockback_keeps_windup             knockback_resets_a_windup
-//!   pushback_respects_ignore           log_pushes_*
-//!   rolling_push_radial_from_centre    log_never_pushes_* (the Giant at own along-offset
-//!                                      -24300 pushed (0, -18000): BACKWARD toward the
-//!                                      caster) and log_pushes_* (the off-axis Knight
-//!                                      pushed (14515, 10644)). REGRESSION plant for the
-//!                                      push that was overruled; it does not expire.
-//!   rolling_push_from_tick_end         log_pushes_* -- ONLY COMPOSED with
-//!                                      rolling_push_radial_from_centre. Measured dead
-//!                                      alone: under travel_direction,
-//!                                      the contact point it perturbs no longer feeds the
-//!                                      direction, so it changes nothing. Run it as
-//!                                      `--cfg clash_plant="rolling_push_radial_from_centre"
-//!                                      --cfg clash_plant="rolling_push_from_tick_end"`,
-//!                                      where it reds at along-offset 0 (a different
-//!                                      offset from the radial plant alone, so the two
-//!                                      stay distinguishable and the contact clamp in
-//!                                      spell.rs stays certified).
-//!   knockback_travel_direction_only    RETIRED. It forced the
-//!                                      RadialFromCentre arm to return the travel
-//!                                      direction; that IS the shipped behaviour, so
-//!                                      it is measured stone dead (spells, mirror and
-//!                                      knockback all green under it). Replaced by
-//!                                      rolling_push_radial_from_centre, which puts the
-//!                                      defect back instead of the fix.
+//!   pushback_respects_ignore           log_travel_arm_pushes_*
+//!   rolling_push_travel_direction      log_behind_* (the Knights behind the tap go
+//!                                      forward instead of back). REGRESSION plant for
+//!                                      the value the measurement replaced: it puts
+//!                                      travel_direction back on the shipped
+//!                                      radial_from_projectile_centre arm. (Read from
+//!                                      spell.rs; not yet run.)
+//!   rolling_push_radial_from_centre    log_travel_arm_never_* and log_travel_arm_pushes_*,
+//!                                      which pin the travel_direction ARM through the
+//!                                      battle's calibration; the plant makes that arm
+//!                                      radial. It reaches both displacement laws since
+//!                                      2026-09-25: before, it sat in the fixed_distance
+//!                                      branch only, and every test here runs the shipped
+//!                                      ladder, so it could turn none of them red. (Read
+//!                                      from spell.rs; not yet run.)
+//!   rolling_push_from_tick_end         log_behind_* alone (the Knight half a roll step
+//!                                      ahead of the tap goes back when the source is the
+//!                                      tick-end centre, so the contact clamp in spell.rs
+//!                                      is certified on the shipped arm), and
+//!                                      log_travel_arm_pushes_* only COMPOSED with
+//!                                      rolling_push_radial_from_centre (the
+//!                                      travel_direction arm reads no contact point).
+//!                                      (Read from spell.rs; not yet run.)
+//!   knockback_travel_direction_only    RETIRED. It forced the RadialFromCentre arm to
+//!                                      return the travel direction while that was the
+//!                                      shipped behaviour, so it was measured stone dead
+//!                                      then. rolling_push_travel_direction does the same
+//!                                      now that RadialFromCentre ships.
 //!   stun_decrement_at_status_start     zap_stun_freezes_*, zap_stun_pauses_*, zap_forces_*
 //!   stun_resets_attack                 zap_stun_pauses_*
 //!   relock_while_stunned               zap_stun_pauses_*
 //!   no_retarget_after_stun             zap_forces_a_retarget_on_resume
 //!   stun_replace                       zap_refresh_never_shortens_a_longer_stun
-//!   airborne_skipped                   log_timing_*, log_pushes_*
+//!   airborne_skipped                   log_timing_*, log_travel_arm_pushes_*
 //!   roll_range_from_airborne_start     log_timing_*, log_pierces_*
 //!   rolling_centre_in_rect             log_width_*, log_timing_*
 //!   rolling_rehit_every_tick           log_pierces_*
@@ -90,12 +94,14 @@
 //! and duration, the Log's launch model and hit shape, the barrel formation: every
 //! one is a LOW-confidence calibration key (docs/spell-spec.md "Unsettled") that
 //! only a recording of the real game can promote. These tests pin what the engine
-//! does under the shipped registry, and that the registry is READ.
+//! does under the shipped registry, and that the registry is READ; the two
+//! log_travel_arm_* tests pin a listed arm the registry does not ship, through the
+//! battle's calibration.
 mod common;
 
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, KnockLaw, ReleaseTiming};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, KnockLaw, ReleaseTiming, RollDirection};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -1138,56 +1144,68 @@ fn log_hits_ground_enemies_only() {
     assert!(enemy_hit, "vacuous: the Log never hit and pushed the Blue Knight while it deployed");
 }
 
+/// The shipped config with knockback.DIRECTION_ROLLING pinned to travel_direction
+/// through the battle's own calibration, not the registry. The shipped arm is
+/// radial_from_projectile_centre (log_behind_the_tap_*); travel_direction is a listed
+/// candidate the engine keeps implemented, and the log_travel_arm_* tests keep it
+/// what it says it is.
+fn travel_arm_config() -> BattleConfig {
+    let mut cfg = config();
+    cfg.calib.knock_direction_rolling = RollDirection::TravelDirection;
+    cfg
+}
+
 #[test]
-fn log_pushes_forward_and_moves_ignore_pushback_units() {
-    // PushbackAll: a deploying Red Giant (IgnorePushback) in the path is pushed by
-    // exactly Pushback along the roll, forward -- including one standing exactly on
-    // the tap, which the landing log covers from behind its centre.
+fn log_travel_arm_pushes_forward_and_moves_ignore_pushback_units() {
+    // THE travel_direction ARM, pinned through the battle's calibration
+    // (`travel_arm_config`). PushbackAll: a deploying Red Giant (IgnorePushback) in the
+    // path is pushed by exactly Pushback along the roll, forward -- including one
+    // standing exactly on the tap, which the landing log covers from behind its centre.
     // Plants: pushback_respects_ignore, rolling_push_radial_from_centre, and
-    // rolling_push_from_tick_end COMPOSED with it (the tick-end plant is dead alone
-    // under travel_direction -- see the header).
-    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "TravelDirection");
+    // rolling_push_from_tick_end COMPOSED with it (this arm reads no contact point --
+    // see the header).
+    let cfg = travel_arm_config();
     assert!(log_roll()["pushback_all"].as_bool().unwrap(), "data: the rolling Log ships PushbackAll");
     let push = milli(int(&log_roll()["pushback_milli"]));
     // the ladder's whole carry down the axis (an exact per-step (0, 256) heading);
     // Pushback itself under the fixed_distance arm
-    let carry = knock_carry(&calib(), push);
+    let carry = knock_carry(&cfg.calib, push);
     // A tap where a 1-tile push stays on dry ground (log_tap's +1.5 would reach the river).
     let tap = t(900, 1100);
     for offset in [0, 3 * SUBTILE / 2] {
         let at = Vec2::new(tap.x, tap.y + offset);
-        let moved = log_push_on(Team::Blue, tap, "Giant", at).unwrap_or_else(|| panic!("Giant at along-offset {offset}: never pushed"));
+        let moved = log_push_on(&cfg, Team::Blue, tap, "Giant", at).unwrap_or_else(|| panic!("Giant at along-offset {offset}: never pushed"));
         assert_eq!(moved, Vec2::new(0, carry), "Giant at along-offset {offset}: push {moved:?}");
     }
     // OFF-AXIS: a deploying Red Knight 1.5 tiles to the side is pushed PURE FORWARD by
-    // Pushback, with ZERO sideways component (registry travel_direction).
+    // Pushback, with ZERO sideways component, under this arm.
     // A radial push (radial_from_projectile_centre) would instead move it away from
     // the axis as well as forward, which a loose assertion -- d.x > 0 && d.y > 0 and a
-    // length within 2 subtiles of Pushback -- cannot tell apart from the real rule.
+    // length within 2 subtiles of Pushback -- cannot tell apart from this arm.
     // Hence the exact vector below.
     // Plant (regression): rolling_push_radial_from_centre.
     let at = Vec2::new(tap.x + 3 * SUBTILE / 2, tap.y + 3 * SUBTILE / 2);
-    let d = log_push_on(Team::Blue, tap, "Knight", at).expect("the off-axis Knight was never pushed");
+    let d = log_push_on(&cfg, Team::Blue, tap, "Knight", at).expect("the off-axis Knight was never pushed");
     assert_eq!(d, Vec2::new(0, carry), "off-axis push {d:?}: under travel_direction it is pure own-forward, exactly the carry, ZERO sideways");
 }
 
-/// Run one Log cast and return the SETTLED displacement `victim` suffers, or None if
-/// it was never touched. Compared against a control battle running the same script
+/// Run one Log cast under `cfg` and return the SETTLED displacement `victim` suffers,
+/// or None if it was never touched. Compared against a control battle running the same script
 /// without the Log, so the only thing that can move the victim is the push; the
 /// victim is asserted to be still DEPLOYING in the control, i.e. exactly stationary,
 /// which is what makes the displacement attributable. The victims drop two ticks
 /// before the landing (~~eight~~ -- the shipped ladder needs n + 1 ticks to carry a
 /// Pushback, and the deploy window has to outlast it), and the displacement is read
 /// once the ladder is out.
-fn log_push_on(caster: Team, tap: Vec2, victim: &str, at: Vec2) -> Option<Vec2> {
-    let s0 = bare(config());
+fn log_push_on(cfg: &BattleConfig, caster: Team, tap: Vec2, victim: &str, at: Vec2) -> Option<Vec2> {
+    let s0 = bare(cfg.clone());
     let (air_step, min_d, _, _, _, _) = log_numbers(&s0);
     let land = ((min_d + air_step - 1) / air_step) as u32;
     let foe = match caster {
         Team::Blue => Team::Red,
         Team::Red => Team::Blue,
     };
-    let mut s = bare(config());
+    let mut s = bare(cfg.clone());
     let mut control = s.clone();
     s.spawn_unit(caster, "Log", tap, None).unwrap();
     let mut touched = false;
@@ -1215,19 +1233,20 @@ fn log_push_on(caster: Team, tap: Vec2, victim: &str, at: Vec2) -> Option<Vec2> 
 }
 
 #[test]
-fn log_never_pushes_a_victim_backward_or_sideways_in_either_seat() {
-    // In the real game the Log never pushes a troop BACKWARD toward the caster: it
-    // is always forward (calibration knockback.DIRECTION_ROLLING, whose provenance
-    // records the observation). This is the gate that makes that enforceable across
-    // the whole reachable range of offsets. Sampling only along-offsets 0 and
-    // +1.5 tiles -- as the test above does -- cannot see the failure: it is the
-    // offsets from -1 subtile back to the landing log's reach that a radial rule
-    // throws a full tile toward the caster. Every push here must be EXACTLY
-    // (0, own-forward Pushback) -- one vector, no tolerance.
+fn log_travel_arm_never_pushes_backward_or_sideways_in_either_seat() {
+    // THE travel_direction ARM, pinned through the battle's calibration
+    // (`travel_arm_config`). It is not the game's rule: measured on client 15.535.29, a
+    // troop behind the tap goes BACK toward the caster (the shipped
+    // radial_from_projectile_centre, log_behind_the_tap_*). This is the gate that keeps
+    // the arm what it says it is across the whole reachable range of offsets: every
+    // push EXACTLY (0, own-forward Pushback), one vector, no tolerance. Sampling only
+    // along-offsets 0 and +1.5 tiles -- as the test above does -- cannot see a radial
+    // push: it is the offsets from -1 subtile back to the landing log's reach that a
+    // radial rule throws toward the caster.
     // Plant (regression): rolling_push_radial_from_centre.
-    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "TravelDirection");
-    let s0 = bare(config());
-    let push = knock_carry(&calib(), milli(int(&log_roll()["pushback_milli"])));
+    let cfg = travel_arm_config();
+    let s0 = bare(cfg.clone());
+    let push = knock_carry(&cfg.calib, milli(int(&log_roll()["pushback_milli"])));
     let hd = milli(int(&log_roll()["projectile_radius_y_milli"]));
     // The deepest a victim can stand behind the tap and still be touched by the
     // landing log's back edge: half-depth plus its own radius. DERIVED from the data,
@@ -1249,14 +1268,14 @@ fn log_never_pushes_a_victim_backward_or_sideways_in_either_seat() {
         for off in along {
             // Giant: IgnorePushback, so these cases also keep PushbackAll certified.
             let at = Vec2::new(tap.x, tap.y + fwd * off);
-            let d = log_push_on(caster, tap, "Giant", at)
+            let d = log_push_on(&cfg, caster, tap, "Giant", at)
                 .unwrap_or_else(|| panic!("{caster:?} Log: the Giant at own along-offset {off} was never pushed while it stood still"));
             assert_eq!(d, want, "{caster:?} Log, Giant at own along-offset {off}");
             checked += 1;
         }
         for lat in lateral {
             let at = Vec2::new(tap.x + fwd * lat, tap.y + fwd * 27000);
-            let d = log_push_on(caster, tap, "Knight", at)
+            let d = log_push_on(&cfg, caster, tap, "Knight", at)
                 .unwrap_or_else(|| panic!("{caster:?} Log: the Knight at own lateral offset {lat} was never pushed while it stood still"));
             assert_eq!(d, want, "{caster:?} Log, Knight at own lateral offset {lat}");
             checked += 1;
@@ -1268,9 +1287,65 @@ fn log_never_pushes_a_victim_backward_or_sideways_in_either_seat() {
         // so a one-subtile offset is truncated back onto the boundary on the unit's
         // first update.
         let past = Vec2::new(tap.x, tap.y + fwd * (deepest - royalesim::fixed::SUBTILE_PER_MILLITILE));
-        assert_eq!(log_push_on(caster, tap, "Giant", past), None, "{caster:?} Log: a Giant one native unit past the back reach was pushed");
+        assert_eq!(log_push_on(&cfg, caster, tap, "Giant", past), None, "{caster:?} Log: a Giant one native unit past the back reach was pushed");
     }
     assert_eq!(checked, 2 * (along.len() + lateral.len()), "vacuity: not every victim was measured");
+}
+
+#[test]
+fn log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat() {
+    // THE SHIPPED ARM, knockback.DIRECTION_ROLLING = radial_from_projectile_centre, on
+    // the cases that set it. Measured on client 15.535.29 (the log-behind scenarios,
+    // both sides): Knights standing 500 and 1000 behind the Log's tap are pushed BACK
+    // toward the caster by the full ladder, and a Knight 1500 behind is not touched.
+    // The push points from the Log's centre where it touched the Knight, which on the
+    // landing tick is the tap, so on the roll axis it is straight back: exactly
+    // (0, -own-forward carry), no tolerance. The measured off-axis angles need the tap
+    // snapped to its tile centre, and the shipped build does not snap
+    // (placement.TAP_SNAP = none), so every Knight here stands on the axis.
+    // One more axis case, not from the measurement: a Knight half a roll step AHEAD of
+    // the tap goes forward. The source is where the Log's centre was when it first
+    // touched the Knight (the contact point in spell.rs `roll`), not where the centre
+    // is at the end of the landing tick, which is already past the Knight.
+    // Plants: rolling_push_travel_direction (the Knights behind go forward),
+    // rolling_push_from_tick_end (the Knight ahead goes back).
+    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "RadialFromCentre");
+    assert_registry("placement.TAP_SNAP", format!("{:?}", calib().placement_tap_snap), "None");
+    let cfg = config();
+    let s0 = bare(cfg.clone());
+    let push = knock_carry(&cfg.calib, milli(int(&log_roll()["pushback_milli"])));
+    let (_, _, step, _, _, _) = log_numbers(&s0);
+    // A whole number of native units: the shipped movement law keeps every position on
+    // them (see the negative control above).
+    let ahead = step / 2;
+    assert!(ahead > 0 && ahead % K == 0, "half a roll step ({ahead} subtiles) is not a whole native unit");
+    let behind = [milli(500), milli(1000)];
+    let untouched = milli(1500);
+    let blue_tap = t(900, 1100);
+    let mut checked = 0;
+    for caster in [Team::Blue, Team::Red] {
+        // Own-forward is +y for Blue, -y for Red, and Red's tap is the seat ROTATION
+        // of Blue's, so both seats run the identical own-frame scenario.
+        let (tap, fwd) = match caster {
+            Team::Blue => (blue_tap, 1),
+            Team::Red => (mirror(&s0, blue_tap), -1),
+        };
+        for off in behind {
+            let at = Vec2::new(tap.x, tap.y - fwd * off);
+            let d = log_push_on(&cfg, caster, tap, "Knight", at)
+                .unwrap_or_else(|| panic!("{caster:?} Log: the Knight {} native behind the tap was never pushed while it stood still", off / K));
+            assert_eq!(d, Vec2::new(0, -fwd * push), "{caster:?} Log, Knight {} native behind the tap: back toward the caster by the whole carry", off / K);
+            checked += 1;
+        }
+        let at = Vec2::new(tap.x, tap.y - fwd * untouched);
+        assert_eq!(log_push_on(&cfg, caster, tap, "Knight", at), None, "{caster:?} Log: the Knight {} native behind the tap was pushed", untouched / K);
+        let at = Vec2::new(tap.x, tap.y + fwd * ahead);
+        let d = log_push_on(&cfg, caster, tap, "Knight", at)
+            .unwrap_or_else(|| panic!("{caster:?} Log: the Knight half a roll step ahead of the tap was never pushed while it stood still"));
+        assert_eq!(d, Vec2::new(0, fwd * push), "{caster:?} Log, Knight half a roll step ({} native) ahead of the tap: forward by the whole carry", ahead / K);
+        checked += 1;
+    }
+    assert_eq!(checked, 2 * (behind.len() + 1), "vacuity: not every victim was measured");
 }
 
 // ---------------------------------------------------------------------------

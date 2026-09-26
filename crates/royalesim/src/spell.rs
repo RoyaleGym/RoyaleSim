@@ -117,10 +117,12 @@ pub enum Knock {
     /// fixed_distance: a displacement, WORLD subtiles, summed per unit.
     Displacement(EntityId, Vec2),
     /// client16402: the push as the ladder's arming receives it --
-    /// the source point in NATIVE units (the impact centre; for the Log under the
-    /// owner's ruling the point one unit behind the victim on the roll axis, so the
-    /// source-to-victim line IS the travel direction), the strength (Pushback,
-    /// native) and the caster (the forward axis of the zero-vector fallback).
+    /// the source point in NATIVE units (the impact centre; for the Log, the point
+    /// knockback.DIRECTION_ROLLING names: under the shipped radial_from_projectile_centre
+    /// the Log's centre where it first touched the victim, under travel_direction the
+    /// point one unit behind the victim on the roll axis, so the source-to-victim line
+    /// IS the travel direction), the strength (Pushback, native) and the caster (the
+    /// forward axis of the zero-vector fallback).
     Push { id: EntityId, src: Vec2, strength: i32, caster: Team },
 }
 
@@ -515,14 +517,15 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                 // RADIAL FROM THE LOG'S CENTRE WHEN IT FIRST TOUCHED THIS VICTIM, not from
                 // where the centre is at the end of the tick. The sweep exists so a hit
                 // does not depend on TICK_MS; a direction taken from the tick-end centre
-                // did: a unit standing on the tap when the log lands was pushed BACKWARD
-                // (toward the caster), because the centre had already rolled one step past
-                // it. The contact point along the roll is where the front face (centre +
-                // half-depth) meets the victim's near edge, clamped to this tick's sweep.
-                // Taking the direction from the tick-end centre instead
-                // (`push_along(e.pos[v].sub(cur), ..)`) is what produces the
-                // backward push; pinned by
-                // log_pushes_forward_and_moves_ignore_pushback_units.
+                // did: a unit standing just ahead of the tap when the log lands was pushed
+                // BACKWARD (toward the caster), because the centre had already rolled one
+                // step past it. The contact point along the roll is where the front face
+                // (centre + half-depth) meets the victim's near edge, clamped to this
+                // tick's sweep. Taking the direction from the tick-end centre instead
+                // (`push_along(e.pos[v].sub(cur), ..)`) is what produces that backward
+                // push; pinned under the shipped arm by
+                // log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat (its
+                // Knight half a roll step ahead of the tap).
                 let edge = match hit_shape {
                     RollHitShape::RectVsCircleEdge => e.radius[v],
                     RollHitShape::RectContainsCentre => 0,
@@ -536,19 +539,29 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                     cur
                 };
                 if ctx.calib.knock_law == KnockLaw::Client16402 {
-                    // THE RULING AND THE LADDER COMPOSE THROUGH THE SOURCE POINT: the
-                    // ladder pushes AWAY from a point, so under travel_direction
-                    // that point is the one one native unit BEHIND the victim on the roll
-                    // axis -- `(dx, dy) = (0, fwd)`, `d = 1`, the target exactly Pushback
-                    // down the axis, no sideways component, whatever the victim's offset
-                    // from the log's centre. Under radial_from_projectile_centre it is the
-                    // contact point itself, and a victim ON it takes the zero-vector rule.
+                    // THE ARM AND THE LADDER COMPOSE THROUGH THE SOURCE POINT: the ladder
+                    // pushes AWAY from a point. Under radial_from_projectile_centre (the
+                    // shipped arm, measured on client 15.535.29: a troop behind the tap goes
+                    // back toward the caster) that point is the contact point itself, and a
+                    // victim ON it takes the zero-vector rule. Under travel_direction it is
+                    // the point one native unit BEHIND the victim on the roll axis --
+                    // `(dx, dy) = (0, fwd)`, `d = 1`, the target exactly Pushback down the
+                    // axis, no sideways component, whatever the victim's offset from the
+                    // log's centre.
                     let vn = Vec2::new(e.pos[v].x / K, e.pos[v].y / K);
                     let src = match ctx.calib.knock_direction_rolling {
+                        #[cfg(not(clash_plant = "rolling_push_radial_from_centre"))]
                         RollDirection::TravelDirection => Vec2::new(vn.x, vn.y - fwd),
+                        // PLANT (regression): the radial push on the travel_direction arm.
+                        #[cfg(clash_plant = "rolling_push_radial_from_centre")]
+                        RollDirection::TravelDirection => Vec2::new(contact.x / K, contact.y / K),
+                        #[cfg(not(clash_plant = "rolling_push_travel_direction"))]
                         RollDirection::RadialFromCentre => Vec2::new(contact.x / K, contact.y / K),
-                        // On the roll axis, one disc-sum behind the victim (D9): always behind it,
-                        // so the push is never toward the caster.
+                        // PLANT (regression): the travel direction on the shipped arm.
+                        #[cfg(clash_plant = "rolling_push_travel_direction")]
+                        RollDirection::RadialFromCentre => Vec2::new(vn.x, vn.y - fwd),
+                        // On the roll axis, one disc-sum behind the victim: always behind it, so
+                        // the push is never toward the caster.
                         RollDirection::RadialFromContactPoint => {
                             Vec2::new(contact.x / K, vn.y - fwd * (ctx.calib.knock_rolling_contact_radius + e.radius[v] / K))
                         }
@@ -557,26 +570,30 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                     continue;
                 }
                 let d = match ctx.calib.knock_direction_rolling {
-                    // NOT SELECTED. Kept implemented because it is a listed candidate
-                    // of knockback.DIRECTION_ROLLING and state.rs::pick refuses a
-                    // candidate string with no engine implementation at load -- deleting
-                    // this arm makes the registry unloadable, it does not tidy anything.
-                    // It is also observably wrong: a radial push throws a victim at own
-                    // along-offsets -1 to -(half_depth + victim radius) a full tile BACK
-                    // toward the caster, in both seats.
+                    // SELECTED (knockback.DIRECTION_ROLLING, measured on client 15.535.29):
+                    // away from the log's centre where it first touched the victim, so a
+                    // victim behind the tap goes BACK toward the caster, in both seats.
+                    #[cfg(not(clash_plant = "rolling_push_travel_direction"))]
                     RollDirection::RadialFromCentre => push_along(e.pos[v].sub(contact), k.distance, Some(along)),
+                    // PLANT (regression): the travel direction on the shipped arm.
+                    #[cfg(clash_plant = "rolling_push_travel_direction")]
+                    RollDirection::RadialFromCentre => Some(along),
                     // The same source as the client16402 law's, in world units.
                     RollDirection::RadialFromContactPoint => {
                         let src = Vec2::new(contact.x, e.pos[v].y - fwd * (ctx.calib.knock_rolling_contact_radius * K + e.radius[v]));
                         push_along(e.pos[v].sub(src), k.distance, Some(along))
                     }
-                    // SELECTED. In the live game the Log's push is never backward, always
-                    // forward: every victim it touches goes exactly Pushback along the
-                    // caster's forward axis, with no sideways component, including one
-                    // caught behind the tap by the landing log's back edge.
+                    // NOT SELECTED. Kept implemented because it is a listed candidate
+                    // of knockback.DIRECTION_ROLLING and state.rs::pick refuses a
+                    // candidate string with no engine implementation at load -- deleting
+                    // this arm makes the registry unloadable, it does not tidy anything.
+                    // Every victim it touches goes exactly Pushback along the caster's
+                    // forward axis, with no sideways component, including one caught
+                    // behind the tap by the landing log's back edge, which the
+                    // measurement pushes back toward the caster instead.
                     #[cfg(not(clash_plant = "rolling_push_radial_from_centre"))]
                     RollDirection::TravelDirection => Some(along),
-                    // PLANT (regression): the radial push, put back.
+                    // PLANT (regression): the radial push on the travel_direction arm.
                     #[cfg(clash_plant = "rolling_push_radial_from_centre")]
                     RollDirection::TravelDirection => push_along(e.pos[v].sub(contact), k.distance, Some(along)),
                 };

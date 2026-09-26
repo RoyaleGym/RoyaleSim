@@ -59,7 +59,9 @@ The ledger's job is to keep those two kinds of number apart, permanently and vis
 `owner_ruling` ranks **with** `measured`, not below it: a direct observation of the live client is
 a primary source, and the live client is the target. A ruling may settle only part of a key, the
 sign of a push but not its vector, say. In that case `confidence` names which half is which and
-a `promotion_rule` stays open for the rest.
+a `promotion_rule` stays open for the rest. No entry holds this status today. The only one did:
+`knockback.DIRECTION_ROLLING`, a ruling on the sign of the Log's push. A measurement overturned
+it on 2026-09-25, and the ruling is kept in that entry's `supersedes`.
 
 ## How far to trust the provenance
 
@@ -89,12 +91,12 @@ ledger disagree, because these figures went stale twice in one afternoon before 
   universal, so check rather than assume.** All 173 carry a status. That 173 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
   another and carries its own `measured` status, so counting every status in the file gives 174
-  and 81 measured. The tools agree on 173 by convention, and the convention undercounts by one. 119 name the rivals the
+  and 82 measured. The tools agree on 173 by convention, and the convention undercounts by one. 119 name the rivals the
   value was chosen against and 127 state what would move it, and 111 do both. The gap is mostly
   the 32 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 21 of
-  the 80 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 81 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -149,7 +151,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 173 top-level keys with a status, 80 are `measured` and one is an `owner_ruling`; a 174th entry nested inside another is measured too.
+disagree. Of the 173 top-level keys with a status, 81 are `measured`; a 174th entry nested inside another is measured too.
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
@@ -164,7 +166,7 @@ disagree. Of the 173 top-level keys with a status, 80 are `measured` and one is 
 | `match.LOGIC_BATTLE_START_COOLDOWN_MS` | 4500 | datamined, LOW | any recording of a match start |
 | `match.KING_ACTIVATE_TIME_MS` | 3300 | datamined, MEDIUM | a recording of what the delay actually delays |
 | `arena.ARENA_SOURCE_VINTAGE` | ~2018 tilemap | datamined, MEDIUM | a calibrated screenshot of a live arena; bridge width varied by arena even in 2018 |
-| `knockback` (5 of 8 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW` and `ATTACK_RESET` are measured and `DIRECTION_ROLLING` is an `owner_ruling` |
+| `knockback` (5 of 9 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `DIRECTION_ROLLING` and `ROLLING_CONTACT_RADIUS` are measured |
 | `spells.*` (8 keys) | see `spell-spec.md` | guess / hypothesis, LOW | each key in `spell-spec.md` carries its own deciding observation |
 | `status.*` (stun and buff timing) | see `spell-spec.md` | community / hypothesis | likewise |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
