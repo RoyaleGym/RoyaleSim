@@ -42,16 +42,16 @@
 //!                                      forward instead of back). REGRESSION plant for
 //!                                      the value the measurement replaced: it puts
 //!                                      travel_direction back on the shipped
-//!                                      radial_from_projectile_centre arm. (Read from
-//!                                      spell.rs; not yet run.)
+//!                                      radial_from_projectile_centre arm. Run on
+//!                                      2026-09-25: red exactly there.
 //!   rolling_push_radial_from_centre    log_travel_arm_never_* and log_travel_arm_pushes_*,
 //!                                      which pin the travel_direction ARM through the
 //!                                      battle's calibration; the plant makes that arm
 //!                                      radial. It reaches both displacement laws since
 //!                                      2026-09-25: before, it sat in the fixed_distance
 //!                                      branch only, and every test here runs the shipped
-//!                                      ladder, so it could turn none of them red. (Read
-//!                                      from spell.rs; not yet run.)
+//!                                      ladder, so it could turn none of them red. Run
+//!                                      on 2026-09-25: red exactly there.
 //!   rolling_push_from_tick_end         log_behind_* alone (the Knight half a roll step
 //!                                      ahead of the tap goes back when the source is the
 //!                                      tick-end centre, so the contact clamp in spell.rs
@@ -59,7 +59,7 @@
 //!                                      log_travel_arm_pushes_* only COMPOSED with
 //!                                      rolling_push_radial_from_centre (the
 //!                                      travel_direction arm reads no contact point).
-//!                                      (Read from spell.rs; not yet run.)
+//!                                      Run on 2026-09-25 alone: log_behind_* red.
 //!   knockback_travel_direction_only    RETIRED. It forced the RadialFromCentre arm to
 //!                                      return the travel direction while that was the
 //!                                      shipped behaviour, so it was measured stone dead

@@ -506,9 +506,10 @@ fn each_log_arm_pushes_an_off_axis_knight_from_its_own_source_where_a_fireball_p
     // A Fireball landing on the axis beside it gives the radial ladder, with a sideways
     // component of the same sign as the offset and a length of the carry to within the
     // per-step truncation.
-    // Plants (read from spell.rs; not yet run): rolling_push_travel_direction (the
-    // shipped arm pushes pure forward) and rolling_push_from_tick_end (the source is a
-    // roll step further on, the Log's centre at the end of the touching tick).
+    // Plants, each run on 2026-09-25 and red here: rolling_push_travel_direction (the
+    // shipped arm pushes pure forward), rolling_push_from_tick_end (the source is a
+    // roll step further on, the Log's centre at the end of the touching tick) and
+    // rolling_push_radial_from_centre (the travel_direction arm pushes radially).
     let stage = t(900, 1100);
     let at = Vec2::new(stage.x + SUBTILE, stage.y + 3 * SUBTILE / 2);
     let log_carry = ladder_travel(log_push_native());
