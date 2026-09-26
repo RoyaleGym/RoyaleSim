@@ -5123,9 +5123,10 @@ impl BattleState {
                 // the next tick, the first tick whose centre distance is at most DashMaxRange + the
                 // target's radius starts the stand. Three Bandits and a Mega Knight put down inside that
                 // distance moved on their first active frame + 17 and + 18: the trigger falls on the
-                // frame after first sight. Every measured trigger was also beyond DashMinRange edge to
-                // edge, and a trigger nearer than that is refused (so a unit whose dash ended in melee
-                // does not dash again at the same target).
+                // frame after first sight, and on the first-sight frame itself the unit already stands (a
+                // Mega Knight put down 4,805 from its target stood from its first active tick). A dash's
+                // end forgets its target, so the next sight of it is a first sight: a unit whose dash
+                // ended in melee sees it inside DashMinRange and walks in.
                 //
                 // STAND. Until the entry, DashCooldown / 50 - 1 ticks after the trigger (the Bandit's 800
                 // and the Mega Knight's 900: 13 of 13 dashes and 2 of 2 jumps), the unit's walk runs at
@@ -5149,18 +5150,22 @@ impl BattleState {
                         if let (true, Some(t)) = (walking, live(e.target[i])) {
                             let ti = t.index as usize;
                             let near = (d.min_range + e.radius[i] + e.radius[ti]) as i64;
+                            #[cfg(not(clash_plant = "dash_trigger_centre"))]
+                            let reach = (d.max_range + e.radius[ti]) as i64;
+                            #[cfg(clash_plant = "dash_trigger_centre")]
+                            let reach = d.max_range as i64; // PLANT: DashMaxRange alone, without the target's radius.
+                            let within = d2(ti) <= reach * reach;
                             if dash_target[i] != Some(t) {
                                 dash_target[i] = Some(t);
                                 dash_blocked[i] = d2(ti) < near * near;
-                            } else {
-                                #[cfg(not(clash_plant = "dash_trigger_centre"))]
-                                let reach = (d.max_range + e.radius[ti]) as i64;
-                                #[cfg(clash_plant = "dash_trigger_centre")]
-                                let reach = d.max_range as i64; // PLANT: DashMaxRange alone, without the target's radius.
-                                if !dash_blocked[i] && d2(ti) <= reach * reach && d2(ti) >= near * near {
-                                    dash_state[i] = DashState::Standing;
-                                    dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
+                                // first sight already within the trigger distance: it stands this tick too
+                                #[cfg(not(clash_plant = "dash_first_sight_walks"))]
+                                {
+                                    dash_stand = within && !dash_blocked[i];
                                 }
+                            } else if !dash_blocked[i] && within {
+                                dash_state[i] = DashState::Standing;
+                                dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
                             }
                         }
                     } else if dash_state[i] == DashState::Standing
@@ -5268,6 +5273,8 @@ impl BattleState {
                         walk_step[i] = 0;
                         if ended {
                             dash_state[i] = DashState::None;
+                            // the dash is spent: the target's next sight is a first sight
+                            dash_target[i] = None;
                             dash_ended.push(i);
                             bodies[i].collidable = true;
                         }

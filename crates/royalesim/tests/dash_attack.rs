@@ -28,6 +28,8 @@
 //!   7. the Mega Knight's jump: it moves on the trigger + 17, about 250 a tick, rests on the goal cell's centre, and
 //!      the Giant loses DashDamage on the entry + 16 and nothing from it before;
 //!   8. a Mini P.E.K.K.A (no dash block) walks in under both values.
+//!   9. a Mega Knight put down inside its trigger (the sweep's scene: 4,805 from a Knight, an edge of 3,555 over
+//!      DashMinRange 3,500) stands from its first tick and jumps on its eighteenth (first active + 18).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test dash_attack`):
 //!   * `dash_unread` -- the loader drops the dash block: (1), (3), (4), (5) and (7) go red.
@@ -36,6 +38,7 @@
 //!   * `dash_whole_steps` -- one whole step and one Range test a tick: (3) goes red on the half-step stop.
 //!   * `dash_not_immune` -- a dashing unit takes every hit: (4) goes red.
 //!   * `dash_keeps_the_cycle` -- the load timer is not reset after the dash: (5) goes red.
+//!   * `dash_first_sight_walks` -- a unit put down inside its trigger walks its first tick: (9) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -339,4 +342,15 @@ fn a_melee_unit_without_a_dash_walks_into_range_under_both_values() {
         }
         assert!(longest < BANDIT_STAND, "{arm:?}: the Mini P.E.K.K.A stood {longest} ticks before its first hit");
     }
+}
+
+/// Plant: dash_first_sight_walks.
+#[test]
+fn a_mega_knight_put_down_inside_its_trigger_stands_from_its_first_tick_and_jumps_on_the_eighteenth() {
+    let (_, _, _, rows) = scene(DashAttack::ClientDash, "MegaKnight", (9500, 11500), "Knight", (13126, 14653), 40);
+    assert!(rows[0].start < MK_TRIGGER && rows[0].start > 3500 + 750 + 500, "the scene drifted: the Mega Knight started {} away", rows[0].start);
+    let first = rows.iter().position(|r| r.step > 0).expect("the Mega Knight never moved");
+    // first sight on tick 0 (it stands), the trigger on tick 1, the entry DashCooldown 900 / 50 - 1 = 17 later
+    assert_eq!(rows[first].t, 1 + MK_ENTRY, "the Mega Knight first moved on {}", rows[first].t);
+    assert!(rows[first].step > 200, "its first move is not the jump: {}", rows[first].step);
 }
