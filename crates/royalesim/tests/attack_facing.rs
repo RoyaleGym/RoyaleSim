@@ -9,7 +9,7 @@
 //! where the Knight never turned:
 //!   1. toward_target: on every attack tick the Knight's facing is the normalize of (Hog - Knight) at the tick's start;
 //!   2. kept: its facing does not move through the attack, while the direction to the Hog does;
-//!   3. the shipped value is kept.
+//!   3. the shipped value is toward_target.
 //!
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="attack_facing_kept"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! attack_facing`): toward_target keeps the walking heading, so (1) goes red.
@@ -73,6 +73,6 @@ fn under_kept_the_facing_does_not_follow_the_target() {
 }
 
 #[test]
-fn the_shipped_value_is_kept() {
-    assert_eq!(Calib::shipped().attack_facing, AttackFacing::Kept);
+fn the_shipped_value_is_toward_target() {
+    assert_eq!(Calib::shipped().attack_facing, AttackFacing::TowardTarget);
 }

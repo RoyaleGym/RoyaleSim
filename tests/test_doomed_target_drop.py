@@ -10,7 +10,7 @@ count: the attacker keeps its target until the countdown reaches 600 ms, then dr
 client 15.535.29, over 40 scenario runs: in 62 of 62 such cases the attacker dropped the target on the next tick
 (14 walking Minions, 11 Musketeers and 19 princess towers among them) and none took it back; 2 of them were doomed only
 by the sum of two shots; 28 attackers kept a target whose lethal damage was 650-750 ms away and dropped it the tick
-after the countdown read 600. Today's engine never drops a doomed target: a walking Minion keeps it, a Minion in its
+after the countdown read 600. The keep arm never drops a doomed target: a walking Minion keeps it, a Minion in its
 windup fires at it, and a crown tower and a Musketeer in their windup keep it.
 
 WHY THE CONTROLS ARE HERE. The rule is narrower than "drop a doomed target", and each control refuses one wider
@@ -21,6 +21,10 @@ Electro Wizard, which attack from range). What decides is the projectile, not ra
 are ranged flyers, so a walking Inferno Dragon (a ranged flyer with no projectile) must keep. A target whose pending
 damage is below its hitpoints is not doomed. The four controls hold on both arms. The ETA test refuses a rule that
 ignores the 600 ms, and the two-shot test refuses a rule that asks one shot to be lethal on its own.
+
+WHICH ARM. projectile_attackers is the SHIPPED arm since the 2026-09-26 flip. keep is the engine before the flip.
+The tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last
+one runs the shipped build with no override at all.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.DOOMED_TARGET_DROP"
-NEW_ARM, OLD_ARM = "projectile_attackers", "keep"
+SHIPPED_ARM, KEEP_ARM = "projectile_attackers", "keep"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 P = {name: i for i, name in enumerate(royalesim.PROJECTILE_FIELDS)}
 TICK_MS = 50
@@ -51,7 +55,8 @@ TOWER_FIRER = -1
 
 
 def overrides(arm) -> dict:
-    return {KEY: json.dumps(arm)}
+    """The battle's calibration pinning `arm` BY NAME; None runs the shipped build with no override."""
+    return {} if arm is None else {KEY: json.dumps(arm)}
 
 
 def play(cards, spawns, arm, ticks=40):
@@ -143,7 +148,7 @@ def walk_scene(arm, knight_hp=60, extra=()):
 
 def test_walking_minions_drop_a_doomed_target_on_the_next_tick():
     """The client 15.535.29 walking scenario: a tower arrow (ETA 200-250 ms) dooms the Knight; the walkers drop it."""
-    states, knight, minions = walk_scene(NEW_ARM)
+    states, knight, minions = walk_scene(SHIPPED_ARM)
     doom = Doom(states, knight, firer_card=TOWER_FIRER)
     assert doom.eta_ms(doom.d) <= ETA_LIMIT_MS, f"precondition: the arrow's ETA is {doom.eta_ms(doom.d)} ms"
     for u in minions:
@@ -159,7 +164,7 @@ def test_walking_minions_keep_the_target_until_the_eta_reaches_600_ms():
     cards = ("Knight", "Minions", "GoblinCage")
     spawns = [(1, 0, 14500, 15300, 60), (0, 2, 14500, 13500, -1),
               (0, 1, 10500, 10500, -1), (0, 1, 10000, 11000, -1), (0, 1, 11000, 10000, -1)]
-    states = play(cards, spawns, NEW_ARM)
+    states = play(cards, spawns, SHIPPED_ARM)
     (knight,) = uids(states, cards, "Knight", 1)
     minions = uids(states, cards, "Minions", 0)
     doom = Doom(states, knight, firer_card=TOWER_FIRER)
@@ -179,7 +184,7 @@ def test_walking_minions_drop_a_target_doomed_only_by_the_sum_of_two_shots():
     and drop it the tick after both fly. A rule that needs one lethal shot keeps it until the arrow lands."""
     arrow = hit_damage(TOWER_FIRER)
     spit = hit_damage(1)
-    states, knight, minions = walk_scene(NEW_ARM, knight_hp=150, extra=(WINDUP_MINION,))
+    states, knight, minions = walk_scene(SHIPPED_ARM, knight_hp=150, extra=(WINDUP_MINION,))
     hp0 = states[0][0][knight][F["hp"]]
     assert max(arrow, spit) < hp0 <= arrow + spit, f"precondition: hp {hp0}, arrow {arrow}, spit {spit}"
     one = next(t for t in range(len(states)) if shots_at(states, t, knight))
@@ -206,7 +211,7 @@ def hit_damage(firer_card):
     spawns = [(1, 0, *KNIGHT_AT_TOWER, 1000)]
     if firer_card == 1:
         spawns.append((0, 1, 11000, 9150, -1))
-    states = play(("Knight", "Minions"), spawns, OLD_ARM, ticks=30)
+    states = play(("Knight", "Minions"), spawns, KEEP_ARM, ticks=30)
     (knight,) = uids(states, ("Knight", "Minions"), "Knight", 1)
     first = next(t for t in range(len(states)) if shots_at(states, t, knight))
     assert {p[P["firer_card_id"]] for p in shots_at(states, first, knight)} == {firer_card}
@@ -217,7 +222,7 @@ def hit_damage(firer_card):
 def test_a_minion_in_its_windup_that_has_not_fired_drops_the_target():
     """The client 15.535.29 attack scenario: a Minion 6 frames into its first windup dropped the doomed Knight."""
     cards = ("Knight", "Minions")
-    states = play(cards, [(1, 0, *KNIGHT_AT_TOWER, 60), (0, 1, *WINDUP_MINION, -1)], NEW_ARM)
+    states = play(cards, [(1, 0, *KNIGHT_AT_TOWER, 60), (0, 1, *WINDUP_MINION, -1)], SHIPPED_ARM)
     (knight,) = uids(states, cards, "Knight", 1)
     (minion,) = uids(states, cards, "Minions", 0)
     doom = Doom(states, knight, firer_card=TOWER_FIRER)
@@ -251,11 +256,11 @@ def tower_windup_scene(arm):
 def test_a_crown_tower_and_a_musketeer_in_their_windup_drop_a_target_doomed_by_another_shot():
     """Crown towers and ground troops follow the rule too. On client 15.535.29, princess towers dropped a doomed
     target they had not yet fired at 19 times, and Musketeers 11 times."""
-    states, knight, attackers, doom = tower_windup_scene(NEW_ARM)
+    states, knight, attackers, doom = tower_windup_scene(SHIPPED_ARM)
     assert_dropped_for_good(states, doom, knight, attackers, doom.d + 1, set())
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, KEEP_ARM])
 def test_an_attacker_that_has_fired_and_is_in_reach_keeps_the_doomed_target(arm):
     """Control: the Minion, in reach from tick 1, spits first (the Knight 150 -> 43); then the tower's arrow dooms
     it. Both have fired at it and are in reach: both keep it until it dies."""
@@ -273,7 +278,7 @@ def test_an_attacker_that_has_fired_and_is_in_reach_keeps_the_doomed_target(arm)
     assert_kept(states, doom, knight, [minion, tower], doom.d + 1, doom.k - 1)
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, KEEP_ARM])
 def test_a_walker_without_a_projectile_keeps_the_doomed_target(arm):
     """Control: a blue Knight walking at the doomed red Knight keeps it (client 15.535.29: a Knight and a Ronin)."""
     cards = ("Knight", "Minions")
@@ -285,7 +290,7 @@ def test_a_walker_without_a_projectile_keeps_the_doomed_target(arm):
     assert_kept(states, doom, red, [blue], doom.d + 1, doom.k - 1)
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, KEEP_ARM])
 def test_a_ranged_flyer_without_a_projectile_keeps_the_doomed_target(arm):
     """Control: a blue Inferno Dragon (flying, range 3500, no projectile) walking at the doomed red Knight keeps it.
     It refuses a rule keyed on range or on flight, which the walking Minions (flying, range 2500) cannot tell from the
@@ -302,7 +307,7 @@ def test_a_ranged_flyer_without_a_projectile_keeps_the_doomed_target(arm):
     assert_kept(states, doom, knight, [dragon], doom.d + 1, doom.k - 1)
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, KEEP_ARM])
 def test_walkers_keep_a_target_whose_pending_damage_is_below_its_hitpoints(arm):
     """Control: the Knight has 300 hp, so the first arrow (109) leaves it alive; the walkers keep it."""
     states, knight, minions = walk_scene(arm, knight_hp=300)
@@ -314,11 +319,21 @@ def test_walkers_keep_a_target_whose_pending_damage_is_below_its_hitpoints(arm):
     assert not lost, f"let go of a target that was not doomed, (uid, tick): {sorted(lost)}"
 
 
-def test_old_arm_is_todays_engine():
-    """Today: the walking Minions, and the crown tower and the Musketeer in their windup, keep the doomed Knight until
+def test_the_keep_arm_keeps_the_doomed_target():
+    """Keep: the walking Minions, and the crown tower and the Musketeer in their windup, keep the doomed Knight until
     it dies."""
-    states, knight, minions = walk_scene(OLD_ARM)
+    states, knight, minions = walk_scene(KEEP_ARM)
     doom = Doom(states, knight, firer_card=TOWER_FIRER)
     assert_kept(states, doom, knight, minions, doom.d + 1, doom.k - 1)
-    states, knight, attackers, doom = tower_windup_scene(OLD_ARM)
+    states, knight, attackers, doom = tower_windup_scene(KEEP_ARM)
     assert_kept(states, doom, knight, attackers, doom.d + 1, doom.k - 1)
+
+
+def test_the_shipped_build_drops_the_doomed_target():
+    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+    shipped = ledger["targeting"]["DOOMED_TARGET_DROP"]["value"]
+    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    states, knight, minions = walk_scene(None)
+    doom = Doom(states, knight, firer_card=TOWER_FIRER)
+    assert_dropped_for_good(states, doom, knight, minions, doom.d + 1, towers(states))

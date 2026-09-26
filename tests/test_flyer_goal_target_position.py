@@ -11,9 +11,12 @@ creation orders), the flyer's heading points at that cell on 458 of 458. The sta
 and all 39 misses are ticks of a flyer created after the Knight. The same holds for ground chasers on client 15.535.29:
 in the melee-group scenarios (Barbarians, Skeletons, Goblins and others against a Knight) the as-held reading fits 71
 of 71 discriminating ticks of units chasing a Knight created first, and 16 of 16 of the Knight chasing units created
-after it. Today's engine reads the
-start-of-tick position for every chaser, so a chaser created after its target turns one tick late when a cell crosses
-the reach circle.
+after it. The start_of_tick arm reads the start-of-tick position for every chaser, so a chaser created after its
+target turns one tick late when a cell crosses the reach circle.
+
+WHICH ARM. creation_order is the SHIPPED arm since the 2026-09-26 flip. start_of_tick is the engine before the flip.
+The tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last
+one runs the shipped build with no override at all.
 
 WHY THE CONTROLS ARE HERE. A flyer created BEFORE its target keeps the start-of-tick reading on both arms. On client
 15.535.29 that order fits the unmoved target on 174 of 174 ticks, and the moved target on 151 of 174. An
@@ -34,7 +37,7 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "pathfinding.GOAL_TARGET_POSITION"
-NEW_ARM, OLD_ARM = "creation_order", "start_of_tick"
+SHIPPED_ARM, START_ARM = "creation_order", "start_of_tick"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 CELL = 500
 #: Range + own CollisionRadius (the 15.535 card table) and the CollisionRadius the engine must carry
@@ -55,7 +58,8 @@ MIN_TICKS, MIN_SPLIT = 20, 3
 
 
 def overrides(arm) -> dict:
-    return {KEY: json.dumps(arm)}
+    """The battle's calibration pinning `arm` BY NAME; None runs the shipped build with no override."""
+    return {} if arm is None else {KEY: json.dumps(arm)}
 
 
 def water_cells(b) -> set:
@@ -177,7 +181,7 @@ def assert_scene(rows, reach, water, created_first, want_first):
 
 @pytest.mark.parametrize("card", FLYERS)
 def test_flyer_created_after_its_target_reads_the_moved_target(card):
-    rows, first, water = flyer_chase(card, "after", NEW_ARM)
+    rows, first, water = flyer_chase(card, "after", SHIPPED_ARM)
     split = assert_scene(rows, REACH[card], water, first, "target")
     misses, _ = score(rows, REACH[card], water, "after")
     assert misses == [], (
@@ -185,7 +189,7 @@ def test_flyer_created_after_its_target_reads_the_moved_target(card):
         f"(the readings split on (tick, uid) {split}); (tick, uid, facing, wanted, cell): {misses}")
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, START_ARM])
 @pytest.mark.parametrize("card", FLYERS)
 def test_flyer_created_before_its_target_reads_the_unmoved_target(card, arm):
     """Control: the target moves after the flyer in the pass, so its start-of-tick position is the one at the
@@ -198,11 +202,11 @@ def test_flyer_created_before_its_target_reads_the_unmoved_target(card, arm):
         f"(the readings split on (tick, uid) {split}); (tick, uid, facing, wanted, cell): {misses}")
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, START_ARM])
 def test_ground_chaser_created_after_its_target_reads_the_moved_target(arm):
     """A red Knight created after a blue Giant chases it north on the red half. Its goal cell (the route's first
-    element, goal first) is the one chosen from the Giant's MOVED position under the new arm (the Giant was created
-    first), and from its start-of-tick position under the old arm (today's engine), on every tick, including the ticks
+    element, goal first) is the one chosen from the Giant's MOVED position under the shipped arm (the Giant was created
+    first), and from its start-of-tick position under the start_of_tick arm, on every tick, including the ticks
     where the two readings pick different cells."""
     b = royalesim.Battle(["Giant", "Knight"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
     b.reset(0, [[0] * 8, [1] * 8], 0, 200, [10_000, 10_000], None,
@@ -224,21 +228,32 @@ def test_ground_chaser_created_after_its_target_reads_the_moved_target(arm):
             checked += 1
             if before != after:
                 split.append(t)  # a route's goal is a cell, so any change of cell discriminates
-            want = after if arm == NEW_ARM else before
+            want = after if arm == SHIPPED_ARM else before
             if tuple(route[0]) != want:
                 wrong.append((t, tuple(route[0]), before, after))
         prev = now
     assert checked >= MIN_TICKS, f"only {checked} ticks with a route: the chase did not happen"
     assert len(split) >= MIN_SPLIT, f"the two readings pick different cells on only {len(split)} ticks: {split}"
-    reading = "moved" if arm == NEW_ARM else "start-of-tick"
+    reading = "moved" if arm == SHIPPED_ARM else "start-of-tick"
     assert wrong == [], f"the ground goal left the {reading} reading (tick, goal, unmoved, moved): {wrong}"
 
 
 @pytest.mark.parametrize("card", FLYERS)
-def test_old_arm_is_todays_engine(card):
-    rows, first, water = flyer_chase(card, "after", OLD_ARM)
+def test_the_start_of_tick_arm_reads_the_unmoved_target(card):
+    rows, first, water = flyer_chase(card, "after", START_ARM)
     split = assert_scene(rows, REACH[card], water, first, "target")
     misses, _ = score(rows, REACH[card], water, "before")
-    assert misses == [], f"old arm: ticks off the start-of-tick reading: {misses}"
+    assert misses == [], f"start_of_tick arm: ticks off the start-of-tick reading: {misses}"
     moved, _ = score(rows, REACH[card], water, "after")
-    assert set(split) <= {m[:2] for m in moved}, f"old arm: split ticks {split}, moved-reading misses {moved}"
+    assert set(split) <= {m[:2] for m in moved}, f"start_of_tick arm: split ticks {split}, moved-reading misses {moved}"
+
+
+def test_the_shipped_build_reads_the_moved_target():
+    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+    shipped = ledger["pathfinding"]["GOAL_TARGET_POSITION"]["value"]
+    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    rows, first, water = flyer_chase("Minions", "after", None)
+    split = assert_scene(rows, REACH["Minions"], water, first, "target")
+    misses, _ = score(rows, REACH["Minions"], water, "after")
+    assert misses == [], f"the shipped build left the moved reading (the readings split on {split}): {misses}"

@@ -153,8 +153,8 @@ fn a_flyer_over_the_river_ranks_water_like_dry_ground_only_under_not_demoted() {
 }
 
 #[test]
-fn both_keys_ship_at_their_old_values() {
+fn both_keys_ship_at_their_new_values() {
     let c = Calib::shipped();
-    assert_eq!(c.goal_target_position, GoalTargetPosition::StartOfTick);
-    assert_eq!(c.flyer_goal_water, FlyerGoalWater::Demoted);
+    assert_eq!(c.goal_target_position, GoalTargetPosition::CreationOrder);
+    assert_eq!(c.flyer_goal_water, FlyerGoalWater::NotDemoted);
 }

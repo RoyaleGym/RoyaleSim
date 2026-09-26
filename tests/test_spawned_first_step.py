@@ -9,7 +9,11 @@ on their first frame, all identical.
 
 THE SCENARIO. A blue Tombstone placed mid-way down its own half, alone. Its first Skeleton comes out on tick 0 at the
 tangent point, (9000, 9500) native for a Tombstone at (9000, 8000); the test measures how far from that point the
-Skeleton stands on its first frame: one Skeleton step (about 90) under the new arm, 0 under the old.
+Skeleton stands on its first frame: one Skeleton step (about 90) under client16402_same_tick, 0 under none.
+
+WHICH ARM. client16402_same_tick is the SHIPPED arm since the 2026-09-26 flip. none is the engine before the flip.
+The tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last
+one runs the shipped build with no override at all.
 """
 
 from __future__ import annotations
@@ -29,14 +33,16 @@ TS = 0
 AT = (9000, 8000)
 EMISSION_POINT = (9000, 9500)  # the Tombstone's 1000 plus the Skeleton's 500, forward for Blue
 KEY = "spawner.SPAWNED_FIRST_STEP"
+SHIPPED_ARM, NONE_ARM = "client16402_same_tick", "none"
 # ENTITY_FIELDS: 0 uid, 1 team, 2 kind (1 = building), 4 tower_slot, 5 x, 6 y
 UID, TEAM, KIND, SLOT, X, Y = 0, 1, 2, 4, 5, 6
 
 
-def first_skeleton(arm: str) -> tuple:
-    """The first emitted Skeleton's first-frame position, native."""
+def first_skeleton(arm: str | None) -> tuple:
+    """The first emitted Skeleton's first-frame position, native. `arm` None runs the shipped build."""
     b = royalesim.Battle(
-        card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides={KEY: json.dumps(arm)}
+        card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]],
+        calibration_overrides={} if arm is None else {KEY: json.dumps(arm)},
     )
     b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, [(0, TS, AT[0] * SUB, AT[1] * SUB, -1)])
     for _ in range(20):
@@ -49,7 +55,7 @@ def first_skeleton(arm: str) -> tuple:
 
 
 def test_an_emitted_skeleton_has_taken_one_step_on_its_first_frame():
-    x, y = first_skeleton("client16402_same_tick")
+    x, y = first_skeleton(SHIPPED_ARM)
     moved = math.dist((x, y), EMISSION_POINT)
     assert 60 <= moved <= 100, (
         f"the first Skeleton stands {moved:.0f} from the emission point on its first frame; the game: one step"
@@ -64,7 +70,7 @@ def test_a_death_spawn_takes_the_same_step_all_together():
     if dp is None:
         pytest.fail("spawner.DEATH_SPAWN_AT_EMISSION_POINT is not in the compiled-in ledger")
     overrides = {
-        KEY: json.dumps("client16402_same_tick"),
+        KEY: json.dumps(SHIPPED_ARM),
         "spawner.DEATH_SPAWN_AT_EMISSION_POINT": json.dumps({**dp, "arm": "client16402_measured_list"}),
     }
     b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
@@ -84,8 +90,17 @@ def test_a_death_spawn_takes_the_same_step_all_together():
     raise AssertionError("the 3-hp Tombstone did not die with four Skeletons within 12 ticks")
 
 
-def test_the_old_arm_is_todays_engine():
-    x, y = first_skeleton("none")
+def test_the_none_arm_leaves_the_skeleton_on_the_emission_point():
+    x, y = first_skeleton(NONE_ARM)
     assert (x, y) == EMISSION_POINT, (
-        f"the old arm must leave the first Skeleton on the emission point; it is at {(x, y)}"
+        f"the none arm must leave the first Skeleton on the emission point; it is at {(x, y)}"
     )
+
+
+def test_the_shipped_build_takes_the_first_step():
+    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+    shipped = ledger["spawner"]["SPAWNED_FIRST_STEP"]["value"]
+    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    moved = math.dist(first_skeleton(None), EMISSION_POINT)
+    assert 60 <= moved <= 100, f"the shipped build: the first Skeleton stands {moved:.0f} from the emission point"

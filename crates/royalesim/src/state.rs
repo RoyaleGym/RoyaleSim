@@ -1053,7 +1053,7 @@ calib_enum!(
     /// (formation.STAGGER_WAIT's measured arm, entity.rs `stagger_ms` > 0) counts for in a
     /// walker's avoidance vote. A deploying member is DEPLOYING_HEADING's, not this key's.
     WaitingHeading {
-        /// Today's engine: a waiting member is a deploying unit here too (DEPLOYING_HEADING).
+        /// The engine before this key flipped: a waiting member is a deploying unit here too (DEPLOYING_HEADING).
         Kept = "kept",
         /// Measured on client 15.535.29's walking summon-push scenarios: the waiting member's
         /// heading is zeroed, so a walker counts it as a blocker and steps away from it.
@@ -1530,7 +1530,7 @@ calib_enum!(
     /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY -- see `BattleState::delay_acquisition` (the one
     /// setter) and target.rs `can_target` (the one reader).
     SpawnedUnitAcquireDelay {
-        /// Today's engine: a death spawn is an ordinary target from the first Target phase
+        /// The engine before this key flipped: a death spawn is an ordinary target from the first Target phase
         /// after it appears (the tick after its first frame under spawner.RELEASE_TIMING =
         /// end_of_event_phase).
         None = "none",
@@ -1551,7 +1551,7 @@ calib_enum!(
 calib_enum!(
     /// spawner.SPAWNED_FIRST_STEP -- see `BattleState::first_update`.
     SpawnedFirstStep {
-        /// Today's engine: a unit created after the tick's passes stands where it was created
+        /// The engine before this key flipped: a unit created after the tick's passes stands where it was created
         /// until the next tick's passes.
         None = "none",
         /// It takes its whole first update on the tick it is created: it acquires, enters its

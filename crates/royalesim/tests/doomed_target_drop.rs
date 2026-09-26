@@ -98,7 +98,7 @@ fn walking_minions_drop_a_knight_doomed_by_a_tower_arrow_on_the_next_tick() {
     assert!(not_targeting(&run, &ids, &minions, 0, d..d + 1).is_empty(), "precondition: a Minion was not after the Knight at D");
     let held = targeting(&run, &ids, &minions, 0, d + 1..k);
     assert!(held.is_empty(), "still (or again) after the doomed Knight, (spawn, tick) with D={d}, K={k}: {held:?}");
-    // and under keep, today's engine, they keep it until it dies
+    // and under keep, the old arm, they keep it until it dies
     let (ids, run) = play(DoomedTargetDrop::Keep, &WALK, 40);
     let (d, k) = doom(&run, 0, 0);
     let lost = not_targeting(&run, &ids, &minions, 0, d + 1..k);
@@ -154,6 +154,6 @@ fn a_knight_with_no_projectile_keeps_a_doomed_target() {
 }
 
 #[test]
-fn the_shipped_value_is_keep() {
-    assert_eq!(Calib::shipped().doomed_target_drop, DoomedTargetDrop::Keep);
+fn the_shipped_value_is_projectile_attackers() {
+    assert_eq!(Calib::shipped().doomed_target_drop, DoomedTargetDrop::ProjectileAttackers);
 }

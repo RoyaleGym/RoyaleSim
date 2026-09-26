@@ -13,8 +13,8 @@
 //! than that, unmeasured: every other periodic spawner's troops and any building a death spawn
 //! creates. OPEN: the Barbarian Hut loads and is exempt with the Tombstone, yet its row carries
 //! the same SpawnCharacter and SpawnInterval columns as the Goblin Hut's, whose waves wait for
-//! F + 7. The key SHIPS at none, today's engine, where the same idle Cannon targets the Brawler
-//! and a Golemite on F + 1; every scene here names its arm.
+//! F + 7. The key SHIPS at client_8th_frame. Under none, the engine before its flip, the same
+//! idle Cannon targets the Brawler and a Golemite on F + 1; every scene here names its arm.
 //!
 //! FRAMES ARE COUNTED AS THE MEASUREMENT COUNTS THEM: a unit's first frame F is the state after
 //! the tick that created it, and a looker "targets it on F + k" when its target is that unit in
@@ -41,8 +41,8 @@
 //!      death spawn: a death-spawned BUILDING is exempt. A doctored Golem that leaves two
 //!      Cannons (no loaded row pairs a death spawn with a building) has them targeted on F + 1
 //!      -- acquire_delay_on_buildings;
-//!   7. the old arm is today's engine and is the shipped one: the Cannon on the Brawler and a
-//!      Golemite on F + 1, and no unit carries a delay -- acquire_delay_ignores_arm;
+//!   7. the old arm, none: the Cannon on the Brawler and a Golemite on F + 1, and no unit
+//!      carries a delay -- acquire_delay_ignores_arm; the shipped arm is client_8th_frame;
 //!   8. OPEN, the engine's reading (the Phoenix egg is the only evidence): a Zap lands on a unit
 //!      inside its delay -- acquire_delay_blocks_area;
 //!   9. a snapshot taken mid-delay resumes hash for hash, and the Cannon still waits for F + 7
@@ -397,12 +397,12 @@ fn open_a_death_spawned_building_is_targeted_at_once() {
 // (7) the old arm
 
 #[test]
-fn the_old_arm_is_todays_engine_and_ships() {
+fn the_old_arm_targets_on_f1_and_the_new_arm_ships() {
     // Plant acquire_delay_ignores_arm: the Cannon waits for F + 7 under none as well.
-    assert_eq!(Calib::shipped().spawned_unit_acquire_delay, OLD, "the ledger ships the old arm, today's engine");
-    assert_eq!(config().calib.spawned_unit_acquire_delay, OLD);
+    assert_eq!(Calib::shipped().spawned_unit_acquire_delay, NEW, "the ledger ships client_8th_frame");
+    assert_eq!(config().calib.spawned_unit_acquire_delay, NEW);
     for parent in ["GoblinCage", "Golem"] {
-        let mut sc = death_scene(config(), Team::Blue, parent);
+        let mut sc = death_scene(with_arm(config(), OLD), Team::Blue, parent);
         sc.run(3 * EIGHTH);
         assert_eq!(sc.cannon_first(), Some(1), "{parent}: the idle Cannon's first target on the death spawn under none, as F + k");
         for (k, b) in &sc.w.born {

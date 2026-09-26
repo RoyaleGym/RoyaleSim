@@ -5,9 +5,13 @@ cells whose centre lies within Range + its own CollisionRadius of the target's c
 the flyer's start-of-tick position. On client 15.535.29 a river cell is as good a goal as a dry one for a flyer.
 Measured on client 15.535.29 over 458 walk ticks of Minions and a Mega Minion chasing a Knight near the river (the five
 flyer runs of the client 15.535.29 goal-cell scenario), the flyer's heading points at that cell on 458 of 458. The goal
-is a river cell on 280 of those ticks. With water demoted below every dry cell, as today's engine does for every
-mover, the same cells score 181 of 458, and 3 of the 280 river-goal ticks. Today's engine sends a flyer to the nearest
+is a river cell on 280 of those ticks. With water demoted below every dry cell, as the demoted arm does for every
+mover, the same cells score 181 of 458, and 3 of the 280 river-goal ticks. The demoted arm sends a flyer to the nearest
 DRY cell in reach, so it flies a different line whenever the river is inside the reach circle.
+
+WHICH ARM. not_demoted is the SHIPPED arm since the 2026-09-26 flip. demoted is the engine before the flip. The
+tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last one
+runs the shipped build with no override at all.
 
 WHY THE CONTROLS ARE HERE. A GROUND chaser still demotes water on both arms: a blue Knight chasing a red Knight across
 the river keeps a dry goal cell while the nearest in-reach cell is in the water. An implementation that drops the water
@@ -27,7 +31,7 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "pathfinding.FLYER_GOAL_WATER"
-NEW_ARM, OLD_ARM = "not_demoted", "demoted"
+SHIPPED_ARM, DEMOTED_ARM = "not_demoted", "demoted"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 CELL = 500
 #: Range + own CollisionRadius (the 15.535 card table) and the CollisionRadius the engine must carry
@@ -47,7 +51,8 @@ MIN_TICKS, MIN_SPLIT = 20, 3
 
 
 def overrides(arm) -> dict:
-    return {KEY: json.dumps(arm)}
+    """The battle's calibration pinning `arm` BY NAME; None runs the shipped build with no override."""
+    return {} if arm is None else {KEY: json.dumps(arm)}
 
 
 def water_cells(b) -> set:
@@ -163,7 +168,7 @@ def assert_scene(rows, reach, water):
 
 @pytest.mark.parametrize("card", FLYERS)
 def test_flyer_heads_for_the_nearest_in_reach_cell_water_or_not(card):
-    rows, water = flyer_chase(card, NEW_ARM)
+    rows, water = flyer_chase(card, SHIPPED_ARM)
     split = assert_scene(rows, REACH[card], water)
     misses, _ = score(rows, REACH[card], water, False)
     assert misses == [], (
@@ -171,7 +176,7 @@ def test_flyer_heads_for_the_nearest_in_reach_cell_water_or_not(card):
         f"(the rules split on (tick, uid) {split}); (tick, uid, facing, wanted, cell): {misses}")
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, DEMOTED_ARM])
 def test_ground_chaser_still_demotes_water(arm):
     """Control: a blue Knight chases a red Knight across the river. Its goal cell (the route's first element, goal
     first) is the dry one on every tick, including the ticks where the nearest in-reach cell is in the river."""
@@ -198,10 +203,21 @@ def test_ground_chaser_still_demotes_water(arm):
 
 
 @pytest.mark.parametrize("card", FLYERS)
-def test_old_arm_is_todays_engine(card):
-    rows, water = flyer_chase(card, OLD_ARM)
+def test_the_demoted_arm_sends_a_flyer_to_a_dry_cell(card):
+    rows, water = flyer_chase(card, DEMOTED_ARM)
     split = assert_scene(rows, REACH[card], water)
     misses, _ = score(rows, REACH[card], water, True)
-    assert misses == [], f"old arm: ticks off the water-demoted reading: {misses}"
+    assert misses == [], f"demoted arm: ticks off the water-demoted reading: {misses}"
     open_misses, _ = score(rows, REACH[card], water, False)
-    assert set(split) <= {m[:2] for m in open_misses}, f"old arm: split ticks {split}, open-rule misses {open_misses}"
+    assert set(split) <= {m[:2] for m in open_misses}, f"demoted arm: split {split}, open-rule misses {open_misses}"
+
+
+def test_the_shipped_build_does_not_demote_water_for_a_flyer():
+    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+    shipped = ledger["pathfinding"]["FLYER_GOAL_WATER"]["value"]
+    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    rows, water = flyer_chase("Minions", None)
+    split = assert_scene(rows, REACH["Minions"], water)
+    misses, _ = score(rows, REACH["Minions"], water, False)
+    assert misses == [], f"the shipped build demoted water (the rules split on {split}): {misses}"

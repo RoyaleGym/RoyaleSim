@@ -6,7 +6,11 @@ client's integer normalize: tdiv(v * 256, isqrt(|v|^2)). Measured over the per-f
 scenarios: exact on 73,620 of the 75,326 attack frames, and on 66,367 of the 68,073 frames where it differs from the
 heading of the unit's last walking frame, which is exact on none. Every miss is the Ram Rider's (its attack state
 includes its charge). The facing matters when the attack ends: the first walking tick's avoidance look-ahead probes
-256 ahead along it. Today's engine keeps the last walking heading through the attack.
+256 ahead along it. The kept arm keeps the last walking heading through the attack.
+
+WHICH ARM. toward_target is the SHIPPED arm since the 2026-09-26 flip. kept is the engine before the flip. The tests
+below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last one runs
+the shipped build with no override at all.
 
 WHY THE CONTROL IS HERE. A WALKING unit faces along its path, not at its target: a Knight whose target, a Cannon,
 stands across the river walks to a bridge and faces along that route. That holds on both arms, so an implementation
@@ -23,7 +27,7 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "movement.ATTACK_FACING"
-NEW_ARM, OLD_ARM = "toward_target", "kept"
+SHIPPED_ARM, KEPT_ARM = "toward_target", "kept"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 #: a red Knight standing on the red half and a blue Hog Rider running north past it (no river on its way)
 KNIGHT_AT, HOG_AT = (13300, 21000), (14500, 19500)
@@ -35,7 +39,8 @@ SPLIT, PATH_TOLERANCE = 40, 8
 
 
 def overrides(arm) -> dict:
-    return {KEY: json.dumps(arm)}
+    """The battle's calibration pinning `arm` BY NAME; None runs the shipped build with no override."""
+    return {} if arm is None else {KEY: json.dumps(arm)}
 
 
 def tdiv(a: int, b: int) -> int:
@@ -88,14 +93,14 @@ def attack_ticks(arm):
 
 
 def test_an_attacking_unit_faces_its_target_every_tick():
-    rows = attack_ticks(NEW_ARM)
+    rows = attack_ticks(SHIPPED_ARM)
     assert len(rows) >= 10, f"the scene drifted: the Knight attacked on {len(rows)} ticks"
     assert len({want for _, _, want in rows}) >= 5, "the scene drifted: the Hog did not move across the Knight's front"
     wrong = [(t, got, want) for t, got, want in rows if got != want]
     assert wrong == [], f"(tick, facing, toward the Hog at the start of the tick): {wrong[:5]}"
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [SHIPPED_ARM, KEPT_ARM])
 def test_a_walking_unit_faces_along_its_path_not_at_its_target(arm):
     rows, uid = run(arm, [(1, 0, *WALKER_AT, -1), (0, 1, *CANNON_AT, -1)], ["Knight", "Cannon"], 150)
     k = uid["Knight"]
@@ -117,8 +122,19 @@ def test_a_walking_unit_faces_along_its_path_not_at_its_target(arm):
     assert off_path == [], f"(tick, facing, step direction, target direction): {off_path[:5]}"
 
 
-def test_old_arm_is_todays_engine():
-    rows = attack_ticks(OLD_ARM)
+def test_the_kept_arm_keeps_the_walking_heading():
+    rows = attack_ticks(KEPT_ARM)
     assert len(rows) >= 10, f"the scene drifted: the Knight attacked on {len(rows)} ticks"
     facings = {got for _, got, _ in rows}
-    assert facings == {(0, -256)}, f"old arm: the Knight's facing moved while it attacked: {sorted(facings)}"
+    assert facings == {(0, -256)}, f"kept arm: the Knight's facing moved while it attacked: {sorted(facings)}"
+
+
+def test_the_shipped_build_faces_the_target():
+    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+    shipped = ledger["movement"]["ATTACK_FACING"]["value"]
+    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    rows = attack_ticks(None)
+    assert len(rows) >= 10, f"the scene drifted: the Knight attacked on {len(rows)} ticks"
+    wrong = [(t, got, want) for t, got, want in rows if got != want]
+    assert wrong == [], f"the shipped build: (tick, facing, toward the Hog at the start of the tick): {wrong[:5]}"

@@ -21,7 +21,7 @@
 //!   6. a Goblin Cage's Brawler, born on the dying cage's centre, reads avoidance offset -190 on its first frame
 //!      under client16402_same_tick (the cage a static blocker in its first scan) and 0 under none;
 //!   7. a snapshot taken under client16402_same_tick resumes hash for hash;
-//!   8. the shipped value is none.
+//!   8. the shipped value is client16402_same_tick.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spawned_first_step`):
 //!   * `first_step_unread` -- the new value stands on the creation point: (1), (2) and (4) go red.
@@ -245,6 +245,6 @@ fn a_snapshot_under_the_new_value_resumes_hash_for_hash() {
 }
 
 #[test]
-fn the_shipped_value_is_none() {
-    assert_eq!(Calib::shipped().spawned_first_step, SpawnedFirstStep::None);
+fn the_shipped_value_is_same_tick() {
+    assert_eq!(Calib::shipped().spawned_first_step, SpawnedFirstStep::SameTick);
 }
