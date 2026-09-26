@@ -9,8 +9,8 @@
 //!
 //! WHAT IS PINNED, each with the precondition that makes it bite:
 //!   1. a lone Tombstone's first Skeleton: under none it stands on the emission point on its first frame; under
-//!      client16402_same_tick one step from it, and its first 10 frames are the old arm's frames 2 to 11, the same path
-//!      a tick early;
+//!      client16402_same_tick one step from it, and until the wave's second Skeleton comes out it walks the old arm's
+//!      path a tick early;
 //!   2. a dying Tombstone's four Skeletons share one point on their first frame, one step past the emission point
 //!      (on it under none): the members do not push each other on that step;
 //!   3. a Golem's Golemites, whose row carries DeathSpawnPushback, stand on their first frame where they stand under
@@ -74,30 +74,39 @@ fn tick_until_born(s: &mut BattleState, max: u32, pick: impl Fn(&royalesim::stat
     panic!("scene: nothing was born within {max} ticks");
 }
 
-/// A lone Blue Tombstone's first periodic Skeleton, native, on its first 11 frames.
-fn lone_wave(arm: SpawnedFirstStep) -> Vec<(i32, i32)> {
+/// A lone Blue Tombstone's first periodic Skeleton, native, on its first 11 frames, and the first of those frames on
+/// which the wave's second Skeleton is on the board.
+fn lone_wave(arm: SpawnedFirstStep) -> (Vec<(i32, i32)>, usize) {
     let mut s = BattleState::new(7, with_arm(config(), arm));
     s.scenario_spawn_now(Team::Blue, "Tombstone", at(TOMB), None).unwrap();
     let born = tick_until_born(&mut s, 40, |e| e.spawned_by.is_some());
     assert_eq!(born.len(), 1, "scene: one Skeleton per emission");
     let sk = born[0];
     let mut path = vec![native(s.entity(sk).unwrap().pos)];
-    for _ in 0..10 {
+    let mut second = None;
+    for k in 1..11 {
         s.tick();
         path.push(native(s.entity(sk).expect("scene: the Skeleton died in its first 11 frames").pos));
+        if second.is_none() && s.entities().any(|e| e.spawned_by.is_some() && e.id != sk) {
+            second = Some(k);
+        }
     }
-    path
+    (path, second.expect("scene: the wave's second Skeleton did not come out within 11 frames"))
 }
 
 #[test]
 fn an_emitted_skeleton_takes_its_first_step_on_its_creation_tick() {
-    let old = lone_wave(OLD);
+    let (old, n) = lone_wave(OLD);
     assert_eq!(old[0], EMISSION, "none: the first Skeleton is not on the emission point on its first frame");
     assert!(old[1] != old[0], "scene: the old arm's Skeleton does not walk on its second frame");
-    let new = lone_wave(NEW);
+    let (new, _) = lone_wave(NEW);
     let moved = dist(new[0], EMISSION);
     assert!((60.0..=100.0).contains(&moved), "the first Skeleton stands {moved:.0} from the emission point on its first frame, not one step");
-    assert_eq!(&new[..10], &old[1..11], "the new arm's first 10 frames are not the old arm's path a tick early");
+    // The wave's second Skeleton comes out on frame n, within contact of the first (two radii of 500, 801 apart),
+    // and pushes it from the next tick on, at a point of its path that differs between the arms: the paths are
+    // compared up to frame n of the old arm, which the push has not reached.
+    assert!(n >= 5, "scene: the second Skeleton came out on frame {n}, too soon to compare the paths");
+    assert_eq!(&new[..n], &old[1..=n], "the new arm's first {n} frames are not the old arm's path a tick early");
 }
 
 /// A Blue Tombstone killed once its first wave has walked off (its two Skeletons 10 ticks apart, the next wave 70
