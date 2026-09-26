@@ -70,7 +70,7 @@ use crate::move16402;
 use crate::path16402;
 use crate::jump16402;
 use crate::target::{self, TargetCtx, TargetDecision, TowerSightReading, TowerTable};
-use crate::{EntityId, PathModel, Phase, PushModel, Rng, Team, LEGACY_TICK_PHASES, TICK_PHASES};
+use crate::{EntityId, PathModel, Phase, PushModel, Rng, Team, LEGACY_TICK_PHASES, SEQUENTIAL_STRIKE_TICK_PHASES, TICK_PHASES};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
@@ -209,8 +209,9 @@ pub struct Calib {
     /// deploy is refused (state.rs `check_deploy_slot`).
     pub deploy_lockout_ticks: i32,
     /// match.TICK_ORDER -- which phase list `tick()` runs (lib.rs `TICK_PHASES`,
-    /// the measured order, or `LEGACY_TICK_PHASES`) and, with it, where the
-    /// deploy countdown runs (`deploy_countdown`: after Move, or in Upkeep).
+    /// the measured order, `LEGACY_TICK_PHASES`, or `SEQUENTIAL_STRIKE_TICK_PHASES`) and,
+    /// with it, where the deploy countdown runs (`deploy_countdown`: after Move, or in
+    /// Upkeep under the legacy order alone).
     pub tick_order: TickOrder,
     /// movement.DYING_UNIT_VISIBILITY -- whether a troop that dies this tick is
     /// dropped from the scans of the movers after it in the sequential move pass
@@ -247,6 +248,32 @@ pub struct Calib {
     /// is `Frozen`, which is what a battle saved before this key actually ran.
     #[serde(default = "attacking_unit_movement_default")]
     pub attacking_unit_movement: AttackingUnitMovement,
+    /// pathfinding.HOVERING_WATER_RULE: whether a troop whose card sets Hovering (card.rs
+    /// `CardDef::hovering`) plans with the cost field of a JumpEnabled mover and walks the water
+    /// it plans (`prices_water`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what
+    /// a battle saved before it actually ran.
+    #[serde(default = "hovering_water_rule_default")]
+    pub hovering_water_rule: HoveringWaterRule,
+    /// hide.RISE_LAW: whether a hiding building rises for UpTimeMs before it may act, or surfaces
+    /// straight into its attack (`hide_pass`, target.rs `surfaces_attacking`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
+    #[serde(default = "rise_law_default")]
+    pub hide_rise_law: RiseLaw,
+    /// status.AREA_BUFF_SOURCE_BINDING: whether a buff a pulsing area effect hangs is bound to that
+    /// area -- its pulse clock, its time and its end (spell.rs `area_bound`, `apply_effects`,
+    /// `release_orphaned_buffs`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what
+    /// a battle saved before it actually ran.
+    #[serde(default = "area_buff_source_binding_default")]
+    pub area_buff_source_binding: AreaBuffSourceBinding,
+    /// cards.CLIENT16402_VALUES (value.arm): whether the listed card values replace the tables'
+    /// when a battle is built (`with_card_values`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// the old arm, what a battle saved before it actually ran.
+    #[serde(default = "card_values_arm_default")]
+    pub card_values: CardValuesArm,
+    /// value.values: the replacements, one per card and column (card.rs `CardValue`), read under
+    /// either arm and applied under client16402 only.
+    #[serde(default)]
+    pub card_value_overrides: Vec<crate::card::CardValue>,
     /// movement.ATTACK_FACING: where a unit in its attack state faces (`phase_attack`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "attack_facing_default")]
@@ -672,6 +699,22 @@ fn illegal_spell_tap_default() -> IllegalSpellTap {
 
 fn attacking_unit_movement_default() -> AttackingUnitMovement {
     AttackingUnitMovement::Frozen
+}
+
+fn hovering_water_rule_default() -> HoveringWaterRule {
+    HoveringWaterRule::Walker
+}
+
+fn rise_law_default() -> RiseLaw {
+    RiseLaw::EngineRisingPhase
+}
+
+fn area_buff_source_binding_default() -> AreaBuffSourceBinding {
+    AreaBuffSourceBinding::NotRead
+}
+
+fn card_values_arm_default() -> CardValuesArm {
+    CardValuesArm::None
 }
 
 fn attack_facing_default() -> AttackFacing {
@@ -1189,7 +1232,11 @@ calib_enum!(
     TargetBuffScope { WholeSplash = "whole_splash", PrimaryTargetOnly = "primary_target_only" }
 );
 calib_enum!(
-    /// spells.PULSING_AREA_EFFECT -- when a standing area effect applies.
+    /// spells.PULSING_AREA_EFFECT -- when a standing area effect applies (spell.rs `cast`).
+    /// `FromLanding`: on the tick it lands and every HitSpeed after. `Delayed`: one HitSpeed after it
+    /// lands, the landing tick counting as the area's first TICK_MS, so the first application falls on
+    /// L + HitSpeed / TICK_MS - 1 (measured on client 15.535.29: Poison on L + 4, the Earthquake on
+    /// L + 1, the Tornado on L).
     PulsingArea { FromLanding = "hit_speed_period_from_landing", Delayed = "hit_speed_period_delayed" }
 );
 calib_enum!(
@@ -1321,6 +1368,95 @@ calib_enum!(
         SeparationOnly = "separation_only"
     }
 );
+calib_enum!(
+    /// pathfinding.HOVERING_WATER_RULE -- how a troop whose card sets Hovering (card.rs
+    /// `CardDef::hovering`) plans and walks at the river (`prices_water`).
+    HoveringWaterRule {
+        /// Today's engine: it plans and walks like any other ground troop, water BLOCKED.
+        Walker = "walker",
+        /// Measured on client 15.535.29 (the Battle Healer and the Royal Ghost, with their non-hovering
+        /// twins on the same tiles): it plans with the cost field of a JumpEnabled mover (a water cell
+        /// costs PATHFINDING_COSTS.water), walks the planned water at its own speed in its walking
+        /// state (no leap: movement.JUMP_WATER_HOP stays with the JumpDef), and may stop and attack
+        /// from a water cell. Walkers are unchanged.
+        PricedWaterNoHop = "priced_water_no_hop",
+    }
+);
+
+/// DOES THIS CARD'S MOVER PRICE WATER at PATHFINDING_COSTS.water rather than BLOCKED (the
+/// `jumper` flag of path16402.rs `cell_cost_for` and of `NavRequest`)? A JumpEnabled card
+/// (card.rs `JumpDef`) always does; a Hovering card does under pathfinding.HOVERING_WATER_RULE =
+/// priced_water_no_hop. Only the price: the hop is the JumpDef's alone (`phase_path16402`), so a
+/// hovering troop walks the water it plans at its own speed.
+#[inline]
+fn prices_water(calib: &Calib, card: &CardDef) -> bool {
+    #[cfg(not(clash_plant = "hovering_priced_as_walker"))]
+    let hovering = card.hovering && calib.hovering_water_rule == HoveringWaterRule::PricedWaterNoHop;
+    #[cfg(clash_plant = "hovering_priced_as_walker")]
+    let hovering = {
+        let _ = calib;
+        false // PLANT (regression): a hovering troop planned as a walker under the new arm.
+    };
+    card.jump.is_some() || hovering
+}
+calib_enum!(
+    /// hide.RISE_LAW -- what a hidden building does when an enemy wakes it (`hide_pass`).
+    RiseLaw {
+        /// Today's engine: a Rising phase of UpTimeMs with no target and no attack, then Up.
+        EngineRisingPhase = "engine_rising_phase",
+        /// Measured on client 15.535.29 and the 16.402 corpus: it surfaces straight into its attack.
+        /// The surfacing tick is a Rising tick with no timer, on which it takes its target and starts
+        /// its attack cycle and no enemy may target it (target.rs `surfaces_attacking`,
+        /// `hidden_from_targeting`); it is Up from the next tick. Up with no target, it goes under
+        /// once the attack-finish wait of combat.POST_KILL_RETARGET_WAIT has passed (value.ticks x
+        /// TICK_MS; `hide_wait_ms`), not HideTimeMs.
+        Client16402SurfaceAttacking = "client16402_surface_attacking",
+    }
+);
+calib_enum!(
+    /// status.AREA_BUFF_SOURCE_BINDING -- whether a buff a pulsing area effect hangs is bound to that
+    /// area (spell.rs `area_bound`).
+    AreaBuffSourceBinding {
+        /// Today's engine: the buff lives BuffTime from its last application and pulses on its own clock.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the Earthquake and Tornado sweep scenarios): HitTickFromSource
+        /// pulses fall when the area's age crosses a multiple of the buff's HitFrequency (the area is
+        /// TICK_MS old on its landing tick); CapBuffTimeToAreaEffectTime caps an application at the
+        /// area's remaining life; a ControlledByParent buff of a ControlsBuff area is removed when the
+        /// area ends (`release_orphaned_buffs`).
+        ClientSourceBound = "client_source_bound",
+    }
+);
+calib_enum!(
+    /// cards.CLIENT16402_VALUES (value.arm) -- which card values a battle runs (`with_card_values`).
+    CardValuesArm {
+        /// Today's engine: the tables' values, cards.json as extracted.
+        None = "none",
+        /// The values measured on the 16.402 corpus, listed in value.values, replace the tables' when a
+        /// battle is built, before any level scaling; cards.json is untouched.
+        Client16402 = "client16402",
+    }
+);
+
+/// THE CARD DATA A BATTLE RUNS (calibration cards.CLIENT16402_VALUES): `cards` itself under the
+/// old arm `none`, and under client16402 a copy with value.values applied (card.rs
+/// `CardDb::with_values`). Applied where a battle is built (`BattleState::try_new`) and where a
+/// saved one is rebuilt (`load_with`, from the snapshot's own calibration, before its card
+/// fingerprint is compared), so an override of the key reaches the Python binding, the replay
+/// harness and a restored battle alike. Measured on the 16.402 corpus, every value the unique
+/// integer base that reproduces every observation at every level seen: IceSpirits Hitpoints 84
+/// (the tables 85), IceGolemite 480 (514), GoblinBrawler 438 (422), the Bomber's projectile
+/// Damage 83 (88), the Fireball's CrownTowerDamagePercent -77 (-75).
+fn with_card_values(calib: &Calib, cards: Arc<CardDb>) -> Result<Arc<CardDb>, String> {
+    #[cfg(not(clash_plant = "card_values_unread"))]
+    let on = calib.card_values == CardValuesArm::Client16402;
+    #[cfg(clash_plant = "card_values_unread")]
+    let on = false; // PLANT (regression): the new arm runs the tables' values.
+    if !on {
+        return Ok(cards);
+    }
+    Ok(Arc::new(cards.with_values(&calib.card_value_overrides)?))
+}
 calib_enum!(
     /// movement.DEPLOYING_HEADING -- what a DEPLOYING neighbour's heading counts for in a
     /// walker's avoidance vote, where a moving neighbour facing the walker's way (dot > 0)
@@ -1859,6 +1995,13 @@ calib_enum!(
         Client16402 = "client16402",
         /// The earlier order: Path, Move, Attack, the countdown in Upkeep.
         LegacyMoveBeforeAttack = "legacy_move_before_attack",
+        /// As client16402, except that Target and Attack are ONE pass over the units in creation order
+        /// (lib.rs `SEQUENTIAL_STRIKE_TICK_PHASES`, `phase_target_attack_sequential`): each unit decides
+        /// its target, then advances its attack, and a direct strike's damage lands at once, so a unit
+        /// later in the order sees the kill in the same tick. Measured on client 15.535.29: a walker
+        /// whose target fell to a melee strike held its next target on the kill frame when the striker
+        /// was created before it (11 of 11) and one frame later when it was created after it (9 of 9).
+        ClientSequentialStrike = "client_sequential_strike",
     }
 );
 calib_enum!(
@@ -2249,13 +2392,12 @@ impl Calib {
         // status.STUN_PAUSES_* key to the composition instead of the timer, and is
         // not implemented -- refused rather than run as `stun_timer`.
         only(&v, &["status", "FULL_STOP_BUFF_IS_STUN", "value"], "stun_timer")?;
-        // status.BUFF_PULSE_AMOUNT / spells.PULSING_AREA_EFFECT: only one arm each
-        // is written (status.rs `BuffDef::pulse_base`, spell.rs `SpellMotion::Pulsing`).
+        // status.BUFF_PULSE_AMOUNT: only one arm is written (status.rs `BuffDef::pulse_base`).
+        // spells.PULSING_AREA_EFFECT has both (spell.rs `cast`) and is read with `pick` below.
         only(&v, &["status", "BUFF_PULSE_AMOUNT", "value"], "per_second_times_frequency")?;
         // status.BUFF_STACKING: `per_source_slot` needs the buff's source as part of
         // its identity, which no entity column carries.
         only(&v, &["status", "BUFF_STACKING", "value"], "one_slot_per_buff_row")?;
-        only(&v, &["spells", "PULSING_AREA_EFFECT", "value"], "hit_speed_period_from_landing")?;
         only(&v, &["movement", "CONTACT_DOMAIN", "value"], "isolated_unit_only")?;
         {
             // REPLAN_TRIGGERS is a SET, and the engine implements exactly this set.
@@ -2345,6 +2487,11 @@ impl Calib {
             placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
+            hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
+            hide_rise_law: pick(&v, &["hide", "RISE_LAW", "value"], RiseLaw::from_calibration_name)?,
+            area_buff_source_binding: pick(&v, &["status", "AREA_BUFF_SOURCE_BINDING", "value"], AreaBuffSourceBinding::from_calibration_name)?,
+            card_values: pick(&v, &["cards", "CLIENT16402_VALUES", "value", "arm"], CardValuesArm::from_calibration_name)?,
+            card_value_overrides: crate::card::CardValue::list_from_ledger(&v)?,
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
             projectile_step: pick(&v, &["combat", "PROJECTILE_STEP", "value"], ProjectileStep::from_calibration_name)?,
             range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
@@ -3244,8 +3391,21 @@ fn gcd(a: i64, b: i64) -> i64 {
 /// carrying MAX_BUFFS_PER_ENTITY distinct rows drops it. Returns whether the row is a FULL STOP
 /// that also drives the hold timer (status.FULL_STOP_BUFF_IS_STUN), whether or not a slot took
 /// it, for the caller's stun merge. The one implementation behind `apply_effects` (the effect
-/// buffer, drained in Resolve) and `reflect_melee_hit` (the attack pass).
-fn land_buff(e: &mut Entities, table: &[crate::status::BuffDef], c: &Calib, i: usize, buff: u16, time_ms: i32, pulse_amount: i32) -> bool {
+/// buffer, drained in Resolve) and `reflect_melee_hit` (the attack pass). `first_pulse_ms` and
+/// `source` are the pulse clock and the area a pulsing area binds the application to
+/// (status.AREA_BUFF_SOURCE_BINDING, spell.rs `area_bound`; `BuffHit`), None on every other one.
+#[allow(clippy::too_many_arguments)]
+fn land_buff(
+    e: &mut Entities,
+    table: &[crate::status::BuffDef],
+    c: &Calib,
+    i: usize,
+    buff: u16,
+    time_ms: i32,
+    pulse_amount: i32,
+    first_pulse_ms: Option<i32>,
+    source: Option<Vec2>,
+) -> bool {
     let Some(def) = table.get(buff as usize).copied() else { return false };
     // status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 (the -100 / -100 / -100
     // rows: ZapFreeze, Freeze, ContinueFreeze) also drives the engine's one hold timer, so every
@@ -3253,10 +3413,13 @@ fn land_buff(e: &mut Entities, table: &[crate::status::BuffDef], c: &Calib, i: u
     // alike.
     let full_stop = c.full_stop_buff_is_stun == FullStopBuff::StunTimer && crate::status::compose([def].iter(), Sel::Speed, 100) == 0;
     // status.BUFF_PULSE_TIMING: the pulse clock starts a whole period out, so an area that
-    // refreshes its buff four times a second still pulses once a second.
-    let pulse_ms = match c.buff_pulse_timing {
-        PulseTiming::AfterFirstPeriod => def.hit_frequency_ms.max(0),
-        PulseTiming::OnApplication => 0,
+    // refreshes its buff four times a second still pulses once a second. An area that sets the
+    // clock itself (HitTickFromSource under status.AREA_BUFF_SOURCE_BINDING = client_source_bound,
+    // spell.rs `area_bound`) wins; nothing sets it under not_read.
+    let pulse_ms = match (first_pulse_ms, c.buff_pulse_timing) {
+        (Some(ms), _) => ms,
+        (None, PulseTiming::AfterFirstPeriod) => def.hit_frequency_ms.max(0),
+        (None, PulseTiming::OnApplication) => 0,
     };
     let slots = e.buff_slots_mut(i);
     let id = buff + 1;
@@ -3269,10 +3432,14 @@ fn land_buff(e: &mut Entities, table: &[crate::status::BuffDef], c: &Calib, i: u
                 BuffReapply::Replace => time_ms,
             };
             slots[k].pulse_amount = pulse_amount;
+            // status.AREA_BUFF_SOURCE_BINDING: the latest application owns the slot, so a unit
+            // inside two areas of one row keeps the buff while either stands. None on every
+            // application under not_read.
+            slots[k].source = source;
         }
         None => {
             if let Some(k) = slots.iter().position(|s| s.is_empty()) {
-                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount };
+                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount, source };
             }
         }
     }
@@ -3340,6 +3507,9 @@ impl BattleState {
     }
 
     pub fn try_new(seed: u64, config: BattleConfig) -> Result<BattleState, String> {
+        // cards.CLIENT16402_VALUES: the card data this battle runs (`with_card_values`).
+        let mut config = config;
+        config.cards = with_card_values(&config.calib, config.cards.clone())?;
         let cards = config.cards.clone();
         let c = &config.calib;
         let r1 = c.mana_regen_ms_1x as i64;
@@ -4081,15 +4251,16 @@ impl BattleState {
     /// blocker (42 of 48) and the Battle Ram's Barbarians read 0 (24 of 25). A DeathSpawnPushback row's
     /// members take no first update at all.
     ///
-    /// ONLY UNDER THE 16.402 MODEL (PathSearch::Client16402 and match.TICK_ORDER = client16402):
-    /// the step is that model's move pass, and under the legacy tick order the Attack phase runs
-    /// after Move anyway. Troops only: a building takes no step.
+    /// ONLY UNDER THE 16.402 MODEL (PathSearch::Client16402 and match.TICK_ORDER = client16402,
+    /// or client_sequential_strike, whose Target and Attack are one pass): the step is that
+    /// model's move pass, and under the legacy tick order the Attack phase runs after Move
+    /// anyway. Troops only: a building takes no step.
     fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8)]) {
         #[cfg(not(clash_plant = "first_step_unread"))]
         let on = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick;
         #[cfg(clash_plant = "first_step_unread")]
         let on = false; // PLANT (regression): the new arm stands on the creation point.
-        if !on || !self.arm16402() || self.tick_order() != TickOrder::Client16402 {
+        if !on || !self.arm16402() || self.tick_order() == TickOrder::LegacyMoveBeforeAttack {
             return;
         }
         let fresh: Vec<usize> = fresh.iter().copied().filter(|&i| self.ents.alive[i] && self.ents.kind[i] == EntityKind::Troop).collect();
@@ -4097,7 +4268,9 @@ impl BattleState {
             return;
         }
         #[cfg(not(clash_plant = "first_step_walks_only"))]
-        {
+        if self.tick_order() == TickOrder::ClientSequentialStrike {
+            self.phase_target_attack_sequential(Some(&fresh));
+        } else {
             self.phase_target_for(Some(&fresh));
             self.phase_attack_for(Some(&fresh));
         }
@@ -4240,6 +4413,26 @@ impl BattleState {
         }
     }
 
+    /// THE COUNTDOWN AN UP HIDING BUILDING RESTARTS while it has a live target, and so the time it
+    /// stays up once it has none (`hide_pass`, hide.HIDE_DELAY_MEANING = idle_time_without_target):
+    /// HideTimeMs, or under hide.RISE_LAW = client16402_surface_attacking the attack-finish wait of
+    /// combat.POST_KILL_RETARGET_WAIT, value.ticks x TICK_MS (6 ticks, 300 ms): on the 16.402 corpus
+    /// the Tesla is back under 6 ticks after it loses its target, where HideTimeMs gives 16. Under
+    /// time_since_last_shot the countdown is HideTimeMs under either arm (`phase_attack` re-arms it on
+    /// a shot); only the idle meaning is measured.
+    fn hide_wait_ms(&self, h: crate::card::HideDef) -> i32 {
+        let c = &self.cfg.calib;
+        #[cfg(not(clash_plant = "tesla_hide_wait_hidetime"))]
+        let wait = target::surfaces_attacking(c) && c.hide_delay_meaning == HideDelayMeaning::IdleTimeWithoutTarget;
+        #[cfg(clash_plant = "tesla_hide_wait_hidetime")]
+        let wait = false; // PLANT (regression): the new arm stays up HideTimeMs after its loss, as the old one does.
+        if wait {
+            c.post_kill_wait_ticks.max(1) * c.tick_ms
+        } else {
+            h.hide_time_ms
+        }
+    }
+
     /// THE MOMENT A HIDING BUILDING'S DEPLOY TIME ENDS (calibration hide.STARTS_HIDDEN):
     /// it goes under, or it stands up with a full hide countdown. Called from
     /// phase_upkeep on the tick the deploy timer reaches 0, from `spawn_now` for a
@@ -4281,18 +4474,19 @@ impl BattleState {
     }
 
     /// Advance one logic tick by running the phase list match.TICK_ORDER selects
-    /// (lib.rs `TICK_PHASES`, or `LEGACY_TICK_PHASES`) in order.
+    /// (lib.rs `TICK_PHASES`, `LEGACY_TICK_PHASES` or `SEQUENTIAL_STRIKE_TICK_PHASES`) in order.
     pub fn tick(&mut self) {
         if self.outcome.is_some() {
             return;
         }
-        let phases = match self.tick_order() {
-            TickOrder::Client16402 => TICK_PHASES,
-            TickOrder::LegacyMoveBeforeAttack => LEGACY_TICK_PHASES,
+        let phases: &[Phase] = match self.tick_order() {
+            TickOrder::Client16402 => &TICK_PHASES,
+            TickOrder::LegacyMoveBeforeAttack => &LEGACY_TICK_PHASES,
+            TickOrder::ClientSequentialStrike => &SEQUENTIAL_STRIKE_TICK_PHASES,
         };
         #[cfg(clash_profile)]
         let mut k = 0usize;
-        for phase in phases {
+        for &phase in phases {
             if let Some(t) = self.phase_trace.as_mut() {
                 t.push(phase);
             }
@@ -4693,6 +4887,16 @@ impl BattleState {
     /// on is Hidden in tick T + ceil(HideTimeMs / TICK_MS) - 1 (the T-th observation
     /// counts). Timers are decremented HERE and nowhere else. Building lifetime keeps
     /// running in every state (phase_status; community, calibration hide.$comment).
+    ///
+    /// hide.RISE_LAW = client16402_surface_attacking (target.rs `surfaces_attacking`): the wake
+    /// enters Rising with a timer of 0, so the building is Up on the next tick. That one Rising
+    /// tick is its SURFACING tick: it takes its target and starts its attack cycle on it, and no
+    /// enemy may target it until the next tick (target.rs `hidden_from_targeting`). The countdown
+    /// an Up building restarts while it has a target is `hide_wait_ms`: the attack-finish wait of
+    /// combat.POST_KILL_RETARGET_WAIT under that arm, HideTimeMs under the old one. Measured on
+    /// client 15.535.29 (tesla-vs-knight: surfaces 240, the Knight locks on 241, first hit 247)
+    /// and the 16.402 corpus (first hits 674 -> 681 and 1980 -> 1987; back under 6 ticks after the
+    /// loss, the hide on the corpus only).
     fn hide_pass(&mut self, nb: &mut Vec<u32>) {
         let dt = self.cfg.calib.tick_ms;
         let mut next: Vec<(usize, HideState, i32)> = Vec::new();
@@ -4715,11 +4919,17 @@ impl BattleState {
                     continue;
                 }
                 let Some(h) = self.hides(i) else { continue };
+                // hide.RISE_LAW: the rise's length (one surfacing tick under
+                // client16402_surface_attacking), and the countdown an Up building restarts.
+                // Under the old arm these are UpTimeMs and HideTimeMs, as before the key.
+                let surfacing = target::surfaces_attacking(&self.cfg.calib);
+                let rise_ms = if surfacing { 0 } else { h.up_time_ms };
+                let wait_ms = self.hide_wait_ms(h);
                 #[cfg(clash_plant = "tesla_always_up")]
                 {
                     // PLANT (regression): the earlier engine -- the building is
                     // simply up, whatever the timers say.
-                    let _ = h;
+                    let _ = (h, surfacing, rise_ms, wait_ms);
                     next.push((i, HideState::Up, 0));
                     continue;
                 }
@@ -4727,13 +4937,13 @@ impl BattleState {
                 match e.hide[i] {
                     HideState::Hidden => {
                         if target::enemy_in_wake_range(&ctx, i, nb) {
-                            next.push((i, HideState::Rising, h.up_time_ms));
+                            next.push((i, HideState::Rising, rise_ms));
                         }
                     }
                     HideState::Rising => {
                         let left = e.hide_ms[i] - dt;
-                        if left <= 0 {
-                            next.push((i, HideState::Up, h.hide_time_ms));
+                        if left <= 0 || surfacing {
+                            next.push((i, HideState::Up, wait_ms));
                         } else {
                             next.push((i, HideState::Rising, left));
                         }
@@ -4743,8 +4953,9 @@ impl BattleState {
                         let left = e.hide_ms[i] - dt;
                         let (st, ms) = match self.cfg.calib.hide_delay_meaning {
                             // A live target re-arms the countdown; HideTimeMs of no target
-                            // (the countdown REACHING 0) sends it under.
-                            HideDelayMeaning::IdleTimeWithoutTarget if has_target => (HideState::Up, h.hide_time_ms),
+                            // (the countdown REACHING 0) sends it under -- or, under hide.RISE_LAW =
+                            // client16402_surface_attacking, the attack-finish wait (`hide_wait_ms`).
+                            HideDelayMeaning::IdleTimeWithoutTarget if has_target => (HideState::Up, wait_ms),
                             HideDelayMeaning::IdleTimeWithoutTarget if left <= 0 => (HideState::Hidden, 0),
                             HideDelayMeaning::IdleTimeWithoutTarget => (HideState::Up, left),
                             // Counts from the last shot (phase_attack re-arms it on fire) and
@@ -4768,12 +4979,28 @@ impl BattleState {
     }
 
     fn phase_target(&mut self) {
-        self.phase_target_for(None);
+        if self.tick_order() == TickOrder::ClientSequentialStrike {
+            self.phase_target_attack_sequential(None);
+        } else {
+            self.phase_target_for(None);
+        }
     }
 
     /// The Target phase, for every unit (`only` None) or for a first update's fresh units alone
     /// (`first_update`), which leaves the hide pass to the tick's own phase.
     fn phase_target_for(&mut self, only: Option<&[usize]>) {
+        let shots = self.projectiles.len();
+        self.phase_target_with(only, shots);
+    }
+
+    /// `phase_target_for`, with the doom readings (targeting.DOOMED_TARGET_DROP and the
+    /// attack-finish doomed test of combat.POST_KILL_RETARGET_WAIT) taken over the first `shots`
+    /// projectiles only. Every other caller passes the whole list. Under match.TICK_ORDER =
+    /// client_sequential_strike (`phase_target_attack_sequential`) it is the list as the pass
+    /// found it, so a shot an earlier unit of the pass launched does not count as in flight at
+    /// the tick's start: both readings stay the ones client16402 takes, and only the hp a direct
+    /// strike already took is new to them.
+    fn phase_target_with(&mut self, only: Option<&[usize]>, shots: usize) {
         self.hash.rebuild(&self.ents);
         let mut decisions = std::mem::take(&mut self.scratch.decisions);
         let mut nb = std::mem::take(&mut self.scratch.nb);
@@ -4781,10 +5008,11 @@ impl BattleState {
         if only.is_none() {
             self.hide_pass(&mut nb);
         }
+        let in_flight = &self.projectiles[..shots.min(self.projectiles.len())];
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
         // the tick's start, before any decision reads it.
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() {
-            combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step)
+            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step)
         } else {
             Vec::new()
         };
@@ -4816,6 +5044,9 @@ impl BattleState {
         #[cfg(clash_plant = "reach_switch_resets_swing")]
         let keep_cycle_in_reach = false; // PLANT (regression): a switch to a target in reach restarts the swing.
         let calib = &self.cfg.calib;
+        // match.TICK_ORDER = client_sequential_strike: a target struck to 0 hp earlier in the pass
+        // is dead to this decision (entity.rs `standing`); `is_alive` under every other order.
+        let struck = self.tick_order() == TickOrder::ClientSequentialStrike;
         let wait_mode = self.cfg.calib.post_kill_wait;
         let wait_arm = wait_mode != PostKillWait::None;
         let wait_ticks = self.cfg.calib.post_kill_wait_ticks.max(1) as i16;
@@ -4829,7 +5060,7 @@ impl BattleState {
         // applied: untested, and immaterial on the corpus.
         let doomed_now: Vec<bool> = if wait_mode == PostKillWait::AttackFinish {
             let mut pending = vec![0i64; self.ents.capacity()];
-            for p in &self.projectiles {
+            for p in in_flight {
                 if p.firer_card.is_some_and(|c| cards.get(c).projectile_homing) && self.ents.is_alive(p.target) {
                     pending[p.target.index as usize] += p.damage as i64;
                 }
@@ -4852,7 +5083,7 @@ impl BattleState {
             // client16402_attack_finish: while the target lives, remember whether it is doomed, so
             // that at the loss this holds its last live tick.
             if wait_mode == PostKillWait::AttackFinish {
-                if let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) {
+                if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck)) {
                     e.target_doomed[i] = doomed_now[t.index as usize];
                 }
             }
@@ -4867,7 +5098,7 @@ impl BattleState {
                         e.target[i] = None;
                         continue;
                     }
-                } else if e.target[i].is_some_and(|t| !e.is_alive(t))
+                } else if e.target[i].is_some_and(|t| !e.standing(t, struck))
                     && match wait_mode {
                         PostKillWait::MeasuredList => wait_units.iter().any(|u| *u == cards.get(e.card[i]).unit_name),
                         // (a) an OverrideAttackFinishTime card, (b) progress 0 at the loss (the engine's
@@ -4891,7 +5122,7 @@ impl BattleState {
             let changed = e.target[i] != d.target;
             // the target this unit had AND STILL HAS: `None` once it is dead, which is the
             // distinction both rules below turn on.
-            let was = e.target[i].filter(|t| e.is_alive(*t));
+            let was = e.target[i].filter(|t| e.standing(*t, struck));
             // CHARGE (calibration charge.RESET_ON_RETARGET, shipped false): switching
             // from one LIVE target to a DIFFERENT one clears the charge and the run-up.
             // Acquiring a first target, or replacing a dead one, is not a switch: a
@@ -4926,7 +5157,7 @@ impl BattleState {
             // `cancel_attack` from a broken lock still cancels.
             let switched_in_reach = keep_cycle_in_reach
                 && was.is_some()
-                && d.target.filter(|t| e.is_alive(*t) && Some(*t) != was).is_some_and(|t| {
+                && d.target.filter(|t| e.standing(*t, struck) && Some(*t) != was).is_some_and(|t| {
                     let ti = t.index as usize;
                     target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
                 });
@@ -4944,7 +5175,7 @@ impl BattleState {
             e.launched_beyond[i] = false;
             e.target[i] = d.target;
             if wait_mode == PostKillWait::AttackFinish {
-                if let Some(t) = d.target.filter(|t| e.is_alive(*t)) {
+                if let Some(t) = d.target.filter(|t| e.standing(*t, struck)) {
                     e.target_doomed[i] = doomed_now[t.index as usize];
                 }
             }
@@ -5019,12 +5250,17 @@ impl BattleState {
     /// masked (a dying building is seen by every mover, 3 / 3 on the corpus: nothing
     /// drops it inside the pass). A read: no hp is written here.
     /// Under `whole_tick` the mask is all false.
+    ///
+    /// Under match.TICK_ORDER = client_sequential_strike a direct strike has already landed
+    /// (`land_strike`), so a troop it killed is alive at 0 hp with no hit left in the buffer:
+    /// it is doomed too, and dropped at its own place in the pass like any other victim.
     fn doomed_mask(&mut self) {
         let cap = self.ents.capacity();
+        let struck = self.tick_order() == TickOrder::ClientSequentialStrike;
         let doomed = &mut self.scratch.doomed;
         doomed.clear();
         doomed.resize(cap, false);
-        if self.cfg.calib.dying_unit_visibility == DyingUnitVisibility::WholeTick || self.dmg.hits.is_empty() {
+        if self.cfg.calib.dying_unit_visibility == DyingUnitVisibility::WholeTick || (self.dmg.hits.is_empty() && !struck) {
             return;
         }
         let e = &self.ents;
@@ -5044,6 +5280,9 @@ impl BattleState {
         }
         for i in 0..cap {
             if sums[i] > 0 && e.alive[i] && e.kind[i] == EntityKind::Troop && e.shield[i] <= 0 && (e.hp[i] as i64) - sums[i] <= 0 {
+                doomed[i] = true;
+            }
+            if struck && e.alive[i] && e.kind[i] == EntityKind::Troop && e.hp[i] <= 0 {
                 doomed[i] = true;
             }
         }
@@ -5923,8 +6162,9 @@ impl BattleState {
                                     } else {
                                         let terrain = &g.terrain;
                                         let occ = &g.occ_cur;
-                                        // a JumpEnabled mover prices water at WATER_COST
-                                        let jumper = card.jump.is_some();
+                                        // a JumpEnabled mover prices water at WATER_COST, and so does a
+                                        // hovering one under pathfinding.HOVERING_WATER_RULE
+                                        let jumper = prices_water(calib, card);
                                         let cost = |c: i32, r: i32| path16402::cell_cost_for(terrain, occ, c, r, jumper);
                                         let chain: Vec<i32> = g.pf.find_path(sc, sr, gc, gr, true, &cost).to_vec();
                                         if chain.is_empty() {
@@ -6512,7 +6752,7 @@ impl BattleState {
                     reach: card.range + e.radius[i],
                     flying: e.flying[i],
                     target_flying: e.flying[gi],
-                    jumper: card.jump.is_some(),
+                    jumper: prices_water(calib, card),
                     ignore: if e.kind[gi].is_building() { Some(goal_id) } else { None },
                 };
                 if req.flying {
@@ -6740,7 +6980,7 @@ impl BattleState {
                     #[cfg(clash_plant = "air_uses_grid")]
                     flying: false, // PLANT: air units planned as ground.
                     target_flying: e.flying[gi],
-                    jumper: card.jump.is_some(),
+                    jumper: prices_water(calib, card),
                     ignore: if e.kind[gi].is_building() { Some(goal_id) } else { None },
                 };
                 let moved_goal = goals[i].map_or(true, |g| g.dist2(goal_w) > (arena.cell as i64) * (arena.cell as i64));
@@ -6863,8 +7103,9 @@ impl BattleState {
             );
         }
         self.charge_pass();
-        if self.tick_order() == TickOrder::Client16402 {
-            // the deploy countdown after the move pass, as measured
+        if self.tick_order() != TickOrder::LegacyMoveBeforeAttack {
+            // the deploy countdown after the move pass, as measured (client16402, and
+            // client_sequential_strike, which changes nothing after the attack pass)
             self.deploy_countdown();
         }
         if self.emission_timing() == SpawnerEmission::MovePhaseImmediate {
@@ -6945,7 +7186,9 @@ impl BattleState {
             let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || e.retarget_wait[i] > 0 || e.death_sliding(i);
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
-            // time_since_last_shot arm, where a building can go under mid-swing).
+            // time_since_last_shot arm, where a building can go under mid-swing). The
+            // surfacing tick of hide.RISE_LAW = client16402_surface_attacking attacks
+            // (target.rs `hide_acts`).
             // Mid-leap (state 5): the attack side of a leap is unmeasured
             // (jump16402.rs); the engine holds the swing and keeps the unit targetable.
             // Mid-dash (combat.DASH_ATTACK): the swing holds; the dash ends in a fresh cycle.
@@ -6953,7 +7196,7 @@ impl BattleState {
                 && !held
                 && !e.jumping[i]
                 && e.dash_state[i] != DashState::Dashing
-                && e.hide[i] == HideState::Up
+                && target::hide_acts(&self.cfg.calib, e, i)
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             // combat.SPECIAL_HOOK = client_hook_drag: while this unit's special is under way, or
             // from the tick it starts, it runs in place of the ordinary attack step
@@ -7008,6 +7251,7 @@ impl BattleState {
                 let bolts = if self.cfg.calib.multiple_targets == MultipleTargets::ClientBoltsPerTarget { self.extra_bolts(i, t) } else { Vec::new() };
                 #[cfg(clash_plant = "multiple_targets_one_bolt")]
                 let bolts: Vec<EntityId> = Vec::new(); // PLANT (regression): the new arm delivers one bolt an attack, as not_read.
+                let strike_from = self.dmg.hits.len();
                 combat::fire(
                     &self.ents,
                     &self.hash,
@@ -7022,6 +7266,18 @@ impl BattleState {
                     &mut self.rng,
                     &bolts,
                 );
+                // match.TICK_ORDER = client_sequential_strike: a DIRECT strike (no projectile: the
+                // single hit, or the melee splash) lands at once, so every later unit of the pass
+                // reads its victim's hp and death (`phase_target_attack_sequential`). A projectile
+                // launch keeps its flight; the buff the strike hangs and a kamikaze's own death
+                // below keep the buffers.
+                if self.tick_order() == TickOrder::ClientSequentialStrike && self.cfg.cards.get(self.ents.card[i]).projectile.is_none() {
+                    #[cfg(not(clash_plant = "sequential_strike_buffered"))]
+                    self.land_strike(strike_from);
+                    // PLANT (regression): the pass runs in creation order but its strikes land at Resolve.
+                    #[cfg(clash_plant = "sequential_strike_buffered")]
+                    let _ = strike_from;
+                }
                 // targeting.DOOMED_TARGET_DROP = projectile_attackers: a projectile attacker has now
                 // launched at its target, so it keeps that target even once it is doomed.
                 if self.cfg.calib.doomed_target_drop.drops() && self.cfg.cards.get(self.ents.card[i]).projectile.is_some() {
@@ -7163,12 +7419,12 @@ impl BattleState {
             self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false });
             let Some(b) = r.buff else { continue };
             #[cfg(not(clash_plant = "reflect_stun_buffered"))]
-            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &self.cfg.calib, a, b.buff, b.time_ms, 0) {
+            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &self.cfg.calib, a, b.buff, b.time_ms, 0, None, None) {
                 land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
             }
             // PLANT (regression): the stun through the effect buffer, landed in Resolve.
             #[cfg(clash_plant = "reflect_stun_buffered")]
-            self.effects.buffs.push(crate::status::BuffHit { target: me, buff: b.buff, time_ms: b.time_ms, pulse_amount: 0 });
+            self.effects.buffs.push(crate::status::BuffHit { target: me, buff: b.buff, time_ms: b.time_ms, pulse_amount: 0, first_pulse_ms: None, source: None });
         }
     }
 
@@ -7354,6 +7610,71 @@ impl BattleState {
         }
     }
 
+    /// THE SEQUENTIAL STRIKE (calibration match.TICK_ORDER = client_sequential_strike; lib.rs
+    /// `SEQUENTIAL_STRIKE_TICK_PHASES`): the Target and Attack phases as ONE pass over the units
+    /// in creation order (`Entities::creation_seq`, the order of the sequential move pass). Each
+    /// unit takes its Target phase and then its Attack phase alone (`phase_target_for`,
+    /// `phase_attack_for`), on the board as the units before it left it, and a direct strike
+    /// lands at once (`land_strike`). So a walker created AFTER a melee striker sees the
+    /// striker's kill on the kill tick and turns for its next goal on it, and one created BEFORE
+    /// it sees the kill on the next tick, as under client16402. Measured on client 15.535.29 over
+    /// the scenario runs: a walker whose target fell to a melee strike held its next target on
+    /// the kill frame when every striker was created before it (11 of 11), one frame later when
+    /// every striker was created after it (9 of 9) or no melee strike killed it (22 of 23).
+    ///
+    /// A unit struck to 0 hp earlier in the pass neither decides nor strikes: it is dead for
+    /// every later unit (entity.rs `standing`, target.rs `can_target`), and it leaves the table
+    /// in Reap as every death does. The hide pass runs once, before the first unit. The doom
+    /// readings of the Target phase (targeting.DOOMED_TARGET_DROP, combat.POST_KILL_RETARGET_WAIT)
+    /// are taken at each unit's turn over the shots in flight as the pass started, so a shot an
+    /// earlier unit launched in the pass is not one of them, as under client16402; the hp they
+    /// compare against is the hp as it then stands. `only`: a first update's fresh units
+    /// (`first_update`), which leaves the hide pass to the tick's own phase.
+    ///
+    /// NOT MEASURED, and read here as the ordering implies: a victim due to strike on the tick
+    /// an earlier unit kills it loses its strike (no scenario has one); a second striker whose
+    /// target an earlier one killed on the same tick does not strike the corpse (it retargets, or
+    /// starts combat.POST_KILL_RETARGET_WAIT on that tick, one tick before the killer does); a
+    /// shield absorbs each strike on its own rather than the tick's sum (combat.rs
+    /// `land_at_once`).
+    fn phase_target_attack_sequential(&mut self, only: Option<&[usize]>) {
+        if only.is_none() {
+            self.hash.rebuild(&self.ents);
+            let mut nb = std::mem::take(&mut self.scratch.nb);
+            self.hide_pass(&mut nb);
+            self.scratch.nb = nb;
+        }
+        let mut order: Vec<usize> = (0..self.ents.capacity())
+            .filter(|&i| self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 && only.map_or(true, |o| o.contains(&i)))
+            .collect();
+        order.sort_by_key(|&i| self.ents.creation_seq[i]);
+        // The shots in flight as the pass starts: a launch inside the pass is appended after them
+        // (combat.rs `fire`), and the doom readings leave it out (`phase_target_with`).
+        let shots = self.projectiles.len();
+        for i in order {
+            if self.ents.hp[i] <= 0 {
+                continue; // struck down earlier in this pass
+            }
+            self.phase_target_with(Some(&[i]), shots);
+            self.phase_attack_for(Some(&[i]));
+        }
+    }
+
+    /// Land the hits `fire` buffered from `from` on at once (match.TICK_ORDER =
+    /// client_sequential_strike, `phase_attack_for`): taken out of the damage buffer so Resolve does
+    /// not land them twice, applied as Resolve would apply them (combat.rs `land_at_once`), and a
+    /// struck king tower starts its wake here as it would there. The death itself stays in
+    /// Resolve and Reap: a victim at 0 hp is queued with the tick's other deaths.
+    fn land_strike(&mut self, from: usize) {
+        let hits: Vec<Hit> = self.dmg.hits.drain(from..).collect();
+        let king_hit = combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, self.tick);
+        for (t, hit) in king_hit.into_iter().enumerate() {
+            if hit && self.king_wake_ms[t].is_none() {
+                self.king_wake_ms[t] = Some(0);
+            }
+        }
+    }
+
     fn phase_projectile(&mut self) {
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb);
         // No early return on an empty spell list: stepping no spell is a no-op, and what
@@ -7515,7 +7836,7 @@ impl BattleState {
             let i = b.target.index as usize;
             // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
             // stun (`reflect_melee_hit`), which lands the same way in the attack pass.
-            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &c, i, b.buff, b.time_ms, b.pulse_amount) {
+            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &c, i, b.buff, b.time_ms, b.pulse_amount, b.first_pulse_ms, b.source) {
                 stun_new[i] = stun_new[i].max(b.time_ms);
             }
         }
@@ -7725,6 +8046,47 @@ impl BattleState {
             self.tick_status_timers();
         }
         self.apply_effects();
+        self.release_orphaned_buffs();
+    }
+
+    /// CONTROLSBUFF / CONTROLLEDBYPARENT (calibration status.AREA_BUFF_SOURCE_BINDING =
+    /// client_source_bound): a buff slot bound to an area (`BuffSlot::source`, set by spell.rs
+    /// `area_bound`) is emptied once no live pulsing area of its row stands at that point. Run
+    /// after this tick's applications, so the application an area makes on its last tick does
+    /// not outlive it either. Measured on client 15.535.29 (the Tornado sweep scenario, L the
+    /// landing tick): ONE pulse of the Tornado's buff, on L + 11; its 550 ms HitFrequency would
+    /// give a second on L + 22, which falls only when the 500 ms buff outlives the 1050 ms area.
+    /// The pull stops with the area under either arm (status.ATTRACT_LAW reads the live area).
+    fn release_orphaned_buffs(&mut self) {
+        #[cfg(not(clash_plant = "controlled_buff_outlives_area"))]
+        let on = self.cfg.calib.area_buff_source_binding == AreaBuffSourceBinding::ClientSourceBound;
+        #[cfg(clash_plant = "controlled_buff_outlives_area")]
+        let on = false; // PLANT (regression): a ControlledByParent buff outlives its area by its BuffTime.
+        if !on {
+            return;
+        }
+        let live: Vec<(Vec2, u16)> = self
+            .spells
+            .iter()
+            .filter_map(|s| {
+                let spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
+                let def = spell::shape_of(self.cfg.cards.get(s.card))?;
+                let crate::card::SpellShape::PulsingAreaEffect { hit, .. } = &def.shape else { return None };
+                hit.buff.map(|b| (p.pos, b.buff + 1))
+            })
+            .collect();
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] {
+                continue;
+            }
+            for slot in self.ents.buff_slots_mut(i) {
+                if let Some(src) = slot.source {
+                    if !live.contains(&(src, slot.id)) {
+                        *slot = BuffSlot::default();
+                    }
+                }
+            }
+        }
     }
 
     fn phase_reap(&mut self) {
@@ -9311,6 +9673,11 @@ impl BattleState {
                     h.i32(slot.ms);
                     h.i32(slot.pulse_ms);
                     h.i32(slot.pulse_amount);
+                    // status.AREA_BUFF_SOURCE_BINDING: only a bound slot carries a source, so a
+                    // battle with none -- every battle under not_read -- hashes as it did before.
+                    if let Some(src) = slot.source {
+                        h.vec(src);
+                    }
                 }
                 h.i32(e.stomp_clock[i]);
                 h.bool(e.retarget_on_resume[i]);
@@ -9733,6 +10100,19 @@ impl BattleState {
 ///    snapshot saved by an earlier build is refused as saved against other card data. migrate_v3
 ///    strips the three fields with the rest of the post-format-3 tail and runs a migrated battle
 ///    at the old arms; no card's index moves.
+/// 20, unchanged, hovering water, the rise law, the area-bound buff, the card values and the
+///    sequential strike: Calib gained hovering_water_rule, hide_rise_law,
+///    area_buff_source_binding, card_values and card_value_overrides (serde defaults: the old
+///    arms and an empty list), BuffSlot gained source and BuffHit first_pulse_ms and source
+///    (serde default None; a slot's source hashed only when set), so a format-20 blob saved
+///    before them still deserializes and hashes as it did. A blob saved by this build carries
+///    the new fields, so its BYTES differ from an earlier build's even under the shipped arms;
+///    its state_hash does not. CardDef gained `hovering`, SpellHit
+///    caps_buff_time and controls_buff, and BuffDef hit_tick_from_source and
+///    controlled_by_parent, so the card fingerprint moves: a snapshot saved by an earlier build is
+///    refused as saved against other card data. match.TICK_ORDER gained client_sequential_strike,
+///    no new state. migrate_v3 strips `hovering` with the rest of the post-format-3 tail and runs
+///    a migrated battle at the old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -9908,12 +10288,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... special~~ -- the death projectile, the deploy area and the spawn area
                 // (still format 20) added `death_projectile`, `deploy_area_effect` and
                 // `spawn_area_effect` after it.
+                // ~~... spawn_area_effect~~ -- pathfinding.HOVERING_WATER_RULE (still format 20)
+                // added `hovering` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -9944,7 +10326,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.special,
                     c.death_projectile,
                     c.deploy_area_effect,
-                    c.spawn_area_effect
+                    c.spawn_area_effect,
+                    c.hovering
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -10021,6 +10404,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_area_object_scope".into(), serde_json::to_value(SpawnAreaObjectScope::MorphTargetsOnly).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_projectile".into(), serde_json::to_value(DeathSpawnProjectile::None).map_err(|e| e.to_string())?);
     sh.insert("deploy_area_effect".into(), serde_json::to_value(DeployAreaEffect::None).map_err(|e| e.to_string())?);
+    // Hovering water, the rise law, the area-bound buff and the card values: a format-3 battle
+    // ran none of them; it keeps that whatever the ledger ships (the same rule).
+    sh.insert("hovering_water_rule".into(), serde_json::to_value(HoveringWaterRule::Walker).map_err(|e| e.to_string())?);
+    sh.insert("hide_rise_law".into(), serde_json::to_value(RiseLaw::EngineRisingPhase).map_err(|e| e.to_string())?);
+    sh.insert("area_buff_source_binding".into(), serde_json::to_value(AreaBuffSourceBinding::NotRead).map_err(|e| e.to_string())?);
+    sh.insert("card_values".into(), serde_json::to_value(CardValuesArm::None).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -10260,6 +10649,9 @@ impl BattleState {
             }
             other => return Err(format!("snapshot format {other} != engine format {SNAPSHOT_FORMAT}")),
         };
+        // cards.CLIENT16402_VALUES: the battle ran the card data its own calibration builds
+        // (`with_card_values`), and its fingerprint is of that data.
+        let cards = with_card_values(&snap.calib, cards)?;
         if remap.is_none() && snap.cards_fingerprint != cards_fingerprint(&cards) {
             return Err("snapshot was saved against different card data".into());
         }

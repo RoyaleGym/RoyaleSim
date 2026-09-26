@@ -44,7 +44,7 @@ use crate::arena::{Arena, Lane};
 use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
-use crate::state::{AttackRangeRule, Calib, CentreLaneFrame, PreserveTargetScope, RiseTrigger};
+use crate::state::{AttackRangeRule, Calib, CentreLaneFrame, PreserveTargetScope, RiseLaw, RiseTrigger};
 use crate::{EntityId, Team};
 
 /// Which side EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS extends. See module doc.
@@ -143,12 +143,50 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
 /// rising under hide.TARGETABLE_WHILE_RISING = false)? The one definition; `can_target`
 /// applies it, so a unit already locked on a building that goes under drops it on
 /// the next Target phase and rescans (target.rs `decide`, the dead-target path).
+///
+/// Under hide.RISE_LAW = client16402_surface_attacking the one Rising tick is the SURFACING
+/// tick (`surfaces_attacking`), and no enemy may target the building on it, whatever
+/// hide.TARGETABLE_WHILE_RISING says: on client 15.535.29 the Knight locks on the tick after the
+/// Tesla surfaces (241 for 240), as on the 16.402 corpus (675 for 674, 1981 for 1980).
 #[inline]
 pub fn hidden_from_targeting(calib: &Calib, e: &Entities, c: usize) -> bool {
     match e.hide[c] {
         HideState::Up => false,
         HideState::Hidden => true,
+        #[cfg(not(clash_plant = "tesla_surface_tick_targetable"))]
+        HideState::Rising => surfaces_attacking(calib) || !calib.hide_targetable_while_rising,
+        // PLANT (regression): the surfacing tick is targetable under the new arm, as a rise is under the old.
+        #[cfg(clash_plant = "tesla_surface_tick_targetable")]
         HideState::Rising => !calib.hide_targetable_while_rising,
+    }
+}
+
+/// hide.RISE_LAW = client16402_surface_attacking: a hidden building that wakes surfaces straight
+/// into its attack. Its wake enters Rising with no timer (state.rs `hide_pass`), and on that one
+/// tick it takes its target and runs its attack cycle as an Up building does (`hide_acts`), while
+/// no enemy may target it (`hidden_from_targeting`); it is Up from the next tick. Under
+/// engine_rising_phase a Rising building does nothing for UpTimeMs.
+#[inline]
+pub fn surfaces_attacking(calib: &Calib) -> bool {
+    #[cfg(not(clash_plant = "tesla_rise_kept"))]
+    let on = calib.hide_rise_law == RiseLaw::Client16402SurfaceAttacking;
+    #[cfg(clash_plant = "tesla_rise_kept")]
+    let on = {
+        let _ = calib;
+        false // PLANT (regression): the new arm keeps the UpTimeMs rise with no target and no attack.
+    };
+    on
+}
+
+/// May hiding entity `i` take a target and attack in its current hide state? Up, or its surfacing
+/// tick under hide.RISE_LAW = client16402_surface_attacking (`surfaces_attacking`). Every entity
+/// that does not hide is Up for life.
+#[inline]
+pub fn hide_acts(calib: &Calib, e: &Entities, i: usize) -> bool {
+    match e.hide[i] {
+        HideState::Up => true,
+        HideState::Hidden => false,
+        HideState::Rising => surfaces_attacking(calib),
     }
 }
 
@@ -315,8 +353,10 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     }
     // Under ground or still coming up: no target at all, and any windup it had is
     // cancelled (it cannot have one; belt and braces for a building that went
-    // under mid-swing under hide.HIDE_DELAY_MEANING = time_since_last_shot).
-    if e.hide[a] != HideState::Up {
+    // under mid-swing under hide.HIDE_DELAY_MEANING = time_since_last_shot). Its
+    // surfacing tick under hide.RISE_LAW = client16402_surface_attacking is not
+    // coming up: it takes its target on it (`hide_acts`).
+    if !hide_acts(ctx.calib, e, a) {
         return TargetDecision { target: None, cancel_attack: true, resumed: false };
     }
     // Stunned or mid-knockback (the slide, or the 16.402 ladder): keep what it

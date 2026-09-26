@@ -780,7 +780,7 @@ pub fn fire(
     } else {
         dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
         if let Some(b) = atk_buff {
-            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse });
+            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
         }
         // combat.MULTIPLE_TARGETS = client_bolts_per_target: every other bolt of the attack is
         // the whole hit again, damage and buff, on its own victim (state.rs `extra_bolts`
@@ -789,7 +789,7 @@ pub fn fire(
             let bi = b.index as usize;
             dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding), ignores_hide: false });
             if let Some(bf) = atk_buff {
-                fx.buffs.push(BuffHit { target: b, buff: bf.buff, time_ms: bf.time_ms, pulse_amount: atk_pulse });
+                fx.buffs.push(BuffHit { target: b, buff: bf.buff, time_ms: bf.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
             }
         }
     }
@@ -911,11 +911,11 @@ fn apply_attack_buff(
     match calib.target_buff_on_splash {
         TargetBuffScope::WholeSplash => {
             for &v in scratch {
-                fx.buffs.push(BuffHit { target: ents.id_of(v as usize), buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+                fx.buffs.push(BuffHit { target: ents.id_of(v as usize), buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse, first_pulse_ms: None, source: None });
             }
         }
         TargetBuffScope::PrimaryTargetOnly => {
-            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse, first_pulse_ms: None, source: None });
         }
     }
 }
@@ -964,7 +964,7 @@ fn straight_hits(
         any = true;
         dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding), ignores_hide: false });
         if let Some(b) = buff {
-            fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+            fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse, first_pulse_ms: None, source: None });
         }
         #[cfg(not(clash_plant = "range_shot_unpushed"))]
         if s.push > 0 {
@@ -1088,7 +1088,7 @@ pub fn step_projectiles(
             let ti = p.target.index as usize;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding), ignores_hide: false });
             if let Some(b) = p.buff {
-                fx.buffs.push(BuffHit { target: p.target, buff: b.buff, time_ms: b.time_ms, pulse_amount: p.pulse });
+                fx.buffs.push(BuffHit { target: p.target, buff: b.buff, time_ms: b.time_ms, pulse_amount: p.pulse, first_pulse_ms: None, source: None });
             }
         }
         false
@@ -1223,6 +1223,46 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
         }
     }
     out
+}
+
+/// LAND ONE DIRECT STRIKE AT ONCE (calibration match.TICK_ORDER = client_sequential_strike;
+/// state.rs `land_strike`): `hits` are the hits one `fire` of a unit with no projectile buffered,
+/// applied as `resolve` applies a tick's hits -- a dead target and a non-positive amount skipped,
+/// hide immunity and a dash's immunity (combat.DASH_ATTACK, entity.rs `dash_immune`, at `tick`)
+/// respected, a shield absorbing the hit with no overflow into hitpoints -- but now,
+/// so the units after the striker in the pass read the result. Returns which teams' king tower
+/// was struck, for its wake. A victim at 0 hp is not despawned here: `resolve` queues every live
+/// entity at or below 0, so its death, its death spawn and its reaping are the tick's as before.
+///
+/// ONE STRIKE AT A TIME, where `resolve` sums a tick's hits on one target before the shield: a
+/// shield broken by this strike lets a later hit of the same tick through. Unmeasured.
+pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, tick: u32) -> [bool; 2] {
+    let mut king_hit = [false; 2];
+    for h in hits {
+        if !ents.is_alive(h.target) || h.amount <= 0 {
+            continue;
+        }
+        let t = h.target.index as usize;
+        if hidden_immune && !h.ignores_hide && ents.hide[t] == HideState::Hidden {
+            continue;
+        }
+        // `resolve`'s dash immunity (combat.DASH_ATTACK = client_dash), the same plant with it.
+        #[cfg(not(clash_plant = "dash_not_immune"))]
+        if ents.dash_immune(t, tick) {
+            continue;
+        }
+        #[cfg(clash_plant = "dash_not_immune")]
+        let _ = tick; // PLANT: a dashing unit takes every hit.
+        if ents.kind[t] == EntityKind::KingTower {
+            king_hit[ents.team[t] as usize] = true;
+        }
+        if ents.shield[t] > 0 {
+            ents.shield[t] = (ents.shield[t] as i64 - h.amount as i64).max(0) as i32;
+        } else {
+            ents.hp[t] = (ents.hp[t] as i64 - h.amount as i64).max(i32::MIN as i64) as i32;
+        }
+    }
+    king_hit
 }
 
 #[cfg(test)]

@@ -430,6 +430,16 @@ impl Entities {
         i < self.alive.len() && self.alive[i] && self.generation[i] == id.generation
     }
 
+    /// Alive, and -- when `struck` (calibration match.TICK_ORDER = client_sequential_strike) -- not
+    /// struck down to 0 hp earlier in this tick's target-and-strike pass. A direct strike's damage
+    /// lands at once there, and its victim stays in the table until Reap, so every later unit of
+    /// the pass reads it as dead through this (state.rs `phase_target_for`) and through target.rs
+    /// `can_target`'s hp test. With `struck` false it is `is_alive`.
+    #[inline]
+    pub fn standing(&self, id: EntityId, struck: bool) -> bool {
+        self.is_alive(id) && (!struck || self.hp[id.index as usize] > 0)
+    }
+
     /// Held by a knockback: mid-slide under the fixed_distance arm (`knock_ms`), or
     /// mid-ladder under the 16.402 one (`push_active`). The one predicate every
     /// "does not walk, does not attack" site reads, so the two arms cannot part.

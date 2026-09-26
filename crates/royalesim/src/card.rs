@@ -175,6 +175,14 @@ pub struct SpellHit {
     /// status.FULL_STOP_BUFF_IS_STUN, so Zap and Freeze keep the one hold path they
     /// always had and every other buff joins it.
     pub buff: Option<BuffApply>,
+    /// area_effect_objects CapBuffTimeToAreaEffectTime: an application of `buff` lasts no longer
+    /// than the area it came from has left to live (status.AREA_BUFF_SOURCE_BINDING =
+    /// client_source_bound; spell.rs `area_bound`). False on every hit that is not an area's.
+    pub caps_buff_time: bool,
+    /// area_effect_objects ControlsBuff: the area takes a ControlledByParent `buff` away when it
+    /// ends (status.AREA_BUFF_SOURCE_BINDING = client_source_bound; state.rs
+    /// `release_orphaned_buffs`). cards.json does not carry the column yet, so this reads false.
+    pub controls_buff: bool,
 }
 
 /// Units a spell releases where it lands (Goblin Barrel).
@@ -723,13 +731,19 @@ pub struct CardDef {
     /// `spell`, `death_area_effect`, `deploy_projectile`, `death_projectile`, `deploy_area_effect`
     /// and this, and one that would carry two is refused (`CardDb::from_json_str`).
     pub spawn_area_effect: Option<SpellDef>,
+    /// characters.csv Hovering (cards.json `hovering`): the troop hovers over the ground. True on
+    /// two troop rows that load in the client, the Battle Healer and the Royal Ghost. Acted on only
+    /// under pathfinding.HOVERING_WATER_RULE = priced_water_no_hop (state.rs `prices_water`), where
+    /// the troop prices water as a JumpEnabled mover does and walks it; a blank, or a file that
+    /// does not carry the column, reads false.
+    pub hovering: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `spawn_area_effect`, and onto the end of that tail
+    // field goes HERE, after `hovering`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -904,6 +918,9 @@ struct RawCard {
     /// cards.json `death_spawn_pushback` (characters / buildings DeathSpawnPushback; written
     /// on the 15.535 rows only, so absent in the 2018 file): `CardDef::death_spawn_pushback`.
     death_spawn_pushback: Option<bool>,
+    /// cards.json `hovering` (characters.csv Hovering): `CardDef::hovering`. Not written by the
+    /// extractor yet, so absent everywhere today.
+    hovering: Option<bool>,
     /// spells_characters SummonCharacter: the unit the card deploys (`CardDef::unit_name`).
     summon_character: Option<String>,
     // --- the summon layout and stagger (`FormationDef`). Every one null in the
@@ -1378,6 +1395,10 @@ struct RawBuff {
     building_damage_percent: Option<i32>,
     enable_stacking: Option<bool>,
     attract_percentage: Option<i32>,
+    /// character_buffs HitTickFromSource (`BuffDef::hit_tick_from_source`).
+    hit_tick_from_source: Option<bool>,
+    /// character_buffs ControlledByParent (`BuffDef::controlled_by_parent`); not extracted yet.
+    controlled_by_parent: Option<bool>,
 }
 
 impl RawBuff {
@@ -1412,6 +1433,8 @@ impl RawBuff {
             no_effect_to_crown_towers: self.no_effect_to_crown_towers.unwrap_or(false),
             enable_stacking: self.enable_stacking.unwrap_or(false),
             attract_pct: self.attract_percentage.unwrap_or(0),
+            hit_tick_from_source: self.hit_tick_from_source.unwrap_or(false),
+            controlled_by_parent: self.controlled_by_parent.unwrap_or(false),
         };
         if def.is_inert() {
             // A row with no multiplier, no damage and no heal is a MARKER (Invisible,
@@ -1492,6 +1515,10 @@ struct RawAreaEffect {
     projectile: Option<serde_json::Value>,
     spawn_character: Option<String>,
     action_graph: Option<RawActionGraph>,
+    /// area_effect_objects CapBuffTimeToAreaEffectTime (`SpellHit::caps_buff_time`).
+    cap_buff_time_to_area_effect_time: Option<bool>,
+    /// area_effect_objects ControlsBuff (`SpellHit::controls_buff`); not extracted yet.
+    controls_buff: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1679,6 +1706,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_projectile: None,
         deploy_area_effect: None,
         spawn_area_effect: None,
+        hovering: false,
     }
 }
 
@@ -1802,6 +1830,8 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx,
         no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
         knockback: knockback(aeo.pushback_milli, None),
         buff: area_buff,
+        caps_buff_time: aeo.cap_buff_time_to_area_effect_time.unwrap_or(false),
+        controls_buff: aeo.controls_buff.unwrap_or(false),
     };
     let shape = match pulse_ms {
         None => {
@@ -1916,6 +1946,8 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                 no_effect_to_crown_towers: false,
                 knockback: knockback(roll.pushback_milli, roll.pushback_all),
                 buff: None,
+                caps_buff_time: false,
+                controls_buff: false,
             };
             SpellDef {
                 shape: SpellShape::Rolling {
@@ -1962,6 +1994,8 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                     no_effect_to_crown_towers: false,
                     knockback: knockback(carrier.pushback_milli, carrier.pushback_all),
                     buff: target_buff,
+                    caps_buff_time: false,
+                    controls_buff: false,
                 }),
             };
             let spawn = match carrier.spawn_character.clone() {
@@ -2352,6 +2386,8 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
                 no_effect_to_crown_towers: false,
                 knockback: None,
                 buff: None,
+                caps_buff_time: false,
+                controls_buff: false,
             }),
             waves: 1,
             wave_interval_ms: 0,
@@ -2412,6 +2448,8 @@ fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable) -> Re
             no_effect_to_crown_towers: false,
             knockback: knockback(p.pushback_milli, p.pushback_all),
             buff: target_buff,
+            caps_buff_time: false,
+            controls_buff: false,
         }),
     };
     let mut units: UnitNeeds = Vec::new();
@@ -2742,6 +2780,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         death_projectile: None,
         deploy_area_effect: None,
         spawn_area_effect: None,
+        hovering: raw.hovering.unwrap_or(false),
     }, display, units))
 }
 
@@ -2825,6 +2864,8 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
                 no_effect_to_crown_towers: false,
                 knockback: knockback(p.pushback_milli, p.pushback_all),
                 buff: None,
+                caps_buff_time: false,
+                controls_buff: false,
             }),
             waves: 1,
             wave_interval_ms: 0,
@@ -3465,6 +3506,111 @@ impl CardDb {
     #[inline]
     pub fn scale(base: i32, multiplier_percent: i32) -> i32 {
         (((base as i64) * (multiplier_percent as i64)) / PERCENT) as i32
+    }
+
+    /// THIS CARD DATA WITH SOME VALUES REPLACED (calibration cards.CLIENT16402_VALUES =
+    /// client16402; state.rs `with_card_values`): each named card's named column takes the
+    /// value given, as a level-1 base, so level scaling applies to it as to the table's value.
+    /// cards.json is not touched. REFUSED, never skipped: a card this data does not load, and a
+    /// column the card does not carry (hitpoints on a spell, a projectile's damage on a card with
+    /// no projectile, a crown-tower percent on a card with no hit to carry it). Setting a value
+    /// twice gives the same data, so a battle built from data that already carries the values
+    /// is unchanged.
+    pub fn with_values(&self, values: &[CardValue]) -> Result<CardDb, String> {
+        let mut db = self.clone();
+        for v in values {
+            let what = format!("cards.CLIENT16402_VALUES {}.{:?}", v.card, v.column);
+            let idx = db.index(&v.card).ok_or_else(|| format!("{what}: no card of that name is loaded"))?;
+            let c = &mut db.cards[idx as usize];
+            match v.column {
+                CardColumn::Hitpoints => {
+                    if c.kind == CardKind::Spell {
+                        return Err(format!("{what}: a spell has no hitpoints"));
+                    }
+                    c.hitpoints = v.value;
+                }
+                // A ranged card's damage IS its projectile row's Damage (`convert`).
+                CardColumn::ProjectileDamage => {
+                    if c.projectile.is_none() {
+                        return Err(format!("{what}: the card fires no projectile"));
+                    }
+                    c.damage = v.value;
+                }
+                // The raw column is a delta from 100 (cards.json keeps the effective percent,
+                // 100 + the raw value): -77 is a 23 % share.
+                CardColumn::CrownTowerDamagePercent => {
+                    let pct = PERCENT_I32 + v.value;
+                    match c.spell.as_mut().map(|d| &mut d.shape) {
+                        Some(SpellShape::Projectile { hit: Some(h), .. })
+                        | Some(SpellShape::AreaEffect { hit: h })
+                        | Some(SpellShape::PulsingAreaEffect { hit: h, .. })
+                        | Some(SpellShape::Rolling { hit: h, .. }) => h.crown_pct = pct,
+                        Some(SpellShape::Projectile { hit: None, .. }) => return Err(format!("{what}: the spell deals no damage")),
+                        None => c.crown_tower_damage_percent = pct,
+                    }
+                }
+            }
+        }
+        Ok(db)
+    }
+}
+
+/// ONE CARD VALUE A LEDGER OVERLAY REPLACES (calibration cards.CLIENT16402_VALUES; `CardDb::
+/// with_values`): the card by its name in this data, the column, and the value as the card data
+/// ships it (a level-1 base; the crown-tower percent raw).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CardValue {
+    pub card: String,
+    pub column: CardColumn,
+    pub value: i32,
+}
+
+/// The columns cards.CLIENT16402_VALUES may replace, by the name the ledger gives them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CardColumn {
+    /// Hitpoints: the card's own base.
+    Hitpoints,
+    /// The Damage of the card's projectile row (the Bomber's bomb).
+    ProjectileDamage,
+    /// CrownTowerDamagePercent, raw: every hit a spell carries, or the card's own.
+    CrownTowerDamagePercent,
+}
+
+impl CardColumn {
+    pub fn from_ledger_name(s: &str) -> Option<CardColumn> {
+        match s {
+            "Hitpoints" => Some(CardColumn::Hitpoints),
+            "ProjectileDamage" => Some(CardColumn::ProjectileDamage),
+            "CrownTowerDamagePercent" => Some(CardColumn::CrownTowerDamagePercent),
+            _ => None,
+        }
+    }
+}
+
+impl CardValue {
+    /// cards.CLIENT16402_VALUES value.values, `{card: {column: value}}`, as a list in the ledger
+    /// object's own key order. Refused at load: a missing or malformed block, a column name the
+    /// overlay does not know, a value that is not an i32. Card names are checked where the list
+    /// is applied (`CardDb::with_values`), against the card data the battle runs.
+    pub fn list_from_ledger(v: &serde_json::Value) -> Result<Vec<CardValue>, String> {
+        let key = "cards.CLIENT16402_VALUES.value.values";
+        let cards = v
+            .pointer("/cards/CLIENT16402_VALUES/value/values")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| format!("{key}: an object of card names is required"))?;
+        let mut out = Vec::new();
+        for (card, cols) in cards {
+            let cols = cols.as_object().ok_or_else(|| format!("{key}.{card}: an object of column names is required"))?;
+            for (col, val) in cols {
+                let column = CardColumn::from_ledger_name(col).ok_or_else(|| format!("{key}.{card}.{col}: not a column the overlay replaces (Hitpoints, ProjectileDamage, CrownTowerDamagePercent)"))?;
+                let value = val
+                    .as_i64()
+                    .and_then(|x| i32::try_from(x).ok())
+                    .ok_or_else(|| format!("{key}.{card}.{col}: {val} is not an i32"))?;
+                out.push(CardValue { card: card.clone(), column, value });
+            }
+        }
+        Ok(out)
     }
 }
 

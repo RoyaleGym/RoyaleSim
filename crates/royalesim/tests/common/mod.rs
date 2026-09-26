@@ -346,6 +346,7 @@ pub fn expected_phases(calib: &royalesim::state::Calib) -> Vec<Phase> {
     match calib.tick_order {
         royalesim::state::TickOrder::Client16402 => TICK_PHASES.to_vec(),
         royalesim::state::TickOrder::LegacyMoveBeforeAttack => LEGACY_TICK_PHASES.to_vec(),
+        royalesim::state::TickOrder::ClientSequentialStrike => royalesim::SEQUENTIAL_STRIKE_TICK_PHASES.to_vec(),
     }
 }
 
@@ -357,7 +358,7 @@ pub fn expected_phases(calib: &royalesim::state::Calib) -> Vec<Phase> {
 /// full DeployTime. Either way the first step is on spawn + DeployTime / TICK_MS.
 pub fn spawn_tick_countdown(calib: &royalesim::state::Calib) -> i32 {
     match calib.tick_order {
-        royalesim::state::TickOrder::Client16402 => calib.tick_ms,
+        royalesim::state::TickOrder::Client16402 | royalesim::state::TickOrder::ClientSequentialStrike => calib.tick_ms,
         royalesim::state::TickOrder::LegacyMoveBeforeAttack => 0,
     }
 }

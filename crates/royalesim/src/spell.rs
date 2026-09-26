@@ -57,12 +57,12 @@
 
 use crate::arena::{Arena, Rect, Shape};
 use crate::card::{CardDb, KnockbackDef, SpellHit, SpellShape};
-use crate::status::{BuffHit, Pulse};
+use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, Calib, KnockLaw, KnockZeroVector, LaunchModel, RollDirection, RollHitShape, TargetBuffScope};
+use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, KnockLaw, KnockZeroVector, LaunchModel, PulsingArea, RollDirection, RollHitShape, TargetBuffScope};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -336,15 +336,25 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
             out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap } });
         }
         // A PULSING area effect is born at the tap with its first application DUE
-        // (`next_ms` 0), so it applies on the tick it lands and every HitSpeed after.
-        SpellShape::PulsingAreaEffect { hit, life_ms, .. } => {
+        // (`next_ms` 0), so it applies on the tick it lands and every HitSpeed after --
+        // spells.PULSING_AREA_EFFECT = hit_speed_period_from_landing. Under
+        // hit_speed_period_delayed it is due one HitSpeed after it lands, the landing tick
+        // counting as its first TICK_MS: `next_ms` HitSpeed - TICK_MS, so the first application
+        // falls on L + HitSpeed / TICK_MS - 1 (measured on client 15.535.29: Poison, HitSpeed
+        // 250, on L + 4; the Earthquake, 100, on L + 1; the Tornado, 50, on L).
+        SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms } => {
+            #[cfg(not(clash_plant = "pulsing_area_applies_on_landing"))]
+            let delayed = calib.pulsing_area_effect == PulsingArea::Delayed;
+            #[cfg(clash_plant = "pulsing_area_applies_on_landing")]
+            let delayed = false; // PLANT (regression): the delayed arm applies on the landing tick.
+            let next_ms = if delayed { (*hit_speed_ms - calib.tick_ms).max(0) } else { 0 };
             out.push(Spell {
                 team,
                 card,
                 level,
                 damage: scaled(hit)?,
                 pulse: pulse_of(hit)?,
-                motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: *life_ms, next_ms: 0 }),
+                motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: *life_ms, next_ms }),
             });
         }
         SpellShape::Rolling { airborne_min_distance, range, hit, .. } => {
@@ -496,9 +506,58 @@ pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &
     }
 }
 
-/// Apply one circular impact of `hit` at `centre` for `team`. `damage` is level-scaled.
+/// A PULSING AREA'S CLOCK at one application (status.AREA_BUFF_SOURCE_BINDING): where it stands,
+/// its age -- TICK_MS on its landing tick, one TICK_MS more every tick after -- and the life it has
+/// left, this tick included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AreaClock {
+    pub pos: Vec2,
+    pub age_ms: i32,
+    pub left_ms: i32,
+}
+
+/// HOW A BUFF THE PULSING AREA `area` HANGS IS BOUND TO IT (status.AREA_BUFF_SOURCE_BINDING =
+/// client_source_bound): (the application's time, the pulse clock a new slot starts with, the area
+/// it is bound to). Under not_read, and for a buff no pulsing area hangs, (BuffTime, None, None):
+/// today's application. Measured on client 15.535.29, with L the landing tick.
+///
+/// HitTickFromSource (the Earthquake's buff): the pulses fall when the AREA's age crosses a
+/// multiple of HitFrequency -- a new slot applied at age a starts at HitFrequency - a mod
+/// HitFrequency -- so the Earthquake, first applied on L + 1 (age 100), pulses on L + 19,
+/// L + 39 and L + 59, not a period after the application (L + 20, L + 40, L + 60).
+///
+/// CapBuffTimeToAreaEffectTime (the Earthquake's area): an application lasts no longer than
+/// the area's life left at it, this tick included, plus one tick. The last application, on
+/// the area's final tick, then holds the two ticks after it under
+/// status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick: the measured last slowed step is
+/// L + 61, where the bare remaining life gives L + 60 and BuffTime L + 78. The one-tick
+/// margin is fitted to that step; the rule it stands for is not measured further.
+///
+/// ControlsBuff / ControlledByParent: the slot is bound to the area (`BuffSlot::source`) and
+/// taken away when the area ends (state.rs `release_orphaned_buffs`).
+fn area_bound(ctx: &SpellCtx, hit: &SpellHit, b: BuffApply, area: Option<AreaClock>) -> (i32, Option<i32>, Option<Vec2>) {
+    let Some(a) = area else { return (b.time_ms, None, None) };
+    if ctx.calib.area_buff_source_binding != AreaBuffSourceBinding::ClientSourceBound {
+        return (b.time_ms, None, None);
+    }
+    let Some(def) = ctx.cards.buffs.get(b.buff as usize).copied() else { return (b.time_ms, None, None) };
+    #[cfg(not(clash_plant = "area_cap_unread"))]
+    let time_ms = if hit.caps_buff_time { b.time_ms.min(a.left_ms + ctx.calib.tick_ms) } else { b.time_ms };
+    #[cfg(clash_plant = "area_cap_unread")]
+    let time_ms = b.time_ms; // PLANT (regression): CapBuffTimeToAreaEffectTime unread, the buff lives BuffTime.
+    #[cfg(not(clash_plant = "hit_tick_own_clock"))]
+    let first_pulse_ms = (def.hit_tick_from_source && def.hit_frequency_ms > 0).then(|| def.hit_frequency_ms - a.age_ms.rem_euclid(def.hit_frequency_ms));
+    #[cfg(clash_plant = "hit_tick_own_clock")]
+    let first_pulse_ms = None; // PLANT (regression): HitTickFromSource unread, the buff pulses on its own clock.
+    let source = (hit.controls_buff && def.controlled_by_parent).then_some(a.pos);
+    (time_ms, first_pulse_ms, source)
+}
+
+/// Apply one circular impact of `hit` at `centre` for `team`. `damage` is level-scaled. `area`: the
+/// clock of the pulsing area this impact is one application of (`area_bound`), None for every
+/// other impact.
 #[allow(clippy::too_many_arguments)]
-fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>) {
+fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>, area: Option<AreaClock>) {
     let e = ctx.ents;
     ctx.hash.neighbours_within(e, centre, hit.radius + ctx.hash.max_radius(), nb);
     // the fixed_distance arm's zero-vector fallback, a unit axis per victim
@@ -551,7 +610,10 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             // `primary_target_only` foil was a no-op for every spell that carries a
             // buff until the two were joined.
             match ctx.calib.target_buff_on_splash {
-                TargetBuffScope::WholeSplash => fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse }),
+                TargetBuffScope::WholeSplash => {
+                    let (time_ms, first_pulse_ms, source) = area_bound(ctx, hit, b, area);
+                    fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms, pulse_amount: pulse, first_pulse_ms, source })
+                }
                 TargetBuffScope::PrimaryTargetOnly => {
                     let d = e.pos[v].sub(centre);
                     let d2 = (d.x as i64) * (d.x as i64) + (d.y as i64) * (d.y as i64);
@@ -587,7 +649,8 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
         }
     }
     if let (Some((_, id)), Some(b)) = (primary, hit.buff) {
-        fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+        let (time_ms, first_pulse_ms, source) = area_bound(ctx, hit, b, area);
+        fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms, pulse_amount: pulse, first_pulse_ms, source });
     }
 }
 
@@ -775,7 +838,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     return true;
                 }
                 if let Some(h) = hit {
-                    impact(ctx, s.team, *aim, h, s.damage, s.pulse, dmg, fx, nb);
+                    impact(ctx, s.team, *aim, h, s.damage, s.pulse, dmg, fx, nb, None);
                 }
                 if let Some(sp) = spawn {
                     // Level validated when the cast was accepted (state.rs).
@@ -794,17 +857,21 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 false
             }
             (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit }) => {
-                impact(ctx, s.team, *pos, hit, s.damage, s.pulse, dmg, fx, nb);
+                impact(ctx, s.team, *pos, hit, s.damage, s.pulse, dmg, fx, nb, None);
                 false
             }
             // A PULSING AREA EFFECT (Poison, Earthquake; calibration
             // spells.PULSING_AREA_EFFECT = hit_speed_period_from_landing): it lands,
             // applies at once, and re-applies every HitSpeed ms until LifeDuration is
-            // spent. Every application is one `impact`, so the buff refresh, the
-            // eligibility filters and the hit test are the one-shot ones.
-            (SpellMotion::Pulsing(p), SpellShape::PulsingAreaEffect { hit, hit_speed_ms, .. }) => {
+            // spent (under hit_speed_period_delayed the first application waits, `cast`).
+            // Every application is one `impact`, so the buff refresh, the eligibility
+            // filters and the hit test are the one-shot ones. The area's clock rides
+            // along for status.AREA_BUFF_SOURCE_BINDING (`area_bound`): TICK_MS old on
+            // the landing tick, with `life_ms` left, this tick included.
+            (SpellMotion::Pulsing(p), SpellShape::PulsingAreaEffect { hit, hit_speed_ms, life_ms: total_ms }) => {
                 while p.next_ms <= 0 && p.life_ms > 0 {
-                    impact(ctx, s.team, p.pos, hit, s.damage, s.pulse, dmg, fx, nb);
+                    let clock = AreaClock { pos: p.pos, age_ms: *total_ms - p.life_ms + tick, left_ms: p.life_ms };
+                    impact(ctx, s.team, p.pos, hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
                     p.next_ms += (*hit_speed_ms).max(tick);
                 }
                 p.next_ms -= tick;

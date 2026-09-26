@@ -190,6 +190,26 @@ pub const LEGACY_TICK_PHASES: [Phase; 11] = [
     Phase::Judge,
 ];
 
+/// The order under calibration match.TICK_ORDER = client_sequential_strike: `TICK_PHASES` with
+/// Target and Attack run as ONE pass (`Phase::Target`, state.rs `phase_target_attack_sequential`):
+/// the units in creation order, each deciding its target and then advancing its attack, a direct
+/// strike's damage landing at once so that every later unit of the pass reads it. Measured on
+/// client 15.535.29: a walker whose target falls to a melee strike turns on the kill tick when
+/// the striker was created before it and on the next tick when it was created after it.
+/// Projectiles, spells, the move pass and the deploy countdown are client16402's.
+pub const SEQUENTIAL_STRIKE_TICK_PHASES: [Phase; 10] = [
+    Phase::Upkeep,
+    Phase::Status,
+    Phase::Spawn,
+    Phase::Target,
+    Phase::Path,
+    Phase::Move,
+    Phase::Projectile,
+    Phase::Resolve,
+    Phase::Reap,
+    Phase::Judge,
+];
+
 /// Deterministic RNG owned by battle state.
 ///
 /// PCG32. Supercell's own generator has never been publicly recovered, so this

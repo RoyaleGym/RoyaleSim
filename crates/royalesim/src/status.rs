@@ -93,6 +93,15 @@ pub struct BuffDef {
     /// 20260920-081819 has a displacement of exactly (0,0) on two ticks where its buff
     /// was still current and the area was gone.
     pub attract_pct: i32,
+    /// HitTickFromSource (the Earthquake's): under status.AREA_BUFF_SOURCE_BINDING =
+    /// client_source_bound the pulses fall on the clock of the area that hangs the buff, when its
+    /// age crosses a multiple of `hit_frequency_ms` (spell.rs `area_bound`), not a period after
+    /// the buff's first application.
+    pub hit_tick_from_source: bool,
+    /// ControlledByParent: under status.AREA_BUFF_SOURCE_BINDING = client_source_bound the buff is
+    /// taken away when the ControlsBuff area that hung it ends (state.rs
+    /// `release_orphaned_buffs`). cards.json does not carry the column yet, so this reads false.
+    pub controlled_by_parent: bool,
 }
 
 impl BuffDef {
@@ -199,6 +208,14 @@ pub struct BuffSlot {
     /// `dps * hit_frequency_ms / 1000`, positive for damage and negative for a heal.
     /// Stored rather than recomputed because the caster's level is not on the victim.
     pub pulse_amount: i32,
+    /// THE AREA THIS BUFF IS BOUND TO, by its position (an area effect never moves, and a unit
+    /// takes a buff row from one side's areas only): set when a ControlsBuff area hangs a
+    /// ControlledByParent buff under status.AREA_BUFF_SOURCE_BINDING = client_source_bound, and the
+    /// slot is emptied when no live area of this row stands there (state.rs
+    /// `release_orphaned_buffs`). None on every other slot, and on every slot under not_read.
+    /// `default` so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub source: Option<Vec2>,
 }
 
 impl BuffSlot {
@@ -232,6 +249,14 @@ pub struct BuffHit {
     pub buff: u16,
     pub time_ms: i32,
     pub pulse_amount: i32,
+    /// The pulse clock a NEW slot starts with, when the area that hangs the buff sets it
+    /// (HitTickFromSource under status.AREA_BUFF_SOURCE_BINDING = client_source_bound; spell.rs
+    /// `area_bound`). None: status.BUFF_PULSE_TIMING decides, as before the key.
+    #[serde(default)]
+    pub first_pulse_ms: Option<i32>,
+    /// The area the buff is bound to (`BuffSlot::source`), or None.
+    #[serde(default)]
+    pub source: Option<Vec2>,
 }
 
 /// A pulsing area effect standing on the ground (Poison, Earthquake). Its position

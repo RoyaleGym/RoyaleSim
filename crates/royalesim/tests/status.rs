@@ -774,13 +774,13 @@ fn every_switchable_candidate_moves_something() {
 
 #[test]
 fn an_unimplemented_candidate_is_refused_at_load() {
-    // The three keys whose second candidate has no engine arm are refused by name,
+    // The two keys whose second candidate has no engine arm are refused by name,
     // not silently run as the shipped one (state.rs Calib::from_json `only`).
+    // spells.PULSING_AREA_EFFECT = hit_speed_period_delayed has one now (spell.rs `cast`).
     let base = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/calibration.json")).expect("calibration.json");
     for (section, key, bad) in [
         ("status", "FULL_STOP_BUFF_IS_STUN", "buff_only"),
         ("status", "BUFF_PULSE_AMOUNT", "per_pulse"),
-        ("spells", "PULSING_AREA_EFFECT", "hit_speed_period_delayed"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");
         v[section][key]["value"] = serde_json::Value::String(bad.into());
@@ -794,6 +794,7 @@ fn an_unimplemented_candidate_is_refused_at_load() {
         ("movement", "STOMP_PAUSE_SCHEDULE", "k_plus_1_times_tick_ms_mod_period_strictly_greater_than_stop"),
         ("status", "BUFF_PULSE_TIMING", "on_application"),
         ("status", "TARGET_BUFF_ON_SPLASH", "primary_target_only"),
+        ("spells", "PULSING_AREA_EFFECT", "hit_speed_period_delayed"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");
         v[section][key]["value"] = serde_json::Value::String(good.into());
