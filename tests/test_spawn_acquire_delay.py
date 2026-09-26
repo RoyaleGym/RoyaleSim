@@ -80,10 +80,12 @@ def cage_run(arm):
 
 
 def golem_run(arm):
-    """A blue Golem at 1 hp at (9000, 13000), killed by a red Knight at (9000, 14700); a red Cannon at (12000, 18500)
-    watches. The two Golemites are the newborns."""
+    """A blue Golem at 0 hp at (9000, 13000) dies on the first tick before anything aims at it; a red Knight at
+    (9000, 14700) and a red Cannon at (12000, 18500) watch, both idle. The two Golemites are the newborns. (At 1 hp the
+    Knight kills the Golem, and the Knight and the Cannon are both still busy with it, combat.POST_KILL_RETARGET_WAIT:
+    the old arm then reads F+6, one tick from the new arm's F+7, so the pin below would barely separate the arms.)"""
     births, looks, names = track(["Golem", "Knight", "Cannon"],
-                                 [(0, 0, 9000, 13000, 1), (1, 1, 9000, 14700, -1), (1, 2, 12000, 18500, -1)], arm)
+                                 [(0, 0, 9000, 13000, 0), (1, 1, 9000, 14700, -1), (1, 2, 12000, 18500, -1)], arm)
     assert len(births) == 2, f"expected two Golemites, got {births}"
     first = {t for t, _ in births.values()}
     assert len(first) == 1, f"the Golemites were not born on one tick: {births}"
@@ -128,4 +130,4 @@ def test_old_arm_is_todays_engine():
     kids, first, looks, names = golem_run(OLD_ARM)
     got = min((t for (u, w), t in looks.items() if u in kids), default=None)
     assert got is not None, "old arm: no red unit ever targeted a Golemite"
-    assert got - first < EIGHTH, f"old arm: a Golemite was first targeted on F+{got - first}, not before F+{EIGHTH}"
+    assert got - first == 1, f"old arm: a Golemite was first targeted on F+{got - first}, not F+1"
