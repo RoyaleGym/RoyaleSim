@@ -444,6 +444,10 @@ pub struct Calib {
     pub strike_hp_rank: StrikeHpRank,
     #[serde(default = "strike_reach_default")]
     pub strike_reach: StrikeReach,
+    /// spells.ROLL_FIRST_STEP (spell.rs `step_spells`, the Airborne arm). Added after SNAPSHOT_FORMAT 20; the
+    /// default is `OnLandingTick`, what a battle saved before it ran.
+    #[serde(default = "roll_first_step_default")]
+    pub roll_first_step: RollFirstStep,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -974,6 +978,10 @@ fn strike_hp_rank_default() -> StrikeHpRank {
 
 fn strike_reach_default() -> StrikeReach {
     StrikeReach::RadiusPlusTargetPlus200
+}
+
+fn roll_first_step_default() -> RollFirstStep {
+    RollFirstStep::OnLandingTick
 }
 
 macro_rules! calib_enum {
@@ -2074,6 +2082,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
+    RollFirstStep {
+        /// On the tick the airborne projectile lands: today's engine.
+        OnLandingTick = "on_landing_tick",
+        /// The tick after: the roll stands unmoved on the landing point on the landing tick. Measured on the
+        /// Barbarian Barrel (4 of 4 on the 16.402 corpus).
+        TickAfterLanding = "tick_after_landing",
+    }
+);
+calib_enum!(
     /// spells.STRIKE_TIMER_LEFTOVER -- where a striking area's next strike is timed from (spell.rs `step_spells`).
     StrikeLeftover {
         /// An exact ms clock from the cast: strike k on the cast tick + floor(k x HitSpeed / TICK_MS). Measured on
@@ -2869,6 +2887,7 @@ impl Calib {
             strike_timer_leftover: pick(&v, &["spells", "STRIKE_TIMER_LEFTOVER", "value"], StrikeLeftover::from_calibration_name)?,
             strike_hp_rank: pick(&v, &["spells", "STRIKE_HP_RANK", "value"], StrikeHpRank::from_calibration_name)?,
             strike_reach: pick(&v, &["spells", "STRIKE_REACH", "value"], StrikeReach::from_calibration_name)?,
+            roll_first_step: pick(&v, &["spells", "ROLL_FIRST_STEP", "value"], RollFirstStep::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,

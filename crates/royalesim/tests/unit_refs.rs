@@ -117,7 +117,8 @@ fn shipped() -> Vec<(&'static str, CardDb)> {
 /// equal. A new unit-producing block joins this list and `unit_refs` together.
 fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     let mut out = Vec::new();
-    if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell {
+    // a projectile's release and a roll's, read field by field
+    if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. } | SpellShape::Rolling { spawn: Some(sp), .. }, .. }) = &c.spell {
         out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
     }
     if let Some(sp) = &c.spawner {
@@ -298,7 +299,7 @@ fn a_rejected_card_keeps_no_unit_block() {
         assert!(c.death_spawn.is_none(), "{n} kept its death spawn");
         assert!(c.formation.second_summon.is_none(), "{n} kept its second summon");
         assert!(c.death_area_effect.is_none(), "{n} kept its death area effect");
-        if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = &c.spell {
+        if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. } | SpellShape::Rolling { spawn, .. }, .. }) = &c.spell {
             assert!(spawn.is_none(), "{n} kept its spell release");
         }
     }

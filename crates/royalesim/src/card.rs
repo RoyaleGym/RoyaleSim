@@ -277,7 +277,8 @@ pub enum SpellShape {
     PulsingAreaEffect { hit: SpellHit, life_ms: i32, hit_speed_ms: i32, child: Option<Box<SpellShape>> },
     /// SpellAsDeploy airborne projectile that releases a rolling projectile (The Log).
     /// All distances SUBTILES; speeds raw.
-    Rolling { airborne_speed: i32, airborne_min_distance: i32, speed: i32, range: i32, half_width: i32, half_depth: i32, hit: SpellHit },
+    /// `spawn`: the units the roll releases where it stops (the Barbarian Barrel's Barbarian; `SpellShape::release`).
+    Rolling { airborne_speed: i32, airborne_min_distance: i32, speed: i32, range: i32, half_width: i32, half_depth: i32, hit: SpellHit, spawn: Option<SpawnDef> },
     /// A HITPOINT-LESS SUMMON (Rage's bottle): a building row with a DeployTime, no Hitpoints and a
     /// DeathAreaEffect, nothing else. It is not an entity -- nothing targets it, nothing collides
     /// with it -- so it is a spell object that counts `fuse_ms` down and releases `then` where it
@@ -391,6 +392,24 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
 }
 
 impl SpellShape {
+    /// THE UNITS THIS SHAPE RELEASES: a projectile's where it lands (the Goblin Barrel), a roll's where it stops
+    /// (the Barbarian Barrel). None for every other shape. Every reader of a spell's released units goes through
+    /// this (`CardDb::spawn_level`, `unit_refs`, the loader's resolution), so a new releasing shape joins them all.
+    pub fn release(&self) -> Option<&SpawnDef> {
+        match self {
+            SpellShape::Projectile { spawn, .. } | SpellShape::Rolling { spawn, .. } => spawn.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The slot `release` reads, to fill or to clear.
+    pub fn release_slot(&mut self) -> Option<&mut Option<SpawnDef>> {
+        match self {
+            SpellShape::Projectile { spawn, .. } | SpellShape::Rolling { spawn, .. } => Some(spawn),
+            _ => None,
+        }
+    }
+
     /// The next object of this shape's chain: what a `Fuse` releases, or a pulsing area's child.
     pub fn child(&self) -> Option<&SpellShape> {
         match self {
@@ -2202,9 +2221,34 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                 return Err(format!("airborne {what} carries damage or units; not simulated"));
             }
             let range = roll.projectile_range_milli.filter(|r| *r > 0).ok_or_else(|| format!("{rname} has no ProjectileRange: not a rolling projectile"))?;
-            if roll.maximum_targets.is_some() || roll.spawn_character.is_some() || roll.spawn_projectile.is_some() || roll.target_buff.as_ref().is_some_and(|b| !b.is_null()) {
-                return Err(format!("rolling {rname} with targets / spawns / buffs is not simulated"));
+            if roll.maximum_targets.is_some() || roll.spawn_projectile.is_some() || roll.target_buff.as_ref().is_some_and(|b| !b.is_null()) {
+                return Err(format!("rolling {rname} with targets / a second projectile / buffs is not simulated"));
             }
+            // A ROLL THAT RELEASES UNITS where it stops. A BLANK SpawnCharacterCount is ONE unit on a roll: the
+            // 15.535.29 Barbarian Barrel's row leaves it blank, and every cast measured (4 of 4 on the 16.402
+            // corpus, the 15.535.29 scenario runs) released exactly one Barbarian. Not the Goblin Barrel's rule,
+            // which refuses a blank count on a projectile (its row ships 3).
+            #[cfg(not(clash_plant = "roll_spawn_unread"))]
+            let roll_spawn = roll.spawn_character.clone();
+            #[cfg(clash_plant = "roll_spawn_unread")]
+            let roll_spawn: Option<String> = None; // PLANT: the roll's SpawnCharacter dropped.
+            let spawn = match roll_spawn {
+                None => None,
+                Some(unit) => {
+                    let count = match roll.spawn_character_count {
+                        None => 1,
+                        Some(c) if c >= 1 => c,
+                        Some(c) => return Err(format!("rolling {rname}: SpawnCharacterCount {c} out of range")),
+                    };
+                    units.push((UnitUse::Spell, unit));
+                    Some(SpawnDef {
+                        unit: u16::MAX, // resolved by from_json_str
+                        count,
+                        deploy_time_ms: roll.spawn_character_deploy_time_ms,
+                        level_index: roll.spawn_character_level_index,
+                    })
+                }
+            };
             let hit = SpellHit {
                 damage: roll.damage.ok_or_else(|| format!("rolling {rname} without damage"))?,
                 crown_pct: crown(roll.crown_tower_damage_percent),
@@ -2229,6 +2273,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                     half_width: milli(roll.projectile_radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("rolling {rname} without ProjectileRadius"))?),
                     half_depth: milli(roll.projectile_radius_y_milli.unwrap_or(0)),
                     hit,
+                    spawn,
                 },
                 placement: placement_for(false),
             }
@@ -3545,7 +3590,7 @@ impl CardDb {
                     let card = &mut db.cards[spell_idx as usize];
                     match which {
                         UnitUse::Spell => {
-                            if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = card.spell.as_mut() {
+                            if let Some(sp) = card.spell.as_mut().and_then(|d| d.shape.release_slot()).and_then(|s| s.as_mut()) {
                                 sp.unit = u;
                             }
                         }
@@ -3644,7 +3689,7 @@ impl CardDb {
     /// card: a card carries a spell or a death projectile, never both.
     pub fn spawn_level(&self, spell_idx: u16, level: i32) -> Result<i32, String> {
         let c = self.get(spell_idx);
-        let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = c.spell.as_ref().or(c.death_projectile.as_ref()) else {
+        let Some(sp) = c.spell.as_ref().or(c.death_projectile.as_ref()).and_then(|d| d.shape.release()) else {
             return Err(format!("{} releases no units", c.name));
         };
         #[cfg(clash_plant = "spawn_level_local_one")]
@@ -3746,7 +3791,7 @@ impl CardDb {
     pub fn unit_refs(&self, idx: u16) -> Vec<(UnitRef, u16, Option<i32>)> {
         let c = self.get(idx);
         let mut out = Vec::new();
-        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell {
+        if let Some(sp) = c.spell.as_ref().and_then(|d| d.shape.release()) {
             out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
         }
         if let Some(sp) = c.spawner {
@@ -3779,8 +3824,8 @@ impl CardDb {
             let card = &mut self.cards[idx as usize];
             match path {
                 UnitRef::SpellRelease => {
-                    if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = card.spell.as_mut() {
-                        *spawn = None;
+                    if let Some(slot) = card.spell.as_mut().and_then(|d| d.shape.release_slot()) {
+                        *slot = None;
                     }
                 }
                 UnitRef::Spawner => card.spawner = None,
@@ -4392,7 +4437,7 @@ mod tests {
         }
         let lg = card("Log");
         match spell("Log") {
-            SpellDef { shape: SpellShape::Rolling { airborne_speed, airborne_min_distance, speed, range, half_width, half_depth, hit }, placement: SpellPlacement::TroopTerritory { on_buildings: true } } => {
+            SpellDef { shape: SpellShape::Rolling { airborne_speed, airborne_min_distance, speed, range, half_width, half_depth, hit, spawn: None }, placement: SpellPlacement::TroopTerritory { on_buildings: true } } => {
                 let roll = &lg["projectile"]["spawn_projectile"];
                 assert_eq!(airborne_speed, int(&lg["projectile"]["speed"]));
                 assert_eq!(airborne_min_distance, milli(int(&lg["projectile"]["min_distance_milli"])));

@@ -56,13 +56,13 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Rect, Shape};
-use crate::card::{CardDb, KnockbackDef, SpellHit, SpellShape};
+use crate::card::{CardDb, KnockbackDef, SpawnDef, SpellHit, SpellShape, StrikeDef};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollHitShape, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope};
+use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -945,6 +945,24 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
     *travelled < len
 }
 
+/// UNITS A SPELL RELEASES at `at` (a Goblin Barrel's landing, a Barbarian Barrel's roll end): at the spell's level
+/// through `CardDb::spawn_level`, with the release's DeployTime override and count. The one release law every spell
+/// shares, with its two plants.
+fn release_units(ctx: &SpellCtx, team: Team, card: u16, level: i32, sp: &SpawnDef, at: Vec2, released: &mut Vec<Release>) {
+    // Level validated when the cast was accepted (state.rs).
+    if let Ok(level) = ctx.cards.spawn_level(card, level) {
+        #[cfg(not(clash_plant = "spawn_uses_character_deploy_time"))]
+        let deploy_ms = sp.deploy_time_ms;
+        #[cfg(clash_plant = "spawn_uses_character_deploy_time")]
+        let deploy_ms = None; // PLANT: the unit's own DeployTime.
+        #[cfg(not(clash_plant = "spawn_count_one"))]
+        let count = sp.count;
+        #[cfg(clash_plant = "spawn_count_one")]
+        let count = 1; // PLANT: SpawnCharacterCount ignored.
+        released.push(Release { team, unit: sp.unit, level, pos: at, deploy_ms, count });
+    }
+}
+
 /// Advance every spell by one tick. What the step hands on comes back in `out`
 /// (`SpellOut`, drained by the caller): units released by landing spells in
 /// `out.released`, in `spells` order (deterministic; team_seq is per team, and a
@@ -972,18 +990,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     impact(ctx, s.team, *aim, h, s.damage, s.pulse, dmg, fx, nb, None);
                 }
                 if let Some(sp) = spawn {
-                    // Level validated when the cast was accepted (state.rs).
-                    if let Ok(level) = ctx.cards.spawn_level(s.card, s.level) {
-                        #[cfg(not(clash_plant = "spawn_uses_character_deploy_time"))]
-                        let deploy_ms = sp.deploy_time_ms;
-                        #[cfg(clash_plant = "spawn_uses_character_deploy_time")]
-                        let deploy_ms = None; // PLANT: the unit's own DeployTime.
-                        #[cfg(not(clash_plant = "spawn_count_one"))]
-                        let count = sp.count;
-                        #[cfg(clash_plant = "spawn_count_one")]
-                        let count = 1; // PLANT: SpawnCharacterCount ignored.
-                        out.released.push(Release { team: s.team, unit: sp.unit, level, pos: *aim, deploy_ms, count });
-                    }
+                    release_units(ctx, s.team, s.card, s.level, sp, *aim, &mut out.released);
                 }
                 false
             }
@@ -1026,20 +1033,38 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 if np != *aim {
                     return true;
                 }
-                // Landed: the roll starts here and runs its first step this tick.
+                // Landed: the rolling projectile is made on the landing point. spells.ROLL_FIRST_STEP: it runs
+                // its first step this tick (on_landing_tick), or stands unmoved until the next (tick_after_landing,
+                // measured on the Barbarian Barrel: 4 of 4 on the 16.402 corpus).
                 let (mut p, mut travelled, len, mut hit) = (*roll_start, 0, *roll_len, Vec::new());
+                #[cfg(not(clash_plant = "roll_steps_on_landing"))]
+                let first = ctx.calib.roll_first_step;
+                #[cfg(clash_plant = "roll_steps_on_landing")]
+                let first = RollFirstStep::OnLandingTick; // PLANT: the first step on the landing tick, whatever the key.
+                if first == RollFirstStep::TickAfterLanding {
+                    s.motion = SpellMotion::Rolling { pos: p, travelled, len, hit };
+                    return true;
+                }
                 let more = roll(ctx, s.team, s.card, s.damage, &mut p, &mut travelled, len, &mut hit, dmg, fx, nb);
+                if !more {
+                    if let Some(sp) = shape.release() {
+                        release_units(ctx, s.team, s.card, s.level, sp, p, &mut out.released);
+                    }
+                }
                 s.motion = SpellMotion::Rolling { pos: p, travelled, len, hit };
                 more
             }
-            (SpellMotion::Rolling { pos, travelled, len, hit }, SpellShape::Rolling { .. }) => {
-                roll(ctx, s.team, s.card, s.damage, pos, travelled, *len, hit, dmg, fx, nb)
+            // A ROLL THAT RELEASES UNITS (the Barbarian Barrel) releases them where it stops, on the tick it stops.
+            (SpellMotion::Rolling { pos, travelled, len, hit }, SpellShape::Rolling { spawn, .. }) => {
+                let more = roll(ctx, s.team, s.card, s.damage, pos, travelled, *len, hit, dmg, fx, nb);
+                #[cfg(not(clash_plant = "roll_release_dropped"))]
+                if !more {
+                    if let Some(sp) = spawn {
+                        release_units(ctx, s.team, s.card, s.level, sp, *pos, &mut out.released);
+                    }
+                }
+                more
             }
-            // THE BOTTLE (spells.SUMMON_FUSE_START = unit_deploy_law): the fuse is counted like a
-            // unit's DeployTime, from the cast tick's own update, and releases on the update it reaches
-            // 0: a 500 ms bottle cast on tick C releases on C + 9, and what it releases first acts on
-            // C + 10. death_bomb_flight is the arithmetic a death bomb's delayed flight runs (one tick
-            // later).
             // A STRIKING AREA (spells.STRIKE_TIMER_LEFTOVER): each update takes a tick off its clock, and the
             // update whose clock falls below zero strikes (`strike`). Under carried the next strike is timed from
             // the strike time itself, so strike k falls on the cast tick + floor(k x HitSpeed / TICK_MS); under
@@ -1062,6 +1087,11 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 }
                 (*k as usize) < def.gaps_ms.len() && *life_ms > 0
             }
+            // THE BOTTLE (spells.SUMMON_FUSE_START = unit_deploy_law): the fuse is counted like a
+            // unit's DeployTime, from the cast tick's own update, and releases on the update it reaches
+            // 0: a 500 ms bottle cast on tick C releases on C + 9, and what it releases first acts on
+            // C + 10. death_bomb_flight is the arithmetic a death bomb's delayed flight runs (one tick
+            // later).
             (SpellMotion::Fuse { pos, ms }, SpellShape::Fuse { then, .. }) => {
                 #[cfg(not(clash_plant = "fuse_counts_from_next_tick"))]
                 let start = ctx.calib.summon_fuse_start;

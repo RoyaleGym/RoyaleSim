@@ -208,7 +208,6 @@ const LOADABLE_15535: &[&str] = &[
     "KingTower",
 ];
 const REJECTED_15535: &[(&str, &str)] = &[
-    ("BarbLog", "rolling BarbLogProjectileRolling with targets / spawns / buffs is not simulated"),
     ("BossBandit", "the unit runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionRunIfGameObjectExists, ActionRunIfInstigatorMatches)"),
     ("Clone", "area effect Clone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),

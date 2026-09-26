@@ -2037,6 +2037,15 @@
       "candidates": ["radius_plus_target_radius_plus_200", "radius_plus_target_radius"],
       "promotion_rules": "A scenario that strikes, and fails to strike, targets at a range of centre distances around 3500 to 4400.",
       "engine": "spell.rs strike"
+    },
+    "ROLL_FIRST_STEP": {
+      "value": "on_landing_tick",
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm, which is today's engine; the measured arm waits on the Log's scoring.",
+      "provenance": "Measured on the Barbarian Barrel (4 of 4 on the 16.402 corpus): the rolling projectile first appears UNMOVED on the landing point on the landing tick, takes its first step on the next, and stops 4500 past the landing 23 ticks later (22 steps of 200 and one of 100), where it releases its Barbarian. on_landing_tick, today's engine, steps on the landing tick and so stops, and releases, a tick early. The Log shares the arm; its first-step tick has not been re-read from its casts, and flipping this key moves the Log.",
+      "candidates": ["on_landing_tick", "tick_after_landing"],
+      "promotion_rules": "Score the Log's and the Barbarian Barrel's casts under both arms; ship tick_after_landing if the Log agrees, else split the key by rolling row.",
+      "engine": "spell.rs step_spells (the Airborne arm)"
     }
   },
   "knockback": {
