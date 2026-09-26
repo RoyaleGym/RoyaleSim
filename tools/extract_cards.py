@@ -467,7 +467,8 @@ SCALAR_STAT_COLUMNS = {
     "DeathSpawnDeployTime", "DeathSpawnPushback", "DeathAreaEffect", "SpawnCharacter", "SpawnNumber", "SpawnInterval",
     "SpawnStartTime", "SpawnPauseTime", "SpawnLimit", "SpawnRadius", "DamageSpecial", "ChargeRange",
     "ChargeSpeedMultiplier", "DashDamage", "DashMinRange", "DashMaxRange", "DashRadius",
-    "DashCooldown", "DashImmuneToDamageTime", "DashPushBack", "JumpEnabled", "JumpHeight",
+    "DashCooldown", "DashImmuneToDamageTime", "DashPushBack", "DashConstantTime", "DashLandingTime",
+    "JumpEnabled", "JumpHeight",
     "JumpSpeed", "HidesWhenNotAttacking", "HideTimeMs", "UpTimeMs", "BuffOnDamage",
     "BuffOnDamageTime", "AttachedCharacter", "NoDeploySizeW", "NoDeploySizeH",
     "ProjectileStartRadius", "Kamikaze", "KamikazeTime",
@@ -1206,7 +1207,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # the water nodes with a leap at JumpSpeed native units per tick --
         # calibration.json movement.JUMP_WATER_HOP, measured on the live 16.402 hops).
         # MegaKnight / Assassin carry JumpHeight / JumpSpeed WITHOUT JumpEnabled (their
-        # dash-jump, a different state) and get no block. 2018 vintage: HogRider only;
+        # dash-jump, a different state) and get no block here; on the 15.535 rows their
+        # JumpSpeed is the dash block's `speed` (after this literal). 2018 vintage: HogRider only;
         # the 15.535 card data adds Prince, DarkPrince, the Battle Ram's Ram and
         # RoyalHog with the identical 4000 / 160.
         "jump": None
@@ -1234,6 +1236,23 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # after the literal and on the 15.535 rows only, so the 2018 file stays byte-identical;
         # tools/check_card_reads.py's PROLOGUE names it for that reason.
         u["death_spawn_pushback"] = flag(c, "DeathSpawnPushback")
+        # THE DASH'S MOTION, into the dash block: JumpSpeed (native units per tick while it
+        # dashes), DashConstantTime (the Mega Knight's blow lands this long after the dash
+        # starts) and DashLandingTime, all read by calibration combat.DASH_ATTACK. On the
+        # 15.535 rows only, for the reason DeathSpawnPushback is: the 2018 file stays
+        # byte-identical, so its Bandit and Mega Knight carry a dash block with no speed and
+        # load no dash (card.rs `convert_dash`).
+        #
+        # A dash block with no DashMaxRange never starts on its own: the Golden Knight's chain
+        # and the event Hog Rider's dash start from an Ability or a scripted action, which the
+        # loader does not run. That block moves to `triggered_dash`, which nothing reads, so
+        # tools/check_card_reads.py goes on calling those columns unread.
+        if u["dash"] is not None and u["dash"]["max_range_milli"] is None:
+            u["triggered_dash"], u["dash"] = u["dash"], None
+        if u["dash"] is not None:
+            u["dash"]["speed"] = c["JumpSpeed"]
+            u["dash"]["constant_time_ms"] = c["DashConstantTime"]
+            u["dash"]["landing_time_ms"] = c["DashLandingTime"]
     if with_raw:
         u["raw"] = raw_logic(c)
         if c.get("base_ops"):
@@ -1496,6 +1515,10 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:
         card["death_spawn_pushback"] = u["death_spawn_pushback"]
+    # 15.535 only: the dash block that starts from an Ability or a scripted action, carried
+    # beside the card's `dash` (null on that row) so the card shows what it does not run.
+    if "triggered_dash" in u:
+        card["triggered_dash"] = u["triggered_dash"]
     if s["CustomDeployTime"] is not None:
         card["deploy_time_ms"] = s["CustomDeployTime"]
     card["count"] = res["count"]

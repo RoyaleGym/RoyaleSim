@@ -58,7 +58,7 @@ use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpellPlaceme
 use crate::collide::{self, CollideScratch};
 use crate::combat::{self, CrownRounding, DamageBuffer, Hit, Projectile};
 use crate::spell::{self, EffectBuffer, Spell};
-use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash, SpawnInit};
+use crate::entity::{AttackPhase, DashState, EntityKind, Entities, HideState, SpatialHash, SpawnInit};
 use crate::fixed::{isqrt, Vec2, SUBTILE};
 use crate::path::{self, FrameWorld, NavRequest, Obstacle, UnitBlocker};
 use crate::path2026;
@@ -281,6 +281,11 @@ pub struct Calib {
     /// attack-finish arm, matched against `CardDef::unit_name`.
     #[serde(default)]
     pub post_kill_wait_override_units: Vec<String>,
+    /// combat.DASH_ATTACK: whether a unit with a dash block (card.rs `DashDef`) stands, then dashes
+    /// into its target (`phase_path16402`). Added after SNAPSHOT_FORMAT 20; the `default` is the old
+    /// arm, what a battle saved before it actually ran.
+    #[serde(default = "dash_attack_default")]
+    pub dash_attack: DashAttack,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -650,6 +655,10 @@ fn preserve_target_scope_default() -> PreserveTargetScope {
 
 fn spawned_first_step_default() -> SpawnedFirstStep {
     SpawnedFirstStep::None
+}
+
+fn dash_attack_default() -> DashAttack {
+    DashAttack::None
 }
 
 macro_rules! calib_enum {
@@ -1289,6 +1298,29 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_ATTACK -- whether a unit whose card has a dash block (the Bandit, the Mega Knight)
+    /// dashes into its target.
+    DashAttack {
+        /// The dash block is not read: the unit walks into range and attacks like any melee unit.
+        None = "none",
+        /// Measured on client 15.535.29 (the Bandit against a Knight, a Giant and a princess tower;
+        /// the Mega Knight against a Giant). A unit walking after its target stands from the first
+        /// tick whose start-of-tick centre distance is at most DashMaxRange + the target's radius,
+        /// unless that target was nearer than DashMinRange edge to edge when first seen (it walks in).
+        /// It enters the dash DashCooldown / 50 - 1 ticks later and fixes its goal: the centre of the
+        /// 500-cell holding the point (own radius + target radius) short of the target. A dash with
+        /// no DashConstantTime (the Bandit) is still on that first tick, then moves in two half-steps
+        /// of JumpSpeed / 2 a tick, stopping after the first whose edge gap to the target's
+        /// start-of-tick position is within its Range; that tick deals DashDamage and ends the dash.
+        /// A dash with one (the Mega Knight) moves JumpSpeed a tick to the goal, deals DashDamage
+        /// over DashRadius DashConstantTime / 50 ticks after the entry and ends 4 ticks after that.
+        /// Damage on a dash whose row sets DashImmuneToDamageTime is discarded while it dashes and
+        /// for that long after. The attack cycle then restarts from its load time. Run in the
+        /// 16.402 move pass only.
+        ClientDash = "client_dash",
+    }
+);
+calib_enum!(
     /// pathfinding.GOAL_TARGET_POSITION -- the target centre a chaser's goal cell is chosen around
     /// (the cells within its Range + own CollisionRadius of that centre, the nearest one to the
     /// chaser winning; path16402.rs `choose_goal_cell`).
@@ -1680,6 +1712,12 @@ calib_enum!(
     }
 );
 
+/// combat.DASH_ATTACK = client_dash: a dash with a DashConstantTime (the Mega Knight's) ends this many
+/// ticks after its blow. Measured on client 15.535.29 on the Mega Knight only (2 of 2 jumps: the
+/// dash state lasts 20 ticks from the entry, the blow on the entry + 16); no formula from its row
+/// (DashConstantTime 800, DashLandingTime 300) gives the 4, so it is a named constant.
+pub const DASH_BLOW_TO_END_TICKS: u32 = 4;
+
 fn pick<T>(v: &Value, path: &[&str], parse: fn(&str) -> Option<T>) -> Result<T, String> {
     let s = string(v, path)?;
     parse(s).ok_or_else(|| format!("{} = {s} has no engine implementation", path.join(".")))
@@ -1953,6 +1991,7 @@ impl Calib {
                 .iter()
                 .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: every entry is a unit name"))
                 .collect::<Result<Vec<_>, _>>()?,
+            dash_attack: pick(&v, &["combat", "DASH_ATTACK", "value"], DashAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -4427,6 +4466,64 @@ impl BattleState {
         self.phase_path16402_for(None, &[], &[]);
     }
 
+    /// combat.DASH_ATTACK's blows, landed after the move pass that decided them (the pass holds
+    /// the entity table borrowed): a dash with no DashRadius hits its dash target alone, one with
+    /// a radius every enemy it reaches from `centre`, both at DashDamage at the unit's level and
+    /// through the crown-tower percent of its ordinary hit. Resolved with the tick's other hits.
+    fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
+        for (a, target, centre) in blows {
+            let card = self.cfg.cards.get(self.ents.card[a]);
+            let Some(d) = card.dash else { continue };
+            let amount = self.cfg.cards.scaled(self.ents.card[a], self.ents.level[a], d.damage).expect("level validated at spawn");
+            let pct = card.crown_tower_damage_percent;
+            match d.radius {
+                None => {
+                    if let Some(t) = target.filter(|t| self.ents.is_alive(*t)) {
+                        let kind = self.ents.kind[t.index as usize];
+                        let amount = combat::damage_against(kind, amount, pct, self.cfg.calib.crown_rounding);
+                        self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false });
+                    }
+                }
+                Some(r) => combat::splash(
+                    &self.ents,
+                    &self.hash,
+                    self.ents.team[a],
+                    centre,
+                    r,
+                    card.attacks_air,
+                    card.attacks_ground,
+                    amount,
+                    pct,
+                    self.cfg.calib.crown_rounding,
+                    &mut self.dmg,
+                    &mut self.scratch.nb,
+                ),
+            }
+        }
+    }
+
+    /// A dash that has ended (combat.DASH_ATTACK): the attack cycle restarts from its load time, so
+    /// the first hit lands HitSpeed / 50 - 1 ticks later (measured on client 15.535.29: on the
+    /// first tick out of the dash the load timer reads LoadTime, on the next the attack progress
+    /// reads 100, then +50 a tick), and damage is discarded for DashImmuneToDamageTime more.
+    fn end_dashes(&mut self, ended: Vec<usize>) {
+        let tk = self.cfg.calib.tick_ms.max(1);
+        for i in ended {
+            let card = self.cfg.cards.get(self.ents.card[i]);
+            self.ents.attack_phase[i] = AttackPhase::Idle;
+            self.ents.attack_ms[i] = 0;
+            #[cfg(not(clash_plant = "dash_keeps_the_cycle"))]
+            {
+                self.ents.attack_load_ms[i] = card.load_time_ms.max(0);
+            }
+            self.ents.target_locked[i] = false;
+            self.ents.dash_immune_until[i] = match card.dash.and_then(|d| d.immune_ms) {
+                Some(ms) => self.tick + (ms / tk) as u32,
+                None => 0,
+            };
+        }
+    }
+
     /// The 16.402 movement update, for every troop (`only` None) or for a first update's fresh
     /// units alone (`first_update`). Those step against the board as the tick's pass left it: the
     /// obstacle set, the grid and the doomed mask are the pass's own and are not rebuilt, and a unit
@@ -4589,6 +4686,16 @@ impl BattleState {
         // a member reaches its radius.
         let mut slide_c = std::mem::take(&mut self.ents.death_slide_centre);
         let mut slide_r = std::mem::take(&mut self.ents.death_slide_radius);
+        // combat.DASH_ATTACK = client_dash: the dash's state, written only here. The blows and the
+        // ended dashes are applied after the pass (`land_dash_blows`, `end_dashes`).
+        let mut dash_state = std::mem::take(&mut self.ents.dash_state);
+        let mut dash_mark = std::mem::take(&mut self.ents.dash_mark);
+        let mut dash_goal = std::mem::take(&mut self.ents.dash_goal);
+        let mut dash_target = std::mem::take(&mut self.ents.dash_target);
+        let mut dash_blocked = std::mem::take(&mut self.ents.dash_blocked);
+        let mut dash_immune = std::mem::take(&mut self.ents.dash_immune_until);
+        let mut dash_blows: Vec<(usize, Option<EntityId>, Vec2)> = Vec::new();
+        let mut dash_ended: Vec<usize> = Vec::new();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -4627,8 +4734,8 @@ impl BattleState {
                         mover: e.kind[i] == EntityKind::Troop,
                         alive,
                         // a unit mid river-jump is skipped by every neighbour's scans
-                        // (jump16402.rs)
-                        collidable: alive && !held && !jumping[i],
+                        // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK)
+                        collidable: alive && !held && !jumping[i] && dash_state[i] != DashState::Dashing,
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot
@@ -4705,6 +4812,13 @@ impl BattleState {
                 let deploying = e.deploy_ms[i] > 0;
                 let flying = e.flying[i];
                 if push_active[i] {
+                    // a push ends a dash where it stands (unmeasured: combat.DASH_ATTACK's open list)
+                    if dash_state[i] != DashState::None {
+                        if dash_state[i] == DashState::Dashing {
+                            dash_ended.push(i);
+                        }
+                        dash_state[i] = DashState::None;
+                    }
                     // ---- 0. THE PUSHBACK TICK (taken before any path request or walk
                     // while the ladder is armed -- and before the stun / freeze hold
                     // below: the ladder tests no hold and no state, so a stunned unit
@@ -4836,6 +4950,14 @@ impl BattleState {
                 let phase_hold = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0;
                 let frozen = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0;
                 if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
+                    // a stun, a freeze or a knockback ends a dash where it stands (unmeasured:
+                    // combat.DASH_ATTACK's open list); an attacking unit is not dashing
+                    if frozen && dash_state[i] != DashState::None {
+                        if dash_state[i] == DashState::Dashing {
+                            dash_ended.push(i);
+                        }
+                        dash_state[i] = DashState::None;
+                    }
                     if jumping[i] {
                         // a movement hold on a jumper: the leap is cancelled where it
                         // stands and the unit replans when the hold ends (UNVERIFIED: no
@@ -4865,6 +4987,166 @@ impl BattleState {
                 let epoch = self.scratch.occluder_epoch[team as usize];
                 let actor = (bodies[i].x, bodies[i].y);
                 let node_centre = |p: Vec2| (p.x / K, p.y / K);
+                // ---- THE DASH (combat.DASH_ATTACK = client_dash; card.rs `DashDef`), measured on client
+                // 15.535.29 on the Bandit and the Mega Knight. Distances on the start-of-tick positions
+                // (`e.pos`), which this pass has not moved.
+                //
+                // TRIGGER. A unit walking after a live target records it the first time it sees it, and
+                // whether it was then nearer than DashMinRange edge to edge (walked into, no dash). From
+                // the next tick, the first tick whose centre distance is at most DashMaxRange + the
+                // target's radius starts the stand. Three Bandits and a Mega Knight put down inside that
+                // distance moved on their first active frame + 17 and + 18: the trigger falls on the
+                // frame after first sight. Every measured trigger was also beyond DashMinRange edge to
+                // edge, and a trigger nearer than that is refused (so a unit whose dash ended in melee
+                // does not dash again at the same target).
+                //
+                // STAND. Until the entry, DashCooldown / 50 - 1 ticks after the trigger (the Bandit's 800
+                // and the Mega Knight's 900: 13 of 13 dashes and 2 of 2 jumps), the unit's walk runs at
+                // speed 0: its route, contact scans and facing go on as on a stomp pause's tick, and it
+                // does not step. A target that dies or is replaced, or an attack begun, ends the stand.
+                //
+                // ENTRY. The goal is fixed: the centre of the 500-cell holding the point (own radius +
+                // target radius) short of the target's centre on the line (7 of 7 dashes head at it within
+                // 0.1 degree; the Mega Knight lands on it). The unit stops being collidable, and with a
+                // DashImmuneToDamageTime it discards damage from here (`dash_immune_until`).
+                let mut dash_stand = false;
+                if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash) {
+                    let tk = calib.tick_ms.max(1);
+                    let live = |t: Option<EntityId>| t.filter(|t| e.is_alive(*t));
+                    let d2 = |ti: usize| {
+                        let (dx, dy) = ((e.pos[ti].x - e.pos[i].x) as i64, (e.pos[ti].y - e.pos[i].y) as i64);
+                        dx * dx + dy * dy
+                    };
+                    if dash_state[i] == DashState::None {
+                        let walking = !deploying && e.attack_phase[i] == AttackPhase::Idle && e.retarget_wait[i] == 0;
+                        if let (true, Some(t)) = (walking, live(e.target[i])) {
+                            let ti = t.index as usize;
+                            let near = (d.min_range + e.radius[i] + e.radius[ti]) as i64;
+                            if dash_target[i] != Some(t) {
+                                dash_target[i] = Some(t);
+                                dash_blocked[i] = d2(ti) < near * near;
+                            } else {
+                                #[cfg(not(clash_plant = "dash_trigger_centre"))]
+                                let reach = (d.max_range + e.radius[ti]) as i64;
+                                #[cfg(clash_plant = "dash_trigger_centre")]
+                                let reach = d.max_range as i64; // PLANT: DashMaxRange alone, without the target's radius.
+                                if !dash_blocked[i] && d2(ti) <= reach * reach && d2(ti) >= near * near {
+                                    dash_state[i] = DashState::Standing;
+                                    dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
+                                }
+                            }
+                        }
+                    } else if dash_state[i] == DashState::Standing
+                        && (live(e.target[i]).is_none() || e.target[i] != dash_target[i] || e.attack_phase[i] != AttackPhase::Idle)
+                    {
+                        dash_state[i] = DashState::None;
+                    }
+                    if dash_state[i] == DashState::Standing && self.tick >= dash_mark[i] {
+                        let ti = dash_target[i].map_or(i, |t| t.index as usize);
+                        let (tx, ty) = (e.pos[ti].x / K, e.pos[ti].y / K);
+                        let (dx, dy) = ((actor.0 - tx) as i64, (actor.1 - ty) as i64);
+                        let rr = ((e.radius[i] + e.radius[ti]) / K) as i64;
+                        let n = isqrt(dx * dx + dy * dy);
+                        let (px, py) = if n == 0 { (tx, ty) } else { (tx + (dx * rr / n) as i32, ty + (dy * rr / n) as i32) };
+                        let c = path16402::CELL;
+                        dash_goal[i] = Vec2::new((px.div_euclid(c) * c + c / 2) * K, (py.div_euclid(c) * c + c / 2) * K);
+                        dash_state[i] = DashState::Dashing;
+                        dash_mark[i] = self.tick;
+                        if d.immune_ms.is_some() {
+                            dash_immune[i] = u32::MAX;
+                        }
+                        bodies[i].collidable = false;
+                        routes[i].clear();
+                        goals[i] = None;
+                        segs[i] = Vec2::default();
+                        // The Bandit's first dash tick is still (13 of 13, step 0 and the heading kept);
+                        // the Mega Knight moves on its. Which column decides it is not separable with two
+                        // cards: the Mega Knight's row has DashConstantTime, the Bandit's does not.
+                        #[cfg(not(clash_plant = "dash_first_tick_moves"))]
+                        let still = d.constant_time_ms.is_none();
+                        #[cfg(clash_plant = "dash_first_tick_moves")]
+                        let still = false; // PLANT: the Bandit moves on its entry tick.
+                        if still {
+                            walk_step[i] = 0;
+                            continue;
+                        }
+                    }
+                    dash_stand = dash_state[i] == DashState::Standing;
+                    if dash_state[i] == DashState::Dashing {
+                        // THE MOVE, straight at the goal's centre, never past it, with no scan.
+                        //
+                        // No DashConstantTime (the Bandit): two half-steps of JumpSpeed / 2 a tick, each
+                        // followed by the Range test against the target's start-of-tick position; the first
+                        // within ends the dash with the blow (its last move is about 250 in 9 of 13 dashes,
+                        // about 500 in 4, ending at an edge of 540.8-738.9; the target loses DashDamage at
+                        // the unit's level, 389 at 11, on that tick, 13 of 13). A goal reached out of range,
+                        // or a target gone, ends it with no blow.
+                        //
+                        // A DashConstantTime (the Mega Knight): JumpSpeed a tick to the goal (about 250,
+                        // resting on the goal's centre), the blow DashConstantTime / 50 ticks after the entry
+                        // over DashRadius (537 on the Giant at level 11 in both jumps; the radius and the
+                        // DashPushBack are open), and the end DASH_BLOW_TO_END_TICKS after the blow.
+                        let goal = (dash_goal[i].x / K, dash_goal[i].y / K);
+                        let step = |p: (i32, i32), len: i32| {
+                            let mut v = (goal.0 - p.0, goal.1 - p.1);
+                            if move16402::normalize_to(&mut v, len) <= len {
+                                goal
+                            } else {
+                                (p.0 + v.0, p.1 + v.1)
+                            }
+                        };
+                        let mut p = actor;
+                        let mut ended = false;
+                        match d.constant_time_ms {
+                            None => match live(dash_target[i]) {
+                                None => ended = true,
+                                Some(t) => {
+                                    let ti = t.index as usize;
+                                    #[cfg(not(clash_plant = "dash_whole_steps"))]
+                                    let (parts, len) = (2, d.speed / 2);
+                                    #[cfg(clash_plant = "dash_whole_steps")]
+                                    let (parts, len) = (1, d.speed); // PLANT: one whole step a tick, one Range test.
+                                    for _ in 0..parts {
+                                        p = step(p, len);
+                                        let at = Vec2::new(p.0 * K, p.1 * K);
+                                        if target::in_attack_range(calib, at, card.range, e.radius[i], e.pos[ti], e.radius[ti]) {
+                                            dash_blows.push((i, Some(t), at));
+                                            ended = true;
+                                            break;
+                                        }
+                                        if p == goal {
+                                            ended = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            },
+                            Some(ct) => {
+                                p = step(p, d.speed);
+                                let blow = dash_mark[i] + (ct / tk) as u32;
+                                if self.tick == blow {
+                                    dash_blows.push((i, live(dash_target[i]), Vec2::new(p.0 * K, p.1 * K)));
+                                }
+                                ended = self.tick >= blow + DASH_BLOW_TO_END_TICKS;
+                            }
+                        }
+                        let mut v = (p.0 - actor.0, p.1 - actor.1);
+                        if move16402::normalize_to(&mut v, 256) != 0 {
+                            facing[i] = Vec2::new(v.0, v.1);
+                            bodies[i].dir = v;
+                        }
+                        bodies[i].x = p.0;
+                        bodies[i].y = p.1;
+                        deltas[i] = Vec2::new(p.0 * K, p.1 * K).sub(e.pos[i]);
+                        walk_step[i] = 0;
+                        if ended {
+                            dash_state[i] = DashState::None;
+                            dash_ended.push(i);
+                            bodies[i].collidable = true;
+                        }
+                        continue;
+                    }
+                }
                 if jumping[i] {
                     // ---- THE LEAP (state 5 in the captures; jump16402.rs): no path
                     // request, no avoidance scan but the offset decays, no separation
@@ -5084,7 +5366,7 @@ impl BattleState {
                 // the one place a speed buff enters (the charge today), and it
                 // returns `speed` itself for every card without a buff, so this arm
                 // is unchanged for the whole contact corpus
-                let native_speed = if paused { 0 } else { self.effective_speed(i) / K };
+                let native_speed = if paused || dash_stand { 0 } else { self.effective_speed(i) / K };
                 let (aim, speed) = match routes[i].last() {
                     Some(&p) if !deploying && !attacking => (node_centre(p), native_speed),
                     None if !deploying && !attacking && feasible => match target_abs {
@@ -5182,6 +5464,14 @@ impl BattleState {
         self.ents.jumping = jumping;
         self.ents.death_slide_centre = slide_c;
         self.ents.death_slide_radius = slide_r;
+        self.ents.dash_state = dash_state;
+        self.ents.dash_mark = dash_mark;
+        self.ents.dash_goal = dash_goal;
+        self.ents.dash_target = dash_target;
+        self.ents.dash_blocked = dash_blocked;
+        self.ents.dash_immune_until = dash_immune;
+        self.land_dash_blows(dash_blows);
+        self.end_dashes(dash_ended);
         self.scratch.deltas = deltas;
         self.scratch.walk_step = walk_step;
         self.scratch.pushed = pushed;
@@ -5979,9 +6269,11 @@ impl BattleState {
             // time_since_last_shot arm, where a building can go under mid-swing).
             // Mid-leap (state 5): the attack side of a leap is unmeasured
             // (jump16402.rs); the engine holds the swing and keeps the unit targetable.
+            // Mid-dash (combat.DASH_ATTACK): the swing holds; the dash ends in a fresh cycle.
             let can_act = e.deploy_ms[i] == 0
                 && !held
                 && !e.jumping[i]
+                && e.dash_state[i] != DashState::Dashing
                 && e.hide[i] == HideState::Up
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             let step = combat::attack_step(e, &self.cfg.cards, &self.cfg.calib, i, can_act);
@@ -6478,7 +6770,7 @@ impl BattleState {
     }
 
     fn phase_resolve(&mut self) {
-        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune);
+        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, self.tick);
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -8083,6 +8375,15 @@ impl BattleState {
                 if e.acquire_delayed(i, self.tick) {
                     h.u32(e.acquirable_from[i]);
                 }
+                // combat.DASH_ATTACK = client_dash's columns, written under that arm only.
+                if self.cfg.calib.dash_attack == DashAttack::ClientDash {
+                    h.u32(e.dash_state[i] as u32);
+                    h.u32(e.dash_mark[i]);
+                    h.vec(e.dash_goal[i]);
+                    h.opt_id(e.dash_target[i]);
+                    h.bool(e.dash_blocked[i]);
+                    h.u32(e.dash_immune_until[i]);
+                }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
                 h.vec(e.seg_dir[i]);
@@ -8547,9 +8848,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // is in its declared place now.
                 // ~~... death_area_effect~~ -- the death-spawn slide (still format 20) added
                 // `death_spawn_pushback` after it.
+                // ~~... death_spawn_pushback~~ -- the dash (still format 20) added `dash` after it.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.projectile_homing, c.death_area_effect, c.death_spawn_pushback
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.projectile_homing, c.death_area_effect, c.death_spawn_pushback, c.dash
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -8865,6 +9167,12 @@ impl BattleState {
         snap.ents.death_slide_centre.resize(n, Vec2::default());
         snap.ents.death_slide_radius.resize(n, 0);
         snap.ents.acquirable_from.resize(n, 0);
+        snap.ents.dash_state.resize(n, DashState::None);
+        snap.ents.dash_mark.resize(n, 0);
+        snap.ents.dash_goal.resize(n, Vec2::default());
+        snap.ents.dash_target.resize(n, None);
+        snap.ents.dash_blocked.resize(n, false);
+        snap.ents.dash_immune_until.resize(n, 0);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

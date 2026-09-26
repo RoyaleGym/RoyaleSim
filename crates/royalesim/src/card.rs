@@ -291,6 +291,44 @@ pub struct JumpDef {
     pub height_raw: i32,
 }
 
+/// THE DASH (characters.csv DashDamage / DashMinRange / DashMaxRange / DashCooldown /
+/// DashRadius / DashPushBack / DashImmuneToDamageTime, with JumpSpeed, DashConstantTime and
+/// DashLandingTime; 15.535: the Bandit's Assassin row 152 / 3500 / 6000 / 800 / - / - / 100
+/// with 500 / - / -, the Mega Knight 210 / 3500 / 5000 / 900 / 2200 / 1000 / - with 250 / 800
+/// / 300). A unit walking after its target stands, then dashes at it and lands DashDamage.
+/// Run under calibration combat.DASH_ATTACK = client_dash (state.rs `phase_path16402`,
+/// entity.rs `dash_state`); inert under the shipped `none`.
+///
+/// Only a dash that starts on its own is this block: one with DashMaxRange. The Golden
+/// Knight's chain and the event Hog Rider's dash (no DashMaxRange) start from an Ability or a
+/// scripted action; the extractor carries those columns as `triggered_dash`, which nothing
+/// reads. Distances are in SUBTILES like every other range here; `speed` is JumpSpeed RAW,
+/// native units per tick, the unit of the Speed column; the times are ms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DashDef {
+    /// DashDamage, level 1, raw.
+    pub damage: i32,
+    /// DashMinRange: a target whose edge gap is under this when first seen is walked into.
+    pub min_range: i32,
+    /// DashMaxRange: the dash starts when the centre distance is within this + the target's radius.
+    pub max_range: i32,
+    /// DashCooldown, ms: the stand before the dash.
+    pub cooldown_ms: i32,
+    /// DashRadius: the landing blow's radius. None: the blow is on the target alone.
+    pub radius: Option<i32>,
+    /// DashPushBack, raw (not modelled: calibration combat.DASH_ATTACK's open list).
+    pub pushback_raw: Option<i32>,
+    /// DashImmuneToDamageTime, ms. None: the dash gives no immunity.
+    pub immune_ms: Option<i32>,
+    /// JumpSpeed, native units per tick.
+    pub speed: i32,
+    /// DashConstantTime, ms: the blow lands this long after the dash starts. None (the
+    /// Bandit): the blow lands on the step that reaches its Range.
+    pub constant_time_ms: Option<i32>,
+    /// DashLandingTime, ms, raw (not modelled: the ledger's open list).
+    pub landing_time_ms: Option<i32>,
+}
+
 /// SummonCharacterSecond: a second kind of unit the same card summons on the same
 /// ring (Goblin Gang: 3 Goblins + 3 Spear Goblins; Rascals: the Boy + 2 Girls).
 /// Loaded as a `summon_only` card like a spawner's unit; `unit` is its CardDb index.
@@ -490,13 +528,18 @@ pub struct CardDef {
     /// `death_spawn_points` / `fixed_slide_ring` and the slide in the Path phase); inert without a
     /// `death_spawn` and under the shipped `not_read`.
     pub death_spawn_pushback: bool,
+    /// The dash block (card.rs `DashDef`): a unit that stands, then dashes into its target.
+    /// None on every card without one, and on the 2018 file's Bandit and Mega Knight, whose
+    /// block carries no JumpSpeed (the extractor writes the dash's motion on the 15.535 rows
+    /// only). Acted on only under combat.DASH_ATTACK = client_dash.
+    pub dash: Option<DashDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `death_spawn_pushback`, and onto the end of that tail
+    // field goes HERE, after `dash`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -641,6 +684,9 @@ struct RawCard {
     /// cards.json `jump` block (JumpEnabled rows: JumpHeight / JumpSpeed); null on
     /// every card but HogRider in the 2018 data.
     jump: Option<RawJump>,
+    /// cards.json `dash` block (the Dash* columns with JumpSpeed; a row with DashMaxRange
+    /// only); null on every card but the Bandit and the Mega Knight among the loaded cards.
+    dash: Option<RawDash>,
     /// cards.json `action_graph` (15.535: the scripted actions the row's *Action
     /// columns reach); absent in the 2018 file, null on a row that names none.
     action_graph: Option<RawActionGraph>,
@@ -778,6 +824,32 @@ fn refuse_action_mechanic(graph: &Option<RawActionGraph>, what: &str) -> Result<
 struct RawJump {
     height_raw: Option<i32>,
     speed: Option<i32>,
+}
+
+/// cards.json `dash` block, every field nullable (the extractor writes the whole block
+/// whenever DashDamage and DashMaxRange are set, and `speed` / `constant_time_ms` /
+/// `landing_time_ms` on the 15.535 rows only).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawDash {
+    damage: Option<i32>,
+    min_range_milli: Option<i32>,
+    max_range_milli: Option<i32>,
+    radius_milli: Option<i32>,
+    cooldown_ms: Option<i32>,
+    immune_to_damage_time_ms: Option<i32>,
+    pushback_milli: Option<i32>,
+    /// None: the key is absent (the 2018 file). Some(None): present and blank.
+    #[serde(deserialize_with = "present")]
+    speed: Option<Option<i32>>,
+    constant_time_ms: Option<i32>,
+    landing_time_ms: Option<i32>,
+}
+
+/// A field whose ABSENCE means something other than a blank: Some(value) whenever the key is
+/// there, null included; `default` (None) when it is not.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<i32>>, D::Error> {
+    Option::<i32>::deserialize(d).map(Some)
 }
 
 /// cards.json `charge` block, every field nullable (the extractor writes the whole
@@ -1254,6 +1326,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_homing: false,
         death_area_effect: None,
         death_spawn_pushback: false,
+        dash: None,
     }
 }
 
@@ -1651,6 +1724,58 @@ fn convert_jump(raw: Option<RawJump>, kind: CardKind) -> Result<Option<JumpDef>,
     Ok(Some(JumpDef { speed, height_raw }))
 }
 
+/// The DASH half of the loader (`DashDef`). The block is all-or-nothing on the numbers the
+/// dash cannot run without: DashDamage, DashMinRange, DashMaxRange, DashCooldown and
+/// JumpSpeed. A block missing one is a data error, never a default: a Bandit with no dash
+/// speed would stand and never arrive. Two exceptions, both named:
+///   - a block with no `speed` KEY at all is the 2018 file's (the extractor writes the
+///     dash's motion on the 15.535 rows only, keeping that file byte-identical), and loads
+///     no dash, as that table did before the dash was read;
+///   - DashRadius, DashPushBack, DashImmuneToDamageTime, DashConstantTime and
+///     DashLandingTime are blank on one of the two loaded rows each, and blank means "none".
+///
+/// Only a TROOP dashes: the dash replaces a walk.
+fn convert_dash(raw: Option<RawDash>, kind: CardKind) -> Result<Option<DashDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    #[cfg(not(clash_plant = "dash_unread"))]
+    let Some(speed) = b.speed else { return Ok(None) };
+    #[cfg(clash_plant = "dash_unread")]
+    let Some(speed) = b.speed.filter(|_| false) else { return Ok(None) }; // PLANT: the loader drops the block, so no unit dashes.
+    let need = |v: Option<i32>, what: &str| match v {
+        Some(x) if x > 0 => Ok(x),
+        Some(x) => Err(format!("dash: {what} {x} is not positive")),
+        None => Err(format!("dash: no {what}")),
+    };
+    let opt = |v: Option<i32>, what: &str| match v {
+        Some(x) if x > 0 => Ok(Some(x)),
+        Some(x) => Err(format!("dash: {what} {x} is not positive")),
+        None => Ok(None),
+    };
+    let damage = need(b.damage, "DashDamage")?;
+    let min_range = milli(need(b.min_range_milli, "DashMinRange")?);
+    let max_range = milli(need(b.max_range_milli, "DashMaxRange")?);
+    let cooldown_ms = need(b.cooldown_ms, "DashCooldown")?;
+    let speed = need(speed, "JumpSpeed")?;
+    if min_range > max_range {
+        return Err(format!("dash: DashMinRange {} is beyond DashMaxRange {}", b.min_range_milli.unwrap_or(0), b.max_range_milli.unwrap_or(0)));
+    }
+    if kind != CardKind::Troop {
+        return Err(format!("dash block on a {kind:?}; only a troop dashes"));
+    }
+    Ok(Some(DashDef {
+        damage,
+        min_range,
+        max_range,
+        cooldown_ms,
+        radius: opt(b.radius_milli, "DashRadius")?.map(milli),
+        pushback_raw: opt(b.pushback_milli, "DashPushBack")?,
+        immune_ms: opt(b.immune_to_damage_time_ms, "DashImmuneToDamageTime")?,
+        speed,
+        constant_time_ms: opt(b.constant_time_ms, "DashConstantTime")?,
+        landing_time_ms: opt(b.landing_time_ms, "DashLandingTime")?,
+    }))
+}
+
 /// WHAT A BUILDING ROW WITH NO HITPOINTS IS, when it is a shape this loader reads
 /// (`hitpointless_building`). Such a row cannot be born as an entity, so each shape
 /// loads as something else; a row that is none of them goes to the ordinary loader,
@@ -1895,6 +2020,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let death_spawn = convert_death_spawn(raw.death_spawn)?;
     let charge = convert_charge(raw.charge, kind)?;
     let jump = convert_jump(raw.jump, kind)?;
+    let dash = convert_dash(raw.dash, kind)?;
     let mut units: Vec<(UnitUse, String)> = Vec::new();
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
@@ -2020,6 +2146,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         death_spawn_pushback: raw.death_spawn_pushback.unwrap_or(false),
         #[cfg(clash_plant = "death_spawn_pushback_unread")]
         death_spawn_pushback: false, // PLANT: the loader drops the column, so no row slides.
+        dash,
     }, display, units))
 }
 
@@ -2618,7 +2745,10 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // omit "range_milli" (the huts). Also the "charge" block {damage_special,
 // charge_range_raw, charge_speed_multiplier_percent} (`convert_charge`; all three or the card is
 // refused; troops only), and the "jump" block {height_raw, speed} on JumpEnabled rows
-// (`convert_jump`; both or the card is refused; troops only). Also "death_area_effect":
+// (`convert_jump`; both or the card is refused; troops only), and the "dash" block {damage,
+// min_range_milli, max_range_milli, radius_milli, cooldown_ms, immune_to_damage_time_ms,
+// pushback_milli, speed, constant_time_ms, landing_time_ms} on rows with DashMaxRange
+// (`convert_dash`; no "speed" key loads no dash; troops only). Also "death_area_effect":
 // the NAME of a row in the top-level "area_effect_objects" map, whose records have the
 // shape a spell's inline "area_effect_object" block has {name, life_duration_ms,
 // radius_milli, hit_speed_ms, damage, crown_tower_damage_percent, buff, buff_time_ms,

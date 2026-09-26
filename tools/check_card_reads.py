@@ -24,9 +24,10 @@ HOW THE READ SET IS DERIVED -- three mechanical links, no hand-written map
        it in and nothing reads it, which is the same silence as not declaring it.
     2. tools/extract_cards.py -> which card-table column becomes which cards.json
        field.  `norm_unit`'s dict literal is walked with `ast`, so `c["ChargeRange"]`
-       under the `charge` block gives ChargeRange -> charge.charge_range_raw.  Six
+       under the `charge` block gives ChargeRange -> charge.charge_range_raw.  Nine
        columns are read outside the literal (five in the prologue, and
-       DeathSpawnPushback after it, on the 15.535 rows only); those are listed in
+       DeathSpawnPushback and the dash's JumpSpeed, DashConstantTime and
+       DashLandingTime after it, on the 15.535 rows only); those are listed in
        PROLOGUE below and the gate refuses to run if the function reads a column
        outside the literal that the list does not name.
     3. cards.json `units[*].raw` -> which columns each character row actually ships.
@@ -83,6 +84,8 @@ PLANTS
       stale_gap       a KNOWN_SLICE_GAPS entry no card in the slice carries any more
       blind_ledger    card.rs stops reading `charge`, so Prince's charge columns
                       must turn red without anyone editing this file
+      null_block      Prince's `charge` block is null while its columns stay in
+                      `raw`: a field the loader reads elsewhere, absent here
 
 SHOULD A LOADED CARD CARRYING AN UNREAD MECHANIC BE REFUSED, THE WAY RAGE AND HEAL ARE?
     Recommendation, 2026-09-22: NOT as a blanket rule, and YES for a graded list.
@@ -149,8 +152,8 @@ REGISTER = ROOT / "data" / "derived" / "mechanic_register.json"
 
 # `norm_unit` reads these outside its dict literal: the first five in its prologue
 # (damage and the area radius fall back to the projectile row, so they are computed
-# before the literal is built), DeathSpawnPushback after it (written on the 15.535 rows
-# only, so the 2018 file does not grow the key).  The gate refuses to run if the
+# before the literal is built), DeathSpawnPushback and the dash's motion after it (written
+# on the 15.535 rows only, so the 2018 file does not grow the keys).  The gate refuses to run if the
 # function reads a column outside the literal that this list does not name: an
 # unlisted one would silently look unread.
 PROLOGUE = {
@@ -160,6 +163,11 @@ PROLOGUE = {
     "HitSpeed": "hit_speed_ms",
     "Projectile": "projectile",
     "DeathSpawnPushback": "death_spawn_pushback",
+    # The dash's motion, written into the dash block after the literal on the 15.535 rows only
+    # (JumpSpeed is also read inside the literal, into the jump block).
+    "JumpSpeed": "dash.speed",
+    "DashConstantTime": "dash.constant_time_ms",
+    "DashLandingTime": "dash.landing_time_ms",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was
@@ -307,6 +315,7 @@ BLOCKS = {
     "": "RawCard",
     "charge": "RawCharge",
     "jump": "RawJump",
+    "dash": "RawDash",
     "spawner": "RawSpawner",
     "death_spawn": "RawDeathSpawn",
     "second_summon": "RawSecondSummon",
@@ -661,6 +670,17 @@ def check(
                         out.append((f"{k}.{k2}", f"cards.json `{k}.{k2}`", family_of_path(f"{k}.{k2}")))
         return out
 
+    def on_row(rec: dict, path: str) -> bool:
+        """Whether the dotted cards.json `path` holds a value on `rec`: every block on the
+        way a dict, the last key present and not null (a block written as null is where a
+        guard column's value did not go)."""
+        cur = rec
+        for part in path.split("."):
+            if not isinstance(cur, dict) or part not in cur:
+                return False
+            cur = cur[part]
+        return cur is not None
+
     def column_gaps(rec: dict) -> list[tuple[str, str, str]]:
         """(key, what, family) for every card-table column on `rec` the loader never
         reads."""
@@ -670,9 +690,19 @@ def check(
             if col in NOT_BEHAVIOUR:
                 continue
             paths = colmap.get(col)
-            if paths and any(consumed.reads_path(p, kind) for p in paths):
+            # Read only where the field is ON THIS ROW: a column the extractor writes into a block
+            # that is null here (the Golden Knight's DashDamage, carried as `triggered_dash` while
+            # its `dash` is null) reaches no loader field, however well the loader reads that path
+            # on other rows.
+            here = [p for p in paths or () if on_row(rec, p)]
+            if any(consumed.reads_path(p, kind) for p in here):
                 continue
-            why = "not carried into cards.json" if not paths else "carried as " + "/".join(sorted(paths)) + ", unread"
+            if not paths:
+                why = "not carried into cards.json"
+            elif not here:
+                why = "its field " + "/".join(sorted(paths)) + " is not on this row"
+            else:
+                why = "carried as " + "/".join(sorted(here)) + ", unread"
             out.append((col, f"{col} ({why})", family_of(col)))
         return out
 
@@ -830,11 +860,20 @@ def plant_blind_ledger(doc, consumed, colmap):
     return doc, consumed, colmap
 
 
+def plant_null_block(doc, consumed, colmap):
+    doc["units"]["Prince"]["charge"] = None
+    for c in doc["cards"]:
+        if c["name"] == "Prince":
+            c["charge"] = None
+    return doc, consumed, colmap
+
+
 PLANTS = {
     "slice_mechanic": plant_slice_mechanic,
     "unread_field": plant_unread_field,
     "stale_gap": plant_stale_gap,
     "blind_ledger": plant_blind_ledger,
+    "null_block": plant_null_block,
 }
 
 

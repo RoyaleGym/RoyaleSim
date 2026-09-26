@@ -78,6 +78,23 @@ pub enum HideState {
     Rising = 2,
 }
 
+/// Where a unit is in its DASH (calibration combat.DASH_ATTACK = client_dash; card.rs `DashDef`;
+/// state.rs `phase_path16402`). `None` on every entity whose card has no dash block, and on every
+/// entity under the shipped `none`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
+pub enum DashState {
+    /// Walking, attacking or anything else: no dash under way.
+    #[default]
+    None = 0,
+    /// The stand before the dash: the unit does not move, and enters `Dashing` on the tick
+    /// `dash_mark` names.
+    Standing = 1,
+    /// The dash itself: the unit moves at JumpSpeed toward `dash_goal`, runs no contact scan, is
+    /// non-collidable for everyone and does not attack.
+    Dashing = 2,
+}
+
 /// Everything needed to materialise one entity.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnInit {
@@ -226,6 +243,27 @@ pub struct Entities {
     /// `stagger_ms`.
     #[serde(default)]
     pub acquirable_from: Vec<u32>,
+    /// THE DASH (calibration combat.DASH_ATTACK = client_dash; card.rs `DashDef`; state.rs
+    /// `phase_path16402`, the one writer). `dash_state` is where the unit is in it. `dash_mark` is
+    /// the tick it enters (Standing) or entered (Dashing) the dash state. `dash_goal` is the goal
+    /// cell's centre, subtiles, fixed on that entry. `dash_target` is the target the dash rules
+    /// refer to, recorded the first time the unit was seen walking after it, and `dash_blocked`
+    /// says that target was then nearer than DashMinRange (edge to edge), so it is walked into.
+    /// `dash_immune_until`: damage landing on this unit on any tick before it is discarded
+    /// (combat.rs `resolve`). All `default` and sized on load like `acquirable_from`, written
+    /// under client_dash only, and hashed under it.
+    #[serde(default)]
+    pub dash_state: Vec<DashState>,
+    #[serde(default)]
+    pub dash_mark: Vec<u32>,
+    #[serde(default)]
+    pub dash_goal: Vec<Vec2>,
+    #[serde(default)]
+    pub dash_target: Vec<Option<EntityId>>,
+    #[serde(default)]
+    pub dash_blocked: Vec<bool>,
+    #[serde(default)]
+    pub dash_immune_until: Vec<u32>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -403,6 +441,14 @@ impl Entities {
         self.acquirable_from[i] > tick
     }
 
+    /// Damage landing on entity `i` in the Resolve phase of `tick` is discarded: it is dashing, or
+    /// its dash ended within DashImmuneToDamageTime (calibration combat.DASH_ATTACK;
+    /// `dash_immune_until`). False on every entity under the shipped `none`.
+    #[inline]
+    pub fn dash_immune(&self, i: usize, tick: u32) -> bool {
+        self.dash_immune_until.get(i).is_some_and(|&u| tick < u)
+    }
+
     /// Entity `i`'s buff slots, empty ones included.
     #[inline]
     pub fn buff_slots(&self, i: usize) -> &[BuffSlot] {
@@ -546,6 +592,12 @@ impl Entities {
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
             self.acquirable_from[i] = 0;
+            self.dash_state[i] = DashState::None;
+            self.dash_mark[i] = 0;
+            self.dash_goal[i] = Vec2::default();
+            self.dash_target[i] = None;
+            self.dash_blocked[i] = false;
+            self.dash_immune_until[i] = 0;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -610,6 +662,12 @@ impl Entities {
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);
             self.acquirable_from.push(0);
+            self.dash_state.push(DashState::None);
+            self.dash_mark.push(0);
+            self.dash_goal.push(Vec2::default());
+            self.dash_target.push(None);
+            self.dash_blocked.push(false);
+            self.dash_immune_until.push(0);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);

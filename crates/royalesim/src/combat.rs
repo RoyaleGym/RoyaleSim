@@ -259,7 +259,8 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
 /// target lock, the Path phase's hold), `Cooldown` = attacking on the hit tick
 /// (the unit stands; next tick the range gates the next cycle), `Idle` = not
 /// attacking. Not modelled: a hit-speed buff (Rage's HitSpeedMultiplier),
-/// SpecialRange and per-target ranges, LoadFirstHit (Sparky), the dash's hit.
+/// SpecialRange and per-target ranges, LoadFirstHit (Sparky). The dash's hit is not
+/// this cycle's: state.rs `phase_path16402` lands it (combat.DASH_ATTACK).
 fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
     let card = cards.get(ents.card[a]);
     let target = ents.target[a].filter(|t| ents.is_alive(*t));
@@ -666,7 +667,12 @@ pub struct ResolveOut {
 /// expiry). Dropping at resolve rather than at push time means every writer stays
 /// ignorant of hide, and the state that decides is the one Target phase set this
 /// tick (the hide pass runs before any damage is written).
-pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool) -> ResolveOut {
+///
+/// THE SAME CHOKE POINT FOR THE DASH (calibration combat.DASH_ATTACK = client_dash;
+/// entity.rs `dash_immune`): a hit on a unit that is dashing, or whose dash ended within
+/// its DashImmuneToDamageTime, is dropped on the Resolve phase of `tick`, not deferred.
+/// Measured on client 15.535.29 with tower arrows only; every writer is dropped alike.
+pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, tick: u32) -> ResolveOut {
     let cap = ents.capacity();
     sums.clear();
     sums.resize(cap, 0);
@@ -685,6 +691,12 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
         if immune {
             continue;
         }
+        #[cfg(not(clash_plant = "dash_not_immune"))]
+        if ents.dash_immune(h.target.index as usize, tick) {
+            continue;
+        }
+        #[cfg(clash_plant = "dash_not_immune")]
+        let _ = tick; // PLANT: a dashing unit takes every hit.
         sums[h.target.index as usize] += h.amount as i64;
     }
     let mut out = ResolveOut::default();

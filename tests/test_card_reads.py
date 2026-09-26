@@ -93,6 +93,7 @@ PLANT_AIM = {
     "unread_field": "minimum_range_milli",
     "stale_gap": "retire the entry",
     "blind_ledger": "ChargeRange",
+    "null_block": "is not on this row",
 }
 
 
@@ -114,7 +115,7 @@ def test_each_plant_lands(cards, plant):
 
 def test_the_prologue_table_still_covers_the_extractor(cards):
     """`ast` reads which card-table column becomes which cards.json field out of
-    `norm_unit`'s dict literal; six columns are read outside it and are listed by
+    `norm_unit`'s dict literal; nine columns are read outside it and are listed by
     hand. `ccr.load` raises when that list stops covering the function, which is the
     only way a column can go missing from the map and so look unread."""
     ccr.load(cards)  # raises SystemExit with the missing names
@@ -219,11 +220,15 @@ def test_the_command_line_exits_one_under_a_plant(cards):
 
 def test_the_report_names_the_cards_the_mechanics_doc_calls_out(cards):
     """docs/mechanics.md lists mechanics the engine does not run. The gate has to
-    find them on the cards that carry them, or it is looking in the wrong place."""
+    find them on the cards that carry them, or it is looking in the wrong place.
+
+    The Golden Knight's DashDamage is the case the gate once missed: its dash starts
+    only from its Ability, so the column rides in `triggered_dash` while its `dash`
+    is null, and the loader reads `dash` on the Bandit and the Mega Knight. A gate
+    that asked only whether the loader reads `dash.damage` anywhere called it read."""
     r = ccr.run(cards)
     want = {
         "InfernoDragon": "VariableDamage2",
-        "MegaKnight": "DashDamage",
         "Mortar": "MinimumRange",
         "ElectroGiant": "ReflectedAttackDamage",
         "GoldenKnight": "DashDamage",
@@ -302,7 +307,11 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # construction, so a future one moves it again -- check the delta is that card before
     # re-pinning, because the same +1 is also what a flag going missing somewhere else
     # would look like.
-    outside_by_vintage = {"2018": 40, "15.535": 75}
+    # 75 -> 74 on 2026-09-26: THE BANDIT (Assassin). The loader reads the dash block, which
+    # held the card's only unread columns, so it leaves the report. The WHOLE delta: the
+    # outside sets before and after differ by Assassin alone. The Mega Knight stays (its
+    # deploy blow, JumpHeight and spawn columns are unread).
+    outside_by_vintage = {"2018": 40, "15.535": 74}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

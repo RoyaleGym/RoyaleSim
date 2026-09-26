@@ -6253,7 +6253,10 @@
     "radius_milli": null,
     "cooldown_ms": 800,
     "immune_to_damage_time_ms": 100,
-    "pushback_milli": null
+    "pushback_milli": null,
+    "speed": 500,
+    "constant_time_ms": null,
+    "landing_time_ms": null
    },
    "jump": null,
    "hides_when_not_attacking": false,
@@ -7246,7 +7249,10 @@
     "radius_milli": 2200,
     "cooldown_ms": 900,
     "immune_to_damage_time_ms": null,
-    "pushback_milli": 1000
+    "pushback_milli": 1000,
+    "speed": 250,
+    "constant_time_ms": 800,
+    "landing_time_ms": 300
    },
    "jump": null,
    "hides_when_not_attacking": false,
@@ -9534,15 +9540,7 @@
    "kamikaze_time_ms": null,
    "spawn_pathfind": null,
    "charge": null,
-   "dash": {
-    "damage": 131,
-    "min_range_milli": null,
-    "max_range_milli": null,
-    "radius_milli": null,
-    "cooldown_ms": null,
-    "immune_to_damage_time_ms": 100,
-    "pushback_milli": 2000
-   },
+   "dash": null,
    "jump": null,
    "hides_when_not_attacking": false,
    "hide_time_ms": null,
@@ -9563,6 +9561,15 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "triggered_dash": {
+    "damage": 131,
+    "min_range_milli": null,
+    "max_range_milli": null,
+    "radius_milli": null,
+    "cooldown_ms": null,
+    "immune_to_damage_time_ms": 100,
+    "pushback_milli": 2000
+   },
    "count": 1,
    "summon_radius_milli": null,
    "summon_width_milli": null,
@@ -10193,15 +10200,7 @@
    "kamikaze_time_ms": null,
    "spawn_pathfind": null,
    "charge": null,
-   "dash": {
-    "damage": 500,
-    "min_range_milli": null,
-    "max_range_milli": null,
-    "radius_milli": 2200,
-    "cooldown_ms": null,
-    "immune_to_damage_time_ms": 100,
-    "pushback_milli": 2000
-   },
+   "dash": null,
    "jump": null,
    "hides_when_not_attacking": false,
    "hide_time_ms": null,
@@ -10215,6 +10214,15 @@
    ],
    "action_graph": null,
    "death_spawn_pushback": false,
+   "triggered_dash": {
+    "damage": 500,
+    "min_range_milli": null,
+    "max_range_milli": null,
+    "radius_milli": 2200,
+    "cooldown_ms": null,
+    "immune_to_damage_time_ms": 100,
+    "pushback_milli": 2000
+   },
    "count": 1,
    "summon_radius_milli": null,
    "summon_width_milli": null,
@@ -12179,7 +12187,10 @@
     "radius_milli": null,
     "cooldown_ms": 800,
     "immune_to_damage_time_ms": 100,
-    "pushback_milli": null
+    "pushback_milli": null,
+    "speed": 500,
+    "constant_time_ms": null,
+    "landing_time_ms": null
    },
    "jump": null,
    "hides_when_not_attacking": false,
@@ -22648,7 +22659,10 @@
     "radius_milli": null,
     "cooldown_ms": 800,
     "immune_to_damage_time_ms": 100,
-    "pushback_milli": null
+    "pushback_milli": null,
+    "speed": 500,
+    "constant_time_ms": null,
+    "landing_time_ms": null
    },
    "jump": null,
    "hides_when_not_attacking": false,
@@ -23456,7 +23470,10 @@
     "radius_milli": 2200,
     "cooldown_ms": 900,
     "immune_to_damage_time_ms": null,
-    "pushback_milli": 1000
+    "pushback_milli": 1000,
+    "speed": 250,
+    "constant_time_ms": 800,
+    "landing_time_ms": 300
    },
    "jump": null,
    "hides_when_not_attacking": false,
@@ -27347,15 +27364,7 @@
    "kamikaze_time_ms": null,
    "spawn_pathfind": null,
    "charge": null,
-   "dash": {
-    "damage": 131,
-    "min_range_milli": null,
-    "max_range_milli": null,
-    "radius_milli": null,
-    "cooldown_ms": null,
-    "immune_to_damage_time_ms": 100,
-    "pushback_milli": 2000
-   },
+   "dash": null,
    "jump": null,
    "hides_when_not_attacking": false,
    "hide_time_ms": null,
@@ -27377,6 +27386,15 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "triggered_dash": {
+    "damage": 131,
+    "min_range_milli": null,
+    "max_range_milli": null,
+    "radius_milli": null,
+    "cooldown_ms": null,
+    "immune_to_damage_time_ms": 100,
+    "pushback_milli": 2000
+   },
    "raw": {
     "Name": "GoldenKnight",
     "Rarity": "Common",
@@ -27998,15 +28016,7 @@
    "kamikaze_time_ms": null,
    "spawn_pathfind": null,
    "charge": null,
-   "dash": {
-    "damage": 500,
-    "min_range_milli": null,
-    "max_range_milli": null,
-    "radius_milli": 2200,
-    "cooldown_ms": null,
-    "immune_to_damage_time_ms": 100,
-    "pushback_milli": 2000
-   },
+   "dash": null,
    "jump": null,
    "hides_when_not_attacking": false,
    "hide_time_ms": null,
@@ -28021,6 +28031,15 @@
    ],
    "action_graph": null,
    "death_spawn_pushback": false,
+   "triggered_dash": {
+    "damage": 500,
+    "min_range_milli": null,
+    "max_range_milli": null,
+    "radius_milli": 2200,
+    "cooldown_ms": null,
+    "immune_to_damage_time_ms": 100,
+    "pushback_milli": 2000
+   },
    "raw": {
     "Name": "SuperHogRider_Terry",
     "Rarity": "Champion",
@@ -32755,7 +32774,10 @@
     "radius_milli": null,
     "cooldown_ms": 800,
     "immune_to_damage_time_ms": 100,
-    "pushback_milli": null
+    "pushback_milli": null,
+    "speed": 500,
+    "constant_time_ms": null,
+    "landing_time_ms": null
    },
    "jump": null,
    "hides_when_not_attacking": false,
@@ -36223,7 +36245,10 @@
     "radius_milli": 2200,
     "cooldown_ms": 900,
     "immune_to_damage_time_ms": null,
-    "pushback_milli": 1000
+    "pushback_milli": 1000,
+    "speed": 250,
+    "constant_time_ms": 800,
+    "landing_time_ms": 300
    },
    "jump": null,
    "hides_when_not_attacking": false,
