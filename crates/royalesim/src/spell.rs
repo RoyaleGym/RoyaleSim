@@ -213,10 +213,13 @@ pub fn forward_dy(team: Team) -> i32 {
 
 /// The area effect / projectile / roll a card index runs: a SPELL card's own shape,
 /// or -- for a troop or building whose DEATH leaves an area effect standing (card.rs
-/// `death_area_effect`, the Ice Golem's) -- that block. A card carries at most one of
-/// the two: `convert_spell` reads no death column and `convert` builds no spell. Both
-/// `cast` and `step_spells` resolve a `Spell`'s card this way, so a death release is
-/// the SAME object, the same `impact` and the same phase a Zap gets.
+/// `death_area_effect`, the Ice Golem's) -- that block, or -- for a troop whose card
+/// carries a DEPLOY PROJECTILE (card.rs `deploy_projectile`, the Mega Knight's) -- that
+/// impact. A card carries at most one of the three: `convert_spell` reads no death or
+/// deploy column, `convert` builds no spell, and `convert` refuses a unit with both a
+/// deploy projectile and a death area effect. Both `cast` and `step_spells` resolve a
+/// `Spell`'s card this way, so a death release and a deploy blow are the SAME object,
+/// the same `impact` and the same phase a Zap gets.
 ///
 /// CRATE-VISIBLE because the answer is also the snapshot's: state.rs `load_with`
 /// refuses a saved `Spell` whose card runs no shape, and it has to ask the question
@@ -224,7 +227,7 @@ pub fn forward_dy(team: Team) -> i32 {
 /// battle saved on the one tick a death release is in the air.
 #[inline]
 pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
-    def.spell.as_ref().or(def.death_area_effect.as_ref())
+    def.spell.as_ref().or(def.death_area_effect.as_ref()).or(def.deploy_projectile.as_ref())
 }
 
 /// Turn one accepted cast -- or one death that releases an area effect -- into its
@@ -406,6 +409,33 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
         return false; // PLANT: PushbackAll no longer overrides IgnorePushback.
     }
     !(e.deploy_ms[v] > 0 && !ctx.calib.knock_affects_deploying)
+}
+
+/// ONE PUSH FROM A POINT, for a hit that is not a spell's impact: a troop's straight shot
+/// (combat.rs `straight_hits`, calibration combat.RANGE_PROJECTILE = straight_to_range),
+/// which pushes its victim radially from the projectile's centre. The same eligibility
+/// (`pushable`) and the same two laws `impact` runs: under client16402 the ladder armed
+/// from `centre` in native units with Pushback, under fixed_distance the displacement
+/// along the radial with `impact`'s zero-vector fallback.
+pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &KnockbackDef, fx: &mut EffectBuffer) {
+    if !pushable(ctx, v, k) {
+        return;
+    }
+    let e = ctx.ents;
+    let id = e.id_of(v);
+    match ctx.calib.knock_law {
+        KnockLaw::FixedDistance => {
+            let fallback = match ctx.calib.knock_zero_vector {
+                KnockZeroVector::CasterForward => Some(Vec2::new(0, forward_dy(team))),
+                KnockZeroVector::Client16402XByIdParity => Some(Vec2::new(if e.team_seq[v] & 1 == 1 { -1 } else { 1 }, 0)),
+                KnockZeroVector::NoPush => None,
+            };
+            if let Some(d) = push_along(e.pos[v].sub(centre), k.distance, fallback.map(|f| Vec2::new(f.x * k.distance, f.y * k.distance))) {
+                fx.knocks.push(Knock::Displacement(id, d));
+            }
+        }
+        KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team }),
+    }
 }
 
 /// Apply one circular impact of `hit` at `centre` for `team`. `damage` is level-scaled.
@@ -679,7 +709,9 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     *delay_ms -= tick;
                     return true;
                 }
-                let (np, _) = advance(*pos, *aim, speed * mult, frac);
+                // combat.PROJECTILE_STEP: exact steps with the remainder carried, or the
+                // client's truncated native step (combat.rs `projectile_advance`).
+                let np = crate::combat::projectile_advance(ctx.calib.projectile_step, *pos, *aim, speed * mult, frac);
                 *pos = np;
                 if np != *aim {
                     return true;

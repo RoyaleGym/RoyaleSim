@@ -40,15 +40,18 @@
 //!     game carries overflow past a breaking shield is UNVERIFIED.
 #![allow(unexpected_cfgs)]
 
-use crate::card::CardDb;
+use crate::card::{CardDb, CardDef, CustomShotDef, KnockbackDef};
 use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
-use crate::fixed::{in_range_edge, Vec2};
-use crate::path::advance;
-use crate::state::{AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, HitSpeedBuff, ProjectileLaunch, TargetBuffScope};
-use crate::spell::EffectBuffer;
+use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
+use crate::path::{advance, advance_client};
+use crate::state::{
+    AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch, ProjectileStep, RangeProjectile,
+    TargetBuffScope,
+};
+use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
 use crate::target::in_attack_range;
-use crate::{EntityId, Team};
+use crate::{EntityId, Rng, Team};
 
 const PERCENT: i64 = 100;
 
@@ -90,8 +93,10 @@ pub struct DamageBuffer {
     pub hits: Vec<Hit>,
 }
 
-/// An in-flight homing projectile.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+/// An in-flight projectile: a homing shot, or a straight one (`straight`).
+///
+/// NOT `Copy`: a straight shot's hit set (`Straight::hit`), a Vec, rides on it.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Projectile {
     pub team: Team,
     pub pos: Vec2,
@@ -128,6 +133,148 @@ pub struct Projectile {
     /// export writes -2 for it rather than folding it into the -1 of a crown tower.
     #[serde(default)]
     pub firer_card: Option<u16>,
+    /// A STRAIGHT SHOT (calibration combat.RANGE_PROJECTILE = straight_to_range, or a
+    /// pellet of combat.MULTIPLE_PROJECTILES = client_fan): it flies to `aim`, the point
+    /// ProjectileRange from its attacker, and never follows `target`, hitting what it
+    /// passes (`step_straight`). None for every homing shot, which is every shot under the
+    /// shipped arms. Added after SNAPSHOT_FORMAT 20; absent in older snapshots = None, and
+    /// hashed only when present, so a battle without one hashes as it did.
+    #[serde(default)]
+    pub straight: Option<Straight>,
+}
+
+/// The state of a straight shot (`Projectile::straight`). Distances SUBTILES.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Straight {
+    /// The attacker's centre at launch: the range, and a pingpong throw's distance, are
+    /// measured from it.
+    pub origin: Vec2,
+    /// ProjectileRadius: an enemy is hit when its centre comes within this plus its radius.
+    pub reach: i32,
+    /// Pushback (0: none) and PushbackAll: a victim is pushed radially from the shot's centre.
+    pub push: i32,
+    pub push_all: bool,
+    /// OnlyEnemies.
+    pub only_enemies: bool,
+    /// Ticks the shot still stands at its launch point after its creation tick before its
+    /// first step (a fan pellet's release delay; 0 for a single shot).
+    pub hold: i32,
+    /// A PINGPONG throw's period in ticks (PingpongVisualTime / TICK_MS), 0 for a one-way
+    /// shot. Nothing sets it while cards.json does not carry PingpongVisualTime.
+    pub period: i32,
+    /// The pingpong throw's start distance (ProjectileStartRadius).
+    pub start: i32,
+    /// Ticks since a pingpong throw (0 on its creation tick).
+    pub t: i32,
+    /// Every unit hit so far (on this leg, for a pingpong throw), kept sorted so the set --
+    /// and the state hash -- is a function of who was hit, not of neighbour order.
+    pub hit: Vec<EntityId>,
+}
+
+/// combat.MULTIPLE_PROJECTILES = client_fan: the angle between neighbouring pellets of a fan,
+/// degrees. Measured on client 15.535.29 on the Hunter (26 volleys: offsets 0, +7, -7, +14, -14,
+/// +21, -21, +28, -28, +35 in creation order, to 0.06 degrees). The only row measured; another
+/// MultipleProjectiles row may step otherwise.
+pub const FAN_STEP_DEG: i64 = 7;
+
+/// combat.MULTIPLE_PROJECTILES = client_fan: a pellet starts to move this many ticks after its
+/// creation, drawn uniformly from the battle's Rng. Measured on client 15.535.29 on the Hunter:
+/// 2 to 5 on all but one of about 250 pellets (a single 1). The client draws from its own
+/// random stream, so the engine matches the range, not the order.
+pub const FAN_RELEASE_TICKS: (i32, i32) = (2, 5);
+
+/// combat.DEPLOY_PROJECTILE = client_on_landing: the deploy projectile lands this many ticks
+/// after the unit's first frame. Measured on client 15.535.29 on the Mega Knight (both sides:
+/// first frame 259, the blow on 265). Whether it is a flight time (the row's Speed is 1000) or
+/// a fixed delay is open; one card carries a deploy projectile.
+pub const DEPLOY_PROJECTILE_DELAY_TICKS: i32 = 6;
+
+/// ONE TICK OF A FLYING PROJECTILE, a troop's, a building's or a crown tower's shot or a
+/// spell's flight, under calibration combat.PROJECTILE_STEP. Returns the new position, `aim`
+/// itself on the tick it arrives. `speed` is SUBTILES per tick.
+#[inline]
+pub fn projectile_advance(step: ProjectileStep, pos: Vec2, aim: Vec2, speed: i32, frac: &mut Vec2) -> Vec2 {
+    match step {
+        ProjectileStep::FractionCarry => advance(pos, aim, speed, frac).0,
+        // client_native_truncated: path.rs `advance_client`, in native units, nothing carried.
+        #[cfg(not(clash_plant = "projectile_step_carries_fraction"))]
+        ProjectileStep::ClientNativeTruncated => {
+            *frac = Vec2::default();
+            advance_client(pos, aim, speed / K)
+        }
+        // PLANT (regression): the new arm steps exactly Speed and carries the remainder.
+        #[cfg(clash_plant = "projectile_step_carries_fraction")]
+        ProjectileStep::ClientNativeTruncated => advance(pos, aim, speed, frac).0,
+    }
+}
+
+/// `src` moved `amount` (SUBTILES) toward `tgt` by the client's arithmetic, in NATIVE units:
+/// `src + trunc0(v * amount / isqrt(v.v))` with `v = tgt - src`, the result a whole native
+/// position. A zero `v` takes the caster's forward axis. The start point of a shot under
+/// combat.PROJECTILE_STEP = client_native_truncated and of every straight shot.
+fn toward_native(src: Vec2, tgt: Vec2, amount: i32, team: Team) -> Vec2 {
+    fan_aim(src, tgt, amount, 0, team)
+}
+
+/// The point `dist` (SUBTILES) from `src` on the bearing to `tgt` turned `deg` degrees
+/// (positive = counter-clockwise in arena coordinates, the same for both seats: the client's
+/// order is not mirrored), in NATIVE units: the aim point of a straight shot and of each
+/// pellet of a fan. The turn is the integer rotation of `v = tgt - src` by fixed.rs
+/// `cos_pi_frac` / `sin_pi_frac`; at 0 degrees it is exactly `src + trunc0(v * dist /
+/// isqrt(v.v))`.
+fn fan_aim(src: Vec2, tgt: Vec2, dist: i32, deg: i64, team: Team) -> Vec2 {
+    let (sx, sy) = ((src.x / K) as i64, (src.y / K) as i64);
+    let (mut vx, mut vy) = ((tgt.x / K) as i64 - sx, (tgt.y / K) as i64 - sy);
+    let mut n = isqrt(vx * vx + vy * vy);
+    if n == 0 {
+        (vx, vy, n) = (0, forward_dy(team) as i64, 1);
+    }
+    let (c, s) = (cos_pi_frac(deg, 180) as i128, sin_pi_frac(deg, 180) as i128);
+    let (vx, vy) = (vx as i128, vy as i128);
+    let (rx, ry) = (vx * c - vy * s, vx * s + vy * c);
+    let den = (n as i128) * (TRIG_ONE as i128);
+    let d = (dist / K) as i128;
+    Vec2::new(((sx as i128 + rx * d / den) as i32) * K, ((sy as i128 + ry * d / den) as i32) * K)
+}
+
+/// The offset of pellet `k` of a fan, degrees: 0, +7, -7, +14, -14, ... (`FAN_STEP_DEG`).
+fn fan_offset_deg(k: i32) -> i64 {
+    let m = ((k + 1) / 2) as i64 * FAN_STEP_DEG;
+    if k % 2 == 1 {
+        m
+    } else {
+        -m
+    }
+}
+
+/// The projectiles one shot of `card` fires under combat.MULTIPLE_PROJECTILES.
+fn fan_count(calib: &Calib, card: &CardDef) -> i32 {
+    #[cfg(not(clash_plant = "fan_single_pellet"))]
+    let n = card.multiple_projectiles.max(1);
+    #[cfg(clash_plant = "fan_single_pellet")]
+    let n = {
+        let _ = card.multiple_projectiles;
+        1 // PLANT (regression): the new arm fires one projectile a shot, as `one` does.
+    };
+    if calib.multiple_projectiles == MultipleProjectiles::ClientFan {
+        n
+    } else {
+        1
+    }
+}
+
+/// A pingpong throw's position `t` ticks after it (combat.RANGE_PROJECTILE = straight_to_range
+/// on a PingpongVisualTime row), measured on client 15.535.29 on the Executioner's axe (within
+/// 5): `start + (range - start) x sin(pi t / period)` from `origin` toward `apex`, the point
+/// `range` out on the launch line, in NATIVE units. The apex tick (t = period / 2) is recorded
+/// on the client at the value one tick before it; that is open and not modelled.
+fn pingpong_pos(origin: Vec2, apex: Vec2, start: i32, t: i32, period: i32) -> Vec2 {
+    let (ox, oy) = ((origin.x / K) as i64, (origin.y / K) as i64);
+    let (ux, uy) = ((apex.x / K) as i64 - ox, (apex.y / K) as i64 - oy);
+    let range = isqrt(ux * ux + uy * uy).max(1);
+    let start = (start / K) as i64;
+    let d = start + (range - start) * sin_pi_frac(t as i64, period.max(1) as i64) / TRIG_ONE;
+    Vec2::new(((ox + ux * d / range) as i32) * K, ((oy + uy * d / range) as i32) * K)
 }
 
 /// Damage after the crown-tower reduction, if the victim is a crown tower. Damage
@@ -404,6 +551,11 @@ fn attack_step_windup(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, 
 }
 
 /// Turn a completed windup into damage: a projectile, or an instant hit.
+///
+/// `rng` is drawn only for the release delays of a fan (combat.MULTIPLE_PROJECTILES =
+/// client_fan), so a battle under the shipped arms consumes nothing from it here.
+/// `bolts` are the extra bolts of this attack (combat.MULTIPLE_TARGETS =
+/// client_bolts_per_target, state.rs `extra_bolts`), empty under the shipped arm.
 #[allow(clippy::too_many_arguments)]
 pub fn fire(
     ents: &Entities,
@@ -416,6 +568,8 @@ pub fn fire(
     fx: &mut EffectBuffer,
     projectiles: &mut Vec<Projectile>,
     scratch: &mut Vec<u32>,
+    rng: &mut Rng,
+    bolts: &[EntityId],
 ) {
     let card = cards.get(ents.card[a]);
     let ti = target.index as usize;
@@ -471,6 +625,109 @@ pub fn fire(
         card.projectile.map(|p| p.radius).unwrap_or(0)
     };
     if let Some(p) = card.projectile {
+        // combat.CUSTOM_FIRST_PROJECTILE = client_first_of_volley: the attack's projectile is
+        // the card's CustomFirstProjectile row when that is a row of its own (the Princess's
+        // PrincessProjectile: 66 at level 1, Radius 2000, Speed 600, air and ground), with
+        // ITS damage, splash radius, speed, filters and crown percent. Measured on client
+        // 15.535.29 (both sides): her first volley takes 168 off two Goblins about 1,200 apart
+        // on one frame. The volley's other MultipleProjectiles - 1 are her Projectile column,
+        // the damage-less PrincessProjectileDeco, and are not fired: they would change
+        // nothing the simulation computes, and their layout (GroupProjectiles) is unmeasured.
+        #[cfg(not(clash_plant = "custom_first_projectile_unread"))]
+        let custom: Option<CustomShotDef> = match calib.custom_first_projectile {
+            CustomFirstProjectile::ClientFirstOfVolley => card.custom_first_projectile,
+            CustomFirstProjectile::NotRead => None,
+        };
+        #[cfg(clash_plant = "custom_first_projectile_unread")]
+        let custom: Option<CustomShotDef> = {
+            let _ = calib.custom_first_projectile;
+            None // PLANT (regression): the new arm fires the Projectile column, the Princess's decoration.
+        };
+        // combat.RANGE_PROJECTILE = straight_to_range, and combat.MULTIPLE_PROJECTILES =
+        // client_fan: a row with a ProjectileRange fires straight shots (`Straight`).
+        if let (None, Some(rs)) = (custom, card.range_shot) {
+            let pellets = fan_count(calib, card);
+            #[cfg(not(clash_plant = "range_projectile_unread"))]
+            let straight_arm = calib.range_projectile == RangeProjectile::StraightToRange;
+            #[cfg(clash_plant = "range_projectile_unread")]
+            let straight_arm = {
+                let _ = calib.range_projectile;
+                false // PLANT (regression): the new arm aims a range row's shot at its target, as to_target.
+            };
+            if straight_arm || pellets > 1 {
+                let team = ents.team[a];
+                // Start-of-tick positions: Attack runs before Move.
+                let (src, tgt) = (ents.pos[a], ents.pos[ti]);
+                // The start point and its timing are combat.PROJECTILE_LAUNCH's; a straight
+                // shot's arithmetic is always the client's native one.
+                let (pos, fresh) = match calib.projectile_launch {
+                    ProjectileLaunch::StartRadiusNextTick => (toward_native(src, tgt, card.projectile_start_radius, team), true),
+                    ProjectileLaunch::AttackerCentreSameTick => (src, false),
+                };
+                // A pingpong row (PingpongVisualTime) throws one shot out and back.
+                let period = match rs.pingpong_ms {
+                    Some(ms) if pellets == 1 => (ms / calib.tick_ms.max(1)).max(1),
+                    _ => 0,
+                };
+                let (push, push_all) = rs.knockback.map_or((0, false), |k| (k.distance, k.all));
+                for k in 0..pellets {
+                    // Each pellet of a fan is aimed at ProjectileRange on its own offset from
+                    // the bearing to the target and released 2-5 ticks after its creation
+                    // (`FAN_RELEASE_TICKS`); a single shot on the bearing, released at once.
+                    let aim = fan_aim(src, tgt, rs.range, fan_offset_deg(k), team);
+                    #[cfg(not(clash_plant = "fan_pellets_unheld"))]
+                    let hold = if pellets > 1 { rng.range(FAN_RELEASE_TICKS.0, FAN_RELEASE_TICKS.1) - 1 } else { 0 };
+                    #[cfg(clash_plant = "fan_pellets_unheld")]
+                    let hold = {
+                        let _ = (&rng, FAN_RELEASE_TICKS);
+                        0 // PLANT (regression): every pellet moves on the tick after its creation.
+                    };
+                    let mut shot = Projectile {
+                        team,
+                        pos,
+                        target,
+                        aim,
+                        speed: p.speed * calib.projectile_speed_to_subtiles_per_tick,
+                        damage: amount,
+                        crown_pct: pct,
+                        splash: 0,
+                        hits_air: rs.hits_air,
+                        hits_ground: rs.hits_ground,
+                        frac: Vec2::default(),
+                        fresh,
+                        buff: atk_buff,
+                        pulse: atk_pulse,
+                        firer_card: Some(ents.card[a]),
+                        straight: Some(Straight {
+                            origin: src,
+                            reach: rs.reach,
+                            push,
+                            push_all,
+                            only_enemies: rs.only_enemies,
+                            hold,
+                            period,
+                            start: card.projectile_start_radius,
+                            t: 0,
+                            hit: Vec::new(),
+                        }),
+                    };
+                    // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
+                    // launch point against the start-of-tick positions, measured on client
+                    // 15.535.29 (a boulder hit 1428 from its launch point on the tick it was
+                    // created). A pingpong throw first tests on the next tick, against this
+                    // tick's position (`step_straight`).
+                    if fresh && period == 0 {
+                        straight_hits(ents, hash, cards, calib, &mut shot, pos, dmg, fx, scratch);
+                    }
+                    projectiles.push(shot);
+                }
+                return;
+            }
+        }
+        let (speed, amount, splash_r, hits_air, hits_ground, pct) = match custom {
+            Some(cf) => (cf.speed, cards.scaled(ents.card[a], ents.level[a], cf.damage).expect("level validated at spawn"), cf.radius, cf.hits_air, cf.hits_ground, cf.crown_pct),
+            None => (p.speed, amount, splash_r, card.attacks_air, card.attacks_ground, pct),
+        };
         // combat.PROJECTILE_LAUNCH: the projectile is born ProjectileStartRadius from
         // the attacker's centre toward the target and does not move on the fire tick
         // (the live tower arrows: 299-300 from the centre on the launch frame, 600 per
@@ -480,7 +737,17 @@ pub fn fire(
                 let d = ents.pos[ti].sub(ents.pos[a]);
                 let len = crate::fixed::isqrt(d.len2()) as i32;
                 let r = card.projectile_start_radius.min(len.max(0));
-                let pos = if len > 0 {
+                // combat.PROJECTILE_STEP = client_native_truncated: the same point by the
+                // client's arithmetic, src + trunc0(v * R / isqrt(v.v)) in NATIVE units
+                // (measured on client 15.535.29: 6,695 of 6,813 launches), so the shot sits
+                // on the native grid; the old arm truncates in subtiles.
+                #[cfg(not(clash_plant = "projectile_start_in_subtiles"))]
+                let native = calib.projectile_step == ProjectileStep::ClientNativeTruncated;
+                #[cfg(clash_plant = "projectile_start_in_subtiles")]
+                let native = false; // PLANT (regression): the new arm's start point is truncated in subtiles.
+                let pos = if native {
+                    toward_native(ents.pos[a], ents.pos[ti], r, ents.team[a])
+                } else if len > 0 {
                     Vec2::new(ents.pos[a].x + ((d.x as i64) * (r as i64) / (len as i64)) as i32, ents.pos[a].y + ((d.y as i64) * (r as i64) / (len as i64)) as i32)
                 } else {
                     ents.pos[a]
@@ -498,17 +765,18 @@ pub fn fire(
             // own key, NOT the troop key `calib.speed_to_subtiles_per_tick` (the two
             // hold the same value today; see that key's provenance for why they are
             // separate).
-            speed: p.speed * calib.projectile_speed_to_subtiles_per_tick,
+            speed: speed * calib.projectile_speed_to_subtiles_per_tick,
             damage: amount,
             crown_pct: pct,
             splash: splash_r,
-            hits_air: card.attacks_air,
-            hits_ground: card.attacks_ground,
+            hits_air,
+            hits_ground,
             frac: Vec2::default(),
             fresh,
             buff: atk_buff,
             pulse: atk_pulse,
             firer_card: Some(ents.card[a]),
+            straight: None,
         });
         return;
     }
@@ -527,6 +795,16 @@ pub fn fire(
         dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
         if let Some(b) = atk_buff {
             fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse });
+        }
+        // combat.MULTIPLE_TARGETS = client_bolts_per_target: every other bolt of the attack is
+        // the whole hit again, damage and buff, on its own victim (state.rs `extra_bolts`
+        // chose them; under AllTargetsHit a bolt with no other enemy is `target` again).
+        for &b in bolts {
+            let bi = b.index as usize;
+            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding), ignores_hide: false });
+            if let Some(bf) = atk_buff {
+                fx.buffs.push(BuffHit { target: b, buff: bf.buff, time_ms: bf.time_ms, pulse_amount: atk_pulse });
+            }
         }
     }
 }
@@ -557,12 +835,132 @@ fn apply_attack_buff(
     }
 }
 
+/// Every enemy a straight shot `p` at `at` hits now: alive, of the shot's air/ground
+/// filters and OnlyEnemies, not hit before (on this leg), with its centre within the
+/// shot's ProjectileRadius plus its own radius (measured on client 15.535.29: the Bowler's
+/// boulder, the Elite Archer's arrow). Each takes the shot's damage and buff, and a
+/// Pushback pushes it radially from `at` (spell.rs `push_from`, knockback.DIRECTION_ROLLING's
+/// radial law). Hits and pushes go to the buffers in neighbour order; neither depends on it
+/// (the hit set is sorted, the damage summed, and each unit is pushed once by one shot).
+/// Returns whether anything was hit.
+#[allow(clippy::too_many_arguments)]
+fn straight_hits(
+    ents: &Entities,
+    hash: &SpatialHash,
+    cards: &CardDb,
+    calib: &Calib,
+    p: &mut Projectile,
+    at: Vec2,
+    dmg: &mut DamageBuffer,
+    fx: &mut EffectBuffer,
+    nb: &mut Vec<u32>,
+) -> bool {
+    let (team, damage, crown_pct, hits_air, hits_ground, buff, pulse) = (p.team, p.damage, p.crown_pct, p.hits_air, p.hits_ground, p.buff, p.pulse);
+    let Some(s) = p.straight.as_mut() else { return false };
+    let ctx = SpellCtx { ents, hash, cards, calib };
+    hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
+    let mut any = false;
+    for &v in nb.iter() {
+        let v = v as usize;
+        if !ents.alive[v] || ents.hp[v] <= 0 || (s.only_enemies && ents.team[v] == team) {
+            continue;
+        }
+        if if ents.flying[v] { !hits_air } else { !hits_ground } {
+            continue;
+        }
+        if !in_range_edge(at, ents.pos[v], s.reach, ents.radius[v]) {
+            continue;
+        }
+        let id = ents.id_of(v);
+        match s.hit.binary_search(&id) {
+            Ok(_) => continue,
+            Err(k) => s.hit.insert(k, id),
+        }
+        any = true;
+        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding), ignores_hide: false });
+        if let Some(b) = buff {
+            fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse });
+        }
+        #[cfg(not(clash_plant = "range_shot_unpushed"))]
+        if s.push > 0 {
+            push_from(&ctx, team, v, at, &KnockbackDef { distance: s.push, all: s.push_all }, fx);
+        }
+        #[cfg(clash_plant = "range_shot_unpushed")]
+        let _ = (&ctx, s.push_all); // PLANT (regression): a straight shot's Pushback moves nothing.
+    }
+    any
+}
+
+/// One tick of a straight shot (`Projectile::straight`), after the move pass. Returns false
+/// once it is gone.
+///   * A PINGPONG throw: `t` advances; the shot tests the positions it hits against its
+///     PREVIOUS frame's position (measured on client 15.535.29 on the Executioner's axe:
+///     5 hits, the tightest miss 1519 against 1500), then moves to `pingpong_pos`. Its hit
+///     set is cleared as the return leg starts, so it hits a unit once a leg, and it is gone
+///     after `t = period`.
+///   * A held pellet (`hold` > 0) stands at its launch point and tests there.
+///   * A one-way shot steps toward `aim`, the point ProjectileRange out, by
+///     combat.PROJECTILE_STEP's law, and is GONE instead of taking the step that would reach
+///     it: it is last seen at the last point within ProjectileRange (measured on client
+///     15.535.29: 6933-6939 of 7000 for the boulder, 10789-10796 of 11000 for the arrow).
+///     Otherwise it moves and tests its new position against the post-move positions.
+#[allow(clippy::too_many_arguments)]
+fn step_straight(
+    ents: &Entities,
+    hash: &SpatialHash,
+    cards: &CardDb,
+    calib: &Calib,
+    p: &mut Projectile,
+    dmg: &mut DamageBuffer,
+    fx: &mut EffectBuffer,
+    nb: &mut Vec<u32>,
+) -> bool {
+    let Some(s) = p.straight.as_mut() else { return false };
+    if s.period > 0 {
+        s.t += 1;
+        if s.t > s.period {
+            return false;
+        }
+        if 2 * s.t > s.period && 2 * (s.t - 1) <= s.period {
+            s.hit.clear();
+        }
+        let (origin, start, t, period) = (s.origin, s.start, s.t, s.period);
+        let prev = p.pos;
+        straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb);
+        p.pos = pingpong_pos(origin, p.aim, start, t, period);
+        return true;
+    }
+    if s.hold > 0 {
+        s.hold -= 1;
+        let here = p.pos;
+        straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb);
+        return true;
+    }
+    let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac);
+    if np == p.aim {
+        return false;
+    }
+    p.pos = np;
+    #[cfg(not(clash_plant = "range_shot_ends_on_first_hit"))]
+    straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb);
+    // PLANT (regression): a straight shot ends on the first unit it hits, as a homing shot does.
+    #[cfg(clash_plant = "range_shot_ends_on_first_hit")]
+    if straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb) {
+        return false;
+    }
+    true
+}
+
 /// Advance every projectile; arrivals write into the damage buffer. Each
 /// projectile depends only on its own state and the (unchanging during this
-/// phase) entity positions, so processing order is irrelevant.
+/// phase) entity positions, so processing order is irrelevant. A straight shot
+/// (`step_straight`) writes its hits as it passes and keeps its own hit set, so no
+/// projectile reads another's state.
+#[allow(clippy::too_many_arguments)]
 pub fn step_projectiles(
     ents: &Entities,
     hash: &SpatialHash,
+    cards: &CardDb,
     calib: &Calib,
     projectiles: &mut Vec<Projectile>,
     dmg: &mut DamageBuffer,
@@ -576,11 +974,15 @@ pub fn step_projectiles(
             p.fresh = false;
             return true;
         }
+        if p.straight.is_some() {
+            return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch);
+        }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
         if alive {
             p.aim = ents.pos[p.target.index as usize];
         }
-        let (np, _) = advance(p.pos, p.aim, p.speed, &mut p.frac);
+        // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
+        let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac);
         p.pos = np;
         if np != p.aim {
             return true;
@@ -600,18 +1002,19 @@ pub fn step_projectiles(
 }
 
 /// The whole ticks until projectile `p`'s hit resolves, read at the end of a tick: the steps it still
-/// takes toward its target as the target stands now (`step_projectiles`' own `advance`, arriving on
-/// the step that reaches it), plus one for a shot whose first step is next tick's (`fresh`). A moving
-/// target's count is re-read each tick; for a still target it is the countdown fixed at launch.
-pub fn ticks_to_land(ents: &Entities, p: &Projectile) -> i32 {
+/// takes toward its target as the target stands now (`step_projectiles`' own step, combat.PROJECTILE_STEP's
+/// `step`, arriving on the step that reaches it), plus one for a shot whose first step is next tick's
+/// (`fresh`). A moving target's count is re-read each tick; for a still target it is the countdown fixed
+/// at launch.
+pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i32 {
     let aim = if ents.is_alive(p.target) { ents.pos[p.target.index as usize] } else { p.aim };
     let (mut pos, mut frac) = (p.pos, p.frac);
     let mut n = i32::from(p.fresh);
-    // A shot always lands: `advance` moves it at least `speed` closer each step. The bound only
-    // guards a zero speed, which no card ships.
+    // A shot always lands: either step moves it closer each tick and lands it within one step. The
+    // bound only guards a zero speed, which no card ships.
     for _ in 0..100_000 {
         n += 1;
-        let (np, _) = advance(pos, aim, p.speed, &mut frac);
+        let np = projectile_advance(step, pos, aim, p.speed, &mut frac);
         if np == aim {
             break;
         }
@@ -625,17 +1028,21 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile) -> i32 {
 /// damage of the shots flying at it, crown-tower arrows included, covers its hitpoints and shield, and
 /// the shot of those that lands LAST does so within `limit_ms` (measured on client 15.535.29: 62 of 62
 /// drops, 44 of 44 keeps while the lethal damage was 650-750 ms away).
-pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32) -> Vec<bool> {
+///
+/// A STRAIGHT SHOT (`Projectile::straight`, only under combat.RANGE_PROJECTILE = straight_to_range or
+/// combat.MULTIPLE_PROJECTILES = client_fan) dooms nothing: it flies to its range point, not to its
+/// target, and may miss it. Whether the client counts it is unmeasured.
+pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep) -> Vec<bool> {
     let cap = ents.capacity();
     let mut pending = vec![0i64; cap];
     let mut last_ms = vec![0i32; cap];
     for p in projectiles {
-        if !ents.is_alive(p.target) {
+        if p.straight.is_some() || !ents.is_alive(p.target) {
             continue;
         }
         let t = p.target.index as usize;
         pending[t] += damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) as i64;
-        last_ms[t] = last_ms[t].max(ticks_to_land(ents, p) * tick_ms);
+        last_ms[t] = last_ms[t].max(ticks_to_land(ents, p, step) * tick_ms);
     }
     #[cfg(not(clash_plant = "doomed_eta_ignored"))]
     let within = |t: usize| last_ms[t] <= limit_ms;

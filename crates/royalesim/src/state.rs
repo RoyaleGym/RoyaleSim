@@ -57,7 +57,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, FootprintModel, Lane, Rect, Shape, Territory, TerritoryModel};
-use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpellPlacement, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpellPlacement, SpellShape, KING_TOWER, PRINCESS_TOWER};
 use crate::collide::{self, CollideScratch};
 use crate::combat::{self, CrownRounding, DamageBuffer, Hit, Projectile};
 use crate::spell::{self, EffectBuffer, Spell};
@@ -251,6 +251,31 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "attack_facing_default")]
     pub attack_facing: AttackFacing,
+    /// combat.PROJECTILE_STEP: a flying projectile's step, a shot's start point and the doomed ETA
+    /// (combat.rs `projectile_advance`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// what a battle saved before it actually ran.
+    #[serde(default = "projectile_step_default")]
+    pub projectile_step: ProjectileStep,
+    /// combat.RANGE_PROJECTILE: a ProjectileRange row's shot flies straight to its range (combat.rs
+    /// `fire`, `step_straight`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "range_projectile_default")]
+    pub range_projectile: RangeProjectile,
+    /// combat.CUSTOM_FIRST_PROJECTILE: an attack fires the card's CustomFirstProjectile (combat.rs
+    /// `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "custom_first_projectile_default")]
+    pub custom_first_projectile: CustomFirstProjectile,
+    /// combat.MULTIPLE_PROJECTILES: a MultipleProjectiles row's shot is a fan (combat.rs `fire`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "multiple_projectiles_default")]
+    pub multiple_projectiles: MultipleProjectiles,
+    /// combat.MULTIPLE_TARGETS: a MultipleTargets card's attack is N bolts (`extra_bolts`, combat.rs
+    /// `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "multiple_targets_default")]
+    pub multiple_targets: MultipleTargets,
+    /// combat.DEPLOY_PROJECTILE: a unit whose card carries a deploy projectile fires it (`spawn_now`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "deploy_projectile_default")]
+    pub deploy_projectile: DeployProjectile,
     /// targeting.DOOMED_TARGET_DROP: whether a projectile attacker drops a target the shots in flight
     /// will kill (`phase_target`, target.rs `can_target`). Added after SNAPSHOT_FORMAT 20; the
     /// `default` is the old arm, what a battle saved before it actually ran.
@@ -607,6 +632,30 @@ fn attacking_unit_movement_default() -> AttackingUnitMovement {
 
 fn attack_facing_default() -> AttackFacing {
     AttackFacing::Kept
+}
+
+fn projectile_step_default() -> ProjectileStep {
+    ProjectileStep::FractionCarry
+}
+
+fn range_projectile_default() -> RangeProjectile {
+    RangeProjectile::ToTarget
+}
+
+fn custom_first_projectile_default() -> CustomFirstProjectile {
+    CustomFirstProjectile::NotRead
+}
+
+fn multiple_projectiles_default() -> MultipleProjectiles {
+    MultipleProjectiles::One
+}
+
+fn multiple_targets_default() -> MultipleTargets {
+    MultipleTargets::NotRead
+}
+
+fn deploy_projectile_default() -> DeployProjectile {
+    DeployProjectile::NotRead
 }
 
 fn doomed_target_drop_default() -> DoomedTargetDrop {
@@ -1102,6 +1151,80 @@ calib_enum!(
         /// Measured on client 15.535.29: on every tick in its attack state it faces its target, the
         /// move law's integer normalize (length 256) of target - self on the start-of-tick positions.
         TowardTarget = "toward_target",
+    }
+);
+calib_enum!(
+    /// combat.PROJECTILE_STEP -- how a flying projectile (a troop's, a building's or a crown tower's
+    /// shot, and a spell's flight) moves each tick, where its shot starts, and how the doomed ETA
+    /// counts (combat.rs `projectile_advance`, `fire`, `ticks_to_land`).
+    ProjectileStep {
+        /// Exact steps of Speed along the line with the remainder carried in 1/65536 subtile
+        /// (path.rs `advance`); the start point in subtiles.
+        FractionCarry = "fraction_carry",
+        /// Measured on client 15.535.29 (69,508 of 69,775 moving steps): in native units, lands
+        /// when isqrt(v.v) <= Speed, else steps trunc0(v * Speed / isqrt(v.v)) with nothing carried
+        /// (path.rs `advance_client`); a shot starts at src + trunc0(v * R / isqrt(v.v)).
+        ClientNativeTruncated = "client_native_truncated",
+    }
+);
+calib_enum!(
+    /// combat.RANGE_PROJECTILE -- what a troop projectile whose row has a ProjectileRange does
+    /// (combat.rs `fire`, `step_straight`).
+    RangeProjectile {
+        /// Aimed at the target and ended on it, like every other shot (ProjectileRange unread).
+        ToTarget = "to_target",
+        /// Measured on client 15.535.29 (the Bowler, the Hunter, the Elite Archer): it flies
+        /// straight along the launch line to the last point within ProjectileRange, hitting each
+        /// enemy it passes once (ProjectileRadius plus the enemy's radius), pushing it radially
+        /// from the projectile's centre on a Pushback. A PingpongVisualTime row flies out and back.
+        StraightToRange = "straight_to_range",
+    }
+);
+calib_enum!(
+    /// combat.CUSTOM_FIRST_PROJECTILE -- whether an attack fires the card's CustomFirstProjectile
+    /// (combat.rs `fire`).
+    CustomFirstProjectile {
+        /// The Projectile column only (the Princess fires her damage-less decoration).
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the Princess, both sides): the first projectile of each
+        /// attack is the CustomFirstProjectile row, with its own damage, radius, speed and filters.
+        ClientFirstOfVolley = "client_first_of_volley",
+    }
+);
+calib_enum!(
+    /// combat.MULTIPLE_PROJECTILES -- how many projectiles a shot of a MultipleProjectiles row is
+    /// (combat.rs `fire`).
+    MultipleProjectiles {
+        /// One projectile a shot (MultipleProjectiles unread).
+        One = "one",
+        /// Measured on client 15.535.29 (the Hunter, 26 volleys): N straight shots created together
+        /// at ProjectileStartRadius on the bearing to the target, aimed at ProjectileRange on the
+        /// offsets 0, +7, -7, +14, -14, ... degrees, each held before it moves.
+        ClientFan = "client_fan",
+    }
+);
+calib_enum!(
+    /// combat.MULTIPLE_TARGETS -- how many bolts an attack of a MultipleTargets card delivers
+    /// (state.rs `extra_bolts`, combat.rs `fire`).
+    MultipleTargets {
+        /// One bolt, at the target (MultipleTargets and AllTargetsHit unread).
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the Electro Wizard, both sides): N bolts an attack, one at
+        /// the target and one at each of up to N - 1 other enemies it could target within its
+        /// range; under AllTargetsHit a bolt with no other enemy lands on the target.
+        ClientBoltsPerTarget = "client_bolts_per_target",
+    }
+);
+calib_enum!(
+    /// combat.DEPLOY_PROJECTILE -- whether a unit whose card carries a deploy projectile fires it
+    /// (state.rs `spawn_now`).
+    DeployProjectile {
+        /// Nothing fires.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the Mega Knight, both sides): on the 6th tick after its
+        /// first frame the projectile lands at the unit's position as an area impact, through the
+        /// spell impact and knockback path.
+        ClientOnLanding = "client_on_landing",
     }
 );
 calib_enum!(
@@ -2021,6 +2144,12 @@ impl Calib {
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
+            projectile_step: pick(&v, &["combat", "PROJECTILE_STEP", "value"], ProjectileStep::from_calibration_name)?,
+            range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
+            custom_first_projectile: pick(&v, &["combat", "CUSTOM_FIRST_PROJECTILE", "value"], CustomFirstProjectile::from_calibration_name)?,
+            multiple_projectiles: pick(&v, &["combat", "MULTIPLE_PROJECTILES", "value"], MultipleProjectiles::from_calibration_name)?,
+            multiple_targets: pick(&v, &["combat", "MULTIPLE_TARGETS", "value"], MultipleTargets::from_calibration_name)?,
+            deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
@@ -3127,6 +3256,32 @@ impl BattleState {
         self.lifetime_acc[i] = 0;
         #[cfg(clash_plant = "acquire_delay_every_unit")]
         self.delay_acquisition(i); // PLANT: every new troop waits, hand-played and periodic included.
+        // combat.DEPLOY_PROJECTILE = client_on_landing: a unit whose card carries a deploy
+        // projectile (card.rs `deploy_projectile`, the Mega Knight's MegaKnightAppear) lands it
+        // at its own position on the 6th tick after its first frame (combat.rs
+        // DEPLOY_PROJECTILE_DELAY_TICKS), measured on client 15.535.29: a Knight 560 away
+        // loses 430 (168 at level 1, on this card's ladder) and slides 199, 174, 149, ... away;
+        // Goblins 5,300 out lose nothing. The blow is an ordinary `Spell` on a zero-length leg,
+        // as a death bomb is (`phase_reap`): its `delay_ms` counts down in the Projectile phase
+        // from this tick's, so a unit created in the Spawn phase is hit on the tick 6 later,
+        // through spell.rs `impact` (its radius, its ground/air filter, its knockback).
+        #[cfg(not(clash_plant = "deploy_projectile_unfired"))]
+        let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
+        #[cfg(clash_plant = "deploy_projectile_unfired")]
+        let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
+        if blows {
+            if let Some(SpellShape::Projectile { hit: Some(h), .. }) = c.deploy_projectile.as_ref().map(|d| &d.shape) {
+                let damage = scaled(h.damage)?;
+                self.spells.push(Spell {
+                    team,
+                    card,
+                    level,
+                    damage,
+                    pulse: 0,
+                    motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
+                });
+            }
+        }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -4300,7 +4455,7 @@ impl BattleState {
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
         // the tick's start, before any decision reads it.
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() {
-            combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS)
+            combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step)
         } else {
             Vec::new()
         };
@@ -6387,6 +6542,49 @@ impl BattleState {
         self.phase_attack_for(None);
     }
 
+    /// THE OTHER BOLTS OF ONE ATTACK of unit `a` at `target` (combat.MULTIPLE_TARGETS =
+    /// client_bolts_per_target): a card with MultipleTargets N and an instant single-target
+    /// hit (no projectile, no splash) delivers N bolts, one at `target` (combat.rs `fire`)
+    /// and one at each of up to N - 1 OTHER enemies it could target (target.rs `can_target`)
+    /// within its attack range; under AllTargetsHit every bolt left without one lands on
+    /// `target`. Measured on client 15.535.29 on the Electro Wizard (both sides): a lone
+    /// Giant loses 234 an attack, a Giant and a Knight 117 each on one frame.
+    ///
+    /// OPEN, and the engine's reading here: which enemies take the bolts when more than N - 1
+    /// are in range (the measurement had exactly one). Nearest to the attacker first, ties by
+    /// the victim's `team_seq`, which is seat-symmetric.
+    fn extra_bolts(&self, a: usize, target: EntityId) -> Vec<EntityId> {
+        let card = self.cfg.cards.get(self.ents.card[a]);
+        let extra = (card.multiple_targets - 1).max(0) as usize;
+        if extra == 0 || card.projectile.is_some() || card.area_damage_radius > 0 {
+            return Vec::new();
+        }
+        let ctx = TargetCtx {
+            ents: &self.ents,
+            hash: &self.hash,
+            cards: &self.cfg.cards,
+            arena: &self.cfg.arena,
+            calib: &self.cfg.calib,
+            reading: self.cfg.tower_sight_reading,
+            towers: &self.towers,
+            king_active: self.king_active,
+            tick: self.tick,
+            doomed: &[],
+        };
+        let e = &self.ents;
+        let ti = target.index as usize;
+        let mut near: Vec<(i64, u32, usize)> = (0..e.capacity())
+            .filter(|&c| c != ti && target::can_target(&ctx, a, c, false) && target::in_attack_range(&self.cfg.calib, e.pos[a], card.range, e.radius[a], e.pos[c], e.radius[c]))
+            .map(|c| (e.pos[a].dist2(e.pos[c]), e.team_seq[c], c))
+            .collect();
+        near.sort_unstable();
+        let mut out: Vec<EntityId> = near.into_iter().take(extra).map(|(_, _, c)| e.id_of(c)).collect();
+        if card.all_targets_hit {
+            out.resize(extra, target);
+        }
+        out
+    }
+
     /// The Attack phase, for every unit or for a first update's fresh units alone.
     fn phase_attack_for(&mut self, only: Option<&[usize]>) {
         for i in 0..self.ents.capacity() {
@@ -6461,6 +6659,12 @@ impl BattleState {
                 self.ents.target_locked[i] = locks && step.phase == AttackPhase::Windup;
             }
             if let Some(t) = step.fired_at {
+                // combat.MULTIPLE_TARGETS = client_bolts_per_target: the attack's other bolts,
+                // chosen on the start-of-tick positions (Attack runs before Move).
+                #[cfg(not(clash_plant = "multiple_targets_one_bolt"))]
+                let bolts = if self.cfg.calib.multiple_targets == MultipleTargets::ClientBoltsPerTarget { self.extra_bolts(i, t) } else { Vec::new() };
+                #[cfg(clash_plant = "multiple_targets_one_bolt")]
+                let bolts: Vec<EntityId> = Vec::new(); // PLANT (regression): the new arm delivers one bolt an attack, as not_read.
                 combat::fire(
                     &self.ents,
                     &self.hash,
@@ -6472,6 +6676,8 @@ impl BattleState {
                     &mut self.effects,
                     &mut self.projectiles,
                     &mut self.scratch.nb,
+                    &mut self.rng,
+                    &bolts,
                 );
                 // targeting.DOOMED_TARGET_DROP = projectile_attackers: a projectile attacker has now
                 // launched at its target, so it keeps that target even once it is doomed.
@@ -6619,7 +6825,7 @@ impl BattleState {
     }
 
     fn phase_projectile(&mut self) {
-        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb);
+        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb);
         // No early return on an empty spell list: stepping no spell is a no-op, and what
         // the phase hands on (spell.rs `SpellOut`) need not come from a spell.
         let mut out = spell::SpellOut::default();
@@ -8625,6 +8831,25 @@ impl BattleState {
             if !legacy_v3 {
                 h.bool(p.fresh);
             }
+            // A straight shot (combat.RANGE_PROJECTILE / MULTIPLE_PROJECTILES new arms) hashes its
+            // own state; a homing shot writes nothing more, so every battle without one hashes
+            // as it did before the field.
+            if let Some(st) = &p.straight {
+                h.u32(0x5354_5254);
+                h.vec(st.origin);
+                h.i32(st.reach);
+                h.i32(st.push);
+                h.bool(st.push_all);
+                h.bool(st.only_enemies);
+                h.i32(st.hold);
+                h.i32(st.period);
+                h.i32(st.start);
+                h.i32(st.t);
+                h.u32(st.hit.len() as u32);
+                for id in &st.hit {
+                    h.id(*id);
+                }
+            }
         }
         #[cfg(not(clash_plant = "hash_skips_spells"))]
         if !legacy_v3 {
@@ -8868,6 +9093,19 @@ impl BattleState {
 ///    gained `attract_pct` (which also made the Tornado loadable). So a format-20 blob saved
 ///    before any of them is refused as saved against different card data, never run on the
 ///    new cards; that refusal, not the format number, is what says it is stale.
+/// 20, unchanged, the projectile keys (combat.PROJECTILE_STEP, RANGE_PROJECTILE,
+///    CUSTOM_FIRST_PROJECTILE, MULTIPLE_PROJECTILES, MULTIPLE_TARGETS, DEPLOY_PROJECTILE):
+///    Calib gained six fields (serde default the old arms) and `Projectile` gained `straight`
+///    (serde default None, hashed only when present), so a format-20 blob saved before them
+///    still deserializes and hashes as it did; a blob saved by this build carries the new
+///    fields, so its BYTES differ even under the old arms. CardDef gained `range_shot`,
+///    `multiple_projectiles`, `custom_first_projectile`, `multiple_targets`,
+///    `all_targets_hit` and `deploy_projectile`, so the card fingerprint moves: a snapshot
+///    saved by an earlier build is refused as saved against other card data. migrate_v3
+///    strips the six with the rest of the post-format-3 tail and runs a migrated battle at
+///    the old arms; no card's index moves (no card is newly refused on the shipped data).
+///    A deploy blow in the air is an ordinary `Spell` under the unit's card, which spell.rs
+///    `shape_of` resolves through `deploy_projectile`.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -9035,13 +9273,39 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `death_spawn_pushback` after it.
                 // ~~... death_spawn_pushback~~ -- the dash (still format 20) added `dash` after it.
                 // ~~... dash~~ -- the reflect (still format 20) added `reflect` after it.
+                // ~~... reflect~~ -- the projectile keys (still format 20) added
+                // `range_shot`, `multiple_projectiles`, `custom_first_projectile`,
+                // `multiple_targets`, `all_targets_hit` and `deploy_projectile` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.projectile_homing, c.death_area_effect, c.death_spawn_pushback, c.dash, c.reflect
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?} }}",
+                    c.ignore_pushback,
+                    c.stop_movement_after_ms,
+                    c.wait_ms,
+                    c.hide,
+                    c.spawner,
+                    c.death_spawn,
+                    c.charge,
+                    c.jump,
+                    c.level_base,
+                    c.formation,
+                    c.projectile_start_radius,
+                    c.kamikaze,
+                    c.attack_buff,
+                    c.projectile_homing,
+                    c.death_area_effect,
+                    c.death_spawn_pushback,
+                    c.dash,
+                    c.reflect,
+                    c.range_shot,
+                    c.multiple_projectiles,
+                    c.custom_first_projectile,
+                    c.multiple_targets,
+                    c.all_targets_hit,
+                    c.deploy_projectile
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -9096,6 +9360,16 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // The acquire delay: a format-3 battle let every death spawn be targeted from the tick
     // after it appeared; it keeps that whatever the ledger ships (the same rule).
     sh.insert("spawned_unit_acquire_delay".into(), serde_json::to_value(SpawnedUnitAcquireDelay::None).map_err(|e| e.to_string())?);
+    // The projectile keys: a format-3 battle stepped every projectile with the carried remainder,
+    // aimed every shot at its target, fired the Projectile column alone, one projectile and one
+    // bolt an attack, and no deploy projectile; it keeps all six whatever the ledger ships (the
+    // same rule).
+    sh.insert("projectile_step".into(), serde_json::to_value(ProjectileStep::FractionCarry).map_err(|e| e.to_string())?);
+    sh.insert("range_projectile".into(), serde_json::to_value(RangeProjectile::ToTarget).map_err(|e| e.to_string())?);
+    sh.insert("custom_first_projectile".into(), serde_json::to_value(CustomFirstProjectile::NotRead).map_err(|e| e.to_string())?);
+    sh.insert("multiple_projectiles".into(), serde_json::to_value(MultipleProjectiles::One).map_err(|e| e.to_string())?);
+    sh.insert("multiple_targets".into(), serde_json::to_value(MultipleTargets::NotRead).map_err(|e| e.to_string())?);
+    sh.insert("deploy_projectile".into(), serde_json::to_value(DeployProjectile::NotRead).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

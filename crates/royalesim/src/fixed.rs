@@ -160,6 +160,52 @@ pub fn isqrt(n: i64) -> i64 {
     x
 }
 
+/// The unit of `sin_pi_frac` / `cos_pi_frac`: 1.0 is `TRIG_ONE`.
+pub const TRIG_ONE: i64 = 1 << 20;
+
+/// pi in 1/2^40 units, rounded: the working precision of `sin_pi_frac`.
+const PI_Q40: i128 = 3_454_217_652_358;
+
+/// sin(pi * num / den) in `TRIG_ONE` units, integer only (no floats in this engine).
+///
+/// The angle is folded into [0, pi/2] by the sine's symmetries, then summed as a Taylor
+/// series to the x^13 term in 1/2^40 fixed point, and rounded to 1/2^20. Checked against
+/// the float sine over whole-number fractions of pi: within half a unit of `TRIG_ONE`
+/// everywhere. Every step is an integer division that truncates toward zero, so the
+/// result is identical on every platform. Two callers: a fan shot's offsets in whole
+/// degrees (`sin_pi_frac(deg, 180)`) and a pingpong throw's distance
+/// (`sin_pi_frac(t, T)`, combat.rs).
+pub fn sin_pi_frac(num: i64, den: i64) -> i64 {
+    assert!(den > 0, "sin_pi_frac: the denominator {den} is not positive");
+    let mut r = num.rem_euclid(2 * den);
+    let negative = r >= den;
+    if negative {
+        r -= den;
+    }
+    if 2 * r > den {
+        r = den - r;
+    }
+    let q: i128 = 1 << 40;
+    let x = PI_Q40 * (r as i128) / (den as i128);
+    let mut sum = x;
+    let mut term = x;
+    for k in 1..=6i128 {
+        term = -((term * x / q) * x / q) / ((2 * k) * (2 * k + 1));
+        sum += term;
+    }
+    let v = ((sum + (1 << 19)) >> 20) as i64;
+    if negative {
+        -v
+    } else {
+        v
+    }
+}
+
+/// cos(pi * num / den) in `TRIG_ONE` units: `sin_pi_frac` a quarter turn on.
+pub fn cos_pi_frac(num: i64, den: i64) -> i64 {
+    sin_pi_frac(2 * num + den, 2 * den)
+}
+
 /// Are two circles overlapping or touching? Pure integer, no sqrt.
 #[inline]
 pub fn circles_overlap(a: Vec2, ra: i32, b: Vec2, rb: i32) -> bool {

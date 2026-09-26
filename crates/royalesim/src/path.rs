@@ -190,6 +190,31 @@ pub fn advance(from: Vec2, to: Vec2, amount: i32, frac: &mut Vec2) -> (Vec2, i32
     }
 }
 
+/// ONE TICK OF A FLYING PROJECTILE ON THE CLIENT (calibration combat.PROJECTILE_STEP =
+/// client_native_truncated), measured on client 15.535.29: in NATIVE units (millitiles),
+/// with `v = to - from` and `n = isqrt(v.v)`, the projectile lands when `n <= speed_native`
+/// and otherwise moves by `trunc0(v * speed_native / n)`, each component truncated toward
+/// zero. The direction is recomputed from scratch every tick and NOTHING is carried, so a
+/// projectile runs a little slower than its Speed: the Rocket from the blue king tower to
+/// (14500, 18500) is on the board for 47 frames where exact steps of 350 give 46.
+///
+/// Returns `to` itself on the landing tick, so a caller's arrival test (`np == aim`) is the
+/// one `advance` callers already use. Otherwise the result is a whole native position in
+/// subtiles (a multiple of SUBTILE_PER_MILLITILE); `from` and `to` are read on the native
+/// grid, truncating a stray sub-native remainder.
+pub fn advance_client(from: Vec2, to: Vec2, speed_native: i32) -> Vec2 {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let (fx, fy) = ((from.x / K) as i64, (from.y / K) as i64);
+    let (vx, vy) = ((to.x / K) as i64 - fx, (to.y / K) as i64 - fy);
+    let n = isqrt(vx * vx + vy * vy);
+    let s = speed_native as i64;
+    if n <= s {
+        return to;
+    }
+    // i64 `/` truncates toward zero: trunc0, odd-symmetric under the seat rotation.
+    Vec2::new(((fx + vx * s / n) as i32) * K, ((fy + vy * s / n) as i32) * K)
+}
+
 // ---------------------------------------------------------------------------
 // shared geometry helpers (frame coordinates throughout)
 

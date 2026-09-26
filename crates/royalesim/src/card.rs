@@ -82,6 +82,58 @@ pub struct ProjectileDef {
     pub radius: i32,
 }
 
+/// A TROOP PROJECTILE THAT FLIES TO A RANGE instead of ending on its target
+/// (projectiles.csv ProjectileRange with ProjectileRadius: the Bowler's boulder, the
+/// Hunter's pellets, the Elite Archer's arrow, the Executioner's axe). Read by combat.rs
+/// `fire` under calibration combat.RANGE_PROJECTILE = straight_to_range and under
+/// combat.MULTIPLE_PROJECTILES = client_fan; inert under the shipped arms. On the card,
+/// not on `ProjectileDef`, whose Debug is inside the format-3 card fingerprint. A row
+/// with a ProjectileRange and no ProjectileRadius (the Wall Breakers' 1) is not one: it
+/// could hit nothing on the way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RangeShotDef {
+    /// ProjectileRange, SUBTILES: the shot ends at the last point within this of the
+    /// attacker's centre at launch.
+    pub range: i32,
+    /// ProjectileRadius, SUBTILES: an enemy is hit when its centre comes within this plus
+    /// its own radius.
+    pub reach: i32,
+    /// AoeToAir / AoeToGround: which victims the shot may hit on its way.
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    /// OnlyEnemies (a blank reads false, as for a spell's hit).
+    pub only_enemies: bool,
+    /// Pushback / PushbackAll: a victim is pushed radially from the projectile's centre.
+    pub knockback: Option<KnockbackDef>,
+    /// PingpongVisualTime, ms: the shot flies out and back over this long (the
+    /// Executioner's axe). NOT CARRIED BY cards.json TODAY: tools/extract_cards.py does
+    /// not write the column into a projectile object, so this reads None on every row
+    /// and a pingpong row flies one way until the extractor carries it.
+    pub pingpong_ms: Option<i32>,
+}
+
+/// A CARD'S CustomFirstProjectile when it is a different row from its Projectile: the
+/// Princess's PrincessProjectile, which carries her damage, against the damage-less
+/// PrincessProjectileDeco of her Projectile column. (The Hunter names his own Projectile
+/// row there, so his is None.) Resolved by `convert` from cards.json
+/// `units.<unit>.raw.CustomFirstProjectile` against the file's `projectiles` table; read
+/// by combat.rs `fire` under calibration combat.CUSTOM_FIRST_PROJECTILE =
+/// client_first_of_volley.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CustomShotDef {
+    /// Raw Speed column.
+    pub speed: i32,
+    /// Level-1 Damage (0 when blank), scaled by the attacker's level at the shot.
+    pub damage: i32,
+    /// Radius, SUBTILES: the splash on arrival (0 = single target).
+    pub radius: i32,
+    /// AoeToAir / AoeToGround: the splash's filters.
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    /// Effective crown-tower percent.
+    pub crown_pct: i32,
+}
+
 /// A knockback a spell hit applies (card data: projectiles.csv Pushback / PushbackAll).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct KnockbackDef {
@@ -562,13 +614,40 @@ pub struct CardDef {
     /// None on every card whose row sets none of the ReflectedAttack columns. Declared in the
     /// post-format-3 tail for the reason below: migrate_v3 strips it with the rest of the tail.
     pub reflect: Option<ReflectDef>,
+    /// The row's straight-to-range projectile (`RangeShotDef`): its projectile carries a
+    /// ProjectileRange and a ProjectileRadius. None on every other card.
+    pub range_shot: Option<RangeShotDef>,
+    /// MultipleProjectiles (cards.json `units.<unit>.raw`): the projectiles one shot fires
+    /// under calibration combat.MULTIPLE_PROJECTILES = client_fan (the Hunter 10, the
+    /// Princess 5). 1 when blank.
+    pub multiple_projectiles: i32,
+    /// CustomFirstProjectile when it is a different row from the Projectile column
+    /// (`CustomShotDef`: the Princess). None on every other card.
+    pub custom_first_projectile: Option<CustomShotDef>,
+    /// MultipleTargets (cards.json `units.<unit>.raw`): the bolts one attack delivers under
+    /// calibration combat.MULTIPLE_TARGETS = client_bolts_per_target (the Electro Wizard 2).
+    /// 1 when blank.
+    pub multiple_targets: i32,
+    /// AllTargetsHit (cards.json `units.<unit>.raw`): a bolt with no other enemy to go to
+    /// lands on the target.
+    pub all_targets_hit: bool,
+    /// THE DEPLOY PROJECTILE (cards.json `deploy_projectile`, a troop card's
+    /// spells_characters Projectile: the Mega Knight's MegaKnightAppear), as the impact it
+    /// lands as: a `SpellDef` whose `SpellShape::Projectile` carries the hit, so the blow is
+    /// an ordinary `Spell` running spell.rs `impact` (its damage scaled on this card's
+    /// ladder, its radius, its air/ground filter, its knockback) through spell.rs
+    /// `shape_of`, as a death bomb is. Fired by state.rs `spawn_now` under calibration
+    /// combat.DEPLOY_PROJECTILE = client_on_landing; inert under the shipped not_read. A
+    /// card with both this and a death area effect is refused (`shape_of` could name only
+    /// one of them).
+    pub deploy_projectile: Option<SpellDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `reflect`, and onto the end of that tail
+    // field goes HERE, after `deploy_projectile`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -659,6 +738,19 @@ struct RawProjectileObj {
     buff_time_ms: Option<i32>,
     /// projectiles.csv Homing (`CardDef::projectile_homing`).
     homing: Option<bool>,
+    /// The row's name: compared with a CustomFirstProjectile (`CardDef::custom_first_projectile`).
+    name: Option<String>,
+    // --- the straight-to-range columns (`RangeShotDef`).
+    projectile_range_milli: Option<i32>,
+    projectile_radius_milli: Option<i32>,
+    aoe_to_air: Option<bool>,
+    aoe_to_ground: Option<bool>,
+    only_enemies: Option<bool>,
+    pushback_milli: Option<i32>,
+    pushback_all: Option<bool>,
+    /// projectiles.csv PingpongVisualTime, ms. Not written by tools/extract_cards.py
+    /// today, so absent on every row (`RangeShotDef::pingpong_ms`).
+    pingpong_visual_time_ms: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -773,6 +865,9 @@ struct RawCard {
     /// ReflectAttackCrownTowerDamage): present only on a row that sets one of them, so absent
     /// on every 2018 row. Loaded onto `CardDef::reflect` by `convert_reflect`.
     reflected_attack: Option<RawReflectedAttack>,
+    /// cards.json `deploy_projectile` (a troop card's spells_characters Projectile, the
+    /// Mega Knight's MegaKnightAppear): `CardDef::deploy_projectile`.
+    deploy_projectile: Option<serde_json::Value>,
 }
 
 /// cards.json `buff_on_damage`.
@@ -1030,6 +1125,12 @@ struct RawCardsFile {
     /// DeathAreaEffect is then REFUSED BY NAME -- never silently run without it.
     #[serde(default)]
     area_effect_objects: BTreeMap<String, RawAreaEffect>,
+    /// cards.json `projectiles`: every projectiles row by name. Only the rows a unit's
+    /// CustomFirstProjectile names are read (`CardDef::custom_first_projectile`); a card's
+    /// own Projectile arrives inline. A file without the table leaves this empty, and a
+    /// CustomFirstProjectile that names a row it cannot find refuses the card by name.
+    #[serde(default)]
+    projectiles: BTreeMap<String, serde_json::Value>,
 }
 
 /// WHAT A CONVERTER MAY READ BEYOND ITS OWN ROW: the file's shared tables, by
@@ -1040,6 +1141,12 @@ struct RawCardsFile {
 struct LoadCtx<'a> {
     /// cards.json `area_effect_objects`, by name (`RawCardsFile::area_effect_objects`).
     aeos: &'a BTreeMap<String, RawAreaEffect>,
+    /// cards.json `units`, by name (`RawCardsFile::units`): the unit row's `raw` block
+    /// carries the columns the typed card record does not (MultipleProjectiles,
+    /// CustomFirstProjectile, MultipleTargets, AllTargetsHit), which `convert` reads.
+    units: &'a BTreeMap<String, serde_json::Value>,
+    /// cards.json `projectiles`, by name (`RawCardsFile::projectiles`).
+    projectiles: &'a BTreeMap<String, serde_json::Value>,
 }
 
 /// One cards.json `rarities` entry (tools/extract_cards.py `rarity_table`).
@@ -1403,6 +1510,12 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_spawn_pushback: false,
         dash: None,
         reflect: None,
+        range_shot: None,
+        multiple_projectiles: 1,
+        custom_first_projectile: None,
+        multiple_targets: 1,
+        all_targets_hit: false,
+        deploy_projectile: None,
     }
 }
 
@@ -2020,6 +2133,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut damage = raw.damage;
     let mut attack_buff: Option<BuffApply> = None;
     let mut projectile_homing = false;
+    let mut projectile_name: Option<String> = None;
+    let mut range_shot: Option<RangeShotDef> = None;
     let projectile = match raw.projectile {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::Object(o)) => {
@@ -2051,6 +2166,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
                 attack_buff = Some(buffs.apply(b, p.buff_time_ms, "the unit's projectile")?);
             }
             projectile_homing = p.homing.unwrap_or(true);
+            projectile_name = p.name.clone();
+            range_shot = range_shot_of(&p);
             Some(ProjectileDef {
                 speed: p.speed.ok_or("projectile without speed")?,
                 radius: milli(p.radius_milli.unwrap_or(0)),
@@ -2167,6 +2284,38 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             return Err(format!("hides_when_not_attacking needs non-negative hide_time_ms and up_time_ms on a building; got {h:?} / {u:?} on a {kind:?}"))
         }
     };
+    // THE UNIT ROW'S RAW COLUMNS. cards.json carries MultipleProjectiles,
+    // CustomFirstProjectile, MultipleTargets and AllTargetsHit only in the unit row's `raw`
+    // block (`units.<unit>.raw`), not in the typed card record, so they are read from
+    // there, keyed by the row the card puts on the board (`unit_name`). A file without the
+    // block (or a unit with no row) reads them all blank. Loaded whatever the calibration
+    // says: the combat.MULTIPLE_PROJECTILES / CUSTOM_FIRST_PROJECTILE / MULTIPLE_TARGETS
+    // arms decide whether anything reads them.
+    let unit_raw = ctx.units.get(raw.summon_character.as_deref().unwrap_or(raw.name.as_str())).and_then(|u| u.get("raw"));
+    let raw_count = |col: &str| -> Result<i32, String> {
+        match unit_raw.and_then(|r| r.get(col)) {
+            None | Some(serde_json::Value::Null) => Ok(1),
+            Some(v) => v.as_i64().and_then(|n| i32::try_from(n).ok()).filter(|n| *n >= 1).ok_or_else(|| format!("{col} {v} is not a count of at least 1")),
+        }
+    };
+    let multiple_projectiles = raw_count("MultipleProjectiles")?;
+    let multiple_targets = raw_count("MultipleTargets")?;
+    let all_targets_hit = unit_raw.and_then(|r| r.get("AllTargetsHit")).and_then(serde_json::Value::as_bool).unwrap_or(false);
+    // A CustomFirstProjectile naming the row's own Projectile (the Hunter) is no second row.
+    let custom_first_projectile = match unit_raw.and_then(|r| r.get("CustomFirstProjectile")).and_then(serde_json::Value::as_str) {
+        None => None,
+        Some(name) if projectile_name.as_deref() == Some(name) => None,
+        Some(name) => Some(custom_shot_of(name, ctx.projectiles)?),
+    };
+    let deploy_projectile = match raw.deploy_projectile {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            if raw.death_area_effect.is_some() {
+                return Err("the unit carries both a deploy projectile and a death area effect; not simulated (spell.rs `shape_of` names one)".into());
+            }
+            Some(convert_deploy_projectile(v)?)
+        }
+    };
     Ok((CardDef {
         unit_name: raw.summon_character.clone().unwrap_or_else(|| raw.name.clone()),
         name: raw.name,
@@ -2225,7 +2374,102 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         death_spawn_pushback: false, // PLANT: the loader drops the column, so no row slides.
         dash,
         reflect,
+        range_shot,
+        multiple_projectiles,
+        custom_first_projectile,
+        multiple_targets,
+        all_targets_hit,
+        deploy_projectile,
     }, display, units))
+}
+
+/// The straight-to-range block of a troop's projectile row (`RangeShotDef`), or None when
+/// the row lacks a positive ProjectileRange or a positive ProjectileRadius.
+fn range_shot_of(p: &RawProjectileObj) -> Option<RangeShotDef> {
+    let range = p.projectile_range_milli.filter(|r| *r > 0)?;
+    let reach = p.projectile_radius_milli.filter(|r| *r > 0)?;
+    Some(RangeShotDef {
+        range: milli(range),
+        reach: milli(reach),
+        hits_air: p.aoe_to_air.unwrap_or(false),
+        hits_ground: p.aoe_to_ground.unwrap_or(false),
+        only_enemies: p.only_enemies.unwrap_or(false),
+        knockback: knockback(p.pushback_milli, p.pushback_all),
+        pingpong_ms: p.pingpong_visual_time_ms.filter(|t| *t > 0),
+    })
+}
+
+/// A unit's CustomFirstProjectile row, `name`, from the file's `projectiles` table
+/// (`CustomShotDef`). Refused by name when the table has no such row, and when the row
+/// carries a mechanic the shot does not run (a spawn, a target cap, a pushback, a buff):
+/// a card is refused rather than run without a mechanic it carries.
+fn custom_shot_of(name: &str, table: &BTreeMap<String, serde_json::Value>) -> Result<CustomShotDef, String> {
+    let v = table
+        .get(name)
+        .ok_or_else(|| format!("CustomFirstProjectile {name} has no projectiles record in cards.json (the file lists {})", table.len()))?;
+    let p: RawSpellProjectile = serde_json::from_value(v.clone()).map_err(|e| format!("CustomFirstProjectile {name}: {e}"))?;
+    refuse_action_mechanic(&p.action_graph, &format!("CustomFirstProjectile {name}"))?;
+    if p.spawn_character.is_some()
+        || p.spawn_projectile.is_some()
+        || p.spawn_area_effect_object.is_some()
+        || p.maximum_targets.is_some()
+        || p.pushback_milli.is_some_and(|d| d > 0)
+        || p.target_buff.as_ref().is_some_and(|b| !b.is_null())
+    {
+        return Err(format!("CustomFirstProjectile {name} carries a spawn, a target cap, a pushback or a buff; not simulated"));
+    }
+    Ok(CustomShotDef {
+        speed: p.speed.filter(|s| *s > 0).ok_or_else(|| format!("CustomFirstProjectile {name} without speed"))?,
+        damage: p.damage.unwrap_or(0),
+        radius: milli(p.radius_milli.unwrap_or(0)),
+        hits_air: p.aoe_to_air.unwrap_or(false),
+        hits_ground: p.aoe_to_ground.unwrap_or(false),
+        crown_pct: crown(p.crown_tower_damage_percent),
+    })
+}
+
+/// A troop card's deploy projectile (cards.json `deploy_projectile`) as the impact it lands
+/// as (`CardDef::deploy_projectile`): a `SpellShape::Projectile` with one wave and its hit.
+/// `speed` is carried and unread: the blow is released at the unit's own position and
+/// lands on a zero-length leg (state.rs `spawn_now`, as a death bomb does). Refused when
+/// the row carries no damage or no radius, or a mechanic the impact does not run (a
+/// spawn, a target cap, an area effect, a buff).
+fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
+    let p: RawSpellProjectile = serde_json::from_value(v).map_err(|e| format!("deploy_projectile: {e}"))?;
+    let what = p.name.clone().unwrap_or_default();
+    refuse_action_mechanic(&p.action_graph, &format!("deploy projectile {what}"))?;
+    if p.spawn_character.is_some()
+        || p.spawn_projectile.is_some()
+        || p.spawn_area_effect_object.is_some()
+        || p.maximum_targets.is_some()
+        || p.target_buff.as_ref().is_some_and(|b| !b.is_null())
+    {
+        return Err(format!("deploy projectile {what} with a spawn, a target cap, an area effect or a buff is not simulated"));
+    }
+    let damage = p.damage.ok_or_else(|| format!("deploy projectile {what} carries no damage"))?;
+    let radius = p.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("deploy projectile {what} deals damage but has no radius"))?;
+    Ok(SpellDef {
+        shape: SpellShape::Projectile {
+            speed: p.speed.unwrap_or(0).max(0),
+            hit: Some(SpellHit {
+                damage,
+                crown_pct: crown(p.crown_tower_damage_percent),
+                radius: milli(radius),
+                hits_air: p.aoe_to_air.unwrap_or(false),
+                hits_ground: p.aoe_to_ground.unwrap_or(false),
+                only_enemies: p.only_enemies.unwrap_or(false),
+                ignore_buildings: false,
+                no_effect_to_crown_towers: false,
+                knockback: knockback(p.pushback_milli, p.pushback_all),
+                buff: None,
+            }),
+            waves: 1,
+            wave_interval_ms: 0,
+            spawn: None,
+        },
+        // Unread: a deploy blow is never cast, so it is never placed.
+        placement: SpellPlacement::Anywhere,
+    })
 }
 
 impl CardDb {
@@ -2267,7 +2511,7 @@ impl CardDb {
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
-        let ctx = LoadCtx { aeos: &file.area_effect_objects };
+        let ctx = LoadCtx { aeos: &file.area_effect_objects, units: &file.units, projectiles: &file.projectiles };
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
@@ -2475,7 +2719,7 @@ impl CardDb {
         }
         if db.index(KING_TOWER).is_none() || db.index(PRINCESS_TOWER).is_none() {
             let fb: RawCardsFile = serde_json::from_str(FALLBACK_TOWERS_JSON).expect("fallback towers parse");
-            let fb_ctx = LoadCtx { aeos: &fb.area_effect_objects };
+            let fb_ctx = LoadCtx { aeos: &fb.area_effect_objects, units: &fb.units, projectiles: &fb.projectiles };
             for raw in fb.cards {
                 if db.index(&raw.name).is_none() {
                     let (c, d, _) = convert(raw, &mut buffs, &fb_ctx)?;
