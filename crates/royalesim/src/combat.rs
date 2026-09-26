@@ -1091,7 +1091,7 @@ fn straight_hits(
 ) -> bool {
     let (team, damage, crown_pct, hits_air, hits_ground, buff, pulse) = (p.team, p.damage, p.crown_pct, p.hits_air, p.hits_ground, p.buff, p.pulse);
     let Some(s) = p.straight.as_mut() else { return false };
-    let ctx = SpellCtx { ents, hash, cards, calib };
+    let ctx = SpellCtx { ents, hash, cards, calib, steps: &[] };
     hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
     let mut any = false;
     for &v in nb.iter() {

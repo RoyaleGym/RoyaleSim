@@ -977,7 +977,7 @@ fn strike_hp_rank_default() -> StrikeHpRank {
 }
 
 fn strike_reach_default() -> StrikeReach {
-    StrikeReach::RadiusPlusTargetPlus200
+    StrikeReach::EdgeNowAndNext
 }
 
 fn roll_first_step_default() -> RollFirstStep {
@@ -2114,10 +2114,13 @@ calib_enum!(
 calib_enum!(
     /// spells.STRIKE_REACH -- which enemies a striking area can pick, by centre distance (spell.rs `strike`).
     StrikeReach {
-        /// Radius + the target's radius + 200 native: the interim reading. Measured on client 15.535.29: a target of
-        /// radius 600 was struck at 4242.6 from a Lightning of Radius 3500.
-        RadiusPlusTargetPlus200 = "radius_plus_target_radius_plus_200",
-        /// Radius + the target's radius: refuted by the same strike.
+        /// The centre distance minus the target's CollisionRadius at most Radius + 170 native (Lightning 3670), on
+        /// the strike tick's position AND on the predicted next one (the position plus this tick's step). Measured on
+        /// client 15.535.29 (35 runs): the bound lies in [3642.6, 3702.6), a circle with the radius in, and a target
+        /// about to leave reach is not picked.
+        EdgeNowAndNext = "edge_within_radius_plus_170_now_and_next",
+        /// Radius + the target's radius, on the strike tick alone: refuted (a target of radius 600 was struck at a
+        /// centre distance of 4242.6 from a Lightning of Radius 3500).
         RadiusPlusTarget = "radius_plus_target_radius",
     }
 );
@@ -8153,7 +8156,7 @@ impl BattleState {
         let mut out = spell::SpellOut::default();
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick);
         {
-            let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib };
+            let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas };
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
         }
         // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the

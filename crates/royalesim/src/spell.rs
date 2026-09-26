@@ -436,6 +436,9 @@ pub struct SpellCtx<'a> {
     pub hash: &'a SpatialHash,
     pub cards: &'a CardDb,
     pub calib: &'a Calib,
+    /// This tick's locomotion step of each entity, by index (state.rs `scratch.deltas`; empty where no Move phase
+    /// ran). Read by `strike` for a candidate's predicted next position; an index past the end steps nothing.
+    pub steps: &'a [Vec2],
 }
 
 /// Is victim `v` a legal target of `hit` cast by `team`? Alive, hp > 0, team and
@@ -704,10 +707,14 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
     }
 }
 
+/// spells.STRIKE_REACH = edge_within_radius_plus_170_now_and_next: the reach beyond the Radius, native (the interim
+/// 3670 for Lightning's 3500; measured within [3642.6, 3702.6) on client 15.535.29).
+pub const STRIKE_REACH_EXTRA: i32 = 170;
+
 /// ONE STRIKE of a striking area at `pos` (`SpellShape::Strikes`; Lightning). Measured on client 15.535.29 (28 casts,
 /// 40 strikes):
-/// - the candidates are the enemies `eligible` admits whose centre is within spells.STRIKE_REACH of `pos`, on this
-///   tick's post-move positions, less every enemy this cast has struck;
+/// - the candidates are the enemies `eligible` admits within spells.STRIKE_REACH of `pos` (on this tick's post-move
+///   position and on the predicted next one), less every enemy this cast has struck;
 /// - the pick is the highest hp (spells.STRIKE_HP_RANK), ties to the earliest created (`team_seq`: every candidate is
 ///   of one team, so this is the creation order and the same for both seats);
 /// - the strike is a projectile born on the victim, appended after this tick's projectiles stepped, so its damage and
@@ -722,7 +729,7 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, p
     #[cfg(clash_plant = "strike_reach_bare")]
     let reach_rule = StrikeReach::RadiusPlusTarget; // PLANT: the refuted Radius + r.
     let extra = match reach_rule {
-        StrikeReach::RadiusPlusTargetPlus200 => 200 * K,
+        StrikeReach::EdgeNowAndNext => STRIKE_REACH_EXTRA * K,
         StrikeReach::RadiusPlusTarget => 0,
     };
     ctx.hash.neighbours_within(e, pos, def.hit.radius + extra + ctx.hash.max_radius(), nb);
@@ -738,9 +745,17 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, p
         if struck.binary_search(&id).is_ok() {
             continue;
         }
-        let (dx, dy) = ((e.pos[v].x / K - pos.x / K) as i64, (e.pos[v].y / K - pos.y / K) as i64);
         let reach = ((def.hit.radius + e.radius[v] + extra) / K) as i64;
-        if dx * dx + dy * dy > reach * reach {
+        let within = |p: Vec2| {
+            let (dx, dy) = ((p.x / K - pos.x / K) as i64, (p.y / K - pos.y / K) as i64);
+            dx * dx + dy * dy <= reach * reach
+        };
+        if !within(e.pos[v]) {
+            continue;
+        }
+        // ...and on the predicted next position, under the measured arm: a target about to leave is not picked
+        #[cfg(not(clash_plant = "strike_ignores_next_position"))]
+        if reach_rule == StrikeReach::EdgeNowAndNext && !within(e.pos[v].add(ctx.steps.get(v).copied().unwrap_or_default())) {
             continue;
         }
         let hp = match ctx.calib.strike_hp_rank {

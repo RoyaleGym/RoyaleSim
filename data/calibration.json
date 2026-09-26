@@ -2030,13 +2030,13 @@
       "engine": "spell.rs strike"
     },
     "STRIKE_REACH": {
-      "value": "radius_plus_target_radius_plus_200",
+      "value": "edge_within_radius_plus_170_now_and_next",
       "status": "hypothesis",
-      "confidence": "LOW: an interim that fits every strike, pending a scenario that brackets the edge.",
-      "provenance": "Measured on client 15.535.29: a target of radius 600 was struck by a Lightning (Radius 3500) at a centre distance of 4242.6, which Radius + the target's radius (4100) refutes. The interim reach is the centre distance at most Radius + the target's radius + 200. Whether the reach is a circle or a square, and whether the target's radius enters at all, is open.",
-      "candidates": ["radius_plus_target_radius_plus_200", "radius_plus_target_radius"],
-      "promotion_rules": "A scenario that strikes, and fails to strike, targets at a range of centre distances around 3500 to 4400.",
-      "engine": "spell.rs strike"
+      "confidence": "MEDIUM: 35 runs on client 15.535.29 bracket the bound; the constant inside the bracket is an interim.",
+      "provenance": "Measured on client 15.535.29 (35 runs): a striking area's candidate is in reach when its centre distance from the tap minus its CollisionRadius is at most E, with E in [3642.6, 3702.6) for Lightning (Radius 3500). It is a circle, and the target's radius enters. The test holds on the strike tick's position and on the predicted next position (the position plus this tick's step): a target that would leave reach by the next tick is not picked, and no effect appears. The interim E is Radius + 170 = 3670; any value in [3643, 3702] fits. radius_plus_target_radius (the strike tick alone, E = Radius) is refuted: a target of radius 600 was struck at a centre distance of 4242.6.",
+      "candidates": ["edge_within_radius_plus_170_now_and_next", "radius_plus_target_radius"],
+      "promotion_rules": "Narrow E within [3642.6, 3702.6) with scenarios that bracket it; a flyer at the edge, to tell the next-position test from a smaller flyer radius.",
+      "engine": "spell.rs strike (STRIKE_REACH_EXTRA)"
     },
     "ROLL_FIRST_STEP": {
       "value": "on_landing_tick",

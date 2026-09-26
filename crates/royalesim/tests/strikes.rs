@@ -6,7 +6,8 @@
 //!     (spells.STRIKE_TIMER_LEFTOVER = carried);
 //!   - each strike picks the eligible enemy with the highest CURRENT hp (spells.STRIKE_HP_RANK), ties to the earliest
 //!     created, never one the cast has already struck;
-//!   - reach: the centre distance at most Radius + the target's radius + 200 (spells.STRIKE_REACH, an interim);
+//!   - reach: the centre distance minus the target's radius at most Radius + 170 (3670; spells.STRIKE_REACH, an
+//!     interim inside the measured [3642.6, 3702.6)), now and on the predicted next position;
 //!   - the damage (the PROJECTILE row's, level-scaled) and its ZapFreeze land on the tick after the strike;
 //!   - a crown tower takes the projectile's 25 %, ceil (265 of 1057 at level 11); the area's own 100 is never read.
 //!
@@ -16,8 +17,10 @@
 //!      first;
 //!   3. two Knights of equal hp: the earlier created is struck first;
 //!   4. a princess tower alone loses 25 % of one strike, once, over the whole cast;
-//!   5. a target just beyond Radius + its radius, within the + 200, is struck;
+//!   5. a target just beyond Radius + its radius, within the + 170, is struck;
 //!   6. a striking area's clock is state: two saves differing only in it hash differently.
+//!   7. a Knight walking out of reach, inside it on the strike tick and outside it on the predicted next position, is
+//!      not struck.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test strikes`):
 //!   * `strike_timer_restarts` -- the leftover dropped: (2) goes red on D + 19.
@@ -25,6 +28,7 @@
 //!   * `strike_crown_from_area` -- the area's 100 %: (4) goes red.
 //!   * `strike_repeats_target` -- the struck set is not read: (4) goes red (the tower is struck three times).
 //!   * `strike_reach_bare` -- the refuted Radius + r: (5) goes red.
+//!   * `strike_ignores_next_position` -- no test of the next position: (7) goes red.
 //!   * `hash_skips_strikes` -- the motion is not hashed: (6) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -119,11 +123,11 @@ fn a_princess_tower_alone_loses_a_quarter_of_one_strike_once() {
 
 /// Plant: strike_reach_bare.
 #[test]
-fn a_target_within_the_200_margin_is_struck() {
+fn a_target_within_the_170_margin_is_struck() {
     let mut s = BattleState::new(0, config());
     let c = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 22000)), None).expect("spawn");
     let (cpos, r) = (s.entity(c).unwrap().pos, s.entity(c).unwrap().radius / K);
-    let tap = Vec2::new(cpos.x + (3500 + r + 100) * K, cpos.y);
+    let tap = Vec2::new(cpos.x + (3500 + r + 80) * K, cpos.y);
     s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
     let mut hit = None;
     let mut centre = None;
@@ -146,7 +150,7 @@ fn a_target_within_the_200_margin_is_struck() {
     let (dx, dy) = ((centre.x / K - cpos.x / K) as i64, (centre.y / K - cpos.y / K) as i64);
     let d = isqrt(dx * dx + dy * dy);
     let bare = (3500 + r) as i64;
-    assert!(d > bare && d <= bare + 200, "the scene drifted: the Cannon stands {d} from the strike centre, not in ({bare}, {}]", bare + 200);
+    assert!(d > bare && d <= bare + 170, "the scene drifted: the Cannon stands {d} from the strike centre, not in ({bare}, {}]", bare + 170);
     assert_eq!(hit, Some(10), "a Cannon {d} away (Radius + r = {bare}) is struck on D + 9, its loss on D + 10");
 }
 
@@ -169,4 +173,50 @@ fn a_striking_areas_clock_is_state() {
     let a = BattleState::load(&bytes).expect("the save loads");
     let b = BattleState::load(&edited).expect("the edited save loads");
     assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in a striking area's clock hash alike");
+}
+
+/// Plant: strike_ignores_next_position.
+#[test]
+fn a_knight_about_to_leave_reach_is_not_struck() {
+    // A red Knight walks south, away from a Lightning cast north of it; starts from a band of distances around the
+    // edge, so that on one of them the strike tick finds it inside reach and its next step outside.
+    let mut found = false;
+    for off in (0..=200).step_by(10) {
+        let tap = at((9000, 24000));
+        let r = card_stat(&BattleState::new(0, config()), "Knight").collision_radius / K;
+        let start = Vec2::new(tap.x, tap.y - (3500 + 170 + r - 250 + off) * K);
+        let mut s = BattleState::new(0, config());
+        let k = s.scenario_spawn_now(Team::Red, "Knight", start, None).expect("spawn");
+        s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
+        let mut centre = None;
+        let (mut at9, mut lost10) = (None, false);
+        for t in 0..11u32 {
+            let before = s.entity(k).map(|v| (v.pos, v.hp));
+            s.tick();
+            if centre.is_none() {
+                centre = s.spells().iter().find_map(|sp| match &sp.motion {
+                    SpellMotion::Strikes { pos, .. } => Some(*pos),
+                    _ => None,
+                });
+            }
+            let now = s.entity(k).map(|v| (v.pos, v.hp));
+            if t == 9 {
+                at9 = now.map(|n| (n.0, before.map_or(n.0, |b| b.0)));
+            }
+            if t == 10 {
+                lost10 = matches!((before, now), (Some(b), Some(n)) if n.1 < b.1);
+            }
+        }
+        let (Some(c), Some((p9, p8))) = (centre, at9) else { continue };
+        let edge = |p: Vec2| {
+            let (dx, dy) = ((p.x / K - c.x / K) as i64, (p.y / K - c.y / K) as i64);
+            isqrt(dx * dx + dy * dy) - r as i64
+        };
+        let next = Vec2::new(p9.x + (p9.x - p8.x), p9.y + (p9.y - p8.y));
+        if edge(p9) <= 3670 && edge(next) > 3670 {
+            found = true;
+            assert!(!lost10, "offset {off}: the Knight, {} inside the edge now and {} outside next, was struck", 3670 - edge(p9), edge(next) - 3670);
+        }
+    }
+    assert!(found, "the scene drifted: no start put the walking Knight inside reach on the strike tick and outside next");
 }
