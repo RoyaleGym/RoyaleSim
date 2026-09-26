@@ -18,17 +18,17 @@
 //!   4. a Skeleton emitted beside an enemy Knight has the Knight as its target and is in its attack on its first frame,
 //!      with the attack state the old arm reaches a tick later;
 //!   5. a battle with no spawner and no death spawn runs the same under both values (the control);
-//!   5b. a Goblin Cage's Brawler, born on the dying cage's centre, reads avoidance offset -190 on its first frame
+//!   6. a Goblin Cage's Brawler, born on the dying cage's centre, reads avoidance offset -190 on its first frame
 //!      under client16402_same_tick (the cage a static blocker in its first scan) and 0 under none;
-//!   6. a snapshot taken under client16402_same_tick resumes hash for hash;
-//!   7. the shipped value is none.
+//!   7. a snapshot taken under client16402_same_tick resumes hash for hash;
+//!   8. the shipped value is none.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spawned_first_step`):
 //!   * `first_step_unread` -- the new value stands on the creation point: (1), (2) and (4) go red.
 //!   * `first_step_siblings_push` -- the members of one death push each other on the first step: (2) goes red.
 //!   * `first_step_moves_pushback_spawns` -- a DeathSpawnPushback row's members step on the death frame: (3) goes red.
 //!   * `first_step_walks_only` -- the first update is the move step alone, no target and no attack: (4) goes red.
-//!   * `first_step_parent_gone` -- the dying building is not a blocker in the first scan: (5b) goes red.
+//!   * `first_step_parent_gone` -- the dying building is not a blocker in the first scan: (6) goes red.
 mod common;
 
 use common::*;
