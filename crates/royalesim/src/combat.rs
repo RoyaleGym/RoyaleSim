@@ -155,6 +155,11 @@ pub struct Projectile {
     /// only when present.
     #[serde(default)]
     pub carrier: Option<Carrier>,
+    /// The firer's (card, level) whose `projectile_area` this projectile leaves where it lands (the
+    /// Heal Spirit's heal): an AreaRelease on the arrival tick. None for every other shot, and in a
+    /// snapshot older than the field. In the state hash only when set.
+    #[serde(default)]
+    pub release: Option<(u16, i32)>,
 }
 
 /// The state of a spark carrier (`Projectile::carrier`).
@@ -884,6 +889,7 @@ pub fn fire(
             straight: None,
             hook: None,
             carrier,
+            release: card.projectile_area.as_ref().map(|_| (ents.card[a], ents.level[a])),
         });
         return;
     }
@@ -1240,6 +1246,7 @@ pub fn step_projectiles(
     projectiles: &mut Vec<Projectile>,
     dmg: &mut DamageBuffer,
     fx: &mut EffectBuffer,
+    areas: &mut Vec<crate::spell::AreaRelease>,
     scratch: &mut Vec<u32>,
     tick: u32,
 ) {
@@ -1295,6 +1302,14 @@ pub fn step_projectiles(
                 fx.buffs.push(BuffHit { target: p.target, buff: b.buff, time_ms: b.time_ms, pulse_amount: p.pulse, first_pulse_ms: None, source: None });
             }
         }
+        // THE AREA THE SHOT LEAVES (CardDef::projectile_area), at the point it landed on: cast in
+        // this Projectile phase, so it first acts next tick (state.rs `phase_projectile`).
+        #[cfg(not(clash_plant = "projectile_area_dropped"))]
+        if let Some((card, level)) = p.release {
+            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: p.aim });
+        }
+        #[cfg(clash_plant = "projectile_area_dropped")]
+        let _ = &areas; // PLANT: the shot's area is dropped.
         false
     });
     projectiles.append(&mut released);

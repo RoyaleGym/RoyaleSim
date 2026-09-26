@@ -424,6 +424,18 @@ pub struct Calib {
     /// arm, what a battle saved before it actually ran.
     #[serde(default = "dash_attack_default")]
     pub dash_attack: DashAttack,
+    /// spells.SUMMON_FUSE_START (the bottle; spell.rs `step_spells`). Added after SNAPSHOT_FORMAT 20;
+    /// a battle saved before it held no bottle, so the default is the shipped arm.
+    #[serde(default = "summon_fuse_start_default")]
+    pub summon_fuse_start: SummonFuseStart,
+    /// spells.CHILD_AREA_BIRTH (a pulsing area's child). Added after SNAPSHOT_FORMAT 20; no battle
+    /// saved before it held a child.
+    #[serde(default = "child_area_birth_default")]
+    pub child_area_birth: ChildAreaBirth,
+    /// spells.OWN_SIDE_AREA_SCOPE (spell.rs `eligible`). Added after SNAPSHOT_FORMAT 20; no battle
+    /// saved before it held an own-side area.
+    #[serde(default = "own_side_area_scope_default")]
+    pub own_side_area_scope: OwnSideScope,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -930,6 +942,18 @@ fn spawned_first_step_default() -> SpawnedFirstStep {
 
 fn dash_attack_default() -> DashAttack {
     DashAttack::None
+}
+
+fn summon_fuse_start_default() -> SummonFuseStart {
+    SummonFuseStart::UnitDeployLaw
+}
+
+fn child_area_birth_default() -> ChildAreaBirth {
+    ChildAreaBirth::OnParentFirstUpdate
+}
+
+fn own_side_area_scope_default() -> OwnSideScope {
+    OwnSideScope::AllKinds
 }
 
 macro_rules! calib_enum {
@@ -2000,6 +2024,39 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.SUMMON_FUSE_START -- when a spell summon's bottle (card.rs `SpellShape::Fuse`) releases
+    /// its area.
+    SummonFuseStart {
+        /// Counted like a unit's DeployTime from the cast tick's own update: a 500 ms bottle cast on
+        /// tick C releases on C + 9, and the area first acts on C + 10.
+        UnitDeployLaw = "unit_deploy_law",
+        /// The arithmetic a death bomb's delayed flight runs: one tick later.
+        DeathBombFlight = "death_bomb_flight",
+    }
+);
+calib_enum!(
+    /// spells.CHILD_AREA_BIRTH -- when a pulsing area's SpawnAreaEffectObject is made.
+    ChildAreaBirth {
+        /// On the parent's first update, so it first acts one tick after the parent's first
+        /// application (measured on client 16.402: a Rage's damage lands on the eleventh tick after
+        /// the cast, 5 of 5, none on the tenth).
+        OnParentFirstUpdate = "on_parent_first_update",
+        /// With the parent, so both act on the same tick.
+        WithParent = "with_parent",
+    }
+);
+calib_enum!(
+    /// spells.OWN_SIDE_AREA_SCOPE -- which kinds of the caster's side an OnlyOwnTroops area reaches.
+    OwnSideScope {
+        /// Every kind: troops, buildings and crown towers.
+        AllKinds = "own_side_all_kinds",
+        /// Troops and buildings, not crown towers.
+        ExceptCrownTowers = "own_side_except_crown_towers",
+        /// Troops only.
+        TroopsOnly = "own_troops_only",
+    }
+);
+calib_enum!(
     /// combat.DASH_ATTACK -- whether a unit whose card has a dash block (the Bandit, the Mega Knight)
     /// dashes into its target.
     DashAttack {
@@ -2748,6 +2805,9 @@ impl Calib {
                 .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: every entry is a unit name"))
                 .collect::<Result<Vec<_>, _>>()?,
             dash_attack: pick(&v, &["combat", "DASH_ATTACK", "value"], DashAttack::from_calibration_name)?,
+            summon_fuse_start: pick(&v, &["spells", "SUMMON_FUSE_START", "value"], SummonFuseStart::from_calibration_name)?,
+            child_area_birth: pick(&v, &["spells", "CHILD_AREA_BIRTH", "value"], ChildAreaBirth::from_calibration_name)?,
+            own_side_area_scope: pick(&v, &["spells", "OWN_SIDE_AREA_SCOPE", "value"], OwnSideScope::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -5709,9 +5769,8 @@ impl BattleState {
                     if p.life_ms <= 0 {
                         return None;
                     }
-                    let Some(crate::card::SpellDef {
-                        shape: crate::card::SpellShape::PulsingAreaEffect { hit, .. }, ..
-                    }) = &self.cfg.cards.get(s.card).spell
+                    let Some(crate::card::SpellShape::PulsingAreaEffect { hit, .. }) =
+                        crate::spell::shape_of(self.cfg.cards.get(s.card)).and_then(|d| crate::spell::shape_at(&d.shape, s.depth))
                     else {
                         return None;
                     };
@@ -7979,10 +8038,11 @@ impl BattleState {
     }
 
     fn phase_projectile(&mut self) {
-        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb, self.tick);
         // No early return on an empty spell list: stepping no spell is a no-op, and what
-        // the phase hands on (spell.rs `SpellOut`) need not come from a spell.
+        // the phase hands on (spell.rs `SpellOut`) need not come from a spell: a troop's shot
+        // leaves its area (CardDef::projectile_area) in `out.areas`.
         let mut out = spell::SpellOut::default();
+        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick);
         {
             let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib };
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
@@ -8445,6 +8505,7 @@ impl BattleState {
                     damage,
                     pulse: 0,
                     motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms },
+                    depth: 0,
                 });
                 continue;
             }
@@ -8853,6 +8914,18 @@ impl BattleState {
     fn enqueue(&mut self, team: Team, idx: u16, level: i32, pos: Vec2) {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
+            // A SPELL SUMMON deploys its unit as a troop card deploys: the unit's own formation and
+            // DeployTime, created in the next Spawn phase like every deploy (the Heal Spirit).
+            if let Some(crate::card::SpellDef { shape: crate::card::SpellShape::Summon { unit, .. }, .. }) = &card.spell {
+                let lvl = self.cfg.cards.summon_level(idx, level).expect("validated at check_levels");
+                for m in self.formation_members(team, *unit, lvl, pos) {
+                    #[cfg(not(clash_plant = "summon_released_late"))]
+                    self.spawn_queue.push(m);
+                    #[cfg(clash_plant = "summon_released_late")]
+                    self.release(m); // PLANT: created at the end of the tick.
+                }
+                return;
+            }
             // One entry: the cast. phase_spawn turns it into spell objects.
             self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None });
             return;
@@ -9088,6 +9161,13 @@ impl BattleState {
         let idx = self.simulable(card_name)?;
         let level = self.cfg.card_level[team as usize];
         self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
+        // A spell summon previews its unit's members (the same expansion as `enqueue`).
+        let (idx, level) = match &self.cfg.cards.get(idx).spell {
+            Some(crate::card::SpellDef { shape: crate::card::SpellShape::Summon { unit, .. }, .. }) => {
+                (*unit, self.cfg.cards.summon_level(idx, level).map_err(DeployError::InvalidLevel)?)
+            }
+            _ => (idx, level),
+        };
         Ok(self
             .formation_members(team, idx, level, pos)
             .into_iter()
@@ -10118,6 +10198,11 @@ impl BattleState {
                 if let Some(by) = p.hook {
                     h.id(by);
                 }
+                // CardDef::projectile_area's release, only when set: a battle with none hashes as before.
+                if let Some((c, l)) = p.release {
+                    h.u32(1 + c as u32);
+                    h.i32(l);
+                }
             }
             // A spark carrier (combat.SPAWN_PROJECTILE new arm) hashes its own state; every other
             // shot writes nothing more, so a battle without one hashes as it did.
@@ -10161,6 +10246,12 @@ impl BattleState {
                 h.i32(s.level);
                 h.i32(s.damage);
                 h.i32(s.pulse);
+                // The object's place in its card's chain; 0 (every object before the chain) is not
+                // hashed, so a battle with none hashes as before.
+                #[cfg(not(clash_plant = "hash_skips_spell_depth"))]
+                if s.depth > 0 {
+                    h.u32(s.depth as u32);
+                }
                 match &s.motion {
                     spell::SpellMotion::Pulsing(p) => {
                         h.u32(4);
@@ -10196,6 +10287,11 @@ impl BattleState {
                     spell::SpellMotion::Area { pos } => {
                         h.u32(3);
                         h.vec(*pos);
+                    }
+                    spell::SpellMotion::Fuse { pos, ms } => {
+                        h.u32(5);
+                        h.vec(*pos);
+                        h.i32(*ms);
                     }
                 }
             }
@@ -10642,6 +10738,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... death_area_effect~~ -- the death-spawn slide (still format 20) added
                 // `death_spawn_pushback` after it.
                 // ~~... death_spawn_pushback~~ -- the dash (still format 20) added `dash` after it.
+                // ~~... reflect~~ -- the spell summon (still format 20) added `projectile_area` after it.
                 // ~~... dash~~ -- the reflect (still format 20) added `reflect` after it.
                 // ~~... reflect~~ -- the projectile keys (still format 20) added
                 // `range_shot`, `multiple_projectiles`, `custom_first_projectile`,
@@ -10661,7 +10758,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -10695,7 +10792,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.spawn_area_effect,
                     c.hovering,
                     c.minimum_range,
-                    c.spark
+                    c.spark,
+                    c.projectile_area
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -11078,7 +11176,9 @@ impl BattleState {
             // so a death's area release -- an ordinary `Spell` under the DYING
             // card's index, which carries no `spell` of its own -- is not read as a
             // corrupt snapshot on the tick it is in the air.
-            || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).is_none()))
+            || snap.spells.iter().any(|s| {
+                cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).and_then(|d| crate::spell::shape_at(&d.shape, s.depth)).is_none())
+            })
             || snap.spawn_queue.iter().any(|p| (p.card as usize) >= cards.cards.len())
         {
             return Err("snapshot entity tables are inconsistent".into());

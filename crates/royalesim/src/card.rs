@@ -197,9 +197,10 @@ pub struct SpellHit {
     pub hits_ground: bool,
     /// OnlyEnemies. False would hit both teams; no thin-slice spell ships that.
     pub only_enemies: bool,
-    /// OnlyOwnTroops (area effects): the releaser's own side alone. Read on a SPAWN area only
-    /// (`convert_spawn_area_effect`, the Battle Healer's spawn heal); a spell's or a death's
-    /// own-troop area is still refused (`area_effect_shape`), so this is false on every other hit.
+    /// OnlyOwnTroops (area effects): the releaser's own side alone (the Battle Healer's spawn heal,
+    /// Rage, the Heal Spirit's heal). A team filter, the mirror of `only_enemies`; which kinds of
+    /// the own side it covers is spells.OWN_SIDE_AREA_SCOPE. IgnoreBuildings still applies on top
+    /// (the Heal Spirit's heal sets both). False on every hit that is not an area's.
     pub only_own_troops: bool,
     /// IgnoreBuildings (area effects): troops only.
     pub ignore_buildings: bool,
@@ -270,10 +271,33 @@ pub enum SpellShape {
     /// Its damage is the BUFF's DamagePerSecond, not the area's own Damage column,
     /// which every pulsing row of the corpus leaves blank; calibration
     /// spells.PULSING_AREA_EFFECT says when the pulses fall.
-    PulsingAreaEffect { hit: SpellHit, life_ms: i32, hit_speed_ms: i32 },
+    ///
+    /// `child` is SpawnAreaEffectObject: a ONE-SHOT area born on this area's first update
+    /// (spells.CHILD_AREA_BIRTH; Rage's RageDamage). None on Poison, Earthquake and Tornado.
+    PulsingAreaEffect { hit: SpellHit, life_ms: i32, hit_speed_ms: i32, child: Option<Box<SpellShape>> },
     /// SpellAsDeploy airborne projectile that releases a rolling projectile (The Log).
     /// All distances SUBTILES; speeds raw.
     Rolling { airborne_speed: i32, airborne_min_distance: i32, speed: i32, range: i32, half_width: i32, half_depth: i32, hit: SpellHit },
+    /// A HITPOINT-LESS SUMMON (Rage's bottle): a building row with a DeployTime, no Hitpoints and a
+    /// DeathAreaEffect, nothing else. It is not an entity -- nothing targets it, nothing collides
+    /// with it -- so it is a spell object that counts `fuse_ms` down and releases `then` where it
+    /// stands (spells.SUMMON_FUSE_START).
+    Fuse { fuse_ms: i32, then: Box<SpellShape> },
+    /// A SPELL THAT DEPLOYS A UNIT (the Heal Spirit card: SpellAsDeploy + SummonCharacter). It puts
+    /// its unit down the way a troop card does -- the troop formation, the troop deploy timer, one
+    /// tick of latency -- so state.rs `enqueue` expands it and it is never cast.
+    Summon { unit: u16, count: i32 },
+}
+
+impl SpellShape {
+    /// The next object of this shape's chain: what a `Fuse` releases, or a pulsing area's child.
+    pub fn child(&self) -> Option<&SpellShape> {
+        match self {
+            SpellShape::Fuse { then, .. } => Some(then),
+            SpellShape::PulsingAreaEffect { child, .. } => child.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -787,13 +811,18 @@ pub struct CardDef {
     /// client_spark_fan. None on every other card, and on the Firecracker too until cards.json
     /// carries the row's SpawnCount and Scatter.
     pub spark: Option<SparkDef>,
+    /// THE AREA THIS CARD'S PROJECTILE LEAVES WHERE IT LANDS (projectiles SpawnAreaEffectObject: the
+    /// Heal Spirit's heal). A whole SpellDef, cast at the impact point under this card's index and the
+    /// firer's level; it first acts on the next tick like every object born in the Projectile phase
+    /// (spell.rs `SpellOut::areas`). None on every card whose projectile leaves none.
+    pub projectile_area: Option<SpellDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `spark`, and onto the end of that tail
+    // field goes HERE, after `projectile_area`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -906,6 +935,9 @@ struct RawProjectileObj {
     check_collisions: Option<bool>,
     projectile_start_extra_radius_milli: Option<i32>,
     random_delay_ms: Option<i32>,
+    /// projectiles.csv SpawnAreaEffectObject: the NAME of the area the projectile leaves where it lands
+    /// (`CardDef::projectile_area`; the Heal Spirit's heal, the SuperArcher's charge pull).
+    spawn_area_effect_object: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1298,6 +1330,11 @@ enum UnitUse {
     DeployAreaEffect,
     /// SpawnAreaObject (`spawn_area_effect`). Not a unit: resolved against `area_effect_objects`.
     SpawnAreaEffect,
+    /// A spell's SummonCharacter (`SpellShape::Summon`, or the `Fuse` a bottle row becomes).
+    SpellSummon,
+    /// A troop projectile's SpawnAreaEffectObject: an AREA, resolved like `DeathAreaEffect` into
+    /// `CardDef::projectile_area`.
+    ProjectileArea,
 }
 
 /// The units a converter's record needs loaded: (which mechanic, unit name), for
@@ -1322,6 +1359,8 @@ pub enum UnitRef {
     /// unit may itself put a unit on the board (a periodic spawner), which `check_levels` and
     /// py.rs `ids_of_indices` follow one level down.
     DeathProjectile,
+    /// A spell's summoned unit (`SpellShape::Summon`).
+    SpellSummon,
 }
 
 impl UnitRef {
@@ -1333,6 +1372,7 @@ impl UnitRef {
             UnitRef::DeathSpawn => "a death spawn",
             UnitRef::SecondSummon => "a second summon",
             UnitRef::DeathProjectile => "a death projectile",
+            UnitRef::SpellSummon => "a spell summon",
         }
     }
 }
@@ -1527,6 +1567,11 @@ pub(crate) struct BuffTable {
 }
 
 impl BuffTable {
+    /// Whether buff `idx` composes to a full stop (all three -100 columns): the engine's stun.
+    fn stops(&self, idx: u16) -> bool {
+        crate::status::compose([self.defs[idx as usize]].iter(), crate::status::Sel::Speed, 100) == 0
+    }
+
     /// The definitions, and for each one EVERY name that interned to it joined with
     /// `|`. Joined rather than reduced to the first, because the first would silently
     /// rename the rest: a viewer told `Freeze` for an index that is also `ZapFreeze`
@@ -1585,6 +1630,10 @@ struct RawAreaEffect {
     cap_buff_time_to_area_effect_time: Option<bool>,
     /// area_effect_objects ControlsBuff (`SpellHit::controls_buff`); not extracted yet.
     controls_buff: Option<bool>,
+    /// SpawnAreaEffectObject: the NAME of the one-shot area this area makes on its first update.
+    spawn_area_effect_object: Option<String>,
+    /// BuffNumber: how many of the buff one application stacks (1, or blank, on every row read).
+    buff_number: Option<i32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1602,6 +1651,17 @@ struct RawSpell {
     radius_milli: Option<i32>,
     /// spells_other MultipleProjectiles: arrows per wave (Arrows: 15 in 2018, 10 in 15.535).
     multiple_projectiles: Option<i32>,
+    /// spells_other SummonCharacter / SummonNumber, on a spell with no projectile and no area of its
+    /// own (Rage's bottle, the Heal Spirit; 15.535 only).
+    summon: Option<RawSummon>,
+}
+
+/// cards.json `spell.summon`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawSummon {
+    character: Option<String>,
+    count: Option<i32>,
 }
 
 /// One row group of rarities.csv.
@@ -1775,6 +1835,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         hovering: false,
         minimum_range: 0,
         spark: None,
+        projectile_area: None,
     }
 }
 
@@ -1807,7 +1868,7 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
-    area_effect_shape(aeo, buffs, ctx, false)
+    area_effect_shape(aeo, buffs, ctx)
 }
 
 /// THE AREA EFFECT A CARD IS, when its character is what the area spawns (spells_characters
@@ -1815,8 +1876,7 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx
 /// Electro Wizard's ElectroWizardZap, the Ice Wizard's IceWizardCold; `CardDef::deploy_area_effect`).
 /// That spawn IS the deploy the engine already runs, so it is the one action the graph may carry:
 /// a graph of exactly one ActionSpawn of `unit_name` is accepted, and any other graph is refused
-/// as `convert_area_effect` refuses every mechanic graph. The rest is read as a spell's area is,
-/// an own-troop area still refused.
+/// as `convert_area_effect` refuses every mechanic graph. The rest is read as a spell's area is.
 fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     let own_spawn = format!("CharacterType:{unit_name}");
@@ -1824,26 +1884,24 @@ fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut 
     if !only_its_spawn {
         refuse_action_mechanic(&aeo.action_graph, &format!("deploy area effect {what}"))?;
     }
-    area_effect_shape(aeo, buffs, ctx, false)
+    area_effect_shape(aeo, buffs, ctx)
 }
 
 /// THE AREA EFFECT A UNIT PUTS DOWN WHERE IT APPEARS (characters SpawnAreaObject;
 /// `CardDef::spawn_area_effect`: the Battle Healer's BattleHealerSpawnHeal). Its action graph is
-/// refused like any area's. THE ONE PLACE AN OWN-TROOP AREA IS READ: the heal lands on the
-/// releaser's own troops (SpellHit `only_own_troops`), which is what the row says and what was
-/// measured on client 15.535.29 -- a damaged friendly Knight 2,000 from her gained the heal, the
-/// control without her gained nothing. A spell's or a death's own-troop area (Rage, Heal) stays
-/// refused: nothing measured it through those paths.
+/// refused like any area's. The heal lands on the releaser's own troops (SpellHit
+/// `only_own_troops`), which is what the row says and what was measured on client 15.535.29 -- a
+/// damaged friendly Knight 2,000 from her gained the heal, the control without her gained nothing.
 fn convert_spawn_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic(&aeo.action_graph, &format!("spawn area effect {what}"))?;
-    area_effect_shape(aeo, buffs, ctx, true)
+    area_effect_shape(aeo, buffs, ctx)
 }
 
 /// The shape of an area effect whose action graph the caller has accepted (`convert_area_effect`,
-/// `convert_deploy_area_effect`, `convert_spawn_area_effect`). `own_troops`: whether an own-troop
-/// area (OnlyOwnTroops) is read, or refused as every caller but the spawn area refuses it.
-fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx, own_troops: bool) -> Result<(SpellShape, UnitNeeds), String> {
+/// `convert_deploy_area_effect`, `convert_spawn_area_effect`). An own-troop area (OnlyOwnTroops)
+/// is read from every caller: the filter is `SpellHit::only_own_troops`.
+fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
     // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
@@ -1860,11 +1918,12 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx,
             return Err(format!("pulsing area effect {what} pulses no buff: its mechanic is not in the columns"));
         }
     }
-    if aeo.only_own_troops.unwrap_or(false) && !own_troops {
-        // Rage and Heal: the area buffs the RELEASER's own units. `impact` has the filter
-        // (SpellHit `only_own_troops`), but only the spawn area reads it; from a spell or a
-        // death the shape is still refused.
-        return Err(format!("own-troop area effect {what} is not simulated"));
+    let only_own = aeo.only_own_troops.unwrap_or(false);
+    if only_own && aeo.only_enemies.unwrap_or(false) {
+        return Err(format!("area effect {what} is both OnlyEnemies and OnlyOwnTroops"));
+    }
+    if aeo.buff_number.is_some_and(|n| n != 1) {
+        return Err(format!("area effect {what}: BuffNumber {} is not simulated", aeo.buff_number.unwrap_or(0)));
     }
     if aeo.maximum_targets.is_some() || aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.spawn_character.is_some() {
         return Err(format!("area effect {what} with targets / projectile / spawn is not simulated"));
@@ -1886,6 +1945,12 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx,
         None => None,
         Some(b) => Some(buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?),
     };
+    // AN OWN-SIDE AREA WHOSE BUFF IS A FULL STOP is refused: the 2018 Clone row would otherwise load
+    // as "hold your own troops", a different card (its copy is an action this loader does not run).
+    #[cfg(not(clash_plant = "own_full_stop_area_loads"))]
+    if only_own && area_buff.is_some_and(|b| buffs.stops(b.buff)) {
+        return Err(format!("own-troop area effect {what} holds its own side still; its mechanic is not in the columns"));
+    }
     let hit = SpellHit {
         damage: aeo.damage.unwrap_or(0),
         crown_pct: crown(aeo.crown_tower_damage_percent),
@@ -1893,13 +1958,29 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx,
         hits_air: aeo.hits_air.unwrap_or(false),
         hits_ground: aeo.hits_ground.unwrap_or(false),
         only_enemies: aeo.only_enemies.unwrap_or(false),
-        only_own_troops: own_troops && aeo.only_own_troops.unwrap_or(false),
+        only_own_troops: only_own,
         ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
         no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
         knockback: knockback(aeo.pushback_milli, None),
         buff: area_buff,
         caps_buff_time: aeo.cap_buff_time_to_area_effect_time.unwrap_or(false),
         controls_buff: aeo.controls_buff.unwrap_or(false),
+    };
+    // THE CHILD (SpawnAreaEffectObject): a one-shot area with no child of its own, born on a PULSING
+    // parent's first update. A child on a one-shot parent, or a child of another shape, is refused.
+    let child = match &aeo.spawn_area_effect_object {
+        None => None,
+        Some(cname) => {
+            if pulse_ms.is_none() {
+                return Err(format!("one-shot area effect {what} spawns area effect {cname}; not simulated"));
+            }
+            let c = ctx.aeos.get(cname).ok_or_else(|| format!("area effect {what} spawns {cname}, which has no area_effect_objects record"))?;
+            let (cs, _) = convert_area_effect(c, buffs, ctx).map_err(|e| format!("area effect {what} spawns {cname}: {e}"))?;
+            if !matches!(cs, SpellShape::AreaEffect { .. }) {
+                return Err(format!("area effect {what} spawns area effect {cname} whose shape is not a one-shot area; not simulated"));
+            }
+            Some(Box::new(cs))
+        }
     };
     let shape = match pulse_ms {
         None => {
@@ -1911,7 +1992,7 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx,
                 .life_duration_ms
                 .filter(|l| *l > 0)
                 .ok_or_else(|| format!("pulsing area effect {what} without LifeDuration"))?;
-            SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }
+            SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child }
         }
     };
     Ok((shape, Vec::new()))
@@ -1968,7 +2049,22 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
         let carrier = match (spell.first_projectile, proj) {
             (Some(f), _) => f,
             (None, Some(p)) => p,
-            (None, None) => return Err("spell with no projectile and no area effect: no mechanic in the data".into()),
+            (None, None) => {
+                // A SPELL THAT SUMMONS (Rage's bottle, the Heal Spirit): the unit is resolved by
+                // `CardDb::from_json_str` (UnitUse::SpellSummon), which turns a bottle row into this
+                // spell's `Fuse` and fills `unit` for anything else.
+                let Some(sm) = spell.summon.as_ref() else {
+                    return Err("spell with no projectile and no area effect: no mechanic in the data".into());
+                };
+                let unit = sm.character.clone().ok_or("spell summon without a character")?;
+                let count = sm.count.unwrap_or(1);
+                if count != 1 {
+                    return Err(format!("a spell summoning {count} units is not simulated"));
+                }
+                units.push((UnitUse::SpellSummon, unit));
+                def.spell = Some(SpellDef { shape: SpellShape::Summon { unit: u16::MAX, count }, placement: placement_for(false) });
+                return Ok((def, units));
+            }
         };
         let what = carrier.name.clone().unwrap_or_default();
         refuse_action_mechanic(&carrier.action_graph, &format!("projectile {what}"))?;
@@ -2325,11 +2421,14 @@ fn convert_special(raw: Option<RawSpecial>, kind: CardKind) -> Result<Option<Spe
 /// (`hitpointless_building`). Such a row cannot be born as an entity, so each shape
 /// loads as something else; a row that is none of them goes to the ordinary loader,
 /// which refuses it by name (`missing hitpoints`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 enum Hitpointless {
     /// A DEATH BOMB (`convert_death_bomb`): DeployTime, DeathDamage and
     /// DeathDamageRadius, all three positive, and no other block.
     DeathBomb { fuse_ms: i32, damage: i32, radius_milli: i32 },
+    /// A BOTTLE (Rage's RageBottle): DeployTime and a DeathAreaEffect, and no other block. Only a
+    /// spell summon releases one; it becomes that spell's `SpellShape::Fuse`.
+    Bottle { fuse_ms: i32, area: String },
 }
 
 /// Which `Hitpointless` shape `raw` is, or None.
@@ -2338,10 +2437,17 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
     // through to the ordinary loader, which refuses it by name and says why: a
     // half-recognised bomb that loaded and behaved wrongly would be worse than a
     // refusal.
-    let (fuse_ms, damage, radius_milli) = match (raw.deploy_time_ms, raw.death_damage, raw.death_damage_radius_milli) {
-        (Some(f), Some(d), Some(r)) if f > 0 && d > 0 && r > 0 => (f, d, r),
-        _ => return None,
+    let bottle = match (raw.deploy_time_ms, raw.death_damage, raw.death_damage_radius_milli, &raw.death_area_effect) {
+        (Some(f), None, None, Some(area)) if f > 0 => Some((f, area.clone())),
+        _ => None,
     };
+    let bomb = match (raw.deploy_time_ms, raw.death_damage, raw.death_damage_radius_milli) {
+        (Some(f), Some(d), Some(r)) if f > 0 && d > 0 && r > 0 => Some((f, d, r)),
+        _ => None,
+    };
+    if bottle.is_none() && bomb.is_none() {
+        return None;
+    }
     let blank = raw.kind == CardKind::Building
         && raw.hitpoints.is_none()
         && raw.damage.is_none()
@@ -2353,7 +2459,7 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
         && !matches!(&raw.projectile, Some(v) if !v.is_null())
         && raw.spawner.is_none()
         && raw.death_spawn.is_none()
-        && raw.death_area_effect.is_none()
+        && (raw.death_area_effect.is_none() || bottle.is_some())
         && raw.death_spawn_projectile.is_none()
         && raw.deploy_area_effect.is_none()
         && raw.spawn_area_object.is_none()
@@ -2368,7 +2474,11 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
     if !blank {
         return None;
     }
-    Some(Hitpointless::DeathBomb { fuse_ms, damage, radius_milli })
+    match (bottle, bomb) {
+        (Some((fuse_ms, area)), _) => Some(Hitpointless::Bottle { fuse_ms, area }),
+        (None, Some((fuse_ms, damage, radius_milli))) => Some(Hitpointless::DeathBomb { fuse_ms, damage, radius_milli }),
+        (None, None) => None,
+    }
 }
 
 /// A DEATH BOMB: the thing a dying Balloon, Giant Skeleton or Bomb Tower leaves
@@ -2563,6 +2673,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     if let Some(shape) = hitpointless_building(&raw) {
         let c = match shape {
             Hitpointless::DeathBomb { fuse_ms, damage, radius_milli } => convert_death_bomb(&raw, fuse_ms, damage, radius_milli)?,
+            // A bottle is a spell summon's `Fuse` (`CardDb::from_json_str`, UnitUse::SpellSummon),
+            // never a unit on the board.
+            Hitpointless::Bottle { .. } => return Err("a hitpoint-less building whose death leaves an area is a spell summon's bottle; only a spell summon releases one".into()),
         };
         return Ok((c, raw.display_name.clone(), Vec::new()));
     }
@@ -2575,6 +2688,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut projectile_name: Option<String> = None;
     let mut range_shot: Option<RangeShotDef> = None;
     let mut spark: Option<SparkDef> = None;
+    let mut projectile_area_need: Option<String> = None;
     let projectile = match raw.projectile {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::Object(o)) => {
@@ -2609,6 +2723,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             projectile_name = p.name.clone();
             range_shot = range_shot_of(&p);
             spark = p.spawn_projectile.as_ref().and_then(spark_of);
+            #[cfg(not(clash_plant = "projectile_area_unread"))]
+            if let Some(a) = &p.spawn_area_effect_object {
+                projectile_area_need = Some(a.clone());
+            }
             Some(ProjectileDef {
                 speed: p.speed.ok_or("projectile without speed")?,
                 radius: milli(p.radius_milli.unwrap_or(0)),
@@ -2675,6 +2793,13 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     }
     if let Some(aeo) = &raw.death_area_effect {
         units.push((UnitUse::DeathAreaEffect, aeo.clone()));
+    }
+    // THE PROJECTILE'S AREA: one area per card at most, so `spell::shape_of` stays one answer.
+    if let Some(a) = projectile_area_need {
+        if raw.death_area_effect.is_some() {
+            return Err("a card whose death and projectile both leave areas is not simulated".into());
+        }
+        units.push((UnitUse::ProjectileArea, a));
     }
     // THE SECOND SUMMON: all-or-nothing like the other blocks (a character without a
     // count, or a count without a character, is a data error). An overlay-resolved
@@ -2857,6 +2982,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         #[cfg(clash_plant = "minimum_range_unread")]
         minimum_range: 0, // PLANT (regression): the loader drops the column, so the Mortar shoots at its own feet.
         spark,
+        projectile_area: None,
     }, display, units))
 }
 
@@ -3078,7 +3204,7 @@ impl CardDb {
         let mut unloadable: Vec<(u16, String)> = Vec::new();
         let mut work: VecDeque<(u16, UnitUse, String, u8)> = spawns.into_iter().map(|(owner, which, unit)| (owner, which, unit, 0)).collect();
         while let Some((spell_idx, which, unit, depth)) = work.pop_front() {
-            if which == UnitUse::DeathAreaEffect {
+            if which == UnitUse::DeathAreaEffect || which == UnitUse::ProjectileArea {
                 // A DEATH AREA EFFECT IS NOT A UNIT. It is an `area_effect_objects`
                 // row the death leaves standing where the unit stood, so it is
                 // resolved here against the file's own table and stored on the card
@@ -3095,7 +3221,12 @@ impl CardDb {
                 };
                 match got {
                     Ok((def, needs)) => {
-                        db.cards[spell_idx as usize].death_area_effect = Some(def);
+                        let card = &mut db.cards[spell_idx as usize];
+                        if which == UnitUse::DeathAreaEffect {
+                            card.death_area_effect = Some(def);
+                        } else {
+                            card.projectile_area = Some(def);
+                        }
                         // The units the area releases are the DYING card's needs, at
                         // its own level of the worklist: queued behind that level's
                         // needs and ahead of every deeper one already waiting, so the
@@ -3105,7 +3236,10 @@ impl CardDb {
                             work.insert(at + k, (spell_idx, w, u, depth));
                         }
                     }
-                    Err(e) => unloadable.push((spell_idx, format!("death area effect {unit}: {e}"))),
+                    Err(e) => {
+                        let what = if which == UnitUse::DeathAreaEffect { "death area effect" } else { "projectile area" };
+                        unloadable.push((spell_idx, format!("{what} {unit}: {e}")))
+                    }
                 }
                 continue;
             }
@@ -3178,6 +3312,41 @@ impl CardDb {
                 }
                 continue;
             }
+            if which == UnitUse::SpellSummon {
+                // A BOTTLE IS NOT A UNIT (`hitpointless_building`): its row becomes the spell's own
+                // `Fuse`, and the area its death leaves becomes what the fuse releases. Anything else
+                // is a real unit and goes the ordinary way below, then `Summon.unit` is filled.
+                if let Some(v) = file.units.get(&unit) {
+                    let mut v = v.clone();
+                    let kind = match v.get("source_table").and_then(|t| t.as_str()) {
+                        Some("buildings") => "building",
+                        _ => "troop",
+                    };
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("kind".into(), serde_json::Value::String(kind.into()));
+                        obj.entry("count").or_insert(serde_json::Value::from(1));
+                    }
+                    let bottle = serde_json::from_value::<RawCard>(v).ok().and_then(|r| match hitpointless_building(&r) {
+                        Some(Hitpointless::Bottle { fuse_ms, area }) => Some((fuse_ms, area)),
+                        _ => None,
+                    });
+                    if let Some((fuse_ms, area)) = bottle {
+                        let got = match ctx.aeos.get(&area) {
+                            Some(a) => convert_area_effect(a, &mut buffs, &ctx).map(|(sh, _)| sh),
+                            None => Err(format!("{area} has no area_effect_objects record")),
+                        };
+                        match got {
+                            Ok(then) => {
+                                if let Some(sd) = db.cards[spell_idx as usize].spell.as_mut() {
+                                    sd.shape = SpellShape::Fuse { fuse_ms, then: Box::new(then) };
+                                }
+                            }
+                            Err(e) => unloadable.push((spell_idx, format!("summon {unit}: {e}"))),
+                        }
+                        continue;
+                    }
+                }
+            }
             let got = unit_idx
                 .entry(unit.clone())
                 .or_insert_with(|| {
@@ -3220,6 +3389,19 @@ impl CardDb {
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
                     let (mut c, _, nested) = convert(raw, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;
+                    // A SPAWNED UNIT'S PROJECTILE AREA (the Heal Spirit's heal) is an area, not a unit: it
+                    // resolves here, onto the unit's own card, and only unit needs remain a chain.
+                    let mut chain: UnitNeeds = Vec::new();
+                    for (w, u) in nested {
+                        if w == UnitUse::ProjectileArea {
+                            let a = ctx.aeos.get(&u).ok_or_else(|| format!("units.{unit}: its projectile area {u} has no area_effect_objects record"))?;
+                            let (shape, _) = convert_area_effect(a, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: projectile area {u}: {e}"))?;
+                            c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+                        } else {
+                            chain.push((w, u));
+                        }
+                    }
+                    let nested = chain;
                     // ONE SECOND LEVEL, AND ONLY ONE: a death projectile's SpawnCharacter may carry a
                     // periodic spawner and nothing else (the Phoenix's PhoenixEgg hatches a
                     // PhoenixNoRespawn: measured on client 15.535.29, 76 ticks after the egg
@@ -3268,7 +3450,12 @@ impl CardDb {
                                 sp.unit = u;
                             }
                         }
-                        UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect => {
+                        UnitUse::SpellSummon => {
+                            if let Some(SpellDef { shape: SpellShape::Summon { unit: su, .. }, .. }) = card.spell.as_mut() {
+                                *su = u;
+                            }
+                        }
+                        UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
                     }
@@ -3399,6 +3586,14 @@ impl CardDb {
         self.unit_level(idx, sp.unit, None, level)
     }
 
+    /// Level of the unit card `idx`'s SPELL SUMMON puts down at unified `level` (the spell's own).
+    pub fn summon_level(&self, idx: u16, level: i32) -> Result<i32, String> {
+        match &self.get(idx).spell {
+            Some(SpellDef { shape: SpellShape::Summon { unit, .. }, .. }) => self.unit_level(idx, *unit, None, level),
+            _ => Err(format!("{} summons no unit", self.get(idx).name)),
+        }
+    }
+
     /// Level of the units card `idx`'s DEATH SPAWN leaves at unified `level`.
     pub fn death_spawn_level(&self, idx: u16, level: i32) -> Result<i32, String> {
         let ds = self.get(idx).death_spawn.ok_or_else(|| format!("{} has no death spawn", self.get(idx).name))?;
@@ -3417,7 +3612,7 @@ impl CardDb {
         for (path, unit, level_index) in self.unit_refs(idx) {
             let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile => self.unit_level(idx, unit, level_index, level)?,
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon => self.unit_level(idx, unit, level_index, level)?,
             };
             if path == UnitRef::DeathProjectile {
                 for (_, sub, sub_index) in self.unit_refs(unit) {
@@ -3462,6 +3657,9 @@ impl CardDb {
         if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.death_projectile {
             out.push((UnitRef::DeathProjectile, sp.unit, sp.level_index));
         }
+        if let Some(SpellDef { shape: SpellShape::Summon { unit, .. }, .. }) = &c.spell {
+            out.push((UnitRef::SpellSummon, *unit, None));
+        }
         out
     }
 
@@ -3482,6 +3680,8 @@ impl CardDb {
                 UnitRef::DeathSpawn => card.death_spawn = None,
                 UnitRef::SecondSummon => card.formation.second_summon = None,
                 UnitRef::DeathProjectile => card.death_projectile = None,
+                // A summon with no unit summons nothing: the spell goes with it.
+                UnitRef::SpellSummon => card.spell = None,
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -3489,6 +3689,7 @@ impl CardDb {
         card.death_projectile = None;
         card.deploy_area_effect = None;
         card.spawn_area_effect = None;
+        card.projectile_area = None;
     }
 
     /// Register a card under its internal name, and under its display name
@@ -4112,18 +4313,16 @@ mod tests {
         }
         assert_eq!(db.get(db.index("Giant").unwrap()).ignore_pushback, doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Giant").unwrap()["ignore_pushback"].as_bool().unwrap());
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
-        // effect whose mechanic is a BUFF (with Earthquake and the Snowball); Rage
-        // and Heal stay refused because each is a SummonCharacter
-        // spell (a bottle, a spirit) whose area effect is released by the summon's
-        // death or projectile, which the loader does not walk.
-        for n in ["Rage", "Lightning", "Graveyard", "Clone", "Heal", "Mirror"] {
+        // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
+        // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes).
+        for n in ["Lightning", "Graveyard", "Clone", "Mirror"] {
             assert!(db.index(n).is_none(), "{n} must not be simulable");
             assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         }
         // THE PULSING AREA EFFECTS, and the buff that IS their mechanic.
         for n in ["Poison", "Earthquake"] {
             match spell(n) {
-                SpellDef { shape: SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }, .. } => {
+                SpellDef { shape: SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, .. }, .. } => {
                     let aeo = &card(n)["spell"]["area_effect_object"];
                     assert_eq!(life_ms, int(&aeo["life_duration_ms"]));
                     assert_eq!(hit_speed_ms, int(&aeo["hit_speed_ms"]));

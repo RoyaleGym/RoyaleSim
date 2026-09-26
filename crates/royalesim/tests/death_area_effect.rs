@@ -140,7 +140,7 @@ fn the_loader_reads_the_named_area_effect_row_onto_the_card_and_refuses_the_rest
                 assert!(a["hit_speed_ms"].is_null(), "{name}: {area} ships a HitSpeed and loaded as a one-shot disc");
                 hit
             }
-            SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms } => {
+            SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, .. } => {
                 assert_eq!(*life_ms, int(&a["life_duration_ms"]), "{name}: the area's LifeDuration");
                 assert_eq!(*hit_speed_ms, int(&a["hit_speed_ms"]), "{name}: the area's HitSpeed");
                 hit

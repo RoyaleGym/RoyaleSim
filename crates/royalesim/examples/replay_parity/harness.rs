@@ -897,7 +897,8 @@ impl Roots {
                     // A death projectile's release (the Phoenix's egg) comes out of a death
                     // too, a tick after it: rooted to the nearest recent death, as a death spawn.
                     UnitRef::DeathProjectile => &mut death_spawn_of,
-                    UnitRef::SpellRelease => &mut spell_release_of,
+                    // a spell summon's unit (the Heal Spirit) is put down by its spell, as a release is
+                    UnitRef::SpellRelease | UnitRef::SpellSummon => &mut spell_release_of,
                     UnitRef::SecondSummon => &mut second_summon_of,
                     // A spawner's unit is rooted through the entity that emitted it
                     // (`spawned_by`), not by card.

@@ -16005,8 +16005,8 @@
    "elixir": 2,
    "rarity": "Epic",
    "hitpoints": null,
-   "damage": null,
-   "damage_source": null,
+   "damage": 70,
+   "damage_source": "area_effect_objects.RageDamage.Damage",
    "hit_speed_ms": null,
    "load_time_ms": null,
    "load_first_hit": false,
@@ -16019,15 +16019,15 @@
    "collision_radius_milli": null,
    "mass": null,
    "deploy_time_ms": null,
-   "attacks_air": false,
-   "attacks_ground": false,
+   "attacks_air": true,
+   "attacks_ground": true,
    "target_only_buildings": false,
    "flying_height": null,
-   "area_damage_radius_milli": null,
+   "area_damage_radius_milli": 3000,
    "self_as_aoe_center": false,
    "projectile": null,
    "shield_hitpoints": null,
-   "crown_tower_damage_percent": null,
+   "crown_tower_damage_percent": 25,
    "lifetime_ms": null,
    "ignore_pushback": false,
    "death_damage": null,
@@ -16062,7 +16062,12 @@
     "can_deploy_on_enemy_side": true,
     "pushback_milli": null,
     "duration_seconds": null,
-    "spawn": null
+    "spawn": null,
+    "summon": {
+     "character": "RageBottle",
+     "count": 1,
+     "source": "spells_other.Rage.SummonCharacter"
+    }
    },
    "level_scaling": {
     "rarity": "Epic",
@@ -16078,7 +16083,12 @@
      193,
      212,
      233,
-     256
+     256,
+     281,
+     309,
+     339,
+     372,
+     409
     ],
     "applies_to": [
      "hitpoints",
@@ -16087,8 +16097,8 @@
     "rounding": "floor -- MEASURED on the 16.402 live captures' max_hp (tests/levels.rs); the composition with crown-tower percent and shields is still calibration.json combat.DAMAGE_ARITHMETIC",
     "relative_level": 5,
     "reading": "object_rarity_local_1",
-    "ladder_rarity": "Epic",
-    "base_level": 6
+    "ladder_rarity": "Common",
+    "base_level": 1
    },
    "not_visible": false
   },
@@ -16468,7 +16478,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": true,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": 1
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -16741,7 +16753,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -16885,7 +16899,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17029,7 +17045,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": 1
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17174,7 +17192,9 @@
       ],
       "mechanic": true
      },
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17487,7 +17507,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": true
+     "controls_buff": true,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": true,
     "can_place_on_buildings": true,
@@ -17625,7 +17647,9 @@
       ],
       "mechanic": true
      },
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17769,7 +17793,9 @@
      "cap_buff_time_to_area_effect_time": true,
      "affects_hidden": true,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": 1
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -17987,8 +18013,8 @@
    "elixir": 1,
    "rarity": "Rare",
    "hitpoints": null,
-   "damage": null,
-   "damage_source": null,
+   "damage": 43,
+   "damage_source": "projectiles.HealSpiritProjectile.Damage",
    "hit_speed_ms": null,
    "load_time_ms": null,
    "load_first_hit": false,
@@ -18001,15 +18027,15 @@
    "collision_radius_milli": null,
    "mass": null,
    "deploy_time_ms": null,
-   "attacks_air": false,
-   "attacks_ground": false,
+   "attacks_air": true,
+   "attacks_ground": true,
    "target_only_buildings": false,
    "flying_height": null,
-   "area_damage_radius_milli": null,
+   "area_damage_radius_milli": 1500,
    "self_as_aoe_center": false,
    "projectile": null,
    "shield_hitpoints": null,
-   "crown_tower_damage_percent": null,
+   "crown_tower_damage_percent": 100,
    "lifetime_ms": null,
    "ignore_pushback": false,
    "death_damage": null,
@@ -18044,7 +18070,12 @@
     "can_deploy_on_enemy_side": false,
     "pushback_milli": null,
     "duration_seconds": null,
-    "spawn": null
+    "spawn": null,
+    "summon": {
+     "character": "HealSpirit",
+     "count": 1,
+     "source": "spells_other.Heal.SummonCharacter"
+    }
    },
    "level_scaling": {
     "rarity": "Rare",
@@ -18063,7 +18094,9 @@
      256,
      281,
      309,
-     339
+     339,
+     372,
+     409
     ],
     "applies_to": [
      "hitpoints",
@@ -18072,8 +18105,8 @@
     "rounding": "floor -- MEASURED on the 16.402 live captures' max_hp (tests/levels.rs); the composition with crown-tower percent and shields is still calibration.json combat.DAMAGE_ARITHMETIC",
     "relative_level": 2,
     "reading": "object_rarity_local_1",
-    "ladder_rarity": "Rare",
-    "base_level": 3
+    "ladder_rarity": "Common",
+    "base_level": 1
    },
    "not_visible": false
   },
@@ -18348,7 +18381,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": true,
     "can_place_on_buildings": true,
@@ -18504,7 +18539,9 @@
       ],
       "mechanic": true
      },
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -18769,7 +18806,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": 1
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -18906,7 +18945,9 @@
       ],
       "mechanic": true
      },
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19027,7 +19068,9 @@
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
      "action_graph": null,
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19166,7 +19209,9 @@
       ],
       "mechanic": true
      },
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19402,7 +19447,9 @@
       ],
       "mechanic": true
      },
-     "controls_buff": false
+     "controls_buff": false,
+     "spawn_area_effect_object": null,
+     "buff_number": null
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -61937,7 +61984,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "RageDamage",
+   "buff_number": 1
   },
   "Freeze": {
    "name": "Freeze",
@@ -61983,7 +62032,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Lightning": {
    "name": "Lightning",
@@ -62064,7 +62115,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Zap": {
    "name": "Zap",
@@ -62110,7 +62163,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Poison": {
    "name": "Poison",
@@ -62156,7 +62211,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Graveyard": {
    "name": "Graveyard",
@@ -62184,7 +62241,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "FreezeIceGolemite": {
    "name": "FreezeIceGolemite",
@@ -62230,7 +62289,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Clone": {
    "name": "Clone",
@@ -62270,7 +62331,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Tornado": {
    "name": "Tornado",
@@ -62316,7 +62379,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": true
+   "controls_buff": true,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BarbarianRage": {
    "name": "BarbarianRage",
@@ -62362,7 +62427,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "BarbarianRageDamage",
+   "buff_number": 1
   },
   "Heal": {
    "name": "Heal",
@@ -62408,7 +62475,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "IceWizardCold": {
    "name": "IceWizardCold",
@@ -62465,7 +62534,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SuperWitchCurse": {
    "name": "SuperWitchCurse",
@@ -62511,7 +62582,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "GoldenKnightShield": {
    "name": "GoldenKnightShield",
@@ -62557,7 +62630,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Earthquake": {
    "name": "Earthquake",
@@ -62603,7 +62678,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "SkeletonKingGraveyard": {
    "name": "SkeletonKingGraveyard",
@@ -62631,7 +62708,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Deflect": {
    "name": "Deflect",
@@ -62659,7 +62738,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "GlobalClone": {
    "name": "GlobalClone",
@@ -62717,7 +62798,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BoostRage": {
    "name": "BoostRage",
@@ -62763,7 +62846,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostClone": {
    "name": "BoostClone",
@@ -62809,7 +62894,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostHeal": {
    "name": "BoostHeal",
@@ -62855,7 +62942,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostGrowth": {
    "name": "BoostGrowth",
@@ -62901,7 +62990,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostSpearGoblins": {
    "name": "BoostSpearGoblins",
@@ -62947,7 +63038,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostShield": {
    "name": "BoostShield",
@@ -62975,7 +63068,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostRageBottle": {
    "name": "BoostRageBottle",
@@ -63021,7 +63116,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostCloneBottle": {
    "name": "BoostCloneBottle",
@@ -63067,7 +63164,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "ElectroWizardZap": {
    "name": "ElectroWizardZap",
@@ -63124,7 +63223,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "DarkElixir": {
    "name": "DarkElixir",
@@ -63170,7 +63271,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "ElixirDrop": {
    "name": "ElixirDrop",
@@ -63216,7 +63319,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "GraveyardOrb": {
    "name": "GraveyardOrb",
@@ -63244,7 +63349,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "HealSpirit": {
    "name": "HealSpirit",
@@ -63290,7 +63397,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BattleHealerHeal": {
    "name": "BattleHealerHeal",
@@ -63336,7 +63445,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "SuperFreezeIceGolemite": {
    "name": "SuperFreezeIceGolemite",
@@ -63382,7 +63493,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "SuperMiniPekkaPancakesHeal": {
    "name": "SuperMiniPekkaPancakesHeal",
@@ -63428,7 +63541,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "RoyalDeliveryArea": {
    "name": "RoyalDeliveryArea",
@@ -63491,7 +63606,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SuperArcherChargePull": {
    "name": "SuperArcherChargePull",
@@ -63537,7 +63654,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": true
+   "controls_buff": true,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BattleHealerSpawnHeal": {
    "name": "BattleHealerSpawnHeal",
@@ -63583,7 +63702,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "GoblinDrillDamage": {
    "name": "GoblinDrillDamage",
@@ -63611,7 +63732,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BoostInvisibilityBottle": {
    "name": "BoostInvisibilityBottle",
@@ -63657,7 +63780,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "InvisibilityArea": {
    "name": "InvisibilityArea",
@@ -63703,7 +63828,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BoostHealBottle": {
    "name": "BoostHealBottle",
@@ -63749,7 +63876,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostLevelUp": {
    "name": "BoostLevelUp",
@@ -63795,7 +63924,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostShieldBottle": {
    "name": "BoostShieldBottle",
@@ -63841,7 +63972,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "ShieldArea": {
    "name": "ShieldArea",
@@ -63887,7 +64020,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SantaPresentBoostClone": {
    "name": "SantaPresentBoostClone",
@@ -63933,7 +64068,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "RageDamage": {
    "name": "RageDamage",
@@ -63961,7 +64098,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BarbarianRageDamage": {
    "name": "BarbarianRageDamage",
@@ -63989,7 +64128,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SantaPresentBoostHeal": {
    "name": "SantaPresentBoostHeal",
@@ -64035,7 +64176,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "SantaPresentBoostInvisibility": {
    "name": "SantaPresentBoostInvisibility",
@@ -64081,7 +64224,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "SantaPresentBoostRage": {
    "name": "SantaPresentBoostRage",
@@ -64127,7 +64272,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "GoblinMorphAOEFriend": {
    "name": "GoblinMorphAOEFriend",
@@ -64173,7 +64320,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "GoblinMorphAOEFoe",
+   "buff_number": 1
   },
   "DummySpawnLittlePrinceGuard": {
    "name": "DummySpawnLittlePrinceGuard",
@@ -64210,7 +64359,9 @@
     "spawns": [],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "GoblinMorphAOEFoe": {
    "name": "GoblinMorphAOEFoe",
@@ -64256,7 +64407,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "GoblinMorphAOEDamage",
+   "buff_number": 1
   },
   "GoblinMorphAOEDamage": {
    "name": "GoblinMorphAOEDamage",
@@ -64284,7 +64437,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostRageBottle_Battleground": {
    "name": "BoostRageBottle_Battleground",
@@ -64330,7 +64485,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostCloneBottle_Battleground": {
    "name": "BoostCloneBottle_Battleground",
@@ -64376,7 +64533,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostInvisibilityBottle_Battleground": {
    "name": "BoostInvisibilityBottle_Battleground",
@@ -64422,7 +64581,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostHealBottle_Battleground": {
    "name": "BoostHealBottle_Battleground",
@@ -64468,7 +64629,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "MegaDeflect": {
    "name": "MegaDeflect",
@@ -64496,7 +64659,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "MegaDeflectBuff",
+   "buff_number": null
   },
   "MegaDeflectBuff": {
    "name": "MegaDeflectBuff",
@@ -64542,7 +64707,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "WarmAOE": {
    "name": "WarmAOE",
@@ -64588,7 +64755,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_Event_LoveBuff": {
    "name": "BoostAOE_Event_LoveBuff",
@@ -64634,7 +64803,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "DarkElixirAOE": {
    "name": "DarkElixirAOE",
@@ -64680,7 +64851,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_TrickOrTreat_Pekka": {
    "name": "BoostAOE_TrickOrTreat_Pekka",
@@ -64726,7 +64899,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_TrickOrTreat_Bomb": {
    "name": "BoostAOE_TrickOrTreat_Bomb",
@@ -64772,7 +64947,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_TrickOrTreat_Clone": {
    "name": "BoostAOE_TrickOrTreat_Clone",
@@ -64818,7 +64995,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_TrickOrTreat_Elixir": {
    "name": "BoostAOE_TrickOrTreat_Elixir",
@@ -64864,7 +65043,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_TrickOrTreat_Skeletons": {
    "name": "BoostAOE_TrickOrTreat_Skeletons",
@@ -64910,7 +65091,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BoostAOE_TrickOrTreat_SuperRage": {
    "name": "BoostAOE_TrickOrTreat_SuperRage",
@@ -64956,7 +65139,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "TrickOrTreat_Bomb_AOE": {
    "name": "TrickOrTreat_Bomb_AOE",
@@ -64984,7 +65169,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Morph_SkeletonsFriend_AOE": {
    "name": "Morph_SkeletonsFriend_AOE",
@@ -65030,7 +65217,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "Morph_SkeletonsFoe_AOE",
+   "buff_number": 1
   },
   "Morph_SkeletonsFoe_AOE": {
    "name": "Morph_SkeletonsFoe_AOE",
@@ -65076,7 +65265,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "Morph_SkeletonsDamage_AOE",
+   "buff_number": 1
   },
   "Morph_SkeletonsDamage_AOE": {
    "name": "Morph_SkeletonsDamage_AOE",
@@ -65104,7 +65295,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "SuperRage_AOE": {
    "name": "SuperRage_AOE",
@@ -65150,7 +65343,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "LoveBuffAOE": {
    "name": "LoveBuffAOE",
@@ -65196,7 +65391,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "DarkMagicAOE": {
    "name": "DarkMagicAOE",
@@ -65224,7 +65421,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Lightning_Charge1": {
    "name": "Event_Global_Lightning_Charge1",
@@ -65263,7 +65462,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Lightning_Charge2": {
    "name": "Event_Global_Lightning_Charge2",
@@ -65302,7 +65503,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Lightning": {
    "name": "Event_Global_Lightning",
@@ -65383,7 +65586,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Lightning_Setup": {
    "name": "Event_Global_Lightning_Setup",
@@ -65422,7 +65627,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Rage": {
    "name": "Event_Global_Rage",
@@ -65468,7 +65675,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Heal": {
    "name": "Event_Global_Heal",
@@ -65514,7 +65723,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Freeze": {
    "name": "Event_Global_Freeze",
@@ -65560,7 +65771,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Rage_Setup": {
    "name": "Event_Global_Rage_Setup",
@@ -65599,7 +65812,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Heal_Setup": {
    "name": "Event_Global_Heal_Setup",
@@ -65638,7 +65853,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Freeze_Setup": {
    "name": "Event_Global_Freeze_Setup",
@@ -65677,7 +65894,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "TriWizardSpawn": {
    "name": "TriWizardSpawn",
@@ -65718,7 +65937,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Invisibility": {
    "name": "Event_Global_Invisibility",
@@ -65764,7 +65985,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Invisibility_Setup": {
    "name": "Event_Global_Invisibility_Setup",
@@ -65803,7 +66026,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Event_Global_Clone_Setup": {
    "name": "Event_Global_Clone_Setup",
@@ -65842,7 +66067,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "EvoRoyalGiantPush_EV1": {
    "name": "EvoRoyalGiantPush_EV1",
@@ -65870,7 +66097,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "FirecrackerFireworksBig_EV1": {
    "name": "FirecrackerFireworksBig_EV1",
@@ -65916,7 +66145,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "FirecrackerFireworksSmall_EV1": {
    "name": "FirecrackerFireworksSmall_EV1",
@@ -65962,7 +66193,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "IceSpiritsAOE_EV1": {
    "name": "IceSpiritsAOE_EV1",
@@ -66008,7 +66241,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": true,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Valkyrie_MiniTornado_EV1": {
    "name": "Valkyrie_MiniTornado_EV1",
@@ -66054,7 +66289,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": true
+   "controls_buff": true,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Zap_EV1": {
    "name": "Zap_EV1",
@@ -66113,7 +66350,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "DummyZap_EV1_Visual": {
    "name": "DummyZap_EV1_Visual",
@@ -66141,7 +66380,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Zap_EV1_SpawnAOE_medium": {
    "name": "Zap_EV1_SpawnAOE_medium",
@@ -66187,7 +66428,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Zap_EV1_SpawnAOE_large": {
    "name": "Zap_EV1_SpawnAOE_large",
@@ -66233,7 +66476,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Tesla_EV1_AppearStun": {
    "name": "Tesla_EV1_AppearStun",
@@ -66272,7 +66517,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Wizard_EV1_ShieldLostExplosion": {
    "name": "Wizard_EV1_ShieldLostExplosion",
@@ -66300,7 +66547,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Wizard_EV1_BurningAOE": {
    "name": "Wizard_EV1_BurningAOE",
@@ -66328,7 +66577,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Tesla_EV1_DummyAEO": {
    "name": "Tesla_EV1_DummyAEO",
@@ -66367,7 +66618,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "AngryBarbarian_EV1_RageAEO": {
    "name": "AngryBarbarian_EV1_RageAEO",
@@ -66422,7 +66675,9 @@
     "spawns": [],
     "mechanic": false
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BabyDragon_EV1_wind_aeo": {
    "name": "BabyDragon_EV1_wind_aeo",
@@ -66467,7 +66722,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BlowDartPoisonAeO_midDamage": {
    "name": "BlowDartPoisonAeO_midDamage",
@@ -66523,7 +66780,9 @@
     "spawns": [],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BlowDartPoisonAeO_fullDamage": {
    "name": "BlowDartPoisonAeO_fullDamage",
@@ -66579,7 +66838,9 @@
     "spawns": [],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BlowDartPoisonAeO_baseDamage": {
    "name": "BlowDartPoisonAeO_baseDamage",
@@ -66635,7 +66896,9 @@
     "spawns": [],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Cannon_EV1_barrage_aeo_slow": {
    "name": "Cannon_EV1_barrage_aeo_slow",
@@ -66675,7 +66938,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Cannon_EV1_barrage_visualizer_slow": {
    "name": "Cannon_EV1_barrage_visualizer_slow",
@@ -66703,7 +66968,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Cannon_EV1_barrage_aeo_fast": {
    "name": "Cannon_EV1_barrage_aeo_fast",
@@ -66743,7 +67010,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Cannon_EV1_barrage_visualizer_fast": {
    "name": "Cannon_EV1_barrage_visualizer_fast",
@@ -66771,7 +67040,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Cannon_EV1_barrage_aeo_JULIO": {
    "name": "Cannon_EV1_barrage_aeo_JULIO",
@@ -66811,7 +67082,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Cannon_EV1_barrage_visualizer_JULIO": {
    "name": "Cannon_EV1_barrage_visualizer_JULIO",
@@ -66839,7 +67112,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Ghost_EV1_Summon_Spawn_Area": {
    "name": "Ghost_EV1_Summon_Spawn_Area",
@@ -66867,7 +67142,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Ghost_EV1_Summon_Damage_Area": {
    "name": "Ghost_EV1_Summon_Damage_Area",
@@ -66895,7 +67172,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "GoblinCurse": {
    "name": "GoblinCurse",
@@ -66936,7 +67215,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "GoblinCurseBase": {
    "name": "GoblinCurseBase",
@@ -66973,7 +67254,9 @@
     "spawns": [],
     "mechanic": false
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "CancelTauntAEO": {
    "name": "CancelTauntAEO",
@@ -67010,7 +67293,9 @@
     "spawns": [],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "goblin_machine_rocket_target_signal": {
    "name": "goblin_machine_rocket_target_signal",
@@ -67048,7 +67333,9 @@
     "spawns": [],
     "mechanic": false
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "dead_goblinstein": {
    "name": "dead_goblinstein",
@@ -67076,7 +67363,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "AOE_goblinstein_ability": {
    "name": "AOE_goblinstein_ability",
@@ -67115,7 +67404,9 @@
     "spawns": [],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Graveyard_rework": {
    "name": "Graveyard_rework",
@@ -67162,7 +67453,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Princess_EV1_projectile_aeo": {
    "name": "Princess_EV1_projectile_aeo",
@@ -67208,7 +67501,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Princess_EV1_DeathFreeze_Damage": {
    "name": "Princess_EV1_DeathFreeze_Damage",
@@ -67236,7 +67531,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Princess_EV1_DeathFreeze": {
    "name": "Princess_EV1_DeathFreeze",
@@ -67282,7 +67579,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "Princess_EV1_DeathFreeze_Damage",
+   "buff_number": 1
   },
   "RageBarbarianDummyForSpawn": {
    "name": "RageBarbarianDummyForSpawn",
@@ -67321,7 +67620,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BarbarianRageEvoAeO": {
    "name": "BarbarianRageEvoAeO",
@@ -67378,7 +67679,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": "BarbarianRageDamage",
+   "buff_number": 1
   },
   "RageBarbarianEvoDummyForSpawn": {
    "name": "RageBarbarianEvoDummyForSpawn",
@@ -67417,7 +67720,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "RoyalHog_EV1_Landing_Damage_Area": {
    "name": "RoyalHog_EV1_Landing_Damage_Area",
@@ -67445,7 +67750,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SkeletonBalloonEvoDummyAeO_DEATH": {
    "name": "SkeletonBalloonEvoDummyAeO_DEATH",
@@ -67486,7 +67793,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SkeletonBalloonEvoDummyAeO_EXTRA": {
    "name": "SkeletonBalloonEvoDummyAeO_EXTRA",
@@ -67527,7 +67836,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SkeletonBalloonEvoDummyAeO": {
    "name": "SkeletonBalloonEvoDummyAeO",
@@ -67564,7 +67875,9 @@
     "spawns": [],
     "mechanic": false
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SuspiciousBush_DummyAEO": {
    "name": "SuspiciousBush_DummyAEO",
@@ -67605,7 +67918,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Vines_AeO": {
    "name": "Vines_AeO",
@@ -67652,7 +67967,9 @@
     ],
     "mechanic": true
    },
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "Gift_Delivery_AEO": {
    "name": "Gift_Delivery_AEO",
@@ -67715,7 +68032,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "BushStatic": {
    "name": "BushStatic",
@@ -67761,7 +68080,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "BushStatic_Middle": {
    "name": "BushStatic_Middle",
@@ -67807,7 +68128,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Event_Rage": {
    "name": "Event_Rage",
@@ -67853,7 +68176,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Event_Heal": {
    "name": "Event_Heal",
@@ -67899,7 +68224,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Event_Invisibility": {
    "name": "Event_Invisibility",
@@ -67945,7 +68272,9 @@
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": 1
   },
   "Event_HolidayFeast_AEO": {
    "name": "Event_HolidayFeast_AEO",
@@ -67991,7 +68320,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   },
   "SuperKnight_ShieldAEO": {
    "name": "SuperKnight_ShieldAEO",
@@ -68037,7 +68368,9 @@
    "cap_buff_time_to_area_effect_time": true,
    "affects_hidden": false,
    "action_graph": null,
-   "controls_buff": false
+   "controls_buff": false,
+   "spawn_area_effect_object": null,
+   "buff_number": null
   }
  },
  "buffs": {

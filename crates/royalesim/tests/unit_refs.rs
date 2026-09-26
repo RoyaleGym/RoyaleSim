@@ -132,6 +132,9 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.death_projectile {
         out.push((UnitRef::DeathProjectile, sp.unit, sp.level_index));
     }
+    if let Some(SpellDef { shape: SpellShape::Summon { unit, .. }, .. }) = &c.spell {
+        out.push((UnitRef::SpellSummon, *unit, None));
+    }
     out
 }
 

@@ -62,7 +62,7 @@ use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, KnockLaw, KnockZeroVector, LaunchModel, PulsingArea, RollDirection, RollHitShape, TargetBuffScope};
+use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollHitShape, SummonFuseStart, TargetBuffScope};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -81,6 +81,8 @@ pub enum SpellMotion {
     /// A PULSING area effect standing at `pos` (Poison, Earthquake): it applies its
     /// hit every HitSpeed ms until its life runs out. `Pulse` carries both clocks.
     Pulsing(Pulse),
+    /// A bottle standing out its fuse (`SpellShape::Fuse`): `ms` of it left.
+    Fuse { pos: Vec2, ms: i32 },
 }
 
 /// One live spell object.
@@ -99,6 +101,11 @@ pub struct Spell {
     /// does not know the caster's level.
     pub pulse: i32,
     pub motion: SpellMotion,
+    /// Which shape of the card's chain this object runs: 0 = the card's own shape (`shape_of`),
+    /// k = k steps down `SpellShape::child`. A Rage cast is depth 0 (the bottle), its buff area
+    /// depth 1, the damage area depth 2.
+    #[serde(default)]
+    pub depth: u8,
 }
 
 /// A unit a landing spell releases, for the deferred spawn queue.
@@ -247,6 +254,16 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.death_projectile.as_ref())
         .or(def.deploy_area_effect.as_ref())
         .or(def.spawn_area_effect.as_ref())
+        .or(def.projectile_area.as_ref())
+}
+
+/// The shape `depth` steps down `root`'s chain (`SpellShape::child`), or None past its end.
+pub(crate) fn shape_at(root: &SpellShape, depth: u8) -> Option<&SpellShape> {
+    let mut s = root;
+    for _ in 0..depth {
+        s = s.child()?;
+    }
+    Some(s)
 }
 
 /// THE PROJECTILE A DEATH LEAVES (card.rs `death_projectile`; spawner.DEATH_SPAWN_PROJECTILE =
@@ -272,7 +289,7 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
             (damage, pulse)
         }
     };
-    Ok(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 } })
+    Ok(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 }, depth: 0 })
 }
 
 /// Turn one accepted cast -- or one death that releases an area effect -- into its
@@ -280,6 +297,14 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
 pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16, level: i32, tap: Vec2) -> Result<Vec<Spell>, String> {
     let def = cards.get(card);
     let spell = shape_of(def).ok_or_else(|| format!("{} is not a spell", def.name))?;
+    objects_for(cards, calib, Some(arena), team, card, level, 0, &spell.shape, tap)
+}
+
+/// The objects one shape of card `card`'s chain makes at `tap`, at chain depth `depth`: `cast` for
+/// depth 0, and the Projectile phase for what a fuse releases or a pulsing area makes. `arena` is
+/// needed only by a Projectile (its king-tower launch point); an object down a chain is never one.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, team: Team, card: u16, level: i32, depth: u8, shape: &SpellShape, tap: Vec2) -> Result<Vec<Spell>, String> {
     #[cfg(not(clash_plant = "spell_damage_unscaled"))]
     let scaled = |h: &SpellHit| cards.scaled(card, level, h.damage);
     #[cfg(clash_plant = "spell_damage_unscaled")]
@@ -292,7 +317,7 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
         cards.buffs[b.buff as usize].pulse_amount(calib.buff_pulse_amount, |m| cards.scaled(card, level, m))
     };
     let mut out = Vec::new();
-    match &spell.shape {
+    match shape {
         SpellShape::Projectile { hit, waves, wave_interval_ms, .. } => {
             let damage = match hit {
                 Some(h) => scaled(h)?,
@@ -305,7 +330,7 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
             // calibration spells.LAUNCH_POINT = caster_king_tower_centre (the only
             // implemented candidate; Calib refuses the others).
             #[cfg(not(clash_plant = "spell_launch_from_tap"))]
-            let launch = arena.king_tower_pos(team);
+            let launch = arena.ok_or("a projectile down a spell chain has no launch point")?.king_tower_pos(team);
             #[cfg(clash_plant = "spell_launch_from_tap")]
             let launch = tap; // PLANT: no flight -- the impact lands on the cast tick.
             for w in 0..*waves {
@@ -316,11 +341,11 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
                     let _ = (w, wave_interval_ms); // PLANT: every wave released at once.
                     0
                 };
-                out.push(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms } });
+                out.push(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms }, depth });
             }
         }
         SpellShape::AreaEffect { hit } => {
-            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap } });
+            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth });
         }
         // A PULSING area effect is born at the tap with its first application DUE
         // (`next_ms` 0), so it applies on the tick it lands and every HitSpeed after --
@@ -329,7 +354,7 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
         // counting as its first TICK_MS: `next_ms` HitSpeed - TICK_MS, so the first application
         // falls on L + HitSpeed / TICK_MS - 1 (measured on client 15.535.29: Poison, HitSpeed
         // 250, on L + 4; the Earthquake, 100, on L + 1; the Tornado, 50, on L).
-        SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms } => {
+        SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child } => {
             #[cfg(not(clash_plant = "pulsing_area_applies_on_landing"))]
             let delayed = calib.pulsing_area_effect == PulsingArea::Delayed;
             #[cfg(clash_plant = "pulsing_area_applies_on_landing")]
@@ -342,7 +367,17 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
                 damage: scaled(hit)?,
                 pulse: pulse_of(hit)?,
                 motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: *life_ms, next_ms }),
+                depth,
             });
+            // spells.CHILD_AREA_BIRTH = with_parent: the child is made with its parent, so it acts
+            // on the parent's first update. The measured arm makes it ON that update (`step_spells`).
+            #[cfg(not(clash_plant = "child_area_with_parent"))]
+            let with_parent = calib.child_area_birth == ChildAreaBirth::WithParent;
+            #[cfg(clash_plant = "child_area_with_parent")]
+            let with_parent = true; // PLANT: the child is born with its parent whatever the key says.
+            if let (true, Some(c)) = (with_parent, child) {
+                out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, c, tap)?);
+            }
         }
         SpellShape::Rolling { airborne_min_distance, range, hit, .. } => {
             let damage = scaled(hit)?;
@@ -374,8 +409,14 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
                 },
                 LaunchModel::InstantRollAtTap => SpellMotion::Rolling { pos: tap, travelled: 0, len: *range, hit: Vec::new() },
             };
-            out.push(Spell { team, card, level, damage, pulse, motion });
+            out.push(Spell { team, card, level, damage, pulse, motion, depth });
         }
+        // A bottle: it deals nothing itself and releases `then` when its fuse runs out.
+        SpellShape::Fuse { fuse_ms, .. } => {
+            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Fuse { pos: tap, ms: *fuse_ms }, depth });
+        }
+        // Never cast: state.rs `enqueue` puts the unit down as a troop deploy.
+        SpellShape::Summon { .. } => {}
     }
     Ok(out)
 }
@@ -392,9 +433,27 @@ pub struct SpellCtx<'a> {
 /// air/ground filters, building filters. Deploying units ARE victims (spec: every
 /// family).
 #[inline]
-fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit) -> bool {
+fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib) -> bool {
     if !ents.alive[v] || ents.hp[v] <= 0 {
         return false;
+    }
+    // OnlyOwnTroops (card.rs SpellHit `only_own_troops`: the Battle Healer's spawn heal, Rage, the
+    // Heal Spirit's heal): the releaser's side only, and within it the kinds
+    // spells.OWN_SIDE_AREA_SCOPE names.
+    #[cfg(not(clash_plant = "own_area_hits_both_sides"))]
+    if hit.only_own_troops && ents.team[v] != team {
+        return false;
+    }
+    if hit.only_own_troops {
+        let k = ents.kind[v];
+        let refused = match calib.own_side_area_scope {
+            OwnSideScope::AllKinds => false,
+            OwnSideScope::ExceptCrownTowers => k.is_crown_tower(),
+            OwnSideScope::TroopsOnly => k != EntityKind::Troop,
+        };
+        if refused {
+            return false;
+        }
     }
     #[cfg(not(clash_plant = "spell_friendly_fire"))]
     if hit.only_enemies && ents.team[v] == team {
@@ -402,11 +461,6 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit) -> bool {
     }
     #[cfg(clash_plant = "spell_friendly_fire")]
     let _ = (team, hit.only_enemies); // PLANT: OnlyEnemies ignored.
-    // OnlyOwnTroops (card.rs SpellHit `only_own_troops`, a spawn area's alone: the Battle
-    // Healer's heal): the releaser's side only.
-    if hit.only_own_troops && ents.team[v] != team {
-        return false;
-    }
     #[cfg(clash_plant = "spells_never_hit_air")]
     if ents.flying[v] {
         return false; // PLANT: AoeToAir / HitsAir ignored.
@@ -563,7 +617,7 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
     let mut primary: Option<(i64, EntityId)> = None;
     for &v in nb.iter() {
         let v = v as usize;
-        if !eligible(e, v, team, hit) {
+        if !eligible(e, v, team, hit, ctx.calib) {
             continue;
         }
         let edge = match ctx.calib.aoe_hit_test {
@@ -674,9 +728,9 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
     for &v in nb.iter() {
         let v = v as usize;
         #[cfg(not(clash_plant = "rolling_hits_air"))]
-        let ok = eligible(e, v, team, hit);
+        let ok = eligible(e, v, team, hit, ctx.calib);
         #[cfg(clash_plant = "rolling_hits_air")]
-        let ok = eligible(e, v, team, &SpellHit { hits_air: true, ..*hit }); // PLANT: AoeToAir blank read as TRUE.
+        let ok = eligible(e, v, team, &SpellHit { hits_air: true, ..*hit }, ctx.calib); // PLANT: AoeToAir blank read as TRUE.
         if !ok {
             continue;
         }
@@ -810,8 +864,8 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
     let mult = ctx.calib.projectile_speed_to_subtiles_per_tick;
     spells.retain_mut(|s| {
         let def = ctx.cards.get(s.card);
-        let Some(sdef) = shape_of(def) else { return false };
-        match (&mut s.motion, &sdef.shape) {
+        let Some(shape) = shape_of(def).and_then(|d| shape_at(&d.shape, s.depth)) else { return false };
+        match (&mut s.motion, shape) {
             (SpellMotion::Flight { pos, aim, frac, delay_ms }, SpellShape::Projectile { speed, hit, spawn, .. }) => {
                 if *delay_ms > 0 {
                     *delay_ms -= tick;
@@ -855,7 +909,18 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // filters and the hit test are the one-shot ones. The area's clock rides
             // along for status.AREA_BUFF_SOURCE_BINDING (`area_bound`): TICK_MS old on
             // the landing tick, with `life_ms` left, this tick included.
-            (SpellMotion::Pulsing(p), SpellShape::PulsingAreaEffect { hit, hit_speed_ms, life_ms: total_ms }) => {
+            (SpellMotion::Pulsing(p), SpellShape::PulsingAreaEffect { hit, hit_speed_ms, life_ms: total_ms, child }) => {
+                // THE CHILD AREA (spells.CHILD_AREA_BIRTH = on_parent_first_update): made on the
+                // parent's first update, the only one whose life is still whole; it acts next tick.
+                #[cfg(not(clash_plant = "child_area_with_parent"))]
+                let on_update = ctx.calib.child_area_birth == ChildAreaBirth::OnParentFirstUpdate;
+                #[cfg(clash_plant = "child_area_with_parent")]
+                let on_update = false; // PLANT: born with the parent instead (`objects_for`).
+                if let (true, Some(c), true) = (on_update, child, p.life_ms == *total_ms) {
+                    if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, c, p.pos) {
+                        out.born.extend(v);
+                    }
+                }
                 while p.next_ms <= 0 && p.life_ms > 0 {
                     let clock = AreaClock { pos: p.pos, age_ms: *total_ms - p.life_ms + tick, left_ms: p.life_ms };
                     impact(ctx, s.team, p.pos, hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
@@ -879,6 +944,36 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             }
             (SpellMotion::Rolling { pos, travelled, len, hit }, SpellShape::Rolling { .. }) => {
                 roll(ctx, s.team, s.card, s.damage, pos, travelled, *len, hit, dmg, fx, nb)
+            }
+            // THE BOTTLE (spells.SUMMON_FUSE_START = unit_deploy_law): the fuse is counted like a
+            // unit's DeployTime, from the cast tick's own update, and releases on the update it reaches
+            // 0: a 500 ms bottle cast on tick C releases on C + 9, and what it releases first acts on
+            // C + 10. death_bomb_flight is the arithmetic a death bomb's delayed flight runs (one tick
+            // later).
+            (SpellMotion::Fuse { pos, ms }, SpellShape::Fuse { then, .. }) => {
+                #[cfg(not(clash_plant = "fuse_counts_from_next_tick"))]
+                let start = ctx.calib.summon_fuse_start;
+                #[cfg(clash_plant = "fuse_counts_from_next_tick")]
+                let start = SummonFuseStart::DeathBombFlight; // PLANT: the death bomb's arithmetic, one tick later.
+                match start {
+                    SummonFuseStart::UnitDeployLaw => {
+                        *ms -= tick;
+                        if *ms > 0 {
+                            return true;
+                        }
+                    }
+                    SummonFuseStart::DeathBombFlight => {
+                        if *ms > 0 {
+                            *ms -= tick;
+                            return true;
+                        }
+                    }
+                }
+                // Level validated when the cast was accepted.
+                if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, then, *pos) {
+                    out.born.extend(v);
+                }
+                false
             }
             _ => false,
         }

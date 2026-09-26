@@ -1065,6 +1065,12 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         # applies lives only as long as the area does (the Tornado), read with the buff's own
         # ControlledByParent under calibration status.AREA_BUFF_SOURCE_BINDING.
         out["controls_buff"] = flag(a, "ControlsBuff")
+        # SpawnAreaEffectObject: the NAME of a one-shot area this area makes on its first
+        # update (Rage's RageDamage; spells.CHILD_AREA_BIRTH), whose record is in the same
+        # top-level map. BuffNumber: how many of the buff one application stacks (1 on every
+        # row the loader reads). 15.535 only, so the 2018 file stays byte-identical.
+        out["spawn_area_effect_object"] = a["SpawnAreaEffectObject"]
+        out["buff_number"] = a["BuffNumber"]
     return out
 
 
@@ -1732,6 +1738,28 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     return card
 
 
+def summon_carrier(t: dict[str, Table], unit: str) -> list[tuple[str, dict]]:
+    """The objects a SPELL SUMMON's damage and ladder come from, in order (spells_other
+    SummonCharacter; the engine's SpellShape::Fuse / Summon). A hitpoint-less building with a
+    DeathAreaEffect is a bottle (Rage's RageBottle): the child area its area makes, then the area
+    itself. A character (the Heal Spirit): its projectile. The unit row is not a candidate: the
+    card block below reads a projectile's or an area's columns."""
+    table, rec = unit_record(t, unit)
+    out: list[tuple[str, dict]] = []
+    if table == "buildings" and rec["Hitpoints"] is None and rec["DeathAreaEffect"]:
+        area = norm_aeo(t, rec["DeathAreaEffect"])
+        if area:
+            child = norm_aeo(t, area.get("spawn_area_effect_object"))
+            if child:
+                out.append(("area_effect_objects", child))
+            out.append(("area_effect_objects", area))
+    else:
+        p = norm_projectile(t, rec["Projectile"])
+        if p:
+            out.append(("projectiles", p))
+    return out
+
+
 def spell_card(t, rarities, s) -> dict:
     proj = norm_projectile(t, s["Projectile"])
     first = norm_projectile(t, s["CustomFirstProjectile"])
@@ -1750,6 +1778,11 @@ def spell_card(t, rarities, s) -> dict:
             candidates.append(("projectiles", proj["spawn_projectile"]))
     if aeo:
         candidates.append(("area_effect_objects", aeo))
+    # A SPELL THAT SUMMONS (15.535 only: Rage's bottle, the Heal Spirit): no projectile and no
+    # area of its own, so the damage and the ladder come through the summoned row.
+    summon = s["SummonCharacter"] if isinstance(s, Row) and not proj and not aeo and not first else None
+    if summon:
+        candidates.extend(summon_carrier(t, summon))
     src = next(((tbl, o) for tbl, o in candidates if o["damage"] is not None), None)
 
     card = {
@@ -1832,6 +1865,12 @@ def spell_card(t, rarities, s) -> dict:
             "deploy_time_ms": None,
             "level_index": None,
             "source": f"area_effect_objects.{aeo['name']}",
+        }
+    if summon:
+        card["spell"]["summon"] = {
+            "character": summon,
+            "count": s["SummonNumber"] if s["SummonNumber"] is not None else 1,
+            "source": f"spells_other.{s['Name']}.SummonCharacter",
         }
     # The ladder is the DAMAGE CARRIER's Rarity when its table carries the column
     # (15.535 projectiles / area effects: Common on every base spell -- Fireball 269

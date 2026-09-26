@@ -1,0 +1,269 @@
+//! A spell that summons (the Rage's bottle, the Heal Spirit) and the mechanisms it brought: the spell object chain
+//! (card.rs `SpellShape::Fuse` and a pulsing area's child; spell.rs `objects_for`, `shape_at`), the own-side area
+//! filter (spell.rs `eligible`), and a troop projectile's area (card.rs `CardDef::projectile_area`; combat.rs
+//! `step_projectiles`). The area's buff-time cap and the pulse's level scaling are status.AREA_BUFF_SOURCE_BINDING's and
+//! status.BUFF_PULSE_AMOUNT's; this file measures them on the Rage and the Heal Spirit.
+//!
+//! THE LAW, measured on client 16.402 unless named:
+//!   - a Rage cast on tick C (the tick whose Spawn phase casts) releases its area on C + 9 (the bottle's DeployTime
+//!     counted like a unit's; spells.SUMMON_FUSE_START), the area first acts on C + 10 and a unit inside takes its
+//!     first raged step into C + 11 (5 of 5 casts, 9 units);
+//!   - the Rage's damage (RageDamage, the area's child) lands one tick after the first buff, on C + 11
+//!     (spells.CHILD_AREA_BIRTH; 5 of 5);
+//!   - the Rage buffs the caster's side only (OnlyOwnTroops);
+//!   - a unit that stays inside to the end takes its last raged step 105 ticks after the cast, where the full BuffTime
+//!     gives 114 (6 of 6; CapBuffTimeToAreaEffectTime, status.AREA_BUFF_SOURCE_BINDING);
+//!   - the Heal Spirit card deploys its unit like a one-unit troop, and the spirit's shot leaves a one-shot heal
+//!     area on its own side; each heal pulse is +100 at level 11 (status.BUFF_PULSE_AMOUNT =
+//!     scaled_per_second_times_frequency; 11 of 11).
+//!
+//! WHAT IS PINNED, each with its precondition:
+//!   1. the loader reads Rage as a Fuse over an own-side pulsing area with a one-shot child, and Heal as a Summon of
+//!      the Heal Spirit, whose projectile carries its heal area;
+//!   2. the Rage's first raged step is the step into C + 11;
+//!   3. the Rage's damage lands on C + 11, not C + 10;
+//!   4. an enemy inside the Rage takes no buff;
+//!   5. under status.AREA_BUFF_SOURCE_BINDING = client_source_bound the Rage buff on an own building standing inside
+//!      to the end ends sooner than under not_read;
+//!   6. the Heal Spirit is on the board after the cast tick and first moves DeployTime later;
+//!   7. an own damaged Knight next to the spirit's target is healed in pulses of exactly the amount
+//!      status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency gives (+100 at level 11), and the enemy is not;
+//!   8. a spell object's chain depth is state: two saves differing only in it hash differently.
+//!
+//! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spell_summon`):
+//!   * `fuse_counts_from_next_tick` -- the bottle releases one tick late: (2) goes red.
+//!   * `child_area_with_parent` -- the child is born with its parent: (3) goes red.
+//!   * `own_area_hits_both_sides` -- OnlyOwnTroops read as no team filter: (4) goes red.
+//!   * `area_cap_unread` (status.rs's cap plant) -- CapBuffTimeToAreaEffectTime not read: (5) goes red.
+//!   * `summon_released_late` -- the summoned unit is created at the end of the tick: (6) goes red.
+//!   * `projectile_area_dropped` -- the shot's area is dropped: (7) goes red.
+//!   * `pulse_share_scaled` (status.rs's pulse plant) -- the share first, then the level: (7) goes red.
+//!   * `projectile_area_unread` -- the loader drops the projectile's area: (1) goes red.
+//!   * `hash_skips_spell_depth` -- the depth is not hashed: (8) goes red.
+//!   * `own_full_stop_area_loads` -- an own-side full-stop area loads: tests/loadable_census.rs goes red on the 2018
+//!     table.
+//!   * `summon_unit_unreported`: see tests/test_export_ids.py (not a Rust plant).
+#![allow(unexpected_cfgs)]
+mod common;
+
+use common::*;
+use royalesim::card::{SpellDef, SpellPlacement, SpellShape};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, PulseAmount};
+use royalesim::{EntityId, Team};
+
+fn at(p: (i32, i32)) -> Vec2 {
+    Vec2::new(p.0 * K, p.1 * K)
+}
+
+fn step(a: Vec2, b: Vec2) -> i64 {
+    let (dx, dy) = ((a.x / K - b.x / K) as i64, (a.y / K - b.y / K) as i64);
+    isqrt(dx * dx + dy * dy)
+}
+
+fn rage_buff(s: &BattleState) -> u16 {
+    let SpellShape::Fuse { then, .. } = &card_stat(s, "Rage").spell.as_ref().expect("Rage is a spell").shape else { panic!("Rage is not a Fuse") };
+    let SpellShape::PulsingAreaEffect { hit, .. } = then.as_ref() else { panic!("the bottle releases no pulsing area") };
+    hit.buff.expect("the Rage area carries a buff").buff
+}
+
+fn has_buff(s: &BattleState, id: EntityId, buff: u16) -> bool {
+    s.entity(id).is_some_and(|v| v.buffs.iter().any(|b| b.id == buff + 1 && b.ms > 0))
+}
+
+/// Plant: projectile_area_unread.
+#[test]
+fn the_loader_reads_rage_as_a_fuse_and_heal_as_a_summon() {
+    let s = BattleState::new(0, config());
+    let rage = card_stat(&s, "Rage").spell.as_ref().expect("Rage loads as a spell");
+    assert_eq!(rage.placement, SpellPlacement::Anywhere);
+    let SpellShape::Fuse { fuse_ms, then } = &rage.shape else { panic!("Rage: {:?}", rage.shape) };
+    assert_eq!(*fuse_ms, 500, "RageBottle's DeployTime");
+    let SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child } = then.as_ref() else { panic!("{then:?}") };
+    assert_eq!((*life_ms, *hit_speed_ms, hit.caps_buff_time), (4500, 300, true));
+    assert!(hit.only_own_troops && !hit.only_enemies, "the Rage area is own-side");
+    let Some(child) = child else { panic!("the Rage area makes no child") };
+    let SpellShape::AreaEffect { hit: dmg } = child.as_ref() else { panic!("{child:?}") };
+    assert!(dmg.only_enemies && dmg.damage == 70, "RageDamage: {dmg:?}");
+    let heal = card_stat(&s, "Heal").spell.as_ref().expect("Heal loads as a spell");
+    assert_eq!(heal.placement, SpellPlacement::TroopTerritory { on_buildings: false });
+    let SpellShape::Summon { unit, count } = heal.shape else { panic!("Heal: {:?}", heal.shape) };
+    assert_eq!((s.cards().get(unit).name.as_str(), count), ("HealSpirit", 1));
+    let area = s.cards().get(unit).projectile_area.as_ref().expect("the Heal Spirit's shot leaves its heal area");
+    let SpellDef { shape: SpellShape::AreaEffect { hit }, .. } = area else { panic!("{area:?}") };
+    assert!(hit.only_own_troops && hit.ignore_buildings && hit.buff.is_some(), "the heal area: {hit:?}");
+}
+
+/// A Blue Knight walking up the left lane, and a Rage cast on it once it walks; per tick after the cast (k = 0 is
+/// the cast tick C): the Knight's step.
+fn raged_walk() -> Vec<i64> {
+    let mut s = BattleState::new(0, config());
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 6000)), None).expect("spawn");
+    for _ in 0..3 {
+        s.tick();
+    }
+    let p = s.entity(k).unwrap().pos;
+    s.spawn_unit(Team::Blue, "Rage", p, None).expect("cast Rage");
+    let mut steps = Vec::new();
+    for _ in 0..20 {
+        let a = s.entity(k).unwrap().pos;
+        s.tick();
+        steps.push(step(a, s.entity(k).unwrap().pos));
+    }
+    steps
+}
+
+/// Plant: fuse_counts_from_next_tick.
+#[test]
+fn the_rages_first_raged_step_is_the_eleventh_tick_after_the_cast() {
+    let steps = raged_walk();
+    assert!(steps[..11].iter().all(|&x| (55..=61).contains(&x)), "unraged steps through C + 10: {steps:?}");
+    assert!(steps[11..].iter().all(|&x| (74..=79).contains(&x)), "raged steps from C + 11: {steps:?}");
+}
+
+/// Plant: child_area_with_parent.
+#[test]
+fn the_rages_damage_lands_on_the_eleventh_tick_after_the_cast() {
+    let mut s = BattleState::new(0, config());
+    let e = s.scenario_spawn_now(Team::Red, "Knight", at((3500, 9000)), None).expect("spawn");
+    s.tick();
+    s.spawn_unit(Team::Blue, "Rage", s.entity(e).unwrap().pos, None).expect("cast Rage");
+    let mut losses = Vec::new();
+    for k in 0..14u32 {
+        let before = s.entity(e).unwrap().hp;
+        s.tick();
+        let lost = before - s.entity(e).unwrap().hp;
+        if lost > 0 {
+            losses.push((k, lost));
+        }
+    }
+    let want = s.cards().scaled(s.cards().index("Rage").unwrap(), s.config().card_level[1], 70).unwrap();
+    assert_eq!(losses, vec![(11, want)], "RageDamage on C + 11 only");
+}
+
+/// Plant: own_area_hits_both_sides.
+#[test]
+fn the_rage_buffs_the_casters_side_only() {
+    let mut s = BattleState::new(0, config());
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Blue, "Knight", at((3500, 9000)), None), (Team::Red, "Knight", at((4500, 9000)), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    s.tick();
+    s.spawn_unit(Team::Blue, "Rage", at((4000, 9000)), None).expect("cast Rage");
+    let buff = rage_buff(&s);
+    let (mut own, mut enemy) = (false, false);
+    for _ in 0..20 {
+        s.tick();
+        own |= has_buff(&s, ids[0], buff);
+        enemy |= has_buff(&s, ids[1], buff);
+    }
+    assert!(own, "the scene drifted: the own Knight was never raged");
+    assert!(!enemy, "the enemy Knight took the Rage buff");
+}
+
+/// The last tick (k after the cast) on which a Blue Cannon standing at the Rage's centre carries the Rage buff.
+fn last_raged_tick(binding: AreaBuffSourceBinding) -> u32 {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.area_buff_source_binding = binding;
+    let mut s = BattleState::new(0, cfg);
+    let c = s.scenario_spawn_now(Team::Blue, "Cannon", at((4500, 9500)), None).expect("spawn");
+    s.tick();
+    s.spawn_unit(Team::Blue, "Rage", at((4500, 9500)), None).expect("cast Rage");
+    let buff = rage_buff(&s);
+    let mut last = 0;
+    for k in 0..140u32 {
+        s.tick();
+        if has_buff(&s, c, buff) {
+            last = k;
+        }
+    }
+    assert!(last > 0, "the scene drifted: the Cannon was never raged");
+    last
+}
+
+/// Plant: area_cap_unread.
+#[test]
+fn the_rage_buff_ends_sooner_when_bound_to_its_area() {
+    let bound = last_raged_tick(AreaBuffSourceBinding::ClientSourceBound);
+    let unbound = last_raged_tick(AreaBuffSourceBinding::NotRead);
+    // The last update runs with 300 ms of life left and the full buff is 1000 ms: the bound buff ends sooner.
+    assert!(bound < unbound, "client_source_bound {bound}, not_read {unbound}");
+}
+
+/// Plant: summon_released_late.
+#[test]
+fn the_heal_spirit_deploys_like_a_one_unit_troop() {
+    let mut s = BattleState::new(0, config());
+    s.spawn_unit(Team::Blue, "Heal", at((9000, 8000)), None).expect("cast Heal");
+    s.tick();
+    let spirit = s.entities().find(|v| v.card == "HealSpirit").map(|v| v.id).expect("the Heal Spirit is on the board after the cast tick");
+    let deploy = card_stat(&s, "HealSpirit").deploy_time_ms as u32 / s.config().calib.tick_ms as u32;
+    let mut first_move = None;
+    for k in 1..(deploy + 10) {
+        let a = s.entity(spirit).map(|v| v.pos);
+        s.tick();
+        if a.is_some() && a != s.entity(spirit).map(|v| v.pos) {
+            first_move = Some(k);
+            break;
+        }
+    }
+    assert_eq!(first_move, Some(deploy), "the spirit first moves DeployTime after the cast tick");
+}
+
+/// Plants: projectile_area_dropped, pulse_share_scaled.
+#[test]
+fn the_heal_spirits_shot_heals_its_own_side_in_scaled_rate_pulses() {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.buff_pulse_amount = PulseAmount::ScaledPerSecondTimesFrequency;
+    let mut s = BattleState::new(0, cfg);
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Blue, "Knight", at((9000, 16000)), Some(300)), (Team::Red, "Giant", at((9000, 17300)), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    s.spawn_unit(Team::Blue, "Heal", at((9000, 14500)), None).expect("cast Heal");
+    let spirit_idx = s.cards().index("HealSpirit").expect("the Heal Spirit loads");
+    let heal = s.cards().get(spirit_idx).projectile_area.as_ref().expect("the heal area");
+    let SpellShape::AreaEffect { hit } = &heal.shape else { panic!() };
+    let b = hit.buff.expect("the heal buff");
+    let def = s.cards().buffs[b.buff as usize];
+    let level = s.config().card_level[0];
+    let want = -def.pulse_amount(PulseAmount::ScaledPerSecondTimesFrequency, |m| s.cards().scaled(spirit_idx, level, m)).unwrap();
+    assert_eq!(level == 11, want == 100, "the measured +100 at level 11");
+    let (mut gains, mut enemy_gains) = (Vec::new(), 0);
+    let (mut kh, mut gh) = (s.entity(ids[0]).unwrap().hp, s.entity(ids[1]).unwrap().hp);
+    for _ in 0..150 {
+        s.tick();
+        let (Some(k), Some(g)) = (s.entity(ids[0]), s.entity(ids[1])) else { break };
+        if k.hp > kh {
+            gains.push(k.hp - kh);
+        }
+        if g.hp > gh {
+            enemy_gains += 1;
+        }
+        (kh, gh) = (k.hp, g.hp);
+    }
+    assert!(!gains.is_empty(), "the own Knight was never healed");
+    assert!(gains.iter().all(|&g| g == want), "each heal is {want}: {gains:?}");
+    assert_eq!(enemy_gains, 0, "the enemy Giant was healed");
+}
+
+/// Plant: hash_skips_spell_depth.
+#[test]
+fn a_spell_objects_chain_depth_is_state() {
+    let mut s = BattleState::new(0, config());
+    s.tick();
+    s.spawn_unit(Team::Blue, "Rage", at((4500, 9500)), None).expect("cast Rage");
+    // run until the Rage area (depth 1) stands
+    for _ in 0..12 {
+        s.tick();
+    }
+    assert!(s.spells().iter().any(|sp| sp.depth == 1), "the scene drifted: no depth-1 object stands");
+    let bytes = s.save();
+    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("a snapshot is JSON");
+    let spells = v["spells"].as_array_mut().expect("the snapshot lists its spells");
+    let k = spells.iter().position(|sp| sp["depth"] == 1).expect("the depth-1 object is saved");
+    spells[k]["depth"] = serde_json::Value::from(2);
+    let edited = serde_json::to_vec(&v).unwrap();
+    let a = BattleState::load(&bytes).expect("the save loads");
+    let b = BattleState::load(&edited).expect("the edited save loads");
+    assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in a spell's depth hash alike");
+}
