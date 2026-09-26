@@ -767,7 +767,7 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, p
         #[cfg(clash_plant = "strike_tie_by_slot")]
         let order = v as i64; // PLANT: ties to the highest slot, which is not the creation order.
         let key = (hp, order, v);
-        if best.is_none_or(|b| (key.0, key.1) > (b.0, b.1)) {
+        if best.map_or(true, |b| (key.0, key.1) > (b.0, b.1)) {
             best = Some(key);
         }
     }
