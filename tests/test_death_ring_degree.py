@@ -71,15 +71,9 @@ def test_the_ring_lies_at_the_rounded_degree_and_the_barbarians_keep_the_heading
     assert max(off) <= 1, f"the Barbarians stand at {pts} on step {t}; the client's are {CLIENT_POINTS}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the ring offset in whole native units: around the Ram's death point (3261, 8665), which the engine "
-    "reproduces exactly, the client lays (-62, +596) and (+62, -596), each axis of 600 x table / 1024 truncated toward "
-    "zero; the engine lays (-62.67, +596.44) and (+62, -597)",
-)
 def test_the_ring_lands_on_the_clients_exact_points():
-    """Exact, as measured: the day the engine lays the ring in whole native units this passes, and the strict xfail
-    turns red to ask for the mark to go."""
+    """Exact, as measured: the engine lays the ring in whole native units (formation.rs `ring_offset_native`;
+    plant ring_offset_subtile)."""
     t, pts, _ = barbarians(NEW_ARM)
     assert pts == CLIENT_POINTS, f"the Barbarians stand at {pts} on step {t}; the client's are {CLIENT_POINTS}"
 

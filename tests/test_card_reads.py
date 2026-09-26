@@ -360,7 +360,8 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # behind calibration arms that ship off (the ramp, the hook, the recoil, the minimum range,
     # hovering, the death projectile, the spawn and deploy areas, the range projectile's
     # columns, the raw-read MultipleProjectiles / MultipleTargets / CustomFirstProjectile): every
-    # one is in LOADED_NOT_RUN, so the same cards stay flagged with the same slice gaps (75 on the table before the eight-key flip).
+    # one is in LOADED_NOT_RUN, so the same cards stay flagged with the same slice gaps (75 on the
+    # table before the eight-key flip).
     # Measured with the engine catalogue stood in by crates/royalesim/tests/loadable_census.rs's
     # LOADABLE_15535 (no built module) and the register present. Retiring the three projectile
     # slice gaps instead, as the loader reading their fields suggested, took that 75 to 72: the Baby

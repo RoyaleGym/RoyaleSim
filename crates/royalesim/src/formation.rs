@@ -117,6 +117,25 @@ pub fn rounded_degree(v: crate::fixed::Vec2) -> i32 {
     (0..360).max_by_key(|d| (score(*d), -d)).unwrap_or(0)
 }
 
+/// A RING MEMBER'S OFFSET IN WHOLE NATIVE UNITS, in subtiles: each axis of `radius` (subtiles) x the sine table at
+/// `deg` / 1024, computed in native units and truncated toward zero, then scaled back. Measured on client 15.535.29:
+/// the Battle Ram's Barbarians stand at (-62, +596) and (+62, -596) from its death point (radius 600), the Night
+/// Witch's Bats at (-130, +1494) and (+130, -1494) from her; the subtile arithmetic leaves the fraction and moves a
+/// member 1 native. A two-member ring's members are then exact negations of each other.
+pub fn ring_offset_native(radius: i32, deg: i32) -> crate::fixed::Vec2 {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let r = (radius / K) as i64;
+    #[cfg(not(clash_plant = "ring_offset_subtile"))]
+    let (x, y) = ((r * sin1024(deg + 90) as i64 / 1024) as i32 * K, (r * sin1024(deg) as i64 / 1024) as i32 * K);
+    #[cfg(clash_plant = "ring_offset_subtile")]
+    let (x, y) = {
+        // PLANT (regression): the subtile arithmetic, which keeps the fraction.
+        let _ = r;
+        ((radius as i64 * sin1024(deg + 90) as i64 / 1024) as i32, (radius as i64 * sin1024(deg) as i64 / 1024) as i32)
+    };
+    crate::fixed::Vec2::new(x, y)
+}
+
 /// `trunc(v / 1024)`, toward zero for a negative product too.
 #[inline]
 fn shr10_trunc(v: i32) -> i32 {

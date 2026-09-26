@@ -4228,6 +4228,11 @@ impl BattleState {
             (0..n.max(1))
                 .map(|k| {
                     let a = facing_deg + shift + step * k;
+                    // The rounded arm lays the offset in whole native units (formation.rs `ring_offset_native`);
+                    // the measured arm keeps its subtile arithmetic.
+                    if self.cfg.calib.spawner_spawn_point == SpawnPoint::ClientRoundedFacingDegree {
+                        return c.add(crate::formation::ring_offset_native(radius, a));
+                    }
                     let x = c.x + (radius as i64 * crate::formation::sin1024(a + 90) as i64 / 1024) as i32;
                     let y = c.y + (radius as i64 * crate::formation::sin1024(a) as i64 / 1024) as i32;
                     Vec2::new(x, y)
@@ -4589,9 +4594,8 @@ impl BattleState {
                 (0..n)
                     .map(|k| {
                         let deg = a + angle_shift_deg + k * 360 / n;
-                        let rx = r * crate::formation::sin1024(deg + 90) as i64 / 1024;
-                        let ry = r * crate::formation::sin1024(deg) as i64 / 1024;
-                        pos.add(Vec2::new(rx as i32, ry as i32))
+                        // in whole native units (formation.rs `ring_offset_native`)
+                        pos.add(crate::formation::ring_offset_native(r as i32, deg))
                     })
                     .collect()
             }

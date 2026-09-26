@@ -75,15 +75,9 @@ def test_the_ring_uses_the_facing_rounded_to_a_whole_degree():
     assert max(off) <= 1, f"the first Bats stand at {bats} on step {t}; the client's are {CLIENT_BATS}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the ring offset in whole native units: the client truncates each axis of R x table / 1024 toward zero, "
-    "(-130, +1494) and (+130, -1494) around the witch at (10612, 14651); the engine keeps the subtile fraction "
-    "(-130.33, +1494.11), and the Bats' first step rounds it into 1 native",
-)
 def test_the_ring_lands_on_the_clients_exact_points():
-    """Exact, as measured: the day the engine lays the ring in whole native units this passes, and the strict xfail
-    turns red to ask for the mark to go."""
+    """Exact, as measured: the engine lays the ring in whole native units (formation.rs `ring_offset_native`;
+    plant ring_offset_subtile)."""
     t, bats, _, _ = first_bats(NEW_ARM)
     assert bats == CLIENT_BATS, f"the first Bats stand at {bats} on step {t}; the client's are {CLIENT_BATS}"
 
