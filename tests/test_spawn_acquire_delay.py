@@ -67,10 +67,12 @@ def cannon_uid(names) -> int:
 
 
 def cage_run(arm):
-    """A blue Goblin Cage at 1 hp at (14500, 13500) dies of its own lifetime drain on the first tick: no killer, so no
-    post-kill wait. A red Cannon at (12500, 18500), 5385 away, has nothing else to shoot."""
+    """A blue Goblin Cage at 0 hp at (14500, 13500) dies on the first tick before anything aims at it: no killer and no
+    attack on it, so no attacker is in the wait after a kill. A red Cannon at (12500, 18500), 5385 away, has nothing
+    else to shoot. (At 1 hp the cage dies of its lifetime drain AFTER the Cannon has begun an attack on it, and the
+    Cannon finishes that attack before it looks again, combat.POST_KILL_RETARGET_WAIT: F+6 under the old arm.)"""
     births, looks, names = track(["Cannon", "Knight", "GoblinCage"],
-                                 [(1, 0, *CANNON_AT, -1), (0, 2, 14500, 13500, 1)], arm)
+                                 [(1, 0, *CANNON_AT, -1), (0, 2, 14500, 13500, 0)], arm)
     assert len(births) == 1, f"expected the Brawler alone to be born, got {births}"
     (brawler, (first, _)), = births.items()
     assert first <= 3, f"the cage did not die at once (the Brawler's first tick is {first})"
