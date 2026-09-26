@@ -87,8 +87,41 @@ COSMETIC = re.compile(
     r"^Tags$|TypeOfSpell|OmitFromStartingHand|^CardGroup$|AvoidCountingForBuffAmountStats|LoopingFilter|SpecialAttackRangeForStats|"
     r"TargetStartIndicationAction|EvolvedSpells|StartIndication)"
 )
-KEEP_EVEN_IF_COSMETIC = re.compile(r"^(SummonCharactersOffsets|BombHorizontalOffsets|BombAbsoluteHorizontalOffsets|BombVerticalOffsets|"
-                                   r"OffsetXList|OffsetYList|SpawnOffset|SpawnCharacterEffect|DeathSpawnDeployBaseAnim)")
+KEPT_FIRST = (r"SummonCharactersOffsets|BombHorizontalOffsets|BombAbsoluteHorizontalOffsets|BombVerticalOffsets|"
+              r"OffsetXList|OffsetYList|SpawnOffset|SpawnCharacterEffect|DeathSpawnDeployBaseAnim")
+# Fields an audit of every COSMETIC alternative against the 15.535.29 tables (2026-09-25) found
+# hidden. Each is kept, with why. The first six look like mechanics; the rest MAY be, and the
+# card named in the note decides it when that card is worked on. A kept field does nothing but
+# become visible: on a row some card's walk reaches, it lands in a family or in "other", where a
+# person decides. Being wrongly visible costs a line here; being wrongly hidden can cost a whole
+# card. Each key is a pattern anchored at the start of the field name, like KEPT_FIRST.
+# A note names the rows that hold the field in the data, which can be more than the walk reaches.
+# Three keys add no line today (15.535.29, 2026-09-25). Options holds only inline tables, whose
+# inner fields were collected already. ProjectileYOffset and PreContinuousEffectExclusiveTime sit
+# only on rows no card's walk reaches yet, so keeping them shows nothing until the walk does.
+# tools/extract_cards.py asks is_cosmetic too, for a 15.535 character row's `raw`. Its own
+# COSMETIC list drops six of the fields below first: CapBuffTimeToAreaEffectTime,
+# ProjectileYOffset, TurretMovement, RotateAngleSpeed, TryToFinishAttackAnimation and
+# PreContinuousEffectExclusiveTime. The other eight sit on no character row in 15.535.29, and
+# that alone keeps cards.json unchanged by this table (both vintages byte-identical,
+# 2026-09-25). A later data build that puts one of them on a character row changes its `raw`.
+KEPT_BY_AUDIT: dict[str, str] = {
+    "Options$": "SPELL:MergeMaiden. The Spirit Empress's form choice: each option's elixir trigger and spell.",
+    "Delays$": "ACTION:Vines_Target_Selector, and a champion's charge selector. The Vines' per-target pick timing.",
+    "CapBuffTimeToAreaEffectTime$": "12 area effects, Rage, Graveyard and BarbarianRage among them. The buff may end when the area ends.",
+    "OmitFromStartingHand$": "SPELL:Elixir Collector, SPELL:Mirror. By its name, the card is kept out of the opening hand.",
+    "PlaybackDuration$": "ACTION:ronin_play_deflect_animation, and an evolution's. The Ronin's forced animation after a parry; whether it holds him is open.",
+    "CustomStateNumber$": "ACTION:ronin_play_deflect_animation. Which state that forced animation runs in.",
+    "ProjectileYOffset$": "KingTower and other tower rows, and a hero's turret; no card's walk reaches them yet. A start offset on the king's projectile would move the tick of its every hit.",
+    "ProjectileOffsetToCharacterLookDirection$": "ACTION:goblin_machine_rocket. Where the Goblin Machine's rocket starts, so its flight time.",
+    "Height$": "SPELL:SkeletonBalloon, SPELL:DartBarrell, and an evolution's uppercut. On a spell row it may be the height what it puts down falls from.",
+    "TurretMovement$": "KingTower, Cannon, Xbow and other tower rows. A turret that must turn before it fires would fire later.",
+    "RotateAngleSpeed$": "ZapMachine, DartBarrell, MovingCannon and more. The same turn, as a rate.",
+    "TryToFinishAttackAnimation": "Valkyrie, Firecracker, Berserker, and the DaggerDuchess tower row, which no card reaches; also its BeforeNextAttack form. An attack may finish after its target leaves or dies.",
+    "PingpongVisualTime$": "AxeManProjectile. The Executioner's axe goes out and comes back.",
+    "PreContinuousEffectExclusiveTime$": "BUFF:Vines_Trap_Snare_Base, which the Vines' walk does not reach yet. A timing inside the Vines snare.",
+}
+KEEP_EVEN_IF_COSMETIC = re.compile(r"^(" + KEPT_FIRST + "|" + "|".join(KEPT_BY_AUDIT) + ")")
 
 # Field name -> mechanic family. First match wins; order matters (specific before generic).
 FAMILIES: list[tuple[str, str]] = [
