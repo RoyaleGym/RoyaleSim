@@ -211,7 +211,7 @@ RUSTFLAGS='--cfg clash_plant="id_tiebreak"' CARGO_TARGET_DIR=target/plant cargo 
 
 Use a separate `CARGO_TARGET_DIR`, or the plant build poisons the normal one.
 
-There are 107 of them, each declared at the site it corrupts and named in the header of the test
+There are 112 of them, each declared at the site it corrupts and named in the header of the test
 it is aimed at. To list them:
 
 ```
@@ -278,6 +278,8 @@ four sessions quoted correct Python-suite counts at each other, and none of them
 | `tests/levels.rs` | level scaling and the tower ladder, against `tests/fixtures/live_levels.json` (`tools/make_live_levels_fixture.py --check`, needs `ROYALELIVE_REPORTS`) |
 | `tests/replay_parity.rs`, `examples/replay_parity.rs` | a whole recorded battle replayed and scored, against `tests/fixtures/replay/sample.json` (`tools/make_replay_fixture.py ... --check`) |
 | `tests/oracle2026.rs` | the path gates against recorded first paths (G6), against `tests/fixtures/oracle2026/client16402_first_paths.json` (`tools/make_client16402_paths_fixture.py --check`) |
+| `tests/loadable_census.rs` | which rows of `cards.json` and `cards-2018.json` load, and the first clause of each refusal, pinned row by row. A change that makes a card loadable or unloadable edits the list; on a mismatch the test prints the new list to paste |
+| `tests/hash_continuity.rs` | five short scripted battles on both card tables, hashed on every tick, against `tests/data/hash_continuity.json`. The file is recorded at the parent commit (`ROYALESIM_RECORD_HASH_CONTINUITY=1`), so a change that plays every battle as before passes. A change that makes a card load lists it in `LOADED_SINCE_PARENT` |
 | `tests/save_load.rs`, `api.rs` | snapshots and the Python-facing API |
 | `tests/throughput.rs` | timing; `#[ignore]`d, not a gate |
 | `tests/` (pytest, repo root) | the Python tooling in `tools/` and `oracle/`; `test_capture_names.py` holds the one seat-naming rule the fixture makers share |

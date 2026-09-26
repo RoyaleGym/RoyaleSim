@@ -73,7 +73,7 @@
 
 use crate::arena::Arena;
 use crate::arena::Territory;
-use crate::card::{CardDb, CardKind, SpellDef, SpellShape, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardKind, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
@@ -410,30 +410,23 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
     }
 }
 
-/// Catalogue id per CardDb index: the catalogue position, or for a released unit the
-/// id of the FIRST catalogue spell that releases it, or -1.
+/// Catalogue id per CardDb index: the catalogue position, or for a unit a catalogue
+/// card puts on the board the id of the FIRST such card, or -1.
 pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
     let mut id_of_idx = vec![-1; cards.cards.len()];
     for (cid, idx) in catalogue.iter().enumerate() {
         id_of_idx[*idx as usize] = cid as i32;
     }
-    // A summon-only unit reports under the FIRST catalogue card that can produce it:
-    // a spell's release, a periodic spawner's or a death spawn's unit (one Skeleton
-    // record serves Skeletons, Tombstone and Witch alike).
+    // A summon-only unit reports under the FIRST catalogue card that can produce it,
+    // through any block `CardDb::unit_refs` names: a spell's release, a periodic
+    // spawner's, a death spawn's or a second summon's unit (one Skeleton record serves
+    // Skeletons, Tombstone and Witch alike). One enumeration, because a hand list here
+    // once missed the formation's SECOND summon (the Rascals' RascalGirl beside the
+    // RascalBoy): it reported card -1 in every entity row and firer -1 on every shot --
+    // which the projectile export's contract reserves for a crown tower, so a viewer
+    // drew RascalGirls' shots as tower bolts flying from mid-field.
     for (cid, idx) in catalogue.iter().enumerate() {
-        let c = cards.get(*idx);
-        let mut units: Vec<u16> = Vec::new();
-        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell {
-            units.push(sp.unit);
-        }
-        units.extend(c.spawner.map(|sp| sp.unit));
-        units.extend(c.death_spawn.map(|ds| ds.unit));
-        // A formation's SECOND summon (the Rascals' RascalGirl beside the RascalBoy): it
-        // was never collected, so it reported card -1 in every entity row and firer -1 on
-        // every shot -- which the projectile export's contract reserves for a crown tower,
-        // so a viewer drew RascalGirls' shots as tower bolts flying from mid-field.
-        units.extend(c.formation.second_summon.as_ref().map(|s| s.unit));
-        for u in units {
+        for (_, u, _) in cards.unit_refs(*idx) {
             // A card whose unit could not be loaded is rejected (unregistered, its
             // unit index unresolved) and never in a catalogue that came from names;
             // the by-index default catalogue below skips it too.

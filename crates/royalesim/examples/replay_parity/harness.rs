@@ -50,7 +50,7 @@
 #![allow(dead_code)]
 #![allow(unexpected_cfgs)]
 
-use royalesim::card::{CardDb, CardKind, SpellShape};
+use royalesim::card::{CardDb, CardKind, UnitRef};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{BattleConfig, BattleState};
@@ -844,17 +844,19 @@ impl Roots {
         let mut death_spawn_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut spell_release_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut second_summon_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
-        for (i, c) in db.cards.iter().enumerate() {
-            if let Some(d) = &c.death_spawn {
-                death_spawn_of.entry(d.unit).or_default().push(i as u16);
-            }
-            if let Some(sp) = &c.spell {
-                if let SpellShape::Projectile { spawn: Some(s), .. } = &sp.shape {
-                    spell_release_of.entry(s.unit).or_default().push(i as u16);
-                }
-            }
-            if let Some(d) = &c.formation.second_summon {
-                second_summon_of.entry(d.unit).or_default().push(i as u16);
+        // Every block card.rs `CardDb::unit_refs` names, matched without a wildcard: a
+        // block added there does not compile here until it is rooted.
+        for i in 0..db.cards.len() as u16 {
+            for (path, unit, _) in db.unit_refs(i) {
+                let of = match path {
+                    UnitRef::DeathSpawn => &mut death_spawn_of,
+                    UnitRef::SpellRelease => &mut spell_release_of,
+                    UnitRef::SecondSummon => &mut second_summon_of,
+                    // A spawner's unit is rooted through the entity that emitted it
+                    // (`spawned_by`), not by card.
+                    UnitRef::Spawner => continue,
+                };
+                of.entry(unit).or_default().push(i);
             }
         }
         Roots { death_spawn_of, spell_release_of, second_summon_of }

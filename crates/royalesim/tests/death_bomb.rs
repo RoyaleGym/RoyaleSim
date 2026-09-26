@@ -9,7 +9,7 @@
 //! WHAT IS PINNED, every number read from the loaded CardDb (nothing pasted):
 //!   1. the three cards load, their death-spawn record is a bomb carrying the file's
 //!      DeployTime, DeathDamage and DeathDamageRadius, and no OTHER block of any
-//!      card -- spawner, spell release, second summon -- names one;
+//!      card (`CardDb::unit_refs`: spawner, spell release, second summon) names one;
 //!   2. THE FUSE. The damage lands `DeployTime / TICK_MS + 1` ticks after the death
 //!      and NOT on the death tick;
 //!   3. the amount: the bomb row's DeathDamage on its own ladder at the card's
@@ -43,7 +43,7 @@
 mod common;
 
 use common::*;
-use royalesim::card::{CardDb, CardDef, SpellDef, SpellHit, SpellShape};
+use royalesim::card::{CardDb, CardDef, SpellDef, SpellHit, SpellShape, UnitRef};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE};
 use royalesim::state::{BattleConfig, BattleState, Calib};
@@ -112,26 +112,25 @@ fn every_death_bomb_row_loads_as_a_timed_impact_and_only_a_death_releases_one() 
     }
     assert_eq!(seen, BOMB_CARDS.len(), "vacuous: no bomb card loaded");
     // A bomb is released by a DEATH SPAWN and by nothing else: any other block that
-    // named one would reach `spawn_now` with a hitpoint-less record (card.rs refuses
-    // such a card instead).
-    for c in &db.cards {
-        let others = c
-            .spawner
-            .map(|sp| sp.unit)
-            .into_iter()
-            .chain(c.formation.second_summon.as_ref().map(|ss| ss.unit))
-            .chain(match &c.spell {
-                Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) => Some(sp.unit),
-                _ => None,
-            });
-        for u in others {
+    // named one (`CardDb::unit_refs`: a spawner, a spell release, a second summon)
+    // would reach `spawn_now` with a hitpoint-less record (card.rs refuses such a card
+    // instead).
+    let mut others = 0;
+    for idx in 0..db.cards.len() as u16 {
+        for (path, u, _) in db.unit_refs(idx) {
+            if path == UnitRef::DeathSpawn {
+                continue;
+            }
+            others += 1;
             assert!(
                 db.cards.get(u as usize).and_then(CardDef::death_bomb_fuse_ms).is_none(),
-                "{}: a bomb reached the board through a block that is not a death spawn",
-                c.name
+                "{}: a bomb reached the board through {}, which is not a death spawn",
+                db.get(idx).name,
+                path.block_name()
             );
         }
     }
+    assert!(others > 0, "vacuous: no card puts a unit on the board by any block but a death spawn");
 }
 
 // ---------------------------------------------------------------------------

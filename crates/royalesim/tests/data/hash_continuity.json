@@ -1,0 +1,5 @@
+{
+  "format": "hash_continuity.1",
+  "how": "Written by crates/royalesim/tests/hash_continuity.rs with ROYALESIM_RECORD_HASH_CONTINUITY=1 at the PARENT of the change it checks. Per table version: the CardDb slot names in index order, and each battle's state_hash before the first tick and after every tick, in hex, 8 to a row.",
+  "tables": {}
+}

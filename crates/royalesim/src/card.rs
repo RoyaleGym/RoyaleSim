@@ -49,7 +49,7 @@
 use crate::fixed::{milli, tiles, Vec2};
 use crate::status::{BuffApply, BuffDef};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::OnceLock;
 
 const RARITIES_CSV: &str = include_str!("../../../data/raw/retroroyale-2018/csv_logic/rarities.csv");
@@ -817,6 +817,37 @@ enum UnitUse {
     SecondSummon,
 }
 
+/// The units a converter's record needs loaded: (which mechanic, unit name), for
+/// `CardDb::from_json_str` to resolve.
+type UnitNeeds = Vec<(UnitUse, String)>;
+
+/// A BLOCK OF A CARD THAT PUTS ANOTHER RECORD ON THE BOARD, as `CardDb::unit_refs`
+/// names it. The death area effect is not one: it is an area, not a unit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnitRef {
+    /// A spell projectile's SpawnCharacter (Goblin Barrel): `SpellShape::Projectile`'s
+    /// `spawn`, the one block that carries a level index.
+    SpellRelease,
+    /// The Spawn* block (`CardDef::spawner`).
+    Spawner,
+    /// The DeathSpawn* block (`CardDef::death_spawn`).
+    DeathSpawn,
+    /// SummonCharacterSecond (`FormationDef::second_summon`).
+    SecondSummon,
+}
+
+impl UnitRef {
+    /// The block as a refusal names it.
+    pub fn block_name(self) -> &'static str {
+        match self {
+            UnitRef::SpellRelease => "a spell release",
+            UnitRef::Spawner => "a periodic spawner",
+            UnitRef::DeathSpawn => "a death spawn",
+            UnitRef::SecondSummon => "a second summon",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct RawCardsFile {
     cards: Vec<RawCard>,
@@ -837,6 +868,16 @@ struct RawCardsFile {
     /// DeathAreaEffect is then REFUSED BY NAME -- never silently run without it.
     #[serde(default)]
     area_effect_objects: BTreeMap<String, RawAreaEffect>,
+}
+
+/// WHAT A CONVERTER MAY READ BEYOND ITS OWN ROW: the file's shared tables, by
+/// reference. One argument threaded through `convert`, `convert_spell` and
+/// `convert_area_effect`, so a row that names another table's row resolves it the
+/// same way from every caller. The fallback towers pass their own file's, which is
+/// empty.
+struct LoadCtx<'a> {
+    /// cards.json `area_effect_objects`, by name (`RawCardsFile::area_effect_objects`).
+    aeos: &'a BTreeMap<String, RawAreaEffect>,
 }
 
 /// One cards.json `rarities` entry (tools/extract_cards.py `rarity_table`).
@@ -1223,7 +1264,10 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 /// Accepts exactly the two shapes `SpellShape` implements (a one-shot disc and a
 /// pulsing one) and REFUSES every other area with the reason, so an area whose
 /// mechanic is not simulated can never run as a simpler one.
-fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<SpellShape, String> {
+///
+/// Returns the shape and the units it needs loaded, like every converter (neither
+/// accepted shape releases one, so the list is empty).
+fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, _ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
     // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
@@ -1279,7 +1323,7 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<Spe
         knockback: knockback(aeo.pushback_milli, None),
         buff: area_buff,
     };
-    Ok(match pulse_ms {
+    let shape = match pulse_ms {
         None => {
             let _ = aeo.life_duration_ms; // one-shot: applied once whatever its life (see SpellShape)
             SpellShape::AreaEffect { hit }
@@ -1291,7 +1335,8 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<Spe
                 .ok_or_else(|| format!("pulsing area effect {what} without LifeDuration"))?;
             SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms }
         }
-    })
+    };
+    Ok((shape, Vec::new()))
 }
 
 /// The SPELL half of the loader. Accepts exactly the shapes `SpellShape` implements
@@ -1306,9 +1351,9 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<Spe
 /// because their data has exactly the implemented shape, and Freeze's 4 s life is
 /// where calibration spells.ONE_SHOT_AREA_EFFECT_APPLICATION is LOW confidence.
 ///
-/// Returns the card, and the name of the unit it spawns (resolved to an index by
-/// `CardDb::from_json_str`, which loads that unit).
-fn convert_spell(raw: RawCard, buffs: &mut BuffTable) -> Result<(CardDef, Option<String>), String> {
+/// Returns the card, and the units it needs loaded: which mechanic, unit name
+/// (resolved to an index by `CardDb::from_json_str`, which loads each unit).
+fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(CardDef, UnitNeeds), String> {
     let spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
     (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
@@ -1329,13 +1374,15 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable) -> Result<(CardDef, Option
             SpellPlacement::Anywhere
         }
     };
-    let mut spawn_name = None;
+    let mut units: UnitNeeds = Vec::new();
     let shape = if let Some(aeo) = spell.area_effect_object {
         let what = aeo.name.clone().unwrap_or_default();
         if proj.is_some() || spell.first_projectile.is_some() {
             return Err(format!("spell with both an area effect ({what}) and a projectile is not simulated"));
         }
-        SpellDef { shape: convert_area_effect(&aeo, buffs)?, placement: placement_for(false) }
+        let (shape, needs) = convert_area_effect(&aeo, buffs, ctx)?;
+        units.extend(needs);
+        SpellDef { shape, placement: placement_for(false) }
     } else {
         // DAMAGE CARRIER (docs/spell-spec.md): CustomFirstProjectile when present (the
         // 2018 Arrows pattern -- `projectile` is then the damage-less ArrowsSpellDeco and
@@ -1439,7 +1486,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable) -> Result<(CardDef, Option
                 None => None,
                 Some(unit) => {
                     let count = carrier.spawn_character_count.filter(|c| *c > 0).ok_or_else(|| format!("{what} spawns {unit} with no count"))?;
-                    spawn_name = Some(unit);
+                    units.push((UnitUse::Spell, unit));
                     Some(SpawnDef {
                         unit: u16::MAX, // resolved by from_json_str
                         count,
@@ -1461,7 +1508,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable) -> Result<(CardDef, Option
         }
     };
     def.spell = Some(shape);
-    Ok((def, spawn_name))
+    Ok((def, units))
 }
 
 /// (the ladder, the unified level it is entered from) of a cards.json
@@ -1485,7 +1532,7 @@ fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Opt
 }
 
 /// (card, display name, the units it needs loaded: which mechanic, unit name).
-type Converted = (CardDef, Option<String>, Vec<(UnitUse, String)>);
+type Converted = (CardDef, Option<String>, UnitNeeds);
 
 /// The SPAWNER half of the loader: the `spawner` block is all-or-nothing. A block
 /// with a SpawnCharacter needs SpawnNumber and SpawnPauseTime (a Witch or hut row
@@ -1588,8 +1635,56 @@ fn convert_jump(raw: Option<RawJump>, kind: CardKind) -> Result<Option<JumpDef>,
     Ok(Some(JumpDef { speed, height_raw }))
 }
 
+/// WHAT A BUILDING ROW WITH NO HITPOINTS IS, when it is a shape this loader reads
+/// (`hitpointless_building`). Such a row cannot be born as an entity, so each shape
+/// loads as something else; a row that is none of them goes to the ordinary loader,
+/// which refuses it by name (`missing hitpoints`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Hitpointless {
+    /// A DEATH BOMB (`convert_death_bomb`): DeployTime, DeathDamage and
+    /// DeathDamageRadius, all three positive, and no other block.
+    DeathBomb { fuse_ms: i32, damage: i32, radius_milli: i32 },
+}
+
+/// Which `Hitpointless` shape `raw` is, or None.
+fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
+    // THE SHAPE, ALL OF IT. A row that misses one clause is not a bomb and falls
+    // through to the ordinary loader, which refuses it by name and says why: a
+    // half-recognised bomb that loaded and behaved wrongly would be worse than a
+    // refusal.
+    let (fuse_ms, damage, radius_milli) = match (raw.deploy_time_ms, raw.death_damage, raw.death_damage_radius_milli) {
+        (Some(f), Some(d), Some(r)) if f > 0 && d > 0 && r > 0 => (f, d, r),
+        _ => return None,
+    };
+    let blank = raw.kind == CardKind::Building
+        && raw.hitpoints.is_none()
+        && raw.damage.is_none()
+        && raw.hit_speed_ms.is_none()
+        && raw.range_milli.is_none()
+        && raw.lifetime_ms.is_none()
+        && raw.speed.unwrap_or(0) == 0
+        && raw.shield_hitpoints.unwrap_or(0) == 0
+        && !matches!(&raw.projectile, Some(v) if !v.is_null())
+        && raw.spawner.is_none()
+        && raw.death_spawn.is_none()
+        && raw.death_area_effect.is_none()
+        && raw.action_graph.is_none()
+        && raw.spawn_pathfind.is_none()
+        && raw.charge.is_none()
+        && raw.jump.is_none()
+        && raw.buff_on_damage.is_none()
+        && raw.second_summon.is_none()
+        && !raw.hides_when_not_attacking.unwrap_or(false)
+        && !raw.kamikaze.unwrap_or(false);
+    if !blank {
+        return None;
+    }
+    Some(Hitpointless::DeathBomb { fuse_ms, damage, radius_milli })
+}
+
 /// A DEATH BOMB: the thing a dying Balloon, Giant Skeleton or Bomb Tower leaves
-/// where it fell, which goes off a while later. `None` when `raw` is not one.
+/// where it fell, which goes off a while later. Built from the three columns
+/// `hitpointless_building` found on `raw`.
 ///
 /// WHAT THE DATA CARRIES. `units.BalloonBomb`, `units.GiantSkeletonBomb` and
 /// `units.BombTowerBomb` are BUILDING rows with no hitpoints, no damage, no hit
@@ -1636,38 +1731,7 @@ fn convert_jump(raw: Option<RawJump>, kind: CardKind) -> Result<Option<JumpDef>,
 /// ordinary DeathDamage path has never applied a push either, so the Giant
 /// Skeleton's bomb damages without shoving -- the same gap every other death
 /// damage has, not a new one.
-fn convert_death_bomb(raw: &RawCard) -> Result<Option<CardDef>, String> {
-    // THE SHAPE, ALL OF IT. A row that misses one clause is not a bomb and falls
-    // through to the ordinary loader, which refuses it by name and says why: a
-    // half-recognised bomb that loaded and behaved wrongly would be worse than a
-    // refusal.
-    let (fuse_ms, damage, radius_milli) = match (raw.deploy_time_ms, raw.death_damage, raw.death_damage_radius_milli) {
-        (Some(f), Some(d), Some(r)) if f > 0 && d > 0 && r > 0 => (f, d, r),
-        _ => return Ok(None),
-    };
-    let blank = raw.kind == CardKind::Building
-        && raw.hitpoints.is_none()
-        && raw.damage.is_none()
-        && raw.hit_speed_ms.is_none()
-        && raw.range_milli.is_none()
-        && raw.lifetime_ms.is_none()
-        && raw.speed.unwrap_or(0) == 0
-        && raw.shield_hitpoints.unwrap_or(0) == 0
-        && !matches!(&raw.projectile, Some(v) if !v.is_null())
-        && raw.spawner.is_none()
-        && raw.death_spawn.is_none()
-        && raw.death_area_effect.is_none()
-        && raw.action_graph.is_none()
-        && raw.spawn_pathfind.is_none()
-        && raw.charge.is_none()
-        && raw.jump.is_none()
-        && raw.buff_on_damage.is_none()
-        && raw.second_summon.is_none()
-        && !raw.hides_when_not_attacking.unwrap_or(false)
-        && !raw.kamikaze.unwrap_or(false);
-    if !blank {
-        return Ok(None);
-    }
+fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i32) -> Result<CardDef, String> {
     let crown_pct = crown(raw.crown_tower_damage_percent);
     let radius = milli(radius_milli);
     let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
@@ -1709,10 +1773,10 @@ fn convert_death_bomb(raw: &RawCard) -> Result<Option<CardDef>, String> {
         // inert value; `state.rs check_position` only ever sees catalogue cards.
         placement: SpellPlacement::Anywhere,
     });
-    Ok(Some(c))
+    Ok(c)
 }
 
-fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
+fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Converted, String> {
     if raw.kind == CardKind::Spell {
         let display = raw.display_name.clone();
         #[cfg(clash_plant = "spells_rejected")]
@@ -1722,12 +1786,16 @@ fn convert(raw: RawCard, buffs: &mut BuffTable) -> Result<Converted, String> {
             return Err("spells are not simulated yet".into());
         }
         #[allow(unreachable_code)]
-        return convert_spell(raw, buffs).map(|(c, spawn)| (c, display, spawn.into_iter().map(|u| (UnitUse::Spell, u)).collect()));
+        return convert_spell(raw, buffs, ctx).map(|(c, units)| (c, display, units));
     }
-    // A DEATH BOMB is not a unit and is not loaded like one: no hitpoints, no hit
-    // speed and no range to require of it (`convert_death_bomb`).
-    if let Some(bomb) = convert_death_bomb(&raw)? {
-        return Ok((bomb, raw.display_name.clone(), Vec::new()));
+    // A HITPOINT-LESS BUILDING (a death bomb) is not a unit and is not loaded like
+    // one: no hitpoints, no hit speed and no range to require of it
+    // (`hitpointless_building`).
+    if let Some(shape) = hitpointless_building(&raw) {
+        let c = match shape {
+            Hitpointless::DeathBomb { fuse_ms, damage, radius_milli } => convert_death_bomb(&raw, fuse_ms, damage, radius_milli)?,
+        };
+        return Ok((c, raw.display_name.clone(), Vec::new()));
     }
     refuse_action_mechanic(&raw.action_graph, "the unit")?;
     refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
@@ -1973,10 +2041,11 @@ impl CardDb {
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
+        let ctx = LoadCtx { aeos: &file.area_effect_objects };
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
-            match convert(raw, &mut buffs) {
+            match convert(raw, &mut buffs, &ctx) {
                 Ok((c, display, units)) => {
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
                         db.rejected.push((name, format!("rarity {} not in rarities.csv", c.rarity)));
@@ -2005,10 +2074,21 @@ impl CardDb {
         // GiantSkeletonBomb, BombTowerBomb) is a timed impact rather than an entity
         // and loads as one -- `convert_death_bomb`, and `phase_reap`, which leaves it
         // where the parent died instead of spawning it.
+        //
+        // THE UNITS LOAD FROM A WORKLIST, BREADTH FIRST: every need of every card in
+        // `spawns` order, then the needs of the units loaded for them, one level
+        // deeper, and so on. The order matters because the summon-only records are
+        // NUMBERED in the order they load, and those numbers are inside the card
+        // fingerprint (state.rs `cards_fingerprint`): all first-level units in
+        // first-need order, then theirs. Today there is no second level -- a unit that
+        // itself puts units on the board is refused below as a spawn chain -- so the
+        // order is `spawns` order exactly (tests/unit_refs.rs
+        // `summon_only_numbering_is_breadth_first`).
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
         let mut unloadable: Vec<(u16, String)> = Vec::new();
-        for (spell_idx, which, unit) in &spawns {
-            if *which == UnitUse::DeathAreaEffect {
+        let mut work: VecDeque<(u16, UnitUse, String, u8)> = spawns.into_iter().map(|(owner, which, unit)| (owner, which, unit, 0)).collect();
+        while let Some((spell_idx, which, unit, depth)) = work.pop_front() {
+            if which == UnitUse::DeathAreaEffect {
                 // A DEATH AREA EFFECT IS NOT A UNIT. It is an `area_effect_objects`
                 // row the death leaves standing where the unit stood, so it is
                 // resolved here against the file's own table and stored on the card
@@ -2019,35 +2099,59 @@ impl CardDb {
                 // loader cannot read the card from: refused BY NAME, loudly, never
                 // run as a card whose death does nothing. (The table is part of
                 // cards.json, so a clone with no raw card data still resolves it.)
-                let got = match file.area_effect_objects.get(unit) {
-                    Some(aeo) => convert_area_effect(aeo, &mut buffs).map(|shape| SpellDef { shape, placement: SpellPlacement::Anywhere }),
-                    None => Err(format!(
-                        "no area_effect_objects record in cards.json (the file lists {})",
-                        file.area_effect_objects.len()
-                    )),
+                let got = match ctx.aeos.get(&unit) {
+                    Some(aeo) => convert_area_effect(aeo, &mut buffs, &ctx).map(|(shape, needs)| (SpellDef { shape, placement: SpellPlacement::Anywhere }, needs)),
+                    None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
                 };
                 match got {
-                    Ok(def) => db.cards[*spell_idx as usize].death_area_effect = Some(def),
-                    Err(e) => unloadable.push((*spell_idx, format!("death area effect {unit}: {e}"))),
+                    Ok((def, needs)) => {
+                        db.cards[spell_idx as usize].death_area_effect = Some(def);
+                        // The units the area releases are the DYING card's needs, at
+                        // its own level of the worklist: queued behind that level's
+                        // needs and ahead of every deeper one already waiting, so the
+                        // order stays breadth first (no accepted area has any yet).
+                        let at = work.iter().position(|q| q.3 > depth).unwrap_or(work.len());
+                        for (k, (w, u)) in needs.into_iter().enumerate() {
+                            work.insert(at + k, (spell_idx, w, u, depth));
+                        }
+                    }
+                    Err(e) => unloadable.push((spell_idx, format!("death area effect {unit}: {e}"))),
                 }
                 continue;
             }
             let got = unit_idx
                 .entry(unit.clone())
                 .or_insert_with(|| {
-                    if let Some(&existing) = db.by_name.get(unit) {
-                        // THE UNIT IS A CARD ALREADY (FirespiritHut spawns `FireSpirits`,
-                        // which is also the playable card's name; the card row IS that
-                        // character's row plus a count). A troop or building card serves
-                        // as the unit -- one table, no duplicate stats; only a spell or
-                        // another unit under that name is a collision.
-                        let c = db.get(existing);
-                        if c.spell.is_none() && !c.summon_only {
-                            return Ok(existing);
+                    // A NAME A CARD ALREADY HOLDS. A card serves as the unit only when
+                    // the row it puts on the board IS this one (`CardDef::unit_name`):
+                    // the FirespiritHut spawns `FireSpirits`, which is also the
+                    // playable card's name, and that card's row is that character's
+                    // row plus a count -- one table, no duplicate stats. A card of the
+                    // name whose own row is a DIFFERENT one (a Ram Rider card deploys
+                    // the Ram, not the rider) does not serve: the `units` row loads,
+                    // registered as `units.<Name>` so every name still resolves to
+                    // one record, with `unit_name` keeping the row's own name. A spell
+                    // or another unit under the name is a collision.
+                    let taken = match db.by_name.get(&unit).copied() {
+                        None => false,
+                        Some(existing) => {
+                            let c = db.get(existing);
+                            if c.spell.is_some() || c.summon_only {
+                                return Err(format!("spawned unit {unit} collides with a card name"));
+                            }
+                            #[cfg(not(any(clash_plant = "unit_by_card_name", clash_plant = "unit_never_card")))]
+                            let serves = c.unit_name == unit;
+                            #[cfg(clash_plant = "unit_by_card_name")]
+                            let serves = true; // PLANT (regression): any troop or building card of the name serves.
+                            #[cfg(clash_plant = "unit_never_card")]
+                            let serves = false; // PLANT (regression): no card serves; the name always loads a `units` row.
+                            if serves {
+                                return Ok(existing);
+                            }
+                            true
                         }
-                        return Err(format!("spawned unit {unit} collides with a card name"));
-                    }
-                    let mut v = file.units.get(unit).cloned().ok_or_else(|| format!("spawned unit {unit} has no units record"))?;
+                    };
+                    let mut v = file.units.get(&unit).cloned().ok_or_else(|| format!("spawned unit {unit} has no units record"))?;
                     let kind = match v.get("source_table").and_then(|t| t.as_str()) {
                         Some("buildings") => "building",
                         _ => "troop",
@@ -2056,9 +2160,9 @@ impl CardDb {
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
-                    let (mut c, _, nested) = convert(raw, &mut buffs).map_err(|e| format!("units.{unit}: {e}"))?;
-                    if !nested.is_empty() {
-                        return Err(format!("units.{unit} itself spawns units ({}); a spawn chain is not simulated", nested[0].1));
+                    let (mut c, _, nested) = convert(raw, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;
+                    if let Some((_, first)) = nested.first() {
+                        return Err(format!("units.{unit} itself spawns units ({first}); a spawn chain is not simulated"));
                     }
                     if c.kind == CardKind::Troop && c.lifetime_ms.is_some() {
                         // The engine honours LifeTime on BUILDINGS only (spawn_now); a
@@ -2069,13 +2173,20 @@ impl CardDb {
                         return Err(format!("units.{unit}: rarity {} not in rarities.csv", c.rarity));
                     }
                     c.summon_only = true;
+                    if taken {
+                        c.name = format!("units.{unit}");
+                    }
                     db.push(c, None)?;
-                    Ok((db.cards.len() - 1) as u16)
+                    let idx = (db.cards.len() - 1) as u16;
+                    // The loaded unit's own needs, one level deeper (none while the
+                    // chain refusal above stands).
+                    work.extend(nested.into_iter().map(|(w, u)| (idx, w, u, depth + 1)));
+                    Ok(idx)
                 })
                 .clone();
             match got {
                 Ok(u) => {
-                    let card = &mut db.cards[*spell_idx as usize];
+                    let card = &mut db.cards[spell_idx as usize];
                     match which {
                         UnitUse::Spell => {
                             if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = card.spell.as_mut() {
@@ -2088,31 +2199,26 @@ impl CardDb {
                         UnitUse::DeathAreaEffect => unreachable!("never resolved: pushed to `unloadable` above"),
                     }
                 }
-                Err(e) => unloadable.push((*spell_idx, e)),
+                Err(e) => unloadable.push((spell_idx, e)),
             }
         }
         // A DEATH BOMB IS IMPLEMENTED ON THE DEATH-SPAWN PATH ALONE (state.rs
-        // `phase_reap`, which leaves a timed impact instead of a spawn). A periodic
-        // spawner, a spell release or a second summon that named one would reach
-        // `spawn_now` with a hitpoint-less record and put a thing on the board that
-        // dies the moment it is looked at. No shipped row does -- BalloonBomb,
-        // GiantSkeletonBomb and BombTowerBomb are named by DeathSpawnCharacter and by
-        // nothing else -- and a row that starts to is REFUSED rather than run wrong.
-        for idx in 0..db.cards.len() {
-            let c = &db.cards[idx];
-            let from_other_path = c
-                .spawner
-                .map(|sp| ("a periodic spawner", sp.unit))
+        // `phase_reap`, which leaves a timed impact instead of a spawn). Any other
+        // block that named one (`unit_refs`: a periodic spawner, a spell release, a
+        // second summon) would reach `spawn_now` with a hitpoint-less record and put a
+        // thing on the board that dies the moment it is looked at. No shipped row
+        // does -- BalloonBomb, GiantSkeletonBomb and BombTowerBomb are named by
+        // DeathSpawnCharacter and by nothing else -- and a row that starts to is
+        // REFUSED rather than run wrong.
+        for idx in 0..db.cards.len() as u16 {
+            let from_other_path = db
+                .unit_refs(idx)
                 .into_iter()
-                .chain(c.formation.second_summon.as_ref().map(|ss| ("a second summon", ss.unit)))
-                .chain(match &c.spell {
-                    Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) => Some(("a spell release", sp.unit)),
-                    _ => None,
-                })
-                .find(|(_, u)| db.cards.get(*u as usize).and_then(CardDef::death_bomb_fuse_ms).is_some());
-            if let Some((what, u)) = from_other_path {
+                .filter(|(path, _, _)| *path != UnitRef::DeathSpawn)
+                .find(|(_, u, _)| db.cards.get(*u as usize).and_then(CardDef::death_bomb_fuse_ms).is_some());
+            if let Some((path, u, _)) = from_other_path {
                 let name = db.cards[u as usize].name.clone();
-                unloadable.push((idx as u16, format!("{name} is a death bomb, which only a death spawn releases; {what} cannot")));
+                unloadable.push((idx, format!("{name} is a death bomb, which only a death spawn releases; {} cannot", path.block_name())));
             }
         }
         for (spell_idx, why) in unloadable {
@@ -2124,26 +2230,29 @@ impl CardDb {
             // list, where they were plain units) and phase_reap / check_levels would
             // index cards[65535] at its death. Dropped, it runs
             // as the plain unit format 3 ran it.
-            let card = &mut db.cards[spell_idx as usize];
-            card.spawner = None;
-            card.death_spawn = None;
-            card.formation.second_summon = None;
-            // The death area effect goes with them: a card rejected for any reason
-            // runs, where it can still be reached at all, exactly as it ran before
-            // its blocks resolved.
-            card.death_area_effect = None;
-            if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = card.spell.as_mut() {
-                *spawn = None;
+            db.clear_unit_refs(spell_idx);
+            let name = db.cards[spell_idx as usize].name.clone();
+            // PLANT census_admits_one (tests/loadable_census.rs): a card rejected here
+            // is KEPT -- registered, its blocks dropped, running as the plain unit --
+            // the way a lifted refusal admits a row nobody planned for. One row per
+            // table whose status no other test pins in that table, so only the check
+            // over every row sees it move: the 15.535.29 ElixirGolem (its
+            // ElixirGolem2 death-spawns units: a chain) and the 2018 MovingCannon (its
+            // BrokenCannon is a troop with a LifeTime). The 15.535.29 MovingCannon is
+            // refused before its push and never gets here.
+            #[cfg(clash_plant = "census_admits_one")]
+            if name == "ElixirGolem" || name == "MovingCannon" {
+                continue;
             }
-            let name = card.name.clone();
             db.by_name.retain(|_, i| *i != spell_idx);
             db.rejected.push((name, why));
         }
         if db.index(KING_TOWER).is_none() || db.index(PRINCESS_TOWER).is_none() {
             let fb: RawCardsFile = serde_json::from_str(FALLBACK_TOWERS_JSON).expect("fallback towers parse");
+            let fb_ctx = LoadCtx { aeos: &fb.area_effect_objects };
             for raw in fb.cards {
                 if db.index(&raw.name).is_none() {
-                    let (c, d, _) = convert(raw, &mut buffs)?;
+                    let (c, d, _) = convert(raw, &mut buffs, &fb_ctx)?;
                     db.push(c, d)?;
                 }
             }
@@ -2221,25 +2330,73 @@ impl CardDb {
     }
 
     /// Every level a card at unified `level` can put on the board exists: the card's
-    /// own, and its spell-released, spawned and death-spawned units'. Called at deck
+    /// own, and the level of every unit `unit_refs` names. Called at deck
     /// validation and every scenario / debug spawn, so a spawn later in the tick
     /// loop can never fail on a level.
     pub fn check_levels(&self, idx: u16, level: i32) -> Result<(), String> {
         self.level_multiplier(idx, level)?;
-        let c = self.get(idx);
-        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(_), .. }, .. }) = &c.spell {
-            self.spawn_level(idx, level)?;
-        }
-        if c.spawner.is_some() {
-            self.spawner_level(idx, level)?;
-        }
-        if c.death_spawn.is_some() {
-            self.death_spawn_level(idx, level)?;
-        }
-        if let Some(d) = c.formation.second_summon {
-            self.unit_level(idx, d.unit, None, level)?;
+        for (path, unit, level_index) in self.unit_refs(idx) {
+            match path {
+                UnitRef::SpellRelease => self.spawn_level(idx, level)?,
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon => self.unit_level(idx, unit, level_index, level)?,
+            };
         }
         Ok(())
+    }
+
+    /// EVERY UNIT CARD `idx` CAN PUT ON THE BOARD: (the block, the unit's CardDb
+    /// index, the block's level index), one entry per unit-producing block, in a fixed
+    /// order. A unit that never resolved reads u16::MAX (a card rejected after its
+    /// push, before its blocks are dropped).
+    ///
+    /// THE ONE ENUMERATION. Level validation (`check_levels`), the catalogue
+    /// attribution (py.rs `ids_of_indices`), the death-bomb path check and the
+    /// rejected-card cleanup (`clear_unit_refs`, both in `from_json_str`), and the
+    /// replay harness's rooting (examples/replay_parity/harness.rs `Roots::new`) read
+    /// this and nothing else, so a block that puts a record on the board is added here
+    /// once and reaches all five; five hand lists used to have to agree.
+    /// tests/unit_refs.rs holds it against the CardDef fields and each record's Debug
+    /// text.
+    pub fn unit_refs(&self, idx: u16) -> Vec<(UnitRef, u16, Option<i32>)> {
+        let c = self.get(idx);
+        let mut out = Vec::new();
+        if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell {
+            out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
+        }
+        if let Some(sp) = c.spawner {
+            out.push((UnitRef::Spawner, sp.unit, None));
+        }
+        if let Some(ds) = c.death_spawn {
+            out.push((UnitRef::DeathSpawn, ds.unit, None));
+        }
+        // PLANT unit_refs_skips_new_paths (tests/unit_refs.rs) drops this block: the
+        // enumeration misses a path, and every reader with it.
+        #[cfg(not(clash_plant = "unit_refs_skips_new_paths"))]
+        if let Some(ss) = c.formation.second_summon {
+            out.push((UnitRef::SecondSummon, ss.unit, None));
+        }
+        out
+    }
+
+    /// DROP EVERY UNIT BLOCK of card `idx` that `unit_refs` names, and its death area
+    /// effect: the cleanup of a card rejected after its push. A card rejected for any
+    /// reason runs, where it can still be reached at all, exactly as it ran before its
+    /// blocks resolved.
+    fn clear_unit_refs(&mut self, idx: u16) {
+        for (path, _, _) in self.unit_refs(idx) {
+            let card = &mut self.cards[idx as usize];
+            match path {
+                UnitRef::SpellRelease => {
+                    if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. }, .. }) = card.spell.as_mut() {
+                        *spawn = None;
+                    }
+                }
+                UnitRef::Spawner => card.spawner = None,
+                UnitRef::DeathSpawn => card.death_spawn = None,
+                UnitRef::SecondSummon => card.formation.second_summon = None,
+            }
+        }
+        self.cards[idx as usize].death_area_effect = None;
     }
 
     /// Register a card under its internal name, and under its display name
@@ -2548,6 +2705,100 @@ mod tests {
         assert_eq!(db.rejected.len(), 2);
         assert!(db.index("Zap").is_none());
         assert!(db.rejected[0].1.contains("no mechanic"), "{:?}", db.rejected[0]);
+    }
+
+    /// THE UNIT-NAME RULE, the resolution half: a card serves as a spawned unit only
+    /// when the row it puts on the board IS that unit's (`CardDef::unit_name`). The Ram
+    /// Rider card is named `RamRider` and deploys the `Ram`; its rider is the `units`
+    /// row `RamRider`, so resolving the rider by name alone hands back the Ram. The
+    /// rider block is not simulated yet; a death spawn stands in for it here, because
+    /// the rule under test is the name rule, the same for every block. Synthetic rows,
+    /// the two records told apart by their hitpoints.
+    /// Plant: unit_by_card_name (any troop or building card of the name serves).
+    #[test]
+    fn the_rider_resolves_to_its_own_row_not_the_card() {
+        let db = CardDb::from_json_str(
+            r#"{"cards":[{"name":"RamRider","kind":"troop","elixir":5,"rarity":"Legendary","summon_character":"Ram",
+            "hitpoints":1500,"hit_speed_ms":1800,"range_milli":500,"collision_radius_milli":750,
+            "death_spawn":{"character":"RamRider","count":1}}],
+            "units":{"RamRider":{"name":"RamRider","rarity":"Legendary","hitpoints":232,"hit_speed_ms":1100,
+            "range_milli":5000,"collision_radius_milli":500}}}"#,
+            CardSource::DerivedJson,
+        )
+        .unwrap();
+        let card = db.index("RamRider").unwrap_or_else(|| panic!("RamRider refused: {:?}", db.rejected));
+        let rider = db.get(card).death_spawn.expect("the stand-in block resolved").unit;
+        assert_ne!(rider, card, "the rider resolved to the card, whose row is the Ram");
+        let r = db.get(rider);
+        assert_eq!((r.hitpoints, r.summon_only, r.unit_name.as_str()), (232, true, "RamRider"), "the rider is not the units row");
+        assert_eq!((db.get(card).hitpoints, db.get(card).unit_name.as_str()), (1500, "Ram"));
+    }
+
+    /// ...and the half that must not move: a card whose row IS the unit's still serves,
+    /// one table and no second record. The 2018 Furnace spawns `FireSpirits`, the Fire
+    /// Spirits card's own SummonCharacter. The synthetic file ships no `units` row of
+    /// that name, so a rule that stopped serving the card would refuse the hut instead;
+    /// the shipped 2018 file must resolve the same way.
+    /// Plant: unit_never_card (no card serves; the hut is refused here, and in the 2018
+    /// file its spawner no longer names the Fire Spirits card).
+    #[test]
+    fn the_old_shortcut_still_serves_firespirits() {
+        let db = CardDb::from_json_str(
+            r#"{"cards":[{"name":"FireSpirits","kind":"troop","elixir":2,"rarity":"Common","summon_character":"FireSpirits",
+            "hitpoints":90,"hit_speed_ms":300,"range_milli":2000,"collision_radius_milli":400,"count":3},
+            {"name":"FirespiritHut","kind":"building","elixir":4,"rarity":"Rare","hitpoints":570,"hit_speed_ms":10000,
+            "collision_radius_milli":1000,"lifetime_ms":50000,
+            "spawner":{"character":"FireSpirits","number":2,"interval_ms":500,"pause_time_ms":9400}}]}"#,
+            CardSource::DerivedJson,
+        )
+        .unwrap();
+        let hut = db.index("FirespiritHut").unwrap_or_else(|| panic!("FirespiritHut refused: {:?}", db.rejected));
+        assert_eq!(db.get(hut).spawner.expect("the spawner resolved").unit, db.index("FireSpirits").unwrap());
+        assert!(db.cards.iter().all(|c| !c.summon_only), "a card that serves as the unit was loaded a second time");
+        let shipped = CardDb::load_repo_file("cards-2018.json").expect("cards-2018.json (tools/extract_cards.py --vintage 2018)");
+        let hut = shipped.index("FirespiritHut").unwrap_or_else(|| panic!("2018 FirespiritHut refused: {:?}", shipped.rejected.iter().find(|(n, _)| n == "FirespiritHut")));
+        assert_eq!(shipped.get(hut).spawner.expect("the 2018 hut's spawner").unit, shipped.index("FireSpirits").unwrap(), "2018: the Furnace does not spawn the Fire Spirits card");
+    }
+
+    /// THE UNIT-NAME RULE, the record half: a `units` row that loads under a name a card
+    /// already holds is registered as `units.<Name>`, keeping its `unit_name`, so every
+    /// name resolves to ONE record and the card list never prints two records under one
+    /// name. The Goblin Drill card deploys `GoblinDrillDig`, which morphs into the
+    /// `units` row `GoblinDrill` -- the card's own name. The morph is not simulated yet;
+    /// a death spawn stands in for it (the name rule is the same for every block). A
+    /// spell of the unit's name is still a collision. Synthetic rows.
+    /// Plant: unit_by_card_name.
+    #[test]
+    fn a_morph_target_named_like_its_card_is_not_the_card() {
+        let db = CardDb::from_json_str(
+            r#"{"cards":[{"name":"GoblinDrill","kind":"building","elixir":4,"rarity":"Epic","summon_character":"GoblinDrillDig",
+            "hitpoints":2560,"hit_speed_ms":1000,"collision_radius_milli":1000,
+            "death_spawn":{"character":"GoblinDrill","count":1}},
+            {"name":"Zap","kind":"spell","elixir":2,"rarity":"Common",
+            "spell":{"area_effect_object":{"name":"ZapArea","radius_milli":2500,"damage":75,"hits_ground":true,"hits_air":true,"only_enemies":true}}},
+            {"name":"Sparky","kind":"troop","elixir":6,"rarity":"Legendary","hitpoints":1200,"hit_speed_ms":4000,
+            "range_milli":5000,"collision_radius_milli":750,"death_spawn":{"character":"Zap","count":1}}],
+            "units":{"GoblinDrill":{"name":"GoblinDrill","source_table":"buildings","rarity":"Epic","hitpoints":1313,
+            "hit_speed_ms":1000,"collision_radius_milli":600,"lifetime_ms":9000}}}"#,
+            CardSource::DerivedJson,
+        )
+        .unwrap();
+        let card = db.index("GoblinDrill").unwrap_or_else(|| panic!("GoblinDrill refused: {:?}", db.rejected));
+        let unit = db.get(card).death_spawn.expect("the stand-in block resolved").unit;
+        assert_ne!(unit, card, "the morph target resolved to the card itself");
+        let u = db.get(unit);
+        assert_eq!(
+            (u.name.as_str(), u.unit_name.as_str(), u.hitpoints, u.kind, u.summon_only),
+            ("units.GoblinDrill", "GoblinDrill", 1313, CardKind::Building, true)
+        );
+        assert_eq!(db.index("units.GoblinDrill"), Some(unit));
+        assert_eq!(db.get(card).hitpoints, 2560, "the name no longer reaches the card");
+        let mut names: Vec<&str> = db.cards.iter().map(|c| c.name.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), db.cards.len(), "two records share a name");
+        let why = &db.rejected.iter().find(|(n, _)| n == "Sparky").expect("Sparky is refused").1;
+        assert_eq!(why, "spawned unit Zap collides with a card name");
     }
 
     /// The thin slice's five spells load from the REAL cards.json with the shapes the

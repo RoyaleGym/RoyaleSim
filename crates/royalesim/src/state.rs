@@ -2764,8 +2764,8 @@ impl BattleState {
     /// by TICK_MS and, at <= 0, emits the unit(s) that are due. Decided from
     /// START-OF-PASS state (the count a SpawnLimit compares against, the positions),
     /// collected, sorted by (team, the spawner's team_seq, unit index) and only then
-    /// emitted, so the creation order -- and therefore team_seq -- is canonical and
-    /// slot-free.
+    /// emitted (`create_emissions`), so the creation order -- and therefore team_seq --
+    /// is canonical and slot-free.
     ///
     /// WHERE IT RUNS (calibration spawner.EMISSION_TIMING): under
     /// `move_phase_immediate` the pass runs at the end of Move, right after
@@ -2899,6 +2899,18 @@ impl BattleState {
             self.ents.spawn_ms[i] = ms;
             self.ents.spawn_wave_left[i] = left;
         }
+        self.create_emissions(emissions);
+    }
+
+    /// EMISSIONS ONTO THE BOARD: the units a pass decided to emit, each tagged (team,
+    /// the emitter's team_seq, k), put in that canonical order before anything is
+    /// created, so the creation order -- and therefore team_seq -- is slot-free
+    /// whichever emitter, and whichever pass, produced them. Under
+    /// spawner.EMISSION_TIMING = spawn_phase_next_tick they are queued for the next
+    /// Spawn phase; under move_phase_immediate they are created now, each with its
+    /// owner, its stagger and the deploy override (activated at once on a zero one),
+    /// and the spatial hash is rebuilt once if anything was emitted.
+    fn create_emissions(&mut self, mut emissions: Vec<(Team, u32, u32, PendingSpawn)>) {
         emissions.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
         if self.emission_timing() == SpawnerEmission::SpawnPhaseNextTick {
             self.spawn_queue.extend(emissions.into_iter().map(|(_, _, _, p)| p));
@@ -2913,7 +2925,7 @@ impl BattleState {
             return;
         }
         for (_, _, _, p) in emissions {
-            let kind = match cards.get(p.card).kind {
+            let kind = match self.cfg.cards.get(p.card).kind {
                 CardKind::Building => EntityKind::Building,
                 CardKind::Troop => EntityKind::Troop,
                 CardKind::Spell => continue, // a spawner's unit is never a spell (card.rs refuses it)
@@ -5227,14 +5239,17 @@ impl BattleState {
 
     fn phase_projectile(&mut self) {
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut self.scratch.nb);
-        if self.spells.is_empty() {
-            return;
-        }
-        let mut released = Vec::new();
+        // No early return on an empty spell list: stepping no spell is a no-op, and what
+        // the phase hands on (spell.rs `SpellOut`) need not come from a spell.
+        let mut out = spell::SpellOut::default();
         {
             let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib };
-            spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut released, &mut self.scratch.nb);
+            spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
         }
+        // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the
+        // phase. Destructured without `..`, so a field added to the bundle does not
+        // compile until it has a consumer below.
+        let spell::SpellOut { released, mut born, mut launched, areas, clones, fuse_ends } = out;
         for r in released {
             // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
             // Spawn phase under the earlier convention.
@@ -5247,6 +5262,23 @@ impl BattleState {
                 self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0 });
             }
         }
+        // Spell objects made by spell objects, appended after every spell has stepped,
+        // so they first act next tick.
+        self.spells.append(&mut born);
+        // A landing object's area effect: cast at its point and appended after them, so
+        // it too first applies next tick (as a death's area effect does, `phase_reap`).
+        for a in areas {
+            let v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, a.team, a.card, a.level, a.pos).expect("released area level validated at deploy");
+            self.spells.extend(v);
+        }
+        // Projectiles fired by spell objects: this tick's `step_projectiles` has run, so
+        // they first step next tick.
+        self.projectiles.append(&mut launched);
+        // Nothing writes these two yet, and the engine has no law yet for where a
+        // container's units stand or what a copy inherits. An order reaching here would
+        // be lost in silence, so it stops the battle instead.
+        assert!(fuse_ends.is_empty(), "a fuse end reached phase_projectile, which cannot release its death spawn yet");
+        assert!(clones.is_empty(), "a clone order reached phase_projectile, which cannot hand it to Reap yet");
     }
 
     /// THE KNOCKBACK LADDER UNDER THE FRAME-PLANNED PATH ARMS (knockback.DISPLACEMENT_LAW
@@ -7120,6 +7152,14 @@ impl BattleState {
                 h.bool(e.jumping[i]);
                 h.u32(e.creation_seq[i]);
                 h.i32(e.attack_load_ms[i]);
+                // PLANT hash_line_unconditional (tests/hash_continuity.rs): a new column
+                // hashed for every alive entity at its neutral value, where a hash line
+                // must be written only when the value is not neutral. Every battle plays
+                // exactly as before and every state_hash VALUE moves. Inside the
+                // `!legacy_v3` block, so a migrated format-3 snapshot's self-check is
+                // untouched.
+                #[cfg(clash_plant = "hash_line_unconditional")]
+                h.u32(0);
             }
             h.vec(e.move_frac[i]);
             h.u32(e.route[i].len() as u32);

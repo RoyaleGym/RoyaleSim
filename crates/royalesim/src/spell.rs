@@ -55,7 +55,7 @@
 use crate::arena::{Arena, Rect, Shape};
 use crate::card::{CardDb, KnockbackDef, SpellHit, SpellShape};
 use crate::status::{BuffHit, Pulse};
-use crate::combat::{damage_against, DamageBuffer, Hit};
+use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
@@ -107,6 +107,59 @@ pub struct Release {
     pub pos: Vec2,
     pub deploy_ms: Option<i32>,
     pub count: i32,
+}
+
+/// An area effect a landing object leaves where it lands: cast at `pos` under `card`'s
+/// index and unified `level` (`cast`, so `shape_of(card)` names the area), as a death's
+/// area effect is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AreaRelease {
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub pos: Vec2,
+}
+
+/// A container whose fuse ran out at `pos`: an order for the death spawn of `card`
+/// (at unified `level`) to come out there. Nothing carries it out yet (`SpellOut`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FuseEnd {
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub pos: Vec2,
+}
+
+/// A unit a spell copies: an order to copy `src` at the spell's unified `level`.
+/// Nothing carries it out yet (`SpellOut`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloneOrder {
+    pub src: EntityId,
+    pub level: i32,
+}
+
+/// EVERYTHING ONE PROJECTILE PHASE HANDS ON to the rest of the tick, in one bundle so
+/// a new kind of output is one field and not one more parameter on `step_spells`.
+/// Nothing in it outlives the tick, so none of it is in a snapshot or in the state
+/// hash. Only `released` has a writer today (`step_spells`); the other fields stay
+/// empty. state.rs `phase_projectile` drains four of them before the phase ends, in
+/// this order, and every object appended in steps 2-4 first acts on the next tick,
+/// because this tick's steps have already run:
+///   1. `released`: units a landing spell releases (laid out, then `release`);
+///   2. `born`: spell objects a spell object makes (appended to the spell list);
+///   3. `areas`: area effects a landing object leaves (cast, appended after 2's);
+///   4. `launched`: projectiles a spell object fires (appended to the projectile list).
+///
+/// `fuse_ends` and `clones` have no consumer yet: `phase_projectile` stops the battle
+/// if either is non-empty, so an order can never be dropped in silence.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpellOut {
+    pub released: Vec<Release>,
+    pub born: Vec<Spell>,
+    pub launched: Vec<Projectile>,
+    pub areas: Vec<AreaRelease>,
+    pub clones: Vec<CloneOrder>,
+    pub fuse_ends: Vec<FuseEnd>,
 }
 
 /// One buffered knockback. Which variant a spell writes is calibration
@@ -606,10 +659,11 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
     *travelled < len
 }
 
-/// Advance every spell by one tick. Units released by landing spells are returned in
-/// `released`, in `spells` order (deterministic; team_seq is per team, and a team's
-/// spells keep their cast order).
-pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, released: &mut Vec<Release>, nb: &mut Vec<u32>) {
+/// Advance every spell by one tick. What the step hands on comes back in `out`
+/// (`SpellOut`, drained by the caller): units released by landing spells in
+/// `out.released`, in `spells` order (deterministic; team_seq is per team, and a
+/// team's spells keep their cast order).
+pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, out: &mut SpellOut, nb: &mut Vec<u32>) {
     let tick = ctx.calib.tick_ms;
     let mult = ctx.calib.projectile_speed_to_subtiles_per_tick;
     spells.retain_mut(|s| {
@@ -640,7 +694,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                         let count = sp.count;
                         #[cfg(clash_plant = "spawn_count_one")]
                         let count = 1; // PLANT: SpawnCharacterCount ignored.
-                        released.push(Release { team: s.team, unit: sp.unit, level, pos: *aim, deploy_ms, count });
+                        out.released.push(Release { team: s.team, unit: sp.unit, level, pos: *aim, deploy_ms, count });
                     }
                 }
                 false

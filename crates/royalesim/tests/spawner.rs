@@ -1101,11 +1101,11 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     // A unit that IS a card resolves to that card, not a duplicate: the 2018
     // Furnace's FireSpirits (in 15.535 the reworked Furnace is refused for its
     // action graph and no loaded spawner names a card -- the Goblins card summons
-    // Goblin_Stab -- so the rule is checked over every loaded block and holds
-    // vacuously there).
+    // Goblin_Stab -- so the rule is checked over every loaded block, every one
+    // `CardDb::unit_refs` names, and holds vacuously there).
     let mut shared = 0;
-    for c in db.cards.iter().filter(|c| !c.summon_only) {
-        for unit in c.spawner.map(|sp| sp.unit).into_iter().chain(c.death_spawn.map(|ds| ds.unit)) {
+    for (i, c) in db.cards.iter().enumerate().filter(|(_, c)| !c.summon_only) {
+        for (_, unit, _) in db.unit_refs(i as u16) {
             let u = db.get(unit);
             // A playable card of the unit's name (a summon-only record is registered
             // under its name too, so the playable one is the non-summon-only card).
@@ -1146,11 +1146,11 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     }
     // (16) Nothing points at the unresolved unit: a rejected card's blocks are dropped
     // (a format-3 board entity of a rejected card must never index cards[65535]).
-    for c in &db.cards {
-        assert!(c.spawner.is_none_or(|sp| (sp.unit as usize) < db.cards.len()), "{}: spawner unit unresolved", c.name);
-        assert!(c.death_spawn.is_none_or(|ds| (ds.unit as usize) < db.cards.len()), "{}: death spawn unit unresolved", c.name);
-        if let Some(royalesim::card::SpellDef { shape: royalesim::card::SpellShape::Projectile { spawn: Some(sp), .. }, .. }) = &c.spell {
-            assert!((sp.unit as usize) < db.cards.len(), "{}: spell unit unresolved", c.name);
+    // Every block `CardDb::unit_refs` names: spawner, death spawn, spell release,
+    // second summon.
+    for (i, c) in db.cards.iter().enumerate() {
+        for (path, unit, _) in db.unit_refs(i as u16) {
+            assert!((unit as usize) < db.cards.len(), "{}: {} unit unresolved", c.name, path.block_name());
         }
     }
     for card in ["RageBarbarian", "SkeletonBalloon"] {
