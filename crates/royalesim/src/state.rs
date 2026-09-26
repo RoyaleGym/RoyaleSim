@@ -2444,6 +2444,9 @@ pub struct EntityView<'a> {
     /// Its own first tick + 7 on a troop a death spawn created; 0 on every other unit, which
     /// is every unit under the shipped `none`.
     pub acquirable_from: u32,
+    /// The avoidance offset the 16.402 move pass carries between ticks (move16402.rs `Contact::offset`):
+    /// multiples of 10 in [-190, 190], 0 when the unit is not steering round a blocker.
+    pub avoid_offset: i32,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -2480,6 +2483,10 @@ struct Scratch {
     /// (`doomed_mask`). A read-only derivation, rebuilt every tick; nothing
     /// writes hp from it.
     doomed: Vec<bool>,
+    /// spawner.SPAWNED_FIRST_STEP: the buildings that died in this Reap and left a death spawn that takes its
+    /// first update, native (x, y, radius, side): `first_update`'s avoidance-only blockers. Filled and drained
+    /// inside one `phase_reap`, so it never outlives the phase.
+    dying_blockers: Vec<(i32, i32, i32, u8)>,
 }
 
 /// The 16.402 path grid (path16402.rs): the static terrain, this tick's occlusion
@@ -2945,7 +2952,8 @@ impl BattleState {
         let apart = true;
         #[cfg(clash_plant = "first_step_siblings_push")]
         let apart = false; // PLANT (regression): the members push each other on the first step.
-        self.first_update(&fresh, apart);
+        let blockers = std::mem::take(&mut self.scratch.dying_blockers);
+        self.first_update(&fresh, apart, &blockers);
     }
 
     /// THE ONE SETTER of targeting.SPAWNED_UNIT_ACQUIRE_DELAY: entity `i`, created this tick
@@ -3311,7 +3319,7 @@ impl BattleState {
         }
         self.hash.rebuild(&self.ents);
         // spawner.SPAWNED_FIRST_STEP: the units this pass emitted take their first update now.
-        self.first_update(&fresh, true);
+        self.first_update(&fresh, true, &[]);
     }
 
     /// THE FIRST UPDATE OF A UNIT CREATED AFTER THE TICK'S PASSES (spawner.SPAWNED_FIRST_STEP =
@@ -3339,10 +3347,19 @@ impl BattleState {
     /// emits two units on one tick. Otherwise they step in creation order, each seeing the
     /// others' bodies as the move pass does.
     ///
+    /// THE DYING BUILDING STEERS THE FIRST STEP: `blockers`, the buildings whose death released these
+    /// units, stand in the avoidance scan as static blockers, and the separation scan does not see them.
+    /// So a Goblin Cage's Brawler, born on the cage's centre, reads avoidance offset -190 on its first
+    /// frame (the scan's -200 and one decay). The scan in each birth's creation-tick update predicts the
+    /// first-frame offset, sign included, for 30 of 30 births beside a dying building on client 15.535.29
+    /// (the Goblin Cage's Brawler 3, the Goblin Drill's goblins 13, the Tombstone's Skeletons 14). A dying
+    /// TROOP is not a blocker here: a moving parent (the Elixir Golem's halves) is not settled, and a
+    /// DeathSpawnPushback row's members take no first update at all.
+    ///
     /// ONLY UNDER THE 16.402 MODEL (PathSearch::Client16402 and match.TICK_ORDER = client16402):
     /// the step is that model's move pass, and under the legacy tick order the Attack phase runs
     /// after Move anyway. Troops only: a building takes no step.
-    fn first_update(&mut self, fresh: &[usize], apart: bool) {
+    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8)]) {
         #[cfg(not(clash_plant = "first_step_unread"))]
         let on = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick;
         #[cfg(clash_plant = "first_step_unread")]
@@ -3365,7 +3382,7 @@ impl BattleState {
             vec![(fresh.clone(), Vec::new())]
         };
         for (movers, unseen) in batches {
-            self.phase_path16402_for(Some(&movers), &unseen);
+            self.phase_path16402_for(Some(&movers), &unseen, blockers);
             // the Move phase's position write under the 16.402 contact law: the delta IS the
             // position write, clamped to the arena
             let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
@@ -4270,15 +4287,17 @@ impl BattleState {
     ///      moves it -- with the avoidance rotation, the position write and the
     ///      reached test that pops the waypoint and refreezes the segment direction.
     fn phase_path16402(&mut self) {
-        self.phase_path16402_for(None, &[]);
+        self.phase_path16402_for(None, &[], &[]);
     }
 
     /// The 16.402 movement update, for every troop (`only` None) or for a first update's fresh
     /// units alone (`first_update`). Those step against the board as the tick's pass left it: the
     /// obstacle set, the grid and the doomed mask are the pass's own and are not rebuilt, and a unit
     /// the mask dooms, which the pass dropped at its own place, is hidden from their scans, as are
-    /// the `unseen` ones. The per-tick diagnostics of every other unit stay as the pass wrote them.
-    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize]) {
+    /// the `unseen` ones. `blockers` (native x, y, radius, side) join the board as bodies that are
+    /// collidable but not alive: the avoidance scan sees them as static blockers, the separation scan
+    /// skips them. The per-tick diagnostics of every other unit stay as the pass wrote them.
+    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8)]) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         if only.is_none() {
             self.build_obstacles();
@@ -4514,6 +4533,24 @@ impl BattleState {
                     if unseen.contains(&j) || doomed.get(j).copied().unwrap_or(false) {
                         b.collidable = false;
                     }
+                }
+                for &(x, y, r, side) in blockers {
+                    bodies.push(move16402::Body {
+                        x,
+                        y,
+                        start_x: x,
+                        start_y: y,
+                        side,
+                        r,
+                        mass: 0,
+                        air: false,
+                        mover: false,
+                        alive: false,
+                        collidable: true,
+                        offset: 0,
+                        dir: (0, 0),
+                        heading_counts: false,
+                    });
                 }
             }
             for i in order {
@@ -6321,6 +6358,7 @@ impl BattleState {
         // ships them with different radii, different damage and different crown
         // percents -- two columns, one death, neither one the other's carrier.
         let mut spawned: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        self.scratch.dying_blockers.clear();
         #[cfg(not(clash_plant = "death_spawn_dropped"))]
         for id in &deaths {
             let i = id.index as usize;
@@ -6436,6 +6474,18 @@ impl BattleState {
             let first_update = !card.death_spawn_pushback;
             #[cfg(clash_plant = "first_step_moves_pushback_spawns")]
             let first_update = true; // PLANT (regression): a Golemite steps on its death frame.
+            // A DYING BUILDING STAYS IN ITS MEMBERS' FIRST AVOIDANCE SCAN, as a static blocker, and out of
+            // their separation push (`first_update`). A dying troop does not: a moving parent (the Elixir
+            // Golem) is not settled.
+            #[cfg(not(clash_plant = "first_step_parent_gone"))]
+            let blocks = first_update && self.ents.kind[i].is_building();
+            #[cfg(clash_plant = "first_step_parent_gone")]
+            let blocks = false; // PLANT (regression): the dying building is gone from the scan.
+            if blocks {
+                use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                let p = self.ents.pos[i];
+                self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8));
+            }
             for (k, p) in points.into_iter().enumerate() {
                 spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update }));
             }
@@ -7665,6 +7715,7 @@ impl BattleState {
             death_slide_centre: e.death_slide_centre[i],
             death_slide_radius: e.death_slide_radius[i],
             acquirable_from: e.acquirable_from[i],
+            avoid_offset: e.avoid_offset[i],
         }
     }
     /// Live entities in slot order.

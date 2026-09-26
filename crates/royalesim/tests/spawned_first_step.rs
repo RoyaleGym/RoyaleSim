@@ -18,6 +18,8 @@
 //!   4. a Skeleton emitted beside an enemy Knight has the Knight as its target and is in its attack on its first frame,
 //!      with the attack state the old arm reaches a tick later;
 //!   5. a battle with no spawner and no death spawn runs the same under both values (the control);
+//!   5b. a Goblin Cage's Brawler, born on the dying cage's centre, reads avoidance offset -190 on its first frame
+//!      under client16402_same_tick (the cage a static blocker in its first scan) and 0 under none;
 //!   6. a snapshot taken under client16402_same_tick resumes hash for hash;
 //!   7. the shipped value is none.
 //!
@@ -26,6 +28,7 @@
 //!   * `first_step_siblings_push` -- the members of one death push each other on the first step: (2) goes red.
 //!   * `first_step_moves_pushback_spawns` -- a DeathSpawnPushback row's members step on the death frame: (3) goes red.
 //!   * `first_step_walks_only` -- the first update is the move step alone, no target and no attack: (4) goes red.
+//!   * `first_step_parent_gone` -- the dying building is not a blocker in the first scan: (5b) goes red.
 mod common;
 
 use common::*;
@@ -205,6 +208,24 @@ fn a_battle_with_no_spawner_and_no_death_spawn_runs_the_same_under_both_values()
     let old = run(OLD);
     assert!(old.last().unwrap().len() < old[0].len(), "vacuous: nothing died in 300 ticks");
     assert!(old == run(NEW), "the two values diverged on a battle neither reaches");
+}
+
+/// A Blue Goblin Cage at 0 hp at (9000, 13000) dies on the first tick; its Brawler's avoidance offset on its first
+/// frame.
+fn brawler_offset(arm: SpawnedFirstStep) -> i32 {
+    let mut s = BattleState::new(7, with_arm(config(), arm));
+    let cage = s.scenario_spawn_now(Team::Blue, "GoblinCage", at((9000, 13000)), None).unwrap();
+    assert!(s.debug_set_hp(cage, 0));
+    let born = tick_until_born(&mut s, 3, |e| e.spawned_by.is_none());
+    assert!(s.entity(cage).is_none(), "scene: the cage did not die");
+    assert_eq!(born.len(), 1, "scene: the cage's one Brawler");
+    s.entity(born[0]).unwrap().avoid_offset
+}
+
+#[test]
+fn a_death_spawn_steers_round_its_dying_building_on_its_first_frame() {
+    assert_eq!(brawler_offset(OLD), 0, "none: the Brawler steers on its first frame");
+    assert_eq!(brawler_offset(NEW), -190, "the Brawler's first-frame avoidance offset");
 }
 
 #[test]
