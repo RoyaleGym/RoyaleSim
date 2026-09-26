@@ -190,6 +190,12 @@ pub struct Entities {
     /// under that arm only. `default` and sized on load like `target_doomed`.
     #[serde(default)]
     pub fired_at: Vec<Option<EntityId>>,
+    /// This unit launched a projectile at its target from beyond its reach on the last tick: set in the attack
+    /// pass, read and cleared by the next Target phase, which then rescans (target.rs `decide`). Written under
+    /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" only, and hashed under it.
+    /// `default` and sized on load like `fired_at`.
+    #[serde(default)]
+    pub launched_beyond: Vec<bool>,
     /// What is left of a formation member's DEPLOY_STAGGER wait, ms: set from PendingSpawn.stagger_ms
     /// when the member is created and counted down beside `deploy_ms`, so `deploy_ms - stagger_ms`
     /// stays the unit's own DeployTime. 0 for every unit that never staggered (a spell release and
@@ -535,6 +541,7 @@ impl Entities {
             self.retarget_wait[i] = 0;
             self.target_doomed[i] = false;
             self.fired_at[i] = None;
+            self.launched_beyond[i] = false;
             self.stagger_ms[i] = 0;
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
@@ -598,6 +605,7 @@ impl Entities {
             self.retarget_wait.push(0);
             self.target_doomed.push(false);
             self.fired_at.push(None);
+            self.launched_beyond.push(false);
             self.stagger_ms.push(0);
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);

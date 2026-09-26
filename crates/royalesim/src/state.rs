@@ -90,6 +90,12 @@ pub struct Calib {
     pub range_extension_to_keep_target: i32,
     pub cancel_hit_from_long_distance_range: i32,
     pub preserve_target_if_hit_started: bool,
+    /// Which attackers `preserve_target_if_hit_started` reaches: every one (the ledger value `true`),
+    /// or only those whose card fires a projectile (the value "projectile_attackers_only"; `locks_target`,
+    /// target.rs `decide`). Added after SNAPSHOT_FORMAT 20; the `default` is `AllAttackers`, what a battle
+    /// saved before it actually ran.
+    #[serde(default = "preserve_target_scope_default")]
+    pub preserve_target_scope: PreserveTargetScope,
     pub xpos_based_tower_targeting: bool,
     pub melee_range_limit: i32,
     #[serde(with = "push_model_serde")]
@@ -513,6 +519,18 @@ pub struct Calib {
 }
 
 impl Calib {
+    /// Does a started swing lock this card's target (targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED)? Under
+    /// `true` every attacker's does, under "projectile_attackers_only" only an attacker whose card fires a
+    /// projectile, and under `false` none.
+    #[inline]
+    pub fn locks_target(&self, card: &CardDef) -> bool {
+        #[cfg(not(clash_plant = "preserve_scope_ignored"))]
+        let scoped = self.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly;
+        #[cfg(clash_plant = "preserve_scope_ignored")]
+        let scoped = false; // PLANT (regression): every attacker's swing locks under the scoped value too.
+        self.preserve_target_if_hit_started && (!scoped || card.projectile.is_some())
+    }
+
     /// Does an entity in `phase` stand still and keep its target locked as an
     /// attacking unit? Under the measured cycle every attacking unit (the hit tick
     /// included) stands and the move pass skips it; under the old windup only the
@@ -624,6 +642,10 @@ fn death_spawn_pushback_default() -> DeathSpawnPushback {
 
 fn spawned_unit_acquire_delay_default() -> SpawnedUnitAcquireDelay {
     SpawnedUnitAcquireDelay::None
+}
+
+fn preserve_target_scope_default() -> PreserveTargetScope {
+    PreserveTargetScope::AllAttackers
 }
 
 fn spawned_first_step_default() -> SpawnedFirstStep {
@@ -928,8 +950,33 @@ calib_enum!(
     ResumeWindup { Cancel = "cancel", Carry = "carry" }
 );
 calib_enum!(
-    /// combat.RETARGET_PROGRESS.
-    RetargetProgress { ResetAlways = "reset_always", KeepWhenDead = "keep_when_dead" }
+    /// combat.RETARGET_PROGRESS -- what a unit's swing does when its target changes.
+    RetargetProgress {
+        /// Every change of target restarts the swing.
+        ResetAlways = "reset_always",
+        /// Replacing a dead target is not a switch: the swing runs on.
+        KeepWhenDead = "keep_when_dead",
+        /// As keep_when_dead, and a switch from a live target to one already in attack range keeps the
+        /// swing too: its progress runs on and the next hit lands on the new target on the running cycle.
+        /// Measured on client 15.535.29: a Knight whose Hog Rider leaves its reach mid-swing takes a Cannon in
+        /// reach on the next tick and hits it on the tick its swing at the Hog would have landed. A switch
+        /// to a target out of range still clears the swing.
+        KeepWhenDeadOrInReach = "keep_when_dead_or_in_reach",
+    }
+);
+calib_enum!(
+    /// Which attackers targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED reaches (`Calib::locks_target`).
+    PreserveTargetScope {
+        /// Every attacker: a started swing locks its target to Range +
+        /// LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE.
+        AllAttackers = "all_attackers",
+        /// Only an attacker whose card fires a projectile (troops, buildings, crown towers). It holds its
+        /// target, on every tick, while the target's start-of-tick centre distance is within Range + both radii
+        /// + target::PROJECTILE_HOLD_BEYOND_REACH and it has not just launched at it from beyond its reach;
+        /// otherwise it rescans, without cancelling its shot. A direct striker's swing does not lock: it keeps
+        /// a target within Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET and rescans past it.
+        ProjectileAttackersOnly = "projectile_attackers_only",
+    }
 );
 
 /// One live PULLING area effect (status.ATTRACT_LAW), reduced to what `phase_path16402`'s
@@ -1647,6 +1694,17 @@ fn boolean(v: &Value, path: &[&str]) -> Result<bool, String> {
     at(v, path)?.as_bool().ok_or_else(|| format!("calibration.json: {} is not a bool", path.join(".")))
 }
 
+/// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED's value: `true` or `false` for every attacker, or the string
+/// "projectile_attackers_only" (the lock on, scoped to projectile attackers).
+fn preserve_value(v: &Value) -> Result<(bool, PreserveTargetScope), String> {
+    let path = ["targeting", "LOGIC_PRESERVE_TARGET_IF_HIT_STARTED", "value"];
+    match at(v, &path)? {
+        Value::Bool(b) => Ok((*b, PreserveTargetScope::AllAttackers)),
+        Value::String(s) if s.as_str() == "projectile_attackers_only" => Ok((true, PreserveTargetScope::ProjectileAttackersOnly)),
+        other => Err(format!("calibration.json: {} is {other}, not true, false or \"projectile_attackers_only\"", path.join("."))),
+    }
+}
+
 fn string<'a>(v: &'a Value, path: &[&str]) -> Result<&'a str, String> {
     at(v, path)?.as_str().ok_or_else(|| format!("calibration.json: {} is not a string", path.join(".")))
 }
@@ -1796,10 +1854,8 @@ impl Calib {
                 &v,
                 &["targeting", "LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE", "value"],
             )?),
-            preserve_target_if_hit_started: boolean(
-                &v,
-                &["targeting", "LOGIC_PRESERVE_TARGET_IF_HIT_STARTED", "value"],
-            )?,
+            preserve_target_if_hit_started: preserve_value(&v)?.0,
+            preserve_target_scope: preserve_value(&v)?.1,
             xpos_based_tower_targeting: boolean(&v, &["targeting", "LOGIC_XPOS_BASED_TOWER_TARGETING", "value"])?,
             melee_range_limit: m(int(&v, &["targeting", "MELEE_RANGE_LIMIT", "value"])?),
             push_model,
@@ -4043,7 +4099,13 @@ impl BattleState {
         }
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
-        let keep_cycle_when_dead = self.cfg.calib.retarget_progress == RetargetProgress::KeepWhenDead;
+        let keep_cycle_when_dead =
+            matches!(self.cfg.calib.retarget_progress, RetargetProgress::KeepWhenDead | RetargetProgress::KeepWhenDeadOrInReach);
+        #[cfg(not(clash_plant = "reach_switch_resets_swing"))]
+        let keep_cycle_in_reach = self.cfg.calib.retarget_progress == RetargetProgress::KeepWhenDeadOrInReach;
+        #[cfg(clash_plant = "reach_switch_resets_swing")]
+        let keep_cycle_in_reach = false; // PLANT (regression): a switch to a target in reach restarts the swing.
+        let calib = &self.cfg.calib;
         let wait_mode = self.cfg.calib.post_kill_wait;
         let wait_arm = wait_mode != PostKillWait::None;
         let wait_ticks = self.cfg.calib.post_kill_wait_ticks.max(1) as i16;
@@ -4149,8 +4211,17 @@ impl BattleState {
             // dies arrives here with `cancel_attack` set by target.rs instead, and gating
             // only `changed` would have left the tower's own case untouched.
             let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some();
+            // combat.RETARGET_PROGRESS = keep_when_dead_or_in_reach: a switch from a LIVE target to one already in
+            // attack range this tick keeps the swing as well. Only the `changed` route is widened: a
+            // `cancel_attack` from a broken lock still cancels.
+            let switched_in_reach = keep_cycle_in_reach
+                && was.is_some()
+                && d.target.filter(|t| e.is_alive(*t) && Some(*t) != was).is_some_and(|t| {
+                    let ti = t.index as usize;
+                    target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
+                });
             if !replaced_a_corpse
-                && (d.cancel_attack || (changed && e.attack_phase[i] == AttackPhase::Windup && !carried))
+                && (d.cancel_attack || (changed && e.attack_phase[i] == AttackPhase::Windup && !carried && !switched_in_reach))
             {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
@@ -4159,6 +4230,8 @@ impl BattleState {
             if changed {
                 e.fired_at[i] = None;
             }
+            // The launch beyond reach has had its re-evaluation (target.rs `decide`).
+            e.launched_beyond[i] = false;
             e.target[i] = d.target;
             if wait_mode == PostKillWait::AttackFinish {
                 if let Some(t) = d.target.filter(|t| e.is_alive(*t)) {
@@ -5822,7 +5895,6 @@ impl BattleState {
 
     /// The Attack phase, for every unit or for a first update's fresh units alone.
     fn phase_attack_for(&mut self, only: Option<&[usize]>) {
-        let preserve = self.cfg.calib.preserve_target_if_hit_started;
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] || self.cfg.cards.get(self.ents.card[i]).hit_speed_ms <= 0 || !only.map_or(true, |o| o.contains(&i)) {
                 continue;
@@ -5889,7 +5961,8 @@ impl BattleState {
             #[cfg(clash_plant = "relock_while_stunned")]
             let held = false; // PLANT (regression): the ungated re-lock.
             if !held {
-                self.ents.target_locked[i] = preserve && step.phase == AttackPhase::Windup;
+                let locks = self.cfg.calib.locks_target(self.cfg.cards.get(self.ents.card[i]));
+                self.ents.target_locked[i] = locks && step.phase == AttackPhase::Windup;
             }
             if let Some(t) = step.fired_at {
                 combat::fire(
@@ -5908,6 +5981,20 @@ impl BattleState {
                 // launched at its target, so it keeps that target even once it is doomed.
                 if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers && self.cfg.cards.get(self.ents.card[i]).projectile.is_some() {
                     self.ents.fired_at[i] = Some(t);
+                }
+                // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only": a projectile
+                // attacker that launched at its target from beyond its reach re-evaluates on the next tick
+                // (measured on client 15.535.29: three let-go frames right after such a launch). Start-of-tick
+                // positions: Attack runs before Move.
+                let card = self.cfg.cards.get(self.ents.card[i]);
+                if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly && card.projectile.is_some() {
+                    let ti = t.index as usize;
+                    #[cfg(not(clash_plant = "launch_beyond_ignored"))]
+                    let beyond = self.ents.is_alive(t)
+                        && !target::in_attack_range(&self.cfg.calib, self.ents.pos[i], card.range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]);
+                    #[cfg(clash_plant = "launch_beyond_ignored")]
+                    let beyond = false; // PLANT (regression): a launch beyond reach does not end the hold.
+                    self.ents.launched_beyond[i] = beyond;
                 }
                 // CHARGE (calibration charge.RESET_ON_ATTACK): the LANDED hit -- this
                 // completed windup, not entering range and not a cancelled swing --
@@ -7897,6 +7984,9 @@ impl BattleState {
                 if self.cfg.calib.post_kill_wait == PostKillWait::AttackFinish {
                     h.bool(e.target_doomed[i]);
                 }
+                if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly {
+                    h.bool(e.launched_beyond[i]);
+                }
                 if self.cfg.calib.doomed_target_drop == DoomedTargetDrop::ProjectileAttackers {
                     let f = e.fired_at[i];
                     h.bool(f.is_some());
@@ -8689,6 +8779,7 @@ impl BattleState {
         snap.ents.retarget_wait.resize(n, 0);
         snap.ents.target_doomed.resize(n, false);
         snap.ents.fired_at.resize(n, None);
+        snap.ents.launched_beyond.resize(n, false);
         snap.ents.stagger_ms.resize(n, 0);
         snap.ents.death_slide_centre.resize(n, Vec2::default());
         snap.ents.death_slide_radius.resize(n, 0);

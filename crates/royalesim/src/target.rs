@@ -44,7 +44,7 @@ use crate::arena::{Arena, Lane};
 use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
-use crate::state::{AttackRangeRule, Calib, CentreLaneFrame, RiseTrigger};
+use crate::state::{AttackRangeRule, Calib, CentreLaneFrame, PreserveTargetScope, RiseTrigger};
 use crate::{EntityId, Team};
 
 /// Which side EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS extends. See module doc.
@@ -79,6 +79,17 @@ pub struct TargetCtx<'a> {
 /// 15.535.29 global LOGIC_PENDING_DAMAGE_IGNORE_IF_DURATION_LESS, 600 ms; the drops read 600 and the keeps
 /// 650 and above.
 pub const DOOMED_ETA_LIMIT_MS: i32 = 600;
+
+/// How far past its reach (Range + both radii) a projectile attacker holds its target, NATIVE units (millitiles; `decide`
+/// scales it to subtiles), under
+/// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" (`decide`). Measured on client
+/// 15.535.29: a Musketeer and Minions let go of a Hog Rider leaving their reach past H in [499.45, 544.52) (33 of
+/// 33 let-go frames, at every frame residue), and a princess tower drops a walking Knight past H in (487.2, 500.5]
+/// (three sweep scenarios). The brackets meet at 500.
+#[cfg(not(clash_plant = "projectile_hold_1500"))]
+pub const PROJECTILE_HOLD_BEYOND_REACH: i32 = 500;
+#[cfg(clash_plant = "projectile_hold_1500")]
+pub const PROJECTILE_HOLD_BEYOND_REACH: i32 = 1500; // PLANT (regression): the old cancel range.
 
 /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame: the ticks from a death-spawned
 /// troop's first tick F to the first Target phase that may give it to an enemy. Measured on
@@ -331,7 +342,20 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             let locked = e.target_locked[a];
             #[cfg(clash_plant = "no_target_lock")]
             let locked = false; // PLANT: the windup lock never holds.
-            if locked && ctx.calib.preserve_target_if_hit_started {
+            if ctx.calib.locks_target(card) && ctx.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly {
+                // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only": a projectile
+                // attacker holds its target to PROJECTILE_HOLD_BEYOND_REACH past reach, on the start-of-tick
+                // positions (this is the Target phase), on EVERY tick and not only while a swing locks it: on
+                // client 15.535.29 the let-go frame follows the distance at every phase of the attack cycle. A
+                // launch at the target from beyond reach ends the hold on the next tick (`launched_beyond`). Past
+                // either, a rescan: the nearest enemy in sight, which may be the same target, and the shot is not
+                // cancelled (combat.RETARGET_PROGRESS decides what a switch does to it). A crown tower's rescan
+                // finds nothing past its range, so it drops the target.
+                let hold = card.range + PROJECTILE_HOLD_BEYOND_REACH * crate::fixed::SUBTILE_PER_MILLITILE;
+                if !e.launched_beyond[a] && in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
+                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
+                }
+            } else if locked && ctx.calib.locks_target(card) {
                 let hold = card.range + ctx.calib.cancel_hit_from_long_distance_range;
                 if in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false };
