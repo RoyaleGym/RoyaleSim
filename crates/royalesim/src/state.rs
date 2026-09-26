@@ -264,6 +264,10 @@ pub struct Calib {
     /// which is what a battle saved before this key actually ran.
     #[serde(default = "waiting_heading_default")]
     pub waiting_heading: WaitingHeading,
+    /// pathfinding.ZERO_STEP_WAYPOINT_TEST. Added after SNAPSHOT_FORMAT 20. The `default` is
+    /// `Skipped`, which is what a battle saved before this key actually ran.
+    #[serde(default = "zero_step_waypoint_test_default")]
+    pub zero_step_waypoint_test: ZeroStepWaypointTest,
     /// spawner.RELEASE_TIMING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `NextSpawnPhase`, which is what a battle saved before this key actually ran. Read
     /// through `BattleState::release_timing`, so the regression plant can force the old arm.
@@ -615,6 +619,10 @@ fn deploying_heading_default() -> DeployingHeading {
 
 fn waiting_heading_default() -> WaitingHeading {
     WaitingHeading::Kept
+}
+
+fn zero_step_waypoint_test_default() -> ZeroStepWaypointTest {
+    ZeroStepWaypointTest::Skipped
 }
 
 fn projectile_spawn_formation_default() -> ProjectileSpawnFormation {
@@ -1137,6 +1145,19 @@ calib_enum!(
         /// Measured on client 15.535.29's walking summon-push scenarios: the waiting member's
         /// heading is zeroed, so a walker counts it as a blocker and steps away from it.
         Zeroed = "zeroed"
+    }
+);
+calib_enum!(
+    /// pathfinding.ZERO_STEP_WAYPOINT_TEST -- whether a unit walking its route on a tick whose
+    /// step is zero (a stomp pause) still freezes a new segment and runs the reached test
+    /// (pathfinding.WAYPOINT_ARRIVE_RULE). A knockback ladder tick is not a walk tick and is
+    /// not this key's: `pushback_step` has no reached test under either value.
+    ZeroStepWaypointTest {
+        /// The engine before this key: both wait for a tick with a nonzero speed.
+        Skipped = "skipped",
+        /// Measured on client 15.535.29 and client 16.402: a zero-step walk tick pops a
+        /// reached node and refreezes the segment from the unmoved position.
+        Run = "run"
     }
 );
 calib_enum!(
@@ -2003,6 +2024,7 @@ impl Calib {
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
+            zero_step_waypoint_test: pick(&v, &["pathfinding", "ZERO_STEP_WAYPOINT_TEST", "value"], ZeroStepWaypointTest::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
             post_kill_wait: pick(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "arm"], PostKillWait::from_calibration_name)?,
             post_kill_wait_units: v
@@ -5487,7 +5509,16 @@ impl BattleState {
                 // quantity the charge accumulator counts under the shipped arm --
                 // NOT the displacement (charge_pass, ACCUMULATOR = client16402_progress_permille)
                 walk_step[i] = speed.min(move16402::distance(actor.0, actor.1, aim.0, aim.1).max(1)).min(250);
-                if segs[i] == Vec2::default() && routes[i].last().is_some() && speed > 0 {
+                // pathfinding.ZERO_STEP_WAYPOINT_TEST = run: a unit walking its route keeps the
+                // waypoint bookkeeping on a zero-step tick (a stomp pause). An attacking or deploying
+                // unit aims at itself and is left out: its reached test would pass every tick.
+                #[cfg(not(clash_plant = "zero_step_waypoint_skipped"))]
+                let zero_step_runs = calib.zero_step_waypoint_test == ZeroStepWaypointTest::Run;
+                #[cfg(clash_plant = "zero_step_waypoint_skipped")]
+                let zero_step_runs = false; // PLANT (regression): a paused walker tests nothing.
+                let walks_route = routes[i].last().is_some() && !deploying && !attacking;
+                let bookkeeping = speed > 0 || (zero_step_runs && walks_route);
+                if segs[i] == Vec2::default() && routes[i].last().is_some() && bookkeeping {
                     // a new segment's direction is frozen from the position toward
                     // the last node when the segment starts
                     let s = move16402::segment_dir(actor.0, actor.1, node_centre(*routes[i].last().unwrap()));
@@ -5520,7 +5551,7 @@ impl BattleState {
                 bodies[i].offset = con.offset;
                 deltas[i] = Vec2::new(m.x * K, m.y * K).sub(e.pos[i]);
                 // the reached test pops the last node and refreezes the segment
-                if m.reached && !routes[i].is_empty() && speed > 0 {
+                if m.reached && !routes[i].is_empty() && bookkeeping {
                     routes[i].pop();
                     segs[i] = match routes[i].last() {
                         Some(&n) => {
