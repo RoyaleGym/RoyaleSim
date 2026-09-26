@@ -20,7 +20,10 @@
 //!                that are due (spawner_pass; they materialise NEXT tick)
 //!     Target     every entity decides its target from start-of-phase state
 //!     Attack     windups advance; hits go to the damage buffer / projectile list
-//!                (a charged unit's hit is DamageSpecial and consumes the charge).
+//!                (a charged unit's hit is DamageSpecial and consumes the charge;
+//!                under combat.REFLECT_ATTACK = client_reflect_stun a melee hit on
+//!                a reflecting unit buffers its answer on the attacker and lands
+//!                the answer's stun at once, `reflect_melee_hit`).
 //!                BEFORE the move: a unit in range at the start of the tick winds
 //!                up and does not step this tick; one whose target is gone or out
 //!                of range walks this tick (the 1 -> 2 / 2 -> 1 rules)
@@ -286,6 +289,11 @@ pub struct Calib {
     /// arm, what a battle saved before it actually ran.
     #[serde(default = "dash_attack_default")]
     pub dash_attack: DashAttack,
+    /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
+    /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
+    #[serde(default = "reflect_attack_default")]
+    pub reflect_attack: ReflectAttack,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -627,6 +635,10 @@ fn goal_target_position_default() -> GoalTargetPosition {
 
 fn flyer_goal_water_default() -> FlyerGoalWater {
     FlyerGoalWater::Demoted
+}
+
+fn reflect_attack_default() -> ReflectAttack {
+    ReflectAttack::NotRead
 }
 
 fn stagger_wait_default() -> StaggerWait {
@@ -1345,6 +1357,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.REFLECT_ATTACK -- what a unit whose card carries a reflect (card.rs `ReflectDef`:
+    /// the Electro Giant) does when a melee hit lands on it.
+    ReflectAttack {
+        /// Today's engine: nothing. The ReflectedAttack columns load and are not run.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (its Electro Giant scenario): each melee hit landed on
+        /// him by an attacker whose edge is within ReflectedAttackRadius of his centre is
+        /// answered IN THE SAME TICK by ReflectedAttackDamage at his level on the attacker (a
+        /// level-11 Knight takes 192) and ReflectedAttackBuff for ReflectedAttackBuffDuration,
+        /// a stun that holds the attacker's attack progress for 9 ticks without resetting it
+        /// (the Knight's hit period goes from 24 ticks to 33). A shot is never answered: the
+        /// measured princess towers fired from beyond the reach, and a ranged attacker or a
+        /// tower inside it is the ledger entry's open item (`reflect_melee_hit`).
+        ClientReflectStun = "client_reflect_stun",
+    }
+);
+calib_enum!(
     /// spawner.SPAWNED_DEPLOY_TIME -- whether a periodic spawner's unit serves its
     /// own DeployTime. Measured zero on 1230 live emissions.
     SpawnedDeploy { Zero = "zero", UnitOwnDeployTime = "unit_own_deploy_time" }
@@ -1992,6 +2021,7 @@ impl Calib {
                 .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: every entry is a unit name"))
                 .collect::<Result<Vec<_>, _>>()?,
             dash_attack: pick(&v, &["combat", "DASH_ATTACK", "value"], DashAttack::from_calibration_name)?,
+            reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -2827,6 +2857,81 @@ fn gcd(a: i64, b: i64) -> i64 {
         a.abs()
     } else {
         gcd(b, a % b)
+    }
+}
+
+/// ONE BUFF APPLICATION LANDING on entity `i` (status.rs): `buff` (a `CardDb::buffs` index) for
+/// `time_ms`, with `pulse_amount` per pulse. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): it
+/// refreshes the slot that already holds that row or takes a free one, and a unit already
+/// carrying MAX_BUFFS_PER_ENTITY distinct rows drops it. Returns whether the row is a FULL STOP
+/// that also drives the hold timer (status.FULL_STOP_BUFF_IS_STUN), whether or not a slot took
+/// it, for the caller's stun merge. The one implementation behind `apply_effects` (the effect
+/// buffer, drained in Resolve) and `reflect_melee_hit` (the attack pass).
+fn land_buff(e: &mut Entities, table: &[crate::status::BuffDef], c: &Calib, i: usize, buff: u16, time_ms: i32, pulse_amount: i32) -> bool {
+    let Some(def) = table.get(buff as usize).copied() else { return false };
+    // status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 (the -100 / -100 / -100
+    // rows: ZapFreeze, Freeze, ContinueFreeze) also drives the engine's one hold timer, so every
+    // status.STUN_* key keeps its meaning and a Zap, a Freeze spell and an Ice Spirit all hold
+    // alike.
+    let full_stop = c.full_stop_buff_is_stun == FullStopBuff::StunTimer && crate::status::compose([def].iter(), Sel::Speed, 100) == 0;
+    // status.BUFF_PULSE_TIMING: the pulse clock starts a whole period out, so an area that
+    // refreshes its buff four times a second still pulses once a second.
+    let pulse_ms = match c.buff_pulse_timing {
+        PulseTiming::AfterFirstPeriod => def.hit_frequency_ms.max(0),
+        PulseTiming::OnApplication => 0,
+    };
+    let slots = e.buff_slots_mut(i);
+    let id = buff + 1;
+    match slots.iter().position(|s| s.id == id) {
+        Some(k) => {
+            // A REFRESH keeps the pulse clock running: the buff did not restart, it was
+            // extended (status.SAME_BUFF_REAPPLY).
+            slots[k].ms = match c.same_buff_reapply {
+                BuffReapply::RefreshMax => slots[k].ms.max(time_ms),
+                BuffReapply::Replace => time_ms,
+            };
+            slots[k].pulse_amount = pulse_amount;
+        }
+        None => {
+            if let Some(k) = slots.iter().position(|s| s.is_empty()) {
+                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount };
+            }
+        }
+    }
+    full_stop
+}
+
+/// A HOLD OF `ms` LANDING on entity `i`: merged into `stun_ms` by status.SAME_BUFF_REAPPLY, the
+/// target lock released for the resume rescan (status.STUN_RETARGET_ON_RESUME), the attack cycle
+/// paused or reset (status.STUN_ATTACK_TIMER_MODEL) and the charge cleared (charge.RESET_ON_STUN).
+/// The one implementation behind `apply_effects` and `reflect_melee_hit`.
+fn land_stun(e: &mut Entities, c: &Calib, i: usize, ms: i32) {
+    #[cfg(not(clash_plant = "stun_replace"))]
+    let reapply = c.same_buff_reapply;
+    #[cfg(clash_plant = "stun_replace")]
+    let reapply = BuffReapply::Replace; // PLANT: a short stun cuts a long one.
+    e.stun_ms[i] = match reapply {
+        BuffReapply::RefreshMax => e.stun_ms[i].max(ms),
+        BuffReapply::Replace => ms,
+    };
+    if c.stun_retarget_on_resume {
+        e.target_locked[i] = false;
+        e.retarget_on_resume[i] = true;
+    }
+    #[cfg(not(clash_plant = "stun_resets_attack"))]
+    let model = c.stun_attack_timer;
+    #[cfg(clash_plant = "stun_resets_attack")]
+    let model = StunTimerModel::Reset; // PLANT: crforge's pre-2017 reset.
+    if model == StunTimerModel::Reset {
+        e.attack_phase[i] = AttackPhase::Idle;
+        e.attack_ms[i] = 0;
+        e.target_locked[i] = false;
+    }
+    // CHARGE (calibration charge.RESET_ON_STUN): the stun clears the charge and the run-up.
+    // Its own columns; nothing else here reads them.
+    if c.charge_reset_on_stun {
+        e.charged[i] = false;
+        e.charge_progress[i] = 0;
     }
 }
 
@@ -6348,6 +6453,16 @@ impl BattleState {
                     let beyond = false; // PLANT (regression): a launch beyond reach does not end the hold.
                     self.ents.launched_beyond[i] = beyond;
                 }
+                // combat.REFLECT_ATTACK = client_reflect_stun: a melee hit that landed on a unit
+                // carrying a reflect is answered here, in the attacker's own pass, right after
+                // `fire` wrote it (`reflect_melee_hit` says why here and not in Resolve).
+                #[cfg(not(clash_plant = "reflect_ignores_key"))]
+                let reflect_on = self.cfg.calib.reflect_attack == ReflectAttack::ClientReflectStun;
+                #[cfg(clash_plant = "reflect_ignores_key")]
+                let reflect_on = true; // PLANT (regression): the reflect runs whatever the key says.
+                if reflect_on {
+                    self.reflect_melee_hit(i, t);
+                }
                 // CHARGE (calibration charge.RESET_ON_ATTACK): the LANDED hit -- this
                 // completed windup, not entering range and not a cancelled swing --
                 // consumes the charge (`fire` read `charged` for its damage just above).
@@ -6381,6 +6496,86 @@ impl BattleState {
                     }
                 }
             }
+        }
+    }
+
+    /// THE REFLECT (calibration combat.REFLECT_ATTACK = client_reflect_stun; card.rs
+    /// `ReflectDef`), for attacker `a`'s hit on `target`, which `fire` has just written.
+    ///
+    /// WHO ANSWERS. Every unit the hit landed on whose card carries a reflect -- the one target,
+    /// or the victim list `splash` leaves in `scratch.nb` for a splash hitter -- answers the
+    /// ATTACKER when the attacker's EDGE is within the reflect's radius of its centre (the
+    /// measured Knight stood 2,008 centre to centre: ReflectedAttackRadius 2000 plus a collision
+    /// radius). A MELEE hit only: a projectile is answered neither at its launch nor at its
+    /// arrival. The measured shots, the princess towers', came from beyond the reach; a ranged
+    /// attacker or a tower inside it is the ledger entry's open item, and ReflectAttackCrownTowerDamage
+    /// is carried for it and read by nothing. The reach is read where the hit LANDS, and a swing
+    /// under way lands on a target that has walked out of range (combat.rs, the hit-started
+    /// test), so a hit can land from beyond the reach and go unanswered.
+    ///
+    /// WHAT THE ANSWER IS. ReflectedAttackDamage at the reflecting unit's level, into the damage
+    /// buffer like any hit, so it resolves in this tick's Resolve with the hit it answers (the
+    /// Knight's -192 falls on the frame of its -202). And ReflectedAttackBuff, landed HERE AND
+    /// NOW through the same slot and hold `apply_effects` uses (`land_buff`, `land_stun`), not
+    /// buffered for Resolve.
+    ///
+    /// WHY NOW AND NOT IN RESOLVE: THE PERIOD 33. The measured Knight's attack progress holds for
+    /// 9 ticks after its hit and then runs on from where it stood, so its cycle of 24 ticks
+    /// becomes 33. Landed in the attack pass of the hit tick N, the 500 ms (10 ticks) is first
+    /// counted down later in tick N itself (in Resolve under status.BUFF_EXPIRY_TICK_ALIGNMENT =
+    /// ceil_from_next_tick, which ships; at the next Status under one_tick_short) and is gone
+    /// after its tenth decrement, so the attack passes of N+1..N+9 are held and N+10's runs: 9
+    /// under either alignment. Through the effect buffer the buff would land in Resolve AFTER
+    /// that tick's decrement and the shipped alignment would hold N+1..N+10, a period of 34,
+    /// which the measurement refutes (plant `reflect_stun_buffered`). The attacker's own pass for
+    /// tick N is over by now, and no other unit's attack step reads its hold, so landing it here
+    /// changes nothing else this pass computes.
+    fn reflect_melee_hit(&mut self, a: usize, target: EntityId) {
+        let card = self.cfg.cards.get(self.ents.card[a]);
+        // PLANTS (regression): reflect_answers_shots drops this return alone, so a shot is
+        // answered at its launch from inside the reach; reflect_every_attack drops it and the
+        // reach test below together.
+        #[cfg(not(clash_plant = "reflect_answers_shots"))]
+        #[cfg(not(clash_plant = "reflect_every_attack"))]
+        if card.projectile.is_some() {
+            return;
+        }
+        let single = [target.index];
+        let victims: &[u32] = if card.projectile.is_none() && card.area_damage_radius > 0 { self.scratch.nb.as_slice() } else { single.as_slice() };
+        let me = self.ents.id_of(a);
+        for &v in victims {
+            let v = v as usize;
+            let e = &self.ents;
+            if !e.alive[v] || e.hide[v] == HideState::Hidden {
+                continue;
+            }
+            #[cfg(not(clash_plant = "reflect_ignores_victim_card"))]
+            let reflect = self.cfg.cards.get(e.card[v]).reflect;
+            // PLANT (regression): every melee hit is answered as the Electro Giant's would be,
+            // whatever the victim's card carries.
+            #[cfg(clash_plant = "reflect_ignores_victim_card")]
+            let reflect = self.cfg.cards.cards.iter().find_map(|c| c.reflect);
+            let Some(r) = reflect else { continue };
+            // PLANTS (regression): reflect_ignores_reach drops this test alone, so a hit from any
+            // distance is answered; reflect_every_attack drops it and the shot return above.
+            #[cfg(not(clash_plant = "reflect_ignores_reach"))]
+            #[cfg(not(clash_plant = "reflect_every_attack"))]
+            if !crate::fixed::in_range_edge(e.pos[v], e.pos[a], r.radius, e.radius[a]) {
+                continue;
+            }
+            #[cfg(not(clash_plant = "reflect_damage_unscaled"))]
+            let amount = self.cfg.cards.scaled(e.card[v], e.level[v], r.damage).expect("level validated at spawn");
+            #[cfg(clash_plant = "reflect_damage_unscaled")]
+            let amount = r.damage; // PLANT (regression): the level-1 column, 75 where the Knight takes 192.
+            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false });
+            let Some(b) = r.buff else { continue };
+            #[cfg(not(clash_plant = "reflect_stun_buffered"))]
+            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &self.cfg.calib, a, b.buff, b.time_ms, 0) {
+                land_stun(&mut self.ents, &self.cfg.calib, a, b.time_ms);
+            }
+            // PLANT (regression): the stun through the effect buffer, landed in Resolve.
+            #[cfg(clash_plant = "reflect_stun_buffered")]
+            self.effects.buffs.push(crate::status::BuffHit { target: me, buff: b.buff, time_ms: b.time_ms, pulse_amount: 0 });
         }
     }
 
@@ -6543,39 +6738,11 @@ impl BattleState {
                 continue;
             }
             let i = b.target.index as usize;
-            let Some(def) = self.cfg.cards.buffs.get(b.buff as usize).copied() else { continue };
-            // status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 (the
-            // -100 / -100 / -100 rows: ZapFreeze, Freeze, ContinueFreeze) also drives
-            // the engine's one hold timer, so every status.STUN_* key keeps its
-            // meaning and a Zap, a Freeze spell and an Ice Spirit all hold alike.
-            if c.full_stop_buff_is_stun == FullStopBuff::StunTimer && crate::status::compose([def].iter(), Sel::Speed, 100) == 0 {
+            // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
+            // stun (`reflect_melee_hit`), which lands the same way in the attack pass.
+            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &c, i, b.buff, b.time_ms, b.pulse_amount) {
                 stun_new[i] = stun_new[i].max(b.time_ms);
             }
-            // status.BUFF_PULSE_TIMING: the pulse clock starts a whole period out, so
-            // an area that refreshes its buff four times a second still pulses once a
-            // second.
-            let pulse_ms = match c.buff_pulse_timing {
-                PulseTiming::AfterFirstPeriod => def.hit_frequency_ms.max(0),
-                PulseTiming::OnApplication => 0,
-            };
-            let slots = self.ents.buff_slots_mut(i);
-            let id = b.buff + 1;
-            let existing = slots.iter().position(|s| s.id == id);
-            let at = match existing {
-                Some(k) => {
-                    // A REFRESH keeps the pulse clock running: the buff did not restart,
-                    // it was extended (status.SAME_BUFF_REAPPLY).
-                    slots[k].ms = match c.same_buff_reapply {
-                        BuffReapply::RefreshMax => slots[k].ms.max(b.time_ms),
-                        BuffReapply::Replace => b.time_ms,
-                    };
-                    slots[k].pulse_amount = b.pulse_amount;
-                    continue;
-                }
-                None => slots.iter().position(|s| s.is_empty()),
-            };
-            let Some(k) = at else { continue };
-            slots[k] = BuffSlot { id, ms: b.time_ms, pulse_ms, pulse_amount: b.pulse_amount };
         }
         // Stuns: max per target. Replace vs refresh decides only what the EXISTING timer
         // contributes; several new stuns in one tick always merge by max.
@@ -6589,34 +6756,7 @@ impl BattleState {
             if ms <= 0 {
                 continue;
             }
-            let e = &mut self.ents;
-            #[cfg(not(clash_plant = "stun_replace"))]
-            let reapply = c.same_buff_reapply;
-            #[cfg(clash_plant = "stun_replace")]
-            let reapply = BuffReapply::Replace; // PLANT: a short stun cuts a long one.
-            e.stun_ms[i] = match reapply {
-                BuffReapply::RefreshMax => e.stun_ms[i].max(ms),
-                BuffReapply::Replace => ms,
-            };
-            if c.stun_retarget_on_resume {
-                e.target_locked[i] = false;
-                e.retarget_on_resume[i] = true;
-            }
-            #[cfg(not(clash_plant = "stun_resets_attack"))]
-            let model = c.stun_attack_timer;
-            #[cfg(clash_plant = "stun_resets_attack")]
-            let model = StunTimerModel::Reset; // PLANT: crforge's pre-2017 reset.
-            if model == StunTimerModel::Reset {
-                e.attack_phase[i] = AttackPhase::Idle;
-                e.attack_ms[i] = 0;
-                e.target_locked[i] = false;
-            }
-            // CHARGE (calibration charge.RESET_ON_STUN): the stun clears the charge and
-            // the run-up. Its own columns; nothing else in this loop reads them.
-            if c.charge_reset_on_stun {
-                e.charged[i] = false;
-                e.charge_progress[i] = 0;
-            }
+            land_stun(&mut self.ents, &c, i, ms);
         }
         // Knockbacks. fixed_distance: sum per target, then one move per unit.
         // client16402: arm the ladder on the first push per unit (the
@@ -8683,6 +8823,12 @@ impl BattleState {
 ///    as it did. A blob saved by this build carries the new fields, so its BYTES differ from
 ///    an earlier build's even under the shipped none; its state_hash does not. No card
 ///    fingerprint move: CardDef is untouched. migrate_v3 runs a migrated battle at none.
+///    WITHIN FORMAT 20 the card fingerprint has since moved with no bump, once per
+///    change: CardDef gained `unit_name`, `projectile_homing`, `death_spawn_pushback`, `dash`
+///    (combat.DASH_ATTACK) and `reflect` (combat.REFLECT_ATTACK), and the buff table's rows
+///    gained `attract_pct` (which also made the Tornado loadable). So a format-20 blob saved
+///    before any of them is refused as saved against different card data, never run on the
+///    new cards; that refusal, not the format number, is what says it is stale.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -8849,9 +8995,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... death_area_effect~~ -- the death-spawn slide (still format 20) added
                 // `death_spawn_pushback` after it.
                 // ~~... death_spawn_pushback~~ -- the dash (still format 20) added `dash` after it.
+                // ~~... dash~~ -- the reflect (still format 20) added `reflect` after it.
+                // That keeps the strip itself working and does NOT make a format-3 blob load:
+                // `unit_name`, declared second, is in the head this leaves, and format 3 never
+                // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
+                // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?} }}",
-                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.projectile_homing, c.death_area_effect, c.death_spawn_pushback, c.dash
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?} }}",
+                    c.ignore_pushback, c.stop_movement_after_ms, c.wait_ms, c.hide, c.spawner, c.death_spawn, c.charge, c.jump, c.level_base, c.formation, c.projectile_start_radius, c.kamikaze, c.attack_buff, c.projectile_homing, c.death_area_effect, c.death_spawn_pushback, c.dash, c.reflect
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))

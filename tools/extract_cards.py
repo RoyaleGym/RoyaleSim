@@ -1223,9 +1223,31 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         "buff_on_damage": None
         if c["BuffOnDamage"] is None
         else {"buff": norm_buff(t, c["BuffOnDamage"]), "time_ms": c["BuffOnDamageTime"]},
+        # THE REFLECT (ReflectedAttackDamage / ReflectAttackCrownTowerDamage / ReflectedAttackRadius /
+        # ReflectedAttackBuff / ReflectedAttackBuffDuration): a melee hit on the unit is answered
+        # with damage and a stun on the attacker (calibration.json combat.REFLECT_ATTACK). 15.535
+        # only, and set on the Electro Giant's row alone; the key is dropped below from every row
+        # that sets none of the five, so no other row and nothing in the 2018 file changes. The
+        # ReflectedAttack*Effect columns and ReflectedAttackTargetedEffectSources are cosmetic
+        # and not carried.
+        "reflected_attack": None
+        if c.get("ReflectedAttackDamage") is None
+        and c.get("ReflectAttackCrownTowerDamage") is None
+        and c.get("ReflectedAttackRadius") is None
+        and c.get("ReflectedAttackBuff") is None
+        and c.get("ReflectedAttackBuffDuration") is None
+        else {
+            "damage": c.get("ReflectedAttackDamage"),
+            "crown_tower_damage": c.get("ReflectAttackCrownTowerDamage"),
+            "radius_milli": c.get("ReflectedAttackRadius"),
+            "buff": norm_buff(t, c.get("ReflectedAttackBuff")),
+            "buff_duration_ms": c.get("ReflectedAttackBuffDuration"),
+        },
         "attached_character": c["AttachedCharacter"],
         "defaults_applied": defaults,
     }
+    if u["reflected_attack"] is None:
+        del u["reflected_attack"]
     if isinstance(c, Row):
         # 15.535: the scripted actions the row reaches (None when it names none).
         u["action_graph"] = action_graph(t, c)
@@ -1519,6 +1541,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # beside the card's `dash` (null on that row) so the card shows what it does not run.
     if "triggered_dash" in u:
         card["triggered_dash"] = u["triggered_dash"]
+    # Only on a row that reflects (norm_unit), so every other card row is unchanged.
+    if "reflected_attack" in u:
+        card["reflected_attack"] = u["reflected_attack"]
     if s["CustomDeployTime"] is not None:
         card["deploy_time_ms"] = s["CustomDeployTime"]
     card["count"] = res["count"]
@@ -1716,6 +1741,8 @@ def build(t: Tables) -> dict:
         }
         for f in UNIT_FIELDS_FOR_CARD:
             rec[f] = u[f]
+        if "reflected_attack" in u:
+            rec["reflected_attack"] = u["reflected_attack"]
         rec["count"] = 1
         # NoDeploySizeW/H: set on exactly the crown towers (and a NOTINUSE king copy)
         # in this data. Carried as TILES -- the unit under which all four arena

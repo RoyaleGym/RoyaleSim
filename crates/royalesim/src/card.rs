@@ -329,6 +329,31 @@ pub struct DashDef {
     pub landing_time_ms: Option<i32>,
 }
 
+/// THE REFLECT (characters.csv ReflectedAttackDamage / ReflectAttackCrownTowerDamage /
+/// ReflectedAttackRadius / ReflectedAttackBuff / ReflectedAttackBuffDuration; cards.json
+/// `reflected_attack`, which the extractor writes only on a row that sets them: in the 15.535
+/// table the Electro Giant's and no other). A melee hit landed on the unit by an attacker whose
+/// EDGE is within `radius` of the unit's centre is answered in the same tick by `damage` on the
+/// attacker and `buff` on it (state.rs `reflect_melee_hit`, calibration combat.REFLECT_ATTACK =
+/// client_reflect_stun, measured on client 15.535.29). Loaded under either arm; run under that
+/// one only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReflectDef {
+    /// ReflectedAttackDamage, the LEVEL-1 value like every other stat: scaled by the REFLECTING
+    /// unit's level at the hit (75 is 192 at level 11).
+    pub damage: i32,
+    /// ReflectAttackCrownTowerDamage, level 1, as loaded. READ BY NOTHING: the engine answers a
+    /// MELEE hit only, and a crown tower's attack is a projectile. Whether the client answers a
+    /// tower's shot from inside the reach with this figure is the ledger key's open item.
+    pub crown_tower_damage: Option<i32>,
+    /// ReflectedAttackRadius, SUBTILES: the attacker's edge, not its centre, must be this close
+    /// (the measured reflect fired on a Knight 2,008 centre to centre).
+    pub radius: i32,
+    /// ReflectedAttackBuff for ReflectedAttackBuffDuration ms (the Electro Giant's ZapFreeze for
+    /// 500): the stun the answer carries. None on a row that sets neither column.
+    pub buff: Option<BuffApply>,
+}
+
 /// SummonCharacterSecond: a second kind of unit the same card summons on the same
 /// ring (Goblin Gang: 3 Goblins + 3 Spear Goblins; Rascals: the Boy + 2 Girls).
 /// Loaded as a `summon_only` card like a spawner's unit; `unit` is its CardDb index.
@@ -533,13 +558,17 @@ pub struct CardDef {
     /// block carries no JumpSpeed (the extractor writes the dash's motion on the 15.535 rows
     /// only). Acted on only under combat.DASH_ATTACK = client_dash.
     pub dash: Option<DashDef>,
+    /// THE REFLECT this card's unit answers a melee hit with (`ReflectDef`; the Electro Giant's).
+    /// None on every card whose row sets none of the ReflectedAttack columns. Declared in the
+    /// post-format-3 tail for the reason below: migrate_v3 strips it with the rest of the tail.
+    pub reflect: Option<ReflectDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `dash`, and onto the end of that tail
+    // field goes HERE, after `reflect`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -740,6 +769,10 @@ struct RawCard {
     /// `CardDef::attack_buff`, the same field the projectile's TargetBuff uses --
     /// a card ships one or the other, never both.
     buff_on_damage: Option<RawBuffOnDamage>,
+    /// cards.json `reflected_attack` (characters.csv ReflectedAttack* and
+    /// ReflectAttackCrownTowerDamage): present only on a row that sets one of them, so absent
+    /// on every 2018 row. Loaded onto `CardDef::reflect` by `convert_reflect`.
+    reflected_attack: Option<RawReflectedAttack>,
 }
 
 /// cards.json `buff_on_damage`.
@@ -748,6 +781,48 @@ struct RawCard {
 struct RawBuffOnDamage {
     buff: Option<RawBuff>,
     time_ms: Option<i32>,
+}
+
+/// cards.json `reflected_attack`, every field nullable (the extractor writes the whole block
+/// whenever one of its five columns is set; field names exactly as it writes them).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawReflectedAttack {
+    damage: Option<i32>,
+    crown_tower_damage: Option<i32>,
+    radius_milli: Option<i32>,
+    buff: Option<RawBuff>,
+    buff_duration_ms: Option<i32>,
+}
+
+/// The REFLECT half of the loader: all-or-nothing like the other blocks. A row that sets any of
+/// the columns must set ReflectedAttackDamage and a positive ReflectedAttackRadius (a reflect
+/// with no damage or no reach is a shape no 15.535 row ships: refused, never guessed), and the
+/// buff and its duration come as a pair. A buff that pulses is refused too: the reflect lands
+/// its buff with no pulse amount, which such a buff would need from the reflecting unit's level.
+fn convert_reflect(raw: Option<RawReflectedAttack>, buffs: &mut BuffTable) -> Result<Option<ReflectDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    let damage = match b.damage {
+        Some(x) if x >= 0 => x,
+        Some(x) => return Err(format!("reflected_attack: ReflectedAttackDamage {x} is negative")),
+        None => return Err("reflected_attack: no ReflectedAttackDamage".into()),
+    };
+    let radius = match b.radius_milli {
+        Some(x) if x > 0 => milli(x),
+        Some(x) => return Err(format!("reflected_attack: ReflectedAttackRadius {x} is not positive")),
+        None => return Err("reflected_attack: no ReflectedAttackRadius".into()),
+    };
+    let buff = match (&b.buff, b.buff_duration_ms) {
+        (None, None) => None,
+        (Some(rb), time) => {
+            if rb.convert("the unit's ReflectedAttackBuff")?.pulses() {
+                return Err("reflected_attack: ReflectedAttackBuff pulses damage or healing; not simulated".into());
+            }
+            Some(buffs.apply(rb, time, "the unit's ReflectedAttackBuff")?)
+        }
+        (None, Some(t)) => return Err(format!("reflected_attack: ReflectedAttackBuffDuration {t} without a ReflectedAttackBuff")),
+    };
+    Ok(Some(ReflectDef { damage, crown_tower_damage: b.crown_tower_damage, radius, buff }))
 }
 
 /// cards.json `spawn_pathfind`: the underground spawn walk.
@@ -1327,6 +1402,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_area_effect: None,
         death_spawn_pushback: false,
         dash: None,
+        reflect: None,
     }
 }
 
@@ -2021,6 +2097,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let charge = convert_charge(raw.charge, kind)?;
     let jump = convert_jump(raw.jump, kind)?;
     let dash = convert_dash(raw.dash, kind)?;
+    let reflect = convert_reflect(raw.reflected_attack, buffs)?;
     let mut units: Vec<(UnitUse, String)> = Vec::new();
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
@@ -2147,6 +2224,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         #[cfg(clash_plant = "death_spawn_pushback_unread")]
         death_spawn_pushback: false, // PLANT: the loader drops the column, so no row slides.
         dash,
+        reflect,
     }, display, units))
 }
 
@@ -2755,8 +2833,11 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // only_enemies, only_own_troops, hits_ground, hits_air, ignore_buildings, pushback_milli,
 // maximum_targets, projectile, spawn_character, action_graph}; a named row the map does
 // not carry refuses the card (`convert_area_effect`). Also "death_spawn_pushback", a
-// boolean beside the "death_spawn" block (15.535 rows only; absent reads false). Unknown
-// fields are ignored.
+// boolean beside the "death_spawn" block (15.535 rows only; absent reads false), and the
+// "reflected_attack" block {damage, crown_tower_damage, radius_milli, buff, buff_duration_ms},
+// present only on a row that sets a ReflectedAttack column (`convert_reflect`; damage and
+// radius or the card is refused, the buff with its duration or neither). Unknown fields are
+// ignored.
 
 #[cfg(test)]
 mod tests {
@@ -3101,5 +3182,40 @@ mod tests {
         }
         // No summon-only unit is a playable card name collision.
         assert!(db.cards.iter().filter(|c| c.summon_only).count() >= 1);
+    }
+
+    /// combat.REFLECT_ATTACK's data (`ReflectDef`), on synthetic rows so it holds whatever
+    /// cards.json carries: a whole block loads with its radius in SUBTILES and its buff interned;
+    /// a row without the block has none; a block missing its damage or its radius, or a buff
+    /// without its duration, refuses the card rather than running it as a weaker one.
+    #[test]
+    fn a_reflected_attack_block_loads_whole_or_refuses_the_card() {
+        let row = |name: &str, block: &str| {
+            format!(
+                r#"{{"name":"{name}","kind":"troop","rarity":"Common","hitpoints":1000,"hit_speed_ms":1800,
+                "range_milli":1200,"collision_radius_milli":750{block}}}"#
+            )
+        };
+        let freeze = r#"{"name":"ZapFreeze","speed_multiplier_raw":-100,"hit_speed_multiplier_raw":-100,"spawn_speed_multiplier_raw":-100}"#;
+        let text = format!(
+            r#"{{"cards":[{},{},{},{},{}]}}"#,
+            row("Whole", &format!(r#","reflected_attack":{{"damage":75,"crown_tower_damage":38,"radius_milli":2000,"buff":{freeze},"buff_duration_ms":500}}"#)),
+            row("Plain", ""),
+            row("NoDamage", r#","reflected_attack":{"radius_milli":2000}"#),
+            row("NoRadius", r#","reflected_attack":{"damage":75}"#),
+            row("NoDuration", &format!(r#","reflected_attack":{{"damage":75,"radius_milli":2000,"buff":{freeze}}}"#)),
+        );
+        let db = CardDb::from_json_str(&text, CardSource::DerivedJson).unwrap();
+        let r = db.get(db.index("Whole").expect("the whole block loads")).reflect.expect("and carries its reflect");
+        assert_eq!((r.damage, r.crown_tower_damage, r.radius), (75, Some(38), milli(2000)));
+        let b = r.buff.expect("the buff rides the reflect");
+        assert_eq!(b.time_ms, 500);
+        assert_eq!(db.buffs[b.buff as usize].speed_pct, -100);
+        assert_eq!(db.get(db.index("Plain").expect("a plain row loads")).reflect, None);
+        for (n, why) in [("NoDamage", "no ReflectedAttackDamage"), ("NoRadius", "no ReflectedAttackRadius"), ("NoDuration", "without BuffTime")] {
+            assert!(db.index(n).is_none(), "{n} loaded");
+            let e = &db.rejected.iter().find(|(name, _)| name == n).unwrap_or_else(|| panic!("{n} was not rejected")).1;
+            assert!(e.contains(why), "{n}: {e}");
+        }
     }
 }

@@ -68,6 +68,7 @@ engine is usable for your purpose.
 | The splash layer filter (`AoeToAir` / `AoeToGround` on the projectile row) | not read: the engine filters a splash by the ATTACKER's `AttacksAir` / `AttacksGround` (`combat.rs`). The two agree on every card the slice reaches; they disagree on Wall Breakers, whose blast covers air in the data and only ground here (`tools/check_card_reads.py` names every row where they part) |
 | Inferno damage that grows (`VariableDamage2`, `VariableDamage3` and their times) | not read: the Inferno Tower and the Inferno Dragon keep hitting for their first-stage damage for as long as they hold a target, where the game raises it twice |
 | The Mortar's minimum range (`MinimumRange`) | not read: the Mortar keeps a target that walks up close, where the game drops one nearer than 3.5 tiles |
+| The Electro Giant's reflect (`ReflectedAttackDamage` and the other `ReflectedAttack` columns) | loaded, and not run at the shipped value of `combat.REFLECT_ATTACK`, which is `not_read`: the Electro Giant plays as a plain giant. Under `client_reflect_stun` a melee hit on him from close by is answered with damage and a stun on the attacker. A shot is not answered under either value, a crown tower's included, so `ReflectAttackCrownTowerDamage` is never used |
 | The real intra-tick order and the real PRNG | out of reach, and not a goal |
 
 ### Cards outside the slice

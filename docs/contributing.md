@@ -130,16 +130,22 @@ get the keys the loader takes; it walks `norm_unit` in `extract_cards.py` with `
 card-table column becomes which key; and it reads `units[*].raw` in `cards.json` to get the columns
 each row ships. A column is unread when that chain ends nowhere.
 
+The chain cannot see a calibration arm. Some mechanics are loaded under every value of a
+`calibration.json` key and run under one value only. The tool names those columns and their key in
+`LOADED_NOT_RUN`, reads the key's shipped value, and reports a column as unread while that value
+does not run it. The Electro Giant's reflect (`combat.REFLECT_ATTACK`) and the Bandit's and the
+Mega Knight's dash (`combat.DASH_ATTACK`) are such cases.
+
 It **fails** when a thin-slice card carries an unread mechanic, and **reports** per card for the
 rest of the catalogue. Thin-slice gaps that are open today are listed in the tool by name, with
 what the engine does instead; the gate also fails when one of those entries goes stale.
 
-It needs `cards.json` and `card.rs` and nothing else. `--cards data/derived/cards-2018.json` scores
+It needs `cards.json`, `card.rs` and `calibration.json` and nothing else. `--cards data/derived/cards-2018.json` scores
 the 2018 table. Two passes are optional and each says out loud when it is skipped: the engine's own
 catalogue needs the built extension module, and the per-object pass needs
 `data/derived/mechanic_register.json`. A skip is not a pass.
 
-`--all-plants` runs four plants and reports whether each one still reddens the gate.
+`--all-plants` runs six plants and reports whether each one still reddens the gate.
 `tests/test_card_reads.py` drives all of it.
 
 ### Traces and generated fixtures
@@ -211,7 +217,7 @@ RUSTFLAGS='--cfg clash_plant="id_tiebreak"' CARGO_TARGET_DIR=target/plant cargo 
 
 Use a separate `CARGO_TARGET_DIR`, or the plant build poisons the normal one.
 
-There are 162 of them, each declared at the site it corrupts and named in the header of the test
+There are 169 of them, each declared at the site it corrupts and named in the header of the test
 it is aimed at. To list them:
 
 ```

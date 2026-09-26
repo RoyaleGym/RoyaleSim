@@ -38,6 +38,13 @@ HOW THE READ SET IS DERIVED -- three mechanical links, no hand-written map
     artefact itself.  Nobody has to remember to update a list when a column is
     added, and a field card.rs stops reading turns its columns red on the next run.
 
+    What the chain cannot see is a calibration ARM.  A mechanic whose code sits
+    behind a data/calibration.json key is loaded under every value of that key and
+    run under one, so link 1 calls its columns read while the shipped value switches
+    it off.  LOADED_NOT_RUN names those columns and their key by hand, because the
+    arm is not in any artefact the chain reads, and the gate reads the key's shipped
+    value: a column that value does not run is reported as unread.
+
 WHAT COULD MAKE THIS WRONG (read this before trusting a green run)
     - `units[*].raw` is the character row MINUS tools/extract_cards.py's COSMETIC
       filter.  A mechanic column whose NAME matches that filter is invisible here --
@@ -62,7 +69,8 @@ WHAT COULD MAKE THIS WRONG (read this before trusting a green run)
 
 VINTAGE AND A THIN CHECKOUT
     Runs on both card tables: `--cards data/derived/cards-2018.json` scores the 2018
-    vintage.  It needs cards.json and card.rs and nothing else -- no card-table
+    vintage.  It needs cards.json, card.rs and data/calibration.json and nothing
+    else -- no card-table
     bundle, no `tools/mechanic_register.py` run, no built extension module.  The two
     optional passes (the engine catalogue, the mechanic register) each SKIP LOUDLY,
     naming what is missing.  A skip is not a pass.
@@ -82,6 +90,8 @@ PLANTS
       unread_field    a thin-slice card row carries a cards.json key card.rs has no
                       field for
       stale_gap       a KNOWN_SLICE_GAPS entry no card in the slice carries any more
+      loaded_not_run  a thin-slice character row grows a column card.rs loads and
+                      runs only under a calibration arm that does not ship
       blind_ledger    card.rs stops reading `charge`, so Prince's charge columns
                       must turn red without anyone editing this file
       null_block      Prince's `charge` block is null while its columns stay in
@@ -147,6 +157,7 @@ CARD_RS = ROOT / "crates" / "royalesim" / "src" / "card.rs"
 EXTRACT = ROOT / "tools" / "extract_cards.py"
 CARDS = ROOT / "data" / "derived" / "cards.json"
 REGISTER = ROOT / "data" / "derived" / "mechanic_register.json"
+CALIBRATION = ROOT / "data" / "calibration.json"
 
 # --- the two hand-written tables, and what keeps each of them honest -------------
 
@@ -255,6 +266,35 @@ KNOWN_SLICE_GAPS = {
     ),
 }
 
+# Columns card.rs LOADS that the shipped engine still does not RUN, because the code that
+# runs them sits behind a calibration.json key whose shipped value is not the arm that does.
+# Link 1 sees the load and would call each one read, so a card whose mechanic is loaded and
+# switched off would leave the report while it still plays as the plainer card.  Each entry
+# is (key, the values under which the engine runs the column); an empty tuple is a column no
+# value runs yet.  The gate reads each key's value from calibration.json and refuses to run
+# when one is missing: an arm it cannot read is not an arm that is off.
+LOADED_NOT_RUN = {
+    "ReflectedAttackDamage": ("combat.REFLECT_ATTACK", ("client_reflect_stun",)),
+    "ReflectedAttackRadius": ("combat.REFLECT_ATTACK", ("client_reflect_stun",)),
+    "ReflectedAttackBuff": ("combat.REFLECT_ATTACK", ("client_reflect_stun",)),
+    "ReflectedAttackBuffDuration": ("combat.REFLECT_ATTACK", ("client_reflect_stun",)),
+    # Loaded as ReflectDef::crown_tower_damage and read by nothing under either value: the
+    # engine answers a hit that lands in the attacker's own pass, and a crown tower's is a shot.
+    "ReflectAttackCrownTowerDamage": ("combat.REFLECT_ATTACK", ()),
+    # The dash block (card.rs `DashDef`), run only under combat.DASH_ATTACK = client_dash. JumpSpeed is
+    # not listed: it is the river leap's speed too, and this table is per column. DashPushBack and
+    # DashLandingTime are loaded and read by nothing under either value.
+    "DashDamage": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashMinRange": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashMaxRange": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashCooldown": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashRadius": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashImmuneToDamageTime": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashConstantTime": ("combat.DASH_ATTACK", ("client_dash",)),
+    "DashPushBack": ("combat.DASH_ATTACK", ()),
+    "DashLandingTime": ("combat.DASH_ATTACK", ()),
+}
+
 # Mechanic families the register names whose fields never reach a CHARACTER row, so
 # the derived read set cannot see them and pass D would report a family the engine
 # does run.  An entry here says the engine reads the family's main columns, and
@@ -321,6 +361,7 @@ BLOCKS = {
     "second_summon": "RawSecondSummon",
     "spawn_pathfind": "RawSpawnPathfind",
     "buff_on_damage": "RawBuffOnDamage",
+    "reflected_attack": "RawReflectedAttack",
     "action_graph": "RawActionGraph",
     "level_scaling": "RawLevelScaling",
     "projectile": "RawProjectileObj",
@@ -368,6 +409,10 @@ class Consumed:
         self.ambiguous = {f: ss for f, ss in owners.items() if len(ss) > 1}
         self.accessed = {f for f in owners if re.search(r"\." + re.escape(f) + r"\b", rest)}
         self.declared_unread = sorted(f for f in owners if f not in self.accessed)
+        # Card-table column -> why the shipped engine does not run it, for the columns this
+        # source loads behind a calibration arm (LOADED_NOT_RUN, read by `switched_off`).
+        # `load` fills it from calibration.json; empty until then.
+        self.off: dict[str, str] = {}
 
     def keys(self, block: str, kind: str = "troop") -> set[str]:
         """Every cards.json key the loader consumes in `block` (a BLOCKS path).
@@ -402,6 +447,30 @@ class Consumed:
             if parts[i] not in self.keys(block, kind):
                 return False
         return True
+
+
+def switched_off(calibration: dict, forced: dict[str, str] | None = None) -> dict[str, str]:
+    """LOADED_NOT_RUN read against calibration.json: column -> why the shipped engine does
+    not run it.  A column whose key's shipped value runs it is left out.  `forced` gives a
+    key a value in place of the file's (the loaded_not_run plant)."""
+    out: dict[str, str] = {}
+    for col, (key, runs) in LOADED_NOT_RUN.items():
+        value = (forced or {}).get(key)
+        if value is None:
+            node = calibration
+            for part in key.split("."):
+                node = node.get(part) if isinstance(node, dict) else None
+            value = node.get("value") if isinstance(node, dict) else None
+        if not isinstance(value, str):
+            raise SystemExit(
+                f"LOADED_NOT_RUN says {col} runs only under {key}, and data/calibration.json has "
+                "no value for that key. A missing key is not an arm that is off: add the key "
+                "(the engine refuses to load without it too), or retire the entry"
+            )
+        if value not in runs:
+            where = f"only under {key} = {' / '.join(runs)}" if runs else f"under no value of {key}"
+            out[col] = f"run {where}; calibration.json ships {value}"
+    return out
 
 
 # --- link 2: which card-table column becomes which cards.json field --------------
@@ -695,14 +764,17 @@ def check(
             # its `dash` is null) reaches no loader field, however well the loader reads that path
             # on other rows.
             here = [p for p in paths or () if on_row(rec, p)]
-            if any(consumed.reads_path(p, kind) for p in here):
-                continue
             if not paths:
                 why = "not carried into cards.json"
             elif not here:
                 why = "its field " + "/".join(sorted(paths)) + " is not on this row"
-            else:
+            elif not any(consumed.reads_path(p, kind) for p in here):
                 why = "carried as " + "/".join(sorted(here)) + ", unread"
+            elif col in consumed.off:
+                # Loaded, and still unread while its calibration arm is off (LOADED_NOT_RUN).
+                why = "loaded as " + "/".join(sorted(here)) + ", not run: " + consumed.off[col]
+            else:
+                continue
             out.append((col, f"{col} ({why})", family_of(col)))
         return out
 
@@ -809,7 +881,8 @@ def check(
     else:
         read_families = set()
         for col, paths in colmap.items():
-            if any(consumed.reads_path(p) for p in paths):
+            # A column loaded behind an arm that is off does not make its family read.
+            if col not in consumed.off and any(consumed.reads_path(p) for p in paths):
                 read_families.add(family_of(col))
         read_families |= set(REGISTER_FAMILIES_READ)
         r.say(f"   families the read columns fall into: {' '.join(sorted(read_families))}")
@@ -837,7 +910,11 @@ def check(
 
 
 def plant_slice_mechanic(doc, consumed, colmap):
-    doc["units"]["Knight"]["raw"]["ReflectedAttackDamage"] = 120
+    # Any column the engine does not read will do. It was ReflectedAttackDamage until
+    # card.rs began loading the reflect (combat.REFLECT_ATTACK, 2026-09-25), which made it
+    # the loaded_not_run plant's column; the Inferno ramp's column is not carried into
+    # cards.json at all.
+    doc["units"]["Knight"]["raw"]["VariableDamage2"] = 120
     return doc, consumed, colmap
 
 
@@ -868,18 +945,33 @@ def plant_null_block(doc, consumed, colmap):
     return doc, consumed, colmap
 
 
+def plant_loaded_not_run(doc, consumed, colmap):
+    # A column card.rs LOADS and runs only under an arm that does not ship: link 1 alone
+    # calls it read, and LOADED_NOT_RUN must not. The arm is forced to its old value here,
+    # so the plant lands whatever calibration.json ships.
+    # The Knight carries the block as well, so the field is on its row (the null_block check passes)
+    # and only the arm can call the column unread.
+    doc["units"]["Knight"]["raw"]["ReflectedAttackDamage"] = 120
+    doc["units"]["Knight"]["reflected_attack"] = dict(doc["units"]["ElectroGiant"]["reflected_attack"])
+    calibration = json.loads(CALIBRATION.read_text(encoding="utf-8"))
+    consumed.off = switched_off(calibration, forced={"combat.REFLECT_ATTACK": "not_read"})
+    return doc, consumed, colmap
+
+
 PLANTS = {
     "slice_mechanic": plant_slice_mechanic,
     "unread_field": plant_unread_field,
     "stale_gap": plant_stale_gap,
     "blind_ledger": plant_blind_ledger,
     "null_block": plant_null_block,
+    "loaded_not_run": plant_loaded_not_run,
 }
 
 
 def load(cards_path: Path | str) -> tuple[dict, Consumed, dict[str, set[str]], dict | None]:
     doc = json.loads(Path(cards_path).read_text(encoding="utf-8"))
     consumed = Consumed(CARD_RS.read_text(encoding="utf-8"))
+    consumed.off = switched_off(json.loads(CALIBRATION.read_text(encoding="utf-8")))
     colmap, prologue = column_map(EXTRACT.read_text(encoding="utf-8"))
     missed = [c for c in prologue if c not in PROLOGUE]
     if missed:

@@ -1167,6 +1167,17 @@
       "promotion_rules": "Measured. The hit-speed buff is combat.HIT_SPEED_BUFF (Rage's HitSpeedMultiplier into the 50 ms step); LoadFirstHit (Sparky) is not modelled. Re-open only against a live first hit that parts from the rule on an uninterrupted cycle.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> attack_cycle); combat.rs attack_step runs the progress / load-timer counters (Entities::attack_ms = progress, Entities::attack_load_ms = the load timer, snapshot format 16), AttackPhase::Windup = attacking with the swing under way (the target lock), Cooldown = attacking on the hit tick, Idle = not attacking; the Path phase holds any attacking unit. The old arm stays runnable as windup_load_time. tests/reach.rs pins the tower's first arrow and the Knight's first hit from the card data."
     },
+    "REFLECT_ATTACK": {
+      "value": "not_read",
+      "candidates": ["not_read", "client_reflect_stun"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm not_read, which is today's engine: the Electro Giant reflects nothing. HIGH for client_reflect_stun on the damage, the tick and the melee attacker's 33-tick period (client 15.535.29, the Electro Giant sweep scenario, 4 reflected hits); OPEN on the radius edge and on ranged attackers inside the radius",
+      "provenance": "MEASURED on client 15.535.29 (the Electro Giant sweep scenario). The card's ReflectedAttackDamage 75, ReflectedAttackBuff ZapFreeze (speed, hit speed and spawn speed -100), ReflectedAttackBuffDuration 500, ReflectedAttackRadius 2000 and ReflectAttackCrownTowerDamage 38 do not reach cards.json. Each hit a Knight lands on the Electro Giant (-202, on t304 and t337) is answered in the same frame by -192 on the Knight (75 x 256% at level 11), on t271, 304, 337 and 370. The Knight is stunned: its target reads none for 10 frames and its attack progress holds for 9, then resumes where it was, so its hit period goes from 24 ticks to 33. The reflect fired on a Knight 2,008 centre to centre (the radius plus a collision radius). The princess towers shooting the Giant got no reflect. Today's engine, the same scenario: the Knight hits every 24 ticks and takes nothing.",
+      "meaning": "client_reflect_stun: when an attack of a unit within ReflectedAttackRadius (plus its collision radius) of a unit whose card sets ReflectedAttackDamage lands on that unit, the attacker takes ReflectedAttackDamage (level-scaled; ReflectAttackCrownTowerDamage against a crown tower) in the same tick and receives ReflectedAttackBuff for ReflectedAttackBuffDuration, a stun that holds its attack progress without resetting it. not_read: today's engine, no reflect.",
+      "open": "The radius edge (one hit at 2,008). A ranged attacker inside the radius (the table says any attacker in range; a Musketeer at 5,000 is outside). Whether a crown tower attacking him is reflected (towers were not: their shots came from beyond 2,000). Routing through the engine's buffered stun path may give 34 ticks, not 33: the test pins 33.",
+      "promotion_rules": "The test file passes. No Electro Giant sits in a scored window of the corpus, so it flips on this evidence.",
+      "engine": "the hit pass (a reflect on landing, shared with the Ronin's parry as hit-source plumbing), the stun buff from the reflecting unit's row, and the card extractor must carry the five ReflectedAttack columns"
+    },
     "RETARGET_PROGRESS": {
       "value": "keep_when_dead",
       "status": "measured",

@@ -10,7 +10,7 @@ WHAT THIS FILE IS FOR, AND WHAT IT IS NOT
     loud skip.
 
     A green run of the gate is not evidence on its own. The evidence is
-    `test_each_plant_lands`: four deliberate defects, each aimed at a different
+    `test_each_plant_lands`: five deliberate defects, each aimed at a different
     part of the chain, each of which must turn the gate red while the clean tree
     stays green.
 """
@@ -94,6 +94,7 @@ PLANT_AIM = {
     "stale_gap": "retire the entry",
     "blind_ledger": "ChargeRange",
     "null_block": "is not on this row",
+    "loaded_not_run": "combat.REFLECT_ATTACK",
 }
 
 
@@ -147,6 +148,24 @@ def test_register_families_called_read_name_what_is_still_unread():
     for fam, why in ccr.REGISTER_FAMILIES_READ.items():
         assert "unread" in why.lower(), f"{fam}: an entry has to say what is still unread inside the family"
         assert len(why) > 120, fam
+
+
+def test_loaded_not_run_names_columns_card_rs_loads(cards):
+    """An entry for a column the loader does not read at all changes nothing (the chain
+    already calls it unread), so a misspelt column would sit in LOADED_NOT_RUN looking like
+    a control. Each entry must name a column the extractor carries into a field card.rs reads."""
+    _, consumed, colmap, _ = ccr.load(cards)
+    for col in ccr.LOADED_NOT_RUN:
+        paths = colmap.get(col)
+        assert paths, f"{col}: the extractor carries no such column"
+        assert any(consumed.reads_path(p) for p in paths), f"{col}: carried as {sorted(paths)}, and card.rs loads none"
+
+
+def test_an_arm_the_gate_cannot_read_is_refused():
+    """A key missing from calibration.json is not an arm that is off. Calling it off would
+    report a column the engine may run; calling it on would hide one it does not."""
+    with pytest.raises(SystemExit):
+        ccr.switched_off({})
 
 
 def test_provenance_entries_each_carry_a_reason():
@@ -227,8 +246,14 @@ def test_the_report_names_the_cards_the_mechanics_doc_calls_out(cards):
     is null, and the loader reads `dash` on the Bandit and the Mega Knight. A gate
     that asked only whether the loader reads `dash.damage` anywhere called it read."""
     r = ccr.run(cards)
+    # The Electro Giant's reflect is LOADED since 2026-09-25 and run only under
+    # combat.REFLECT_ATTACK = client_reflect_stun; the gate sees it through LOADED_NOT_RUN
+    # while calibration.json ships another value. The flip turns this entry red ON PURPOSE:
+    # rewrite docs/mechanics.md's Electro Giant row, then point the entry at
+    # ReflectAttackCrownTowerDamage, which no value runs.
     want = {
         "InfernoDragon": "VariableDamage2",
+        "MegaKnight": "DashDamage",
         "Mortar": "MinimumRange",
         "ElectroGiant": "ReflectedAttackDamage",
         "GoldenKnight": "DashDamage",
@@ -307,11 +332,16 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # construction, so a future one moves it again -- check the delta is that card before
     # re-pinning, because the same +1 is also what a flag going missing somewhere else
     # would look like.
-    # 75 -> 74 on 2026-09-26: THE BANDIT (Assassin). The loader reads the dash block, which
-    # held the card's only unread columns, so it leaves the report. The WHOLE delta: the
-    # outside sets before and after differ by Assassin alone. The Mega Knight stays (its
-    # deploy blow, JumpHeight and spawn columns are unread).
-    outside_by_vintage = {"2018": 40, "15.535": 74}
+    # NOT MOVED on 2026-09-26, when card.rs began loading the BANDIT's dash block: like the
+    # Electro Giant below, it stays in this population through LOADED_NOT_RUN, because its
+    # dash runs only under combat.DASH_ATTACK = client_dash. Without that table it left it
+    # (75 -> 74) while still walking in like a plain melee unit.
+    # NOT MOVED on 2026-09-25, when card.rs began loading the ELECTRO GIANT's five reflect
+    # columns: he stays in this population through LOADED_NOT_RUN. Four of the columns run only
+    # under combat.REFLECT_ATTACK = client_reflect_stun, and ReflectAttackCrownTowerDamage runs
+    # under no value, so the flip does not move this pin either. Without that table he left it
+    # (75 -> 74) while still playing as a plain giant.
+    outside_by_vintage = {"2018": 40, "15.535": 75}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (
