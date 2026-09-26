@@ -321,6 +321,18 @@ NEAREST_MAX_ERROR_PERCENT = 10
 # handoff is 2 ticks, the captures' frame gaps run to 12, and a second cast of the same
 # card by the same side needs the card cycled back (seconds).
 CAST_GAP_TICKS = 20
+#: How far from its tunnel's last recorded position a morphed spawn-pathfind deploy may surface. The tunnel ends
+#: within one step of its goal cell (300 for the Goblin Drill), whose cell holds the destination, but a missed frame
+#: can leave the last recorded position a step or two further back. The bound only keeps another spawn of that side
+#: from being paired.
+TUNNEL_SURFACE_MAX = 2000
+#: How far an effect cast's first frame may sit from its caster's elixir drop, ticks: the drop
+#: lands on the first projectile frame, and a frame gap can put the sighting a tick or two off.
+EFFECT_DROP_SLACK = 3
+#: The Barbarian Barrel's airborne object (BarbLogProjectile): created MinDistance 3000 short of
+#: the landing on the caster's forward axis, moving 360 a tick. Where a capture missed its first
+#: frame it is first seen a step or more in, and the cast tick is that many steps earlier.
+BARBLOG_AIRBORNE_START, BARBLOG_AIRBORNE_STEP = 3000, 360
 #: The per-entity truth columns, in the order `truth.columns` lists them and every row holds
 #: them. The attack timers (module doc, ATTACK TIMERS) follow the seven the harness reads.
 TRUTH_COLUMNS = (
@@ -948,6 +960,97 @@ def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
     return out
 
 
+def tunnel_destinations(deploys: list[dict], ents: dict, per_tick_rows: list, cards_by_name: dict) -> None:
+    """Give every deploy of a card that travels underground (`spawn_pathfind` in cards.json: the Miner, the Goblin
+    Drill) its DESTINATION, the point it surfaces at, which the harness must play instead of `pos` (the tunnel's
+    first frame, next to the owner's King). Measured on the client 16.402 corpus (083112):
+    - no morph (the Miner): the SAME entity jumps to the destination and turns state 4 on the tick its tunnel ends,
+      so the destination is its first state-4 position after its state-6 frames;
+    - a morph (the Goblin Drill): the tunnel unit vanishes and the building appears on the next frame at the
+      destination, so the destination is the first position of the entity of its side that first appears on the
+      tunnel's last frame + 1 (+ 2 across a frame gap), the nearest to the tunnel's last position within
+      TUNNEL_SURFACE_MAX.
+    A deploy whose surfacing is not in the frames keeps no destination and says why in `destination_evidence`."""
+    ix, iy, ist = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "state"))
+    by_key = {e["key"]: e for e in ents.values()}
+    for d in deploys:
+        sp = (cards_by_name.get(d.get("card")) or {}).get("spawn_pathfind")
+        if not sp or not d.get("keys"):
+            continue
+        e = by_key.get(d["keys"][0])
+        if e is None:
+            continue
+        rows = [(i, per_tick_rows[i].get(e["key"])) for i in range(e["first_index"], e["last_index"] + 1)]
+        rows = [(i, r) for i, r in rows if r is not None]
+        if not sp.get("morph"):
+            dug = False
+            for i, r in rows:
+                dug = dug or r[ist] == 6
+                if dug and r[ist] == 4:
+                    d["destination"] = [r[ix], r[iy]]
+                    d["destination_evidence"] = f"the unit's first state-4 frame after its tunnel, index {i}"
+                    break
+            else:
+                if rows and rows[0][1][ist] == 4:
+                    # the whole tunnel fell inside a frame gap: first seen already surfaced (083112-A, a 1-tick trip)
+                    d["destination"] = [rows[0][1][ix], rows[0][1][iy]]
+                    d["destination_evidence"] = "first seen already surfaced (state 4): the tunnel fell in a frame gap"
+                else:
+                    d["destination_evidence"] = "the unit never surfaced (state 6 -> 4) inside the frames"
+            continue
+        if not rows:
+            continue
+        last_i, last = rows[-1]
+        best = None
+        for o in ents.values():
+            if o["side"] != e["side"] or o["key"] == e["key"] or o["first_index"] not in (last_i + 1, last_i + 2):
+                continue
+            r = per_tick_rows[o["first_index"]].get(o["key"])
+            if r is None:
+                continue
+            dist = math.dist((r[ix], r[iy]), (last[ix], last[iy]))
+            if dist <= TUNNEL_SURFACE_MAX and (best is None or dist < best[0]):
+                best = (dist, o, r)
+        if best is None:
+            d["destination_evidence"] = "no entity of its side appeared next to the tunnel's last frame"
+            continue
+        d["destination"] = [best[2][ix], best[2][iy]]
+        d["destination_evidence"] = (
+            f"the {sp['morph']} entity (key {best[1]['key']}) that appeared on the frame after the tunnel's last,"
+            f" {round(best[0])} from its last position"
+        )
+
+
+def mirror_plays(deploys: list[dict], decks: dict, id_table: dict) -> None:
+    """Publish a MIRROR play as a Mirror. The Mirror card replays its side's last card one level up (for that card's
+    cost + 1), and the capture shows only the copy. Measured on the client 16.402 corpus, 090204 t805: an ElixirGolem
+    at level 12, right after the side's level-11 ElixirGolem, in a deck holding Mirror. A side's deploy is a Mirror
+    play when its deck holds Mirror, it repeats the side's previous play, and its level is one above that card's level
+    in the side's other deploys. The row becomes card Mirror, kind "mirror", with `mirrored` naming the copy; its
+    keys, position and level (the copy's) are kept."""
+    mirror_id = next((cid for cid, n in id_table.items() if n == "Mirror"), None)
+    if mirror_id is None:
+        return
+    for side in (0, 1):
+        if mirror_id not in (decks.get(side) or []):
+            continue
+        mine = [d for d in deploys if d["side"] == side]
+        for k in range(1, len(mine)):
+            prev, d = mine[k - 1], mine[k]
+            if d["kind"] == "spell" or d["card"] != prev["card"] or d["level"] is None:
+                continue
+            others = [x["level"] for x in mine if x is not d and x["card"] == d["card"] and x["level"] is not None]
+            base = Counter(others).most_common(1)[0][0] if others else None
+            if base is None or d["level"] != base + 1:
+                continue
+            d["mirrored"] = {"card": d["card"], "card_id": d["card_id"]}
+            d["mirror_evidence"] = (
+                f"{d['card']} at level {d['level']}, one above the side's {d['card']} level {base}, right after"
+                f" its {prev['card']} at {prev['tick']}, in a deck holding Mirror"
+            )
+            d["card"], d["card_id"], d["kind"] = "Mirror", mirror_id, "mirror"
+
+
 def object_record(track: dict, frames: list[dict], rotate: bool) -> dict:
     """One spell object as the fixture publishes it (module doc, SPELL OBJECTS): ticks as
     the capture has them, every point through `arena_point`."""
@@ -1294,6 +1397,30 @@ def build(
                 f" the card ({hp_match}; hp {members[0]['max_hp']})"
             )
 
+    # THE CASTER'S ELIXIR (module doc, ELIXIR), per frame and side: it labels an entity-less cast and backs
+    # an effect cast (below).
+    elixir_by_side: dict[int, list] = {0: [], 1: []}
+    for f in frames:
+        pair = f.get("elixir_raw")
+        for es in (0, 1):
+            v = pair[es] if isinstance(pair, list) and len(pair) == 2 else None
+            elixir_by_side[es].append(v if isinstance(v, int) and not isinstance(v, bool) else None)
+    has_elixir = any(v is not None for col in elixir_by_side.values() for v in col)
+    frame_ticks = [f["tick"] for f in frames]
+    explained = {(d["side"], d["tick"]) for d in deploys}
+    claimed: set[tuple[int, int]] = set()
+    unresolved = []
+
+    def cast_drop(side: int, tap_tick: int, cost: int, latest: int | None = None, seen: bool = False) -> int | None:
+        # `seen`: the cast's own objects are on the frame, so a unit deploy on that tick does not explain the
+        # drop away; only another cast's claim does
+        skip = {tk for (s2, tk) in (claimed if seen else explained | claimed) if s2 == side}
+        tk = first_cast_drop(frame_ticks, elixir_by_side.get(side) or [], tap_tick, cost, skip)
+        if tk is None or (latest is not None and tk > latest):
+            return None
+        claimed.add((side, tk))
+        return tk
+
     # -- spells: from the effects stream, else from taps with the measured latency
     for cast in spell_casts(frames, rotate):
         cid, fi = cast["card_id"], cast["first_index"]
@@ -1341,6 +1468,49 @@ def build(
                 (register.get("cards", {}).get(name) or {}).get("families", {}).keys()
             ),
         }
+        # AN EFFECT CAST IS BACKED BY ITS CASTER'S ELIXIR. On every corpus cast the cost leaves the pool
+        # on the first projectile frame (94 of 98 effect casts, within EFFECT_DROP_SLACK). The other
+        # four are two cases: (a) the drop is EARLIER, at the tap -- Lightning is an invisible area whose
+        # objects first appear at its strike, 10 ticks after the cast (070448: drop 2982, first object
+        # 2992 on the struck target) -- so the cast takes the drop's tick and the tap's point; (b) there is
+        # NO drop -- the spell object is a unit's release, not a cast (090204: the Heal Spirit's
+        # kamikaze projectile at 1589, card 28000016) -- so it is not played.
+        cost = (cards_by_name.get(name) or {}).get("elixir")
+        if has_elixir and isinstance(cost, int):
+            drop = cast_drop(side, tick - EFFECT_DROP_SLACK, cost, tick + EFFECT_DROP_SLACK, seen=True)
+            if drop is None and tap_ix is not None:
+                drop = cast_drop(side, taps[tap_ix]["tick"], cost, tick)
+                if drop is not None:
+                    d["tick"] = drop
+                    d["pos"] = list(taps[tap_ix]["native"])
+                    d["timing"] = "elixir_drop"
+                    d["tick_evidence"] = (
+                        f"elixir drop of {cost} on side {side} at {drop}; the first object is seen on"
+                        f" {tick}, so the cast is played at its tap"
+                    )
+            if drop is None:
+                unresolved.append(
+                    {
+                        "tick": tick,
+                        "side": side,
+                        "card": name,
+                        "why": f"a {name} object with no elixir drop of its cost ({cost}) on its side:"
+                        " released by a unit, not cast",
+                    }
+                )
+                continue
+        # THE BARBARIAN BARREL'S TICK is its airborne object's creation, which a missed first frame
+        # hides: first seen `steps` 360-steps in, it was cast `steps` ticks earlier.
+        if name == "BarbLog" and cast["tracks"]:
+            launch = cast["tracks"][0]["launch"]
+            done = BARBLOG_AIRBORNE_START - round(math.dist(launch, (ax, ay)))
+            steps = round(done / BARBLOG_AIRBORNE_STEP)
+            if steps > 0 and abs(done - steps * BARBLOG_AIRBORNE_STEP) <= 1:
+                d["tick"] = tick - steps
+                d["tick_evidence"] = (
+                    f"first airborne frame {tick}, its object already {done} in from the start"
+                    f" {BARBLOG_AIRBORNE_START} short of the landing: cast {steps} tick(s) earlier"
+                )
         if tap_ix is not None:
             used_taps.add(tap_ix)
             latencies.append(tick - taps[tap_ix]["tick"])
@@ -1350,7 +1520,6 @@ def build(
             }
         deploys.append(d)
     median_latency = int(statistics.median(latencies)) if latencies else None
-    unresolved = []
     # AN ENTITY-LESS CAST IS LABELLED BY THE CASTER'S ELIXIR, not by tap + latency: a cast's
     # cost leaves the pool on its first effect frame (a Fireball's elixir drops on its first
     # projectile frame; a Rage bottle appears on its elixir drop), and a placement log's tick can
@@ -1359,23 +1528,7 @@ def build(
     # CAST_DROP_WINDOW ticks, on which the caster's elixir falls by the card's cost (less what
     # the frame gap could regenerate), on a frame no matched deploy of that side already
     # explains, each drop claimed once. A capture without elixir keeps tap + median latency.
-    elixir_by_side: dict[int, list] = {0: [], 1: []}
-    for f in frames:
-        pair = f.get("elixir_raw")
-        for es in (0, 1):
-            v = pair[es] if isinstance(pair, list) and len(pair) == 2 else None
-            elixir_by_side[es].append(v if isinstance(v, int) and not isinstance(v, bool) else None)
-    has_elixir = any(v is not None for col in elixir_by_side.values() for v in col)
-    frame_ticks = [f["tick"] for f in frames]
-    explained = {(d["side"], d["tick"]) for d in deploys}
-    claimed: set[tuple[int, int]] = set()
-
-    def cast_drop(side: int, tap_tick: int, cost: int) -> int | None:
-        skip = {tk for (s2, tk) in explained | claimed if s2 == side}
-        tk = first_cast_drop(frame_ticks, elixir_by_side.get(side) or [], tap_tick, cost, skip)
-        if tk is not None:
-            claimed.add((side, tk))
-        return tk
+    explained |= {(d["side"], d["tick"]) for d in deploys}
 
     for ix, t in enumerate(taps):
         if ix in used_taps or t["kind"] != "cast":
@@ -1467,6 +1620,7 @@ def build(
             }
         )
     deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))
+    mirror_plays(deploys, decks, id_table)
     # spells at the level of the side's units (a cast carries no level in the captures)
     for s in (0, 1):
         lv = [d["level"] for d in deploys if d["side"] == s and d["level"] is not None]
@@ -1518,6 +1672,8 @@ def build(
             "absent: engine loadability not checked here"
             " (cargo run --example replay_parity -- --census)"
         )
+
+    tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
 
     # -- truth: RLE per entity column over its contiguous frame run
     sel = list(range(0, len(frames), max(stride, 1)))

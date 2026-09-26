@@ -76,6 +76,61 @@ def test_rle_round_trips(m):
     assert m.rle([5, 5, 5, 7, None, None, 7]) == [5, 3, 7, 1, None, 2, 7, 1]
 
 
+def test_a_tunnelling_deploy_publishes_where_it_surfaces(m):
+    """`tunnel_destinations`, measured on the client 16.402 corpus: a Miner is ONE entity that turns state 4 at its
+    destination when its tunnel (state 6) ends; a Goblin Drill's tunnel unit vanishes and its building appears at
+    the destination on the next frame. A tunnel inside a frame gap leaves the unit first seen already surfaced."""
+    ix, iy, ist = (m.TRUTH_COLUMNS.index(c) for c in ("x", "y", "state"))
+
+    def row(x, y, state):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[ix], r[iy], r[ist] = x, y, state
+        return tuple(r)
+
+    cards = {"Miner": {"spawn_pathfind": {"speed": 650, "morph": None}},
+             "GoblinDrill": {"spawn_pathfind": {"speed": 300, "morph": "GoblinDrill"}}}
+    ents = {
+        "miner": {"key": 5, "side": 0, "first_index": 0, "last_index": 3},
+        "dig": {"key": 7, "side": 0, "first_index": 0, "last_index": 2},
+        "building": {"key": 8, "side": 0, "first_index": 3, "last_index": 3},
+        "enemy": {"key": 9, "side": 1, "first_index": 3, "last_index": 3},
+        "gap": {"key": 10, "side": 0, "first_index": 1, "last_index": 3},
+    }
+    rows = [
+        {5: row(9235, 1777, 6), 7: row(9178, 3569, 6)},
+        {5: row(8800, 1200, 6), 7: row(8000, 4000, 6), 10: row(8500, 500, 4)},
+        {5: row(3500, 1500, 4), 7: row(3150, 23150, 6), 10: row(8500, 500, 4)},
+        {5: row(3500, 1500, 4), 8: row(3000, 23000, 4), 9: row(3100, 23100, 4), 10: row(8500, 500, 4)},
+    ]
+    deploys = [{"card": "Miner", "keys": [5]}, {"card": "GoblinDrill", "keys": [7]}, {"card": "Miner", "keys": [10]},
+               {"card": "Knight", "keys": [9]}]
+    m.tunnel_destinations(deploys, ents, rows, cards)
+    assert deploys[0]["destination"] == [3500, 1500], deploys[0]
+    assert deploys[1]["destination"] == [3000, 23000], deploys[1]  # the own building, not the enemy nearer to it
+    assert deploys[2]["destination"] == [8500, 500], deploys[2]
+    assert "destination" not in deploys[3]
+
+
+def test_a_mirror_play_is_published_as_a_mirror(m):
+    """`mirror_plays`, measured on the client 16.402 corpus (a level-12 ElixirGolem right after the side's level-11
+    one, in a deck holding Mirror): the copy's row becomes the Mirror play. Controls: a deck without Mirror, and a
+    repeat at the card's own level, stay as they are."""
+    ids = {28000006: "Mirror", 26000067: "ElixirGolem", 26000000: "Knight"}
+
+    def play(tick, card, cid, level):
+        return {"tick": tick, "side": 0, "card": card, "card_id": cid, "kind": "troop", "level": level, "keys": [tick]}
+
+    deploys = [play(779, "ElixirGolem", 26000067, 11), play(805, "ElixirGolem", 26000067, 12),
+               play(900, "Knight", 26000000, 11), play(950, "Knight", 26000000, 11)]
+    m.mirror_plays(deploys, {0: [28000006, 26000067, 26000000]}, ids)
+    assert [d["card"] for d in deploys] == ["ElixirGolem", "Mirror", "Knight", "Knight"]
+    assert deploys[1]["mirrored"] == {"card": "ElixirGolem", "card_id": 26000067}
+    assert (deploys[1]["kind"], deploys[1]["level"], deploys[1]["keys"]) == ("mirror", 12, [805])
+    plain = [play(779, "ElixirGolem", 26000067, 11), play(805, "ElixirGolem", 26000067, 12)]
+    m.mirror_plays(plain, {0: [26000067]}, ids)
+    assert [d["card"] for d in plain] == ["ElixirGolem", "ElixirGolem"]
+
+
 def test_spawn_tick_is_exact_when_the_spawn_frame_was_seen(m):
     ticks = [170, 171, 172, 173]
     # first seen at index 2 (tick 172), previous frame 171: no gap -> exact
@@ -845,7 +900,8 @@ def _battle():
                 "tick": t,
                 "entities": ents,
                 "effects": effects,
-                "elixir_raw": [60000 + 178 * t - (30000 if t >= 1 else 0), 70000 + 178 * t],
+                # each cast takes its cost off its side on its first frame: the Fireball 4 on 1, the Arrows 3 on 2
+                "elixir_raw": [60000 + 178 * t - (40000 if t >= 1 else 0), 70000 + 178 * t - (30000 if t >= 2 else 0)],
             }
         )
     return header, frames
@@ -976,6 +1032,27 @@ def test_the_battle_publishes_timers_elixir_and_spell_objects(m, maker_inputs, t
     assert "elixir_raw" not in fb["truth"]
     fb["truth"]["elixir_raw"] = truth["elixir_raw"]
     assert m.comparable(fb) == m.comparable(fx)
+
+
+@needs_modern_cards
+def test_a_spell_object_with_no_elixir_drop_is_a_release_not_a_cast(m, maker_inputs, tmp_path):
+    """A spell object whose side's elixir never falls by the card's cost is a unit's release, not a
+    cast: on the client 16.402 corpus the Heal Spirit's kamikaze projectile carries the Heal card's id
+    and no elixir leaves the pool for it, while every cast of the corpus takes its cost on its first
+    frame. It is not played, and `unresolved` says why. Here: the same battle with side 1's drop
+    removed keeps its Fireball and loses its Arrows."""
+    _skip_without_the_id_table(m)
+    header, frames = _battle()
+    for f in frames:
+        f["elixir_raw"] = [f["elixir_raw"][0], 70000 + 178 * f["tick"]]
+    path = tmp_path / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    spells = sorted(d["card"] for d in fx["deploys"] if d["kind"] == "spell")
+    assert spells == ["Fireball"], f"the battle published {spells}"
+    why = [u["why"] for u in fx["unresolved"] if u["card"] == "Arrows"]
+    assert why, f"no release recorded for the Arrows: {fx['unresolved']}"
+    assert "no elixir drop" in why[0], why[0]
 
 
 @needs_cards
