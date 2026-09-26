@@ -148,10 +148,29 @@ pub struct Projectile {
     /// snapshot saved before it still loads; hashed only when Some.
     #[serde(default)]
     pub hook: Option<EntityId>,
+    /// A SPARK CARRIER (calibration combat.SPAWN_PROJECTILE = client_spark_fan: the Firecracker's
+    /// rocket): it flies to `aim` and never follows `target`, and where it lands it releases its
+    /// card's sparks (`release_sparks`). None for every other shot, which is every shot under the
+    /// shipped arm. Added after SNAPSHOT_FORMAT 20; absent in older snapshots = None, and hashed
+    /// only when present.
+    #[serde(default)]
+    pub carrier: Option<Carrier>,
 }
 
-/// The state of a straight shot (`Projectile::straight`). Distances SUBTILES.
-#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+/// The state of a spark carrier (`Projectile::carrier`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Carrier {
+    /// The shot's launch point: the sparks fan about the line from here to where it lands.
+    pub from: Vec2,
+    /// The firing card (a `CardDb` index), whose `spark` row the sparks are.
+    pub card: u16,
+    /// Each spark's damage: the row's Damage scaled at the attacker's level when it fired.
+    pub damage: i32,
+}
+
+/// The state of a straight shot (`Projectile::straight`). Distances SUBTILES. `Default` is a
+/// one-way shot at the origin that holds nothing and has hit nothing (a spark is built from it).
+#[derive(Clone, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Straight {
     /// The attacker's centre at launch: the range, and a pingpong throw's distance, are
     /// measured from it.
@@ -176,6 +195,13 @@ pub struct Straight {
     /// Every unit hit so far (on this leg, for a pingpong throw), kept sorted so the set --
     /// and the state hash -- is a function of who was hit, not of neighbour order.
     pub hit: Vec<EntityId>,
+    /// THE SHOT IS GONE ON THE TICK IT HITS (calibration combat.PROJECTILE_COLLISIONS =
+    /// client_columns on a CheckCollisions row: the Hunter's pellet). Every unit it reaches on
+    /// that tick takes the hit; whether the client lets one pellet hit two units on one tick is
+    /// unmeasured. False for every other shot, which flies on. Hashed only when set; absent in
+    /// older snapshots = false.
+    #[serde(default)]
+    pub stop_on_hit: bool,
 }
 
 /// combat.MULTIPLE_PROJECTILES = client_fan: the angle between neighbouring pellets of a fan,
@@ -187,14 +213,46 @@ pub const FAN_STEP_DEG: i64 = 7;
 /// combat.MULTIPLE_PROJECTILES = client_fan: a pellet starts to move this many ticks after its
 /// creation, drawn uniformly from the battle's Rng. Measured on client 15.535.29 on the Hunter:
 /// 2 to 5 on all but one of about 250 pellets (a single 1). The client draws from its own
-/// random stream, so the engine matches the range, not the order.
+/// random stream, so the engine matches the range, not the order. The old arm of
+/// combat.PROJECTILE_COLLISIONS; its new arm reads the row's RandomDelay instead (`release_hold`).
 pub const FAN_RELEASE_TICKS: (i32, i32) = (2, 5);
+
+/// combat.PROJECTILE_COLLISIONS = client_columns: the ticks a shot of a RandomDelay row stands
+/// after its creation tick before its first step, ceil(U / TICK_MS) with U drawn uniformly from
+/// 0..RandomDelay ms, one draw a shot, so its first step comes 1 + ceil(U / TICK_MS) ticks after
+/// its creation. Measured on client 15.535.29 on the Hunter (RandomDelay 200, two battle seeds,
+/// both sides): 136 pellet delays of 1-5 ticks, one of them 1 and 2-5 about equally often (36,
+/// 28, 30 and 36 of the 130 in complete volleys), the spread of 1 + ceil(U / 50) for U uniform on
+/// 0..200, whose 1 needs U = 0. The delays repeat by volley number on one seed, so they come from
+/// the battle's random stream; that stream is the client's own, so the engine matches the law,
+/// not the order. A row without RandomDelay stands 0 ticks and draws nothing.
+fn release_hold(rng: &mut Rng, random_delay_ms: i32, tick_ms: i32) -> i32 {
+    if random_delay_ms <= 0 {
+        return 0;
+    }
+    let tick = tick_ms.max(1);
+    #[cfg(not(clash_plant = "random_delay_unread"))]
+    let u = rng.below(random_delay_ms as u32) as i32;
+    #[cfg(clash_plant = "random_delay_unread")]
+    let u = {
+        let _ = rng;
+        0 // PLANT (regression): the new arm reads no delay, so every shot steps on the tick after its creation.
+    };
+    (u + tick - 1) / tick
+}
 
 /// combat.DEPLOY_PROJECTILE = client_on_landing: the deploy projectile lands this many ticks
 /// after the unit's first frame. Measured on client 15.535.29 on the Mega Knight (both sides:
 /// first frame 259, the blow on 265). Whether it is a flight time (the row's Speed is 1000) or
 /// a fixed delay is open; one card carries a deploy projectile.
 pub const DEPLOY_PROJECTILE_DELAY_TICKS: i32 = 6;
+
+/// combat.SPAWN_PROJECTILE = client_spark_fan: the angle between neighbouring sparks of one landing,
+/// degrees; the fan is centred on the carrier's flight line (`release_sparks`). Measured on client
+/// 15.535.29 on the Firecracker (2 landings, 10 sparks: -32, -16, 0, +16, +32 to 0.05 degrees).
+/// FirecrackerExplosion's SpawnRadius 80 over its SpawnCount 5 is also 16; one row cannot tell a
+/// constant from that reading, so the constant is what is measured.
+pub const SPARK_STEP_DEG: i64 = 16;
 
 /// ONE TICK OF A FLYING PROJECTILE, a troop's, a building's or a crown tower's shot or a
 /// spell's flight, under calibration combat.PROJECTILE_STEP. Returns the new position, `aim`
@@ -675,16 +733,41 @@ pub fn fire(
                     _ => 0,
                 };
                 let (push, push_all) = rs.knockback.map_or((0, false), |k| (k.distance, k.all));
+                // combat.PROJECTILE_COLLISIONS = client_columns: the row's CheckCollisions,
+                // ProjectileStartExtraRadius and RandomDelay; under not_read none of them.
+                let columns = calib.projectile_collisions == crate::state::ProjectileCollisions::ClientColumns;
+                #[cfg(not(clash_plant = "check_collisions_fly_on"))]
+                let stop_on_hit = columns && rs.check_collisions;
+                #[cfg(clash_plant = "check_collisions_fly_on")]
+                let stop_on_hit = {
+                    let _ = rs.check_collisions;
+                    false // PLANT (regression): the new arm lets a CheckCollisions shot fly on after its hit, as not_read.
+                };
+                #[cfg(not(clash_plant = "start_extra_radius_unread"))]
+                let start_extra = if columns { rs.start_extra } else { 0 };
+                #[cfg(clash_plant = "start_extra_radius_unread")]
+                let start_extra = {
+                    let _ = rs.start_extra;
+                    0 // PLANT (regression): the new arm's creation-tick test reaches ProjectileRadius alone.
+                };
                 for k in 0..pellets {
                     // Each pellet of a fan is aimed at ProjectileRange on its own offset from
                     // the bearing to the target and released 2-5 ticks after its creation
                     // (`FAN_RELEASE_TICKS`); a single shot on the bearing, released at once.
+                    // Under combat.PROJECTILE_COLLISIONS = client_columns a RandomDelay row's
+                    // shot is released by its own draw instead (`release_hold`).
                     let aim = fan_aim(src, tgt, rs.range, fan_offset_deg(k), team);
                     #[cfg(not(clash_plant = "fan_pellets_unheld"))]
-                    let hold = if pellets > 1 { rng.range(FAN_RELEASE_TICKS.0, FAN_RELEASE_TICKS.1) - 1 } else { 0 };
+                    let hold = if columns {
+                        release_hold(rng, rs.random_delay_ms, calib.tick_ms)
+                    } else if pellets > 1 {
+                        rng.range(FAN_RELEASE_TICKS.0, FAN_RELEASE_TICKS.1) - 1
+                    } else {
+                        0
+                    };
                     #[cfg(clash_plant = "fan_pellets_unheld")]
                     let hold = {
-                        let _ = (&rng, FAN_RELEASE_TICKS);
+                        let _ = (&rng, FAN_RELEASE_TICKS, release_hold);
                         0 // PLANT (regression): every pellet moves on the tick after its creation.
                     };
                     let mut shot = Projectile {
@@ -703,6 +786,7 @@ pub fn fire(
                         buff: atk_buff,
                         pulse: atk_pulse,
                         firer_card: Some(ents.card[a]),
+                        carrier: None,
                         straight: Some(Straight {
                             origin: src,
                             reach: rs.reach,
@@ -714,6 +798,7 @@ pub fn fire(
                             start: card.projectile_start_radius,
                             t: 0,
                             hit: Vec::new(),
+                            stop_on_hit,
                         }),
                         hook: None,
                     };
@@ -722,8 +807,24 @@ pub fn fire(
                     // 15.535.29 (a boulder hit 1428 from its launch point on the tick it was
                     // created). A pingpong throw first tests on the next tick, against this
                     // tick's position (`step_straight`).
+                    // combat.PROJECTILE_COLLISIONS = client_columns: this test alone reaches
+                    // ProjectileRadius + ProjectileStartExtraRadius (`start_extra`), measured on
+                    // client 15.535.29 on the Hunter: whole volleys landed on their creation tick on
+                    // a Knight 1280-1295 and a Giant 1555 from the launch point, and none on a Knight
+                    // 2009 or a Giant 1834 out, so the reach less the victim's radius lies in
+                    // 805-1084; 300 + 650 = 950. A CheckCollisions shot that hits here is gone
+                    // before it is ever seen.
                     if fresh && period == 0 {
-                        straight_hits(ents, hash, cards, calib, &mut shot, pos, dmg, fx, scratch);
+                        if let Some(s) = shot.straight.as_mut() {
+                            s.reach += start_extra;
+                        }
+                        let hit = straight_hits(ents, hash, cards, calib, &mut shot, pos, dmg, fx, scratch);
+                        if let Some(s) = shot.straight.as_mut() {
+                            s.reach -= start_extra;
+                        }
+                        if hit && stop_on_hit {
+                            continue;
+                        }
                     }
                     projectiles.push(shot);
                 }
@@ -735,6 +836,26 @@ pub fn fire(
             None => (p.speed, amount, splash_r, card.attacks_air, card.attacks_ground, pct),
         };
         let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, a, ti);
+        // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
+        // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
+        // start-of-tick centre and flown there whatever the target does (measured on client
+        // 15.535.29: both rockets were aimed at the Knight's centre on the tick before the launch,
+        // to the unit, and landed there); `release_sparks` puts the sparks down where it lands.
+        #[cfg(not(clash_plant = "sparks_unspawned"))]
+        let sparks_arm = calib.spawn_projectile == crate::state::SpawnProjectile::ClientSparkFan;
+        #[cfg(clash_plant = "sparks_unspawned")]
+        let sparks_arm = {
+            let _ = calib.spawn_projectile;
+            false // PLANT (regression): the new arm's shot lands and releases nothing, as not_read.
+        };
+        let carrier = match (sparks_arm, custom, card.spark) {
+            (true, None, Some(sp)) => Some(Carrier {
+                from: pos,
+                card: ents.card[a],
+                damage: cards.scaled(ents.card[a], ents.level[a], sp.damage).expect("level validated at spawn"),
+            }),
+            _ => None,
+        };
         projectiles.push(Projectile {
             team: ents.team[a],
             pos,
@@ -757,6 +878,7 @@ pub fn fire(
             firer_card: Some(ents.card[a]),
             straight: None,
             hook: None,
+            carrier,
         });
         return;
     }
@@ -903,6 +1025,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         firer_card: Some(ents.card[a]),
         straight: None,
         hook: Some(ents.id_of(a)),
+        carrier: None,
     });
 }
 
@@ -1001,6 +1124,8 @@ fn straight_hits(
 ///     it: it is last seen at the last point within ProjectileRange (measured on client
 ///     15.535.29: 6933-6939 of 7000 for the boulder, 10789-10796 of 11000 for the arrow).
 ///     Otherwise it moves and tests its new position against the post-move positions.
+///   * A shot with `stop_on_hit` (combat.PROJECTILE_COLLISIONS = client_columns on a
+///     CheckCollisions row) is gone after any of these tests that hits.
 #[allow(clippy::too_many_arguments)]
 fn step_straight(
     ents: &Entities,
@@ -1013,6 +1138,10 @@ fn step_straight(
     nb: &mut Vec<u32>,
 ) -> bool {
     let Some(s) = p.straight.as_mut() else { return false };
+    // combat.PROJECTILE_COLLISIONS = client_columns on a CheckCollisions row: the shot is gone on
+    // the tick it hits (measured on client 15.535.29: each of 134 Hunter pellets that hit a Knight
+    // or a Giant in 7 runs was last seen the tick before the hit, and every drop is 84 a pellet gone).
+    let stop = s.stop_on_hit;
     if s.period > 0 {
         s.t += 1;
         if s.t > s.period {
@@ -1023,15 +1152,15 @@ fn step_straight(
         }
         let (origin, start, t, period) = (s.origin, s.start, s.t, s.period);
         let prev = p.pos;
-        straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb);
+        let hit = straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb);
         p.pos = pingpong_pos(origin, p.aim, start, t, period);
-        return true;
+        return !(hit && stop);
     }
     if s.hold > 0 {
         s.hold -= 1;
         let here = p.pos;
-        straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb);
-        return true;
+        let hit = straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb);
+        return !(hit && stop);
     }
     let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac);
     if np == p.aim {
@@ -1039,13 +1168,15 @@ fn step_straight(
     }
     p.pos = np;
     #[cfg(not(clash_plant = "range_shot_ends_on_first_hit"))]
-    straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb);
+    let hit = straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb);
     // PLANT (regression): a straight shot ends on the first unit it hits, as a homing shot does.
     #[cfg(clash_plant = "range_shot_ends_on_first_hit")]
-    if straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb) {
+    let hit = if straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb) {
         return false;
-    }
-    true
+    } else {
+        false
+    };
+    !(hit && stop)
 }
 
 /// Advance every projectile; arrivals write into the damage buffer. Each
@@ -1065,6 +1196,9 @@ pub fn step_projectiles(
     scratch: &mut Vec<u32>,
 ) {
     let rounding = calib.crown_rounding;
+    // combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carriers landing this tick release,
+    // appended after every projectile has stepped, so each first steps next tick.
+    let mut released: Vec<Projectile> = Vec::new();
     projectiles.retain_mut(|p| {
         if p.fresh {
             // born this tick: its first step is next tick's (combat.PROJECTILE_LAUNCH)
@@ -1075,7 +1209,12 @@ pub fn step_projectiles(
             return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch);
         }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
-        if alive {
+        // A spark carrier flies to the point it was aimed at and never follows its target.
+        #[cfg(not(clash_plant = "carrier_follows_target"))]
+        let follows = p.carrier.is_none();
+        #[cfg(clash_plant = "carrier_follows_target")]
+        let follows = true; // PLANT (regression): the new arm's carrier follows its target, as a homing shot does.
+        if alive && follows {
             p.aim = ents.pos[p.target.index as usize];
         }
         // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
@@ -1093,6 +1232,11 @@ pub fn step_projectiles(
             }
             return false;
         }
+        if let Some(c) = p.carrier {
+            // It lands: it deals nothing itself (the rocket's row has no Damage) and releases its sparks.
+            release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released);
+            return false;
+        }
         if p.splash > 0 {
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
             apply_attack_buff(ents, calib, p.buff, p.pulse, p.target, scratch, fx);
@@ -1105,6 +1249,64 @@ pub fn step_projectiles(
         }
         false
     });
+    projectiles.append(&mut released);
+}
+
+/// combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carrier `p` releases on the tick it
+/// lands (`CardDef::spark`). Measured on client 15.535.29 on the Firecracker (2 landings, 10
+/// sparks): SpawnCount straight shots created at the landing point itself (0 off it: SpawnRadius
+/// moves nothing), each aimed ProjectileRange (4999-5002) from it at its own offset from the
+/// carrier's flight line, launch point to landing point: -32, -16, 0, +16, +32 degrees in creation
+/// order (`SPARK_STEP_DEG`). Each steps its Speed (549.0-550.6) from the next tick and is gone on
+/// the step that would reach its aim point (last seen 4941-4950 out). On both landings every spark
+/// hit the Knight on the landing tick (5 x 64 at level 11, the Knight 209 and 493 from the landing
+/// point) and flew on to its range, and none hit it again (5 sparks 786-815 from it on the next
+/// tick). So each spark is a straight shot (`Straight`) with the row's ProjectileRadius, filters and
+/// damage, tested here at the landing point against the post-move positions, that hits each enemy
+/// once and flies on. Whether a spark hits a unit it reaches later on its path is unmeasured: no
+/// second enemy came near one.
+#[allow(clippy::too_many_arguments)]
+fn release_sparks(
+    ents: &Entities,
+    hash: &SpatialHash,
+    cards: &CardDb,
+    calib: &Calib,
+    p: &Projectile,
+    c: Carrier,
+    dmg: &mut DamageBuffer,
+    fx: &mut EffectBuffer,
+    nb: &mut Vec<u32>,
+    out: &mut Vec<Projectile>,
+) {
+    let Some(sp) = cards.get(c.card).spark else { return };
+    let at = p.aim;
+    // A point beyond the landing point on the carrier's flight line: the bearing the fan turns from.
+    let ahead = Vec2::new(2 * at.x - c.from.x, 2 * at.y - c.from.y);
+    for k in 0..sp.count {
+        let deg = (2 * k - (sp.count - 1)) as i64 * SPARK_STEP_DEG / 2;
+        let mut spark = Projectile {
+            team: p.team,
+            pos: at,
+            target: p.target,
+            aim: fan_aim(at, ahead, sp.range, deg, p.team),
+            speed: sp.speed * calib.projectile_speed_to_subtiles_per_tick,
+            damage: c.damage,
+            crown_pct: sp.crown_pct,
+            splash: 0,
+            hits_air: sp.hits_air,
+            hits_ground: sp.hits_ground,
+            frac: Vec2::default(),
+            fresh: false,
+            buff: None,
+            pulse: 0,
+            firer_card: p.firer_card,
+            carrier: None,
+            straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),
+            hook: None,
+        };
+        straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb);
+        out.push(spark);
+    }
 }
 
 /// The whole ticks until projectile `p`'s hit resolves, read at the end of a tick: the steps it still
@@ -1140,12 +1342,15 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 /// target, and may miss it. Whether the client counts it is unmeasured. A HOOK (`Projectile::hook`,
 /// only under combat.SPECIAL_HOOK = client_hook_drag) deals no damage and is skipped too, so its
 /// flight time never stretches the ETA of the shots that do.
+/// A SPARK CARRIER (`Projectile::carrier`, only under combat.SPAWN_PROJECTILE = client_spark_fan)
+/// deals nothing itself and flies to a fixed point, and is skipped for the same reason; its sparks
+/// are straight shots.
 pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep) -> Vec<bool> {
     let cap = ents.capacity();
     let mut pending = vec![0i64; cap];
     let mut last_ms = vec![0i32; cap];
     for p in projectiles {
-        if p.straight.is_some() || p.hook.is_some() || !ents.is_alive(p.target) {
+        if p.straight.is_some() || p.hook.is_some() || p.carrier.is_some() || !ents.is_alive(p.target) {
             continue;
         }
         let t = p.target.index as usize;

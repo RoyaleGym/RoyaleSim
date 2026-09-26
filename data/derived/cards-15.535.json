@@ -1056,7 +1056,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -1509,7 +1515,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -1753,7 +1765,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -2429,7 +2447,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -2563,7 +2587,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -2698,7 +2728,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -2944,7 +2980,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -3184,7 +3226,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -3539,7 +3587,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -3691,7 +3745,13 @@
     "buff_time_ms": 2500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -3831,7 +3891,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -4078,7 +4144,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -4329,7 +4401,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -4486,7 +4564,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -4643,7 +4727,13 @@
     "buff_time_ms": 1100,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -4777,7 +4867,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -5019,7 +5115,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -5153,7 +5255,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -5724,7 +5832,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -5858,7 +5972,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -6341,7 +6461,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": true,
+    "projectile_start_extra_radius_milli": 650,
+    "random_delay_ms": 200,
+    "spawn_count": null,
+    "scatter": "Line",
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -6475,7 +6601,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": 1500
+    "pingpong_visual_time_ms": 1500,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -7524,7 +7656,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -7724,7 +7862,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "level_scaling": {
     "rarity": "Legendary",
@@ -7932,7 +8076,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -8066,7 +8216,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -8461,7 +8617,13 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null
     },
     "drag_margin_milli": 200
    },
@@ -8564,7 +8726,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -8716,7 +8884,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -8876,10 +9050,22 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": 650,
+     "random_delay_ms": null,
+     "spawn_count": 5,
+     "scatter": "Line",
+     "spawn_radius_raw": 80
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": "Line",
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -9149,7 +9335,13 @@
     "buff_time_ms": 5000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -9621,7 +9813,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -9778,7 +9976,13 @@
     "buff_time_ms": 4000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -9904,7 +10108,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -10488,7 +10698,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -10726,7 +10942,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -10964,7 +11186,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -11117,7 +11345,13 @@
     "buff_time_ms": 5000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -11291,7 +11525,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -11770,7 +12010,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -12058,7 +12304,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -13232,7 +13484,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -13490,7 +13748,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -13747,7 +14011,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -13994,7 +14264,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -14464,7 +14740,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -14719,7 +15001,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -14868,7 +15156,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -15229,7 +15523,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -15485,7 +15785,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": 25,
@@ -15613,7 +15919,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": 20,
@@ -15835,7 +16147,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": 23,
@@ -15963,7 +16281,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": null,
@@ -16402,7 +16726,13 @@
       "buff_time_ms": 500,
       "spawn_projectile": null,
       "action_graph": null,
-      "pingpong_visual_time_ms": null
+      "pingpong_visual_time_ms": null,
+      "check_collisions": false,
+      "projectile_start_extra_radius_milli": null,
+      "random_delay_ms": null,
+      "spawn_count": null,
+      "scatter": null,
+      "spawn_radius_raw": null
      },
      "spawn_character": null,
      "spawn_interval_ms": null,
@@ -16967,10 +17297,22 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": 13,
@@ -17550,10 +17892,22 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": 100,
@@ -17796,7 +18150,13 @@
     "buff_time_ms": 3000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": 25,
@@ -17973,7 +18333,13 @@
       "buff_time_ms": null,
       "spawn_projectile": null,
       "action_graph": null,
-      "pingpong_visual_time_ms": null
+      "pingpong_visual_time_ms": null,
+      "check_collisions": false,
+      "projectile_start_extra_radius_milli": null,
+      "random_delay_ms": null,
+      "spawn_count": null,
+      "scatter": null,
+      "spawn_radius_raw": null
      },
      "spawn_character": null,
      "spawn_interval_ms": null,
@@ -18230,7 +18596,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": null,
    "crown_tower_damage_percent": null,
@@ -19130,7 +19502,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -19266,7 +19644,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -19483,7 +19867,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -19853,7 +20243,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -20057,7 +20453,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -20634,7 +21036,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -20746,7 +21154,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -20861,7 +21275,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -21056,7 +21476,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -21449,7 +21875,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -21563,7 +21995,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -21695,7 +22133,13 @@
     "buff_time_ms": 2500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -21808,7 +22252,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -21924,7 +22374,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -22238,7 +22694,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -22370,7 +22832,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -22586,7 +23054,13 @@
     "buff_time_ms": 1100,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -22701,7 +23175,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -22904,7 +23384,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -23018,7 +23504,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -23222,7 +23714,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -23538,7 +24036,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -23848,7 +24352,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": 1500
+    "pingpong_visual_time_ms": 1500,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -24347,7 +24857,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": true,
+    "projectile_start_extra_radius_milli": 650,
+    "random_delay_ms": 200,
+    "spawn_count": null,
+    "scatter": "Line",
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -24940,7 +25456,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -25163,7 +25685,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -25277,7 +25805,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -25670,7 +26204,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -25783,7 +26323,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -26043,7 +26589,13 @@
     "buff_time_ms": 2000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -26169,7 +26721,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -26300,7 +26858,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -26447,7 +27011,13 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null
     },
     "drag_margin_milli": 200
    },
@@ -26826,7 +27396,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -27049,10 +27625,22 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": 650,
+     "random_delay_ms": null,
+     "spawn_count": 5,
+     "scatter": "Line",
+     "spawn_radius_raw": 80
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": "Line",
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -27470,7 +28058,13 @@
     "buff_time_ms": 5000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -27700,7 +28294,13 @@
     "buff_time_ms": 5000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -27934,7 +28534,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -28179,7 +28785,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -28295,7 +28907,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -28518,7 +29136,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -28666,7 +29290,13 @@
     "buff_time_ms": 4000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -29159,7 +29789,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -29365,7 +30001,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -29847,7 +30489,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -30045,7 +30693,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -30192,7 +30846,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -30386,7 +31046,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -31234,7 +31900,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -31347,7 +32019,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -31458,7 +32136,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -31775,7 +32459,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -31973,7 +32663,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -32087,7 +32783,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -32675,10 +33377,22 @@
       "recursive_spawn_chain": true
      },
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -32791,7 +33505,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 75,
    "crown_tower_damage_percent": 100,
@@ -32922,7 +33642,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -33380,7 +34106,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -33535,10 +34267,22 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": 650,
+     "random_delay_ms": null,
+     "spawn_count": 5,
+     "scatter": "Circle",
+     "spawn_radius_raw": 80
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": "Line",
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -33653,7 +34397,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -33837,7 +34587,13 @@
      ],
      "mechanic": true
     },
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -33972,7 +34728,13 @@
      ],
      "mechanic": true
     },
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -34148,7 +34910,13 @@
      ],
      "mechanic": true
     },
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -34317,7 +35085,13 @@
      "spawns": [],
      "mechanic": true
     },
-    "pingpong_visual_time_ms": 1500
+    "pingpong_visual_time_ms": 1500,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -34431,7 +35205,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -34668,7 +35448,13 @@
      "spawns": [],
      "mechanic": true
     },
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -34912,7 +35698,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -35045,7 +35837,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -35169,7 +35967,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -35286,7 +36090,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -35417,7 +36227,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -35532,7 +36348,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -35676,7 +36498,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -36712,7 +37540,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -37126,7 +37960,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -37260,7 +38100,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -37374,7 +38220,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -37586,7 +38438,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -37997,7 +38855,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -38202,7 +39066,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": true,
+    "projectile_start_extra_radius_milli": 650,
+    "random_delay_ms": 200,
+    "spawn_count": null,
+    "scatter": "Line",
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -38715,7 +39585,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -38827,7 +39703,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -38969,7 +39851,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -39228,7 +40116,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -40662,7 +41556,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -40804,7 +41704,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -40946,7 +41852,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -41088,7 +42000,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -41230,7 +42148,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -41547,7 +42471,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": 1500
+    "pingpong_visual_time_ms": 1500,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -41856,7 +42786,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -41984,7 +42920,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -42101,7 +43043,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -42233,7 +43181,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -42455,7 +43409,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -42583,7 +43543,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -42700,7 +43666,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -42908,7 +43880,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -43115,7 +44093,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -43499,7 +44483,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -44430,7 +45420,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -44546,7 +45542,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -45058,7 +46060,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -45325,7 +46333,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -45527,7 +46541,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -45640,7 +46660,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -45766,7 +46792,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -46062,7 +47094,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
@@ -46592,7 +47630,13 @@
      "buff_time_ms": null,
      "spawn_projectile": null,
      "action_graph": null,
-     "pingpong_visual_time_ms": null
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null
     },
     "drag_margin_milli": 200
    },
@@ -47003,7 +48047,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -47194,7 +48244,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -47308,7 +48364,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -47735,7 +48797,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -48935,7 +50003,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -49047,7 +50121,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -49173,7 +50253,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -49289,7 +50375,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -49405,7 +50497,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -49521,7 +50619,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -49720,7 +50824,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 400,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -50535,7 +51645,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -50646,7 +51762,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -50773,7 +51895,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -50890,7 +52018,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -51001,7 +52135,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -51118,7 +52258,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -51665,7 +52811,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -51883,7 +53035,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -52006,7 +53164,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -52356,7 +53520,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -52665,7 +53835,13 @@
     "buff_time_ms": 5000,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -52780,7 +53956,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": 1500
+    "pingpong_visual_time_ms": 1500,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -52982,7 +54164,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -53685,7 +54873,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": 100,
@@ -53929,7 +55123,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "KingProjectile": {
    "name": "KingProjectile",
@@ -53959,7 +55159,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ArcherArrow": {
    "name": "ArcherArrow",
@@ -53989,7 +55195,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "TowerPrincessProjectile": {
    "name": "TowerPrincessProjectile",
@@ -54019,7 +55231,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ArrowsSpell": {
    "name": "ArrowsSpell",
@@ -54049,7 +55267,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ArrowsSpellDeco": {
    "name": "ArrowsSpellDeco",
@@ -54079,7 +55303,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "TowerCannonball": {
    "name": "TowerCannonball",
@@ -54109,7 +55339,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MinionSpit": {
    "name": "MinionSpit",
@@ -54139,7 +55375,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MortarProjectile": {
    "name": "MortarProjectile",
@@ -54169,7 +55411,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "WitchProjectile": {
    "name": "WitchProjectile",
@@ -54199,7 +55447,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BombSkeletonProjectile": {
    "name": "BombSkeletonProjectile",
@@ -54229,7 +55483,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BombTowerProjectile": {
    "name": "BombTowerProjectile",
@@ -54259,7 +55519,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "RocketSpell": {
    "name": "RocketSpell",
@@ -54289,7 +55555,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinBarrelSpell": {
    "name": "GoblinBarrelSpell",
@@ -54319,7 +55591,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MusketeerProjectile": {
    "name": "MusketeerProjectile",
@@ -54349,7 +55627,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BabyDragonProjectile": {
    "name": "BabyDragonProjectile",
@@ -54379,7 +55663,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "chr_wizardProjectile": {
    "name": "chr_wizardProjectile",
@@ -54409,7 +55699,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "xbow_projectile": {
    "name": "xbow_projectile",
@@ -54439,7 +55735,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "LighningSpell": {
    "name": "LighningSpell",
@@ -54487,7 +55789,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SpearGoblinProjectile": {
    "name": "SpearGoblinProjectile",
@@ -54517,7 +55825,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ice_wizardProjectile": {
    "name": "ice_wizardProjectile",
@@ -54565,7 +55879,13 @@
    "buff_time_ms": 2500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "RoyalGiantProjectile": {
    "name": "RoyalGiantProjectile",
@@ -54595,7 +55915,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "PrincessProjectile": {
    "name": "PrincessProjectile",
@@ -54625,7 +55951,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "PrincessProjectileDeco": {
    "name": "PrincessProjectileDeco",
@@ -54655,7 +55987,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "LavaHoundProjectile": {
    "name": "LavaHoundProjectile",
@@ -54685,7 +56023,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "LavaPupProjectile": {
    "name": "LavaPupProjectile",
@@ -54715,7 +56059,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FireSpiritsProjectile": {
    "name": "FireSpiritsProjectile",
@@ -54745,7 +56095,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ZapMachineProjectile": {
    "name": "ZapMachineProjectile",
@@ -54775,7 +56131,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SneakyArcherArrow": {
    "name": "SneakyArcherArrow",
@@ -54805,7 +56167,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BowlerProjectile": {
    "name": "BowlerProjectile",
@@ -54835,7 +56203,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "IceSpiritsProjectile": {
    "name": "IceSpiritsProjectile",
@@ -54883,7 +56257,13 @@
    "buff_time_ms": 1100,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "LogProjectile": {
    "name": "LogProjectile",
@@ -54939,10 +56319,22 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "LogProjectileRolling": {
    "name": "LogProjectileRolling",
@@ -54972,7 +56364,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MegaMinionSpit": {
    "name": "MegaMinionSpit",
@@ -55002,7 +56400,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BlowdartGoblinProjectile": {
    "name": "BlowdartGoblinProjectile",
@@ -55032,7 +56436,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AxeManProjectile": {
    "name": "AxeManProjectile",
@@ -55062,7 +56472,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": 1500
+   "pingpong_visual_time_ms": 1500,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BatProjectile": {
    "name": "BatProjectile",
@@ -55092,7 +56508,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GunnerProjectile": {
    "name": "GunnerProjectile",
@@ -55122,7 +56544,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "DartBarrellProjectile": {
    "name": "DartBarrellProjectile",
@@ -55152,7 +56580,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MegaKnightAppear": {
    "name": "MegaKnightAppear",
@@ -55182,7 +56616,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BarbLogProjectile": {
    "name": "BarbLogProjectile",
@@ -55238,10 +56678,22 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BarbLogProjectileRolling": {
    "name": "BarbLogProjectileRolling",
@@ -55271,7 +56723,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "EliteArcherArrow": {
    "name": "EliteArcherArrow",
@@ -55301,7 +56759,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 400,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "HunterProjectile": {
    "name": "HunterProjectile",
@@ -55331,7 +56795,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": true,
+   "projectile_start_extra_radius_milli": 650,
+   "random_delay_ms": 200,
+   "spawn_count": null,
+   "scatter": "Line",
+   "spawn_radius_raw": null
   },
   "ZapSpiritProjectile": {
    "name": "ZapSpiritProjectile",
@@ -55379,7 +56849,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MegaCannonProjectile": {
    "name": "MegaCannonProjectile",
@@ -55409,7 +56885,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "CaptureTowerProjectile": {
    "name": "CaptureTowerProjectile",
@@ -55439,7 +56921,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "RascalGirlProjectile": {
    "name": "RascalGirlProjectile",
@@ -55469,7 +56957,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SnowballSpell": {
    "name": "SnowballSpell",
@@ -55517,7 +57011,13 @@
    "buff_time_ms": 3000,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "RamRiderBola": {
    "name": "RamRiderBola",
@@ -55565,7 +57065,13 @@
    "buff_time_ms": 2000,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ElectroDragonProjectile": {
    "name": "ElectroDragonProjectile",
@@ -55613,7 +57119,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MortarMultiProjectile": {
    "name": "MortarMultiProjectile",
@@ -55643,7 +57155,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MonkPushback": {
    "name": "MonkPushback",
@@ -55673,7 +57191,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "PhoenixFireball": {
    "name": "PhoenixFireball",
@@ -55703,7 +57227,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SuperEliteArcherArrow": {
    "name": "SuperEliteArcherArrow",
@@ -55751,7 +57281,13 @@
    "buff_time_ms": 4000,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 400,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinProjectile": {
    "name": "GoblinProjectile",
@@ -55781,7 +57317,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinMorphProjectile": {
    "name": "GoblinMorphProjectile",
@@ -55811,7 +57353,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BlowdartGoblinProjectileParty": {
    "name": "BlowdartGoblinProjectileParty",
@@ -55841,7 +57389,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SpearGoblinPartyProjectile": {
    "name": "SpearGoblinPartyProjectile",
@@ -55871,7 +57425,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AirBowProjectile": {
    "name": "AirBowProjectile",
@@ -55901,7 +57461,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinBarrel": {
    "name": "GoblinBarrel",
@@ -55931,7 +57497,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FireWallProjectile": {
    "name": "FireWallProjectile",
@@ -55987,10 +57559,22 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FireWallMovingProjectile": {
    "name": "FireWallMovingProjectile",
@@ -56020,7 +57604,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FishermanProjectile": {
    "name": "FishermanProjectile",
@@ -56050,7 +57640,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "WallbreakerProjectile": {
    "name": "WallbreakerProjectile",
@@ -56080,7 +57676,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BalloonProjectile": {
    "name": "BalloonProjectile",
@@ -56110,7 +57712,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ThrowBombProjectile": {
    "name": "ThrowBombProjectile",
@@ -56140,7 +57748,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ThrowBombProjectile2": {
    "name": "ThrowBombProjectile2",
@@ -56170,7 +57784,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "CWTXbowProjectile": {
    "name": "CWTXbowProjectile",
@@ -56200,7 +57820,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ClanWarsSpawnFlareProjectile": {
    "name": "ClanWarsSpawnFlareProjectile",
@@ -56230,7 +57856,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FirecrackerProjectile": {
    "name": "FirecrackerProjectile",
@@ -56286,10 +57918,22 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 650,
+    "random_delay_ms": null,
+    "spawn_count": 5,
+    "scatter": "Line",
+    "spawn_radius_raw": 80
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": "Line",
+   "spawn_radius_raw": null
   },
   "FirecrackerExplosion": {
    "name": "FirecrackerExplosion",
@@ -56319,7 +57963,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 650,
+   "random_delay_ms": null,
+   "spawn_count": 5,
+   "scatter": "Line",
+   "spawn_radius_raw": 80
   },
   "ArcherQueenArrow": {
    "name": "ArcherQueenArrow",
@@ -56349,7 +57999,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SuperWitchProjectile": {
    "name": "SuperWitchProjectile",
@@ -56379,7 +58035,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SuperArcherChargeArrow": {
    "name": "SuperArcherChargeArrow",
@@ -56409,7 +58071,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 400,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "HealSpiritProjectile": {
    "name": "HealSpiritProjectile",
@@ -56439,7 +58107,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FireballSpellRocketMan": {
    "name": "FireballSpellRocketMan",
@@ -56469,7 +58143,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "VoodooProjectile": {
    "name": "VoodooProjectile",
@@ -56517,7 +58197,13 @@
    "buff_time_ms": 5000,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "RoyalDeliveryProjectile": {
    "name": "RoyalDeliveryProjectile",
@@ -56547,7 +58233,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SkeletonDragonProjectile": {
    "name": "SkeletonDragonProjectile",
@@ -56577,7 +58269,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SuperMiniPekkaHit": {
    "name": "SuperMiniPekkaHit",
@@ -56607,7 +58305,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ElectroSpiritProjectile": {
    "name": "ElectroSpiritProjectile",
@@ -56655,7 +58359,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BarbarianLauncherProjectile": {
    "name": "BarbarianLauncherProjectile",
@@ -56685,7 +58395,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ArcherQueenArrow_Chess": {
    "name": "ArcherQueenArrow_Chess",
@@ -56715,7 +58431,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "EliteArcherArrow_Chess": {
    "name": "EliteArcherArrow_Chess",
@@ -56745,7 +58467,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 400,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BombTowerProjectile_Chess": {
    "name": "BombTowerProjectile_Chess",
@@ -56775,7 +58503,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_WitchProjectile": {
    "name": "MysteryBuff_WitchProjectile",
@@ -56823,7 +58557,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_BombSkeletonProjectile": {
    "name": "MysteryBuff_BombSkeletonProjectile",
@@ -56853,7 +58593,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_BombTowerProjectile": {
    "name": "MysteryBuff_BombTowerProjectile",
@@ -56883,7 +58629,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_SkeletonDragonProjectile": {
    "name": "MysteryBuff_SkeletonDragonProjectile",
@@ -56913,7 +58665,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_AxeManProjectile": {
    "name": "MysteryBuff_AxeManProjectile",
@@ -56961,7 +58719,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": 1500
+   "pingpong_visual_time_ms": 1500,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "LittlePrinceProjectile": {
    "name": "LittlePrinceProjectile",
@@ -56991,7 +58755,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "CannoneerProjectile": {
    "name": "CannoneerProjectile",
@@ -57021,7 +58791,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "WallbreakerMiniProjectile": {
    "name": "WallbreakerMiniProjectile",
@@ -57051,7 +58827,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "CannoneerProjectile_AoE": {
    "name": "CannoneerProjectile_AoE",
@@ -57081,7 +58863,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "TowerKnifeThrowerProjectile": {
    "name": "TowerKnifeThrowerProjectile",
@@ -57111,7 +58899,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ8": {
    "name": "NOTINUSEPROJ8",
@@ -57141,7 +58935,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ9": {
    "name": "NOTINUSEPROJ9",
@@ -57171,7 +58971,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ10": {
    "name": "NOTINUSEPROJ10",
@@ -57201,7 +59007,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ11": {
    "name": "NOTINUSEPROJ11",
@@ -57231,7 +59043,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ12": {
    "name": "NOTINUSEPROJ12",
@@ -57261,7 +59079,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ13": {
    "name": "NOTINUSEPROJ13",
@@ -57291,7 +59115,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "NOTINUSEPROJ14": {
    "name": "NOTINUSEPROJ14",
@@ -57321,7 +59151,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_SpearGoblinProjectile": {
    "name": "MysteryBuff_SpearGoblinProjectile",
@@ -57369,7 +59205,13 @@
    "buff_time_ms": 300,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MysteryBuff_BlowdartGoblinProjectile": {
    "name": "MysteryBuff_BlowdartGoblinProjectile",
@@ -57417,7 +59259,13 @@
    "buff_time_ms": 4000,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SpearGoblinGiantProjectile": {
    "name": "SpearGoblinGiantProjectile",
@@ -57447,7 +59295,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "VineSpellBottle": {
    "name": "VineSpellBottle",
@@ -57477,7 +59331,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "RoyalGiantProjectile_EV1": {
    "name": "RoyalGiantProjectile_EV1",
@@ -57507,7 +59367,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 400,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "FirecrackerProjectile_EV1": {
    "name": "FirecrackerProjectile_EV1",
@@ -57563,10 +59429,22 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": 650,
+    "random_delay_ms": null,
+    "spawn_count": 5,
+    "scatter": "Circle",
+    "spawn_radius_raw": 80
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": "Line",
+   "spawn_radius_raw": null
   },
   "FirecrackerExplosion_EV1": {
    "name": "FirecrackerExplosion_EV1",
@@ -57596,7 +59474,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": 650,
+   "random_delay_ms": null,
+   "spawn_count": 5,
+   "scatter": "Circle",
+   "spawn_radius_raw": 80
   },
   "MortarProjectile_EV1": {
    "name": "MortarProjectile_EV1",
@@ -57626,7 +59510,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Archer_EV1_Arrow": {
    "name": "Archer_EV1_Arrow",
@@ -57656,7 +59546,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Archer_EV1_ArrowDoubleDamage": {
    "name": "Archer_EV1_ArrowDoubleDamage",
@@ -57686,7 +59582,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "IceSpiritsProjectile_EV1": {
    "name": "IceSpiritsProjectile_EV1",
@@ -57745,7 +59647,13 @@
     ],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BombSkeletonProjectile_EV1": {
    "name": "BombSkeletonProjectile_EV1",
@@ -57804,10 +59712,22 @@
      "recursive_spawn_chain": true
     },
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BombSkeletonProjectile_2_EV1": {
    "name": "BombSkeletonProjectile_2_EV1",
@@ -57840,7 +59760,13 @@
     "recursive_spawn_chain": true
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "WallbreakerProjectile_EV1": {
    "name": "WallbreakerProjectile_EV1",
@@ -57870,7 +59796,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "WallbreakerBarrelExplosion_EV1": {
    "name": "WallbreakerBarrelExplosion_EV1",
@@ -57900,7 +59832,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinBarrelSpell_EV1": {
    "name": "GoblinBarrelSpell_EV1",
@@ -57930,7 +59868,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinBarrelSpell_EV1_Decoy": {
    "name": "GoblinBarrelSpell_EV1_Decoy",
@@ -57960,7 +59904,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Wizard_EV1_Projectile": {
    "name": "Wizard_EV1_Projectile",
@@ -57990,7 +59940,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AngryBarbarian_EV1_RangedProjectile": {
    "name": "AngryBarbarian_EV1_RangedProjectile",
@@ -58039,7 +59995,13 @@
     ],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AxeMan_EV1_Projectile_Strong1": {
    "name": "AxeMan_EV1_Projectile_Strong1",
@@ -58081,7 +60043,13 @@
     "spawns": [],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": 1500
+   "pingpong_visual_time_ms": 1500,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AxeMan_EV1_Projectile_Strong2": {
    "name": "AxeMan_EV1_Projectile_Strong2",
@@ -58123,7 +60091,13 @@
     "spawns": [],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": 1500
+   "pingpong_visual_time_ms": 1500,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AxeMan_EV1_Projectile_Normal": {
    "name": "AxeMan_EV1_Projectile_Normal",
@@ -58153,7 +60127,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": 1500
+   "pingpong_visual_time_ms": 1500,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BabyDragon_evo_projectile": {
    "name": "BabyDragon_evo_projectile",
@@ -58183,7 +60163,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BlowdartGoblinEvoProjectile": {
    "name": "BlowdartGoblinEvoProjectile",
@@ -58222,7 +60208,13 @@
     "spawns": [],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BlowdartGoblinEvoProjectile_Special": {
    "name": "BlowdartGoblinEvoProjectile_Special",
@@ -58261,7 +60253,13 @@
     "spawns": [],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MovingCannonProjectile": {
    "name": "MovingCannonProjectile",
@@ -58291,7 +60289,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Cannon_EV1_barrage_projectile": {
    "name": "Cannon_EV1_barrage_projectile",
@@ -58339,7 +60343,13 @@
    "buff_time_ms": 400,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ChefTower_pancake_projectile": {
    "name": "ChefTower_pancake_projectile",
@@ -58387,7 +60397,13 @@
    "buff_time_ms": 99999,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ChefTower_spatula_projectile": {
    "name": "ChefTower_spatula_projectile",
@@ -58417,7 +60433,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "electro_dragon_ev1_lightning_1_continued": {
    "name": "electro_dragon_ev1_lightning_1_continued",
@@ -58465,7 +60487,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "electro_dragon_ev1_lightning_2": {
    "name": "electro_dragon_ev1_lightning_2",
@@ -58495,7 +60523,13 @@
    "buff_time_ms": 0,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "electro_dragon_ev1_lightning_1": {
    "name": "electro_dragon_ev1_lightning_1",
@@ -58543,7 +60577,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Furnace_EV1_Spawn_Spirit_Projectile": {
    "name": "Furnace_EV1_Spawn_Spirit_Projectile",
@@ -58573,7 +60613,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Furnace_Evolution_Projectile": {
    "name": "Furnace_Evolution_Projectile",
@@ -58603,7 +60649,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Furnace_Rework_Projectile": {
    "name": "Furnace_Rework_Projectile",
@@ -58633,7 +60685,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GiantBuffProjectile": {
    "name": "GiantBuffProjectile",
@@ -58663,7 +60721,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinDemolisherProjectile": {
    "name": "GoblinDemolisherProjectile",
@@ -58693,7 +60757,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinDemolisherDeathProjectile": {
    "name": "GoblinDemolisherDeathProjectile",
@@ -58723,7 +60793,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinMachineRocketProjectile": {
    "name": "GoblinMachineRocketProjectile",
@@ -58753,7 +60829,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinQueenProjectile": {
    "name": "GoblinQueenProjectile",
@@ -58783,7 +60865,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinQueenSecondaryTowerProjectile": {
    "name": "GoblinQueenSecondaryTowerProjectile",
@@ -58813,7 +60901,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "BabyGoblin_Projectile": {
    "name": "BabyGoblin_Projectile",
@@ -58843,7 +60937,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "prj_goblinstein_doctor": {
    "name": "prj_goblinstein_doctor",
@@ -58891,7 +60991,13 @@
    "buff_time_ms": 500,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Hunter_EV1_shotgun_projectile": {
    "name": "Hunter_EV1_shotgun_projectile",
@@ -58921,7 +61027,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": true,
+   "projectile_start_extra_radius_milli": 650,
+   "random_delay_ms": 200,
+   "spawn_count": null,
+   "scatter": "Line",
+   "spawn_radius_raw": null
   },
   "Hunter_EV1_bear_trap_projectile": {
    "name": "Hunter_EV1_bear_trap_projectile",
@@ -58967,7 +61079,13 @@
     ],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MegaKnight_EV1_appear": {
    "name": "MegaKnight_EV1_appear",
@@ -58997,7 +61115,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MergeMaidenProjectile_Mounted": {
    "name": "MergeMaidenProjectile_Mounted",
@@ -59027,7 +61151,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "MinionHorde_EV1_spit": {
    "name": "MinionHorde_EV1_spit",
@@ -59057,7 +61187,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Musketeer_EV1_normal_projectile": {
    "name": "Musketeer_EV1_normal_projectile",
@@ -59087,7 +61223,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Musketeer_EV1_snipe_projectile": {
    "name": "Musketeer_EV1_snipe_projectile",
@@ -59117,7 +61259,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Princess_EV1_ProjectileDeco": {
    "name": "Princess_EV1_ProjectileDeco",
@@ -59147,7 +61295,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Princess_EV1_FreezeProjectileDeco": {
    "name": "Princess_EV1_FreezeProjectileDeco",
@@ -59177,7 +61331,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Princess_EV1_Projectile": {
    "name": "Princess_EV1_Projectile",
@@ -59221,7 +61381,13 @@
     "spawns": [],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Princess_EV1_FreezeProjectile": {
    "name": "Princess_EV1_FreezeProjectile",
@@ -59283,7 +61449,13 @@
     "spawns": [],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SnowballSpell_EV1": {
    "name": "SnowballSpell_EV1",
@@ -59358,10 +61530,22 @@
      ],
      "mechanic": true
     },
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SnowballSpell_EV1_Rolling": {
    "name": "SnowballSpell_EV1_Rolling",
@@ -59410,7 +61594,13 @@
     ],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "SnowballSpell_EV1_Rolling_after_first_capture": {
    "name": "SnowballSpell_EV1_Rolling_after_first_capture",
@@ -59459,7 +61649,13 @@
     ],
     "mechanic": true
    },
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "ThreeMusketeer_Rework_Projectile": {
    "name": "ThreeMusketeer_Rework_Projectile",
@@ -59489,7 +61685,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "EV1_Witch_Projectile": {
    "name": "EV1_Witch_Projectile",
@@ -59519,7 +61721,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "VoodooProjectile_SpookyChess": {
    "name": "VoodooProjectile_SpookyChess",
@@ -59567,7 +61775,13 @@
    "buff_time_ms": 5000,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "AxeManProjectile_SpookyChess": {
    "name": "AxeManProjectile_SpookyChess",
@@ -59597,7 +61811,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": 1500
+   "pingpong_visual_time_ms": 1500,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "Gift_Delivery_Projectile": {
    "name": "Gift_Delivery_Projectile",
@@ -59627,7 +61847,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   },
   "GoblinRocketSpell": {
    "name": "GoblinRocketSpell",
@@ -59657,7 +61883,13 @@
    "buff_time_ms": null,
    "spawn_projectile": null,
    "action_graph": null,
-   "pingpong_visual_time_ms": null
+   "pingpong_visual_time_ms": null,
+   "check_collisions": false,
+   "projectile_start_extra_radius_milli": null,
+   "random_delay_ms": null,
+   "spawn_count": null,
+   "scatter": null,
+   "spawn_radius_raw": null
   }
  },
  "area_effect_objects": {
@@ -59817,7 +62049,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "spawn_character": null,
    "spawn_interval_ms": null,
@@ -61238,7 +63476,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "spawn_character": null,
    "spawn_interval_ms": null,
@@ -63124,7 +65368,13 @@
     "buff_time_ms": 500,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "spawn_character": null,
    "spawn_interval_ms": null,
@@ -65450,7 +67700,13 @@
     "buff_time_ms": null,
     "spawn_projectile": null,
     "action_graph": null,
-    "pingpong_visual_time_ms": null
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null
    },
    "spawn_character": null,
    "spawn_interval_ms": null,

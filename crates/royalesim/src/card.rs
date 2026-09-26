@@ -110,6 +110,19 @@ pub struct RangeShotDef {
     /// not write the column into a projectile object, so this reads None on every row
     /// and a pingpong row flies one way until the extractor carries it.
     pub pingpong_ms: Option<i32>,
+    /// CheckCollisions (cards.json `check_collisions`; absent reads false): under calibration
+    /// combat.PROJECTILE_COLLISIONS = client_columns the shot is gone on the tick it first
+    /// hits. Set by the Hunter's pellet alone among the 15.535.29 projectile rows (its
+    /// evolution's pellet extends that row).
+    pub check_collisions: bool,
+    /// ProjectileStartExtraRadius, SUBTILES (cards.json `projectile_start_extra_radius_milli`;
+    /// absent reads 0): under combat.PROJECTILE_COLLISIONS = client_columns the shot's
+    /// creation-tick test reaches `reach` plus this plus the enemy's radius.
+    pub start_extra: i32,
+    /// RandomDelay, ms (cards.json `random_delay_ms`; absent reads 0): under
+    /// combat.PROJECTILE_COLLISIONS = client_columns the shot stands ceil(U / TICK_MS) ticks
+    /// after its creation tick before its first step, U drawn uniformly from 0..RandomDelay.
+    pub random_delay_ms: i32,
 }
 
 /// A CARD'S CustomFirstProjectile when it is a different row from its Projectile: the
@@ -132,6 +145,33 @@ pub struct CustomShotDef {
     pub hits_ground: bool,
     /// Effective crown-tower percent.
     pub crown_pct: i32,
+}
+
+/// THE SPARKS A TROOP'S SHOT RELEASES WHERE IT LANDS: its projectile row's SpawnProjectile when
+/// that row is the measured shape (`spark_of`: the Firecracker's FirecrackerExplosion, SpawnCount
+/// 5, Scatter "Line"). Read by combat.rs `fire` and `release_sparks` under calibration
+/// combat.SPAWN_PROJECTILE = client_spark_fan; inert under the shipped not_read. On the card, not
+/// on `ProjectileDef`, whose Debug is inside the format-3 card fingerprint.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SparkDef {
+    /// SpawnCount: the sparks one landing releases.
+    pub count: i32,
+    /// Raw Speed column.
+    pub speed: i32,
+    /// Level-1 Damage, scaled by the attacker's level when it fires.
+    pub damage: i32,
+    /// Effective crown-tower percent.
+    pub crown_pct: i32,
+    /// ProjectileRange, SUBTILES: a spark is aimed this far from the landing point.
+    pub range: i32,
+    /// ProjectileRadius, SUBTILES: an enemy is hit when its centre comes within this plus its
+    /// own radius.
+    pub reach: i32,
+    /// AoeToAir / AoeToGround.
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    /// OnlyEnemies (a blank reads false).
+    pub only_enemies: bool,
 }
 
 /// A knockback a spell hit applies (card data: projectiles.csv Pushback / PushbackAll).
@@ -742,13 +782,18 @@ pub struct CardDef {
     /// calibration targeting.MINIMUM_RANGE = client16402_edge_distance (target.rs `inside_minimum_range`); inert
     /// under the shipped `not_read`.
     pub minimum_range: i32,
+    /// THE SPARKS this card's shot releases where it lands (`SparkDef`: the Firecracker's
+    /// FirecrackerExplosion), read under calibration combat.SPAWN_PROJECTILE =
+    /// client_spark_fan. None on every other card, and on the Firecracker too until cards.json
+    /// carries the row's SpawnCount and Scatter.
+    pub spark: Option<SparkDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `minimum_range`, and onto the end of that tail
+    // field goes HERE, after `spark`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -841,6 +886,9 @@ struct RawProjectileObj {
     homing: Option<bool>,
     /// The row's name: compared with a CustomFirstProjectile (`CardDef::custom_first_projectile`).
     name: Option<String>,
+    /// projectiles.csv SpawnProjectile, the whole row: what the shot releases where it lands
+    /// (`CardDef::spark`, `spark_of`). Kept as a value and read as a `RawSpellProjectile`.
+    spawn_projectile: Option<serde_json::Value>,
     // --- the straight-to-range columns (`RangeShotDef`).
     projectile_range_milli: Option<i32>,
     projectile_radius_milli: Option<i32>,
@@ -852,6 +900,12 @@ struct RawProjectileObj {
     /// projectiles.csv PingpongVisualTime, ms. Not written by tools/extract_cards.py
     /// today, so absent on every row (`RangeShotDef::pingpong_ms`).
     pingpong_visual_time_ms: Option<i32>,
+    /// projectiles.csv CheckCollisions, ProjectileStartExtraRadius and RandomDelay
+    /// (`RangeShotDef::check_collisions`, `start_extra`, `random_delay_ms`). Written by
+    /// tools/extract_cards.py on the 15.535 rows; absent reads false / 0.
+    check_collisions: Option<bool>,
+    projectile_start_extra_radius_milli: Option<i32>,
+    random_delay_ms: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -1383,6 +1437,10 @@ struct RawSpellProjectile {
     target_buff: Option<serde_json::Value>,
     buff_time_ms: Option<i32>,
     spawn_projectile: Option<Box<RawSpellProjectile>>,
+    /// projectiles.csv SpawnCount and Scatter: read on a troop shot's SpawnProjectile row
+    /// (`spark_of`). Written by tools/extract_cards.py on the 15.535 rows only.
+    spawn_count: Option<i32>,
+    scatter: Option<String>,
     action_graph: Option<RawActionGraph>,
 }
 
@@ -1716,6 +1774,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         spawn_area_effect: None,
         hovering: false,
         minimum_range: 0,
+        spark: None,
     }
 }
 
@@ -2515,6 +2574,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut projectile_homing = false;
     let mut projectile_name: Option<String> = None;
     let mut range_shot: Option<RangeShotDef> = None;
+    let mut spark: Option<SparkDef> = None;
     let projectile = match raw.projectile {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::Object(o)) => {
@@ -2548,6 +2608,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             projectile_homing = p.homing.unwrap_or(true);
             projectile_name = p.name.clone();
             range_shot = range_shot_of(&p);
+            spark = p.spawn_projectile.as_ref().and_then(spark_of);
             Some(ProjectileDef {
                 speed: p.speed.ok_or("projectile without speed")?,
                 radius: milli(p.radius_milli.unwrap_or(0)),
@@ -2795,6 +2856,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         minimum_range: milli(nonneg(raw.minimum_range_milli, "minimum_range_milli")?),
         #[cfg(clash_plant = "minimum_range_unread")]
         minimum_range: 0, // PLANT (regression): the loader drops the column, so the Mortar shoots at its own feet.
+        spark,
     }, display, units))
 }
 
@@ -2811,6 +2873,9 @@ fn range_shot_of(p: &RawProjectileObj) -> Option<RangeShotDef> {
         only_enemies: p.only_enemies.unwrap_or(false),
         knockback: knockback(p.pushback_milli, p.pushback_all),
         pingpong_ms: p.pingpong_visual_time_ms.filter(|t| *t > 0),
+        check_collisions: p.check_collisions.unwrap_or(false),
+        start_extra: milli(p.projectile_start_extra_radius_milli.unwrap_or(0).max(0)),
+        random_delay_ms: p.random_delay_ms.unwrap_or(0).max(0),
     })
 }
 
@@ -2840,6 +2905,40 @@ fn custom_shot_of(name: &str, table: &BTreeMap<String, serde_json::Value>) -> Re
         hits_air: p.aoe_to_air.unwrap_or(false),
         hits_ground: p.aoe_to_ground.unwrap_or(false),
         crown_pct: crown(p.crown_tower_damage_percent),
+    })
+}
+
+/// A troop shot's SpawnProjectile row (cards.json `projectile.spawn_projectile`) as the sparks it
+/// releases where the shot lands (`SparkDef`), or None when the row is not the measured shape: a
+/// positive SpawnCount with Scatter "Line", a Speed, a Damage, a positive ProjectileRange and
+/// ProjectileRadius, and no spawn, target cap, area effect, pushback, buff or scripted action of
+/// its own. None rather than a refusal, so the loaded card set is the same under both arms of
+/// combat.SPAWN_PROJECTILE: a card whose row reads None fires its shot as it does today.
+/// SpawnCount and Scatter are written by tools/extract_cards.py on the 15.535 rows only, so every
+/// row reads None until cards.json carries them.
+fn spark_of(v: &serde_json::Value) -> Option<SparkDef> {
+    let p: RawSpellProjectile = serde_json::from_value(v.clone()).ok()?;
+    if p.scatter.as_deref() != Some("Line")
+        || p.spawn_character.is_some()
+        || p.spawn_projectile.is_some()
+        || p.spawn_area_effect_object.is_some()
+        || p.maximum_targets.is_some()
+        || p.pushback_milli.is_some_and(|d| d > 0)
+        || p.target_buff.as_ref().is_some_and(|b| !b.is_null())
+        || p.action_graph.is_some()
+    {
+        return None;
+    }
+    Some(SparkDef {
+        count: p.spawn_count.filter(|n| *n > 0)?,
+        speed: p.speed.filter(|s| *s > 0)?,
+        damage: p.damage?,
+        crown_pct: crown(p.crown_tower_damage_percent),
+        range: milli(p.projectile_range_milli.filter(|r| *r > 0)?),
+        reach: milli(p.projectile_radius_milli.filter(|r| *r > 0)?),
+        hits_air: p.aoe_to_air.unwrap_or(false),
+        hits_ground: p.aoe_to_ground.unwrap_or(false),
+        only_enemies: p.only_enemies.unwrap_or(false),
     })
 }
 

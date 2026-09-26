@@ -287,6 +287,11 @@ pub struct Calib {
     /// `fire`, `step_straight`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "range_projectile_default")]
     pub range_projectile: RangeProjectile,
+    /// combat.PROJECTILE_COLLISIONS: whether a straight shot reads its row's CheckCollisions,
+    /// ProjectileStartExtraRadius and RandomDelay (combat.rs `fire`, `step_straight`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "projectile_collisions_default")]
+    pub projectile_collisions: ProjectileCollisions,
     /// combat.CUSTOM_FIRST_PROJECTILE: an attack fires the card's CustomFirstProjectile (combat.rs
     /// `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "custom_first_projectile_default")]
@@ -303,6 +308,11 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "deploy_projectile_default")]
     pub deploy_projectile: DeployProjectile,
+    /// combat.SPAWN_PROJECTILE: whether a troop's shot releases its row's SpawnProjectile where it
+    /// lands (combat.rs `fire`, `release_sparks`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// the old arm.
+    #[serde(default = "spawn_projectile_default")]
+    pub spawn_projectile: SpawnProjectile,
     /// targeting.DOOMED_TARGET_DROP: whether a projectile attacker drops a target the shots in flight
     /// will kill (`phase_target`, target.rs `can_target`). Added after SNAPSHOT_FORMAT 20; the
     /// `default` is the old arm, what a battle saved before it actually ran.
@@ -754,6 +764,10 @@ fn range_projectile_default() -> RangeProjectile {
     RangeProjectile::ToTarget
 }
 
+fn projectile_collisions_default() -> ProjectileCollisions {
+    ProjectileCollisions::NotRead
+}
+
 fn custom_first_projectile_default() -> CustomFirstProjectile {
     CustomFirstProjectile::NotRead
 }
@@ -768,6 +782,10 @@ fn multiple_targets_default() -> MultipleTargets {
 
 fn deploy_projectile_default() -> DeployProjectile {
     DeployProjectile::NotRead
+}
+
+fn spawn_projectile_default() -> SpawnProjectile {
+    SpawnProjectile::NotRead
 }
 
 fn doomed_target_drop_default() -> DoomedTargetDrop {
@@ -1461,6 +1479,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.PROJECTILE_COLLISIONS -- whether a straight shot reads three columns of its row:
+    /// CheckCollisions, ProjectileStartExtraRadius and RandomDelay (combat.rs `fire`,
+    /// `step_straight`).
+    ProjectileCollisions {
+        /// None of the three: every straight shot flies on after a hit, its creation-tick test
+        /// reaches ProjectileRadius alone, and a fan pellet stands a uniform 2-5 ticks
+        /// (`FAN_RELEASE_TICKS`).
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the Hunter: 134 pellet hits, 4 point-blank volleys and 136
+        /// release delays; the Bowler's boulders, the Elite Archer's arrows and the Firecracker's
+        /// sparks fly on): a CheckCollisions shot is gone on the tick it hits; the creation-tick
+        /// test reaches ProjectileRadius + ProjectileStartExtraRadius; a RandomDelay shot first
+        /// moves 1 + ceil(U / 50 ms) ticks after its creation, U uniform on 0..RandomDelay.
+        ClientColumns = "client_columns",
+    }
+);
+calib_enum!(
     /// combat.CUSTOM_FIRST_PROJECTILE -- whether an attack fires the card's CustomFirstProjectile
     /// (combat.rs `fire`).
     CustomFirstProjectile {
@@ -1505,6 +1540,20 @@ calib_enum!(
         /// first frame the projectile lands at the unit's position as an area impact, through the
         /// spell impact and knockback path.
         ClientOnLanding = "client_on_landing",
+    }
+);
+calib_enum!(
+    /// combat.SPAWN_PROJECTILE -- what a troop's shot whose row has a SpawnProjectile does where it
+    /// lands (combat.rs `fire`, `release_sparks`; card.rs `SparkDef`).
+    SpawnProjectile {
+        /// Nothing is released: the shot flies to its target like every other and lands with its
+        /// own damage (the Firecracker's rocket carries none).
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (the Firecracker, 2 shots, 10 sparks): the shot flies to its
+        /// target's start-of-tick centre and on landing releases SpawnCount straight shots there,
+        /// aimed ProjectileRange out at -32, -16, 0, +16, +32 degrees from its flight line; each
+        /// hits a unit once and flies on.
+        ClientSparkFan = "client_spark_fan",
     }
 );
 calib_enum!(
@@ -2655,10 +2704,12 @@ impl Calib {
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
             projectile_step: pick(&v, &["combat", "PROJECTILE_STEP", "value"], ProjectileStep::from_calibration_name)?,
             range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
+            projectile_collisions: pick(&v, &["combat", "PROJECTILE_COLLISIONS", "value"], ProjectileCollisions::from_calibration_name)?,
             custom_first_projectile: pick(&v, &["combat", "CUSTOM_FIRST_PROJECTILE", "value"], CustomFirstProjectile::from_calibration_name)?,
             multiple_projectiles: pick(&v, &["combat", "MULTIPLE_PROJECTILES", "value"], MultipleProjectiles::from_calibration_name)?,
             multiple_targets: pick(&v, &["combat", "MULTIPLE_TARGETS", "value"], MultipleTargets::from_calibration_name)?,
             deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
+            spawn_projectile: pick(&v, &["combat", "SPAWN_PROJECTILE", "value"], SpawnProjectile::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
@@ -10058,6 +10109,14 @@ impl BattleState {
                     h.id(by);
                 }
             }
+            // A spark carrier (combat.SPAWN_PROJECTILE new arm) hashes its own state; every other
+            // shot writes nothing more, so a battle without one hashes as it did.
+            if let Some(c) = &p.carrier {
+                h.u32(0x4341_5252);
+                h.vec(c.from);
+                h.u32(c.card as u32);
+                h.i32(c.damage);
+            }
             // A straight shot (combat.RANGE_PROJECTILE / MULTIPLE_PROJECTILES new arms) hashes its
             // own state; a homing shot writes nothing more, so every battle without one hashes
             // as it did before the field.
@@ -10075,6 +10134,11 @@ impl BattleState {
                 h.u32(st.hit.len() as u32);
                 for id in &st.hit {
                     h.id(*id);
+                }
+                // combat.PROJECTILE_COLLISIONS = client_columns: written only when set, so a
+                // straight shot without it hashes as it did before the field.
+                if st.stop_on_hit {
+                    h.u32(0x5354_4f50);
                 }
             }
         }
@@ -10334,6 +10398,12 @@ impl BattleState {
 ///    gained `attract_pct` (which also made the Tornado loadable). So a format-20 blob saved
 ///    before any of them is refused as saved against different card data, never run on the
 ///    new cards; that refusal, not the format number, is what says it is stale.
+/// 20, unchanged, a straight shot's collision columns (combat.PROJECTILE_COLLISIONS, which
+///    rides the projectile keys below): Calib gained projectile_collisions (serde default
+///    not_read) and `Straight` gained `stop_on_hit` (serde default false, hashed only when
+///    set), so a blob saved before them deserializes and hashes as it did. `RangeShotDef`
+///    gained three fields, so the card fingerprint moves with the projectile keys'.
+///    migrate_v3 runs a migrated battle at not_read.
 /// 20, unchanged, the projectile keys (combat.PROJECTILE_STEP, RANGE_PROJECTILE,
 ///    CUSTOM_FIRST_PROJECTILE, MULTIPLE_PROJECTILES, MULTIPLE_TARGETS, DEPLOY_PROJECTILE):
 ///    Calib gained six fields (serde default the old arms) and `Projectile` gained `straight`
@@ -10390,6 +10460,12 @@ impl BattleState {
 ///    `minimum_range`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved
 ///    against other card data. migrate_v3 strips the field with the rest of the post-format-3 tail and runs a
 ///    migrated battle at the old arms; no card's index moves.
+/// 20, unchanged, the sparks (combat.SPAWN_PROJECTILE): Calib gained spawn_projectile (serde
+///    default not_read) and `Projectile` gained `carrier` (serde default None, hashed only when
+///    present), so a blob saved before them deserializes and hashes as it did. CardDef gained
+///    `spark`, so the card fingerprint moves: a snapshot saved by an earlier build is refused
+///    as saved against other card data. migrate_v3 strips it with the rest of the
+///    post-format-3 tail and runs a migrated battle at not_read; no card's index moves.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -10569,12 +10645,13 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // added `hovering` after it.
                 // ~~... hovering~~ -- targeting.MINIMUM_RANGE (still format 20) added
                 // `minimum_range` after it.
+                // ~~... minimum_range~~ -- the sparks (still format 20) added `spark` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -10607,7 +10684,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.deploy_area_effect,
                     c.spawn_area_effect,
                     c.hovering,
-                    c.minimum_range
+                    c.minimum_range,
+                    c.spark
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -10699,6 +10777,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("first_tower_pick".into(), serde_json::to_value(FirstTowerPick::CurrentX).map_err(|e| e.to_string())?);
     sh.insert("tower_cancel_range".into(), serde_json::to_value(TowerCancelRange::Global).map_err(|e| e.to_string())?);
     sh.insert("hit_beyond_cancel_range".into(), serde_json::to_value(HitBeyondCancelRange::Damage).map_err(|e| e.to_string())?);
+    // combat.PROJECTILE_COLLISIONS: a format-3 battle read none of a straight shot's three columns
+    // (it had no straight shot); it keeps that whatever the ledger ships (the same rule).
+    sh.insert("projectile_collisions".into(), serde_json::to_value(ProjectileCollisions::NotRead).map_err(|e| e.to_string())?);
+    // combat.SPAWN_PROJECTILE: a format-3 battle released nothing where a shot landed; it keeps
+    // that whatever the ledger ships (the same rule).
+    sh.insert("spawn_projectile".into(), serde_json::to_value(SpawnProjectile::NotRead).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

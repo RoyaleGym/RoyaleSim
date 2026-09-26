@@ -486,6 +486,7 @@ SCALAR_STAT_COLUMNS = {
     "SpawnAngleShift", "CustomFirstProjectile", "AreaEffectObject", "InstantDamage",
     "MultipleProjectiles", "ProjectileWaves", "ProjectileWaveInterval", "SpellAsDeploy",
     "CanPlaceOnBuildings", "CanDeployOnEnemySide", "DurationSeconds",
+    "CheckCollisions", "ProjectileStartExtraRadius", "RandomDelay", "SpawnCount", "Scatter",
 }
 
 
@@ -1007,6 +1008,21 @@ def norm_projectile(t: dict[str, Table], name: str | None, chain: tuple[str, ...
         # axe, 1500), read under calibration combat.RANGE_PROJECTILE. Despite the name it is not
         # cosmetic (tools/mechanic_register.py KEPT_BY_AUDIT).
         out["pingpong_visual_time_ms"] = p["PingpongVisualTime"]
+        # 15.535 only, like action_graph, so the 2018 file stays byte-identical.
+        # CheckCollisions, ProjectileStartExtraRadius and RandomDelay: a straight shot that is gone on the tick
+        # it hits (the Hunter's pellet, the only row that sets the column; its evolution's pellet extends it),
+        # its creation-tick reach and its random release delay, read under calibration
+        # combat.PROJECTILE_COLLISIONS.
+        out["check_collisions"] = flag(p, "CheckCollisions")
+        out["projectile_start_extra_radius_milli"] = p["ProjectileStartExtraRadius"]
+        out["random_delay_ms"] = p["RandomDelay"]
+        # SpawnCount, Scatter and SpawnRadius: the sparks a SpawnProjectile row releases where its carrier
+        # lands (the Firecracker's FirecrackerExplosion: 5, "Line", 80), read under calibration
+        # combat.SPAWN_PROJECTILE. SpawnRadius is carried raw: what it means is unsettled (it moves no spark's
+        # start point; 80 over SpawnCount 5 is the 16 degrees between sparks, one row), and nothing reads it.
+        out["spawn_count"] = p["SpawnCount"]
+        out["scatter"] = p["Scatter"]
+        out["spawn_radius_raw"] = p["SpawnRadius"]
     return out
 
 
