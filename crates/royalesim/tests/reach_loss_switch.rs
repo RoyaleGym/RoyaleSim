@@ -17,17 +17,17 @@
 //!      pairs;
 //!   3. a Musketeer holds a leaving Hog while a Cannon stands in reach, and takes the Cannon on the first tick whose
 //!      start-of-tick Hog distance is past reach + 500;
-//!   3b. a Musketeer that launches at the Hog from beyond its reach takes the Cannon on the next tick, with the Hog
+//!   4. a Musketeer that launches at the Hog from beyond its reach takes the Cannon on the next tick, with the Hog
 //!      still inside reach + 500;
-//!   4. a princess tower drops a Knight walking out of its range on the first tick past Range + both radii + 500, and
-//!      never fires from beyond it; under the shipped values it fires from 9822 and drops it later;
-//!   5. the shipped values are true (every attacker) and keep_when_dead.
+//!   5. a princess tower drops a Knight walking out of its range on the first tick past Range + both radii + 500, and
+//!      never fires from beyond it; under the shipped values it fires from beyond that and drops it later;
+//!   6. the shipped values are true (every attacker) and keep_when_dead.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test reach_loss_switch`):
 //!   * `preserve_scope_ignored` -- every attacker's swing locks under the scoped value too: (1) goes red.
 //!   * `reach_switch_resets_swing` -- a switch to a target in reach restarts the swing: (1) goes red on the hit.
-//!   * `projectile_hold_1500` -- a projectile attacker holds to the old cancel range: (3) and (4) go red.
-//!   * `launch_beyond_ignored` -- a launch beyond reach does not end the hold: (3b) goes red.
+//!   * `projectile_hold_1500` -- a projectile attacker holds to the old cancel range: (3) and (5) go red.
+//!   * `launch_beyond_ignored` -- a launch beyond reach does not end the hold: (4) goes red.
 mod common;
 
 use common::*;
