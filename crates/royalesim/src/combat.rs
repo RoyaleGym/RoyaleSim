@@ -591,19 +591,13 @@ pub fn fire(
     let atk_buff = card.attack_buff;
     let atk_pulse = match atk_buff {
         None => 0,
-        Some(b) => {
-            let base = cards.buffs[b.buff as usize].pulse_base();
-            if base == 0 {
-                0
-            } else {
-                let mag = cards.scaled(ents.card[a], ents.level[a], base.abs()).unwrap_or(base.abs());
-                if base < 0 {
-                    -mag
-                } else {
-                    mag
-                }
-            }
-        }
+        // An unscalable level falls back to the level-1 figure, as before
+        // status.BUFF_PULSE_AMOUNT had a second arm; the closure cannot fail.
+        Some(b) => cards.buffs[b.buff as usize]
+            .pulse_amount(calib.buff_pulse_amount, |m| {
+                Ok::<i32, ()>(cards.scaled(ents.card[a], ents.level[a], m).unwrap_or(m))
+            })
+            .unwrap_or(0),
     };
     // THE CHARGED HIT (card.rs `ChargeDef`; calibration charge.SPECIAL_LEVEL_SCALING):
     // a charged unit's hit is DamageSpecial INSTEAD of Damage -- a replacement, not

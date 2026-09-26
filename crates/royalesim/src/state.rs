@@ -1285,8 +1285,12 @@ calib_enum!(
 );
 calib_enum!(
     /// status.BUFF_PULSE_AMOUNT -- what one pulse of a DamagePerSecond / HealPerSecond
-    /// buff is worth (status.rs `BuffDef::pulse_base`).
-    PulseAmount { PerSecondTimesFrequency = "per_second_times_frequency", PerPulse = "per_pulse" }
+    /// buff is worth (status.rs `BuffDef::pulse_amount`).
+    PulseAmount {
+        PerSecondTimesFrequency = "per_second_times_frequency",
+        PerPulse = "per_pulse",
+        ScaledPerSecondTimesFrequency = "scaled_per_second_times_frequency",
+    }
 );
 calib_enum!(
     /// status.BUFF_PULSE_TIMING -- when a pulsing buff's FIRST pulse falls.
@@ -2545,9 +2549,12 @@ impl Calib {
         // status.STUN_PAUSES_* key to the composition instead of the timer, and is
         // not implemented -- refused rather than run as `stun_timer`.
         only(&v, &["status", "FULL_STOP_BUFF_IS_STUN", "value"], "stun_timer")?;
-        // status.BUFF_PULSE_AMOUNT: only one arm is written (status.rs `BuffDef::pulse_base`).
-        // spells.PULSING_AREA_EFFECT has both (spell.rs `cast`) and is read with `pick` below.
-        only(&v, &["status", "BUFF_PULSE_AMOUNT", "value"], "per_second_times_frequency")?;
+        // status.BUFF_PULSE_AMOUNT: `per_pulse` is not written (status.rs
+        // `BuffDef::pulse_amount` implements the other two arms).
+        if string(&v, &["status", "BUFF_PULSE_AMOUNT", "value"])? == "per_pulse" {
+            return Err("status.BUFF_PULSE_AMOUNT = per_pulse has no engine implementation".into());
+        }
+        // spells.PULSING_AREA_EFFECT has both arms (spell.rs `cast`) and is read with `pick` below.
         // status.BUFF_STACKING: `per_source_slot` needs the buff's source as part of
         // its identity, which no entity column carries.
         only(&v, &["status", "BUFF_STACKING", "value"], "one_slot_per_buff_row")?;
@@ -8528,7 +8535,7 @@ impl BattleState {
                     continue;
                 }
                 released.push(
-                    spell::death_projectile(&self.cfg.cards, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
+                    spell::death_projectile(&self.cfg.cards, &self.cfg.calib, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
                         .expect("death projectile level validated at deploy"),
                 );
             }

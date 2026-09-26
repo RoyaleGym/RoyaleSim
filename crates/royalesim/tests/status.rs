@@ -46,13 +46,19 @@
 //!  10. a buff's BuildingDamagePercent and CrownTowerDamagePercent are both simulated
 //!      (an Earthquake pulse on a Cannon, a Poison pulse on a princess tower);
 //!  11. a HELD unit's attack progress stands still while its LOAD timer keeps
-//!      counting down (combat.ATTACK_CYCLE's boundary note).
+//!      counting down (combat.ATTACK_CYCLE's boundary note);
+//!  12. under status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency a pulse
+//!      is the HitFrequency share of the level-scaled per-second figure: the Battle
+//!      Healer's spawn heal pulses 50 at a 256% multiplier, where the shipped order
+//!      gives 48, and a once-a-second Poison is the same under both.
 //!
 //! PLANTS (regression):
 //!   * `buff_speed_unfloored` rounds the composition instead of truncating it: (1)
 //!     and (3) go red.
 //!   * `buff_on_raw_neighbours` gives `apply_attack_buff` back the RAW neighbour
 //!     query `splash` started from, the earlier bug: (9) goes red.
+//!   * `pulse_share_scaled` takes the share first under the new pulse arm: (12)
+//!     goes red.
 //!     RUSTFLAGS='--cfg clash_plant="buff_speed_unfloored"' CARGO_TARGET_DIR=target/plant cargo test --test status
 
 mod common;
@@ -427,6 +433,29 @@ fn a_pulsing_area_does_not_stack_with_itself() {
 // --------------------------------------------------------- 5. the DoT pulses
 
 #[test]
+fn a_pulse_is_the_share_of_the_level_scaled_per_second_figure() {
+    // (12) status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency, measured on
+    // client 15.535.29: the Battle Healer's spawn heal (BattleHealerSpawnBuff,
+    // HealPerSecond 79, a pulse every 250 ms) heals 50 a pulse at level 11, a 256%
+    // multiplier: 202 a second, and a quarter of it. The shipped order takes the
+    // quarter first (19) and scales that (48). A heal is negative.
+    let at_256 = |m: i32| Ok::<i32, ()>(royalesim::card::CardDb::scale(m, 256));
+    let heal = BuffDef { heal_per_second: 79, hit_frequency_ms: 250, ..Default::default() };
+    assert_eq!(heal.pulse_amount(PulseAmount::ScaledPerSecondTimesFrequency, at_256), Ok(-50));
+    assert_eq!(heal.pulse_amount(PulseAmount::PerSecondTimesFrequency, at_256), Ok(-48));
+    // Once a second the two orders agree: the Poison's 36 is 92 under both.
+    let poison = BuffDef { damage_per_second: 36, hit_frequency_ms: 1000, ..Default::default() };
+    for arm in [PulseAmount::ScaledPerSecondTimesFrequency, PulseAmount::PerSecondTimesFrequency] {
+        assert_eq!(poison.pulse_amount(arm, at_256), Ok(92), "{arm:?}");
+    }
+    // A buff that does not pulse is 0 under both.
+    let rage = BuffDef { speed_pct: 130, hit_speed_pct: 130, ..Default::default() };
+    for arm in [PulseAmount::ScaledPerSecondTimesFrequency, PulseAmount::PerSecondTimesFrequency] {
+        assert_eq!(rage.pulse_amount(arm, at_256), Ok(0), "{arm:?}");
+    }
+}
+
+#[test]
 fn a_poison_pulses_its_per_second_damage_once_a_second() {
     assert_shipped_arms();
     let mut s = bare(config());
@@ -795,6 +824,7 @@ fn an_unimplemented_candidate_is_refused_at_load() {
         ("status", "BUFF_PULSE_TIMING", "on_application"),
         ("status", "TARGET_BUFF_ON_SPLASH", "primary_target_only"),
         ("spells", "PULSING_AREA_EFFECT", "hit_speed_period_delayed"),
+        ("status", "BUFF_PULSE_AMOUNT", "scaled_per_second_times_frequency"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");
         v[section][key]["value"] = serde_json::Value::String(good.into());

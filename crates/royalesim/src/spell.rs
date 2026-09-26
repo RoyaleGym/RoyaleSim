@@ -256,7 +256,7 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
 /// whatever the speed, as a death bomb's does -- so its impact and its release are a cast
 /// projectile's arrival, on the tick after the death. Damage and the buff's pulse are scaled by
 /// the dying card's level here, once, as `cast` scales a spell's. Pure; `level` already validated.
-pub fn death_projectile(cards: &CardDb, team: Team, card: u16, level: i32, at: Vec2) -> Result<Spell, String> {
+pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, level: i32, at: Vec2) -> Result<Spell, String> {
     let def = cards.get(card);
     let Some(crate::card::SpellDef { shape: SpellShape::Projectile { hit, .. }, .. }) = &def.death_projectile else {
         return Err(format!("{} leaves no death projectile", def.name));
@@ -267,15 +267,7 @@ pub fn death_projectile(cards: &CardDb, team: Team, card: u16, level: i32, at: V
             let damage = cards.scaled(card, level, h.damage)?;
             let pulse = match h.buff {
                 None => 0,
-                Some(b) => {
-                    let base = cards.buffs[b.buff as usize].pulse_base();
-                    if base == 0 {
-                        0
-                    } else {
-                        let mag = cards.scaled(card, level, base.abs())?;
-                        if base < 0 { -mag } else { mag }
-                    }
-                }
+                Some(b) => cards.buffs[b.buff as usize].pulse_amount(calib.buff_pulse_amount, |m| cards.scaled(card, level, m))?,
             };
             (damage, pulse)
         }
@@ -293,16 +285,11 @@ pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16,
     #[cfg(clash_plant = "spell_damage_unscaled")]
     let scaled = |h: &SpellHit| cards.scaled(card, level, h.damage).map(|_| h.damage); // PLANT: level-1 damage at every level.
     // THE PULSE AMOUNT of whatever buff this spell carries, level-scaled by the
-    // caster once (status.rs `BuffDef::pulse_base`). Zero for a spell whose buff does
-    // not pulse, and for one with no buff at all.
+    // caster once (status.rs `BuffDef::pulse_amount`, status.BUFF_PULSE_AMOUNT). Zero
+    // for a spell whose buff does not pulse, and for one with no buff at all.
     let pulse_of = |hit: &SpellHit| -> Result<i32, String> {
         let Some(b) = hit.buff else { return Ok(0) };
-        let base = cards.buffs[b.buff as usize].pulse_base();
-        if base == 0 {
-            return Ok(0);
-        }
-        let mag = cards.scaled(card, level, base.abs())?;
-        Ok(if base < 0 { -mag } else { mag })
+        cards.buffs[b.buff as usize].pulse_amount(calib.buff_pulse_amount, |m| cards.scaled(card, level, m))
     };
     let mut out = Vec::new();
     match &spell.shape {

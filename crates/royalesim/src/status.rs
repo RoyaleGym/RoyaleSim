@@ -48,6 +48,7 @@
 //! columns do not settle is a `calibration.json` `status.*` key.
 
 use crate::fixed::Vec2;
+use crate::state::PulseAmount;
 
 /// A `character_buffs` row, as the loader read it. Copy, and printed by CardDef's
 /// Debug through `BuffApply`, so the card fingerprint moves when a buff's numbers
@@ -133,6 +134,41 @@ impl BuffDef {
         }
         let per_second = (self.damage_per_second - self.heal_per_second) as i64;
         (per_second * self.hit_frequency_ms as i64 / 1000) as i32
+    }
+
+    /// THE LEVEL-SCALED AMOUNT OF ONE PULSE, positive for damage and negative for a
+    /// heal (calibration status.BUFF_PULSE_AMOUNT). `scale` is the caster's level
+    /// scaling of a positive figure (`CardDb::scaled` for its card and level).
+    ///
+    /// per_second_times_frequency scales `pulse_base`: the share first, then the
+    /// level. scaled_per_second_times_frequency scales the per-second figure first
+    /// and takes its HitFrequency share, truncated. Measured on client 15.535.29:
+    /// the Battle Healer's spawn heal (79 a second, a pulse every 250 ms) heals 50 a
+    /// pulse at level 11, which is 202 / 4; the other order gives 19 scaled, 48. The
+    /// two orders agree on every buff that pulses once a second. 0 for a buff that
+    /// does not pulse.
+    pub fn pulse_amount<E>(&self, arm: PulseAmount, scale: impl Fn(i32) -> Result<i32, E>) -> Result<i32, E> {
+        match arm {
+            PulseAmount::ScaledPerSecondTimesFrequency => {
+                if !self.pulses() || self.hit_frequency_ms <= 0 {
+                    return Ok(0);
+                }
+                let per_second = self.damage_per_second - self.heal_per_second;
+                #[cfg(not(clash_plant = "pulse_share_scaled"))]
+                let mag = (scale(per_second.abs())? as i64 * self.hit_frequency_ms as i64 / 1000) as i32;
+                #[cfg(clash_plant = "pulse_share_scaled")]
+                let mag = scale(self.pulse_base().abs())?; // PLANT: the share first, then the level (48, not 50).
+                Ok(if per_second < 0 { -mag } else { mag })
+            }
+            PulseAmount::PerSecondTimesFrequency | PulseAmount::PerPulse => {
+                let base = self.pulse_base();
+                if base == 0 {
+                    return Ok(0);
+                }
+                let mag = scale(base.abs())?;
+                Ok(if base < 0 { -mag } else { mag })
+            }
+        }
     }
 }
 
