@@ -1263,6 +1263,7 @@ impl Battle {
     /// the client's own state, so where the engine parts from a recording the first of these fields
     /// to part names the input that went wrong. `debug_units` keeps its seven fields, which callers
     /// unpack by position; this is a separate row.
+    #[allow(clippy::type_complexity)] // a debug tuple row; the shape is documented above
     fn debug_contact(&self) -> PyResult<Vec<(i64, i32, i32, i32, i32, i32)>> {
         let s = self.s()?;
         Ok(s.entities()
