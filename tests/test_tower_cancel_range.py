@@ -117,11 +117,14 @@ def test_a_unit_keeps_the_global_cancel_range():
 
 
 def test_the_old_arm_is_todays_engine():
-    """Checked on the shared build of 2026-09-25 with the key dropped: the tower fires on ticks 16 and 32, the second
-    from 9822 (start of tick), drops the Knight on 33, and both shots land (109 on 32 and 50)."""
+    """The old arm holds a started shot to the global 1500 beyond: the tower fires on ticks 16 and 32, the second from
+    BEYOND the new arm's limit (9822 on the shared build of 2026-09-25, 9820 on sim/ship fdaa84a: the Knight's walk,
+    not this key, moved it), drops the Knight on 33, and both shots land (109 on 32 and 50)."""
     rows = tower_track(OLD_ARM)
     fired = [(b["t"], round(a["d"])) for a, b in pairwise(rows) if b["fired"]]
-    assert fired == [(16, 8877), (32, 9822)], fired
+    assert [t for t, _ in fired] == [16, 32], fired
+    assert fired[0][1] < IN_RANGE, f"the first shot is fired in range: {fired}"
+    assert LIMIT < fired[1][1] <= IN_RANGE + 1500, f"the second is fired past {LIMIT}, inside the global hold: {fired}"
     drop = next(r["t"] for r in rows[1:] if not r["on"])
     assert drop == 33
     assert hits(rows, TOWER_HIT) == [32, 50]

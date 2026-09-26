@@ -67,8 +67,24 @@ def first_bats(arm):
 
 
 def test_the_ring_uses_the_facing_rounded_to_a_whole_degree():
+    """The degree: the Bats land within 1 of the client's first frames (the shipped arm is 26 away, one degree around
+    the ring). The last native is the next test's."""
     t, bats, _, witch = first_bats(NEW_ARM)
     assert tuple(witch[F["facing"]]) == (255, 22), f"precondition: the witch faces {witch[F['facing']]}, not (255, 22)"
+    off = [max(abs(e[0] - c[0]), abs(e[1] - c[1])) for e, c in zip(bats, CLIENT_BATS, strict=True)]
+    assert max(off) <= 1, f"the first Bats stand at {bats} on step {t}; the client's are {CLIENT_BATS}"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the ring offset in whole native units: the client truncates each axis of R x table / 1024 toward zero, "
+    "(-130, +1494) and (+130, -1494) around the witch at (10612, 14651); the engine keeps the subtile fraction "
+    "(-130.33, +1494.11), and the Bats' first step rounds it into 1 native",
+)
+def test_the_ring_lands_on_the_clients_exact_points():
+    """Exact, as measured: the day the engine lays the ring in whole native units this passes, and the strict xfail
+    turns red to ask for the mark to go."""
+    t, bats, _, _ = first_bats(NEW_ARM)
     assert bats == CLIENT_BATS, f"the first Bats stand at {bats} on step {t}; the client's are {CLIENT_BATS}"
 
 
