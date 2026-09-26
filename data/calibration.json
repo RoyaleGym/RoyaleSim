@@ -2736,6 +2736,33 @@
       "open": "Dying TROOP parents: the Elixir Golem's splits steer (42 of 48 fit with the parent as a blocker); the Battle Ram's Barbarians do not (24 of 25 read 0). The Goblin Hut's own death goblin reads 0 where -190 is predicted. The corpus case at 122757.b2 tick 693 (the older Skeleton +69 and the newborn +150 in the client, both +150 in the engine), not reproduced on client 15.535.29, where 13 of 13 pairs match the engine; to be measured on the corpus.",
       "promotion_rules": "SETTLED 2026-09-26 at client16402_same_tick (see provenance). none, the engine before it, is the old arm.",
       "engine": "state.rs spawner_pass (the emissions) and the death-spawn step: the new units take one move step on creation"
+    },
+    "LIFE_STATE_WAKE_REACH": {
+      "value": "range_plus_radii_buildings_plus_228",
+      "status": "measured",
+      "confidence": "MEDIUM: the troop bound fits every wake; the building bound is bracketed to [7210.2, 7246.2) by four buildings, and 228 is an interim inside it.",
+      "provenance": "Measured on client 15.535.29: an enemy troop wakes a Goblin Hut when its centre distance less its CollisionRadius is at most the hut's Range + the hut's own radius (6000 + 1000); a flat centre distance of 7500 is refuted (a Giant woke it at 7733.6). An enemy BUILDING wakes it further out: a Cannon and an Inferno Tower (radius 600) at 7810.2 and not at 8000.0, a Tesla (500) at 7382.4 and not at 7905.7, a Tombstone (1000) at 8062.3 and not at 8246.2, which put the building bound in [7210.2, 7246.2); the radius enters for buildings too. What the extra 210-246 is, is open.",
+      "candidates": ["range_plus_radii_buildings_plus_228", "range_plus_radii"],
+      "promotion_rules": "Narrow the building bound; find what the extra is.",
+      "engine": "state.rs life_wakers (LIFE_WAKE_BUILDING_EXTRA)"
+    },
+    "LIFE_STATE_WAKE_TARGETS": {
+      "value": "enemy_troops_and_buildings",
+      "status": "measured",
+      "confidence": "HIGH: buildings, air troops and deploying troops each woke a hut on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29: enemy troops and enemy buildings wake a Goblin Hut, ground or air, deploying or active, and a unit removed on the same tick counts at its last position. The table names the DefaultCharacterTargets filter (enemy characters), which is not what the hut reads. Crown towers are not counted (none has stood within reach).",
+      "candidates": ["enemy_troops_and_buildings", "enemy_troops_only"],
+      "promotion_rules": "Settled; an enemy crown tower within reach would test the one exclusion.",
+      "engine": "state.rs life_wakers"
+    },
+    "ACTION_SPAWNER_SPAWN_SPEED": {
+      "value": "buffed",
+      "status": "measured",
+      "confidence": "HIGH for the Goblin Hut: Rage, Zap and Freeze each measured on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29: a raged Goblin Hut releases every 34 ticks (its clock at 130 %) although its controller does not set AffectedBySpawnSpeed; a Zap delays its next wave by 10 ticks and a Freeze by 80, while its lifetime drain runs on. Its clock runs at the hut's composed SpawnSpeed, of which a stun (-100) is the zero. Whether the periodic spawners' AffectedBySpawnSpeed gate holds is a separate question.",
+      "candidates": ["buffed", "not_applied"],
+      "promotion_rules": "Settled for the Goblin Hut; the interval spawners are measured apart.",
+      "engine": "state.rs life_state_pass"
     }
   },
   "lifetime": {

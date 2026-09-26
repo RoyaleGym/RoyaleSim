@@ -13913,6 +13913,15 @@
     "spawns": [],
     "mechanic": true
    },
+   "life_state_spawner": {
+    "action_delay_ms": 1000,
+    "spawn_interval_ms": 2200,
+    "character": "SpearGoblin_Dummy",
+    "number": 1,
+    "offset_milli": 1200,
+    "offset_angle_deg": 20,
+    "object_filter": "DefaultCharacterTargets"
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -53505,6 +53514,15 @@
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "life_state_spawner": {
+    "action_delay_ms": 1000,
+    "spawn_interval_ms": 2200,
+    "character": "SpearGoblin_Dummy",
+    "number": 1,
+    "offset_milli": 1200,
+    "offset_angle_deg": 20,
+    "object_filter": "DefaultCharacterTargets"
    },
    "death_spawn_pushback": false,
    "raw": {

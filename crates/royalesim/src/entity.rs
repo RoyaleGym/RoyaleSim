@@ -213,6 +213,18 @@ pub struct Entities {
     /// `default` and sized on load like `fired_at`.
     #[serde(default)]
     pub launched_beyond: Vec<bool>,
+    /// THE LIFE-STATE CONTROLLER (a Goblin Hut; state.rs `life_state_pass`): where it is (0 not started, 1 in its
+    /// ActionDelay, 2 sleeping, 3 awake), the ms its clock has left, the enemy its waves aim at (sticky), and the
+    /// waves it has released over its whole life (the side rule reads its parity). 0 / None on every other entity,
+    /// hashed only for a card that carries the controller. `default` and sized on load like `launched_beyond`.
+    #[serde(default)]
+    pub life_state: Vec<u8>,
+    #[serde(default)]
+    pub life_ms: Vec<i32>,
+    #[serde(default)]
+    pub life_target: Vec<Option<EntityId>>,
+    #[serde(default)]
+    pub life_n: Vec<u32>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -639,6 +651,10 @@ impl Entities {
             self.target_doomed[i] = false;
             self.fired_at[i] = None;
             self.launched_beyond[i] = false;
+            self.life_state[i] = 0;
+            self.life_ms[i] = 0;
+            self.life_target[i] = None;
+            self.life_n[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -716,6 +732,10 @@ impl Entities {
             self.target_doomed.push(false);
             self.fired_at.push(None);
             self.launched_beyond.push(false);
+            self.life_state.push(0);
+            self.life_ms.push(0);
+            self.life_target.push(None);
+            self.life_n.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);

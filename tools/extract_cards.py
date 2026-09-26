@@ -898,6 +898,31 @@ def action_graph(t: dict, rec: dict) -> dict | None:
     }
 
 
+def life_state_spawner(t: dict, rec: dict) -> dict | None:
+    """THE GOBLIN HUT'S CONTROLLER as a named block (15.535): the one root action of class
+    ActionGoblinHutLifeState the row names, with the parameters the loader reads. None for
+    every other row. Fail-closed: two such roots, or none, give None, and the loader then
+    refuses the graph as before."""
+    g = action_graph(t, rec)
+    if not g:
+        return None
+    acts = t["actions"]
+    found = [acts.get(v) for v in g["roots"].values()]
+    found = [a for a in found if a is not None and a["ClassType"] == "ActionGoblinHutLifeState"]
+    if len(found) != 1:
+        return None
+    a = found[0]
+    return {
+        "action_delay_ms": a["ActionDelay"],
+        "spawn_interval_ms": a["SpawnInterval"],
+        "character": a["SpawnData"],
+        "number": a["SpawnNumber"],
+        "offset_milli": a["SpawnOffset"],
+        "offset_angle_deg": a["SingleDeployOffsetAngle"],
+        "object_filter": a["ObjectFilter"],
+    }
+
+
 def raw_logic(rec: dict) -> dict:
     out = {}
     for h, v in rec.items():
@@ -1376,6 +1401,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     if isinstance(c, Row):
         # 15.535: the scripted actions the row reaches (None when it names none).
         u["action_graph"] = action_graph(t, c)
+        # The Goblin Hut's controller, when the row's graph is one (`life_state_spawner`);
+        # written only there, so every other row is unchanged.
+        ls = life_state_spawner(t, c)
+        if ls is not None:
+            u["life_state_spawner"] = ls
         # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
         # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
         # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
@@ -1694,6 +1724,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
             card[f] = u[f]
     if "action_graph" in u:
         card["action_graph"] = u["action_graph"]
+    if "life_state_spawner" in u:
+        card["life_state_spawner"] = u["life_state_spawner"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:

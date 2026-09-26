@@ -136,6 +136,9 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(SpellDef { shape: SpellShape::Summon { unit, .. }, .. }) = &c.spell {
         out.push((UnitRef::SpellSummon, *unit, None));
     }
+    if let Some(ls) = &c.life_state {
+        out.push((UnitRef::LifeState, ls.unit, None));
+    }
     out
 }
 

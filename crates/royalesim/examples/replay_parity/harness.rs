@@ -903,6 +903,8 @@ impl Roots {
                     // A spawner's unit is rooted through the entity that emitted it
                     // (`spawned_by`), not by card.
                     UnitRef::Spawner => continue,
+                    // a life-state controller's wave is emitted by its hut, rooted like a spawner's
+                    UnitRef::LifeState => continue,
                 };
                 of.entry(unit).or_default().push(i);
             }

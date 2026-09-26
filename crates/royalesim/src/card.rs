@@ -936,13 +936,16 @@ pub struct CardDef {
     /// firer's level; it first acts on the next tick like every object born in the Projectile phase
     /// (spell.rs `SpellOut::areas`). None on every card whose projectile leaves none.
     pub projectile_area: Option<SpellDef>,
+    /// THE LIFE-STATE CONTROLLER (the Goblin Hut; `LifeStateDef`, state.rs `life_state_pass`). None on every other
+    /// card.
+    pub life_state: Option<LifeStateDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `projectile_area`, and onto the end of that tail
+    // field goes HERE, after `life_state`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1118,6 +1121,8 @@ struct RawCard {
     /// cards.json `action_graph` (15.535: the scripted actions the row's *Action
     /// columns reach); absent in the 2018 file, null on a row that names none.
     action_graph: Option<RawActionGraph>,
+    /// The Goblin Hut's controller (`LifeStateDef`), 15.535 only.
+    life_state_spawner: Option<RawLifeState>,
     /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
     /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
     /// Barbarian's bottle dummy). A NAME, and nothing more: FreezeIceGolemite is a
@@ -1341,6 +1346,62 @@ struct RawActionGraph {
     mechanic: Option<bool>,
 }
 
+/// THE GOBLIN HUT'S LIFE-STATE CONTROLLER (the 15.535.29 tables' ActionGoblinHutLifeState; state.rs `life_state_pass`).
+/// All times ms, the offset SUBTILES.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LifeStateDef {
+    /// The released unit's CardDb index (a `summon_only` card: SpearGoblin_Dummy, a Spear Goblin with DeployTime 500).
+    pub unit: u16,
+    /// SpawnNumber: units a wave releases (1, the only count measured).
+    pub number: i32,
+    /// ActionDelay: from the hut's creation to its first look for an enemy.
+    pub action_delay_ms: i32,
+    /// SpawnInterval: from one wave to the next while an enemy stays in reach on the due tick.
+    pub interval_ms: i32,
+    /// SpawnOffset: how far from the hut's centre a wave stands.
+    pub offset: i32,
+    /// SingleDeployOffsetAngle: a wave stands this many degrees to one side of the line to its aim.
+    pub offset_angle_deg: i32,
+}
+
+/// cards.json `life_state_spawner`, every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawLifeState {
+    action_delay_ms: Option<i32>,
+    spawn_interval_ms: Option<i32>,
+    character: Option<String>,
+    number: Option<i32>,
+    offset_milli: Option<i32>,
+    offset_angle_deg: Option<i32>,
+    object_filter: Option<String>,
+}
+
+/// The controller a `life_state_spawner` block names, and its unit's name; or the reason it is refused. The graph must
+/// be exactly the controller and its cosmetic hooks (ActionGroup, ActionPlayEffect) and spawn nothing else; the object
+/// filter must be DefaultCharacterTargets (the wake set is measured, not read from the filter: state.rs
+/// `life_wakers`); a wave of one unit is the only one measured.
+fn life_state_of(raw: &RawLifeState, graph: &Option<RawActionGraph>) -> Result<(LifeStateDef, String), String> {
+    let refuse = |why: &str| Err(format!("the unit's life-state controller: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it") };
+    if !g.spawns.is_empty() || g.class_types.iter().any(|c| !matches!(c.as_str(), "ActionGoblinHutLifeState" | "ActionGroup" | "ActionPlayEffect")) {
+        return refuse(&format!("the graph runs more than the controller ({})", g.class_types.join(", ")));
+    }
+    if raw.object_filter.as_deref() != Some("DefaultCharacterTargets") {
+        return refuse(&format!("object filter {:?}", raw.object_filter));
+    }
+    let number = raw.number.unwrap_or(0);
+    if number != 1 {
+        return refuse(&format!("{number} units a wave"));
+    }
+    let interval_ms = raw.spawn_interval_ms.filter(|v| *v > 0).ok_or("the unit's life-state controller has no SpawnInterval")?;
+    let action_delay_ms = raw.action_delay_ms.filter(|v| *v >= 0).ok_or("the unit's life-state controller has no ActionDelay")?;
+    let offset = milli(raw.offset_milli.filter(|v| *v > 0).ok_or("the unit's life-state controller has no SpawnOffset")?);
+    let offset_angle_deg = raw.offset_angle_deg.ok_or("the unit's life-state controller has no SingleDeployOffsetAngle")?;
+    let unit = raw.character.clone().filter(|c| !c.is_empty()).ok_or("the unit's life-state controller spawns no character")?;
+    Ok((LifeStateDef { unit: u16::MAX, number, action_delay_ms, interval_ms, offset, offset_angle_deg }, unit))
+}
+
 /// Err when `graph` scripts a mechanic this loader does not read.
 fn refuse_action_mechanic(graph: &Option<RawActionGraph>, what: &str) -> Result<(), String> {
     match graph {
@@ -1455,6 +1516,8 @@ enum UnitUse {
     /// A troop projectile's SpawnAreaEffectObject: an AREA, resolved like `DeathAreaEffect` into
     /// `CardDef::projectile_area`.
     ProjectileArea,
+    /// The unit a life-state controller releases (`LifeStateDef::unit`, the Goblin Hut's SpearGoblin_Dummy).
+    LifeState,
 }
 
 /// The units a converter's record needs loaded: (which mechanic, unit name), for
@@ -1481,6 +1544,8 @@ pub enum UnitRef {
     DeathProjectile,
     /// A spell's summoned unit (`SpellShape::Summon`).
     SpellSummon,
+    /// A life-state controller's unit (`LifeStateDef::unit`).
+    LifeState,
 }
 
 impl UnitRef {
@@ -1493,6 +1558,7 @@ impl UnitRef {
             UnitRef::SecondSummon => "a second summon",
             UnitRef::DeathProjectile => "a death projectile",
             UnitRef::SpellSummon => "a spell summon",
+            UnitRef::LifeState => "a life-state controller",
         }
     }
 }
@@ -1958,6 +2024,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         minimum_range: 0,
         spark: None,
         projectile_area: None,
+        life_state: None,
     }
 }
 
@@ -2831,7 +2898,15 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         };
         return Ok((c, raw.display_name.clone(), Vec::new()));
     }
-    refuse_action_mechanic(&raw.action_graph, "the unit")?;
+    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) is the one action graph a unit may run, when the graph
+    // is exactly that controller and its cosmetic hooks (`life_state_of`). Every other graph is refused as before.
+    let life_state = match &raw.life_state_spawner {
+        None => {
+            refuse_action_mechanic(&raw.action_graph, "the unit")?;
+            None
+        }
+        Some(ls) => Some(life_state_of(ls, &raw.action_graph)?),
+    };
     refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
@@ -2937,6 +3012,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         None => 0,
     };
     let mut units: Vec<(UnitUse, String)> = Vec::new();
+    if let Some((_, name)) = &life_state {
+        units.push((UnitUse::LifeState, name.clone()));
+    }
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
     }
@@ -3135,6 +3213,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         minimum_range: 0, // PLANT (regression): the loader drops the column, so the Mortar shoots at its own feet.
         spark,
         projectile_area: None,
+        life_state: life_state.map(|(d, _)| d),
     }, display, units))
 }
 
@@ -3607,6 +3686,7 @@ impl CardDb {
                                 *su = u;
                             }
                         }
+                        UnitUse::LifeState => card.life_state.as_mut().expect("life_state present").unit = u,
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
@@ -3764,7 +3844,9 @@ impl CardDb {
         for (path, unit, level_index) in self.unit_refs(idx) {
             let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon => self.unit_level(idx, unit, level_index, level)?,
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState => {
+                    self.unit_level(idx, unit, level_index, level)?
+                }
             };
             if path == UnitRef::DeathProjectile {
                 for (_, sub, sub_index) in self.unit_refs(unit) {
@@ -3812,6 +3894,9 @@ impl CardDb {
         if let Some(SpellDef { shape: SpellShape::Summon { unit, .. }, .. }) = &c.spell {
             out.push((UnitRef::SpellSummon, *unit, None));
         }
+        if let Some(ls) = c.life_state {
+            out.push((UnitRef::LifeState, ls.unit, None));
+        }
         out
     }
 
@@ -3834,6 +3919,7 @@ impl CardDb {
                 UnitRef::DeathProjectile => card.death_projectile = None,
                 // A summon with no unit summons nothing: the spell goes with it.
                 UnitRef::SpellSummon => card.spell = None,
+                UnitRef::LifeState => card.life_state = None,
             }
         }
         let card = &mut self.cards[idx as usize];

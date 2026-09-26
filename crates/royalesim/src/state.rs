@@ -448,6 +448,14 @@ pub struct Calib {
     /// default is `OnLandingTick`, what a battle saved before it ran.
     #[serde(default = "roll_first_step_default")]
     pub roll_first_step: RollFirstStep,
+    /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
+    /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
+    #[serde(default = "life_state_wake_reach_default")]
+    pub life_state_wake_reach: LifeWakeReach,
+    #[serde(default = "life_state_wake_targets_default")]
+    pub life_state_wake_targets: LifeWakeTargets,
+    #[serde(default = "action_spawner_spawn_speed_default")]
+    pub action_spawner_spawn_speed: ActionSpawnSpeed,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -982,6 +990,18 @@ fn strike_reach_default() -> StrikeReach {
 
 fn roll_first_step_default() -> RollFirstStep {
     RollFirstStep::OnLandingTick
+}
+
+fn life_state_wake_reach_default() -> LifeWakeReach {
+    LifeWakeReach::BuildingsFurther
+}
+
+fn life_state_wake_targets_default() -> LifeWakeTargets {
+    LifeWakeTargets::TroopsAndBuildings
+}
+
+fn action_spawner_spawn_speed_default() -> ActionSpawnSpeed {
+    ActionSpawnSpeed::Buffed
 }
 
 macro_rules! calib_enum {
@@ -2082,6 +2102,40 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
+    /// the enemy's CollisionRadius.
+    LifeWakeReach {
+        /// A troop within the hut's Range + its own radius (7000); a building LIFE_WAKE_BUILDING_EXTRA further
+        /// (7228). Measured on client 15.535.29: troops at 7000; a Cannon and an Inferno (r 600) at 7810.2 and not
+        /// at 8000, a Tesla (r 500) at 7382.4 and not at 7905.7, a Tombstone (r 1000) at 8062.3 and not at 8246.2,
+        /// which put the building bound in [7210.2, 7246.2).
+        BuildingsFurther = "range_plus_radii_buildings_plus_228",
+        /// Both at Range + the hut's radius: refuted by the Cannon at 7810.2.
+        Same = "range_plus_radii",
+    }
+);
+calib_enum!(
+    /// spawner.LIFE_STATE_WAKE_TARGETS -- which enemies wake a Goblin Hut (`life_state_pass`).
+    LifeWakeTargets {
+        /// Enemy troops and buildings, air and ground, deploying ones too; not crown towers. Measured on client
+        /// 15.535.29.
+        TroopsAndBuildings = "enemy_troops_and_buildings",
+        /// Enemy troops alone: refuted (a Cannon, an Inferno Tower, a Tesla and a Tombstone woke it).
+        TroopsOnly = "enemy_troops_only",
+    }
+);
+calib_enum!(
+    /// spawner.ACTION_SPAWNER_SPAWN_SPEED -- whether an action-made spawner's clock runs at its composed SpawnSpeed
+    /// (`life_state_pass`).
+    ActionSpawnSpeed {
+        /// It does, whatever AffectedBySpawnSpeed says. Measured on client 15.535.29: a raged Goblin Hut releases
+        /// every 34 ticks (130 %), a Zap delays it 10 ticks and a Freeze 80 (a stun is a -100 SpawnSpeed buff).
+        Buffed = "buffed",
+        /// It does not.
+        NotApplied = "not_applied",
+    }
+);
+calib_enum!(
     /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
     RollFirstStep {
         /// On the tick the airborne projectile lands: today's engine.
@@ -2891,6 +2945,9 @@ impl Calib {
             strike_hp_rank: pick(&v, &["spells", "STRIKE_HP_RANK", "value"], StrikeHpRank::from_calibration_name)?,
             strike_reach: pick(&v, &["spells", "STRIKE_REACH", "value"], StrikeReach::from_calibration_name)?,
             roll_first_step: pick(&v, &["spells", "ROLL_FIRST_STEP", "value"], RollFirstStep::from_calibration_name)?,
+            life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
+            life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
+            action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -3868,6 +3925,16 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     }
 }
 
+/// spawner.LIFE_STATE_WAKE_REACH = range_plus_radii_buildings_plus_228: how much further than a troop an enemy building
+/// wakes a Goblin Hut, native. Measured on client 15.535.29: the building bound lies in [7210.2, 7246.2) against the
+/// troops' 7000; 228 is inside it, and what the extra is stays open.
+pub const LIFE_WAKE_BUILDING_EXTRA: i64 = 228;
+
+/// The Goblin Hut's side rule's TIE CUT, native: two candidate points whose y values differ by less than this count as
+/// level, and the even wave takes the larger x. Measured on client 15.535.29: the cut lies in (13.4, 14.3]; whether it is
+/// a threshold on the difference or a rounding of the points is open.
+pub const LIFE_SIDE_TIE_CUT: i64 = 14;
+
 /// THE DASH GOAL (combat.DASH_ATTACK = client_dash), native: the centre of the 500-cell holding the point `rr` (own
 /// radius + target radius, native) short of `target`'s centre on the line to `actor`, the target's centre itself when
 /// the two coincide. Measured on client 15.535.29: 7 of 7 Bandit dashes head at it within 0.1 degree, and the Mega
@@ -4593,6 +4660,184 @@ impl BattleState {
         self.create_emissions(emissions);
     }
 
+    /// THE GOBLIN HUT'S CONTROLLER (the 15.535.29 tables' ActionGoblinHutLifeState; card.rs `LifeStateDef`), one step per
+    /// tick on this tick's post-move positions, right after the spawner pass. Measured on client 15.535.29 (35 runs) and
+    /// on the 16.402 corpus (68 of 68 waves over 32 huts):
+    /// - ActionDelay counts down from the tick the hut is created (its deploy runs beside it); the tick after it is spent
+    ///   the hut looks for an enemy: one in reach releases a wave at once, and the next is due 43 ticks later; none puts
+    ///   it to sleep;
+    /// - SLEEPING: the first tick an enemy is in reach releases a wave, and the next is due SpawnInterval later (44
+    ///   ticks);
+    /// - AWAKE: nothing between due ticks, whatever the reach does; on a due tick a wave if an enemy is in reach (the
+    ///   clock carries its overshoot), else back to sleep with no wave;
+    /// - the clock runs at the hut's composed SpawnSpeed (spawner.ACTION_SPAWNER_SPAWN_SPEED): Rage 130 %, a stun 0.
+    fn life_state_pass(&mut self) {
+        const NOT_STARTED: u8 = 0;
+        const DELAY: u8 = 1;
+        const SLEEPING: u8 = 2;
+        const AWAKE: u8 = 3;
+        let dt = self.cfg.calib.tick_ms;
+        let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] {
+                continue;
+            }
+            let Some(ls) = self.cfg.cards.get(self.ents.card[i]).life_state else { continue };
+            let step = match self.cfg.calib.action_spawner_spawn_speed {
+                ActionSpawnSpeed::Buffed => dt * self.ents.buffed(&self.cfg.cards.buffs, i, Sel::SpawnSpeed, 100) / 100,
+                ActionSpawnSpeed::NotApplied => dt,
+            };
+            if self.ents.life_state[i] == NOT_STARTED {
+                self.ents.life_state[i] = DELAY;
+                self.ents.life_ms[i] = ls.action_delay_ms;
+            }
+            match self.ents.life_state[i] {
+                DELAY => {
+                    if self.ents.life_ms[i] > 0 {
+                        self.ents.life_ms[i] -= step;
+                        continue;
+                    }
+                    if let Some(w) = self.life_wave(i, &ls) {
+                        emissions.push(w);
+                        self.ents.life_state[i] = AWAKE;
+                        // the first look's wave comes one tick into the interval: the next is due 43 ticks later
+                        #[cfg(not(clash_plant = "life_first_interval_44"))]
+                        {
+                            self.ents.life_ms[i] = ls.interval_ms - dt;
+                        }
+                        #[cfg(clash_plant = "life_first_interval_44")]
+                        {
+                            self.ents.life_ms[i] = ls.interval_ms; // PLANT: a whole interval after the first look's wave.
+                        }
+                    } else {
+                        self.ents.life_state[i] = SLEEPING;
+                    }
+                }
+                SLEEPING => {
+                    if let Some(w) = self.life_wave(i, &ls) {
+                        emissions.push(w);
+                        self.ents.life_state[i] = AWAKE;
+                        self.ents.life_ms[i] = ls.interval_ms;
+                    }
+                }
+                _ => {
+                    self.ents.life_ms[i] -= step;
+                    if self.ents.life_ms[i] > 0 {
+                        continue;
+                    }
+                    if let Some(w) = self.life_wave(i, &ls) {
+                        emissions.push(w);
+                        self.ents.life_ms[i] += ls.interval_ms;
+                    } else {
+                        self.ents.life_state[i] = SLEEPING;
+                        self.ents.life_ms[i] = 0;
+                    }
+                }
+            }
+        }
+        self.create_emissions(emissions);
+    }
+
+    /// THE ENEMIES THAT WAKE hut `i` (spawner.LIFE_STATE_WAKE_TARGETS / LIFE_STATE_WAKE_REACH), as (edge, team_seq,
+    /// index), the edge being the centre distance less the enemy's CollisionRadius, native. Measured on client 15.535.29:
+    /// enemy troops and buildings, air and ground, deploying ones too; not the filter the table names.
+    fn life_wakers(&self, i: usize) -> Vec<(i64, u32, usize)> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let e = &self.ents;
+        let card = self.cfg.cards.get(e.card[i]);
+        let troop_bound = ((card.range + e.radius[i]) / K) as i64;
+        let building_bound = troop_bound
+            + match self.cfg.calib.life_state_wake_reach {
+                LifeWakeReach::BuildingsFurther => LIFE_WAKE_BUILDING_EXTRA,
+                LifeWakeReach::Same => 0,
+            };
+        let mut out = Vec::new();
+        for v in 0..e.capacity() {
+            if !e.alive[v] || e.hp[v] <= 0 || e.team[v] == e.team[i] {
+                continue;
+            }
+            let bound = match e.kind[v] {
+                EntityKind::Troop => troop_bound,
+                EntityKind::Building if self.cfg.calib.life_state_wake_targets == LifeWakeTargets::TroopsAndBuildings => building_bound,
+                _ => continue,
+            };
+            #[cfg(clash_plant = "life_ground_only")]
+            if e.flying[v] {
+                continue; // PLANT: an air troop wakes nothing.
+            }
+            let (dx, dy) = ((e.pos[v].x / K - e.pos[i].x / K) as i64, (e.pos[v].y / K - e.pos[i].y / K) as i64);
+            let edge = isqrt(dx * dx + dy * dy) - (e.radius[v] / K) as i64;
+            if edge <= bound {
+                out.push((edge, e.team_seq[v], v));
+            }
+        }
+        out
+    }
+
+    /// ONE WAVE of hut `i`, or None when no enemy is in reach. The aim is the enemy the last wave aimed at while it still
+    /// wakes the hut, else the nearest by edge (ties to the earliest created). The wave stands SpawnOffset from the hut's
+    /// centre, SingleDeployOffsetAngle to one side of the line to the aim, in the arena's frame. Measured on client
+    /// 15.535.29 (161 of 161 waves): of the two candidate points, the hut's even waves (counted over its whole life,
+    /// a sleep included) take the one with the lower y -- or, when the two y values differ by less than the tie cut, the
+    /// one with the larger x -- and its odd waves the other. The unit is created with its own DeployTime
+    /// (SpearGoblin_Dummy 500) and cannot be acquired by an enemy before its F+7 (targeting.SPAWNED_UNIT_ACQUIRE_DELAY;
+    /// measured on 65 waves).
+    fn life_wave(&mut self, i: usize, ls: &crate::card::LifeStateDef) -> Option<(Team, u32, u32, PendingSpawn)> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let wakers = self.life_wakers(i);
+        let nearest = wakers.iter().min_by_key(|w| (w.0, w.1)).map(|w| w.2)?;
+        let sticky = self.ents.life_target[i].filter(|t| self.ents.is_alive(*t)).map(|t| t.index as usize).filter(|t| wakers.iter().any(|w| w.2 == *t));
+        let aim = sticky.unwrap_or(nearest);
+        self.ents.life_target[i] = Some(self.ents.id_of(aim));
+        let (hx, hy) = ((self.ents.pos[i].x / K) as i64, (self.ents.pos[i].y / K) as i64);
+        let (dx, dy) = ((self.ents.pos[aim].x / K) as i64 - hx, (self.ents.pos[aim].y / K) as i64 - hy);
+        let n = isqrt(dx * dx + dy * dy).max(1);
+        let (c, s) = (crate::formation::sin1024(ls.offset_angle_deg + 90) as i64, crate::formation::sin1024(ls.offset_angle_deg) as i64);
+        let off = (ls.offset / K) as i64;
+        let den = n * 1024;
+        // the two candidate points: the line to the aim turned by +angle and by -angle
+        let plus = (hx + off * (dx * c - dy * s) / den, hy + off * (dx * s + dy * c) / den);
+        let minus = (hx + off * (dx * c + dy * s) / den, hy + off * (dy * c - dx * s) / den);
+        let first = if (plus.1 - minus.1).abs() < LIFE_SIDE_TIE_CUT {
+            if plus.0 >= minus.0 {
+                plus
+            } else {
+                minus
+            }
+        } else if plus.1 <= minus.1 {
+            plus
+        } else {
+            minus
+        };
+        let other = if first == plus { minus } else { plus };
+        #[cfg(not(clash_plant = "life_no_alternation"))]
+        let even = self.ents.life_n[i] % 2 == 0;
+        #[cfg(clash_plant = "life_no_alternation")]
+        let even = true; // PLANT: every wave on the even side.
+        let (px, py) = if even { first } else { other };
+        self.ents.life_n[i] += 1;
+        let team = self.ents.team[i];
+        let unit = self.cfg.cards.get(ls.unit);
+        let at = self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), Vec2::new(px as i32 * K, py as i32 * K))[0];
+        let level = self.cfg.cards.unit_level(self.ents.card[i], ls.unit, None, self.ents.level[i]).expect("the controller's unit level validated at deploy");
+        let p = PendingSpawn {
+            team,
+            card: ls.unit,
+            level,
+            pos: at,
+            deploy_ms: None,
+            owner: Some(self.ents.id_of(i)),
+            stagger_ms: 0,
+            slide_centre: Vec2::default(),
+            slide_radius: 0,
+            acquire_delay: true,
+            first_update: false,
+            facing: None,
+            summon_x: None,
+        };
+        Some((team, self.ents.team_seq[i], 0, p))
+    }
+
     /// EMISSIONS ONTO THE BOARD: the units a pass decided to emit, each tagged (team,
     /// the emitter's team_seq, k), put in that canonical order before anything is
     /// created, so the creation order -- and therefore team_seq -- is slot-free
@@ -5302,6 +5547,7 @@ impl BattleState {
             // their units materialise NEXT tick. The shipped arm runs the pass in
             // Move instead (spawner.EMISSION_TIMING).
             self.spawner_pass();
+            self.life_state_pass();
         }
     }
 
@@ -7579,6 +7825,8 @@ impl BattleState {
             // time on the tick the deploy timer reaches zero, and creates its units in
             // this tick (spawner.EMISSION_TIMING, measured on 44 live Tombstones).
             self.spawner_pass();
+            // The Goblin Hut's controller, on the same post-move positions.
+            self.life_state_pass();
         }
     }
 
@@ -10189,6 +10437,17 @@ impl BattleState {
                 if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly {
                     h.bool(e.launched_beyond[i]);
                 }
+                // A life-state controller's state, only on a card that carries one: a battle with none hashes as
+                // before the columns.
+                #[cfg(not(clash_plant = "hash_skips_life_state"))]
+                if self.cfg.cards.get(e.card[i]).life_state.is_some() {
+                    h.u32(e.life_state[i] as u32);
+                    h.i32(e.life_ms[i]);
+                    h.bool(e.life_target[i].is_some());
+                    h.u32(e.life_target[i].map_or(0, |t| t.index));
+                    h.u32(e.life_target[i].map_or(0, |t| t.generation));
+                    h.u32(e.life_n[i]);
+                }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
                 // it did before the columns.
@@ -10884,7 +11143,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -10919,7 +11178,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.hovering,
                     c.minimum_range,
                     c.spark,
-                    c.projectile_area
+                    c.projectile_area,
+                    c.life_state
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -11277,6 +11537,10 @@ impl BattleState {
         snap.ents.target_doomed.resize(n, false);
         snap.ents.fired_at.resize(n, None);
         snap.ents.launched_beyond.resize(n, false);
+        snap.ents.life_state.resize(n, 0);
+        snap.ents.life_ms.resize(n, 0);
+        snap.ents.life_target.resize(n, None);
+        snap.ents.life_n.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);

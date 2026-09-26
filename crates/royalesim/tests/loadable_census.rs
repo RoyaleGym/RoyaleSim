@@ -222,7 +222,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("GoblinDemolisher", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionRunActionAtHealth, ActionSpawn; spawns AreaEffectType:CancelTauntAEO)"),
     ("GoblinDrill", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 300, morphing into GoblinDrill on arrival)"),
     ("GoblinGiant", "spawner SpearGoblinGiant"),
-    ("GoblinHut", "the unit runs an action graph this loader does not read (ActionGoblinHutLifeState, ActionGroup, ActionPlayEffect)"),
     ("GoblinPartyRocket", "projectile GoblinMorphProjectile with a target cap or an area effect is not simulated"),
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
     ("Goblinstein", "the unit runs an action graph this loader does not read (ActionActivateOnCardDeploy, ActionEnabbleHPBarConditionForDuration, ActionGroup, ActionWithDuration)"),
