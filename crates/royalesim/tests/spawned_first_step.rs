@@ -30,7 +30,7 @@ mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
-use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState, Calib, DeathSpawnPushback, SpawnedFirstStep};
 use royalesim::{EntityId, Team};
 
@@ -54,8 +54,10 @@ fn native(v: Vec2) -> (i32, i32) {
     (v.x / K, v.y / K)
 }
 
-fn dist(a: (i32, i32), b: (i32, i32)) -> f64 {
-    (((a.0 - b.0) as f64).powi(2) + ((a.1 - b.1) as f64).powi(2)).sqrt()
+/// The distance between two native points, the integer square root (the engine has no floating point).
+fn dist(a: (i32, i32), b: (i32, i32)) -> i64 {
+    let (dx, dy) = ((a.0 - b.0) as i64, (a.1 - b.1) as i64);
+    isqrt(dx * dx + dy * dy)
 }
 
 /// Tick `s` until a Blue troop that was not on the board appears and matches `pick`; returns the newborns (by
@@ -101,7 +103,7 @@ fn an_emitted_skeleton_takes_its_first_step_on_its_creation_tick() {
     assert!(old[1] != old[0], "scene: the old arm's Skeleton does not walk on its second frame");
     let (new, _) = lone_wave(NEW);
     let moved = dist(new[0], EMISSION);
-    assert!((60.0..=100.0).contains(&moved), "the first Skeleton stands {moved:.0} from the emission point on its first frame, not one step");
+    assert!((60..=100).contains(&moved), "the first Skeleton stands {moved} from the emission point on its first frame, not one step");
     // The wave's second Skeleton comes out on frame n, within contact of the first (two radii of 500, 801 apart),
     // and pushes it from the next tick on, at a point of its path that differs between the arms: the paths are
     // compared up to frame n of the old arm, which the push has not reached.
@@ -119,7 +121,7 @@ fn death_stack(arm: SpawnedFirstStep) -> Vec<(i32, i32)> {
     for _ in 0..12 {
         s.tick();
     }
-    let near: Vec<(i32, i32)> = s.entities().filter(|e| e.card == "Skeleton").map(|e| native(e.pos)).filter(|p| dist(*p, EMISSION) < 1000.0).collect();
+    let near: Vec<(i32, i32)> = s.entities().filter(|e| e.card == "Skeleton").map(|e| native(e.pos)).filter(|p| dist(*p, EMISSION) < 1000).collect();
     assert!(near.is_empty(), "scene: a periodic Skeleton still stands near the emission point: {near:?}");
     assert!(s.debug_set_hp(tomb, 0));
     let born = tick_until_born(&mut s, 3, |e| e.spawned_by.is_none());
@@ -135,7 +137,7 @@ fn a_dying_tombstones_four_skeletons_take_one_step_together() {
     let new = death_stack(NEW);
     assert!(new.iter().all(|p| *p == new[0]), "the four death Skeletons do not share one point on their first frame: {new:?}");
     let moved = dist(new[0], EMISSION);
-    assert!((60.0..=100.0).contains(&moved), "the death stack stands {moved:.0} from the emission point, not one step");
+    assert!((60..=100).contains(&moved), "the death stack stands {moved} from the emission point, not one step");
 }
 
 /// A Blue Golem at 0 hp at (9000, 13000) dies on the first tick; its Golemites, native, on their first frame.
