@@ -1186,6 +1186,10 @@ calib_enum!(
     SpawnPoint {
         InFrontAtOwnRadius = "in_front_toward_enemy_at_own_radius",
         AtCentre = "at_centre",
+        /// client16402_measured with one change: a set SpawnAngleShift's ring turns at the spawner's facing ROUNDED
+        /// to a whole degree (formation.rs `rounded_degree`), where the measured arm takes the 1024 table's argmax.
+        /// Measured on client 15.535.29: 7 of 7 Night Witch two-Bat emissions exact, against 6 of 7.
+        ClientRoundedFacingDegree = "client_rounded_facing_degree",
         /// THE MEASURED LAW, and it splits on whether the card sets SpawnRadius.
         ///
         /// BLANK SpawnRadius: the emission is FORWARD, at the two circles' TANGENT,
@@ -1551,6 +1555,12 @@ calib_enum!(
         /// The engine grid around the death point, pulled back onto the radius (the
         /// earlier engine; refuted on the Battle Ram's Barbarians, 300-500 native off).
         EngineGridWithinRadius = "engine_grid_within_radius",
+        /// facing_ring with two changes, measured on client 15.535.29 (17 Battle Ram deaths): the ring lies at the
+        /// facing's angle ROUNDED to a whole degree (formation.rs `rounded_degree`; 13 of 17 exact, the other 4
+        /// a raged or cursed Ram one degree off), member k at the radius through the sine table at that degree +
+        /// SpawnAngleShift + k x 360 / count; and every member starts with the dying unit's heading (17 of 17), the
+        /// facing normalized to length 256, not its side's forward.
+        FacingRingRounded = "facing_ring_rounded",
     }
 );
 calib_enum!(
@@ -2305,6 +2315,11 @@ struct PendingSpawn {
     /// itself. Added after SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     first_update: bool,
+    /// The heading the unit starts with, instead of its side's forward: a death-spawn member under
+    /// spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded takes the dying unit's. None on everything else. Added after
+    /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
+    #[serde(default)]
+    facing: Option<Vec2>,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -2993,6 +3008,9 @@ impl BattleState {
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
             self.ents.death_slide_radius[id.index as usize] = p.slide_radius;
+            if let Some(f) = p.facing {
+                self.ents.facing[id.index as usize] = f;
+            }
             if p.acquire_delay {
                 self.delay_acquisition(id.index as usize);
             }
@@ -3128,7 +3146,7 @@ impl BattleState {
             // the two circles. The SpawnRadius case does not go through here at all,
             // because it is a ring over the whole wave rather than one point the
             // formation is laid out around (`measured_ring_points`).
-            SpawnPoint::Client16402Measured => {
+            SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree => {
                 let unit_r = self.cfg.cards.get(sp.unit).collision_radius;
                 let d = self.ents.radius[i] + unit_r;
                 Vec2::new(c.x, c.y + spell::forward_dy(self.ents.team[i]) * d)
@@ -3156,6 +3174,8 @@ impl BattleState {
         // consulted when the card SETS a shift; the blank case must not move with it.
         let facing_deg = if shift == 0 {
             0
+        } else if self.cfg.calib.spawner_spawn_point == SpawnPoint::ClientRoundedFacingDegree {
+            crate::formation::rounded_degree(self.ents.facing[i])
         } else {
             let f = self.ents.facing[i];
             // The facing as a whole number of degrees, in the same convention the ring
@@ -3260,7 +3280,7 @@ impl BattleState {
             // point, so the ring replaces the layout instead of feeding it. A card
             // that leaves SpawnRadius blank returns None here and takes the old path
             // with the new forward point.
-            let ring = if self.cfg.calib.spawner_spawn_point == SpawnPoint::Client16402Measured {
+            let ring = if matches!(self.cfg.calib.spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree) {
                 self.measured_ring_points(i, &sp, sp.number)
             } else {
                 None
@@ -3292,7 +3312,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None }));
                     k += 1;
                 }
                 left -= 1;
@@ -3362,6 +3382,9 @@ impl BattleState {
             self.ents.stagger_ms[i] = p.stagger_ms;
             self.ents.death_slide_centre[i] = p.slide_centre;
             self.ents.death_slide_radius[i] = p.slide_radius;
+            if let Some(f) = p.facing {
+                self.ents.facing[i] = f;
+            }
             // No periodic emission carries the flag today: a Tombstone's periodic Skeleton is
             // born targetable, as measured, and the other loaded spawners follow it here,
             // unmeasured. A Goblin Hut's waves will carry it when that card loads, and then this
@@ -3510,6 +3533,29 @@ impl BattleState {
                         // rotate the unit facing by deg, scale to r: (ux cos - uy sin, ux sin + uy cos)
                         let rx = ((u.x as i64) * cs - (u.y as i64) * sn) * r / (ulen * 1024);
                         let ry = ((u.x as i64) * sn + (u.y as i64) * cs) * r / (ulen * 1024);
+                        pos.add(Vec2::new(rx as i32, ry as i32))
+                    })
+                    .collect()
+            }
+            DeathSpawnLayout::FacingRingRounded => {
+                let n = count.max(1);
+                let u = if facing == Vec2::default() {
+                    match team {
+                        Team::Blue => Vec2::new(0, 256),
+                        Team::Red => Vec2::new(0, -256),
+                    }
+                } else {
+                    facing
+                };
+                #[cfg(not(clash_plant = "death_ring_unrounded"))]
+                let a = crate::formation::rounded_degree(u);
+                #[cfg(clash_plant = "death_ring_unrounded")]
+                let a = crate::formation::rounded_degree(u) + 1; // PLANT (regression): a degree off the rounding.
+                (0..n)
+                    .map(|k| {
+                        let deg = a + angle_shift_deg + k * 360 / n;
+                        let rx = r * crate::formation::sin1024(deg + 90) as i64 / 1024;
+                        let ry = r * crate::formation::sin1024(deg) as i64 / 1024;
                         pos.add(Vec2::new(rx as i32, ry as i32))
                     })
                     .collect()
@@ -3941,6 +3987,9 @@ impl BattleState {
             self.ents.stagger_ms[id.index as usize] = p.stagger_ms;
             self.ents.death_slide_centre[id.index as usize] = p.slide_centre;
             self.ents.death_slide_radius[id.index as usize] = p.slide_radius;
+            if let Some(f) = p.facing {
+                self.ents.facing[id.index as usize] = f;
+            }
             // A death spawn queued under spawner.RELEASE_TIMING = next_spawn_phase: its first
             // tick is this one, and the delay counts from it.
             #[cfg(not(clash_plant = "acquire_delay_dropped_in_queue"))]
@@ -6054,7 +6103,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -6578,8 +6627,22 @@ impl BattleState {
                 let p = self.ents.pos[i];
                 self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8));
             }
+            // spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded: the members start with the dying unit's heading, the
+            // ring's axis normalized to 256 in native units (measured on client 15.535.29: (28, -254) for a Ram dying
+            // on a tower). Only where that ring was laid: not on the slide, not at the emission point.
+            #[cfg(not(clash_plant = "death_ring_members_face_forward"))]
+            let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none();
+            #[cfg(clash_plant = "death_ring_members_face_forward")]
+            let keeps_heading = false; // PLANT (regression): the members face their side's forward.
+            let member_facing = if keeps_heading && facing != Vec2::default() {
+                use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                let mut v = (facing.x / K, facing.y / K);
+                if crate::move16402::normalize_to(&mut v, 256) != 0 { Some(Vec2::new(v.0, v.1)) } else { None }
+            } else {
+                None
+            };
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -6853,7 +6916,7 @@ impl BattleState {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -6909,7 +6972,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -8164,6 +8227,13 @@ impl BattleState {
                 // client16402_same_tick (`materialise_released`).
                 if self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick {
                     h.bool(s.first_update);
+                }
+                // spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded's member heading, set only under that arm.
+                if self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded {
+                    h.bool(s.facing.is_some());
+                    if let Some(f) = s.facing {
+                        h.vec(f);
+                    }
                 }
             }
         }

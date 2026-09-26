@@ -287,8 +287,9 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     let spawn_point = match calib().spawner_spawn_point {
         SpawnPoint::AtCentre => pos,
         SpawnPoint::InFrontAtOwnRadius => Vec2::new(pos.x, pos.y + hut_r),
-        // the tangent of the two circles: the spawner's own radius plus the unit's
-        SpawnPoint::Client16402Measured => Vec2::new(pos.x, pos.y + hut_r + unit_r),
+        // the tangent of the two circles: the spawner's own radius plus the unit's (the rounded-degree arm
+        // differs only on a SpawnAngleShift ring, which a hut has not)
+        SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree => Vec2::new(pos.x, pos.y + hut_r + unit_r),
     };
     assert_eq!(u.pos.x, spawn_point.x, "the {unit} left the {hut}'s forward axis");
     // Under the shipped emission the unit is created in the MOVE phase, after that

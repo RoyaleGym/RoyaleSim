@@ -38,6 +38,7 @@
 //! explicit per-member offsets table (SummonCharactersOffsetsX/Y,
 //! CharactersOffsetsXMirrored -- the Three Musketeers); card.rs leaves such a card
 //! on its `count` alone and calibration formation.LAYOUT records the gap.
+#![allow(unexpected_cfgs)]
 
 use crate::arena::Arena;
 use crate::fixed::Vec2;
@@ -68,6 +69,52 @@ pub fn sin1024(deg: i32) -> i32 {
     } else {
         v
     }
+}
+
+/// round(sin(d degrees) x 2^30) for d = 0..=90: the fine table `rounded_degree` scores directions with.
+const SIN_2P30: [i64; 91] = [
+    0, 18739379, 37473049, 56195305, 74900443, 93582766,
+    112236583, 130856211, 149435979, 167970228, 186453311, 204879599,
+    223243478, 241539355, 259761657, 277904834, 295963357, 313931728,
+    331804471, 349576144, 367241333, 384794656, 402230767, 419544355,
+    436730145, 453782903, 470697435, 487468587, 504091252, 520560366,
+    536870912, 553017922, 568996477, 584801711, 600428808, 615873009,
+    631129609, 646193961, 661061475, 675727625, 690187940, 704438018,
+    718473518, 732290163, 745883746, 759250125, 772385229, 785285058,
+    797945680, 810363241, 822533958, 834454122, 846120104, 857528349,
+    868675383, 879557810, 890172315, 900515665, 910584710, 920376381,
+    929887697, 939115760, 948057759, 956710970, 965072759, 973140576,
+    980911966, 988384560, 995556083, 1002424350, 1008987269, 1015242840,
+    1021189159, 1026824413, 1032146887, 1037154959, 1041847103, 1046221891,
+    1050277989, 1054014162, 1057429273, 1060522280, 1063292242, 1065738315,
+    1067859754, 1069655912, 1071126243, 1072270298, 1073087729, 1073578288,
+    1073741824,
+];
+
+/// sin(deg) x 2^30, rounded, for any integer degree (the same symmetry as `sin1024`).
+fn sin_2p30(deg: i32) -> i64 {
+    let a = deg.rem_euclid(360);
+    let (e, neg) = if a >= 180 { (a - 180, true) } else { (a, false) };
+    let d = if e < 91 { e } else { 180 - e };
+    let v = SIN_2P30[d as usize];
+    if neg {
+        -v
+    } else {
+        v
+    }
+}
+
+/// A direction's angle ROUNDED to a whole degree, 0..360, in the ring convention (angle a points at (cos a, sin a)):
+/// the degree whose direction `v` agrees with most, scored on the 2^30 table, so it is the nearest degree except on an
+/// exact half-degree tie, where the lower one wins. Measured on client 15.535.29: a Night Witch facing (255, 22), at
+/// 4.93 degrees, lays her Bat ring at 5; the `sin1024` table's own argmax picks 4 there (spawner.SPAWN_POINT). A Battle
+/// Ram heading (28, -254) lays its death ring at -84, that is 276 (spawner.DEATH_SPAWN_LAYOUT). A zero vector gives 0.
+pub fn rounded_degree(v: crate::fixed::Vec2) -> i32 {
+    #[cfg(not(clash_plant = "rounded_degree_coarse"))]
+    let score = |d: i32| sin_2p30(d + 90) * v.x as i64 + sin_2p30(d) * v.y as i64;
+    #[cfg(clash_plant = "rounded_degree_coarse")]
+    let score = |d: i32| sin1024(d + 90) as i64 * v.x as i64 + sin1024(d) as i64 * v.y as i64; // PLANT: the 1024 pick.
+    (0..360).max_by_key(|d| (score(*d), -d)).unwrap_or(0)
 }
 
 /// `trunc(v / 1024)`, toward zero for a negative product too.
