@@ -1345,15 +1345,15 @@ fn knock_ticks_left(e: &crate::state::EntityView<'_>, tick_ms: i64) -> i64 {
 ///
 /// `bodies`: [x, y, start_x, start_y, side, r, mass, air, mover, alive, collidable,
 /// offset, dir_x, dir_y, heading_counts] (15 integers, bools as 0/1) per entity in
-/// update order, native units. Returns (x, y, dir_x, dir_y, offset, reached,
-/// popped_waypoint).
+/// update order, native units, with an optional 16th, avoid_static (0 when absent).
+/// Returns (x, y, dir_x, dir_y, offset, reached, popped_waypoint).
 /// The body array of `contact_step16402` / `pushback_step16402`, decoded.
 fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402::Body>> {
     use crate::move16402 as ml;
     let mut out = Vec::with_capacity(bodies.len());
     for b in bodies {
-        if b.len() != 15 {
-            return Err(PyValueError::new_err("each body needs 15 fields"));
+        if b.len() != 15 && b.len() != 16 {
+            return Err(PyValueError::new_err("each body needs 15 fields, or 16 with avoid_static"));
         }
         out.push(ml::Body {
             x: b[0] as i32,
@@ -1370,6 +1370,7 @@ fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402:
             offset: b[11] as i32,
             dir: (b[12] as i32, b[13] as i32),
             heading_counts: b[14] != 0,
+            avoid_static: b.get(15).is_some_and(|v| *v != 0),
         });
     }
     if me >= out.len() {

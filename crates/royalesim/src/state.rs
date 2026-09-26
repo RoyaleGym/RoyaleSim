@@ -1833,15 +1833,22 @@ calib_enum!(
 /// not measured.
 const HOOK_DRAG_STEP: i32 = 510;
 calib_enum!(
-    /// movement.WAITING_HEADING -- what the heading of a member still WAITING OUT ITS STAGGER
-    /// (formation.STAGGER_WAIT's measured arm, entity.rs `stagger_ms` > 0) counts for in a
-    /// walker's avoidance vote. A deploying member is DEPLOYING_HEADING's, not this key's.
+    /// movement.WAITING_HEADING -- what a member still WAITING OUT ITS STAGGER
+    /// (formation.STAGGER_WAIT's measured arm, entity.rs `stagger_ms` > 0) is in a walker's
+    /// avoidance vote. A deploying member is DEPLOYING_HEADING's, not this key's.
     WaitingHeading {
         /// The engine before this key flipped: a waiting member is a deploying unit here too (DEPLOYING_HEADING).
         Kept = "kept",
         /// Measured on client 15.535.29's walking summon-push scenarios: the waiting member's
         /// heading is zeroed, so a walker counts it as a blocker and steps away from it.
-        Zeroed = "zeroed"
+        Zeroed = "zeroed",
+        /// Measured on the 16.402 corpus and on client 15.535.29's walking summon-push
+        /// scenarios: a waiting member is a STATIC obstacle to the avoidance scan, like a
+        /// building. So it refreshes a running offset by 20 where a moving blocker leaves the
+        /// offset to decay, its side wins the vote over moving blockers, and a waypoint inside
+        /// its circle is dropped. The neighbour grouping gives it no walker margin. The
+        /// separation scan still meets it as a troop.
+        StaticObstacle = "static_obstacle"
     }
 );
 calib_enum!(
@@ -6317,6 +6324,12 @@ impl BattleState {
                         heading_counts: e.attack_phase[i] == AttackPhase::Idle
                             && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
                             && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
+                        // movement.WAITING_HEADING = static_obstacle: a member still waiting out its
+                        // stagger is static to the avoidance scan and the grouping, and a troop to
+                        // separation.
+                        avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle
+                            && calib.formation_stagger_wait == StaggerWait::Client16402
+                            && e.stagger_ms[i] > 0,
                     }
                 })
                 .collect();
@@ -6362,6 +6375,7 @@ impl BattleState {
                         offset: 0,
                         dir: (0, 0),
                         heading_counts: false,
+                        avoid_static: false,
                     });
                 }
             }

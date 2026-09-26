@@ -152,6 +152,10 @@ pub struct Body {
     /// avoidance dot product (states 8/0/2/10 and a busy special attack zero it).
     pub dir: (i32, i32),
     pub heading_counts: bool,
+    /// A troop the avoidance scan and the grouping meet as STATIC (`mover` stays true, so
+    /// the separation scan still meets it as a troop): a member waiting out its stagger
+    /// under movement.WAITING_HEADING = static_obstacle.
+    pub avoid_static: bool,
 }
 
 /// The order neighbours are visited in, which decides the steering: the vote below
@@ -176,7 +180,7 @@ impl Index {
         if b.r <= 0 {
             return None;
         }
-        let rr = if b.mover { b.r + 250 } else { b.r };
+        let rr = if b.mover && !b.avoid_static { b.r + 250 } else { b.r };
         let (c0, c1) = ((b.start_x - rr) >> 10, (b.start_x + rr) >> 10);
         let (r0, r1) = ((b.start_y - rr) >> 10, (b.start_y + rr) >> 10);
         let (c0, c1) = (c0.max(0), c1.min(self.cols - 1));
@@ -255,8 +259,9 @@ pub fn avoidance_scan(index: &Index, bodies: &[Body], me: usize, con: &mut Conta
         }
         // side = (e.x - x) * dir.y + (y - e.y) * dir.x
         let side = (e.x - u.x).wrapping_mul(u.dir.1).wrapping_add((u.y - e.y).wrapping_mul(u.dir.0));
-        if !e.mover {
-            // a static neighbour
+        if !e.mover || e.avoid_static {
+            // a static neighbour (a building, a tower, or a member waiting out its stagger
+            // under movement.WAITING_HEADING = static_obstacle)
             if let Some((wx, wy)) = waypoint {
                 if len_sq(wx - e.x, wy - e.y) < e.r * e.r {
                     pop_waypoint = true;
@@ -808,7 +813,33 @@ mod tests {
     use super::*;
 
     fn body(x: i32, y: i32, r: i32, mass: i32, mover: bool, side: u8) -> Body {
-        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true }
+        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false }
+    }
+
+    #[test]
+    fn a_waiting_member_read_as_static_refreshes_a_running_offset() {
+        // A walker heading up (offset 110) with a same-facing troop just left of its
+        // look-ahead point. As a moving blocker (heading zeroed) it leaves a running offset
+        // alone; as a static obstacle it moves it 20 toward its side, and drops a waypoint
+        // inside its circle. The separation scan meets it as a troop either way.
+        let index = Index::new(36, 64);
+        let walker = body(5000, 5000, 500, 1, true, 0);
+        let mut member = body(4900, 5600, 500, 2, true, 0);
+        member.heading_counts = false;
+        let mut scratch = Vec::new();
+        let mut con = Contact { offset: 110, ..Default::default() };
+        let popped = avoidance_scan(&index, &[walker, member], 0, &mut con, Some((4750, 5750)), false, &mut scratch);
+        assert_eq!((con.offset, popped), (110, false), "a moving blocker does not refresh a running offset");
+        member.avoid_static = true;
+        let mut con = Contact { offset: 110, ..Default::default() };
+        let popped = avoidance_scan(&index, &[walker, member], 0, &mut con, Some((4750, 5750)), false, &mut scratch);
+        assert_eq!((con.offset, popped), (130, true), "a static obstacle refreshes it by 20 and drops the waypoint");
+        let mut con = Contact::default();
+        separation_scan(&index, &[walker, member], 0, &mut con, &mut scratch);
+        let mut troop = Contact::default();
+        member.avoid_static = false;
+        separation_scan(&index, &[walker, member], 0, &mut troop, &mut scratch);
+        assert_eq!((con.acc, con.count), (troop.acc, troop.count), "separation is unchanged");
     }
 
     #[test]
