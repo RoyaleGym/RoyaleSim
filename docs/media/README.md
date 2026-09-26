@@ -45,6 +45,6 @@ placeholder:" and says what the real picture must show. Replace the file, keep t
 | `contact-law.svg` | a real battle and the engine side by side over 20 ticks, a crowd dropped onto a defender spreading apart | Nobody has made it yet. `crates/royalesim/tests/fixtures/replay/sample.json` carries 1,178 ticks of per-tick positions for 16 entities, so the picture's INPUT is committed; whether that particular battle contains a scene that shows the law is not checked. It holds Prince, Dark Prince, Skeletons, Battle Ram, Giant and Musketeer. |
 
 Those two tiles carry the project's strongest claims, so they are worth making properly rather
-than approximating. Both are drawn from committed fixtures plus a running engine, which is what
-decision D13 requires of any public picture: it comes from the engine or from data already in
-the repo, and a script anyone with a clone can run.
+than approximating. Both are drawn from committed fixtures plus a running engine, which is the rule
+for every public picture here: it comes from the engine or from data already in the repo, and
+a script anyone with a clone can run.
