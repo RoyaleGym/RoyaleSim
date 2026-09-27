@@ -44,6 +44,9 @@ const TICKS: u32 = 150;
 /// test measures from the nearer of the two.
 const GOAL_SLACK: i64 = 100;
 
+/// A native point.
+type Pt = (i64, i64);
+
 /// One tick: the Knight's START-of-tick centre distance from the flyer (native), whether the flyer moved on the tick,
 /// whether it targets the Knight after it, and the goal cell its route names after it with the Knight's start- and
 /// end-of-tick positions (native), when it has one.
@@ -52,7 +55,7 @@ struct Row {
     d: i64,
     moved: bool,
     on_knight: bool,
-    goal: Option<((i64, i64), (i64, i64), (i64, i64))>,
+    goal: Option<(Pt, Pt, Pt)>,
 }
 
 /// The flyer's Range and radius and the Knight's radius, native, from the loaded cards.

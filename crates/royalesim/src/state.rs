@@ -9549,7 +9549,7 @@ impl BattleState {
                     if let (true, Some(pb)) = (pushes, d.pushback_raw) {
                         let k = crate::card::KnockbackDef { distance: crate::fixed::milli(pb), all: false };
                         let team = self.ents.team[a];
-                        let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[] };
+                        let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
                         for &v in self.scratch.nb.iter() {
                             let v = v as usize;
                             if self.ents.team[v] != team && self.ents.hp[v] > 0 {
