@@ -66,6 +66,15 @@ THE SIDE CONVENTION (written into every fixture as `frame`)
     seat-symmetric, tests/mirror.rs), so a rotated replay would score a different
     tie-break than the game ran.
 
+A DEPLOY'S FORM (`form`, `form_row`, and the fixture's `forms_read`)
+    A hero play's units carry the hero row's own card id, class 203 (203000014, the hero
+    Musketeer: every play of a hero-form slot in five battles on client 16.402), so such a
+    deploy is published with `form` "hero" and `form_row` the spells_hero_form.csv row
+    (Musketeer_hero). No other form is read: what an evolved play's units carry has never
+    been recorded, and which cards can evolve differs between clients. So every other
+    deploy carries no `form`, and `forms_read` lists what was read ({"hero": how,
+    "ev1": null, "base": null}). An absent `form` means "not read", never "base".
+
 DEPLOYS VERSUS SPAWNS
     A truth entity carries its CARD's id even when it was not deployed: Tombstone
     Skeletons carry 27000009, Golemites the Golem's id, a Battle Ram's Barbarians
@@ -369,6 +378,17 @@ ID_CLASSES = {
     28: "spells_other.csv",
     HERO_CLASS: "spells_hero_form.csv",
 }
+# A DEPLOY'S FORM. A hero play's units carry the hero row's own card id (class 203): measured on
+# client 16.402 on the Musketeer, 203000014 on every play of a hero-form slot in five battles. What
+# card id an evolved play's units carry has never been recorded, and which cards can evolve differs
+# between clients (16.402's tables add evolutions 15.535.29's lack), so neither "ev1" nor "base" is
+# read: a deploy is marked "hero" from its units' class, and any other deploy carries no `form`. The
+# fixture's `forms_read` says which forms were read. An absent `form` means "not read", never "base".
+FORMS_READ = {
+    "hero": "the units' card id is of class 203",
+    "ev1": None,
+    "base": None,
+}
 # Tap window: a group first seen in [tap + TAP_MIN, tap + TAP_MAX] belongs to that tap
 # (measured latency 23-38 ticks over the corpus; the game also refuses the
 # odd tap right after tick 150, which then matches nothing).
@@ -456,6 +476,25 @@ def load_id_table() -> dict[int, str]:
             base = name[: -len("_hero")] if cls == HERO_CLASS and name.endswith("_hero") else name
             table.setdefault(cls * 1_000_000 + ix, base)
     return table
+
+
+def load_hero_rows() -> dict[int, str]:
+    """The hero row's name (spells_hero_form.csv, e.g. Musketeer_hero) by its class-203 card id, counting
+    rows as `load_id_table` does. Refuses when the file is absent."""
+    path = os.path.join(RAW, ID_CLASSES[HERO_CLASS])
+    if not os.path.exists(path):
+        raise SystemExit(f"the 15.535.29 pack lacks {path}: deploy forms cannot be read")
+    with open(path, encoding="utf-8-sig") as fh:
+        names = [r[0].strip() for r in list(csv.reader(fh))[2:] if r and r[0].strip()]
+    return {HERO_CLASS * 1_000_000 + ix: name for ix, name in enumerate(names)}
+
+
+def deploy_form(card_id: int, hero: dict[int, str]) -> dict:
+    """The `form` and `form_row` of a deploy whose units carry `card_id`: a hero's from its class-203 id,
+    and {} for every other deploy, whose form is not read (FORMS_READ)."""
+    if card_id // 1_000_000 == HERO_CLASS and card_id in hero:
+        return {"form": "hero", "form_row": hero[card_id]}
+    return {}
 
 
 def display_names(cards: list[dict]) -> dict[str, str]:
@@ -1357,10 +1396,14 @@ def build(
     card_names: set[str],
     seats: dict[str, str] | None = None,
     nominal: dict[tuple[str, int], list[tuple[int, int]]] | None = None,
+    hero_rows: dict[int, str] | None = None,
 ) -> dict:
     # the nominal offsets of a recovered tile (RECOVERED TILE): the committed measurement unless the caller hands some
     if nominal is None:
         nominal = load_nominal_offsets()
+    # the hero rows (A DEPLOY'S FORM); without the 15.535 pack no deploy's form is read
+    if hero_rows is None and not missing_id_files():
+        hero_rows = load_hero_rows()
     header, raw_frames = read_capture(capture)
     frames, dup, back = dedupe(raw_frames)
     if until_tick is not None:
@@ -1617,6 +1660,7 @@ def build(
             "families": sorted(
                 (register.get("cards", {}).get(name) or {}).get("families", {}).keys()
             ),
+            **(deploy_form(cid, hero_rows) if hero_rows is not None else {}),
         }
         if tap_ix is not None:
             t = taps[tap_ix]
@@ -2046,6 +2090,7 @@ def build(
             "tower_level": {str(s): tower_level[s] for s in (0, 1)},
             "card_levels": card_levels,
             "decks": script_decks,
+            "forms_read": FORMS_READ if hero_rows is not None else {},
             "deploys": deploys,
             "spawned_groups": spawned_groups,
             "unresolved": unresolved,

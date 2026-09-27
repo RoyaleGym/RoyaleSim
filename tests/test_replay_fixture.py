@@ -542,6 +542,55 @@ def test_the_committed_sample_is_what_the_maker_builds_from_its_capture(m, tmp_p
     assert "STALE" in run.stdout, run.stdout + run.stderr
 
 
+def test_a_hero_deploy_is_read_off_its_units_card_class_and_nothing_else_is_guessed(m):
+    """A DEPLOY'S FORM: class 203 names the hero row; a plain card id is not read as the base form (an
+    evolved play's units may carry it), and a class-203 id with no row is not guessed."""
+    rows = {203000014: "Musketeer_hero"}
+    assert m.deploy_form(203000014, rows) == {"form": "hero", "form_row": "Musketeer_hero"}
+    assert m.deploy_form(26000014, rows) == {}
+    assert m.deploy_form(203000099, rows) == {}
+    assert m.FORMS_READ["hero"]
+    assert m.FORMS_READ["ev1"] is None
+    assert m.FORMS_READ["base"] is None
+
+
+def test_the_hero_rows_are_named_by_their_class_203_ids(m):
+    """203000014 is the hero Musketeer on client 16.402; the rows count as the id table's do."""
+    if m.missing_id_files():
+        pytest.skip("SKIPPED, NOT PASSED: the 15.535.29 pack is absent, so the hero rows cannot be read")
+    rows = m.load_hero_rows()
+    assert rows[203000014] == "Musketeer_hero"
+    assert rows[203000038] == "IceGolemite_hero"
+    assert m.load_id_table()[203000014] == "Musketeer"
+
+
+def test_the_corpus_hero_musketeer_is_published_as_a_hero(m, tmp_path):
+    """20260918-122757.b2: side 0's Musketeer slot is the hero form (the reader's forms[] = 2) and its two plays
+    (1348, 3432) put units of 203000014 on the board; side 1's two Musketeers are plain and carry no `form`.
+    SKIPS, LOUDLY, without ROYALELIVE_REPORTS or the 15.535.29 pack: a skip here is not a pass."""
+    reports = os.environ.get("ROYALELIVE_REPORTS")
+    if not reports or m.missing_id_files() or m.capture_named("20260918-122757.b2", reports) is None:
+        pytest.skip("SKIPPED, NOT PASSED: the capture 20260918-122757.b2 or the 15.535.29 pack is not here")
+    maker = os.path.join(ROOT, "tools", "make_replay_fixture.py")
+    run = subprocess.run(
+        [sys.executable, maker, "20260918-122757.b2", "--out", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        cwd=ROOT,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    with open(tmp_path / "20260918-122757.b2.replay.json", encoding="utf-8") as fh:
+        fx = json.load(fh)
+    musketeers = [
+        (d["tick"], d["side"], d.get("form"), d.get("form_row")) for d in fx["deploys"] if d["card"] == "Musketeer"
+    ]
+    hero = [(1348, 0, "hero", "Musketeer_hero"), (3432, 0, "hero", "Musketeer_hero")]
+    assert [x for x in musketeers if x[1] == 0] == hero
+    assert [x for x in musketeers if x[1] == 1] == [(1518, 1, None, None), (2732, 1, None, None)]
+    assert fx["forms_read"] == m.FORMS_READ
+
+
 def test_a_capture_is_found_by_its_fixture_name(m, tmp_path):
     def touch(name):
         p = tmp_path / name
