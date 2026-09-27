@@ -1451,7 +1451,7 @@ fn killed_this_tick(ents: &Entities, dmg: &DamageBuffer, hidden_immune: bool, ti
     }
     let id = ents.id_of(v);
     let hidden = hidden_immune && ents.hide[v] == HideState::Hidden;
-    let dealt: i64 = dmg.hits.iter().filter(|h| h.target == id && h.amount > 0 && !(hidden && !h.ignores_hide)).map(|h| h.amount as i64).sum();
+    let dealt: i64 = dmg.hits.iter().filter(|h| h.target == id && h.amount > 0 && (!hidden || h.ignores_hide)).map(|h| h.amount as i64).sum();
     dealt >= ents.hp[v] as i64
 }
 

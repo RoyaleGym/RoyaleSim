@@ -656,7 +656,7 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
     if ctx.cards.get(e.card[v]).ignore_pushback {
         return false; // PLANT: PushbackAll no longer overrides IgnorePushback.
     }
-    !(e.deploy_ms[v] > 0 && !ctx.calib.knock_affects_deploying)
+    e.deploy_ms[v] <= 0 || ctx.calib.knock_affects_deploying
 }
 
 /// ONE PUSH FROM A POINT, for a hit that is not a spell's impact: a troop's straight shot
