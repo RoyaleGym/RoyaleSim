@@ -124,9 +124,15 @@ fn the_loader_reads_the_named_area_effect_row_onto_the_card_and_refuses_the_rest
         named += 1;
         let name = row["name"].as_str().expect("a card row has a name");
         let Some(idx) = db.index(name) else {
-            // REFUSED: out loud, naming the area it could not read.
+            // REFUSED: out loud, naming the area it could not read. The one exception is a row the loader refuses
+            // earlier for another mechanic: the Suspicious Bush's invisibility has no time, and that reason comes first
+            // (tests/loadable_census.rs lists it). Its area is checked below, on the file without that invisibility.
             refused += 1;
             let (_, why) = db.rejected.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("{name} neither loaded nor rejected"));
+            if name == "SuspiciousBush" && !row["idle_invisibility"].is_null() {
+                assert!(why.starts_with("an invisibility with no BuffWhenNotAttackingTime"), "{name}: {why}");
+                continue;
+            }
             assert!(why.contains(area), "{name} was refused without naming its area {area}: {why}");
             continue;
         };
@@ -175,6 +181,24 @@ fn the_loader_reads_the_named_area_effect_row_onto_the_card_and_refuses_the_rest
     for card in ["RageBarbarian", "SuspiciousBush"] {
         assert!(db.index(card).is_none(), "{card} must not be simulable: its area is a spawn script");
     }
+    // The Suspicious Bush's area, reached: the same file with the Bush's invisibility taken out still refuses the
+    // Bush, and now by its area.
+    let mut doc = doc.clone();
+    let mut bush_area = None;
+    for row in doc["cards"].as_array_mut().expect("a cards array") {
+        if row["name"] == "SuspiciousBush" {
+            row["idle_invisibility"] = serde_json::Value::Null;
+            bush_area = row["death_area_effect"].as_str().map(str::to_string);
+        }
+    }
+    if let Some(unit) = doc["units"].get_mut("SuspiciousBush") {
+        unit["idle_invisibility"] = serde_json::Value::Null;
+    }
+    let area = bush_area.expect("cards.json carries the Suspicious Bush with a death area effect");
+    let db = CardDb::from_json_str(&doc.to_string(), CardSource::DerivedJson).expect("the doctored file still parses");
+    assert!(db.index("SuspiciousBush").is_none(), "the Suspicious Bush loads once its invisibility is taken out");
+    let (_, why) = db.rejected.iter().find(|(n, _)| n == "SuspiciousBush").expect("the Suspicious Bush is not even listed as rejected");
+    assert!(why.contains(&area), "the Suspicious Bush without its invisibility was refused without naming its area {area}: {why}");
 }
 
 #[test]

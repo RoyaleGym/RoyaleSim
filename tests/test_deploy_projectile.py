@@ -3,9 +3,13 @@
 
 WHAT THIS PINS. The Mega Knight's card carries a deploy projectile, MegaKnightAppear (168 at level 1, 430 at level 11;
 radius 2200; pushback 1000; ground only). On client 15.535.29, both sides, a Mega Knight deployed 560 from a walking
-Knight takes 430 off it on the 6th tick after its first frame, and the Knight then slides 199, 174, 149, 124, 99, 74,
-49, 24 away: the knockback ladder the engine's spells already run. Goblins 5,300 away are untouched. The engine carried
+Knight takes 430 off it on the 6th tick after its first frame, and the Knight then slides 199, 174, 149, 125, 100, 74,
+49, 25 away: the knockback ladder the engine's spells already run. Goblins 5,300 away are untouched. The engine carried
 the projectile in cards.json and never fired it.
+
+THE SCENE IS THE CLIENT'S. The Knight stands where it stood when the Mega Knight was played, a little off his y, so the
+blow pushes it on a slant: each step is cut to whole units on each axis, and a step of 200 shows as 199. Level with him
+(the same y), the same ladder moves it exactly 200, 175, 150, and so on.
 
 WHY THE CONTROLS ARE HERE. A blow anywhere on the board also passes "the Knight loses 430", so a second enemy outside
 the radius must lose nothing on that tick; and the old arm must be today's engine, where the Knight loses nothing until
@@ -36,14 +40,14 @@ BLOW, DELAY, FIRST_SLIDE = 430, 6, 199
 
 
 def run(arm: str) -> dict:
-    """Blue plays a Mega Knight at (14600, 13500), next to a red Knight standing at (14000, 13500), with a red Goblins
-    group far away at (4000, 13500). Returns the Mega Knight's first tick, and per tick the red units' hp drops and the
-    Knight's step length."""
+    """Blue plays a Mega Knight at (14600, 13489), next to a red Knight standing at (14189, 13535), with a red Goblins
+    group far away at (4000, 13500): the client scene's positions on the tick of the play. Returns the Mega Knight's
+    first tick, and per tick the red units' hp drops and the Knight's step length."""
     deck = ["MegaKnight", "Knight", "Goblins"]
     b = royalesim.Battle(deck, [[0, 1, 2], [0, 1, 2]], calibration_overrides={KEY: json.dumps(arm)})
-    units = [(1, KN, 14000 * SUB, 13500 * SUB, -1), (1, GOB, 4000 * SUB, 13500 * SUB, -1)]
+    units = [(1, KN, 14189 * SUB, 13535 * SUB, -1), (1, GOB, 4000 * SUB, 13500 * SUB, -1)]
     b.reset(0, [[0, 1, 2, 0, 1, 2, 0, 1]] * 2, 0, 200, [10_000, 10_000], None, units)
-    played = b.step([(0, MK, 14600 * SUB, 13500 * SUB)], 1)
+    played = b.step([(0, MK, 14600 * SUB, 13489 * SUB)], 1)
     assert played, "the Mega Knight play returned nothing"
     assert played[0][1] == 0, f"the Mega Knight was refused: {played}"
     first, last, pos, rows = None, {}, None, {}

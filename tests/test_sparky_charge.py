@@ -177,7 +177,10 @@ def test_launch_recoils_the_sparky_down_the_ladder():
     assert pre[5] is not None, "the scenario drifted: the Giant was not alive before the Sparky's launch"
     got = steps(rows, first)
     lens = [round(math.hypot(*s), 1) for s in got]
-    assert all(abs(a - b) <= 1.5 for a, b in zip(lens, LADDER, strict=True)), (
+    # 2.5, not 1.5: the recoil keeps its direction to 1/256 and cuts each step to whole native units, so a step
+    # falls short of the ladder by up to about sqrt(2) x (1 + step / 256), 2.4 for 175, depending on the heading.
+    # In this scene the second step is (-114, -95), 148.4 long; the client's recorded launches had other headings.
+    assert all(abs(a - b) <= 2.5 for a, b in zip(lens, LADDER, strict=True)), (
         f"step lengths from the launch tick {first}: {lens}, not {list(LADDER)}"
     )
     to_target = (pre[5] - pre[3], pre[6] - pre[4])

@@ -148,6 +148,28 @@ pub fn run_until(s: &mut BattleState, max: u32, mut pred: impl FnMut(&BattleStat
     max
 }
 
+/// Whether a snapshot field is hashed. `edit` changes one field of `s`'s save and nothing else; the edited save keeps
+/// the hash `save()` wrote. If the field is hashed, the load's self-check refuses the edited save (save_load.rs
+/// `load_rejects_corruption_and_foreign_card_data` pins that refusal). If it is not hashed, the edited save loads.
+///
+/// An edited save cannot load, so the refusal is the evidence. The helper first proves that the JSON round trip alone
+/// loads to the same state and that the edit changed something, so a refusal comes from the edit.
+pub fn edit_is_hashed(s: &BattleState, edit: impl FnOnce(&mut serde_json::Value)) -> bool {
+    let mut v: serde_json::Value = serde_json::from_slice(&s.save()).expect("a snapshot is JSON");
+    let same = BattleState::load(&serde_json::to_vec(&v).unwrap()).unwrap_or_else(|e| panic!("the unedited save does not load: {e}"));
+    assert_eq!(same.state_hash(), s.state_hash(), "the unedited save loads to another state");
+    let before = v.clone();
+    edit(&mut v);
+    assert_ne!(v, before, "the edit changed nothing");
+    match BattleState::load(&serde_json::to_vec(&v).unwrap()) {
+        Ok(_) => false,
+        Err(e) => {
+            assert!(e.starts_with("snapshot self-check failed"), "the edited save was refused for another reason: {e}");
+            true
+        }
+    }
+}
+
 pub fn find_live<'a>(s: &'a BattleState, team: Team, card: &str) -> Vec<EntityView<'a>> {
     s.entities().filter(|e| e.team == team && e.card == card).collect()
 }

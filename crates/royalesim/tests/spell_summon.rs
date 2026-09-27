@@ -28,7 +28,7 @@
 //!   6. the Heal Spirit is on the board after the cast tick and first moves DeployTime later;
 //!   7. an own damaged Knight next to the spirit's target is healed in pulses of exactly the amount
 //!      status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency gives (+100 at level 11), and the enemy is not;
-//!   8. a spell object's chain depth is state: two saves differing only in it hash differently.
+//!   8. a spell object's chain depth is state: a save edited only in it fails the load's hash self-check.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spell_summon`):
 //!   * `fuse_counts_from_next_tick` -- the bottle releases one tick late: (2) goes red.
@@ -95,10 +95,11 @@ fn the_loader_reads_rage_as_a_fuse_and_heal_as_a_summon() {
 }
 
 /// A Blue Knight walking up the left lane, and a Rage cast on it once it walks; per tick after the cast (k = 0 is
-/// the cast tick C): the Knight's step.
+/// the cast tick C): the Knight's step. The Knight starts 2.5 tiles past the Blue left princess tower's centre. It
+/// must not start inside the tower: a Knight at (3500, 6000) is pushed out of it for nine ticks, with steps up to 199.
 fn raged_walk() -> Vec<i64> {
     let mut s = BattleState::new(0, config());
-    let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 6000)), None).expect("spawn");
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 9000)), None).expect("spawn");
     for _ in 0..3 {
         s.tick();
     }
@@ -216,10 +217,11 @@ fn the_heal_spirits_shot_heals_its_own_side_in_scaled_rate_pulses() {
     let mut cfg: BattleConfig = config();
     cfg.calib.buff_pulse_amount = PulseAmount::ScaledPerSecondTimesFrequency;
     let mut s = BattleState::new(0, cfg);
+    // All three on Blue's bank: the Knight fights the Giant, and the spirit's shot lands on the Giant beside it.
     let ids = s
-        .scenario_spawn_batch(&[(Team::Blue, "Knight", at((9000, 16000)), Some(300)), (Team::Red, "Giant", at((9000, 17300)), None)])
+        .scenario_spawn_batch(&[(Team::Blue, "Knight", at((9000, 12000)), Some(300)), (Team::Red, "Giant", at((9000, 13300)), None)])
         .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
-    s.spawn_unit(Team::Blue, "Heal", at((9000, 14500)), None).expect("cast Heal");
+    s.spawn_unit(Team::Blue, "Heal", at((9000, 10500)), None).expect("cast Heal");
     let spirit_idx = s.cards().index("HealSpirit").expect("the Heal Spirit loads");
     let heal = s.cards().get(spirit_idx).projectile_area.as_ref().expect("the heal area");
     let SpellShape::AreaEffect { hit } = &heal.shape else { panic!() };
@@ -228,13 +230,14 @@ fn the_heal_spirits_shot_heals_its_own_side_in_scaled_rate_pulses() {
     let level = s.config().card_level[0];
     let want = -def.pulse_amount(PulseAmount::ScaledPerSecondTimesFrequency, |m| s.cards().scaled(spirit_idx, level, m)).unwrap();
     assert_eq!(level == 11, want == 100, "the measured +100 at level 11");
-    let (mut gains, mut enemy_gains) = (Vec::new(), 0);
+    let (mut gains, mut enemy_gains, mut giant_hurt) = (Vec::new(), 0, None);
     let (mut kh, mut gh) = (s.entity(ids[0]).unwrap().hp, s.entity(ids[1]).unwrap().hp);
     for _ in 0..150 {
         s.tick();
         let (Some(k), Some(g)) = (s.entity(ids[0]), s.entity(ids[1])) else { break };
         if k.hp > kh {
             gains.push(k.hp - kh);
+            giant_hurt.get_or_insert(g.hp < g.max_hp);
         }
         if g.hp > gh {
             enemy_gains += 1;
@@ -242,6 +245,7 @@ fn the_heal_spirits_shot_heals_its_own_side_in_scaled_rate_pulses() {
         (kh, gh) = (k.hp, g.hp);
     }
     assert!(!gains.is_empty(), "the own Knight was never healed");
+    assert_eq!(giant_hurt, Some(true), "the scene drifted: the Giant had full hp when the heal landed, so a heal on it would not show");
     assert!(gains.iter().all(|&g| g == want), "each heal is {want}: {gains:?}");
     assert_eq!(enemy_gains, 0, "the enemy Giant was healed");
 }
@@ -257,13 +261,10 @@ fn a_spell_objects_chain_depth_is_state() {
         s.tick();
     }
     assert!(s.spells().iter().any(|sp| sp.depth == 1), "the scene drifted: no depth-1 object stands");
-    let bytes = s.save();
-    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("a snapshot is JSON");
-    let spells = v["spells"].as_array_mut().expect("the snapshot lists its spells");
-    let k = spells.iter().position(|sp| sp["depth"] == 1).expect("the depth-1 object is saved");
-    spells[k]["depth"] = serde_json::Value::from(2);
-    let edited = serde_json::to_vec(&v).unwrap();
-    let a = BattleState::load(&bytes).expect("the save loads");
-    let b = BattleState::load(&edited).expect("the edited save loads");
-    assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in a spell's depth hash alike");
+    let hashed = edit_is_hashed(&s, |v| {
+        let spells = v["spells"].as_array_mut().expect("the snapshot lists its spells");
+        let k = spells.iter().position(|sp| sp["depth"] == 1).expect("the depth-1 object is saved");
+        spells[k]["depth"] = serde_json::Value::from(2);
+    });
+    assert!(hashed, "a save edited only in a spell's depth loads under the old hash: the depth is not hashed");
 }

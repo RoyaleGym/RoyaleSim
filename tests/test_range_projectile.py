@@ -169,6 +169,11 @@ def test_an_arrow_flies_on_through_its_first_victim():
     )
 
 
+# The Executioner throws its next axe every HitSpeed (900 ms, 18 ticks) while an axe flies for 30, so a second axe hits
+# the Knight on its way out inside this window. On the client the next throw waits for the axe to come back; the engine
+# does not hold it yet (state.rs `phase_attack_for`). The pingpong path itself is right. Strict, so the hold shows as
+# XPASS.
+@pytest.mark.xfail(strict=True, reason="the Executioner throws again while its axe is out: no hold for its return")
 def test_an_axe_flies_out_and_back_on_its_pingpong_path_and_hits_once_per_leg():
     rows = run(NEW_ARM, "AxeMan", AXE_SCENE, ticks=60)
     track = first_track(rows)

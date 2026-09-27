@@ -161,8 +161,9 @@ def duel(arm):
 
 
 def first_shot(states, shooter_team, target):
-    """The first projectile of `shooter_team` at `target`: its position on each tick it is seen, and the tick it is
-    gone. Projectiles carry no id here; the first one seen at the target is followed while it is the only one."""
+    """The first projectile of `shooter_team` at `target`: its position on each tick it is seen, the tick it is first
+    seen, and the tick it is gone. Projectiles carry no id here; the first one seen at the target is followed while
+    it is the only one."""
     seen, t0 = [], None
     for t, (_, prs) in enumerate(states):
         mine = [p for p in prs if p[P["team"]] == shooter_team and p[P["target_uid"]] == target]
@@ -170,7 +171,7 @@ def first_shot(states, shooter_team, target):
             t0 = t
         if t0 is not None:
             if not mine:
-                return seen, t
+                return seen, t0, t
             assert len(mine) == 1, "a second shot flew before the first landed: the scene cannot follow one"
             seen.append((mine[0][P["x"]], mine[0][P["y"]]))
     raise AssertionError("no shot, or it never landed")
@@ -183,7 +184,7 @@ def test_a_troop_shot_and_a_tower_arrow_start_and_step_as_the_client_does(who):
     radius, speed = (
         (MUSKETEER_START_RADIUS, MUSKETEER_SHOT_SPEED) if who == "musketeer" else (TOWER_START_RADIUS, ARROW_SPEED)
     )
-    seen, gone_after = first_shot(states, team, target)
+    seen, t0, gone = first_shot(states, team, target)
     ents = states[0][0]
     src = (ents[shooter][F["x"]] // SUB, ents[shooter][F["y"]] // SUB)
     aim = (ents[target][F["x"]] // SUB, ents[target][F["y"]] // SUB)
@@ -195,11 +196,11 @@ def test_a_troop_shot_and_a_tower_arrow_start_and_step_as_the_client_does(who):
     got = [native(p) for p in seen]
     assert got == [start, *want], f"the {who}'s shot departs from the client's start point or step"
     assert len(got) == steps, f"the {who}'s shot landed after {len(got) - 1} steps, the law after {steps - 1}"
-    assert gone_after == len(seen)
+    assert gone - t0 == steps, f"the {who}'s shot was gone {gone - t0} ticks after it was first seen, not {steps}"
 
 
 def test_the_fraction_carrying_arm_is_not_on_the_native_grid():
     """Old arm: today's shot starts and steps off the native grid (its first frame is a fraction of a native unit)."""
     states, _mus, tower = duel(OLD_ARM)
-    seen, _ = first_shot(states, 0, tower)
+    seen, _, _ = first_shot(states, 0, tower)
     assert any(x % SUB or y % SUB for x, y in seen), "fraction_carry kept every position on the native grid"

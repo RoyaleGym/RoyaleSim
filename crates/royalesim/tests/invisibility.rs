@@ -14,7 +14,7 @@
 //!   3. the tower that took the Ghost on a hit holds it through hit + 45 and drops it on hit + 46, the Ghost walking
 //!      and not hitting between;
 //!   4. a Zap lands on an invisible Ghost;
-//!   5. the Ghost's reveal is state: two saves differing only in it hash differently.
+//!   5. the Ghost's reveal is state: a save edited only in it fails the load's hash self-check.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test invisibility`):
 //!   * `invisible_targetable` -- invisibility not read: (2) goes red.
@@ -89,9 +89,11 @@ fn the_tower_first_targets_the_ghost_on_the_tick_after_its_first_hit() {
 fn the_tower_drops_the_ghost_46_ticks_after_its_last_hit() {
     let mut s = BattleState::new(0, config());
     let tower = red_tower_near(&s, at((14500, 26000)));
-    // a red Skeleton on the Ghost's lane, well short of the tower: the Ghost's first hit kills it, and the Ghost then
-    // walks on toward the tower for longer than 46 ticks without hitting.
-    s.scenario_spawn_now(Team::Red, "Skeleton", at((14500, 19000)), None).expect("spawn the Skeleton");
+    // a red Skeleton behind the tower, on the Ghost's lane. It cannot see the invisible Ghost, so it walks out down
+    // the lane toward Blue's towers. The Ghost's first hit kills it inside the tower's reach, and the Ghost then walks
+    // on toward the tower for longer than 46 ticks without hitting. A Skeleton at (14500, 19000) walks to meet the
+    // Ghost on Blue's side, 12003 from the tower, and the tower cannot take it there.
+    s.scenario_spawn_now(Team::Red, "Skeleton", at((14500, 28500)), None).expect("spawn the Skeleton");
     let ticks = run(&mut s, (14500, 12000), tower, 400);
     let h = ticks.iter().position(|t| t.ghost_hit).expect("the scene drifted: the Ghost never hit");
     assert!(ticks.len() > h + 47, "the scene drifted: the Ghost died before hit + 46");
@@ -125,12 +127,9 @@ fn the_ghosts_reveal_is_state() {
         s.tick();
     }
     let g = s.entities().find(|v| v.card == "Ghost").map(|v| v.id).expect("the Ghost stands");
-    let bytes = s.save();
-    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("a snapshot is JSON");
-    let col = v["ents"]["reveal_from"].as_array_mut().expect("the snapshot carries the reveal");
-    col[g.index as usize] = serde_json::Value::from(7);
-    let edited = serde_json::to_vec(&v).unwrap();
-    let a = BattleState::load(&bytes).expect("the save loads");
-    let b = BattleState::load(&edited).expect("the edited save loads");
-    assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in the Ghost's reveal hash alike");
+    let hashed = edit_is_hashed(&s, |v| {
+        let col = v["ents"]["reveal_from"].as_array_mut().expect("the snapshot carries the reveal");
+        col[g.index as usize] = serde_json::Value::from(7);
+    });
+    assert!(hashed, "a save edited only in the Ghost's reveal loads under the old hash: the reveal is not hashed");
 }

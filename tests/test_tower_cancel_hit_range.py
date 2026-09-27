@@ -42,8 +42,14 @@ TOWER_HIT, KNIGHT_HIT = 109, 202
 KNIGHT_ON_GIANT = 2450
 
 
+#: The key is read only by a tower whose windup locks its target, which is LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = true.
+#: The shipped value, projectile_attackers_only, already drops a tower's target past reach + 500
+#: (tests/test_tower_cancel_range.py), and under it both arms of this key behave the same. So this file holds the lock.
+LOCK = {"targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED": json.dumps(True)}
+
+
 def overrides(arm) -> dict:
-    return {KEY: json.dumps(arm)}
+    return {**LOCK, KEY: json.dumps(arm)}
 
 
 def battle(arm, spawns):
@@ -130,12 +136,15 @@ def test_a_unit_keeps_the_global_cancel_range():
     assert landed[1][1] > 500, f"(tick, start-of-tick distance beyond reach) of the Knight's hits: {landed}"
 
 
-def test_the_old_arm_is_todays_engine():
-    """Checked on the shared build of 2026-09-25 with the key dropped: the tower fires on ticks 16 and 32, the second
-    from 9822 (start of tick), drops the Knight on 33, and both shots land (109 on 32 and 50)."""
+def test_the_old_arm_holds_a_tower_to_the_global_range():
+    """The old arm holds a started shot to the global 1500 beyond: the tower fires on ticks 16 and 32, the second from
+    beyond the new arm's limit (9820 at the start of the tick), drops the Knight on 33, and both shots land (109 on 32
+    and 50)."""
     rows = tower_track(OLD_ARM)
     fired = [(b["t"], round(a["d"])) for a, b in pairwise(rows) if b["fired"]]
-    assert fired == [(16, 8877), (32, 9822)], fired
+    assert [t for t, _ in fired] == [16, 32], fired
+    assert fired[0][1] < IN_RANGE, f"the first shot is fired in range: {fired}"
+    assert LIMIT < fired[1][1] <= IN_RANGE + 1500, f"the second is fired past {LIMIT}, inside the global hold: {fired}"
     drop = next(r["t"] for r in rows[1:] if not r["on"])
     assert drop == 33
     assert hits(rows, TOWER_HIT) == [32, 50]

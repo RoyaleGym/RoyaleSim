@@ -17,7 +17,7 @@
 //!   3. an enemy straight ahead of the hut (the two points level): the first wave on the larger-x side, the second on
 //!      the other;
 //!   4. an air troop wakes it;
-//!   5. the controller's clock is state: two saves differing only in it hash differently.
+//!   5. the controller's clock is state: a save edited only in it fails the load's hash self-check.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test goblin_hut`):
 //!   * `life_first_interval_44` -- a whole interval after the first look's wave: (2) goes red on F + 64.
@@ -104,14 +104,11 @@ fn the_controllers_clock_is_state() {
         s.tick();
     }
     let hut = s.entities().find(|v| v.card == "GoblinHut").map(|v| v.id).expect("the hut stands");
-    let bytes = s.save();
-    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("a snapshot is JSON");
-    let col = v["ents"]["life_ms"].as_array_mut().expect("the snapshot carries the controller's clock");
     let i = hut.index as usize;
-    let n = col[i].as_i64().expect("a clock");
-    col[i] = serde_json::Value::from(n + 1);
-    let edited = serde_json::to_vec(&v).unwrap();
-    let a = BattleState::load(&bytes).expect("the save loads");
-    let b = BattleState::load(&edited).expect("the edited save loads");
-    assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in the hut's clock hash alike");
+    let hashed = edit_is_hashed(&s, |v| {
+        let col = v["ents"]["life_ms"].as_array_mut().expect("the snapshot carries the controller's clock");
+        let n = col[i].as_i64().expect("a clock");
+        col[i] = serde_json::Value::from(n + 1);
+    });
+    assert!(hashed, "a save edited only in the hut's clock loads under the old hash: the clock is not hashed");
 }

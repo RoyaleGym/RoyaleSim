@@ -1,23 +1,27 @@
 //! A facing's angle ROUNDED to a whole degree (formation.rs `rounded_degree`), and the two arms that read it:
 //! spawner.SPAWN_POINT = client_rounded_facing_degree (a set SpawnAngleShift's ring) and spawner.DEATH_SPAWN_LAYOUT =
-//! facing_ring_rounded (a death ring, whose members keep the dying unit's heading). Both keys ship their older values.
+//! facing_ring_rounded (a death ring, whose members keep the dying unit's heading). Both keys ship these values.
 //!
 //! THE LAW, measured on client 15.535.29: a Night Witch facing (255, 22), at 4.93 degrees, lays her Bat ring at 5
 //! (7 of 7 two-Bat emissions exact; the 1024 table's own argmax picks 4 there and gives 6 of 7); a Battle Ram heading
 //! (28, -254) lays its death ring at -84, and both Barbarians start with that heading (13 of 17 rings exact, 17 of 17
-//! headings). The end-to-end scenes are tests/test_ring_facing_degree.py and tests/test_death_ring_degree.py.
+//! headings). Each member's offset is in whole native units: each axis of the radius x the table / 1024, truncated
+//! toward zero. The Battle Ram's Barbarians stand at (-62, +596) and (+62, -596) from its death point. The end-to-end
+//! scenes are tests/test_ring_facing_degree.py and tests/test_death_ring_degree.py.
 //!
 //! WHAT IS PINNED:
 //!   1. `rounded_degree` rounds (255, 22) to 5 and (28, -254) to 276, gives every table direction its own degree, and
 //!      gives the zero vector 0;
 //!   2. a red Battle Ram killed while it heads off-axis for the blue left princess tower lays its two Barbarians at the
-//!      rounded degree of that heading, and both face the heading normalized to 256; under facing_ring they stand on
-//!      the exact rotation and face their side's forward, so the scene separates the arms.
+//!      rounded degree of that heading, each offset in whole native units, (-62, +596) and (+62, -596) as on the
+//!      client, and both face the heading normalized to 256; under facing_ring they stand on the exact rotation and
+//!      face their side's forward, so the scene separates the arms.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test ring_degree`):
 //!   * `rounded_degree_coarse` -- the helper takes the 1024 table's argmax: (1) goes red.
 //!   * `death_ring_unrounded` -- the ring lies a degree off the rounding: (2) goes red on the positions.
 //!   * `death_ring_members_face_forward` -- the members face their side's forward: (2) goes red on the heading.
+//!   * `ring_offset_subtile` -- the ring keeps the subtile fraction: (2) goes red on the positions.
 mod common;
 
 use common::*;
@@ -86,10 +90,15 @@ fn a_death_ring_lies_at_the_rounded_degree_and_its_members_keep_the_heading() {
 
     let (death, heading, kids) = ram_death(DeathSpawnLayout::FacingRingRounded);
     let a = rounded_degree(heading);
+    assert_eq!(a, 276, "scene: the heading {heading:?} does not round to the client's -84");
+    // Each axis in whole native units, truncated toward zero. Worked here from the table, not through the engine's
+    // helper, so a fault in the helper cannot move both sides of the check.
+    let rn = r / K as i64;
     let want: Vec<Vec2> = (0..n)
         .map(|k| {
             let deg = a + shift + k * 360 / n;
-            death.add(Vec2::new((r * sin1024(deg + 90) as i64 / 1024) as i32, (r * sin1024(deg) as i64 / 1024) as i32))
+            let (x, y) = ((rn * sin1024(deg + 90) as i64 / 1024) as i32, (rn * sin1024(deg) as i64 / 1024) as i32);
+            death.add(Vec2::new(x * K, y * K))
         })
         .collect();
     let mut got: Vec<Vec2> = kids.iter().map(|k| k.0).collect();
@@ -97,12 +106,17 @@ fn a_death_ring_lies_at_the_rounded_degree_and_its_members_keep_the_heading() {
     got.sort_by_key(|p| (p.x, p.y));
     want_sorted.sort_by_key(|p| (p.x, p.y));
     assert_eq!(got, want_sorted, "the Barbarians do not stand at the rounded degree {a} of the heading {heading:?}");
+    // the client's own offsets from the death point, in subtiles
+    let mut off: Vec<(i32, i32)> = kids.iter().map(|k| (k.0.x - death.x, k.0.y - death.y)).collect();
+    off.sort();
+    let client = [(-62 * K, 596 * K), (62 * K, -596 * K)];
+    assert_eq!(off, client, "the Barbarians' offsets are not the client's (-62, +596) and (+62, -596)");
     let mut h = (heading.x / K, heading.y / K);
     normalize_to(&mut h, 256);
     for (_, f) in &kids {
         assert_eq!((f.x, f.y), h, "a Barbarian does not keep the Ram's heading");
     }
-    // facing_ring, the shipped value, differs in both, or the scene separates nothing
+    // facing_ring, the older value, differs in both, or the scene separates nothing
     let (_, _, old) = ram_death(DeathSpawnLayout::FacingRing);
     let mut old_pos: Vec<Vec2> = old.iter().map(|k| k.0).collect();
     old_pos.sort_by_key(|p| (p.x, p.y));

@@ -18,7 +18,7 @@
 //!   3. two Knights of equal hp: the earlier created is struck first;
 //!   4. a princess tower alone loses 25 % of one strike, once, over the whole cast;
 //!   5. a target just beyond Radius + its radius, within the + 170, is struck;
-//!   6. a striking area's clock is state: two saves differing only in it hash differently.
+//!   6. a striking area's clock is state: a save edited only in it fails the load's hash self-check.
 //!   7. a Knight walking out of reach, inside it on the strike tick and outside it on the predicted next position, is
 //!      not struck.
 //!
@@ -100,9 +100,12 @@ fn three_strikes_land_on_d_plus_10_19_and_28_the_highest_hp_first() {
 #[test]
 fn a_tie_goes_to_the_earlier_created() {
     let mut s = BattleState::new(0, config());
-    let ids = s
-        .scenario_spawn_batch(&[(Team::Red, "Knight", at((8500, 22000)), Some(1300)), (Team::Red, "Knight", at((9500, 22000)), Some(1300))])
-        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    // One at a time, so the call order is the creation order. A batch creates in its own order, by the Red frame,
+    // which is rotated: it would create the Knight at x 9500 first.
+    let first = s.scenario_spawn_now(Team::Red, "Knight", at((8500, 22000)), Some(1300)).expect("spawn");
+    let second = s.scenario_spawn_now(Team::Red, "Knight", at((9500, 22000)), Some(1300)).expect("spawn");
+    assert!(s.entity(first).unwrap().team_seq < s.entity(second).unwrap().team_seq, "the scene drifted: the first spawn is not the earlier created");
+    let ids = [first, second];
     let got = losses(&mut s, &ids, at((9000, 22000)), 12);
     assert_eq!(got.first().map(|g| (g.0, g.1)), Some((10, ids[0])), "the first strike: {got:?}");
 }
@@ -127,7 +130,9 @@ fn a_target_within_the_170_margin_is_struck() {
     let mut s = BattleState::new(0, config());
     let c = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 22000)), None).expect("spawn");
     let (cpos, r) = (s.entity(c).unwrap().pos, s.entity(c).unwrap().radius / K);
-    let tap = Vec2::new(cpos.x + (3500 + r + 80) * K, cpos.y);
+    // South of the Cannon, where no crown tower is in reach. East of it, the Red princess tower at (14500, 25500)
+    // is in reach, and its hp outranks the Cannon's.
+    let tap = Vec2::new(cpos.x, cpos.y - (3500 + r + 80) * K);
     s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
     let mut hit = None;
     let mut centre = None;
@@ -140,8 +145,10 @@ fn a_target_within_the_170_margin_is_struck() {
                 _ => None,
             });
         }
-        if let (Some(b), Some(v)) = (b, s.entity(c)) {
-            if v.hp < b - 100 {
+        // One strike can kill the Cannon (1057 against its 824 at level 11), so a Cannon gone counts as a loss.
+        // The 100 skips its lifetime decay.
+        if let Some(b) = b {
+            if s.entity(c).map_or(0, |v| v.hp) < b - 100 {
                 hit = Some(k);
             }
         }
@@ -163,28 +170,27 @@ fn a_striking_areas_clock_is_state() {
     for _ in 0..3 {
         s.tick();
     }
-    let bytes = s.save();
-    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("a snapshot is JSON");
-    let spells = v["spells"].as_array_mut().expect("the snapshot lists its spells");
-    let sp = spells.iter_mut().find(|sp| sp["motion"].get("Strikes").is_some()).expect("the striking area is saved");
-    let n = sp["motion"]["Strikes"]["next_ms"].as_i64().expect("its clock is saved");
-    sp["motion"]["Strikes"]["next_ms"] = serde_json::Value::from(n + 1);
-    let edited = serde_json::to_vec(&v).unwrap();
-    let a = BattleState::load(&bytes).expect("the save loads");
-    let b = BattleState::load(&edited).expect("the edited save loads");
-    assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in a striking area's clock hash alike");
+    let hashed = edit_is_hashed(&s, |v| {
+        let spells = v["spells"].as_array_mut().expect("the snapshot lists its spells");
+        let sp = spells.iter_mut().find(|sp| sp["motion"].get("Strikes").is_some()).expect("the striking area is saved");
+        let n = sp["motion"]["Strikes"]["next_ms"].as_i64().expect("its clock is saved");
+        sp["motion"]["Strikes"]["next_ms"] = serde_json::Value::from(n + 1);
+    });
+    assert!(hashed, "a save edited only in a striking area's clock loads under the old hash: the clock is not hashed");
 }
 
 /// Plant: strike_ignores_next_position.
 #[test]
 fn a_knight_about_to_leave_reach_is_not_struck() {
-    // A red Knight walks south, away from a Lightning cast north of it; starts from a band of distances around the
-    // edge, so that on one of them the strike tick finds it inside reach and its next step outside.
-    let mut found = false;
-    for off in (0..=200).step_by(10) {
-        let tap = at((9000, 24000));
+    // A red Knight walks south and east, away from a Lightning cast north of it. It gains about 40 on the edge each
+    // tick, so it starts from a band of edges (3070 to 3670): on some of them the strike tick finds it inside reach
+    // and its next step outside. The tap is 6000 from the Red king tower (radius 1400), out of its reach: a tower in
+    // reach outranks the Knight and takes the strike, whatever the Knight does.
+    let (mut found, mut control) = (false, false);
+    for off in (0..=600).step_by(10) {
+        let tap = at((9000, 23000));
         let r = card_stat(&BattleState::new(0, config()), "Knight").collision_radius / K;
-        let start = Vec2::new(tap.x, tap.y - (3500 + 170 + r - 250 + off) * K);
+        let start = Vec2::new(tap.x, tap.y - (3500 + 170 + r - 600 + off) * K);
         let mut s = BattleState::new(0, config());
         let k = s.scenario_spawn_now(Team::Red, "Knight", start, None).expect("spawn");
         s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
@@ -217,6 +223,13 @@ fn a_knight_about_to_leave_reach_is_not_struck() {
             found = true;
             assert!(!lost10, "offset {off}: the Knight, {} inside the edge now and {} outside next, was struck", 3670 - edge(p9), edge(next) - 3670);
         }
+        // The control: inside reach now and next, the Knight is struck. Without it, a strike taken by something else
+        // would pass the case above.
+        if edge(p9) <= 3670 && edge(next) <= 3670 {
+            control = true;
+            assert!(lost10, "offset {off}: the Knight, inside reach now and next, was not struck");
+        }
     }
     assert!(found, "the scene drifted: no start put the walking Knight inside reach on the strike tick and outside next");
+    assert!(control, "the scene drifted: no start kept the walking Knight inside reach now and next");
 }
