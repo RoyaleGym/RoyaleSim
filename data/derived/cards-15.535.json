@@ -961,6 +961,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -1104,6 +1105,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 2,
@@ -1211,6 +1213,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 4,
@@ -1318,6 +1321,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -1425,6 +1429,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -1567,6 +1572,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
@@ -1678,6 +1684,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -1829,6 +1836,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -1936,6 +1944,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 5,
@@ -2051,6 +2060,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": 1800,
    "action_graph": null,
    "death_spawn_pushback": true,
    "count": 1,
@@ -2158,6 +2168,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
@@ -2264,6 +2275,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -2371,6 +2383,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 15,
@@ -2513,6 +2526,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -2656,6 +2670,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -2797,6 +2812,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -2911,6 +2927,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -3053,6 +3070,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -3160,6 +3178,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -3303,6 +3322,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
@@ -3415,6 +3435,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -3525,6 +3546,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -3667,6 +3689,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 6,
@@ -3830,6 +3853,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -3979,6 +4003,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -4085,6 +4110,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Small"
@@ -4233,6 +4259,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -4345,6 +4372,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -4495,6 +4523,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
@@ -4696,6 +4725,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": true,
    "count": 1,
@@ -4859,6 +4889,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5001,6 +5032,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5110,6 +5142,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5254,6 +5287,7 @@
    "attack_pushback_milli": 750,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5396,6 +5430,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5503,6 +5538,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5622,6 +5658,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5733,6 +5770,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5840,6 +5878,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -5982,6 +6021,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -6125,6 +6165,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -6232,6 +6273,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
@@ -6366,6 +6408,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -6479,6 +6522,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 2,
@@ -6621,6 +6665,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -6763,6 +6808,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -6881,6 +6927,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -6987,6 +7034,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -7115,6 +7163,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -7221,6 +7270,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 5,
@@ -7327,6 +7377,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "idle_invisibility": {
     "buff": "Invisibility",
@@ -7457,6 +7508,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -7588,6 +7640,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
@@ -7695,6 +7748,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -7844,6 +7898,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "MovingCannon_trigger_at_health"
@@ -7980,6 +8035,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -8128,6 +8184,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "skeleton_balloon_pop_balloons"
@@ -8136,7 +8193,7 @@
      "ActionSkeletonBarrelPopBalloon"
     ],
     "spawns": [],
-    "mechanic": true
+    "mechanic": false
    },
    "death_spawn_pushback": false,
    "count": 1,
@@ -8279,6 +8336,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -8421,6 +8479,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 2,
@@ -8531,6 +8590,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 4,
@@ -8648,6 +8708,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -8797,6 +8858,7 @@
     "drag_margin_milli": 200
    },
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -8939,6 +9001,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -9102,6 +9165,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -9280,6 +9344,7 @@
    "attack_pushback_milli": 1000,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -9392,6 +9457,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -9579,6 +9645,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -9694,6 +9761,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": null,
    "mana": {
     "collect_amount": null,
@@ -9810,6 +9878,7 @@
     "BattleHealerAll",
     "BattleHealerSpawnBuff"
    ],
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -9916,6 +9985,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -10073,6 +10143,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": true,
    "count": 1,
@@ -10236,6 +10307,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -10371,6 +10443,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -10497,6 +10570,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -10596,6 +10670,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -10719,6 +10794,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -10818,6 +10894,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -10966,6 +11043,7 @@
    "attack_pushback_milli": 1000,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 2,
@@ -11065,6 +11143,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Medium"
@@ -11213,6 +11292,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 2,
@@ -11320,6 +11400,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "triggered_dash": {
@@ -11471,6 +11552,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -11665,6 +11747,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -11829,6 +11912,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -11936,6 +12020,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "reflected_attack": {
@@ -12078,6 +12163,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -12179,6 +12265,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -12322,6 +12409,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnAttackAction": "LP_OnAttack",
@@ -12469,6 +12557,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -12621,6 +12710,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "GoblinDemolisher_trigger_at_health"
@@ -12755,6 +12845,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "goblin_machine_rocket",
@@ -12877,6 +12968,7 @@
     "VoodooCurse",
     "GoblinCurse"
    ],
+   "death_pushback_milli": null,
    "action_graph": null,
    "idle_invisibility": {
     "buff": "BushInvisibility",
@@ -12990,6 +13082,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -13097,6 +13190,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "goblinstein_on_starting_action",
@@ -13219,6 +13313,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "VisualActions": "Healthbar_Small"
@@ -13333,6 +13428,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "giantbuffer_collect_friend_troops"
@@ -13537,6 +13633,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -13655,6 +13752,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnKilledAction": "BossBandit_defeated_by_bandit_check",
@@ -13777,6 +13875,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -13919,6 +14018,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -14026,6 +14126,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "ronin_reflect_group",
@@ -14236,6 +14337,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -14347,6 +14449,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "goblin_hut_life_time_controller"
@@ -14510,6 +14613,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -14623,6 +14727,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -14771,6 +14876,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -14891,6 +14997,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -14999,6 +15106,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -15105,6 +15213,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "mana": {
     "collect_amount": 1,
@@ -15257,6 +15366,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -15377,6 +15487,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -15520,6 +15631,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "Furnace_rework_continuous_spawn",
@@ -15691,6 +15803,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -15802,6 +15915,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "goblin_cage_shake_when_target"
@@ -15919,6 +16033,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -16070,6 +16185,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 1,
@@ -16176,6 +16292,7 @@
    "attack_pushback_milli": null,
    "special": null,
    "ignore_buffs": null,
+   "death_pushback_milli": null,
    "action_graph": {
     "roots": {
      "OnStartingAction": "GoblinRocketSilo_StageSwitcher"
@@ -20514,6 +20631,7 @@
    "ignore_buffs": [
     "Event_Berserk_OnStartBuff"
    ],
+   "death_pushback_milli": null,
    "count": 1,
    "no_deploy_size_tiles": [
     11,
@@ -20659,6 +20777,7 @@
    "ignore_buffs": [
     "Event_Berserk_OnStartBuff"
    ],
+   "death_pushback_milli": null,
    "count": 1,
    "no_deploy_size_tiles": [
     18,
@@ -20758,6 +20877,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -20878,6 +20998,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -20964,6 +21085,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21049,6 +21171,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21137,6 +21260,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21259,6 +21383,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21350,6 +21475,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21481,6 +21607,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21570,6 +21697,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21655,6 +21783,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21749,6 +21878,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1800,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21854,6 +21984,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 900,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -21943,6 +22074,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22066,6 +22198,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22186,6 +22319,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22309,6 +22443,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22393,6 +22528,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22513,6 +22649,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22605,6 +22742,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22701,6 +22839,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22792,6 +22931,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22917,6 +23057,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23039,6 +23180,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23182,6 +23324,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23303,6 +23446,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23427,6 +23571,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23524,6 +23669,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23622,6 +23768,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23759,6 +23906,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23894,6 +24042,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23979,6 +24128,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24122,6 +24272,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24245,6 +24396,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24335,6 +24487,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24457,6 +24610,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": 750,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24579,6 +24733,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24665,6 +24820,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24792,6 +24948,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24882,6 +25039,7 @@
     "time2_ms": 2000
    },
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24983,6 +25141,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25121,6 +25280,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25231,6 +25391,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25322,6 +25483,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25444,6 +25606,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25540,6 +25703,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25630,6 +25794,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25725,6 +25890,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "GhostOverlay",
    "defaults_applied": [
@@ -25846,6 +26012,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25970,6 +26137,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26072,6 +26240,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26165,6 +26334,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26253,6 +26423,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26346,6 +26517,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26441,6 +26613,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26577,6 +26750,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26671,6 +26845,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26684,7 +26859,7 @@
      "ActionSkeletonBarrelPopBalloon"
     ],
     "spawns": [],
-    "mechanic": true
+    "mechanic": false
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -26812,6 +26987,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -26934,6 +27110,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27024,6 +27201,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27113,6 +27291,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27210,6 +27389,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27340,6 +27520,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27470,6 +27651,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27589,6 +27771,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27744,6 +27927,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27903,6 +28087,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28045,6 +28230,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28131,6 +28317,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": {
     "range_milli": 7000,
     "min_range_milli": 3500,
@@ -28271,6 +28458,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": null,
@@ -28383,6 +28571,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": null,
@@ -28486,6 +28675,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": null,
@@ -28614,6 +28804,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28701,6 +28892,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28856,6 +29048,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": 1000,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28944,6 +29137,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29038,6 +29232,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29136,6 +29331,7 @@
     "time2_ms": 2000
    },
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29307,6 +29503,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29400,6 +29597,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29579,6 +29777,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29672,6 +29871,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29804,6 +30004,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -29888,6 +30089,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "reflected_attack": {
     "damage": 75,
@@ -30064,6 +30266,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30196,6 +30399,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30294,6 +30498,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30431,6 +30636,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30585,6 +30791,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30668,6 +30875,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30765,6 +30973,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30856,6 +31065,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30945,6 +31155,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31091,6 +31302,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31185,6 +31397,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31306,6 +31519,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31390,6 +31604,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31475,6 +31690,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31558,6 +31774,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31662,6 +31879,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31800,6 +32018,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": 1000,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31883,6 +32102,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32007,6 +32227,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32162,6 +32383,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32247,6 +32469,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32374,6 +32597,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32462,6 +32686,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32544,6 +32769,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32631,6 +32857,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32728,6 +32955,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32827,6 +33055,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32913,6 +33142,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33008,6 +33238,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33109,6 +33340,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33234,6 +33466,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33355,6 +33588,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33474,6 +33708,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33563,6 +33798,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33679,6 +33915,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33803,6 +34040,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -33889,6 +34127,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34010,6 +34249,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34132,6 +34372,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34215,6 +34456,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34300,6 +34542,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34388,6 +34631,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34478,6 +34722,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34568,6 +34813,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34743,6 +34989,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34864,6 +35111,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35003,6 +35251,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35115,6 +35364,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": 2000,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35234,6 +35484,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35336,6 +35587,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35475,6 +35727,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35648,6 +35901,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": 1000,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35771,6 +36025,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -35966,6 +36221,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36109,6 +36365,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36293,6 +36550,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36470,6 +36728,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36594,6 +36853,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36690,6 +36950,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36840,6 +37101,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36949,6 +37211,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37096,6 +37359,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37245,6 +37509,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37379,6 +37644,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37504,6 +37770,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37646,6 +37913,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37769,6 +38037,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -37921,6 +38190,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38033,6 +38303,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38151,6 +38422,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "GhostOverlay",
    "defaults_applied": [
@@ -38261,6 +38533,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38376,6 +38649,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38491,6 +38765,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38606,6 +38881,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38795,6 +39071,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38894,6 +39171,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -38981,6 +39259,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39102,6 +39381,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39213,6 +39493,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39300,6 +39581,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39394,6 +39676,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39551,6 +39834,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39689,6 +39973,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39811,6 +40096,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39897,6 +40183,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40034,6 +40321,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "GoblinQueenTowerTopCharacter",
    "defaults_applied": [
@@ -40148,6 +40436,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40219,6 +40508,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40303,6 +40593,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40459,6 +40750,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40552,6 +40844,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40673,6 +40966,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40778,6 +41072,7 @@
     "time2_ms": 2000
    },
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40944,6 +41239,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41078,6 +41374,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41197,6 +41494,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41317,6 +41615,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41467,6 +41766,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41585,6 +41885,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41735,6 +42036,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41859,6 +42161,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41948,6 +42251,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42025,6 +42329,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42141,6 +42446,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42294,6 +42600,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42409,6 +42716,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42506,6 +42814,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42600,6 +42909,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42700,6 +43010,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42804,6 +43115,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -42922,6 +43234,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43042,6 +43355,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43143,6 +43457,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43263,6 +43578,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43424,6 +43740,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43585,6 +43902,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43746,6 +44064,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43916,6 +44235,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44027,6 +44347,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44114,6 +44435,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44235,6 +44557,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44327,6 +44650,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44425,6 +44749,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44556,6 +44881,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44694,6 +45020,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -44821,6 +45148,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44963,6 +45291,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45073,6 +45402,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45196,6 +45526,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45334,6 +45665,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -45459,6 +45791,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45558,6 +45891,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45677,6 +46011,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45767,6 +46102,7 @@
     "time2_ms": 2000
    },
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -45898,6 +46234,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "Bomber",
    "defaults_applied": [
@@ -45999,6 +46336,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46084,6 +46422,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46173,6 +46512,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": 1,
@@ -46295,6 +46635,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46394,6 +46735,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46481,6 +46823,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1800,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46564,6 +46907,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46658,6 +47002,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46742,6 +47087,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46819,6 +47165,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46895,6 +47242,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -46973,6 +47321,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1800,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47061,6 +47410,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47148,6 +47498,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47260,6 +47611,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47384,6 +47736,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -47468,6 +47821,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "CaptureTowerTop",
    "defaults_applied": [
@@ -47551,6 +47905,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47634,6 +47989,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47728,6 +48084,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47801,6 +48158,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47909,6 +48267,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -47997,6 +48356,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48076,6 +48436,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48191,6 +48552,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "BlowdartGoblin",
    "defaults_applied": [
@@ -48284,6 +48646,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48397,6 +48760,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48518,6 +48882,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48652,6 +49017,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -48764,6 +49130,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48877,6 +49244,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -48986,6 +49354,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49071,6 +49440,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49151,6 +49521,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49223,6 +49594,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49298,6 +49670,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": null,
@@ -49387,6 +49760,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49468,6 +49842,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": {
     "range_milli": 8000,
     "min_range_milli": 1000,
@@ -49603,6 +49978,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49684,6 +50060,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1500,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49765,6 +50142,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49851,6 +50229,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -49967,6 +50346,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50055,6 +50435,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50167,6 +50548,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -50294,6 +50676,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50383,6 +50766,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50456,6 +50840,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50529,6 +50914,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1800,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50612,6 +50998,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50728,6 +51115,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50828,6 +51216,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50923,6 +51312,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -50998,6 +51388,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51073,6 +51464,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51146,6 +51538,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51226,6 +51619,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51305,6 +51699,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51391,6 +51786,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51472,6 +51868,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51544,6 +51941,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51616,6 +52014,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51688,6 +52087,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51760,6 +52160,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51839,6 +52240,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -51957,6 +52359,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -52077,6 +52480,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -52211,6 +52615,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -52335,6 +52740,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "ArcherQueen_Chess",
    "defaults_applied": [
@@ -52459,6 +52865,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -52583,6 +52990,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "Bomber_Chess",
    "defaults_applied": [
@@ -52674,6 +53082,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "Prince_Chess",
    "defaults_applied": [
@@ -52792,6 +53201,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "EliteArcher_Chess",
    "defaults_applied": [
@@ -52889,6 +53299,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -52987,6 +53398,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53074,6 +53486,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53149,6 +53562,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53221,6 +53635,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53293,6 +53708,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": null,
@@ -53372,6 +53788,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53444,6 +53861,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53516,6 +53934,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "mana": {
     "collect_amount": 1,
@@ -53638,6 +54057,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53757,6 +54177,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -53914,6 +54335,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerPrincess",
    "defaults_applied": [
@@ -54061,6 +54483,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54182,6 +54605,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerCannoneer",
    "defaults_applied": [
@@ -54309,6 +54733,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "TowerKnifeThrower",
    "defaults_applied": [
@@ -54431,6 +54856,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54511,6 +54937,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54592,6 +55019,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54687,6 +55115,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54759,6 +55188,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54869,6 +55299,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -54954,6 +55385,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55099,6 +55531,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55230,6 +55663,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "Chef",
    "defaults_applied": [
@@ -55340,6 +55774,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55458,6 +55893,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55600,6 +56036,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55693,6 +56130,7 @@
    ],
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": 1000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55780,6 +56218,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -55931,6 +56370,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "WitchMother",
    "defaults_applied": [
@@ -56054,6 +56494,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "AxeMan_Small",
    "defaults_applied": [
@@ -56147,6 +56588,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": "DarkPrince_Small",
    "defaults_applied": [
@@ -56266,6 +56708,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56354,6 +56797,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56427,6 +56871,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56521,6 +56966,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56613,6 +57059,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56698,6 +57145,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56785,6 +57233,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56874,6 +57323,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -56984,6 +57434,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -57072,6 +57523,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -57152,6 +57604,7 @@
    "ignore_buffs": null,
    "variable_damage": null,
    "attack_pushback_milli": null,
+   "death_pushback_milli": null,
    "special": null,
    "attached_character": null,
    "defaults_applied": [

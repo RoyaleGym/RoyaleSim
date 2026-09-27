@@ -31,9 +31,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 126
-//!      loadable rows (124 cards, then PrincessTower and KingTower) and
-//!      20 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 127
+//!      loadable rows (125 cards, then PrincessTower and KingTower) and
+//!      19 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -102,14 +102,14 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 23b032626fe91432 (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
+/// e0b24a55792c365a (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
 /// Elixir Collector, the Furnace, the Elixir Golem, the Ram Rider, the Three Musketeers, the Mirror and the Spirit
 /// Empress; the curses' and the Royal Delivery's columns: a buff's death spawn, an area's action schedule, IgnoreBuff,
-/// SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the Goblin Demolisher's `transform_at_hp`
-/// and the Ronin's `parry`). The lists are what the loader gives for that file.
-/// data/derived/replay/card_census.json (`cargo run --example replay_parity --
-/// --census`), written from the same file, holds the same 126 loadable rows in the
-/// same order and the same 20 refusals, word for word.
+/// SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the Goblin Demolisher's `transform_at_hp`,
+/// the Ronin's `parry`; the Skeleton Barrel's DeathPushBack column and its balloon pops read as cosmetic). The lists
+/// are what the loader gives for that file: 127 loadable rows and 19 refusals. `cargo run --example replay_parity --
+/// --census` writes data/derived/replay/card_census.json from the same file by the same rule (examples/replay_parity/
+/// harness.rs `census`), so a census written from this file holds these rows in this order and these refusals.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[
@@ -168,6 +168,7 @@ const LOADABLE_15535: &[&str] = &[
     "Rascals",
     "MovingCannon",
     "MegaKnight",
+    "SkeletonBalloon",
     "DartBarrell",
     "Wallbreakers",
     "RoyalHogs",
@@ -253,7 +254,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("Graveyard", "area effect Graveyard_rework runs an action graph this loader does not read (ActionGroup, ActionSpawnToLocation; spawns CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton)"),
     ("LittlePrince", "the unit runs an action graph this loader does not read (ActionFilter, ActionGroup, ActionInterval, ActionSetAttackSequenceIndex, ActionSetVariable)"),
     ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
-    ("SkeletonBalloon", "the unit runs an action graph this loader does not read (ActionSkeletonBarrelPopBalloon)"),
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),
     ("SuperLavaHound", "death projectile FireWallProjectile"),

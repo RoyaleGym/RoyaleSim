@@ -1117,8 +1117,8 @@ pub struct CardDef {
     pub projectile_start_radius: i32,
     /// Kamikaze: the unit dies on its own hit -- gone on the tick a melee hit lands
     /// or its projectile launches (calibration combat.KAMIKAZE_DEATH). Battle Ram,
-    /// the Spirits, Wall Breakers. FALSE when KamikazeTime > 0 (the delayed death
-    /// of the 2018 SkeletonBalloon): a named gap, see `convert`.
+    /// the Spirits, Wall Breakers. FALSE when KamikazeTime > 0 (the Skeleton Barrel's
+    /// delayed death): that one is `kamikaze_time_ms`, run under combat.KAMIKAZE_TIME.
     pub kamikaze: bool,
     /// THE BUFF THIS CARD'S ATTACK APPLIES:
     /// projectiles.TargetBuff + BuffTime for a unit that shoots (the Ice Spirit's
@@ -1342,13 +1342,24 @@ pub struct CardDef {
     /// admits while it is ready is taken at its DefenseScalar and answered with a stun and a reflect. None on every
     /// other card.
     pub parry: Option<ParryDef>,
+    /// characters.csv KamikazeTime on a Kamikaze row (the Skeleton Barrel's 500), ms: the unit's
+    /// death is DELAYED, drained from its first fire (state.rs `kamikaze_drain`) under
+    /// combat.KAMIKAZE_TIME; `kamikaze` is false beside it. 0 on every other card, and on a row
+    /// whose Kamikaze is not set.
+    pub kamikaze_time_ms: i32,
+    /// characters / buildings DeathPushBack (cards.json `death_pushback_milli`, 15.535 rows only),
+    /// SUBTILES; 0 on a blank. The push a DEATH BOMB's hit gives the units it lands on, radially
+    /// from the bomb, under knockback.DEATH_PUSHBACK (spell.rs `step_spells`: the Skeleton Barrel's
+    /// container 1000). Loaded on every row: the Golem's 1800 and the Giant Skeleton's bomb's 1800
+    /// stay unread under the shipped arm.
+    pub death_pushback: i32,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `parry`, and onto the end of that tail
+    // field goes HERE, after `death_pushback`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1673,6 +1684,9 @@ struct RawCard {
     /// cards.json `attack_pushback_milli` (characters.csv AttackPushBack):
     /// `CardDef::attack_pushback`. Not yet written by the extractor; absent reads as 0.
     attack_pushback_milli: Option<i32>,
+    /// cards.json `death_pushback_milli` (characters / buildings DeathPushBack, millitiles; 15.535
+    /// rows only): `CardDef::death_pushback`. Absent reads as 0.
+    death_pushback_milli: Option<i32>,
     /// cards.json `special` block (SpecialRange / SpecialMinRange / SpecialLoadTime and the
     /// ProjectileSpecial row): `CardDef::special`. Not yet written by the extractor; absent
     /// reads as no special.
@@ -2491,7 +2505,7 @@ struct RawSpawner {
 }
 
 /// cards.json `death_spawn` block.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone)]
 #[serde(default)]
 struct RawDeathSpawn {
     character: Option<String>,
@@ -3397,6 +3411,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         enchant: None,
         transform_at_hp: None,
         parry: None,
+        kamikaze_time_ms: 0,
+        death_pushback: 0,
     }
 }
 
@@ -4264,6 +4280,10 @@ enum Hitpointless {
     /// A DEATH BOMB (`convert_death_bomb`): DeployTime, DeathDamage and
     /// DeathDamageRadius, all three positive, and no other block.
     DeathBomb { fuse_ms: i32, damage: i32, radius_milli: i32 },
+    /// A DEATH BOMB WITH A DEATH SPAWN (the Skeleton Barrel's container): the death bomb's three
+    /// columns and a DeathSpawn block, and no other block. When its fuse ends it hits, and it also
+    /// releases its own death spawn (`convert_death_bomb` with the spawn; state.rs `release_fuse_end`).
+    BombWithDeathSpawn { fuse_ms: i32, damage: i32, radius_milli: i32 },
     /// A BOTTLE (Rage's RageBottle): DeployTime and a DeathAreaEffect, and no other block. Only a
     /// spell summon releases one; it becomes that spell's `SpellShape::Fuse`.
     Bottle { fuse_ms: i32, area: String },
@@ -4296,7 +4316,16 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
         && raw.shield_hitpoints.unwrap_or(0) == 0
         && !matches!(&raw.projectile, Some(v) if !v.is_null())
         && raw.spawner.is_none()
-        && raw.death_spawn.is_none()
+        // A death spawn only beside the bomb's own three columns (the container). PLANT
+        // container_not_a_bomb (tests/skeleton_barrel.rs): the earlier clause, so the container
+        // falls to the ordinary loader and is refused on its hitpoints.
+        && {
+            #[cfg(not(clash_plant = "container_not_a_bomb"))]
+            let spawn_ok = raw.death_spawn.is_none() || bomb.is_some();
+            #[cfg(clash_plant = "container_not_a_bomb")]
+            let spawn_ok = raw.death_spawn.is_none();
+            spawn_ok
+        }
         && (raw.death_area_effect.is_none() || bottle.is_some())
         && raw.death_spawn_projectile.is_none()
         && raw.deploy_area_effect.is_none()
@@ -4314,6 +4343,7 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
     }
     match (bottle, bomb) {
         (Some((fuse_ms, area)), _) => Some(Hitpointless::Bottle { fuse_ms, area }),
+        (None, Some((fuse_ms, damage, radius_milli))) if raw.death_spawn.is_some() => Some(Hitpointless::BombWithDeathSpawn { fuse_ms, damage, radius_milli }),
         (None, Some((fuse_ms, damage, radius_milli))) => Some(Hitpointless::DeathBomb { fuse_ms, damage, radius_milli }),
         (None, None) => None,
     }
@@ -4363,12 +4393,17 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
 /// it on the death tick. The corpus says 61 ticks, so `phase_reap` takes the row's
 /// own DeployTime and never the death-spawn default.
 ///
-/// NOT MODELLED, NAMED: GiantSkeletonBomb's raw row also carries DeathPushBack
-/// 1800. The extractor does not carry that column into cards.json and the engine's
-/// ordinary DeathDamage path has never applied a push either, so the Giant
-/// Skeleton's bomb damages without shoving -- the same gap every other death
-/// damage has, not a new one.
-fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i32) -> Result<CardDef, String> {
+/// DeathPushBack (cards.json `death_pushback_milli`; GiantSkeletonBomb 1800, the Skeleton
+/// Barrel's container 1000) is loaded as `CardDef::death_pushback` and run on the bomb's
+/// hit under knockback.DEATH_PUSHBACK (spell.rs `step_spells`). The shipped arm runs it on a
+/// container alone, so the Giant Skeleton's bomb still damages without shoving.
+///
+/// A CONTAINER (`with_spawn`: `Hitpointless::BombWithDeathSpawn`, the Skeleton Barrel's
+/// SkeletonContainerNew) also carries its row's DeathSpawn block. When the fuse ends the
+/// bomb hits and releases that death spawn where it stands (spell.rs `FuseEnd`, state.rs
+/// `release_fuse_end`), so the unit is returned as the container's own need, one level
+/// down the unit worklist.
+fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i32, with_spawn: bool) -> Result<(CardDef, UnitNeeds), String> {
     let crown_pct = crown(raw.crown_tower_damage_percent);
     let radius = milli(radius_milli);
     let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
@@ -4382,6 +4417,22 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
     c.crown_tower_damage_percent = crown_pct;
     c.level_table = level_table;
     c.level_base = level_base;
+    c.death_pushback = match raw.death_pushback_milli {
+        Some(x) if x < 0 => return Err(format!("death_pushback_milli {x} < 0")),
+        Some(x) => milli(x),
+        None => 0,
+    };
+    let mut needs: UnitNeeds = Vec::new();
+    if with_spawn {
+        let (ds, unit) = convert_death_spawn(raw.death_spawn.clone())?.ok_or("a container's death_spawn block names no DeathSpawnCharacter")?;
+        c.death_spawn = Some(ds);
+        // A blank (or a 2018 row, which never carries the key) is false, as in `convert`.
+        #[cfg(not(clash_plant = "death_spawn_pushback_unread"))]
+        {
+            c.death_spawn_pushback = raw.death_spawn_pushback.unwrap_or(false);
+        }
+        needs.push((UnitUse::DeathSpawn, unit));
+    }
     c.spell = Some(SpellDef {
         // `speed` is unread: `spell::step_spells` advances from the impact point to
         // the impact point, and `path::advance` arrives on a zero-length leg
@@ -4414,7 +4465,7 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
         // inert value; `state.rs check_position` only ever sees catalogue cards.
         placement: SpellPlacement::Anywhere,
     });
-    Ok(c)
+    Ok((c, needs))
 }
 
 /// A DEATH PROJECTILE (characters DeathSpawnProjectile, a `projectiles` row; the Phoenix's
@@ -4511,13 +4562,15 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // one: no hitpoints, no hit speed and no range to require of it
     // (`hitpointless_building`).
     if let Some(shape) = hitpointless_building(&raw) {
-        let c = match shape {
-            Hitpointless::DeathBomb { fuse_ms, damage, radius_milli } => convert_death_bomb(&raw, fuse_ms, damage, radius_milli)?,
+        let (c, needs) = match shape {
+            Hitpointless::DeathBomb { fuse_ms, damage, radius_milli } => convert_death_bomb(&raw, fuse_ms, damage, radius_milli, false)?,
+            // A container's death spawn is its own need, one level down (the Skeleton Barrel's Skeletons).
+            Hitpointless::BombWithDeathSpawn { fuse_ms, damage, radius_milli } => convert_death_bomb(&raw, fuse_ms, damage, radius_milli, true)?,
             // A bottle is a spell summon's `Fuse` (`CardDb::from_json_str`, UnitUse::SpellSummon),
             // never a unit on the board.
             Hitpointless::Bottle { .. } => return Err("a hitpoint-less building whose death leaves an area is a spell summon's bottle; only a spell summon releases one".into()),
         };
-        return Ok((c, raw.display_name.clone(), Vec::new()));
+        return Ok((c, raw.display_name.clone(), needs));
     }
     // A SECOND PERIODIC UNIT (SpawnCharacter2, the Super Witch's Bat) is not simulated. Refused here, before anything
     // of the row is interned, so a refused row adds no buff to the table and moves no other card's buff index.
@@ -4652,9 +4705,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // card WITH a damage source still needs its range; requiring range_milli of
     // every non-spell card refused every spawner building.
     let attacks = raw.damage.is_some() || projectile.is_some();
-    // Buildings only: a damage-less TROOP row (SkeletonBalloon, rejected later
-    // anyway) keeps its columns as loaded, so the format-3 card fingerprint
-    // (state.rs migrate_v3) still reproduces.
+    // Buildings only: a damage-less TROOP row (the Skeleton Barrel, which attacks for 0
+    // and dies by its KamikazeTime) keeps its columns as loaded, so the format-3 card
+    // fingerprint (state.rs migrate_v3) still reproduces.
     let inert_building = kind == CardKind::Building && !attacks;
     let range = match raw.range_milli {
         Some(r) => r,
@@ -4864,15 +4917,19 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         spawn_angle_shift_deg: raw.spawn_angle_shift_deg.unwrap_or(0),
         second_summon,
     };
-    // KAMIKAZE (combat.KAMIKAZE_DEATH = at_fire): the death ON the fire is
-    // implemented. A DELAYED one (KamikazeTime, the 2018 SkeletonBalloon's 500 ms)
-    // is not, and the column is NOT taken for such a card: it keeps attacking,
-    // which is the behaviour the engine had before the key and is a NAMED GAP (the
-    // key's `engine` field, docs/mechanics.md), not a silent substitution. Not a
-    // refusal at load: a refusal drops the whole card over one unmodelled detail,
-    // the way building lifetime decay never did, and it would drop a card out of
-    // the format-3 card list that `state.rs migrate_v3` rebuilds.
+    // KAMIKAZE (combat.KAMIKAZE_DEATH = at_fire): the death ON the fire. A DELAYED one
+    // (KamikazeTime, the Skeleton Barrel's 500 ms) is not that death: `kamikaze` stays
+    // false for it and the delay is carried as `kamikaze_time_ms`, which
+    // combat.KAMIKAZE_TIME runs (state.rs `kamikaze_drain`: the unit drains from its first
+    // fire). Under that key's not_taken arm the column is not read, and the unit keeps
+    // attacking, as the engine did before the key.
     let kamikaze = raw.kamikaze.unwrap_or(false) && raw.kamikaze_time_ms.unwrap_or(0) <= 0;
+    let kamikaze_time_ms = if raw.kamikaze.unwrap_or(false) { raw.kamikaze_time_ms.filter(|t| *t > 0).unwrap_or(0) } else { 0 };
+    let death_pushback = match raw.death_pushback_milli {
+        Some(x) if x < 0 => return Err(format!("death_pushback_milli {x} < 0")),
+        Some(x) => milli(x),
+        None => 0,
+    };
     let no_deploy_size = match raw.no_deploy_size_tiles {
         Some([w, h]) if w > 0 && h > 0 => Some(Vec2::new(tiles(w), tiles(h))),
         Some(other) => return Err(format!("no_deploy_size_tiles {other:?} is not two positive tile counts")),
@@ -5036,6 +5093,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // Resolved by `CardDb::from_json_str` (the row's name pushed on `units` above).
         transform_at_hp: transform.map(|(d, _)| d),
         parry,
+        kamikaze_time_ms,
+        death_pushback,
     }, display, units))
 }
 
@@ -5257,15 +5316,17 @@ impl CardDb {
         // summon_only card, after every real card so no card index moves -- one unit
         // table for all three mechanics. A card whose unit cannot be loaded is REJECTED
         // (unregistered again, with the unit's reason), never left pointing at nothing:
-        // SkeletonBalloon goes this way (SkeletonContainer, a building with no
-        // hitpoints, refused on `hitpoints` before its own 8-Skeleton death spawn
-        // is even reached), and so does the 2018 MovingCannon (its death spawn
+        // the 2018 SkeletonBalloon goes this way (its SkeletonContainer, a building with no
+        // hitpoints and no DeathDamage, refused on `hitpoints` before its own 8-Skeleton
+        // death spawn is even reached), and so does the 2018 MovingCannon (its death spawn
         // BrokenCannon is a troop with a LifeTime; the 15.535.29 Cannon Cart reaches its
         // BrokenCannon, a building there, through a transformation instead).
         // NOT every hitpoint-less "unit" is a refusal: a DEATH BOMB (BalloonBomb,
         // GiantSkeletonBomb, BombTowerBomb) is a timed impact rather than an entity
         // and loads as one -- `convert_death_bomb`, and `phase_reap`, which leaves it
-        // where the parent died instead of spawning it.
+        // where the parent died instead of spawning it. The 15.535.29 Skeleton Barrel's
+        // SkeletonContainerNew is a death bomb that also carries a death spawn (a
+        // container): its Skeletons are its own need, one level down.
         //
         // THE UNITS LOAD FROM A WORKLIST, BREADTH FIRST: every need of every card in
         // `spawns` order, then the needs of the units loaded for them, one level

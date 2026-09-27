@@ -411,7 +411,13 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Miner, the Goblin Drill) are scored too. The stand-in figures above left the Miner and the Goblin Drill out.
     # 90 -> 92 with that widening: the Miner and the Goblin Drill, scored again. Measured on the merged next build's
     # module (not a stand-in).
-    outside_by_vintage = {"2018": 40, "15.535": 92}
+    # 92 -> 93 when the Skeleton Barrel loads: it joins with DeathPushBack and DeathSpawnMinRadius (its container's, and
+    # the card row's DeathPushBack is read only for a container under knockback.DEATH_PUSHBACK's shipped arm),
+    # DeployDelay, FlyDirectPaths, IgnoreResurrect, IsBuilding, OnStartingAction (its balloon pops, read as cosmetic)
+    # and SpawnConstPriority. The WHOLE delta, measured with a stand-in loaded set (loadable_census.rs's LOADABLE_15535
+    # without the towers) and the register present, without a module built from this tree: 92 without the barrel, 93
+    # with it, the one added card the barrel and none removed.
+    outside_by_vintage = {"2018": 40, "15.535": 93}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

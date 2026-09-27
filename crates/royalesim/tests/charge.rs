@@ -1082,10 +1082,10 @@ fn the_battle_ram_dies_on_its_charged_hit_and_its_barbarians_take_over() {
     let plain_ram = want(plain);
     let later = first_drops(&mut s, 2, 200, |s| s.tower_hp(Team::Red)[1]);
     assert!(later.iter().all(|(_, d)| *d != plain_ram), "a dead Ram kept hitting at Damage: {later:?}");
-    // THE GAP the key names (combat.KAMIKAZE_DEATH): a DELAYED kamikaze
-    // (KamikazeTime) is not modelled, so such a card LOADS with its Kamikaze column
-    // not taken -- it keeps attacking. The 2018 vintage's SkeletonBalloon is the
-    // only card in either file with one.
+    // A DELAYED kamikaze (KamikazeTime) is not combat.KAMIKAZE_DEATH's death on the
+    // fire: such a card's Kamikaze column is not taken here, and combat.KAMIKAZE_TIME
+    // runs the delay (tests/skeleton_barrel.rs pins the drain). The Skeleton Barrel is
+    // the only card in either file with one; the 15.535 one loads, with its 500 ms.
     let mut delayed = 0;
     for file in ["cards.json", "cards-2018.json"] {
         let db = royalesim::card::CardDb::load_repo_file(file).unwrap_or_else(|e| panic!("{file}: {e}"));
@@ -1104,4 +1104,7 @@ fn the_battle_ram_dies_on_its_charged_hit_and_its_barbarians_take_over() {
         }
     }
     assert!(delayed >= 1, "vacuous: neither vintage ships a card with a KamikazeTime");
+    let db = royalesim::card::CardDb::load_repo_file("cards.json").unwrap_or_else(|e| panic!("cards.json: {e}"));
+    let barrel = db.get(db.index("SkeletonBalloon").expect("the 15.535 Skeleton Barrel loads"));
+    assert_eq!((barrel.kamikaze, barrel.kamikaze_time_ms), (false, 500), "the Skeleton Barrel's delayed kamikaze");
 }

@@ -347,6 +347,20 @@ pub struct Entities {
     pub death_slide_centre: Vec<Vec2>,
     #[serde(default)]
     pub death_slide_radius: Vec<i32>,
+    /// THE SLIDE'S LAST TICK (a container's member: state.rs `release_fuse_end`,
+    /// `move16402::CONTAINER_SLIDE_TICKS`): the slide ends after its step on this tick, whether or not
+    /// the member has reached its radius (`death_slide_capped`). 0 = no cap (a dying troop's slide),
+    /// and 0 on every unit that is not sliding. Hashed only while a slide runs and only when set.
+    /// `default` and sized on load like `death_slide_radius`.
+    #[serde(default)]
+    pub death_slide_until: Vec<u32>,
+    /// THE DELAYED KAMIKAZE (card.rs `CardDef::kamikaze_time_ms`, calibration combat.KAMIKAZE_TIME;
+    /// state.rs `kamikaze_drain`): the tick after the unit's first fire, the first tick of its drain in
+    /// the Status phase (the fire's own tick drains in the attack pass). 0 before the fire and on every
+    /// other entity; hashed only for a card with a KamikazeTime. `default` and sized on load like
+    /// `reveal_from`.
+    #[serde(default)]
+    pub kamikaze_from: Vec<u32>,
     /// THE ACQUIRE DELAY (calibration targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame;
     /// state.rs `delay_acquisition`, the one setter; target.rs `can_target`, the one reader):
     /// the first tick whose Target phase may give this unit to an enemy as its target. A troop
@@ -593,6 +607,24 @@ impl Entities {
         self.death_slide_radius[i] > 0
     }
 
+    /// Has entity `i`'s slide run out of ticks on `tick` (`death_slide_until`, a container's member)? Its step on
+    /// that tick is its last, whether or not it reached its radius. Measured on client 15.535.29: a container's
+    /// members move on T + 13 to T + 16 and never after, the last-created one resting at 1301 of its 1480. False
+    /// on every slide with no cap (a dying troop's). PLANT container_slide_uncapped (tests/skeleton_barrel.rs):
+    /// never, so every member slides on to its radius.
+    #[inline]
+    pub fn death_slide_capped(&self, i: usize, tick: u32) -> bool {
+        #[cfg(clash_plant = "container_slide_uncapped")]
+        {
+            let _ = (i, tick);
+            return false;
+        }
+        #[allow(unreachable_code)]
+        {
+            self.death_slide_until[i] != 0 && tick >= self.death_slide_until[i]
+        }
+    }
+
     /// Not yet acquirable as a target in the Target phase of `tick` (calibration
     /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY; `acquirable_from`). The one predicate: target.rs
     /// `can_target` and the state hash both read it. False on every entity under the shipped
@@ -777,6 +809,8 @@ impl Entities {
             self.stagger_ms[i] = 0;
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
+            self.death_slide_until[i] = 0;
+            self.kamikaze_from[i] = 0;
             self.acquirable_from[i] = 0;
             self.dash_state[i] = DashState::None;
             self.dash_mark[i] = 0;
@@ -869,6 +903,8 @@ impl Entities {
             self.stagger_ms.push(0);
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);
+            self.death_slide_until.push(0);
+            self.kamikaze_from.push(0);
             self.acquirable_from.push(0);
             self.dash_state.push(DashState::None);
             self.dash_mark.push(0);
@@ -936,7 +972,8 @@ impl Entities {
     ///   FROM THE NEW ROW (`RebindInit`) or RESET to what `spawn` gives a new entity: the old row's walk (route,
     ///     route_goal, seg_dir, move_frac, move_ticks, last_plan_tick, avoid_offset, stomp_clock), its row-bound
     ///     state (charge, jump, dash, special, hide, spawner, life-state controller, elixir payout, the Rune Giant's
-    ///     look), a formation member's stagger and a death-spawn slide, and a building's knockback (a building is not
+    ///     look, a delayed kamikaze's first fire), a formation member's stagger and a death-spawn slide with its
+    ///     cap, and a building's knockback (a building is not
     ///     moved). The loader refuses a target row whose own attached riders, payout or enchant would need its spawn
     ///     or deploy to start them (card.rs, the unit loop).
     pub fn rebind(&mut self, i: usize, r: RebindInit) {
@@ -978,6 +1015,8 @@ impl Entities {
         self.stagger_ms[i] = 0;
         self.death_slide_centre[i] = Vec2::default();
         self.death_slide_radius[i] = 0;
+        self.death_slide_until[i] = 0;
+        self.kamikaze_from[i] = 0;
         self.mana_ms[i] = 0;
         self.enchant_state[i] = 0;
         self.enchant_ms[i] = 0;

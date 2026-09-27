@@ -877,6 +877,10 @@ COSMETIC_ACTION_CLASSES = {
     "ActionEnabbleHPBarConditionForDuration",
     "ActionTargetIndicatorAttack",
     "ActionChaosS2BadgeTracker",
+    # The Skeleton Barrel's balloon pops. Measured on client 15.535.29: the barrel's step stays 90
+    # through both pops (66% and 33%), and a ground-only Knight under it never targets it after one.
+    # The pop only drops the balloon art (DropBalloonAtHpList, TransitionTime).
+    "ActionSkeletonBarrelPopBalloon",
 }
 
 
@@ -2025,6 +2029,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # Sparky 750, the Firecracker 1000), under calibration knockback.ATTACK_PUSHBACK. 15.535
         # rows only.
         "attack_pushback_milli": c.get("AttackPushBack"),
+        # DeathPushBack: the push a death's damage gives the units it hits, radially from the death
+        # point (the Skeleton Barrel's container 1000, the Golem 1800), under calibration
+        # knockback.DEATH_PUSHBACK. 15.535 rows only.
+        "death_pushback_milli": c.get("DeathPushBack"),
         # THE SPECIAL (SpecialRange / SpecialMinRange / SpecialLoadTime / ProjectileSpecial): the
         # Fisherman's hook, under calibration combat.SPECIAL_HOOK. `projectile` is the
         # ProjectileSpecial row in the shape of every projectile object, and `drag_margin_milli`
@@ -2315,6 +2323,7 @@ UNIT_FIELDS_15535 = [
     "attack_pushback_milli",
     "special",
     "ignore_buffs",
+    "death_pushback_milli",
 ]
 
 # A rider row's targeting columns and facing clamps (`norm_unit`, 15.535 rows only, each written
