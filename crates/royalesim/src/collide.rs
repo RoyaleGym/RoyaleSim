@@ -68,13 +68,15 @@ fn share(push: PushModel, ents: &Entities, i: usize, j: usize) -> (i64, i64) {
     }
 }
 
-/// Is entity i a unit that takes part in unit-unit separation?
+/// Is entity i a unit that takes part in unit-unit separation? A troop, and not an attached rider,
+/// which is never pushed and pushes nothing (entity.rs `attached`).
 #[inline]
 fn is_mobile_unit(ents: &Entities, i: usize) -> bool {
     // A unit under ground (a Miner, a Goblin Drill's dig; entity.rs `underground`) is in nobody's
     // separation under the frame-planned path models, whatever movement.SPAWN_PATHFIND_BODY says: its
-    // position is written by the tunnel walk alone. The shipped 16.402 move pass reads the key.
-    ents.kind[i] == EntityKind::Troop && !ents.underground(i)
+    // position is written by the tunnel walk alone. The shipped 16.402 move pass reads the key. An
+    // attached rider (entity.rs `attached`) is not either: its position is its mount's.
+    ents.kind[i] == EntityKind::Troop && !ents.underground(i) && !ents.attached(i)
 }
 
 /// Keep a ground unit off water: prefer the full move, then each axis alone.

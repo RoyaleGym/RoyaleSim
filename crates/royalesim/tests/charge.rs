@@ -339,14 +339,14 @@ fn every_charger_doubles_on_the_walking_tick_the_captures_measured() {
     // the live one; the table itself must agree with the law (the two are
     // independent checks: a wrong comparison (> for >=) moves the 300s to the 52nd
     // and leaves the 250s alone).
-    // (The fourth charger of the capture, the Ram Rider -- first step t1462, first
-    // 120 step t1504 = the 43rd for its ChargeRange 250 -- is not simulable: the
-    // loader refuses its attached-rider `spawner` block; it stands in the ledger,
-    // charge.ACCUMULATOR provenance.)
-    let live: [(&str, u32, u32, &str); 3] = [
+    // The fourth charger of the capture is the Ram Rider's Ram (first step t1462, first
+    // 120 step t1504 = the 43rd for its ChargeRange 250), with its rider on its back:
+    // the rider pushes nothing and never walks, so the Ram's run-up is its own.
+    let live: [(&str, u32, u32, &str); 4] = [
         ("Prince", 192, 234, "seat A (the seat-B twin dropped t192)"),
         ("DarkPrince", 292, 342, "seat B"),
         ("BattleRam", 956, 1006, "seat A (heading change at ~t977, nothing lost)"),
+        ("RamRider", 1462, 1504, "the capture's Ram Rider, deployed t1442"),
     ];
     let mut seen_300 = 0;
     for (name, first_step, first_doubled_tick, witness) in live {
@@ -635,8 +635,8 @@ fn every_unit_without_a_charge_block_has_effective_speed_equal_to_speed_on_every
         }
         checked += 1;
     }
-    // 2018: Prince, DarkPrince, BattleRam; 15.535 adds the event card PrinceBuff
-    // (RamRider's row is refused for its spawner block).
+    // 2018: Prince, DarkPrince, BattleRam; 15.535 adds the event card PrinceBuff and the
+    // Ram Rider's Ram.
     assert!(checked >= 20 && chargers >= 3, "vacuous: {checked} cards checked, {chargers} chargers");
     // A scripted battle with no charge card: the hook is the identity on every entity
     // of every tick and no charge column ever moves -- the analytic statement that

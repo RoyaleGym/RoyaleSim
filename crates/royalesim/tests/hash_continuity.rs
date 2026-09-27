@@ -123,6 +123,9 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     // the elixir economy and the interval spawner: both refused in `convert` at the parent
     ("cards.json", "Elixir Collector"),
     ("cards.json", "FirespiritHut"),
+    // the Ram Rider: its parent refused the Ram's row while converting it (its Spawn* block had no
+    // SpawnPauseTime), and it now loads with its attached rider
+    ("cards.json", "RamRider"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

@@ -1282,6 +1282,21 @@ impl Battle {
             .collect())
     }
 
+    /// RIDERS (the Ram Rider's rider; card.rs `AttachDef`): `(uid, mount uid)` for every live
+    /// attached rider whose mount lives. A rider stands where its mount stood a tick before and,
+    /// under calibration rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune, nothing targets
+    /// or touches it. `state_json` is unchanged; a viewer reads this beside it.
+    fn rider_states(&self) -> PyResult<Vec<(i64, i64)>> {
+        let s = self.s()?;
+        Ok(s.entities()
+            .filter_map(|e| {
+                let m = e.attached_to?;
+                let mount = s.entity(m)?;
+                Some(((e.team_seq as i64) * 2 + e.team as i64, (mount.team_seq as i64) * 2 + mount.team as i64))
+            })
+            .collect())
+    }
+
     /// TRACE-DIFF ENTRY POINT: every live troop as
     /// `(uid, card, x, y, deploy_ms, speed, [(col, row), ...])`, positions in
     /// SUBTILES and the route as half-tile CELLS in the order the engine stores it

@@ -1150,6 +1150,10 @@ fn straight_hits(
         if if ents.flying[v] { !hits_air } else { !hits_ground } {
             continue;
         }
+        // rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: a straight shot passes an attached rider.
+        if crate::target::rider_untouchable(calib, ents, v) {
+            continue;
+        }
         if !in_range_edge(at, ents.pos[v], s.reach, ents.radius[v]) {
             continue;
         }
@@ -1505,7 +1509,11 @@ pub struct ResolveOut {
 /// entity.rs `dash_immune`): a hit on a unit that is dashing, or whose dash ended within
 /// its DashImmuneToDamageTime, is dropped on the Resolve phase of `tick`, not deferred.
 /// Measured on client 15.535.29 with tower arrows only; every writer is dropped alike.
-pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, underground_immune: bool, tick: u32) -> ResolveOut {
+///
+/// AND FOR AN ATTACHED RIDER (`riders_immune`: target.rs `riders_immune`, rider.TARGETABLE_WHILE_ATTACHED =
+/// untargetable_immune; entity.rs `attached`): a hit written on one is dropped, whatever wrote it (a melee
+/// splash, a death blow), so the rule does not rest on every writer asking first.
+pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> ResolveOut {
     let cap = ents.capacity();
     sums.clear();
     sums.resize(cap, 0);
@@ -1535,6 +1543,9 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
         }
         #[cfg(clash_plant = "dash_not_immune")]
         let _ = tick; // PLANT: a dashing unit takes every hit.
+        if riders_immune && ents.attached(h.target.index as usize) {
+            continue;
+        }
         sums[h.target.index as usize] += h.amount as i64;
     }
     let mut out = ResolveOut::default();
@@ -1571,7 +1582,7 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
 ///
 /// ONE STRIKE AT A TIME, where `resolve` sums a tick's hits on one target before the shield: a
 /// shield broken by this strike lets a later hit of the same tick through. Unmeasured.
-pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, tick: u32) -> [bool; 2] {
+pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
     let mut king_hit = [false; 2];
     for h in hits {
         if !ents.is_alive(h.target) || h.amount <= 0 {
@@ -1588,6 +1599,10 @@ pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, tick
         }
         #[cfg(clash_plant = "dash_not_immune")]
         let _ = tick; // PLANT: a dashing unit takes every hit.
+        // `resolve`'s rider immunity (rider.TARGETABLE_WHILE_ATTACHED).
+        if riders_immune && ents.attached(t) {
+            continue;
+        }
         if ents.kind[t] == EntityKind::KingTower {
             king_hit[ents.team[t] as usize] = true;
         }

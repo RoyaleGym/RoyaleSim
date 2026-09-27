@@ -1512,6 +1512,29 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
                 "use_attack_range": flag(c, "BuffWhenNotAttackingUseAttackRange"),
                 "area_damage_when_invisible": flag(c, "AllowAreaDmgWhenInvisible"),
             }
+        # THE ATTACHED RIDER (the Ram Rider's rider, the Goblin Giant's two Spear Goblins): a
+        # SpawnCharacter block with SpawnAttach is not a periodic spawner but units that ride this
+        # row and stand where it stood a tick before (card.rs `AttachDef`, calibration rider.*).
+        # Written into the spawner block only where the column is set, so every other row is
+        # unchanged.
+        if u["spawner"] is not None and flag(c, "SpawnAttach"):
+            u["spawner"]["attach"] = True
+        # A rider row's own targeting columns, each written only where it is set (the Ram Rider's
+        # rider; the Fisherbarrel also sets TargetOnlyTroops and three event rows
+        # IgnoreTargetsWithBuff): TargetOnlyTroops, and the buff whose carriers the unit ranks last
+        # (IgnoreTargetsWithBuff, read with DeprioritizeTargetsWithBuff; calibration
+        # targeting.DEPRIORITIZED_TARGET_BUFF). The facing clamps (SpawnAttachMaxRotation on the Ram
+        # Rider's rider, SpawnMaxAngle on the Spear Goblins) are carried and read by nothing.
+        if flag(c, "TargetOnlyTroops"):
+            u["target_only_troops"] = True
+        if c.get("IgnoreTargetsWithBuff") is not None:
+            u["ignore_targets_with_buff"] = norm_buff(t, c.get("IgnoreTargetsWithBuff"))
+        if flag(c, "DeprioritizeTargetsWithBuff"):
+            u["deprioritize_targets_with_buff"] = True
+        if c.get("SpawnAttachMaxRotation") is not None:
+            u["attach_max_rotation_deg"] = c.get("SpawnAttachMaxRotation")
+        if c.get("SpawnMaxAngle") is not None:
+            u["spawn_max_angle_deg"] = c.get("SpawnMaxAngle")
         # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
         # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
         # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
@@ -1666,6 +1689,16 @@ UNIT_FIELDS_15535 = [
     "variable_damage",
     "attack_pushback_milli",
     "special",
+]
+
+# A rider row's targeting columns and facing clamps (`norm_unit`, 15.535 rows only, each written
+# only where the column is set).
+RIDER_FIELDS = [
+    "target_only_troops",
+    "ignore_targets_with_buff",
+    "deprioritize_targets_with_buff",
+    "attach_max_rotation_deg",
+    "spawn_max_angle_deg",
 ]
 
 
@@ -1839,6 +1872,11 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["mana"] = u["mana"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
+    # 15.535 only and only where set (norm_unit): a card row whose own unit is a rider row carries
+    # its targeting columns, as the unit row does. No card's own unit is one today.
+    for f in RIDER_FIELDS:
+        if f in u:
+            card[f] = u[f]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:

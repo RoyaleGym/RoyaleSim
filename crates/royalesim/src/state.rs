@@ -500,6 +500,17 @@ pub struct Calib {
     pub omit_from_starting_hand: OmitRule,
     #[serde(default = "interval_start_origin_default")]
     pub interval_start_origin: IntervalStart,
+    /// rider.DEPLOY and rider.TARGETABLE_WHILE_ATTACHED (an attached rider, card.rs `AttachDef`:
+    /// `spawn_riders`, `rider_deploy_lockstep`, target.rs `rider_untouchable`), and
+    /// targeting.DEPRIORITIZED_TARGET_BUFF (target.rs `scan_with`, `apply_effects`). Added after
+    /// SNAPSHOT_FORMAT 20; no battle saved before them held a rider or a unit that deprioritizes a
+    /// buff, so each default is the shipped arm.
+    #[serde(default = "rider_deploy_default")]
+    pub rider_deploy: RiderDeploy,
+    #[serde(default = "rider_targetable_default")]
+    pub rider_targetable: RiderTargetable,
+    #[serde(default = "deprioritized_target_buff_default")]
+    pub deprioritized_target_buff: DeprioritizedTargetBuff,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -1177,6 +1188,18 @@ fn omit_from_starting_hand_default() -> OmitRule {
 
 fn interval_start_origin_default() -> IntervalStart {
     IntervalStart::PlacementCounter
+}
+
+fn rider_deploy_default() -> RiderDeploy {
+    RiderDeploy::MirrorMount
+}
+
+fn rider_targetable_default() -> RiderTargetable {
+    RiderTargetable::UntargetableImmune
+}
+
+fn deprioritized_target_buff_default() -> DeprioritizedTargetBuff {
+    DeprioritizedTargetBuff::RescanOnLandingKeepProgress
 }
 
 macro_rules! calib_enum {
@@ -2390,6 +2413,46 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// rider.DEPLOY -- the deploy timer of an attached rider (card.rs `AttachDef`; `spawn_riders`,
+    /// `rider_deploy_lockstep`).
+    RiderDeploy {
+        /// The rider's timer is its mount's, copied at creation and after every countdown, so it
+        /// deploys on the mount's tick whatever delays the mount (measured on client 16.402 on one
+        /// Ram Rider: both deploying through t1459, both active from t1461).
+        MirrorMount = "mirror_mount",
+        /// The rider counts its own DeployTime from its creation, like any unit.
+        OwnDeployTime = "own_deploy_time",
+    }
+);
+calib_enum!(
+    /// rider.TARGETABLE_WHILE_ATTACHED -- whether an attached rider is a target and takes damage,
+    /// buffs, stuns and area effects (target.rs `rider_untouchable`).
+    RiderTargetable {
+        /// Nobody targets it and nothing lands on it while its mount lives: no enemy's scan
+        /// takes it, no spell's area hits it, and a hit written on it is dropped in Resolve.
+        UntargetableImmune = "untargetable_immune",
+        /// It is a target like any troop and takes every hit; it is still never pushed (its
+        /// position is its mount's).
+        TargetableDamageable = "targetable_damageable",
+    }
+);
+calib_enum!(
+    /// targeting.DEPRIORITIZED_TARGET_BUFF -- what a unit whose row sets IgnoreTargetsWithBuff with
+    /// DeprioritizeTargetsWithBuff (the Ram Rider's rider, BolaSnare; card.rs
+    /// `CardDef::deprioritize_buff`) does with that buff's carriers.
+    DeprioritizedTargetBuff {
+        /// Its scans rank a carrier after every other candidate, and a landing of the buff on its
+        /// target (from any source, fresh or a refresh) clears the target in that Resolve, so the
+        /// next Target phase rescans; the attack progress is kept (the target was cleared, not
+        /// killed: combat.RETARGET_PROGRESS).
+        RescanOnLandingKeepProgress = "rescan_on_landing_keep_progress",
+        /// The ranking alone: a target that becomes a carrier is kept by the ordinary keep rules.
+        RankLastOnly = "rank_last_only",
+        /// Neither: the columns are not read, and the unit targets as any other.
+        NotRead = "not_read",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3394,6 +3457,9 @@ impl Calib {
             mana_for_opponent_unit: pick(&v, &["economy", "MANA_ON_DEATH_FOR_OPPONENT_UNIT", "value"], ForOpponentUnit::from_calibration_name)?,
             omit_from_starting_hand: pick(&v, &["economy", "OMIT_FROM_STARTING_HAND", "value"], OmitRule::from_calibration_name)?,
             interval_start_origin: pick(&v, &["spawner", "INTERVAL_START_ORIGIN", "value"], IntervalStart::from_calibration_name)?,
+            rider_deploy: pick(&v, &["rider", "DEPLOY", "value"], RiderDeploy::from_calibration_name)?,
+            rider_targetable: pick(&v, &["rider", "TARGETABLE_WHILE_ATTACHED", "value"], RiderTargetable::from_calibration_name)?,
+            deprioritized_target_buff: pick(&v, &["targeting", "DEPRIORITIZED_TARGET_BUFF", "value"], DeprioritizedTargetBuff::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -3567,6 +3633,10 @@ impl Calib {
         only(&v, &["economy", "PRODUCTION_OVERFLOW", "value"], "clamped_remainder_lost")?;
         only(&v, &["economy", "MANA_ON_DEATH_TRIGGER", "value"], "any_death")?;
         only(&v, &["spawner", "SPAWN_TO_LOCATION_OFFSET", "value"], "half_tiles_owner_forward_unrotated")?;
+        // rider.POSITION and rider.DIES_WITH_MOUNT: the one implemented arm each (`carry_riders`, the
+        // rider(t) = mount(t - 1) copy at the top of the Move phase; `riders_die_with_their_mounts`).
+        only(&v, &["rider", "POSITION", "value"], "mount_previous_tick_position")?;
+        only(&v, &["rider", "DIES_WITH_MOUNT", "value"], "same_tick_full_hp")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -4041,6 +4111,9 @@ pub struct EntityView<'a> {
     /// THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; entity.rs `tunnel_dest`): the destination of a
     /// unit still under ground, world subtiles; None on every unit above ground.
     pub tunnel_dest: Option<Vec2>,
+    /// AN ATTACHED RIDER's mount while it lives (card.rs `AttachDef`; entity.rs `attached`): the unit
+    /// it rides and stands on. None on every other entity.
+    pub attached_to: Option<EntityId>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -4298,6 +4371,19 @@ fn axis_push(raw: Vec2, centre: Vec2, tower: Rect, snapped: Vec2) -> Vec2 {
         (true, false) => Vec2::new(tower.min.x - half, snapped.y),
         (true, true) => Vec2::new(tower.max.x + half, snapped.y),
     }
+}
+
+/// A RIDER'S OFFSET (entity.rs `attach_offset`: subtiles in its mount's facing frame, +y along the
+/// facing) turned into the world by the mount's length-256 `facing`, each axis truncated toward
+/// zero. Zero in, zero out: every rider the loader takes today stands on its mount's centre, so
+/// the frame is calibration rider.OFFSET_LAW's to settle when a SpawnRadius is taken.
+fn offset_on_mount(facing: Vec2, v: Vec2) -> Vec2 {
+    if v == Vec2::default() {
+        return v;
+    }
+    let (fx, fy) = (facing.x as i64, facing.y as i64);
+    let (x, y) = (v.x as i64, v.y as i64);
+    Vec2::new(((x * fy + y * fx) / 256) as i32, ((y * fy - x * fx) / 256) as i32)
 }
 
 pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
@@ -4786,11 +4872,62 @@ impl BattleState {
             self.ents.spawn_lane[i] = creation_lane(&self.cfg.arena, team, pos);
             self.ents.lane_window_end[i] = u32::MAX;
         }
+        // THE RIDERS (card.rs `AttachDef`): created here, where every creation of the mount passes,
+        // right after it, so their team_seq and creation_seq follow the mount's.
+        if let Some(at) = c.attach {
+            self.spawn_riders(id, at, team, level, pos)?;
+        }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
         }
         Ok(id)
+    }
+
+    /// THE RIDERS OF MOUNT `mount` (card.rs `AttachDef`; calibration rider.*), just created at
+    /// `pos` for `team` at unified `level`: `number` riders of the rider row at its own level
+    /// (`CardDb::unit_level`, as a spawner's unit), each on the mount's centre plus its offset
+    /// (zero: the loader takes no SpawnRadius, calibration rider.OFFSET_LAW), linked to the mount
+    /// (`attached_to`). Measured on client 16.402 on one Ram Rider: the rider exists from the
+    /// Ram's first frame, at its position, for its side and at its level (593 hp at level 11,
+    /// floor(232 x 2.56)). Under rider.DEPLOY = mirror_mount its deploy timer is the mount's
+    /// (`rider_deploy_lockstep`).
+    fn spawn_riders(&mut self, mount: EntityId, at: crate::card::AttachDef, team: Team, level: i32, pos: Vec2) -> Result<(), String> {
+        let mi = mount.index as usize;
+        let lvl = self.cfg.cards.unit_level(self.ents.card[mi], at.unit, None, level)?;
+        for _ in 0..at.number {
+            let offset = Vec2::default();
+            let r = self.spawn_now(team, at.unit, lvl, pos.add(offset), EntityKind::Troop)?;
+            let ri = r.index as usize;
+            self.ents.attached_to[ri] = Some(mount);
+            self.ents.attach_offset[ri] = offset;
+        }
+        if self.cfg.calib.rider_deploy == RiderDeploy::MirrorMount {
+            self.rider_deploy_lockstep();
+        }
+        Ok(())
+    }
+
+    /// rider.DEPLOY = mirror_mount: every rider's deploy timer is set to its mount's, and a rider
+    /// whose timer reaches 0 so is deployed (`on_deployed`). Run after the countdown (whose loop
+    /// skips riders under this arm), when a mount is deployed (`on_deployed`: a setup spawn or an
+    /// override puts the mount's timer at 0 outside the countdown) and when riders are created.
+    /// A pass over the entity table, and nothing is written for an entity that is not a rider.
+    fn rider_deploy_lockstep(&mut self) {
+        for r in 0..self.ents.capacity() {
+            if !self.ents.alive[r] || !self.ents.attached(r) {
+                continue;
+            }
+            let Some(m) = self.ents.attached_to[r] else { continue };
+            let d = self.ents.deploy_ms[m.index as usize];
+            let was = self.ents.deploy_ms[r];
+            if was != d {
+                self.ents.deploy_ms[r] = d;
+                if d == 0 {
+                    self.on_deployed(r);
+                }
+            }
+        }
     }
 
     /// THE MOMENT AN ENTITY'S DEPLOY TIME ENDS: the hide machinery takes its start
@@ -4818,6 +4955,11 @@ impl BattleState {
         if self.ents.spawn_lane[i] != 0 {
             let window = (target::FIRST_PICK_LANE_WINDOW_MS / self.cfg.calib.tick_ms.max(1)) as u32;
             self.ents.lane_window_end[i] = self.tick.saturating_add(window);
+        }
+        // rider.DEPLOY = mirror_mount: a mount deployed here, outside the countdown too (a setup
+        // spawn, a deploy-time override), deploys its riders with it.
+        if self.cfg.calib.rider_deploy == RiderDeploy::MirrorMount && self.cfg.cards.get(self.ents.card[i]).attach.is_some() {
+            self.rider_deploy_lockstep();
         }
     }
 
@@ -5466,6 +5608,11 @@ impl BattleState {
             if !e.alive[v] || e.hp[v] <= 0 || e.team[v] == e.team[i] || (untouchable && e.underground(v)) {
                 continue;
             }
+            // An attached rider nothing may target (rider.TARGETABLE_WHILE_ATTACHED) wakes nothing
+            // and is never a wave's aim: its mount stands on the same point and does.
+            if target::rider_untouchable(&self.cfg.calib, e, v) {
+                continue;
+            }
             let bound = match e.kind[v] {
                 EntityKind::Troop => troop_bound,
                 EntityKind::Building if self.cfg.calib.life_state_wake_targets == LifeWakeTargets::TroopsAndBuildings => building_bound,
@@ -6000,7 +6147,13 @@ impl BattleState {
     fn deploy_countdown(&mut self) {
         let dt = self.cfg.calib.tick_ms;
         let paused_by_stun = self.cfg.calib.stun_pauses_deploy;
+        // rider.DEPLOY = mirror_mount: a rider's timer is its mount's, copied after the loop
+        // (`rider_deploy_lockstep`), not counted down on its own.
+        let mirror = self.cfg.calib.rider_deploy == RiderDeploy::MirrorMount;
         for i in 0..self.ents.capacity() {
+            if mirror && self.ents.attached(i) {
+                continue;
+            }
             // A unit under ground (movement.SPAWN_PATHFIND_STATES) holds its timer until it comes up (`surface`).
             if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) && !self.ents.underground(i) {
                 self.ents.deploy_ms[i] = (self.ents.deploy_ms[i] - dt).max(0);
@@ -6009,6 +6162,9 @@ impl BattleState {
                     self.on_deployed(i);
                 }
             }
+        }
+        if mirror {
+            self.rider_deploy_lockstep();
         }
     }
 
@@ -7269,8 +7425,9 @@ impl BattleState {
                         mover: e.kind[i] == EntityKind::Troop,
                         alive,
                         // a unit mid river-jump is skipped by every neighbour's scans
-                        // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK)
-                        collidable: alive && !held && !jumping[i] && dash_state[i] != DashState::Dashing,
+                        // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
+                        // attached rider, which pushes nothing (`carry_riders`)
+                        collidable: alive && !held && !jumping[i] && dash_state[i] != DashState::Dashing && !e.attached(i),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot
@@ -7308,6 +7465,9 @@ impl BattleState {
             // spawned the same tick.
             // A unit under ground walks in `phase_tunnel` alone, never in this pass.
             let mut order: Vec<usize> = (0..cap).filter(|&i| e.alive[i] && e.kind[i] == EntityKind::Troop && !e.underground(i)).collect();
+            // An attached rider never walks: its mount carries it (`carry_riders`).
+            #[cfg(not(clash_plant = "rider_walks_itself"))]
+            order.retain(|&i| !e.attached(i));
             #[cfg(not(clash_plant = "slot_order_move_pass"))]
             order.sort_by_key(|&i| e.creation_seq[i]);
             #[cfg(clash_plant = "slot_order_move_pass")]
@@ -8411,6 +8571,11 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
                     continue;
                 }
+                // An attached rider never walks: its mount carries it (`carry_riders`).
+                #[cfg(not(clash_plant = "rider_walks_itself"))]
+                if e.attached(i) {
+                    continue;
+                }
                 // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: the death-spawn slide
                 // replaces the walk (`frame_planned_slide`).
                 if e.death_sliding(i) && !e.knocked(i) {
@@ -8638,6 +8803,11 @@ impl BattleState {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
                     continue;
                 }
+                // An attached rider never walks: its mount carries it (`carry_riders`).
+                #[cfg(not(clash_plant = "rider_walks_itself"))]
+                if e.attached(i) {
+                    continue;
+                }
                 // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: the death-spawn slide
                 // replaces the walk (`frame_planned_slide`).
                 if e.death_sliding(i) && !e.knocked(i) {
@@ -8767,7 +8937,46 @@ impl BattleState {
         self.cfg.path_model == PathModel::Oracle2026 && self.cfg.calib.path_search == PathSearch::Client16402
     }
 
+    /// RIDERS (card.rs `AttachDef`; rider.POSITION = mount_previous_tick_position, measured on
+    /// client 16.402 on one Ram Rider: rider(t) = mount(t - 1) on 53 of 53 tick pairs in one seat
+    /// and 12 of 12 in the other, through its 120-per-tick charge and an avoidance swerve). Run at
+    /// the top of the Move phase, before anything moves a mount this tick: every rider stands where
+    /// its mount stood at the end of the last tick, plus its offset turned by the mount's facing
+    /// (`offset_on_mount`; zero today). So a rider's Target and Attack phases, which run before
+    /// the Move phase, read its mount's position of two ticks before, which the corpus shows too
+    /// (the rider acquired a Musketeer from 6511, not 6631; 5 of 5 bola launch points within 1). A
+    /// rider not in its attack faces as its mount does; in its attack it keeps the facing the
+    /// attack pass gave it (movement.ATTACK_FACING; the client clamps it within
+    /// SpawnAttachMaxRotation of the mount's, which is not read). A rider never walks (the three
+    /// Path arms skip it), is never pushed and pushes nothing (spell.rs `pushable`, collide.rs
+    /// `is_mobile_unit`, the 16.402 move pass).
+    fn carry_riders(&mut self) {
+        #[cfg(not(clash_plant = "rider_walks_itself"))]
+        let on = true;
+        #[cfg(clash_plant = "rider_walks_itself")]
+        let on = false; // PLANT (regression): the rider is not carried, and the Path arms walk it on its own.
+        if !on {
+            return;
+        }
+        for r in 0..self.ents.capacity() {
+            if !self.ents.alive[r] || !self.ents.attached(r) {
+                continue;
+            }
+            let Some(m) = self.ents.attached_to[r] else { continue };
+            let mi = m.index as usize;
+            let off = offset_on_mount(self.ents.facing[mi], self.ents.attach_offset[r]);
+            self.ents.pos[r] = self.ents.pos[mi].add(off);
+            if self.ents.attack_phase[r] == AttackPhase::Idle {
+                self.ents.facing[r] = self.ents.facing[mi];
+            }
+        }
+    }
+
     fn phase_move(&mut self) {
+        // rider.POSITION = mount_previous_tick_position: every rider takes its mount's position
+        // BEFORE anything moves the mount this tick (`carry_riders`).
+        #[cfg(not(clash_plant = "rider_copies_post_move"))]
+        self.carry_riders();
         self.step_knock_slides();
         let client16402 = self.arm16402();
         if !client16402 {
@@ -8813,6 +9022,9 @@ impl BattleState {
                 &mut self.scratch.collide,
             );
         }
+        // PLANT (regression): the rider copies its mount's position after the mount has moved.
+        #[cfg(clash_plant = "rider_copies_post_move")]
+        self.carry_riders();
         self.charge_pass();
         if self.tick_order() != TickOrder::LegacyMoveBeforeAttack {
             // the deploy countdown after the move pass, as measured (client16402, and
@@ -9489,7 +9701,7 @@ impl BattleState {
     /// Resolve and Reap: a victim at 0 hp is queued with the tick's other deaths.
     fn land_strike(&mut self, from: usize) {
         let hits: Vec<Hit> = self.dmg.hits.drain(from..).collect();
-        let king_hit = combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, self.tick);
+        let king_hit = combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, target::riders_immune(&self.cfg.calib), self.tick);
         for (t, hit) in king_hit.into_iter().enumerate() {
             if hit && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -9641,14 +9853,20 @@ impl BattleState {
         let c = self.cfg.calib.clone();
         let cap = self.ents.capacity();
         // A HIDDEN building is out of reach of every effect too (knockback never moved
-        // a building; a stun on it is a no-op), and so is a unit under ground under
-        // movement.SPAWN_PATHFIND_BODY = untouchable (no buff, stun or push lands on it).
+        // a building; a stun on it is a no-op), so is a unit under ground under
+        // movement.SPAWN_PATHFIND_BODY = untouchable (no buff, stun or push lands on it), and so is
+        // an attached rider under rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune (target.rs
+        // `rider_untouchable`).
         #[cfg(not(clash_plant = "tunnel_targetable"))]
         let untouchable = c.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
         #[cfg(clash_plant = "tunnel_targetable")]
         let untouchable = false; // PLANT: a unit under ground is an ordinary body.
         let survivor = |e: &Entities, id: EntityId| {
-            e.is_alive(id) && e.hp[id.index as usize] > 0 && e.hide[id.index as usize] != HideState::Hidden && !(untouchable && e.underground(id.index as usize))
+            e.is_alive(id)
+                && e.hp[id.index as usize] > 0
+                && e.hide[id.index as usize] != HideState::Hidden
+                && !(untouchable && e.underground(id.index as usize))
+                && !target::rider_untouchable(&c, e, id.index as usize)
         };
         // BUFFS (status.rs), before the stun merge, because a FULL-STOP buff feeds
         // it. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): an application either
@@ -9659,6 +9877,8 @@ impl BattleState {
         // A unit already carrying MAX_BUFFS_PER_ENTITY distinct rows drops the new one;
         // no shipped combination of buffs reaches four on one unit, so the cap is never met.
         let mut stun_new = vec![0i32; cap];
+        // targeting.DEPRIORITIZED_TARGET_BUFF: every (victim, buff) this Resolve applies.
+        let mut landed: Vec<(EntityId, u16)> = Vec::new();
         for b in &fx.buffs {
             if !survivor(&self.ents, b.target) {
                 continue;
@@ -9669,7 +9889,9 @@ impl BattleState {
             if land_buff(&mut self.ents, &self.cfg.cards.buffs, &c, i, b.buff, b.time_ms, b.pulse_amount, b.first_pulse_ms, b.source) {
                 stun_new[i] = stun_new[i].max(b.time_ms);
             }
+            landed.push((b.target, b.buff));
         }
+        self.drop_deprioritized_targets(&landed);
         // Stuns: max per target. Replace vs refresh decides only what the EXISTING timer
         // contributes; several new stuns in one tick always merge by max.
         for &(id, ms) in &fx.stuns {
@@ -9817,6 +10039,36 @@ impl BattleState {
         self.effects = fx;
     }
 
+    /// targeting.DEPRIORITIZED_TARGET_BUFF = rescan_on_landing_keep_progress (the Ram Rider's rider;
+    /// card.rs `CardDef::deprioritize_buff`): a unit whose card deprioritizes a buff, and whose
+    /// target has just received that buff in this Resolve (`landed`: every application, fresh or
+    /// a refresh, from any source), drops the target. Its next Target phase rescans with the buff's
+    /// carriers ranked last (target.rs `scan_with`), and, the target having been cleared rather
+    /// than killed, the attack progress runs on (combat.RETARGET_PROGRESS). Measured on client
+    /// 16.402 on one Ram Rider: its target reads none exactly on each of 3 bola landing ticks and
+    /// is the same Musketeer on the next, the attack progress unbroken and the next bola on its
+    /// 22-tick cadence. Nothing is read under the other arms, and nothing is written for a unit
+    /// that deprioritizes nothing.
+    fn drop_deprioritized_targets(&mut self, landed: &[(EntityId, u16)]) {
+        #[cfg(not(clash_plant = "deprioritize_rule_off"))]
+        let arm = self.cfg.calib.deprioritized_target_buff;
+        #[cfg(clash_plant = "deprioritize_rule_off")]
+        let arm = DeprioritizedTargetBuff::RankLastOnly; // PLANT: a landing clears nothing, whatever the key says.
+        if arm != DeprioritizedTargetBuff::RescanOnLandingKeepProgress || landed.is_empty() {
+            return;
+        }
+        for a in 0..self.ents.capacity() {
+            if !self.ents.alive[a] {
+                continue;
+            }
+            let Some(b) = self.cfg.cards.get(self.ents.card[a]).deprioritize_buff else { continue };
+            if self.ents.target[a].is_some_and(|t| landed.contains(&(t, b))) {
+                self.ents.target[a] = None;
+                self.ents.target_locked[a] = false;
+            }
+        }
+    }
+
     /// ARM THE KNOCKBACK LADDER on entity `i` (knockback.DISPLACEMENT_LAW =
     /// client16402): the gate a projectile push passes, then move16402.rs
     /// `start_pushback`. `landed_this_tick` is an earlier push of the same Resolve
@@ -9869,19 +10121,48 @@ impl BattleState {
         let underground_immune = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
         #[cfg(clash_plant = "tunnel_targetable")]
         let underground_immune = false; // PLANT: a unit under ground is an ordinary body.
-        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, self.tick);
+        let riders_immune = target::riders_immune(&self.cfg.calib);
+        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
             }
         }
         self.death_queue = out.deaths;
+        self.riders_die_with_their_mounts();
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
         if self.cfg.calib.buff_expiry == BuffExpiry::CeilFromNextTick {
             self.tick_status_timers();
         }
         self.apply_effects();
         self.release_orphaned_buffs();
+    }
+
+    /// rider.DIES_WITH_MOUNT = same_tick_full_hp (measured on client 16.402 on one Ram Rider: the
+    /// rider is last present with the Ram and gone with it, at full hp): the riders of every mount
+    /// in this Resolve's death queue join it, whatever their hp, so they go through the ordinary
+    /// death path in Reap (their own death spawns and death damage would fire there; the loader
+    /// takes no rider row that has any, `rider_shape`). The queue keeps `combat::resolve`'s
+    /// ascending-slot order, and is left untouched when no rider dies.
+    fn riders_die_with_their_mounts(&mut self) {
+        #[cfg(not(clash_plant = "rider_outlives_mount"))]
+        let on = true;
+        #[cfg(clash_plant = "rider_outlives_mount")]
+        let on = false; // PLANT (regression): a rider outlives its mount.
+        if !on || self.death_queue.is_empty() {
+            return;
+        }
+        let dead = &self.death_queue;
+        let extra: Vec<EntityId> = (0..self.ents.capacity())
+            .filter(|&r| self.ents.alive[r] && self.ents.attached_to[r].is_some_and(|m| dead.contains(&m)))
+            .map(|r| self.ents.id_of(r))
+            .filter(|id| !dead.contains(id))
+            .collect();
+        if extra.is_empty() {
+            return;
+        }
+        self.death_queue.extend(extra);
+        self.death_queue.sort_by_key(|id| id.index);
     }
 
     /// CONTROLSBUFF / CONTROLLEDBYPARENT (calibration status.AREA_BUFF_SOURCE_BINDING =
@@ -11483,6 +11764,7 @@ impl BattleState {
             avoid_offset: e.avoid_offset[i],
             seg_dir: e.seg_dir[i],
             tunnel_dest: e.tunnel_dest.get(i).copied().flatten(),
+            attached_to: e.attached_to[i].filter(|_| e.attached(i)),
         }
     }
     /// Live entities in slot order.
@@ -11686,6 +11968,12 @@ impl BattleState {
                 #[cfg(not(clash_plant = "hash_skips_mana_timer"))]
                 if self.cfg.cards.get(e.card[i]).mana.is_some_and(|m| m.collect.is_some()) {
                     h.i32(e.mana_ms[i]);
+                }
+                // AN ATTACHED RIDER's mount and offset (card.rs `AttachDef`), on a rider only, so a
+                // battle without one hashes as it did before the columns.
+                if let Some(m) = e.attached_to[i] {
+                    h.id(m);
+                    h.vec(e.attach_offset[i]);
                 }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
@@ -12253,6 +12541,16 @@ impl BattleState {
 ///    the towers and the summon-only units two. With the underground walk's spawn chains the Elixir Golem loads
 ///    too: its card kept its slot (it was refused after its push), and ElixirGolem2 and ElixirGolem4 are new
 ///    summon-only records.
+/// 20, unchanged, the attached riders (rider.POSITION, DEPLOY, TARGETABLE_WHILE_ATTACHED,
+///    DIES_WITH_MOUNT; targeting.DEPRIORITIZED_TARGET_BUFF): Calib gained rider_deploy,
+///    rider_targetable and deprioritized_target_buff (serde defaults the shipped arms: no battle
+///    saved before them held a rider) and Entities gained attached_to and attach_offset (serde
+///    default, sized on load, hashed on a rider only), so a format-20 blob saved before them still
+///    deserializes and hashes as it did. CardDef gained `attach`, `target_only_troops` and
+///    `deprioritize_buff`, so the card fingerprint moves: a snapshot saved by an earlier build is
+///    refused as saved against other card data. migrate_v3 strips the three with the rest of the
+///    post-format-3 tail. The Ram Rider loads, so every card after it, both crown towers and every
+///    summon-only unit move up one index.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -12440,12 +12738,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `spawn_pathfind` and `can_deploy_on_enemy_side` after it.
                 // ~~... can_deploy_on_enemy_side~~ -- the elixir economy (still format 20) added
                 // `mana` and `omit_from_starting_hand` after it.
+                // ~~... omit_from_starting_hand~~ -- the attached riders (still format 20) added
+                // `attach`, `target_only_troops` and `deprioritize_buff` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -12486,7 +12786,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.spawn_pathfind,
                     c.can_deploy_on_enemy_side,
                     c.mana,
-                    c.omit_from_starting_hand
+                    c.omit_from_starting_hand,
+                    c.attach,
+                    c.target_only_troops,
+                    c.deprioritize_buff
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -12814,6 +13117,13 @@ impl BattleState {
             snap.spawn_queue.iter_mut().for_each(|p| p.acquire_delay = false);
             snap
         };
+        #[cfg(clash_plant = "save_drops_rider_link")]
+        let snap = {
+            // PLANT: a rider's link to its mount is lost across a save (tests/rider.rs).
+            let mut snap = snap;
+            snap.ents.attached_to.iter_mut().for_each(|m| *m = None);
+            snap
+        };
         serde_json::to_vec(&snap).expect("snapshot serializes")
     }
 
@@ -12870,6 +13180,8 @@ impl BattleState {
         snap.ents.life_n.resize(n, 0);
         snap.ents.reveal_from.resize(n, 0);
         snap.ents.mana_ms.resize(n, 0);
+        snap.ents.attached_to.resize(n, None);
+        snap.ents.attach_offset.resize(n, Vec2::default());
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);

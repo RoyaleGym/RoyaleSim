@@ -509,6 +509,24 @@ pub enum SpawnerSource {
     ActionInterval,
 }
 
+/// AN ATTACHED RIDER (the 15.535.29 tables: SpawnAttach on a SpawnCharacter block with a
+/// SpawnNumber and a blank SpawnPauseTime; the Ram Rider's Ram carries its rider so, the Goblin
+/// Giant its two Spear Goblins). Not a periodic spawner: the riders exist from the mount's first
+/// tick, stand where the mount stood a tick before and fight on their own (state.rs
+/// `spawn_riders`, `carry_riders`; calibration rider.*). Taken on a troop only, and only with a
+/// blank SpawnRadius (`convert_attach`): where an offset rider stands and turns is not simulated
+/// yet, so every rider the engine runs stands on its mount's centre.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AttachDef {
+    /// The rider's CardDb index (a `summon_only` card, loaded through `UnitUse::Attach`).
+    pub unit: u16,
+    /// SpawnNumber: riders per mount (>= 1).
+    pub number: i32,
+    /// SpawnRadius, SUBTILES. None on every block the loader takes today: a set one is refused
+    /// until calibration rider.OFFSET_LAW is implemented.
+    pub radius: Option<i32>,
+}
+
 /// A DEATH SPAWN (DeathSpawnCharacter / DeathSpawnCount / DeathSpawnRadius /
 /// DeathSpawnDeployTime; 2018: Tombstone 4 Skeletons, Golem 2 Golemites, LavaHound
 /// 6 LavaPups, BattleRam 2 Barbarians, DarkWitch 3 Bats). Fired by state.rs
@@ -1030,13 +1048,27 @@ pub struct CardDef {
     /// OmitFromStartingHand (the Elixir Collector, Mirror): the deal keeps the card out of the
     /// starting hand under economy.OMIT_FROM_STARTING_HAND (state.rs `try_new`). False on a blank.
     pub omit_from_starting_hand: bool,
+    /// THE RIDERS this card's unit carries (`AttachDef`; the Ram Rider's Ram). None on every
+    /// other card. The Spawn* block that sets SpawnAttach is read as this and never as a
+    /// periodic spawner, so `spawner` is None beside it.
+    pub attach: Option<AttachDef>,
+    /// characters.csv TargetOnlyTroops (cards.json `target_only_troops`; the Ram Rider's rider):
+    /// the unit never targets a building or a crown tower (target.rs `can_target`). False on a
+    /// blank.
+    pub target_only_troops: bool,
+    /// characters.csv IgnoreTargetsWithBuff read with DeprioritizeTargetsWithBuff (the Ram
+    /// Rider's rider: BolaSnare): the buff, a `CardDb::buffs` index, whose carriers this unit
+    /// ranks after every other candidate and whose landing on its target clears that target
+    /// (calibration targeting.DEPRIORITIZED_TARGET_BUFF; target.rs `scan`, state.rs
+    /// `apply_effects`). None on every other card.
+    pub deprioritize_buff: Option<u16>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `omit_from_starting_hand`, and onto the end of that tail
+    // field goes HERE, after `deprioritize_buff`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1227,6 +1259,14 @@ struct RawCard {
     /// row it puts on the board is of the other kind (the Furnace: a spells_buildings card whose unit is a
     /// troop). `kind` is what the engine runs; this one is checked, never run (`convert`).
     card_table_kind: Option<CardKind>,
+    /// cards.json `target_only_troops` (TargetOnlyTroops; 15.535 only, written where set):
+    /// `CardDef::target_only_troops`.
+    target_only_troops: Option<bool>,
+    /// cards.json `ignore_targets_with_buff` (the IgnoreTargetsWithBuff row) and
+    /// `deprioritize_targets_with_buff` (15.535 only, each written where set):
+    /// `CardDef::deprioritize_buff`.
+    ignore_targets_with_buff: Option<RawBuff>,
+    deprioritize_targets_with_buff: Option<bool>,
     /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
     /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
     /// Barbarian's bottle dummy). A NAME, and nothing more: FreezeIceGolemite is a
@@ -1692,6 +1732,9 @@ struct RawSpawner {
     pause_time_ms: Option<i32>,
     limit: Option<i32>,
     radius_milli: Option<i32>,
+    /// SpawnAttach (15.535 only, written where set): the block is an ATTACHED RIDER
+    /// (`convert_attach`), not a periodic spawner.
+    attach: Option<bool>,
 }
 
 /// cards.json `death_spawn` block.
@@ -1743,6 +1786,9 @@ enum UnitUse {
     /// Goblin Drill's building). A unit, loaded from `units` like a death spawn's; never the card of
     /// the same name (the GoblinDrill CARD's row is the dig), which the name rule below already says.
     Morph,
+    /// An attached rider (`AttachDef::unit`, the Ram Rider's rider), whose row must be a shape the
+    /// rider law covers (`rider_shape`).
+    Attach,
 }
 
 impl UnitUse {
@@ -1808,6 +1854,8 @@ pub enum UnitRef {
     /// The row a tunneller leaves where it comes up (`SpawnPathfindDef::morph`, the Goblin Drill's
     /// building).
     Morph,
+    /// An attached rider (`CardDef::attach`, the Ram Rider's rider).
+    Attach,
 }
 
 impl UnitRef {
@@ -1822,6 +1870,7 @@ impl UnitRef {
             UnitRef::SpellSummon => "a spell summon",
             UnitRef::LifeState => "a life-state controller",
             UnitRef::Morph => "an underground morph",
+            UnitRef::Attach => "an attached rider",
         }
     }
 }
@@ -2302,6 +2351,9 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         can_deploy_on_enemy_side: false,
         mana: None,
         omit_from_starting_hand: false,
+        attach: None,
+        target_only_troops: false,
+        deprioritize_buff: None,
     }
 }
 
@@ -2756,6 +2808,50 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
         },
         unit,
     )))
+}
+
+/// THE ATTACHED-RIDER HALF of the Spawn* block (SpawnAttach set; `AttachDef`): the riders a
+/// mount carries, or the reason the block is refused. SpawnNumber is needed. A periodic cadence
+/// beside SpawnAttach (SpawnPauseTime, SpawnInterval, SpawnStartTime, SpawnLimit) is a shape no
+/// row ships, and a SpawnRadius (the Goblin Giant's 900) puts the riders off the mount's centre,
+/// which calibration rider.OFFSET_LAW is to settle and nothing implements yet: both are refused.
+/// Returns the def with `unit` unresolved (u16::MAX) and the rider's name.
+fn convert_attach(b: RawSpawner) -> Result<(AttachDef, String), String> {
+    let unit = b.character.ok_or("an attached-rider block with no SpawnCharacter")?;
+    if b.pause_time_ms.is_some() || b.interval_ms.is_some() || b.start_time_ms.is_some() || b.limit.is_some() {
+        return Err(format!("attached rider {unit}: a periodic cadence (SpawnPauseTime, SpawnInterval, SpawnStartTime or SpawnLimit) is not simulated"));
+    }
+    let number = b.number.filter(|n| *n >= 1).ok_or_else(|| format!("attached rider {unit}: no SpawnNumber"))?;
+    if let Some(r) = b.radius_milli {
+        return Err(format!("attached rider {unit}: an offset from its mount (SpawnRadius {r}) is not simulated"));
+    }
+    Ok((AttachDef { unit: u16::MAX, number, radius: None }, unit))
+}
+
+/// THE RIDER ROWS THE RIDER LAW COVERS (`UnitUse::Attach`): a ground troop with no movement of its
+/// own to run and nothing it leaves on the board. `leaves` says the record puts a unit, an area or
+/// a projectile down of its own (its needs, when it loads; its resolved blocks, when another path
+/// loaded it first). A rider row outside this is refused with the reason: the Goblin Giant's Spear
+/// Goblins fly (FlyingHeight 4000) and leave a Spear Goblin where they die, their dismount, which
+/// calibration rider.DISMOUNT_POINT is to settle.
+fn rider_shape(c: &CardDef, leaves: bool, unit: &str) -> Result<(), String> {
+    let refuse = |why: String| Err(format!("units.{unit}: an attached rider that {why} is not simulated"));
+    if c.kind != CardKind::Troop {
+        return refuse("is a building".into());
+    }
+    if c.is_flying() {
+        return refuse(format!("flies (FlyingHeight {})", c.flying_height));
+    }
+    if leaves || c.death_damage > 0 {
+        return refuse("leaves something on the board of its own (a dismount, a spawn or a death blow)".into());
+    }
+    if c.charge.is_some() || c.jump.is_some() || c.dash.is_some() || c.special.is_some() {
+        return refuse("moves on its own (a charge, a leap, a dash or a hook)".into());
+    }
+    if c.kamikaze {
+        return refuse("dies on its own hit".into());
+    }
+    Ok(())
 }
 
 /// The DEATH-SPAWN half of the loader. A blank DeathSpawnCount is ONE: Balloon and
@@ -3318,13 +3414,43 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         }
         attack_buff = Some(got);
     }
+    // THE SPAWN* BLOCK: a periodic spawner, or, with SpawnAttach, the riders the unit carries
+    // (`convert_attach`). A building carrying riders is a shape no row ships.
+    let (spawner, attach) = match raw.spawner {
+        Some(b) if b.attach == Some(true) => (None, Some(convert_attach(b)?)),
+        other => (convert_spawner(other)?, None),
+    };
+    if attach.is_some() && kind != CardKind::Troop {
+        return Err("an attached rider on a building is not simulated".into());
+    }
     // THE PERIODIC SPAWNER: the Spawn* columns, or the interval spawner read above (a `SpawnerDef` of source
-    // ActionInterval, so the one spawner pass runs both). A row with both is a shape nothing here was written for.
-    let spawner = match (convert_spawner(raw.spawner)?, interval) {
+    // ActionInterval, so the one spawner pass runs both). A row with both, or with riders beside an interval
+    // spawner, is a shape nothing here was written for.
+    let spawner = match (spawner, interval) {
         (Some(_), Some(_)) => return Err("the unit carries a Spawn* block and an interval spawner; not simulated".into()),
+        (None, Some(_)) if attach.is_some() => return Err("the unit carries attached riders and an interval spawner; not simulated".into()),
         (a, b) => a.or(b),
     };
     let mana = convert_mana(raw.mana, kind)?;
+    // TargetOnlyTroops (the Ram Rider's rider), never beside TargetOnlyBuildings.
+    let target_only_troops = raw.target_only_troops.unwrap_or(false);
+    if target_only_troops && raw.target_only_buildings.unwrap_or(false) {
+        return Err("a unit that targets only troops and only buildings".into());
+    }
+    // IgnoreTargetsWithBuff is read with DeprioritizeTargetsWithBuff only: the Ram Rider's rider
+    // ranks snared troops last. The rows that set it alone (a tower and a neutral unit of the event
+    // modes) ignore the buff's carriers outright, which no loaded row does, and are refused rather
+    // than run as rows that rank them. Interned by value, so it is the index the bola's TargetBuff
+    // already has.
+    let deprioritize_buff = match (&raw.ignore_targets_with_buff, raw.deprioritize_targets_with_buff.unwrap_or(false)) {
+        (None, false) => None,
+        (Some(b), true) => {
+            let def = b.convert("the unit's IgnoreTargetsWithBuff")?;
+            Some(buffs.intern(def, b.name.as_deref().unwrap_or(""))?)
+        }
+        (Some(_), false) => return Err("a unit that ignores every target carrying a buff (IgnoreTargetsWithBuff without DeprioritizeTargetsWithBuff) is not simulated".into()),
+        (None, true) => return Err("DeprioritizeTargetsWithBuff with no IgnoreTargetsWithBuff".into()),
+    };
     let death_spawn = convert_death_spawn(raw.death_spawn)?;
     let charge = convert_charge(raw.charge, kind)?;
     let jump = convert_jump(raw.jump, kind)?;
@@ -3346,6 +3472,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     }
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
+    }
+    if let Some((_, u)) = &attach {
+        units.push((UnitUse::Attach, u.clone()));
     }
     if let Some((_, u)) = &death_spawn {
         units.push((UnitUse::DeathSpawn, u.clone()));
@@ -3561,6 +3690,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         can_deploy_on_enemy_side: can_deploy_on_enemy_side && tunnels,
         mana,
         omit_from_starting_hand: raw.omit_from_starting_hand.unwrap_or(false),
+        // Resolved by `CardDb::from_json_str` (the name pushed on `units` above).
+        attach: attach.map(|(d, _)| d),
+        target_only_troops,
+        deprioritize_buff,
     }, display, units))
 }
 
@@ -4001,6 +4134,12 @@ impl CardDb {
                         }
                     }
                     let nested = chain;
+                    // AN ATTACHED RIDER'S ROW must be one the rider law covers (`rider_shape`), and says
+                    // why before any unit of its own loads (a dismount's death spawn would otherwise
+                    // load as a chain below).
+                    if which == UnitUse::Attach {
+                        rider_shape(&c, !nested.is_empty(), &unit)?;
+                    }
                     // A UNIT'S OWN UNITS LOAD, one level deeper (the Goblin Drill's building's Goblins,
                     // the Elixir Golem's ElixirGolem4, the Phoenix egg's PhoenixNoRespawn), down to
                     // MAX_CHAIN_DEPTH: a record first loaded at that depth may not need units of its own.
@@ -4047,6 +4186,16 @@ impl CardDb {
                     Ok(idx)
                 })
                 .clone();
+            // A rider row another block loaded first (so its load above did not check it as a
+            // rider) is held to the same shape, read off the record it became.
+            let got = match got {
+                Ok(u) if which == UnitUse::Attach => {
+                    let r = db.get(u);
+                    let leaves = !db.unit_refs(u).is_empty() || r.death_area_effect.is_some() || r.death_projectile.is_some() || r.spawn_area_effect.is_some();
+                    rider_shape(r, leaves, &unit).map(|()| u)
+                }
+                other => other,
+            };
             match got {
                 // THE MORPH TARGET IS A BUILDING WITH HITPOINTS (the one measured: the Goblin Drill's
                 // 1313-hp building). A morph into a troop, or into a hitpoint-less death bomb, is a
@@ -4077,6 +4226,7 @@ impl CardDb {
                         }
                         UnitUse::LifeState => card.life_state.as_mut().expect("life_state present").unit = u,
                         UnitUse::Morph => card.spawn_pathfind.as_mut().expect("spawn_pathfind present").morph = Some(u),
+                        UnitUse::Attach => card.attach.as_mut().expect("attach block present").unit = u,
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
@@ -4296,7 +4446,7 @@ impl CardDb {
         for (path, unit, level_index) in self.unit_refs(idx) {
             let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState | UnitRef::Morph => {
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState | UnitRef::Morph | UnitRef::Attach => {
                     self.unit_level(idx, unit, level_index, level)?
                 }
             };
@@ -4360,6 +4510,11 @@ impl CardDb {
         if let Some(SpawnPathfindDef { morph: Some(m), .. }) = c.spawn_pathfind {
             out.push((UnitRef::Morph, m, None));
         }
+        // PLANT unit_refs_skips_attach (tests/unit_refs.rs) drops the attached rider the same way.
+        #[cfg(not(clash_plant = "unit_refs_skips_attach"))]
+        if let Some(at) = c.attach {
+            out.push((UnitRef::Attach, at.unit, None));
+        }
         out
     }
 
@@ -4393,6 +4548,7 @@ impl CardDb {
                 UnitRef::LifeState => card.life_state = None,
                 // A tunneller whose building never resolved does not tunnel: the walk goes with it.
                 UnitRef::Morph => card.spawn_pathfind = None,
+                UnitRef::Attach => card.attach = None,
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -4770,6 +4926,10 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // Also the "spawn_pathfind" block {speed, morph} (`spawn_pathfind_of`: a positive speed, and on
 // a played card "can_deploy_on_enemy_side" true, or the card is refused; a units row that
 // carries it is refused), "morph" the NAME of a "units" row loaded as the card's building.
+// Also "attach" in the "spawner" block (SpawnAttach: the block is an attached rider,
+// `convert_attach`), and on a rider row "target_only_troops" and "ignore_targets_with_buff" (a buff
+// row) with "deprioritize_targets_with_buff" (`CardDef::deprioritize_buff`; the buff alone refuses
+// the row); each is absent unless the 15.535 row sets it.
 // Unknown fields are ignored.
 
 #[cfg(test)]
@@ -4877,24 +5037,24 @@ mod tests {
     /// THE UNIT-NAME RULE, the resolution half: a card serves as a spawned unit only
     /// when the row it puts on the board IS that unit's (`CardDef::unit_name`). The Ram
     /// Rider card is named `RamRider` and deploys the `Ram`; its rider is the `units`
-    /// row `RamRider`, so resolving the rider by name alone hands back the Ram. The
-    /// rider block is not simulated yet; a death spawn stands in for it here, because
-    /// the rule under test is the name rule, the same for every block. Synthetic rows,
-    /// the two records told apart by their hitpoints.
+    /// row `RamRider`, reached through the Ram's attached-rider block (`AttachDef`), so
+    /// resolving the rider by name alone hands back the Ram. Synthetic rows, the two
+    /// records told apart by their hitpoints.
     /// Plant: unit_by_card_name (any troop or building card of the name serves).
     #[test]
     fn the_rider_resolves_to_its_own_row_not_the_card() {
         let db = CardDb::from_json_str(
             r#"{"cards":[{"name":"RamRider","kind":"troop","elixir":5,"rarity":"Legendary","summon_character":"Ram",
             "hitpoints":1500,"hit_speed_ms":1800,"range_milli":500,"collision_radius_milli":750,
-            "death_spawn":{"character":"RamRider","count":1}}],
+            "spawner":{"character":"RamRider","number":1,"attach":true}}],
             "units":{"RamRider":{"name":"RamRider","rarity":"Legendary","hitpoints":232,"hit_speed_ms":1100,
             "range_milli":5000,"collision_radius_milli":500}}}"#,
             CardSource::DerivedJson,
         )
         .unwrap();
         let card = db.index("RamRider").unwrap_or_else(|| panic!("RamRider refused: {:?}", db.rejected));
-        let rider = db.get(card).death_spawn.expect("the stand-in block resolved").unit;
+        assert!(db.get(card).spawner.is_none(), "the SpawnAttach block was read as a periodic spawner");
+        let rider = db.get(card).attach.expect("the attached-rider block resolved").unit;
         assert_ne!(rider, card, "the rider resolved to the card, whose row is the Ram");
         let r = db.get(rider);
         assert_eq!((r.hitpoints, r.summon_only, r.unit_name.as_str()), (232, true, "RamRider"), "the rider is not the units row");

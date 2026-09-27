@@ -308,7 +308,9 @@ impl Invariants {
                 }
             }
         }
-        let troops: Vec<&EntityView> = ents.iter().filter(|e| e.kind == EntityKind::Troop).collect();
+        // An attached rider (card.rs `AttachDef`) stands on its mount by definition, and is no body of
+        // the contact law (state.rs `carry_riders`): it takes no part in the overlap check.
+        let troops: Vec<&EntityView> = ents.iter().filter(|e| e.kind == EntityKind::Troop && e.attached_to.is_none()).collect();
         let mut now = BTreeMap::new();
         for (a_i, a) in troops.iter().enumerate() {
             for b in troops.iter().skip(a_i + 1) {

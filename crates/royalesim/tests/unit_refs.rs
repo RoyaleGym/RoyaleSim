@@ -50,6 +50,10 @@
 //! passes and the bomb card loads). 2 and 5 stay green: a block the enumeration skips
 //! skips its level check silently (the defect itself, which 6 shows failing), and the
 //! numbering does not read `unit_refs`.
+//!
+//! PLANT: `unit_refs_skips_attach`: `unit_refs` drops the attached rider (card.rs
+//! `AttachDef`) -> 1 red (Theta, and the shipped Ram Rider against its fields) and 3 red
+//! (Jockey and the Ram Rider's rider report card id -1).
 
 mod common;
 
@@ -64,7 +68,8 @@ use royalesim::py::ids_of_indices;
 ///   Delta   a death spawn (Nester) whose row death-spawns Imp itself: a chain, which loads;
 ///   Omega   a spawner, a death spawn, a death area effect and a second summon
 ///           (Nobody) with no `units` row;
-///   Sigma   a spell releasing Nobody.
+///   Sigma   a spell releasing Nobody;
+///   Theta   an attached rider (Jockey).
 /// No towers: the fallback pair follows the units.
 const SYNTH: &str = r#"{ "version": "test", "cards": [
  { "name":"Alpha", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":300, "hit_speed_ms":1000,
@@ -83,7 +88,9 @@ const SYNTH: &str = r#"{ "version": "test", "cards": [
    "spawner":{"character":"Imp", "number":1, "pause_time_ms":5000}, "death_spawn":{"character":"Ghoul", "count":2},
    "death_area_effect":"OmegaArea", "second_summon":{"character":"Nobody", "count":1} },
  { "name":"Sigma", "kind":"spell", "elixir":2, "rarity":"Common",
-   "projectile":{"name":"SigmaBarrel", "speed":400, "spawn_character":"Nobody", "spawn_character_count":1} }
+   "projectile":{"name":"SigmaBarrel", "speed":400, "spawn_character":"Nobody", "spawn_character_count":1} },
+ { "name":"Theta", "kind":"troop", "elixir":5, "rarity":"Common", "hitpoints":340, "hit_speed_ms":1000,
+   "range_milli":1000, "collision_radius_milli":500, "spawner":{"character":"Jockey", "number":1, "attach":true} }
  ],
  "units": {
   "Imp":    { "name":"Imp", "rarity":"Common", "hitpoints":80, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
@@ -91,7 +98,8 @@ const SYNTH: &str = r#"{ "version": "test", "cards": [
   "Squire": { "name":"Squire", "rarity":"Common", "hitpoints":100, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Wisp":   { "name":"Wisp", "rarity":"Common", "hitpoints":110, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Nester": { "name":"Nester", "rarity":"Common", "hitpoints":120, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300,
-              "death_spawn":{"character":"Imp", "count":1} }
+              "death_spawn":{"character":"Imp", "count":1} },
+  "Jockey": { "name":"Jockey", "rarity":"Common", "hitpoints":130, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 }
  },
  "area_effect_objects": {
   "OmegaArea": { "name":"OmegaArea", "radius_milli":2000, "damage":50, "hits_ground":true, "only_enemies":true }
@@ -138,6 +146,9 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(m) = c.spawn_pathfind.and_then(|p| p.morph) {
         out.push((UnitRef::Morph, m, None));
     }
+    if let Some(at) = &c.attach {
+        out.push((UnitRef::Attach, at.unit, None));
+    }
     out
 }
 
@@ -179,6 +190,7 @@ fn every_unit_block_is_enumerated() {
     assert_eq!(named("Alpha"), want(&[(UnitRef::Spawner, "Imp", None), (UnitRef::DeathSpawn, "Ghoul", None)]));
     assert_eq!(named("Beta"), want(&[(UnitRef::Spawner, "Imp", None), (UnitRef::SecondSummon, "Squire", None)]));
     assert_eq!(named("Gamma"), want(&[(UnitRef::SpellRelease, "Wisp", Some(2))]));
+    assert_eq!(named("Theta"), want(&[(UnitRef::Attach, "Jockey", None)]));
     // Against the Debug text, which needs no list: a block holding a unit that neither
     // `unit_refs` nor `field_refs` names is counted here all the same.
     let why_debug = "unit_refs does not name every unit index its Debug text carries";
@@ -187,7 +199,7 @@ fn every_unit_block_is_enumerated() {
     }
     // Every record of the shipped files, against its fields and its Debug text; together
     // they carry every block (15.535: the Goblin Barrel, the Tombstone, the Golem, the
-    // Goblin Gang).
+    // Goblin Gang, the Ram Rider).
     let mut seen: Vec<UnitRef> = Vec::new();
     for (file, db) in shipped() {
         let mut refs = 0;
@@ -204,7 +216,7 @@ fn every_unit_block_is_enumerated() {
         }
         assert!(refs > 0, "{file}: vacuous, no record puts a unit on the board");
     }
-    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon] {
+    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach] {
         assert!(seen.contains(&path), "vacuous: no shipped record carries {path:?}");
     }
 }
@@ -269,15 +281,16 @@ fn every_unit_a_catalogue_card_puts_on_the_board_reports_its_card() {
         assert!(checked > 0, "{file}: vacuous, no catalogue card puts a unit on the board");
     }
     // The id is the FIRST catalogue card that names the unit: Imp is Alpha's and Beta's,
-    // Squire only Beta's (its second summon), Wisp only Gamma's.
+    // Squire only Beta's (its second summon), Wisp only Gamma's, Jockey only Theta's (its
+    // attached rider).
     let db = synth();
     let catalogue = default_catalogue(&db);
     let ids = ids_of_indices(&db, &catalogue);
     let id_of = |unit: &str| ids[db.cards.iter().position(|c| c.summon_only && c.name == unit).unwrap_or_else(|| panic!("no unit {unit}"))];
     let cid = |card: &str| catalogue.iter().position(|i| db.get(*i).name == card).unwrap_or_else(|| panic!("{card} not in the catalogue")) as i32;
     assert_eq!(
-        [id_of("Imp"), id_of("Ghoul"), id_of("Squire"), id_of("Wisp")],
-        [cid("Alpha"), cid("Alpha"), cid("Beta"), cid("Gamma")]
+        [id_of("Imp"), id_of("Ghoul"), id_of("Squire"), id_of("Wisp"), id_of("Jockey")],
+        [cid("Alpha"), cid("Alpha"), cid("Beta"), cid("Gamma"), cid("Theta")]
     );
 }
 
@@ -320,21 +333,22 @@ fn a_rejected_card_keeps_no_unit_block() {
 #[test]
 fn summon_only_numbering_is_breadth_first() {
     let db = synth();
-    // The six cards keep their file order and places (the three rejected after their
+    // The seven cards keep their file order and places (the two rejected after their
     // push included); the units follow in first-need order -- Alpha's Imp and Ghoul,
-    // Beta's Squire (its Imp is loaded already), Gamma's Wisp -- then the fallback towers.
+    // Beta's Squire (its Imp is loaded already), Gamma's Wisp, Delta's Nester, Theta's
+    // Jockey -- then the fallback towers.
     let names: Vec<&str> = db.cards.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(&names[..6], &["Alpha", "Beta", "Gamma", "Delta", "Omega", "Sigma"]);
+    assert_eq!(&names[..7], &["Alpha", "Beta", "Gamma", "Delta", "Omega", "Sigma", "Theta"]);
     let units: Vec<(usize, &str)> = db.cards.iter().enumerate().filter(|(_, c)| c.summon_only).map(|(i, c)| (i, c.name.as_str())).collect();
-    assert_eq!(units, vec![(6, "Imp"), (7, "Ghoul"), (8, "Squire"), (9, "Wisp"), (10, "Nester")]);
-    assert_eq!(&names[11..], &[KING_TOWER, PRINCESS_TOWER]);
+    assert_eq!(units, vec![(7, "Imp"), (8, "Ghoul"), (9, "Squire"), (10, "Wisp"), (11, "Nester"), (12, "Jockey")]);
+    assert_eq!(&names[13..], &[KING_TOWER, PRINCESS_TOWER]);
     // A CHAIN LOADS: Nester, Delta's first-level need, death-spawns Imp itself; its own
     // need is the Imp record already loaded, so the second level adds nothing here.
     let delta = db.index("Delta").unwrap_or_else(|| panic!("Delta refused: {:?}", db.rejected));
     let nester = db.get(delta).death_spawn.expect("Delta's death spawn").unit;
     assert_eq!(db.get(nester).name, "Nester");
     let imp = db.get(nester).death_spawn.expect("Nester's own death spawn").unit;
-    assert_eq!((imp, db.get(imp).name.as_str()), (6, "Imp"), "Nester's Imp is the Imp record");
+    assert_eq!((imp, db.get(imp).name.as_str()), (7, "Imp"), "Nester's Imp is the Imp record");
 }
 
 // ---------------------------------------------------------------------------

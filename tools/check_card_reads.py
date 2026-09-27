@@ -201,6 +201,16 @@ PROLOGUE = {
     "BuffWhenNotAttackingUseAttackRange": "idle_invisibility.use_attack_range",
     "AllowAreaDmgWhenInvisible": "idle_invisibility.area_damage_when_invisible",
     "Invisible": "idle_invisibility",
+    # The attached rider (the Ram Rider's rider, the Goblin Giant's Spear Goblins), written after
+    # the literal on the 15.535 rows that set each column: the spawner block's SpawnAttach, and the
+    # rider row's targeting columns and facing clamps (the two clamps are carried and read by
+    # nothing, so they stay unread here).
+    "SpawnAttach": "spawner.attach",
+    "TargetOnlyTroops": "target_only_troops",
+    "IgnoreTargetsWithBuff": "ignore_targets_with_buff",
+    "DeprioritizeTargetsWithBuff": "deprioritize_targets_with_buff",
+    "SpawnAttachMaxRotation": "attach_max_rotation_deg",
+    "SpawnMaxAngle": "spawn_max_angle_deg",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was
@@ -301,6 +311,9 @@ KNOWN_SLICE_GAPS = {
 # is (key, the values under which the engine runs the column); an empty tuple is a column no
 # value runs yet.  The gate reads each key's value from calibration.json and refuses to run
 # when one is missing: an arm it cannot read is not an arm that is off.
+# targeting.DEPRIORITIZED_TARGET_BUFF's arms that read the rider row's deprioritize columns.
+DEPRIORITIZE_RUNS = ("rescan_on_landing_keep_progress", "rank_last_only")
+
 LOADED_NOT_RUN = {
     "ReflectedAttackDamage": ("combat.REFLECT_ATTACK", ("client_reflect_stun",)),
     "ReflectedAttackRadius": ("combat.REFLECT_ATTACK", ("client_reflect_stun",)),
@@ -340,6 +353,9 @@ LOADED_NOT_RUN = {
     "MinimumRange": ("targeting.MINIMUM_RANGE", ("client16402_edge_distance",)),
     # The Battle Healer's river crossing (card.rs `CardDef::hovering`).
     "Hovering": ("pathfinding.HOVERING_WATER_RULE", ("priced_water_no_hop",)),
+    # The Ram Rider's rider ranks snared troops last (card.rs `CardDef::deprioritize_buff`); not_read reads neither.
+    "IgnoreTargetsWithBuff": ("targeting.DEPRIORITIZED_TARGET_BUFF", DEPRIORITIZE_RUNS),
+    "DeprioritizeTargetsWithBuff": ("targeting.DEPRIORITIZED_TARGET_BUFF", DEPRIORITIZE_RUNS),
     # The Phoenix's fireball and egg, and the Battle Healer's heal where she appears.
     "DeathSpawnProjectile": ("spawner.DEATH_SPAWN_PROJECTILE", ("client_projectile",)),
     "SpawnAreaObject": ("spawner.SPAWN_AREA_OBJECT_SCOPE", ("every_row",)),

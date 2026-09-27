@@ -7,9 +7,8 @@
 //! the walks the sample exists for are a PRINCE (tick 172: a 1.9-tile walk, the charge
 //! onset at 2.5 tiles, the tower hits) and a GIANT (tick 1329, the stomp walker), and
 //! no capture of that series deploys a Giant inside its first 600 ticks; the trim
-//! stops before the Ram Rider at 1442, which the loader refuses
-//! (`spawner RamRider: no SpawnPauseTime`) and which would make the fixture
-//! unplayable. Also on the board: a Dark Prince, three cycled Skeletons behind the
+//! stops before the Ram Rider at 1442, which the loader refused when the sample was
+//! cut (its attached rider loads since; the sample is kept as cut). Also on the board: a Dark Prince, three cycled Skeletons behind the
 //! king tower, a Battle Ram with its two death-spawned Barbarians, a Musketeer.
 //!
 //! WHAT IS GATED
@@ -288,17 +287,18 @@ fn the_engine_meets_the_isolated_walk_floor_on_the_sample() {
 
 #[test]
 fn a_prefix_play_stops_before_the_first_unloadable_deploy() {
-    // the sample with a deploy the engine refuses appended after tick 1000
+    // the sample with a deploy the engine refuses appended after tick 1000: a card name no
+    // table carries, so no card becoming loadable can take this test's subject away
     let mut f = sample();
     let mut bogus = f.deploys[0].clone();
     bogus.tick = 1000;
-    bogus.card = Some("RamRider".into());
+    bogus.card = Some("NoSuchCard".into());
     bogus.keys = Vec::new();
     bogus.count = 1;
     f.deploys.push(bogus);
     let db = common::cards();
-    let why = playability(&f, &db).expect_err("RamRider is not loadable");
-    assert!(why.iter().any(|u| u.why.starts_with("RamRider: ") && u.cut == Some(1000)), "{why:?}");
+    let why = playability(&f, &db).expect_err("NoSuchCard is not loadable");
+    assert!(why.iter().any(|u| u.why.starts_with("NoSuchCard: ") && u.cut == Some(1000)), "{why:?}");
     assert_eq!(prefix_cut(&f, &why), Some(1000));
     let register = register();
     let full = replay(&f, &db, &register, &Options::default()).unwrap();

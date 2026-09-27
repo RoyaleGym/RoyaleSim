@@ -237,6 +237,15 @@ pub struct Entities {
     /// on load like `reveal_from`.
     #[serde(default)]
     pub mana_ms: Vec<i32>,
+    /// AN ATTACHED RIDER (card.rs `AttachDef`; calibration rider.*): the mount this rider rides,
+    /// set when state.rs `spawn_riders` creates it, and its offset from the mount's centre in the
+    /// mount's facing frame (+y along the facing), subtiles, (0, 0) while the loader takes no
+    /// SpawnRadius. None and (0, 0) on every other entity, hashed only on a rider. `default` and
+    /// sized on load like `reveal_from`. Read through `attached`.
+    #[serde(default)]
+    pub attached_to: Vec<Option<EntityId>>,
+    #[serde(default)]
+    pub attach_offset: Vec<Vec2>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -505,6 +514,17 @@ impl Entities {
         self.knock_ms[i] > 0 || self.push_active[i] || self.hooked_by[i].is_some()
     }
 
+    /// An ATTACHED RIDER whose mount lives (card.rs `AttachDef`; `attached_to`): it never walks,
+    /// is never pushed and pushes nothing, and stands where its mount stood a tick before
+    /// (state.rs `carry_riders`). The one predicate the move passes, the contact law and the
+    /// rider rules read, so a rider whose mount left the board without dying (no path does that
+    /// today; a dying mount takes its riders with it, rider.DIES_WITH_MOUNT) falls back to an
+    /// ordinary unit instead of standing frozen. False on every entity that is not a rider.
+    #[inline]
+    pub fn attached(&self, i: usize) -> bool {
+        self.attached_to.get(i).copied().flatten().is_some_and(|m| self.is_alive(m))
+    }
+
     /// Mid death-spawn slide (calibration spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide;
     /// `death_slide_radius`): the member neither walks nor attacks and takes no target until
     /// the slide ends. Read beside `knocked` at the same "does not walk, does not attack"
@@ -666,6 +686,8 @@ impl Entities {
             self.life_n[i] = 0;
             self.reveal_from[i] = 0;
             self.mana_ms[i] = 0;
+            self.attached_to[i] = None;
+            self.attach_offset[i] = Vec2::default();
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -750,6 +772,8 @@ impl Entities {
             self.life_n.push(0);
             self.reveal_from.push(0);
             self.mana_ms.push(0);
+            self.attached_to.push(None);
+            self.attach_offset.push(Vec2::default());
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);

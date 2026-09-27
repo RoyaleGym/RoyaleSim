@@ -468,6 +468,11 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib
     if calib.spawn_pathfind_body == crate::state::SpawnPathfindBody::Untouchable && ents.underground(v) {
         return false;
     }
+    // rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: no area, strike or knockback of a spell reaches an
+    // attached rider (target.rs `rider_untouchable`).
+    if crate::target::rider_untouchable(calib, ents, v) {
+        return false;
+    }
     // OnlyOwnTroops (card.rs SpellHit `only_own_troops`: the Battle Healer's spawn heal, Rage, the
     // Heal Spirit's heal): the releaser's side only, and within it the kinds
     // spells.OWN_SIDE_AREA_SCOPE names.
@@ -536,6 +541,10 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
     let e = ctx.ents;
     if e.kind[v] != EntityKind::Troop {
         #[cfg(not(clash_plant = "push_buildings"))]
+        return false;
+    }
+    // An attached rider is never pushed under any arm: it stands where its mount stood (entity.rs `attached`).
+    if e.attached(v) {
         return false;
     }
     #[cfg(not(clash_plant = "ignore_flag_not_read"))]

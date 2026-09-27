@@ -45,8 +45,8 @@ use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, FirstTowerPick, LeapingUnitTargetability, MinimumRange, PreserveTargetScope,
-    RiseLaw, RiseTrigger, TowerCancelRange,
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, DeprioritizedTargetBuff, FirstTowerPick, LeapingUnitTargetability, MinimumRange,
+    PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
 
@@ -215,6 +215,48 @@ pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c
 /// dropped it on hit + 46, with an idle time of 2000 ms (40 ticks).
 pub const INVIS_VISIBLE_AFTER_HIT_EXTRA: u32 = 5;
 
+/// rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: are attached riders (card.rs `AttachDef`) out of reach of
+/// every target scan, hit, area, buff, stun and push? The one reading of the key, passed to combat.rs `resolve`.
+#[inline]
+pub fn riders_immune(calib: &Calib) -> bool {
+    #[cfg(not(clash_plant = "rider_targetable"))]
+    let on = calib.rider_targetable == RiderTargetable::UntargetableImmune;
+    #[cfg(clash_plant = "rider_targetable")]
+    let on = {
+        let _ = calib;
+        false // PLANT (regression): a rider is an ordinary target and takes every hit.
+    };
+    on
+}
+
+/// Is entity `c` an ATTACHED RIDER that nothing may target or touch (`riders_immune`; entity.rs `attached`)? The
+/// one definition: `can_target` (a scan, a kept target, a building's wake), spell.rs `eligible` (every area, strike
+/// and knockback of a spell), combat.rs `straight_hits`, the Goblin Hut's wakers and state.rs `apply_effects`
+/// read it, and combat.rs `resolve` drops a hit written on one. Measured on client 16.402 on one Ram Rider: no enemy
+/// targeted the rider on any of 146 ticks and its hp never moved; the Ram's attackers were locked on the Ram, which
+/// sticky targeting explains as well, and no area damage landed on the pair, so the arm is a hypothesis.
+#[inline]
+pub fn rider_untouchable(calib: &Calib, e: &Entities, c: usize) -> bool {
+    riders_immune(calib) && e.attached(c)
+}
+
+/// targeting.DEPRIORITIZED_TARGET_BUFF (rescan_on_landing_keep_progress or rank_last_only): does attacker `a`'s card
+/// deprioritize a buff that candidate `c` carries (card.rs `CardDef::deprioritize_buff`, the Ram Rider's rider and
+/// BolaSnare)? Such a candidate is ranked after every other in `scan_with`. False under not_read and for every
+/// attacker that deprioritizes nothing.
+#[inline]
+fn deprioritized(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    #[cfg(not(clash_plant = "deprioritize_ignored"))]
+    let read = ctx.calib.deprioritized_target_buff != DeprioritizedTargetBuff::NotRead;
+    #[cfg(clash_plant = "deprioritize_ignored")]
+    let read = false; // PLANT (regression): a carrier is ranked by distance like any candidate.
+    if !read {
+        return false;
+    }
+    let Some(b) = ctx.cards.get(ctx.ents.card[a]).deprioritize_buff else { return false };
+    ctx.ents.buff_slots(c).iter().any(|s| !s.is_empty() && u32::from(s.id) == u32::from(b) + 1)
+}
+
 /// hide.RISE_LAW = client16402_surface_attacking: a hidden building that wakes surfaces straight
 /// into its attack. Its wake enters Rising with no timer (state.rs `hide_pass`), and on that one
 /// tick it takes its target and runs its attack cycle as an Up building does (`hide_acts`), while
@@ -269,6 +311,10 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     if ctx.calib.spawn_pathfind_body == crate::state::SpawnPathfindBody::Untouchable && e.underground(c) {
         return false;
     }
+    // rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: an attached rider is nobody's target, a kept one included.
+    if rider_untouchable(ctx.calib, e, c) {
+        return false;
+    }
     // formation.STAGGER_WAIT: a member still waiting out its deploy stagger is nobody's target
     // (0 of 972,681 corpus target rows point at one). The one definition, so the scan, a locked
     // target and a hidden building's wake all read it.
@@ -312,6 +358,12 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     }
     #[cfg(not(clash_plant = "giant_hits_troops"))]
     if card.target_only_buildings && !e.kind[c].is_building() {
+        return false;
+    }
+    // TargetOnlyTroops (card.rs `CardDef::target_only_troops`; the Ram Rider's rider): never a building or a crown
+    // tower. A column semantic, the mirror of TargetOnlyBuildings above.
+    #[cfg(not(clash_plant = "target_only_troops_ignored"))]
+    if card.target_only_troops && e.kind[c].is_building() {
         return false;
     }
     // targeting.LEAPING_UNIT_TARGETABILITY = airborne: a troop in its river leap is a target only for an attacker
@@ -499,7 +551,9 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
     let extra = ctx.calib.extra_sight_range_to_crown_towers.max(0) + ctx.calib.extra_sight_range_to_building.max(0);
     let query = card.sight_range + extra + ctx.hash.max_radius();
     ctx.hash.neighbours_within(e, e.pos[a], query, scratch);
-    let mut best: Option<((i32, i32, i32, u32), usize)> = None;
+    // targeting.DEPRIORITIZED_TARGET_BUFF: a carrier of the buff the attacker deprioritizes ranks after every other
+    // candidate (`deprioritized`: false for every attacker that deprioritizes nothing, so the key is today's).
+    let mut best: Option<((bool, (i32, i32, i32, u32)), usize)> = None;
     for &c in scratch.iter() {
         let c = c as usize;
         if !can_target(ctx, a, c, false) {
@@ -519,7 +573,7 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
         }
         #[cfg(clash_plant = "chase_drop_rescan_admits")]
         let _ = dropped; // PLANT (regression): the dropped troop is a candidate again at plain sight.
-        let k = key(ctx, a, c);
+        let k = (deprioritized(ctx, a, c), key(ctx, a, c));
         if best.as_ref().map_or(true, |(bk, _)| k < *bk) {
             best = Some((k, c));
         }

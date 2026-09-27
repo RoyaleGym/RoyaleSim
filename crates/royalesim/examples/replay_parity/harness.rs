@@ -926,6 +926,8 @@ impl Roots {
                     UnitRef::Spawner => continue,
                     // a life-state controller's wave is emitted by its hut, rooted like a spawner's
                     UnitRef::LifeState => continue,
+                    // an attached rider is rooted through the mount it rides (`attached_to`), not by card
+                    UnitRef::Attach => continue,
                 };
                 of.entry(unit).or_default().push(i);
             }
@@ -1125,6 +1127,13 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 (e.card.to_string(), "tower")
             } else if !card.summon_only {
                 (e.card.to_string(), "deployed")
+            } else if let Some(mount) = e.attached_to {
+                // an attached rider: its mount's root (the mount is registered first, its team_seq
+                // being the rider's minus one)
+                match sim_index_of.get(&(mount.index, mount.generation)) {
+                    Some(&k) => (sim[k].root.clone(), "rider"),
+                    None => (e.card.to_string(), "rider-unknown"),
+                }
             } else if let Some(cidx) = roots.second_summon_of.get(&e.card_idx).and_then(|parents| {
                 // a second summon: the card the harness deployed for this team on this
                 // very tick (its members exist from the same Spawn phase)

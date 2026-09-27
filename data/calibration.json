@@ -488,6 +488,16 @@
       "candidates": ["client_until_hit", "not_read"],
       "promotion_rules": "Settle the hide-again delay (hit + 46 against attack end + 40) and whether a freeze pauses it.",
       "engine": "target.rs invisible and can_target (INVIS_VISIBLE_AFTER_HIT_EXTRA); state.rs, the attack pass (reveal_from)"
+    },
+    "DEPRIORITIZED_TARGET_BUFF": {
+      "value": "rescan_on_landing_keep_progress",
+      "status": "hypothesis",
+      "confidence": "MEDIUM: the one-tick flicker is measured (the rider's target reads none exactly on each of 3 bola landing ticks and is the same Musketeer on the next, the attack progress unbroken, the next bola on its 22-tick cadence after 2 of them); with one troop in reach the choice between a snared and an unsnared troop was never offered.",
+      "provenance": "Measured on client 16.402 (capture 20260920-003751) on one Ram Rider, whose rider row sets IgnoreTargetsWithBuff BolaSnare with DeprioritizeTargetsWithBuff (the 15.535.29 tables); its bola hangs BolaSnare. The landings are the ticks the Musketeer lost 104 (1550, 1592, 1618).",
+      "meaning": "What a unit whose row sets IgnoreTargetsWithBuff with DeprioritizeTargetsWithBuff (card.rs CardDef::deprioritize_buff; the Ram Rider's rider and BolaSnare) does with that buff's carriers. rescan_on_landing_keep_progress: its scans rank a carrier after every other candidate, and a landing of the buff on its target (from any source, fresh or a refresh) clears the target in that Resolve, so the next Target phase rescans; the attack progress runs on, the target having been cleared rather than killed (combat.RETARGET_PROGRESS). rank_last_only: the ranking alone; a target that becomes a carrier is kept by the ordinary keep rules. not_read: neither; the unit targets as any other. A row that sets IgnoreTargetsWithBuff alone (a tower and a neutral unit of the event modes) ignores the carriers outright; the loader refuses it.",
+      "candidates": ["rescan_on_landing_keep_progress", "rank_last_only", "not_read"],
+      "promotion_rules": "The 15.535.29 ram-rider-deprioritize scenario: two troops in the rider's reach, the nearer one snared; which one it takes after a landing, and on which tick. Every arm is the same on a battle without a Ram Rider.",
+      "engine": "state.rs drop_deprioritized_targets (apply_effects); target.rs deprioritized, scan_with"
     }
   },
   "collision": {
@@ -3451,6 +3461,62 @@
       "meaning": "client16402_deploy_column_range: the measured per-side pair above. The two seats are NOT rotations of each other. At the BACK EDGE the bounds are a FULL ROW apart -- side 1's lo is the highest deployable row's near edge, side 0's rotated is the arena edge -- which the [250, H - 250] bounds clamp turns into at most 750 native on where a member actually lands (the Red Goblins of capture 20260918-164951-B t2262 stand on 31000, not the 31261 the rotation gives: 261 native on that deploy). At the RIVER the bounds are ONE native unit apart, side 1's the looser, and capture 20260918-121158 t2439 stands two Goblins on side 1's 17499 rather than the rotation's 17500. tests/common symmetric_config selects the next arm for the seat-symmetry gates, as it does for the absolute-grid search. deploy_column_range_own_frame: side 0's formula in the owner's frame for both seats, the seat-symmetric arm -- one native unit short of the measurement at the river and up to 750 short of it on a Red back-row deploy. none: no clamp; a ground member past the bank is ejected to the nearest passable ground (arena.rs nearest_passable_ground) like a spell release -- it agrees with the own-frame arm, so the same 34 clamped side-1 members refute both. WHAT IS MEASURED IS THE TWO ABSOLUTE BOUNDS (31000 and 17499); turning them into an own-frame pair needs a seat step that the corpus shows is itself one native unit out for a GROUND member. Over the tap-tile groups, a side-1 ground member's own-frame offsets are ONE LARGER than a side-0 member's of the same card -- Skeletons 808 / -402 against 807 / -403, Goblins 762 against 761 -- so a Red ground member's absolute y is one below the rotation of its Blue twin's. A FLYING member shows no such difference (Minions 579 / -288 on both seats). Read the two measured absolute bounds back through that one unit and side 1's own-frame pair is [999, 14500] against side 0's [0, 14500]: the RIVER bound comes out seat-symmetric and only the back edge stays asymmetric. So the `- 1` this arm carries in side 1's lo is one way to carry a difference that is on every Red ground member, clamped or not, and the pair of them is a decomposition of the measurement rather than the measurement.",
       "promotion_rules": "Stays measured: 34 clamped members over 17 clean groups separate the shipped pair from both other candidates, 0 against. What MEDIUM still records, each wanting a designed capture with every tower standing: (1) SIDE 0's range is carried by the formula alone -- its hi wants a three-summon ground card tapped on side 0's bank row on each lane, and its lo is unobservable while it is at or below 250 native because the bounds clamp covers it, so the entry says so rather than claiming it; (2) side 1's back edge is 16 groups of ONE card (Goblins) on ONE row (absolute 30) -- a second card and a second row on each lane; (3) side 1's river bound rests on a single group's two members, and that group's tap is a centroid -- a tap-tile-sourced group on the other lane hardens it; (4) the half-arena drop rests on one group, a side-1 deploy whose column had opened -- the side-0 direction is untested; (5) the mask agreeing with deploy_zone cell for cell on a corner tap of every card class. AND ONE THING THIS KEY CANNOT SETTLE: the two ABSOLUTE bounds are what the corpus shows; their split into an own-frame formula plus a seat step is not, because the seat step is one native unit out for a ground member on its own (see `meaning`). A SECOND one-unit effect says the same thing from outside this key's reach: a GROUND member deployed on the arena's LEFT half stands one native unit lower in absolute X than the same ring on the right half, on BOTH seats (Skeletons, Goblins, Spear Goblins, Barbarians, Goblin Gang, Skeleton Army, Skeleton Warriors: 57 tap-tile groups at -1 on the left, 0 on the right; Minions, Minion Horde and Skeleton Dragons show 0 on both). Both effects are on the SPAWN POINT only -- a member's track leaves them behind on its first walking frame -- and this clamp touches only y, so it can be neither's cause and can only be masking the y one. Settling them is a change to how a ground summon's point is laid, not to this key, and the `- 1` here must not be removed on its own: the two only cancel together.",
       "engine": "state.rs Calib::from_json (pick), BattleState::ground_y_range; tests/formations.rs"
+    }
+  },
+  "rider": {
+    "$comment": [
+      "ATTACHED RIDERS (card.rs `AttachDef`): a unit whose Spawn* block sets SpawnAttach carries",
+      "SpawnNumber riders of the named row from its first tick (the 15.535.29 tables: the Ram Rider's",
+      "Ram carries its rider; the Goblin Giant carries two Spear Goblins). A rider never walks, is",
+      "never pushed and pushes nothing (state.rs `carry_riders`, the three Path arms, collide.rs",
+      "`is_mobile_unit`, spell.rs `pushable`); it takes its own targets and attacks on its own",
+      "cycle. The loader refuses an attach block with a SpawnRadius, and a rider row that flies,",
+      "moves on its own or leaves anything where it dies (card.rs `convert_attach`, `rider_shape`):",
+      "where an offset rider stands and where a rider comes down when its mount dies are not",
+      "implemented, so the Goblin Giant stays refused. Measured on client 16.402 on the one Ram",
+      "Rider of capture 20260920-003751; no Goblin Giant is in any recording. Every key here is the",
+      "same on a battle without a rider."
+    ],
+    "POSITION": {
+      "value": "mount_previous_tick_position",
+      "status": "measured",
+      "confidence": "HIGH on one Ram Rider: 53 of 53 tick pairs in one seat and 12 of 12 in the other, through the Ram's 120-per-tick charge and an avoidance swerve.",
+      "provenance": "Measured on client 16.402 (capture 20260920-003751): the rider stands exactly where the Ram stood on the previous tick. Its target acquisition and its bola launch point are then its start-of-tick position, the Ram's position two ticks earlier, which the capture shows too: it acquired a Musketeer from 6511 and not from 6631 (reach 5500 + 600 + 500 = 6600), and 5 of 5 bola launch points lie within 1 of that position plus ProjectileStartRadius 800 toward the target.",
+      "meaning": "Where an attached rider stands on each tick. mount_previous_tick_position: at the top of the Move phase, before anything moves the mount, the rider takes the mount's position plus its offset turned by the mount's facing (zero while the loader takes no SpawnRadius). mount_current_position: the same copy after the mount has moved; not implemented, and refused at load.",
+      "candidates": ["mount_previous_tick_position", "mount_current_position"],
+      "promotion_rules": "Settled for the Ram Rider. A mount with a SpawnRadius (the Goblin Giant) adds the frame the offset turns in, which is not implemented and keeps that card refused.",
+      "engine": "state.rs carry_riders, offset_on_mount (only() rule in Calib::from_json)"
+    },
+    "DEPLOY": {
+      "value": "mirror_mount",
+      "status": "hypothesis",
+      "confidence": "MEDIUM: the rider deploys in lockstep with the Ram (both deploying through t1459, both active from t1461), but both rows ship DeployTime 1000, so a rider that counted its own would look the same.",
+      "provenance": "Measured on client 16.402 (capture 20260920-003751) on one Ram Rider; the 15.535.29 tables give the Ram and the rider row DeployTime 1000 each.",
+      "meaning": "The deploy timer of an attached rider. mirror_mount: the rider's timer is its mount's, copied after every countdown and whenever the mount is deployed outside it (a setup spawn, an override), so it deploys on the mount's tick whatever delays the mount. own_deploy_time: the rider counts its own DeployTime from its creation, like any unit.",
+      "candidates": ["mirror_mount", "own_deploy_time"],
+      "promotion_rules": "A mount whose deploy is held while its rider's would run (a mount stunned while it deploys), or a mount and rider rows with different DeployTimes: the tick the rider first acts.",
+      "engine": "state.rs spawn_riders, rider_deploy_lockstep, deploy_countdown, on_deployed"
+    },
+    "TARGETABLE_WHILE_ATTACHED": {
+      "value": "untargetable_immune",
+      "status": "hypothesis",
+      "confidence": "MEDIUM: no enemy targeted the rider on any of 146 ticks and its hp never moved, but the Ram's attackers were locked on the Ram, which sticky targeting also explains (the rider stood nearer the Musketeer than the Ram on 27 frames), and no area damage landed on the pair.",
+      "provenance": "Measured on client 16.402 (capture 20260920-003751) on one Ram Rider.",
+      "meaning": "Whether an attached rider is a target and takes hits. untargetable_immune: while its mount lives nobody targets it (target.rs can_target), no spell's area, strike or push reaches it (spell.rs eligible), a straight shot passes it, a buff, stun or push landing on it is dropped (state.rs apply_effects) and a hit written on it is dropped in Resolve (combat.rs resolve). targetable_damageable: an ordinary target that takes every hit; it is still never pushed.",
+      "candidates": ["untargetable_immune", "targetable_damageable"],
+      "promotion_rules": "The 15.535.29 ram-rider-targetability scenario: an attacker with no lock that has the rider nearer than the Ram, and an area spell on the pair; whether the rider is taken, and whether its hp moves.",
+      "engine": "target.rs riders_immune, rider_untouchable, can_target; spell.rs eligible; combat.rs resolve, land_at_once, straight_hits; state.rs apply_effects, life_wakers"
+    },
+    "DIES_WITH_MOUNT": {
+      "value": "same_tick_full_hp",
+      "status": "measured",
+      "confidence": "MEDIUM: one death.",
+      "provenance": "Measured on client 16.402 (capture 20260920-003751): the rider is last present with the Ram, at full hp, and gone with it on t1629.",
+      "meaning": "What becomes of an attached rider when its mount dies. same_tick_full_hp: the riders join the mount's death in that Resolve whatever their hp, and go through the ordinary death path in Reap on the mount's tick.",
+      "candidates": ["same_tick_full_hp"],
+      "open": "A rider that dies first (possible only under rider.TARGETABLE_WHILE_ATTACHED = targetable_damageable) leaves its mount riderless; nothing measured it. A rider row that leaves something where it dies (the Goblin Giant's Spear Goblins) is refused by the loader until its dismount is implemented.",
+      "promotion_rules": "Settled for the Ram Rider; a second recorded death would raise the confidence.",
+      "engine": "state.rs riders_die_with_their_mounts (only() rule in Calib::from_json)"
     }
   },
   "cards": {
