@@ -728,14 +728,14 @@ pub enum SpawnerSource {
 /// SpawnNumber and a blank SpawnPauseTime; the Ram Rider's Ram carries its rider so, the Goblin
 /// Giant its two Spear Goblins). Not a periodic spawner: the riders exist from the mount's first
 /// tick, stand where the mount stood a tick before and fight on their own (state.rs
-/// `spawn_riders`, `carry_riders`; calibration rider.*). Taken on a troop only, and only with a
-/// blank SpawnRadius (`convert_attach`): where an offset rider stands and turns is not simulated
-/// yet, so every rider the engine runs stands on its mount's centre.
+/// `spawn_riders`, `carry_riders`; calibration rider.*). Taken on a troop only, and only with one
+/// rider and a blank SpawnRadius (`convert_attach`): where an offset rider stands and turns is not
+/// simulated yet, so every rider the engine runs stands on its mount's centre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttachDef {
     /// The rider's CardDb index (a `summon_only` card, loaded through `UnitUse::Attach`).
     pub unit: u16,
-    /// SpawnNumber: riders per mount (>= 1).
+    /// SpawnNumber: riders per mount. 1 on every block the loader takes: `convert_attach` refuses more.
     pub number: i32,
     /// SpawnRadius, SUBTILES. None on every block the loader takes today: a set one is refused
     /// until calibration rider.OFFSET_LAW is implemented.
@@ -1973,7 +1973,8 @@ const INERT_PAUSE_TAGS: &[&str] = &["NO_SUMMON", "UNIT_CUSTOM_TAG_1"];
 /// unit's name; or the reason it is refused. The graph must be exactly the interval, its spawn and a cosmetic
 /// effect, and spawn exactly the block's character; the interval must run at the spawner's SpawnSpeed
 /// (AffectedBySpawnSpeed: the only reading spawner.ACTION_SPAWNER_SPAWN_SPEED has); every number the timer and
-/// the point need must be there. One unit per emission: the action has no count column.
+/// the point need must be there, and the point's x half (MirroredX) must be 0, the one value measured. One unit per
+/// emission: the action has no count column.
 fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>) -> Result<(SpawnerDef, String), String> {
     let refuse = |why: &str| Err(format!("the unit's interval spawner: {why}; not simulated"));
     let Some(g) = graph else { return refuse("no action graph carries it") };
@@ -2000,6 +2001,11 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
         (Some(x), Some(y)) => (x, y),
         _ => return refuse("its spawn has no MirroredX / MirroredY"),
     };
+    // spawner.SPAWN_TO_LOCATION_OFFSET is measured on the y half alone: the one row that loads, the Furnace's, ships
+    // MirroredX 0. Where an x offset stands, and which way it turns for each seat, nothing measured.
+    if at.0 != 0 {
+        return refuse(&format!("MirroredX {}, an x offset nothing measured", at.0));
+    }
     let deploy = match raw.deploy_time_ms {
         Some(d) if d < 0 => return refuse(&format!("DeployTime {d}")),
         d => d,
@@ -3731,7 +3737,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
     let mut spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
     (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
-    // OmitFromStartingHand (Mirror, which is refused on its shape until its window): the deal rule reads the card.
+    // OmitFromStartingHand (the Mirror): the deal rule reads the card (state.rs `try_new`, economy.OMIT_FROM_STARTING_HAND).
     def.omit_from_starting_hand = raw.omit_from_starting_hand.unwrap_or(false);
     if spell.duration_seconds.is_some() {
         return Err("spell DurationSeconds is not simulated".into());
@@ -4034,6 +4040,9 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
 /// beside SpawnAttach (SpawnPauseTime, SpawnInterval, SpawnStartTime, SpawnLimit) is a shape no
 /// row ships, and a SpawnRadius (the Goblin Giant's 900) puts the riders off the mount's centre,
 /// which calibration rider.OFFSET_LAW is to settle and nothing implements yet: both are refused.
+/// So is a SpawnNumber above 1 with no SpawnRadius: the rider law is measured on the Ram Rider's
+/// one rider (rider.POSITION), and several riders would all stand on the mount's centre, a layout
+/// no row ships and nothing measured.
 /// Returns the def with `unit` unresolved (u16::MAX) and the rider's name.
 fn convert_attach(b: RawSpawner) -> Result<(AttachDef, String), String> {
     let unit = b.character.ok_or("an attached-rider block with no SpawnCharacter")?;
@@ -4043,6 +4052,9 @@ fn convert_attach(b: RawSpawner) -> Result<(AttachDef, String), String> {
     let number = b.number.filter(|n| *n >= 1).ok_or_else(|| format!("attached rider {unit}: no SpawnNumber"))?;
     if let Some(r) = b.radius_milli {
         return Err(format!("attached rider {unit}: an offset from its mount (SpawnRadius {r}) is not simulated"));
+    }
+    if number != 1 {
+        return Err(format!("attached rider {unit}: {number} riders on one mount (SpawnNumber {number}) is not simulated"));
     }
     Ok((AttachDef { unit: u16::MAX, number, radius: None }, unit))
 }
@@ -4799,6 +4811,29 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             Some(out)
         }
     };
+    // A CARD THAT TRAVELS UNDER GROUND is played as ONE unit that walks to the tap and comes up there (state.rs
+    // `enqueue`, `spawn_tunneller`, `surface`), and that is the shape measured: the Miner, a troop of one, and the
+    // Goblin Drill, a building whose dig morphs into it. Anything else beside the walk would be played as a different
+    // card, so it is refused: a count other than 1 (members at explicit offsets need a count of 2 or more, so this
+    // refuses them too), a second summon, attached riders, and a building with no morph, which would walk and come up
+    // as a troop.
+    if let Some((_, morph)) = &spawn_pathfind {
+        let count = raw.count.unwrap_or(1);
+        let beside = if count != 1 {
+            Some(format!("a count of {count}"))
+        } else if second_summon.is_some() {
+            Some("a second summon".to_string())
+        } else if attach.is_some() {
+            Some("attached riders".to_string())
+        } else if kind == CardKind::Building && morph.is_none() {
+            Some("a building with no SpawnPathfindMorph".to_string())
+        } else {
+            None
+        };
+        if let Some(what) = beside {
+            return Err(format!("{what} beside the underground walk is not simulated"));
+        }
+    }
     // The death projectile, the deploy area and the spawn area: each a NAME resolved against the
     // file's own tables by `from_json_str`, after every unit need above (`death_area_effect`'s way).
     if let Some(p) = &raw.death_spawn_projectile {

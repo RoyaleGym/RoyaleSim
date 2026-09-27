@@ -829,7 +829,8 @@ fn an_unimplemented_candidate_is_refused_at_load() {
         ("status", "TARGET_BUFF_ON_SPLASH", "primary_target_only"),
         ("spells", "PULSING_AREA_EFFECT", "hit_speed_period_delayed"),
         ("spells", "PULSING_AREA_EFFECT", "hit_speed_offset"),
-        ("status", "BUFF_PULSE_AMOUNT", "scaled_per_second_times_frequency"),
+        // The old arm: scaled_per_second_times_frequency ships, so naming it here would check nothing.
+        ("status", "BUFF_PULSE_AMOUNT", "per_second_times_frequency"),
         ("status", "FULL_STOP_BUFF_IS_STUN", "stun_timer"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");

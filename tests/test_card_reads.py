@@ -406,7 +406,12 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # DeathSpawnProjectile (its blast runs only under spawner.DEATH_SPAWN_PROJECTILE = client_projectile),
     # OnStartingAction and the projectile's aoe_to_ground and only_enemies; THE RONIN with OnStartingAction. None
     # left. Measured with the same stand-in, the three added cards exactly these.
-    outside_by_vintage = {"2018": 40, "15.535": 90}
+    # The gate's loaded set is every card the engine loads (`loaded_catalogue`: the default plus every card row
+    # a catalogue that names it alone builds with), so the cards the default catalogue leaves out (the Mirror, the
+    # Miner, the Goblin Drill) are scored too. The stand-in figures above left the Miner and the Goblin Drill out.
+    # 90 -> 92 with that widening: the Miner and the Goblin Drill, scored again. Measured on the merged next build's
+    # module (not a stand-in).
+    outside_by_vintage = {"2018": 40, "15.535": 92}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

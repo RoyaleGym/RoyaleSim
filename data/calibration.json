@@ -1871,6 +1871,7 @@
       "confidence": "HIGH: every Mirror play measured, on both clients.",
       "provenance": "Measured on client 16.402 (capture 20260920-090204): a Mirror of the Elixir Golem (3) debited 4. Measured on client 15.535.29: a Mirror debited the copied card's cost plus its own 1 in every run -- a Knight 4, a Fireball 5, the Heal Spirit 2, the Three Musketeers 10 (from a full bar, which it emptied), the Spirit Empress's forms 7 and 4. No card costs more than 9, so no copy costs more than 10.",
       "candidates": ["copied_elixir_plus_own_elixir"],
+      "meaning": "copied_elixir_plus_own_elixir: a Mirror play costs the elixir of the card it copies plus the Mirror's own (1); a copy of the Spirit Empress costs the form it copies plus 1. The one reading; it has no rival.",
       "promotion_rules": "Stays measured.",
       "engine": "state.rs resolve_play (the Mirror arm; one arm, read with only())"
     },
@@ -2215,6 +2216,7 @@
       "confidence": "LOW for the shipped arm at_life_end with the client 16.402 Lightning row (HitSpeed 500, LifeDuration 1500): it strikes twice where the row schedules three. The two arms do the same on every client 15.535.29 cast: that row's third strike comes 120 ms before its life ends. with_last_strike rests on the row and on two other client 15.535.29 areas, not on a seen third strike.",
       "provenance": "A striking area's row schedules its strikes: strike k is due at k x HitSpeed for every k with k x HitSpeed at most LifeDuration (card.rs strike_gaps), and falls on the update whose carried clock passes it, the cast tick D + floor(k x HitSpeed / 50) (spells.STRIKE_TIMER_LEFTOVER). MEASURED on client 15.535.29, 47 Lightning casts (HitSpeed 460, LifeDuration 1500): 67 of 67 strike objects fall on the three scheduled slots D + 9, D + 18 and D + 27, and none elsewhere in D..D + 45. Every slot with an unstruck enemy surely in reach strikes (35 of 35; the third slot 10 of 10). A slot with no candidate is spent and the next keeps its tick (4 casts strike first on D + 18; 8 skip D + 18 and strike on D + 27). No cast strikes a fourth time, though 10 had an enemy surely in reach on D + 36. So the row's schedule is the count, and the life bounds it. Those casts cannot show a strike due exactly at the LifeDuration: 1380 ms is 120 ms inside it. Two other client 15.535.29 areas show an event due exactly at their LifeDuration, with the landing tick L counted as the area's first 50 ms: the Earthquake (LifeDuration 3000) deals its three damage pulses at ages 1000, 2000 and 3000 (L + 19, L + 39, L + 59), and the Tornado (HitSpeed 50, LifeDuration 1050) pulls on L + 1..L + 21, so it still acts on L + 20, age 1050. The 16.402 corpus has one striking Lightning cast (HitSpeed 500): strikes on D + 10 and D + 20, and no enemy in reach on D + 30. INFERRED: the third strike its row schedules, due at 1500 ms, falls on D + 30. at_life_end, today's engine, ends the area on the update its life reaches 0 (D + 29), one update before that strike. with_last_strike ends the area with its last scheduled strike.",
       "candidates": ["at_life_end", "with_last_strike"],
+      "meaning": "at_life_end: today's engine. A striking area ends with its last scheduled strike, or on the update its life reaches 0 if that comes first, so a strike due at exactly the LifeDuration is lost (HitSpeed 500 over a LifeDuration of 1500 strikes on D + 10 and D + 20). with_last_strike: the area ends with its last scheduled strike, so a strike due at exactly the LifeDuration still falls (the same row strikes on D + 10, D + 20 and D + 30). The two arms are the same for HitSpeed 460, whose third strike is due 120 ms inside the life.",
       "promotion_rules": "A client 16.402 Lightning cast with a third enemy in reach on D + 30: a strike object there is with_last_strike, none is at_life_end. Flip together with the Lightning's AreaHitSpeed 500 joining cards.CLIENT16402_VALUES's value.values (it is not listed today); alone it moves nothing, since the tables' 460 strikes before the life ends. Registered prediction for that pair: on 20260920-070448 the engine makes a third strike the client did not, on Skeleton #43 (tick 3012), because in the engine's replay #43 had drifted into reach while the client's stood out of it.",
       "engine": "spell.rs step_spells (the Strikes arm): the update that ends a striking area"
     },
@@ -3077,7 +3079,7 @@
       "confidence": "LOW for the shipped arm creation_tick, which is today's engine: under spawner.SPAWNED_FIRST_STEP = client16402_same_tick a Goblin Hut's wave takes its first update on its creation tick, so the engine pushes it out of the hut's circle and runs its avoidance scan one tick before both clients do. HIGH for client16402_next_tick: 169 of 169 client 15.535.29 waves, and all 79 16.402 corpus rows whose creation tick is recorded (a row is one seat's recording; the 79 are about 66 distinct waves in 10 battles)",
       "provenance": "MEASURED on client 15.535.29 and on the 16.402 corpus. A Goblin Hut's controller creates each wave's unit SpawnOffset (1200) from the hut's centre, inside the hut's circle (1000 + 500), and the contact law then pushes it out at up to 150 a tick. CLIENT 15.535.29 (every battery run with a hut: 169 waves in 55 runs): on its first frame every wave stands exactly on its creation point (its position equals its start-of-tick position) with avoidance offset 0; from the next frame it moves out up to 150 a tick and carries +-190, the avoidance scan's +-200 less one decay. THE 16.402 CORPUS, counted in rows (one row per unit per seat's recording, so a wave seen from both seats is two rows): 92 rows of units from huts. 79 first frames stand 1,198 to 1,201 from the hut; they are about 66 distinct waves in 10 battles. 8 rows stand 1,347 to 1,348, one push out, and for all 8 the tick before is missing from that recording (for 6 of them the other seat has the wave 1,198 to 1,199 out on that tick); 5 rows are the hut's death spawn, not a wave. THE DEPLOY TIMER IS NOT THE REASON: a Goblin Cage's Brawler (3 of 3) and a Goblin Drill's goblins (13 of 13) are also born deploying in the middle of a tick, and carry their creation-tick avoidance offset on their first frame; a Tombstone's Skeletons (41 of 41) have stepped on theirs. So the law is the controller's waves'.",
       "meaning": "client16402_next_tick: a unit a Goblin Hut's controller creates takes no update on its creation tick; its first contact push and its first avoidance scan come in the next tick's Move. creation_tick: today's engine, where it takes its first update on the creation tick as a periodic emission does (under spawner.SPAWNED_FIRST_STEP = client16402_same_tick).",
-      "open": "Why the controller's unit misses the update is inferred, not read: it is created after the tick's move updates. Two neighbours that are not this key: the controller's first look after ActionDelay aims at the enemy's start-of-tick position (7 of 7 client 15.535.29 waves where the two positions differ; the 6 16.402 corpus rows that fit only there are first looks too) and its later waves at the post-move one (76 of 76), where the engine aims at the post-move position always; and a wave whose waker was created on the same tick (a Tombstone's Skeleton) comes one tick later in the client than in the engine (1 battery run).",
+      "open": "Why the controller's unit misses the update is an inference: it is created after the tick's move updates. Two neighbours that are not this key: the controller's first look after ActionDelay aims at the enemy's start-of-tick position (7 of 7 client 15.535.29 waves where the two positions differ; the 6 16.402 corpus rows that fit only there are first looks too) and its later waves at the post-move one (76 of 76), where the engine aims at the post-move position always; and a wave whose waker was created on the same tick (a Tombstone's Skeleton) comes one tick later in the client than in the engine (1 battery run).",
       "promotion_rules": "The test files pass (crates/royalesim/tests/life_state_wave.rs, tests/test_life_state_wave.py). Then score this arm with spawner.LIFE_STATE_WAVE_POINT at its new arm, together and each alone: on the client 15.535.29 per-tick census the runs with a hut wave depart later or not at all, except where a neighbour named in `open` departs first; no 16.402 corpus report loses more than 50 unit-ticks within 250.",
       "engine": "state.rs life_state_pass (the flag it passes to create_emissions) and create_emissions"
     },
@@ -3095,9 +3097,10 @@
     "INTERVAL_START_ORIGIN": {
       "value": "placement_counter_first_frame_counts",
       "status": "hypothesis",
-      "confidence": "MEDIUM: both candidates put the Furnace's first Fire Spirit 38 ticks after the Furnace's first frame, as measured on client 16.402 (2 of 2), and nothing in the corpus separates them.",
-      "provenance": "An interval spawner: the 15.535.29 tables give the Furnace an ActionInterval (StartCounterAt 1950, Interval 5000) running an ActionSpawnToLocation of one Fire Spirit. Measured on client 16.402 (captures 20260920-071056 and 20260920-071744): the first Fire Spirit 38 ticks after the Furnace's first frame, then one every 100 ticks (7 of 7 intervals), walking or attacking. placement_counter_first_frame_counts: StartCounterAt counts down from the tick the Furnace is created, that tick included, so at its deploy end 19 ticks later 1000 is left and the first unit comes 19 ticks after that. activation_after_own_deploy_time: the timer is loaded with the unit's own DeployTime at its deploy end, the same tick for a DeployTime of 1000. Reading StartCounterAt as a head start toward Interval (the first unit 61 ticks after the first frame) is refuted by the same two Furnaces.",
+      "confidence": "MEDIUM: both candidates put the Furnace's first Fire Spirit 38 ticks after the Furnace's first frame, as measured on client 16.402 (2 of 2), and nothing in the 16.402 corpus separates them. A raged Furnace on client 15.535.29 favours placement_counter_first_frame_counts, by an inference that rests on where the Rage starts to act (see provenance).",
+      "provenance": "An interval spawner: the 15.535.29 tables give the Furnace an ActionInterval (StartCounterAt 1950, Interval 5000) running an ActionSpawnToLocation of one Fire Spirit. Measured on client 16.402 (captures 20260920-071056 and 20260920-071744): the first Fire Spirit 38 ticks after the Furnace's first frame, then one every 100 ticks (7 of 7 intervals), walking or attacking. Reading StartCounterAt as a head start toward Interval (the first unit 61 ticks after the first frame) is refuted by the same two Furnaces. On client 15.535.29 (the Furnace runs) the first Fire Spirit also comes on F + 38 unraged, F the Furnace's first frame. With a Rage cast just before it is placed, it comes on F + 30: a counter that runs from placement and advances 65 ms a raged tick, the Rage acting from F + 3, predicts that, and one loaded at the deploy end predicts F + 34 or F + 35. When the Rage starts to act is not in the frames, so this is an inference.",
       "candidates": ["placement_counter_first_frame_counts", "activation_after_own_deploy_time"],
+      "meaning": "placement_counter_first_frame_counts: StartCounterAt counts down from the tick the interval spawner is created, that tick included, so the Furnace, deployed 19 ticks later with 1000 left, emits its first unit 19 ticks after that. activation_after_own_deploy_time: the timer is loaded with the unit's own DeployTime at its deploy end, the same tick for a DeployTime of 1000.",
       "promotion_rules": "An interval spawner whose DeployTime is not StartCounterAt - 950, or a Furnace whose deploy a stun holds: the tick of its first unit.",
       "engine": "state.rs Calib::interval_start_origin, read by BattleState::spawner_activate"
     },
@@ -3125,7 +3128,12 @@
       "client 16.402 (capture 20260920-090204: two Collectors at level 11, 4 payouts, one held at the",
       "cap, one capped). A death pays ManaOnDeath to the dying unit's side and",
       "ManaOnDeathForOpponent to the other (state.rs `phase_reap`); the deal keeps an",
-      "OmitFromStartingHand card out of the starting hand (state.rs `try_new`). Neither is measured.",
+      "OmitFromStartingHand card out of the starting hand (state.rs `try_new`). ManaOnDeath is",
+      "measured on client 15.535.29 (paid to the owner on an expiry and on a kill), and so is the",
+      "column's effect on the deal (the Collector and the Mirror are never in an opening hand);",
+      "ManaOnDeathForOpponent and which card the deal puts in the omitted card's place are not. The",
+      "Collector's payout under a stun, a freeze and double or triple elixir is measured on client",
+      "15.535.29 too.",
       "The Collector ships no HitSpeed: a building with a `mana` block and no damage source loads",
       "with a hit speed of 0, which the Target and Attack passes skip."
     ],
@@ -3142,40 +3150,44 @@
     },
     "PRODUCTION_OVERFLOW": {
       "value": "clamped_remainder_lost",
-      "status": "guess",
-      "confidence": "LOW for the remainder; the fill to 10 is measured (one payout at 9.5828 elixir left the owner at exactly 10, on client 16.402).",
-      "provenance": "Measured on client 16.402 (capture 20260920-090204): a payout that would take the owner past 10 elixir fills it to 10. Whether the rest is lost or kept for later is not seen in the corpus. clamped_remainder_lost: the rest is lost.",
+      "status": "measured",
+      "confidence": "HIGH on one overflowing payout on client 15.535.29; the fill to 10 is measured on client 16.402 too.",
+      "provenance": "Measured on client 16.402 (capture 20260920-090204): a payout that would take the owner past 10 elixir fills it to 10. Whether the rest is lost or kept for later is not seen in the corpus. MEASURED on client 15.535.29 (the Elixir Collector runs): an owner at 9.78 elixir is filled to 10 by that tick's regen and 0.2022 of the payout, stays at 10 for 30 ticks, and an Earthquake then takes exactly its 3 elixir and the regen gives 0.0178: the 0.7978 left over is lost, not held.",
       "candidates": ["clamped_remainder_lost", "remainder_held"],
-      "meaning": "Only clamped_remainder_lost has an implementation.",
-      "promotion_rules": "The 15.535.29 elixir-collector-overflow scenario: a payout at 9.5 elixir, then the owner's elixir over the next ticks with no spend.",
+      "meaning": "clamped_remainder_lost: a payout that would take the owner past 10 elixir fills it to 10 and the rest is lost. remainder_held would keep the rest for later; only clamped_remainder_lost has an implementation.",
+      "promotion_rules": "Stays measured.",
       "engine": "state.rs mana_pass (only() rule in Calib::from_json)"
     },
     "PRODUCTION_RATE_IN_DOUBLE_ELIXIR": {
       "value": "fixed_interval",
-      "status": "guess",
-      "confidence": "LOW: every measured payout is in single-elixir time.",
-      "provenance": "The 15.535.29 tables give the Elixir Collector ManaGenerateTimeMs 13000 and no rate column. fixed_interval: the payout timer steps TICK_MS a tick whatever the regen rate. scaled_with_elixir_rate: it steps TICK_MS times the regen's current rate over its single rate, twice as fast in double elixir.",
+      "status": "measured",
+      "confidence": "HIGH on client 15.535.29: one Collector each in double elixir, in triple elixir and across the switch to double elixir pays every 260 ticks.",
+      "provenance": "The 15.535.29 tables give the Elixir Collector ManaGenerateTimeMs 13000 and no rate column. Every payout on client 16.402 (capture 20260920-090204) is in single-elixir time. MEASURED on client 15.535.29 (the Elixir Collector runs): in a mode with double elixir from the start (regen 0.0357 elixir a tick) a Collector pays on its deploy end D + 259 and then every 260 ticks, +1 elixir each time; in a mode with triple elixir (0.0537 a tick) the same; and a Collector placed late in a default match pays on D + 259 and then 260 ticks apart across the tick the regen doubles. scaled_with_elixir_rate would pay 130 ticks apart in double elixir, and is refuted.",
       "candidates": ["fixed_interval", "scaled_with_elixir_rate"],
-      "promotion_rules": "The 15.535.29 elixir-collector-double-elixir scenario: a Collector's payouts inside the last 60 s of regulation.",
+      "meaning": "fixed_interval: the payout timer steps TICK_MS a tick whatever the regen rate, so a producer pays every ManaGenerateTimeMs in double and triple elixir as in single. scaled_with_elixir_rate: it steps TICK_MS times the regen's current rate over its single rate, twice as fast in double elixir.",
+      "promotion_rules": "Stays measured.",
       "engine": "state.rs Calib::production_rate, read by mana_pass"
     },
     "STUN_PAUSES_PRODUCTION": {
       "value": true,
-      "status": "guess",
-      "confidence": "LOW: no stunned or frozen Elixir Collector in the corpus.",
-      "provenance": "spawner.STUN_PAUSES_SPAWNER's reading carried to the payout timer: a producer whose stun timer runs skips the timer's step, so a stun delays the next payout by the ticks it covers. false lets the timer run through a stun.",
+      "status": "measured",
+      "confidence": "HIGH on client 15.535.29, one Freeze and one Zap: each held the payout timer for exactly the frames the Collector was frozen or stunned. The 16.402 corpus holds no stunned or frozen Collector.",
+      "provenance": "MEASURED on client 15.535.29 (the Elixir Collector runs, beside a control run whose Collector pays on its deploy end D + 259 and every 260 ticks after): a Freeze cast 20 ticks before the second payout put it and the next one 80 ticks late, the 80 frames the Collector was frozen; a Zap cast 5 ticks before it put them 10 ticks late, its 10 stunned frames. The lifetime drain ran on through both. Counting the payout timer only on the frames the Collector is neither frozen nor stunned reproduces all three runs. Before these runs the key carried spawner.STUN_PAUSES_SPAWNER's reading over to the payout timer.",
       "candidates": [true, false],
-      "promotion_rules": "The 15.535.29 elixir-collector-stun scenario: a Zap on a Collector mid-period, and the tick of its next payout.",
+      "meaning": "true: a producer whose stun timer runs (a Freeze runs it too, under status.FULL_STOP_BUFF_IS_STUN = stun_timer) skips its payout timer's step, so a stun delays the next payout by the ticks it covers. false: the timer runs through a stun.",
+      "open": "A Rage on its own Collector speeds the payout timer on client 15.535.29 (the next two payouts 10 and 27 ticks early, one run). The engine's payout timer reads no speed buff, and no key holds that yet.",
+      "promotion_rules": "Stays measured.",
       "engine": "state.rs Calib::stun_pauses_production, read by mana_pass"
     },
     "MANA_ON_DEATH_TRIGGER": {
       "value": "any_death",
-      "status": "guess",
-      "confidence": "LOW: neither measured Elixir Collector died.",
-      "provenance": "The 15.535.29 tables give the Elixir Collector ManaOnDeath 1 (and two event buildings 2 and 4). any_death pays on a destruction and on an expiry alike, which the engine's lifetime drain gives for free: an expiry is an ordinary death. destroyed_only would pay a destruction alone.",
+      "status": "measured",
+      "confidence": "HIGH on client 15.535.29, one expiry and one kill; neither Elixir Collector on client 16.402 died.",
+      "provenance": "The 15.535.29 tables give the Elixir Collector ManaOnDeath 1 (and two event buildings 2 and 4). MEASURED on client 15.535.29 (the Elixir Collector runs): a Collector that runs out its lifetime pays its owner +1 elixir on the frame it is gone, 59 ticks after its last periodic payout, with no card played; one a Rocket kills pays +1 on the frame it is gone too; the opponent gains nothing either time. destroyed_only, which would pay a destruction alone, is refuted by the expiry.",
       "candidates": ["any_death", "destroyed_only"],
-      "meaning": "destroyed_only has no implementation.",
-      "promotion_rules": "The 15.535.29 elixir-collector-destroyed-and-expired scenario: the owner's elixir on the tick a Collector is destroyed and on the tick one expires.",
+      "meaning": "any_death: ManaOnDeath is paid to the owner on any death, a destruction or the end of a lifetime (the lifetime drain makes an expiry an ordinary death). destroyed_only would pay a destruction alone, and has no implementation.",
+      "open": "A death while the owner holds 10 elixir: on client 15.535.29 the one Collector killed then paid nothing, later or at once (one run, so it is an inference that the death elixir is lost at the cap, not held).",
+      "promotion_rules": "Stays measured.",
       "engine": "state.rs phase_reap (only() rule in Calib::from_json)"
     },
     "MANA_ON_DEATH_FOR_OPPONENT_UNIT": {
@@ -3184,6 +3196,7 @@
       "confidence": "MEDIUM: the opponent was at 10 elixir at both Elixir Golem deaths measured on client 16.402, so the payment was not visible.",
       "provenance": "The 15.535.29 tables give ManaOnDeathForOpponent 1000 / 500 / 500 (the Elixir Golem, its golemites, its blobs) and 4000 on an event barrel, beside ManaCollectAmount 1 and ManaOnDeath 1 / 2 / 4 elsewhere: the ForOpponent column reads as thousandths of an elixir, the others as whole elixir. The community reading of the card is one elixir for the golem and half for each smaller piece. The engine pays it on the death tick, summed over the tick's deaths and capped once.",
       "candidates": ["milli_elixir", "elixir"],
+      "meaning": "milli_elixir: ManaOnDeathForOpponent is in thousandths of an elixir, so the Elixir Golem's death pays the opponent one elixir and each golemite's and blob's half of one, on the death tick, summed over that tick's deaths and capped at 10 once. elixir: the column is whole elixir, as ManaOnDeath and ManaCollectAmount are, so the Elixir Golem would pay the opponent 1000.",
       "promotion_rules": "The 15.535.29 elixir-golem-grant scenario: an opponent below 10 elixir at each generation's death.",
       "engine": "state.rs mana_for_opponent, read by phase_reap"
     },
@@ -3191,8 +3204,9 @@
       "value": "swap_with_first_eligible_in_queue",
       "status": "guess",
       "confidence": "LOW for the rule; the column is the tables'.",
-      "provenance": "The 15.535.29 tables set OmitFromStartingHand on the Elixir Collector and on Mirror. How the deal keeps them out is not in the tables and not measured. swap_with_first_eligible_in_queue: such a card the shuffle puts in the first four swaps places with the first card behind them that is not one, with no new random draw, so a deck without one deals exactly as before. not_modelled: the column is not read.",
+      "provenance": "The 15.535.29 tables set OmitFromStartingHand on the Elixir Collector and on the Mirror. Measured on client 15.535.29: seed searches of 1,000 and of 400 seeds for an opening hand holding one of them found none. Which card the deal puts in their place is not in the tables and not measured.",
       "candidates": ["swap_with_first_eligible_in_queue", "not_modelled"],
+      "meaning": "swap_with_first_eligible_in_queue: such a card the shuffle puts in the first four swaps places with the first card behind them that is not one, with no new random draw, so a deck without one deals exactly as before. not_modelled: the column is not read, and the deal is the shuffle alone.",
       "promotion_rules": "Starting hands over many 15.535.29 battles whose deck holds a Collector: which card takes the Collector's place.",
       "engine": "state.rs Calib::omit_from_starting_hand, read by BattleState::try_new"
     }

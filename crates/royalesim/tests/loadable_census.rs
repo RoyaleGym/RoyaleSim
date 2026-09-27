@@ -7,8 +7,12 @@
 //! sees it. So this file builds the CardDb from each shipped table and holds it
 //! against two lists written out below:
 //!   (a) the LOADABLE rows (registered, not a summon-only unit) in CardDb order. That
-//!       is the default catalogue's order (py.rs `Battle(card_names=None)`), so a
-//!       row's place is its catalogue id, and the crown towers follow it;
+//!       is the default catalogue's order (py.rs `Battle(card_names=None)`), and the
+//!       crown towers follow it. The default leaves out the Mirror (code 6) and the
+//!       cards that travel under ground (the Miner, the Goblin Drill), which a decoder
+//!       of codes 0 to 4 cannot place yet; a `card_names` list that names one gets it.
+//!       So this list is the default before that filter: a row's default catalogue id
+//!       is its place here less the number of those three rows before it;
 //!   (b) the REJECTED rows, sorted, each with the FIRST CLAUSE of its refusal
 //!       (`first_clause`: up to the first `:` or `;` outside parentheses), so a row
 //!       that is still refused, but by another site, shows up too. The clause names
@@ -90,16 +94,19 @@ const TABLE_2018: Table = Table {
 
 /// A table's two lists.
 struct Pin {
-    /// Every loadable row, in CardDb order: the default catalogue, then the towers.
+    /// Every loadable row, in CardDb order: the default catalogue before it leaves out the Mirror and the cards
+    /// that travel under ground (the module doc, (a)), then the towers.
     loadable: &'static [&'static str],
     /// Every rejected row with the first clause of its refusal, sorted.
     rejected: &'static [(&'static str, &'static str)],
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 23b032626fe91432 (the next build's rows, with the curses' and the Royal Delivery's columns: a buff's death spawn,
-/// an area's action schedule, IgnoreBuff, SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the
-/// Goblin Demolisher's `transform_at_hp` and the Ronin's `parry`). The lists are what the loader gives for that file.
+/// 23b032626fe91432 (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
+/// Elixir Collector, the Furnace, the Elixir Golem, the Ram Rider, the Three Musketeers, the Mirror and the Spirit
+/// Empress; the curses' and the Royal Delivery's columns: a buff's death spawn, an area's action schedule, IgnoreBuff,
+/// SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the Goblin Demolisher's `transform_at_hp`
+/// and the Ronin's `parry`). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
 /// --census`), written from the same file, holds the same 126 loadable rows in the
 /// same order and the same 20 refusals, word for word.
