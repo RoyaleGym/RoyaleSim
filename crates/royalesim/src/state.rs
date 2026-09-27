@@ -12003,7 +12003,12 @@ impl BattleState {
         if air_excluded {
             return;
         }
-        let (attacker, seq, team) = (self.ents.id_of(a), self.ents.creation_seq[a], self.ents.team[a]);
+        #[cfg(not(clash_plant = "parry_seq_from_slot"))]
+        let seq = self.ents.creation_seq[a];
+        // PLANT (regression, tests/parry.rs): the attacker's slot stands in for its creation order.
+        #[cfg(clash_plant = "parry_seq_from_slot")]
+        let seq = a as u32;
+        let (attacker, team) = (self.ents.id_of(a), self.ents.team[a]);
         for k in from..self.dmg.hits.len() {
             let h = self.dmg.hits[k];
             let d = h.target.index as usize;

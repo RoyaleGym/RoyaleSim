@@ -35,8 +35,10 @@
 //!   5. `only_a_ground_melee_hit_is_countered` (measured: Musketeer shots, princess tower arrows, a Zap, a Bat; under
 //!      COUNTERED_HITS = melee the Bat's first hit is countered);
 //!   6. `a_reflect_is_never_itself_countered` (engine reading: the reflect is not written by an attack);
-//!   7. `parry_pick_orders_by_creation_then_amount` (the pick alone, both arms; never measured) and
-//!      `same_tick_hits_are_picked_by_the_arm` (a Skeleton created first and a Knight landing on one tick);
+//!   7. `parry_pick_orders_by_creation_then_amount` (the pick alone, both arms; never measured),
+//!      `same_tick_hits_are_picked_by_the_arm` (a Skeleton created first and a Knight landing on one tick) and
+//!      `same_tick_hits_are_picked_by_creation_not_by_slot` (three attackers in reused slots, so the creation order,
+//!      the slot order and the amounts all disagree);
 //!   8. `a_counter_whose_attacker_dies_first_answers_nothing` (engine reading);
 //!   9. `a_countered_hit_leaves_the_ronin_standing` (the countered hit never lands);
 //!  10. `the_next_counter_is_ready_seventy_ticks_after_the_counter` (measured; under lock_end it is 80);
@@ -52,8 +54,12 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test parry`):
 //!   * `parry_never_counters` -- no counter ever takes a hit: 1, 2, 3, 4, 6, 8, 9, 10, 11, 12, 13 and 7's second
 //!     test red.
-//!   * `parry_pick_by_slot` -- the pick takes the hit written first whatever the arm: 7 red (both tests; in the
-//!     scene only under largest_amount, the slot order being the creation order there).
+//!   * `parry_pick_by_slot` -- the pick takes the hit written first whatever the arm: 7 red (all three tests; in the
+//!     first scene only under largest_amount, the slot order being the creation order there; in the reused-slot
+//!     scene under both arms).
+//!   * `parry_seq_from_slot` -- a candidate carries its attacker's slot as its creation order: 7's reused-slot test
+//!     red, under first_created_attacker. The other two stay green: the pick alone never reads the wiring, and in
+//!     the first scene the slot order is the creation order.
 //!   * `parry_reflect_level_scaled` -- the reflect scaled by the Ronin's level as a card stat: 1, 4, 6, 8, 11, 12 and
 //!     7's second test red (every test that reads the reflect's amount; 5's Bat and 10's Skeleton die either way).
 //!   * `parry_counters_air` -- a flying attacker's hit is countered under ground_melee: 5 red (the Bat).
@@ -540,6 +546,59 @@ fn same_tick_hits_are_picked_by_the_arm() {
     let (tape, h) = run(ParryPick::LargestAmount);
     assert_eq!(tape.lost(0, h), SKELETON_HIT, "largest_amount counters the Knight");
     assert_eq!(tape.lost(2, h + REFLECT_AFTER), 2 * KNIGHT_HIT);
+}
+
+/// Plants: parry_pick_by_slot (both arms), parry_seq_from_slot (first_created_attacker).
+#[test]
+fn same_tick_hits_are_picked_by_creation_not_by_slot() {
+    // Three attackers whose first hits land on one tick, in slots that disagree with their creation order. Three
+    // filler Knights take three fresh slots, low to high, and die one a tick: low, then high, then middle. The free
+    // list hands slots back last freed first, so Skeleton A (created first) takes the middle slot, the Knight
+    // (created second) the high one and Skeleton B (created third) the low one. The Attack pass writes hits in slot
+    // order, so B's hit is written first, A's second and the Knight's last, and the Knight's is the largest.
+    // first_created_attacker takes A's hit, largest_amount the Knight's, and a pick by slot B's.
+    const A: usize = 1;
+    const KN: usize = 2;
+    const B: usize = 3;
+    let run = |arm: ParryPick| {
+        let mut cfg = shipped();
+        cfg.calib.parry_pick = arm;
+        let mut s = BattleState::new(0, cfg);
+        s.scenario_set_tick(T0);
+        let fillers: Vec<EntityId> =
+            [(3000, 5000), (4500, 5000), (6000, 5000)].iter().map(|p| s.scenario_spawn_now(Team::Blue, "Knight", at(*p), None).expect("a filler Knight")).collect();
+        let slots: Vec<u32> = fillers.iter().map(|f| f.index).collect();
+        assert!(slots[0] < slots[1] && slots[1] < slots[2], "precondition: the fillers take rising slots: {slots:?}");
+        for k in [0, 2, 1] {
+            assert!(s.debug_set_hp(fillers[k], 0));
+            s.tick();
+            assert!(s.entity(fillers[k]).is_none(), "precondition: filler {k} died and freed its slot");
+        }
+        let skel_a = s.scenario_spawn_now(Team::Red, "Skeletons", at((8000, 14500)), None).expect("Skeleton A, created first");
+        let knight = s.scenario_spawn_now(Team::Red, "Knight", at(KNIGHT_AT), None).expect("the Knight, created second");
+        let skel_b = s.scenario_spawn_now(Team::Red, "Skeletons", at((10000, 14500)), None).expect("Skeleton B, created third");
+        assert_eq!([skel_b.index, skel_a.index, knight.index], [slots[0], slots[1], slots[2]], "precondition: the slots run B, A, the Knight");
+        let ronin = s.scenario_spawn_now(Team::Blue, "Ronin", at(RONIN_AT), None).expect("the Ronin");
+        let tape = Tape::record(&mut s, &[ronin, skel_a, knight, skel_b], 20);
+        let hs = |c: &str| hit_speed(&s, c);
+        let h = tape.fires(KN, hs("Knight"))[0];
+        for k in [A, B] {
+            assert_eq!(tape.fires(k, hs("Skeletons")).first(), Some(&h), "the scene drifted: a Skeleton's first hit is not on the Knight's tick");
+        }
+        assert_eq!(tape.at(0, h - 1).target, Some(knight), "the scene drifted: the Ronin is not on the Knight");
+        (tape, h)
+    };
+    // first_created_attacker: A's hit is taken, B's and the Knight's land, and the reflect (162) kills A alone.
+    let (tape, h) = run(ParryPick::FirstCreatedAttacker);
+    assert!(tape.get(A, h + REFLECT_AFTER - 1).is_some() && tape.get(A, h + REFLECT_AFTER).is_none(), "Skeleton A, created first, dies of the reflect");
+    assert!(tape.get(B, h + REFLECT_AFTER).is_some(), "Skeleton B, in the first slot, took no reflect");
+    assert_eq!(tape.lost(KN, h + REFLECT_AFTER), 0, "the Knight took no reflect");
+    assert_eq!(tape.lost(0, h), KNIGHT_HIT + SKELETON_HIT, "first_created_attacker counters Skeleton A alone");
+    // largest_amount: the Knight's hit is taken, both Skeletons' land, and the Knight takes 404.
+    let (tape, h) = run(ParryPick::LargestAmount);
+    assert_eq!(tape.lost(0, h), 2 * SKELETON_HIT, "largest_amount counters the Knight, written last");
+    assert_eq!(tape.lost(KN, h + REFLECT_AFTER), 2 * KNIGHT_HIT);
+    assert!(tape.get(A, h + REFLECT_AFTER).is_some() && tape.get(B, h + REFLECT_AFTER).is_some(), "no Skeleton took the reflect");
 }
 
 // ---------------------------------------------------------------------------
