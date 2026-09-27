@@ -13,7 +13,7 @@
   <img alt="Tick" src="https://img.shields.io/badge/tick-50%20ms%2C%2020%20per%20second-555?style=flat-square">
   <img alt="Coordinates: 18000 units to one tile" src="https://img.shields.io/badge/coordinates-18%2C000%20per%20tile-555?style=flat-square">
   <img alt="Routes reproduced" src="https://img.shields.io/badge/recorded%20routes-743%20of%20744-2ea043?style=flat-square">
-  <img alt="Position agreement, towers left out" src="https://img.shields.io/badge/position%20match%2C%20no%20towers-56.5%25-orange?style=flat-square">
+  <img alt="Position agreement, towers left out, on engine 3258c87, build d872d792711934c2, 73-fixture corpus" src="https://img.shields.io/badge/position%20match%2C%20no%20towers%2C%20engine%203258c87-56.5%25-orange?style=flat-square">
 </p>
 
 **A Clash Royale battle engine you drive from Python. It plays the whole match: elixir, hands,
@@ -67,9 +67,9 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 101 of the 144 cards in the 15.535 client's card table and refuses 43, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 35928386686 at `e45864e`, `cards.json` 5a1dac3d2fb1b4a9). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 108 of the 144 cards in the 15.535 client's card table and refuses 36, with a reason for each. Counted by the loader itself on a clean runner (RoyaleSim CI run 36297323709 at `126992a`, `cards.json` 158286773c4d9107). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 162 carry a status from guess to measured: 71 are measured and one is an owner's ruling (RoyaleSim 32a2997). 109 also name the rivals they were chosen against, and 117 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 220 carry a status from guess to measured, and 117 are measured (RoyaleSim 126992a). 166 also name the rivals they were chosen against, and 174 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
 </table>
 
@@ -332,7 +332,8 @@ so that is arithmetic on the battle rate rather than experience of a real run.
 
 Good, not perfect, and measured. Here is the honest number.
 
-We record real matches, replay them in the engine, and compare where every unit was on every tick:
+We record real matches, replay them in the engine, and compare where every unit was on every tick.
+The table is one run: engine `3258c87`, build `d872d792711934c2`, over a 73-fixture corpus.
 
 | how often the engine agrees | counting towers | towers left out |
 |---|---|---|
@@ -343,6 +344,9 @@ The right-hand column is the one to look at. Towers do not move and there are si
 every battle, so counting them flatters the result.
 
 Everything below is from the same run, at build `d872d792711934c2`, over the same 73 fixtures.
+
+The engine has changed since that run. It loads more cards now, so some of the battles that
+stopped early in that run could play further. No run on a newer engine is published here.
 
 **The Tombstone went from 20.0% to 54.5%**, which is the largest move any card has made. It is a
 building that sits still and is scored through the skeletons it emits, so it was measuring the
@@ -401,8 +405,9 @@ every other cause is measured on, and the old ranking has stopped being a rankin
 Comparing the two tables row by row will mislead you.
 
 19 of the 67 battles never diverge at all, though most of those are short. These numbers change
-whenever the engine does, and [docs/replay-parity.md](docs/replay-parity.md) gives the date of the
-run behind them.
+whenever the engine does. The run behind them is engine `3258c87`, build `d872d792711934c2`.
+[docs/replay-parity.md](docs/replay-parity.md) does not hold that run. It holds an earlier run on
+the same corpus.
 
 So: this engine is not as accurate as running the real game, which is correct by definition. It is
 faster, it runs anywhere, it needs no game files, and it tells you exactly how wrong it is and where.
@@ -425,9 +430,9 @@ were running, so do not be surprised if your number is nowhere near the table. T
 measured on an otherwise ordinary evening, and machine load moves it by a third either way.
 
 Accuracy is measured against recorded real matches. Those recordings are private, so you cannot
-re-run that one yourself. The method, the full table, the per-card breakdown and the exact commands
-are in [docs/replay-parity.md](docs/replay-parity.md), and everything the number is built from is
-described there rather than summarised.
+re-run that one yourself. The method and the exact commands are in
+[docs/replay-parity.md](docs/replay-parity.md), with the full table and the per-card breakdown of
+an earlier run on the same corpus. The run behind the figures above is not written up there.
 
 Every figure in these two sections came from one of those two places. If you re-run the speed
 test and get something different, your machine is different from ours, and we would like to know.
@@ -459,22 +464,24 @@ and RoyaleViser plays, and the `data/` folder every sibling reads. RoyaleGym fin
 
 ## Status
 
-As of 2026-09-22.
+As of 2026-09-22, except where an item names a later commit.
 
 Working:
 
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. **Of the card table's 144 rows the engine loads 101 and refuses 43**, with a reason for
-  each refusal. The engine's own census reports **103 loadable, 43 rejected and 12 summon-only**,
-  and those do not sum to 144 for a reason worth stating: the 103 is the 101 plus the King and
-  Princess towers, and the 12 summon-only are unit definitions that are not rows of the card table
+- Cards. **Of the card table's 144 rows the engine loads 108 and refuses 36**, with a reason for
+  each refusal. The engine's own census reports **110 loadable, 36 rejected and 17 summon-only**,
+  and those do not sum to 144 for a reason worth stating: the 110 is the 108 plus the King and
+  Princess towers, and the 17 summon-only are unit definitions that are not rows of the card table
   at all - a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon*
-  drops, and no hand can play either. The three lists are disjoint and their union is 158: the 144
-  rows plus the 2 towers plus those 12. Counts from RoyaleSim CI run 35928386686 at `e45864e`,
-  green on Linux and Windows, against `cards.json` 5a1dac3d2fb1b4a9. The card that moved from
-  refused to loadable since the previous run is Tornado.
+  drops, and no hand can play either. The three lists are disjoint and their union is 163: the 144
+  rows plus the 2 towers plus those 17. Counts from RoyaleSim CI run 36297323709 at `126992a`,
+  green on Linux and Windows, against `cards.json` 158286773c4d9107. The loadable and refused
+  lists are pinned row by row in `crates/royalesim/tests/loadable_census.rs`. The rows that moved
+  from refused to loadable since `72ed062` are Rage, Heal, Lightning, BarbLog (the Barbarian
+  Barrel), GoblinHut, Ghost (the Royal Ghost) and WarmSpell.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
@@ -487,8 +494,8 @@ Working:
   about the card data, community write-ups or a best guess, and the constants file marks which.
   A few parts are measured: how much a single rage speeds a unit up, how hard a Tornado pulls
   (speed buffs do not change the pull, and a stunned or frozen unit is still pulled), and that
-  enemies can target a Tesla as soon as it starts to rise. The engine has the rage speed-up and
-  healing, but the Rage and Heal cards themselves are refused when the table loads.
+  enemies can target a Tesla as soon as it starts to rise. At `126992a` the Rage and Heal cards
+  load too. docs/mechanics.md lists what about them is not measured yet.
 - Same seed same battle, snapshots, and the deploy-legality query.
 - Seat symmetry is a test setting, not something the engine promises. The game itself treats the
   two seats a little differently in three measured places: where a ground deploy is clamped, the
@@ -499,7 +506,7 @@ Working:
 Not modelled yet, in plain words:
 
 - The 18 cards in `thin_slice` (`data/derived/cards.json`) are the ones the engine has been
-  checked on. The rest of the 101 it plays are not. A few of those show up in tests
+  checked on. The rest of the cards it plays are not. A few of those show up in tests
   of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
   mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
@@ -509,9 +516,9 @@ Not modelled yet, in plain words:
   depend on, and the Mortar's minimum range. The engine loads both, but the shipped calibration
   switches them off. All three cards load, so a random deck can hold one, and it will not fight
   like the real card.
-- Two known collision defects. A unit can sit inside a building's footprint for up to 47 ticks,
-  almost always right after a multi-unit spawn. A unit overlapping several obstacles gets the
-  push-outs summed instead of one chosen.
+- One known collision defect: a unit overlapping several obstacles gets the push-outs summed
+  instead of one chosen. The 47-tick overlap was retired on 2026-09-22 (docs/mechanics.md, Known
+  defects).
 - One recorded route in 744 comes out different. Both routes cost the same, and which one the game
   picks is the open question.
 

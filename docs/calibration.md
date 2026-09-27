@@ -68,12 +68,13 @@ it on 2026-09-25, and the ruling is kept in that entry's `supersedes`.
 The status vocabulary is one claim and the provenance prose is another, and they are not
 equally well checked.
 
-A re-read on 2026-09-22 went through 24 of the 220 entries against the corpus. It moved no
-status and no value. What it turned up was in the evidence the statuses rest on: 42 places
-where a cited number, recording name or piece of arithmetic does not hold. Take that as a
-reason to re-derive, not as 42 established defects. Only a handful of the 42 have since been
-recomputed by hand, and one of those did not survive the recomputation. The supported claim is
-that the set needs re-reading.
+A re-read on 2026-09-22 went through 24 entries against the corpus, of the 148 the ledger held
+that day. The ledger has grown since. Counted against it today, the re-read
+went through 24 of the 220 entries. It moved no status and no value. What it turned up was in
+the evidence the statuses rest on: 42 places where a cited number, recording name or piece of
+arithmetic does not hold. Take that as a reason to re-derive, not as 42 established defects.
+Only a handful of the 42 have since been recomputed by hand, and one of those did not survive
+the recomputation. The supported claim is that the set needs re-reading.
 
 `formation.GROUND_Y_CLAMP` is the worked example. Its status of `measured` was defensible and
 four of its statements were wrong, including a capture whose real numbers are 31053/31057
@@ -166,18 +167,19 @@ disagree. Of the 220 top-level keys with a status, 117 are `measured`; a 221th e
 | `match.LOGIC_BATTLE_START_COOLDOWN_MS` | 4500 | datamined, LOW | any recording of a match start |
 | `match.KING_ACTIVATE_TIME_MS` | 3300 | datamined, MEDIUM | a recording of what the delay actually delays |
 | `arena.ARENA_SOURCE_VINTAGE` | ~2018 tilemap | datamined, MEDIUM | a calibrated screenshot of a live arena; bridge width varied by arena even in 2018 |
-| `knockback` (5 of 9 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `DIRECTION_ROLLING` and `ROLLING_CONTACT_RADIUS` are measured |
-| `spells.*` (8 keys) | see `spell-spec.md` | guess / hypothesis, LOW | each key in `spell-spec.md` carries its own deciding observation |
-| `status.*` (stun and buff timing) | see `spell-spec.md` | community / hypothesis | likewise |
+| `knockback` (6 of 10 keys) | the measured ladder, with its duration, water, stacking, zero-vector, deploying-unit edges and a troop attack's own push unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `DIRECTION_ROLLING` and `ROLLING_CONTACT_RADIUS` are measured |
+| `spells.*` (10 of 18 keys) | `AOE_HIT_TEST`, `ROLLING_HIT_SHAPE` and `SPAWNING_SPELL_WATER_RULE` are in `spell-spec.md`; the other seven are not, so read their ledger entries | guess / hypothesis / community | each key's own `promotion_rules` in the ledger names its deciding observation |
+| `status.*` (13 of 16 keys: stun and buff timing) | see `spell-spec.md` | community / hypothesis / guess | likewise |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
 
-The keys that carry the measured 2026 movement and pathfinding model are all at `measured`/HIGH.
-They are `time.TICK_MS`, `time.SPEED_TO_SUBTILES_PER_TICK`,
-`time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`, `pathfinding.PATH_SEARCH`,
-`collision.CONTACT_LAW`, the `movement.*` section, and the cost, goal and replan keys. Their
-evidence is in `pathfinding.md` and `movement-measurements.md`.
+The keys that carry the measured 2026 movement and pathfinding model are at `measured`, most of
+them at HIGH; each entry's `confidence` names the ones that are not. They are `time.TICK_MS`,
+`time.SPEED_TO_SUBTILES_PER_TICK`, `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`,
+`pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the `movement.*` section except
+`BUFF_SPEED_COMPOSITION` and `SPAWN_PATHFIND_STATES` (hypotheses), and the cost, goal and replan
+keys. Their evidence is in `pathfinding.md` and `movement-measurements.md`.
 
-These keys were measured later, on the 16.402 corpus, and are `measured` too:
+These keys were measured later, on the 16.402 corpus or client 15.535.29, and are `measured` too:
 
 | Key | What it settles |
 |---|---|
@@ -188,9 +190,11 @@ These keys were measured later, on the 16.402 corpus, and are `measured` too:
 | `combat.ATTACK_CYCLE`, `combat.PROJECTILE_LAUNCH`, `combat.KAMIKAZE_DEATH` | the attack cycle, the launch point, the kamikaze death |
 | `lifetime.HP_DECAY` | a building's hit-point drain over its lifetime |
 | `formation.LAYOUT`, `DEPLOY_STAGGER`, `GROUND_Y_CLAMP` | where a card's summons stand, and when each appears |
-| `spawner` (6 of 10 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout |
+| `spawner` (16 of 22 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
 | `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
 | `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
 
-The `hide.*` and `status.*` sections are community and hypothesis throughout; each key carries the
-observation that would settle it.
+The `hide.*` and `status.*` sections are mostly community, hypothesis and guess. `hide.RISE_LAW`,
+`hide.TARGETABLE_WHILE_RISING`, `status.ATTRACT_LAW`, `status.ATTRACT_WHILE_HELD` and
+`status.AREA_BUFF_SOURCE_BINDING` are measured. Each open key carries the observation that would
+settle it.
