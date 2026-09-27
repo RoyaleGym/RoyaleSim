@@ -54,12 +54,15 @@
 //!     test red.
 //!   * `parry_pick_by_slot` -- the pick takes the hit written first whatever the arm: 7 red (both tests; in the
 //!     scene only under largest_amount, the slot order being the creation order there).
-//!   * `parry_reflect_level_scaled` -- the reflect scaled by the Ronin's level as a card stat: 1, 4 red.
+//!   * `parry_reflect_level_scaled` -- the reflect scaled by the Ronin's level as a card stat: 1, 4, 6, 8, 11, 12 and
+//!     7's second test red (every test that reads the reflect's amount; 5's Bat and 10's Skeleton die either way).
 //!   * `parry_counters_air` -- a flying attacker's hit is countered under ground_melee: 5 red (the Bat).
-//!   * `split_stop_is_stun` -- the Ronin's stun row holds the unit as a stun would: 2, 14 red.
+//!   * `split_stop_is_stun` -- the Ronin's stun row holds the unit as a stun would: 2, 14 red. The rest stay green:
+//!     held or slowed, the Knight's next hit comes on H + 34 either way.
 //!   * `hash_skips_parry` -- the cooldown is not hashed: 13 red.
 //!   * `parry_shape_unchecked` -- any graph that carries a counter block loads: 15's refusals red.
 //!   * `scheduled_dropped_on_save` (tests/transform.rs's) -- the reflect in flight is lost across a save: 12 red.
+//!   * `hash_skips_scheduled` (tests/transform.rs's) -- the scheduled list is not hashed: 13 red (the reflect).
 //!
 //! 5's shots, arrows and Zap have no plant: in this design a counter reads only the hits an attack writes in the
 //! Attack phase, so there is no site where a shot could be counted. No existing gate should go red under any plant
