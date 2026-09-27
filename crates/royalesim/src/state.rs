@@ -338,6 +338,11 @@ pub struct Calib {
     /// saved before it actually ran.
     #[serde(default = "chase_drop_range_default")]
     pub chase_drop_range: ChaseDropRange,
+    /// targeting.CHASE_DROP_KNOCKED_TARGET: whether a troop holds a troop target that is sliding under a knockback
+    /// through the slide, where the chase drop and the rescan would let it go (target.rs `decide`). Read only under
+    /// chase_drop_range = client_sight_minus_1000. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "chase_drop_knocked_default")]
+    pub chase_drop_knocked: ChaseDropKnocked,
     /// targeting.LEAPING_UNIT_TARGETABILITY: who may target a troop in its river leap (target.rs `can_target`).
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "leaping_unit_targetability_default")]
@@ -1063,6 +1068,10 @@ fn doomed_drop_swing_default() -> DoomedDropSwing {
 
 fn chase_drop_range_default() -> ChaseDropRange {
     ChaseDropRange::SightPlusRadii
+}
+
+fn chase_drop_knocked_default() -> ChaseDropKnocked {
+    ChaseDropKnocked::DropsKnocked
 }
 
 fn push_load_timer_default() -> PushLoadTimer {
@@ -2031,6 +2040,26 @@ calib_enum!(
         /// of 31 such ticks in the chase scenarios kept it). Its later scans take that troop again only within the
         /// same limit, measured the same way; every other enemy is a candidate at plain sight.
         ClientSightMinus1000 = "client_sight_minus_1000",
+    }
+);
+calib_enum!(
+    /// targeting.CHASE_DROP_KNOCKED_TARGET -- what a troop does with a troop target that is sliding under a knockback
+    /// (the fixed-distance slide or the 16.402 ladder; a hook's drag is not one) beyond its keep reach (target.rs
+    /// `decide`). Read only under targeting.CHASE_DROP_RANGE = client_sight_minus_1000.
+    ChaseDropKnocked {
+        /// Today's engine: the sliding target is treated as any other: the chase drop lets it go on the first tick it
+        /// stands past the limit, and a rescan may take another enemy.
+        DropsKnocked = "drops_knocked",
+        /// Measured on the 16.402 corpus: a troop target sliding under a knockback, still in sight, is HELD through
+        /// the slide; neither the chase drop nor a rescan lets it go (as the engine already holds an attacker's own
+        /// target while the attacker slides). After the slide the target stands where the push left it; past the
+        /// limit, which it has not been inside since, it is walked after and rescanned as any troop taken past the
+        /// limit. 3 of 3 pushes that carried a held troop target across the limit kept it, all three by the holder's
+        /// own boulder: a Bowler pushing a Bomber 259 past at most (20260920-081051, attacking; it crossed the limit
+        /// over ticks 947-949), a Bomber 362 past (20260920-081819, attacking; crossing over 2023-2025) and a Knight
+        /// 327 past (20260920-081819, walking; crossing over 1687-1688).
+        /// A push by anything else, and a nearer enemy in sight during the slide, are inferred, not measured.
+        ClientHoldsKnocked = "client_holds_knocked",
     }
 );
 calib_enum!(
@@ -4263,6 +4292,7 @@ impl Calib {
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             doomed_drop_swing: pick(&v, &["targeting", "DOOMED_DROP_SWING", "value"], DoomedDropSwing::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
+            chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
             variable_damage_walk_reach: pick(&v, &["targeting", "VARIABLE_DAMAGE_WALK_REACH", "value"], VariableDamageWalkReach::from_calibration_name)?,
@@ -15000,6 +15030,9 @@ impl BattleState {
 /// 20, unchanged, targeting.DOOMED_DROP_SWING: Calib gained doomed_drop_swing (serde default the old arm, cancel), no
 ///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
+/// 20, unchanged, targeting.CHASE_DROP_KNOCKED_TARGET: Calib gained chase_drop_knocked (serde default the old arm,
+///    drops_knocked), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15360,6 +15393,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pick, the tower's cancel range and the far hit: a format-3 battle ran none of them; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
+    // targeting.CHASE_DROP_KNOCKED_TARGET: read only under client_sight_minus_1000, which a format-3 battle never ran;
+    // it keeps the old arm whatever the ledger ships (the same rule).
+    sh.insert("chase_drop_knocked".into(), serde_json::to_value(ChaseDropKnocked::DropsKnocked).map_err(|e| e.to_string())?);
     sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
     sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
     // targeting.VARIABLE_DAMAGE_WALK_REACH: a format-3 battle walked every unit to Range + both radii; it keeps that

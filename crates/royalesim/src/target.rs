@@ -759,6 +759,24 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             // THE DROP IS AN EDGE: only a target the previous Target phase found within the limit (entity.rs
             // `chase_inside` names it) is let go. One taken past the limit, at plain sight, is walked after and
             // rescanned as today until it has been inside (client 15.535.29, the chase scenarios: 31 of 31 such ticks).
+            //
+            // targeting.CHASE_DROP_KNOCKED_TARGET = client_holds_knocked: a troop target SLIDING under a knockback (the
+            // slide or the ladder; not a hook's drag), still in sight, is held through the slide: neither the chase
+            // drop nor the rescan below lets it go, as the early return above holds an attacker's own target while the
+            // attacker slides. After the slide it stands where the push left it; past the limit it has not been inside
+            // since (the Target phase records `chase_inside` only within the limit), so it is walked after and
+            // rescanned as any troop taken past the limit. Measured on the 16.402 corpus: 3 of 3 pushes that carried a
+            // held troop target across the limit kept it, all three by the holder's own boulder (a Bowler; a Bomber
+            // twice, attacking, and a Knight, walking). A push by anything else is inferred.
+            #[cfg(not(clash_plant = "chase_drop_knocked_dropped"))]
+            let holds_sliding = ctx.calib.chase_drop_knocked == crate::state::ChaseDropKnocked::ClientHoldsKnocked
+                && chase_drop_applies(ctx, a, ti)
+                && (e.knock_ms[ti] > 0 || e.push_active[ti]);
+            #[cfg(clash_plant = "chase_drop_knocked_dropped")]
+            let holds_sliding = false; // PLANT (regression): client_holds_knocked still lets a sliding target go.
+            if holds_sliding && in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti), e.radius[a], e.pos[ti], e.radius[ti]) {
+                return TargetDecision { target: Some(t), cancel_attack: cancel, resumed: false, chase_dropped: None };
+            }
             #[cfg(not(any(clash_plant = "chase_drop_ignored", clash_plant = "chase_drop_level_triggered")))]
             let dropped = chase_drop_applies(ctx, a, ti) && e.chase_inside[a] == Some(t) && beyond_chase_limit(ctx, a, ti);
             #[cfg(all(clash_plant = "chase_drop_level_triggered", not(clash_plant = "chase_drop_ignored")))]
