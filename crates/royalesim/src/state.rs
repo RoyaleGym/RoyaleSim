@@ -342,6 +342,10 @@ pub struct Calib {
     /// `inside_minimum_range`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "minimum_range_default")]
     pub minimum_range: MinimumRange,
+    /// collision.HELD_UNIT_CONTACT: whether a unit held by a freeze or a stun keeps its contact update and stays in
+    /// its neighbours' scans (`phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "held_unit_contact_default")]
+    pub held_unit_contact: HeldUnitContact,
     /// targeting.TARGET_RANK_DISTANCE: the distance a scan ranks its candidates by (target.rs `key`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "target_rank_distance_default")]
@@ -1053,6 +1057,10 @@ fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
 
 fn minimum_range_default() -> MinimumRange {
     MinimumRange::NotRead
+}
+
+fn held_unit_contact_default() -> HeldUnitContact {
+    HeldUnitContact::OutOfThePass
 }
 
 fn target_rank_distance_default() -> TargetRankDistance {
@@ -2011,6 +2019,26 @@ calib_enum!(
         /// collision radii) is below it, on the start-of-tick positions. A target that falls inside is dropped on
         /// that tick with its swing cancelled, as a lost target and not a kill, so no post-kill wait follows.
         Client16402EdgeDistance = "client16402_edge_distance",
+    }
+);
+calib_enum!(
+    /// collision.HELD_UNIT_CONTACT -- what the move pass does with a unit held by a freeze or a stun (`Entities::held`:
+    /// a stun timer, or a speed buff composing to 0 as status.FULL_STOP_BUFF_IS_STUN reads it). A knockback and a
+    /// hook's drag are not this key's; they keep the held branch under both arms, and a unit under ground stays out of
+    /// every scan under both.
+    HeldUnitContact {
+        /// Today's engine: the held unit is out of the move pass (a pull alone under status.ATTRACT_WHILE_HELD =
+        /// pulled) and its body is not collidable, so no neighbour's avoidance or separation scan meets it.
+        OutOfThePass = "out_of_the_pass",
+        /// Measured on the 16.402 corpus: the held unit takes its ordinary update at speed 0 -- no path request, no
+        /// stomp clock, no step and no facing change of its own, but the avoidance scan while it is not attacking,
+        /// the offset's decay in both states, and the separation scan, whose mean is written to its position -- and it
+        /// stays in every neighbour's scans as the troop it is. A held troop with a ground neighbour overlapping it
+        /// moved on 52 of 52 held unit-ticks (6 Goblins frozen by Ice Spirits, 3 battles), with none it stood still on
+        /// 353 of 353, and a nonzero avoidance offset shrank by 10 on 28 of 28 (21 walking, 7 attacking). On client
+        /// 15.535.29 a Knight stunned by an Electro Giant's reflect moved on 13 of 13 stunned ticks that began with the
+        /// Giant overlapping it and on 0 of 5 that began apart.
+        Client16402SpeedZeroUpdate = "client16402_speed_zero_update",
     }
 );
 calib_enum!(
@@ -4164,6 +4192,7 @@ impl Calib {
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
+            held_unit_contact: pick(&v, &["collision", "HELD_UNIT_CONTACT", "value"], HeldUnitContact::from_calibration_name)?,
             target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
             tower_cancel_range: tower_cancel_value(&v)?,
@@ -8988,8 +9017,16 @@ impl BattleState {
                 .map(|i| {
                     let alive = e.alive[i];
                     let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
-                    // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide
-                    let held = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried(i);
+                    // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide.
+                    // collision.HELD_UNIT_CONTACT = client16402_speed_zero_update: a unit held by a freeze or a
+                    // stun stays in its neighbours' scans (a held troop with an overlapping ground neighbour
+                    // moved on 52 of 52 corpus held unit-ticks). A knockback, a hook's drag and a unit under
+                    // ground still hide it, under both arms.
+                    #[cfg(not(clash_plant = "held_contact_invisible"))]
+                    let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) && calib.held_unit_contact == HeldUnitContact::OutOfThePass;
+                    #[cfg(clash_plant = "held_contact_invisible")]
+                    let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun); // PLANT (regression): the new arm still hides a held unit.
+                    let held = held_hidden || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried(i);
                     move16402::Body {
                         x,
                         y,
@@ -9231,6 +9268,22 @@ impl BattleState {
                 // A unit a hook is dragging (combat.SPECIAL_HOOK) is out of the pass like a slide:
                 // the Move phase steps it (`step_hook_drags`).
                 let frozen = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
+                // collision.HELD_UNIT_CONTACT = client16402_speed_zero_update: A HOLD STOPS THE STEP, NOT THE
+                // CONTACT UPDATE. A unit held by a freeze or a stun -- not knocked back, not dragged, not mid-leap,
+                // not held by its attack under the `frozen` arm of movement.ATTACKING_UNIT_MOVEMENT -- takes its
+                // ordinary update below at speed 0: no path request, no stomp clock, no step and no facing change of
+                // its own, but the avoidance scan while it is not attacking, the offset's decay in both states, and
+                // the separation scan whose mean moves it (a unit under ground is not in this pass). Measured on the
+                // 16.402 corpus: a held
+                // troop moved on 52 of 52 held unit-ticks with a ground neighbour overlapping it (6 Goblins frozen by
+                // Ice Spirits, 3 battles) and stood still on 353 of 353 with none; a nonzero avoidance offset shrank
+                // by 10 on 28 of 28, walking (21) and attacking (7).
+                let held_walk = calib.held_unit_contact == HeldUnitContact::Client16402SpeedZeroUpdate
+                    && e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun)
+                    && e.knock_ms[i] == 0
+                    && e.hooked_by[i].is_none()
+                    && !jumping[i]
+                    && !(phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen);
                 if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
                     // a stun, a freeze or a knockback ends a dash where it stands (unmeasured:
                     // combat.DASH_ATTACK's open list); an attacking unit is not dashing
@@ -9240,28 +9293,31 @@ impl BattleState {
                         }
                         dash_state[i] = DashState::None;
                     }
-                    if jumping[i] {
-                        // a movement hold on a jumper: the leap is cancelled where it
-                        // stands and the unit replans when the hold ends (UNVERIFIED: no
-                        // capture has a stunned jumper; calibration movement.JUMP_WATER_HOP)
-                        jumping[i] = false;
-                        routes[i].clear();
-                        goals[i] = None;
-                        segs[i] = Vec2::default();
+                    if !held_walk {
+                        if jumping[i] {
+                            // a movement hold on a jumper: the leap is cancelled where it
+                            // stands and the unit replans when the hold ends (UNVERIFIED: no
+                            // capture has a stunned jumper; calibration movement.JUMP_WATER_HOP)
+                            jumping[i] = false;
+                            routes[i].clear();
+                            goals[i] = None;
+                            segs[i] = Vec2::default();
+                        }
+                        // status.ATTRACT_WHILE_HELD = pulled: THE HOLD STOPS THE WALK, NOT THE
+                        // PULL. The pull is otherwise applied inside the move pass this branch
+                        // skips, so a stunned, frozen or attack-held victim was never moved --
+                        // while every walking victim was, which is why nothing noticed. Applied
+                        // alone here: no walk, no avoidance, no separation (a held unit is not
+                        // collidable under collision.HELD_UNIT_CONTACT = out_of_the_pass), through
+                        // the same grid clamp as any other displacement.
+                        if calib.attract_while_held == AttractWhileHeld::Pulled && attract[i] != (0, 0) {
+                            let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, false, &is_water, arena.cols, arena.rows);
+                            bodies[i].x = nx;
+                            bodies[i].y = ny;
+                            deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
+                        }
+                        continue; // held: the freeze holds the whole unit (battle F sc5)
                     }
-                    // status.ATTRACT_WHILE_HELD = pulled: THE HOLD STOPS THE WALK, NOT THE
-                    // PULL. The pull is otherwise applied inside the move pass this branch
-                    // skips, so a stunned, frozen or attack-held victim was never moved --
-                    // while every walking victim was, which is why nothing noticed. Applied
-                    // alone here: no walk, no avoidance, no separation (a held unit is not
-                    // collidable), through the same grid clamp as any other displacement.
-                    if calib.attract_while_held == AttractWhileHeld::Pulled && attract[i] != (0, 0) {
-                        let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, false, &is_water, arena.cols, arena.rows);
-                        bodies[i].x = nx;
-                        bodies[i].y = ny;
-                        deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
-                    }
-                    continue; // held: the freeze holds the whole unit (battle F sc5)
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
                 let team = e.team[i];
@@ -9297,7 +9353,8 @@ impl BattleState {
                 // DashImmuneToDamageTime it discards damage from here (`dash_immune_until`).
                 let mut dash_stand = false;
                 let mut stand_goal: Option<(i32, i32)> = None;
-                if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash) {
+                // a held unit (`held_walk`) starts no dash: its dash, if any, ended above
+                if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash && !held_walk) {
                     let tk = calib.tick_ms.max(1);
                     let live = |t: Option<EntityId>| t.filter(|t| e.is_alive(*t));
                     let d2 = |ti: usize| {
@@ -9540,7 +9597,8 @@ impl BattleState {
                     goals[i] = None;
                     segs[i] = Vec2::default();
                 }
-                if let (false, false, Some(gid)) = (deploying, phase_hold, goal_id) {
+                // a held unit (`held_walk`) asks for no path either: its route waits out the hold as it is
+                if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk, goal_id) {
                     let gi = gid.index as usize;
                     if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
                         // SPEC 5.3: the path is cleared on the transition to attacking
@@ -9658,13 +9716,14 @@ impl BattleState {
                 move16402::decay_offset(&mut con);
                 move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
                 // ---- 4. the step (move16402::move_towards)
-                let paused = if !deploying && !attacking && !routes[i].is_empty() {
+                let paused = if !deploying && !attacking && !held_walk && !routes[i].is_empty() {
                     // THE STOMP CLOCK (movement.STOMP_PAUSE_SCHEDULE). Both arms run
                     // here and both counters advance, so the key is switchable on one
                     // tree; only the chosen one decides the pause. The clock's advance
                     // is the composed SPEED buff (`stomp_advance`): 50 unbuffed, 65
                     // under Rage, 0 while frozen -- and a frozen unit never reaches
-                    // this line anyway (it is held above).
+                    // this line anyway (it is held above, or `held_walk` skips the
+                    // clock under collision.HELD_UNIT_CONTACT's new arm).
                     let k = kticks[i];
                     kticks[i] = k.saturating_add(1);
                     let (clock, hit) = path2026::stomp_clock_step(clocks[i], advances[i], card.stop_movement_after_ms, card.wait_ms);
@@ -9681,9 +9740,15 @@ impl BattleState {
                 // returns `speed` itself for every card without a buff, so this arm
                 // is unchanged for the whole contact corpus
                 let native_speed = if paused || dash_stand { 0 } else { self.effective_speed(i) / K };
+                // a held unit (`held_walk`) aims at itself at speed 0, as an attacking one does: the separation
+                // mean alone moves it and its facing stays
+                #[cfg(not(clash_plant = "held_contact_walks"))]
+                let still = held_walk;
+                #[cfg(clash_plant = "held_contact_walks")]
+                let (still, native_speed) = (false, if held_walk { e.speed[i] / K } else { native_speed }); // PLANT (regression): a held unit takes its walking step at its own speed.
                 let (aim, speed) = match routes[i].last() {
-                    Some(&p) if !deploying && !attacking => (node_centre(p), native_speed),
-                    None if !deploying && !attacking && feasible => match target_abs {
+                    Some(&p) if !deploying && !attacking && !still => (node_centre(p), native_speed),
+                    None if !deploying && !attacking && !still && feasible => match target_abs {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
                         // target on the line to itself (move16402::direct_aim)
@@ -9703,7 +9768,7 @@ impl BattleState {
                 let zero_step_runs = calib.zero_step_waypoint_test == ZeroStepWaypointTest::Run;
                 #[cfg(clash_plant = "zero_step_waypoint_skipped")]
                 let zero_step_runs = false; // PLANT (regression): a paused walker tests nothing.
-                let walks_route = routes[i].last().is_some() && !deploying && !attacking;
+                let walks_route = routes[i].last().is_some() && !deploying && !attacking && !held_walk;
                 let bookkeeping = speed > 0 || (zero_step_runs && walks_route);
                 if segs[i] == Vec2::default() && routes[i].last().is_some() && bookkeeping {
                     // a new segment's direction is frozen from the position toward
@@ -9724,7 +9789,8 @@ impl BattleState {
                     is_water,
                     arena.cols,
                     arena.rows,
-                    attract[i],
+                    // a held unit is pulled only under status.ATTRACT_WHILE_HELD = pulled, as in the held branch
+                    if held_walk && calib.attract_while_held != AttractWhileHeld::Pulled { (0, 0) } else { attract[i] },
                 );
                 offsets[i] = con.offset;
                 push_applied[i] = Vec2::new(m.push.0, m.push.1);
@@ -14841,6 +14907,9 @@ impl BattleState {
 /// 20, unchanged, knockback.PUSH_LOAD_TIMER: Calib gained push_load_timer (serde default the old arm,
 ///    reset_to_load_time), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, collision.HELD_UNIT_CONTACT: Calib gained held_unit_contact (serde default the old arm,
+///    out_of_the_pass), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15203,6 +15272,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
     sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
     sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
+    // collision.HELD_UNIT_CONTACT: a format-3 battle took a held unit out of the move pass; it keeps that whatever the
+    // ledger ships (the same rule).
+    sh.insert("held_unit_contact".into(), serde_json::to_value(HeldUnitContact::OutOfThePass).map_err(|e| e.to_string())?);
     // targeting.TARGET_RANK_DISTANCE: a format-3 battle ranked by centre minus the candidate's radius; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
