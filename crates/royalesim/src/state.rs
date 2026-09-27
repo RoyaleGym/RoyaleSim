@@ -706,6 +706,11 @@ pub struct Calib {
     pub resume_retarget_windup: ResumeWindup,
     /// combat.RETARGET_PROGRESS.
     pub retarget_progress: RetargetProgress,
+    /// combat.CORPSE_SWITCH_REACH: whether replacing a dead target keeps the swing only when the new target stands in
+    /// attack range (`phase_target`). Read only under the keep_when_dead arms of retarget_progress. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "corpse_switch_reach_default")]
+    pub corpse_switch_reach: CorpseSwitchReach,
     /// status.BUFF_EXPIRY_TICK_ALIGNMENT.
     pub buff_expiry: BuffExpiry,
     /// status.SAME_BUFF_REAPPLY.
@@ -1076,6 +1081,10 @@ fn chase_drop_knocked_default() -> ChaseDropKnocked {
 
 fn push_load_timer_default() -> PushLoadTimer {
     PushLoadTimer::ResetToLoadTime
+}
+
+fn corpse_switch_reach_default() -> CorpseSwitchReach {
+    CorpseSwitchReach::KeepsAny
 }
 
 fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
@@ -1876,6 +1885,21 @@ calib_enum!(
         /// reach on the next tick and hits it on the tick its swing at the Hog would have landed. A switch
         /// to a target out of range still clears the swing.
         KeepWhenDeadOrInReach = "keep_when_dead_or_in_reach",
+    }
+);
+calib_enum!(
+    /// combat.CORPSE_SWITCH_REACH -- under the keep_when_dead arms of combat.RETARGET_PROGRESS, whether a unit that
+    /// replaces a dead target keeps its swing whatever the new target's range (`phase_target`).
+    CorpseSwitchReach {
+        /// Today's engine: replacing a dead target is never a switch, so a swing already under way runs on and the
+        /// unit stands until it lands, even when the new target is out of reach.
+        KeepsAny = "keeps_any",
+        /// Measured on client 15.535.29 and the 16.402 corpus: the swing runs on only when the new target stands in
+        /// attack range on that tick; out of reach the swing is dropped (progress 0) and the unit walks. Among kills
+        /// whose next target was named at once (no post-kill wait), 23 of 23 with the new target out of reach dropped
+        /// the swing, 13 of them mid-swing, where the arms part (a Bowler whose boulder killed a Skeleton,
+        /// 20260920-081819 tick 1673, walked on 1674); in reach 194 of 196 kept it (the Inferno's ramp resets aside).
+        ClientInReachOnly = "client_in_reach_only",
     }
 );
 calib_enum!(
@@ -4417,6 +4441,7 @@ impl Calib {
             stun_retarget_on_resume: boolean(&v, &["status", "STUN_RETARGET_ON_RESUME", "value"])?,
             resume_retarget_windup: pick(&v, &["status", "RESUME_RETARGET_WINDUP", "value"], ResumeWindup::from_calibration_name)?,
             retarget_progress: pick(&v, &["combat", "RETARGET_PROGRESS", "value"], RetargetProgress::from_calibration_name)?,
+            corpse_switch_reach: pick(&v, &["combat", "CORPSE_SWITCH_REACH", "value"], CorpseSwitchReach::from_calibration_name)?,
             buff_expiry: pick(&v, &["status", "BUFF_EXPIRY_TICK_ALIGNMENT", "value"], BuffExpiry::from_calibration_name)?,
             same_buff_reapply: pick(&v, &["status", "SAME_BUFF_REAPPLY", "value"], BuffReapply::from_calibration_name)?,
             buff_speed_composition: pick(&v, &["movement", "BUFF_SPEED_COMPOSITION", "value"], BuffComposition::from_calibration_name)?,
@@ -8659,7 +8684,22 @@ impl BattleState {
             // RESET ARE SUPPRESSED, not just the `changed` one: a locked unit whose target
             // dies arrives here with `cancel_attack` set by target.rs instead, and gating
             // only `changed` would have left the tower's own case untouched.
-            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some();
+            // combat.CORPSE_SWITCH_REACH = client_in_reach_only: the swing runs on only when the new target stands in
+            // attack range this tick; out of reach the corpse replacement is a change like any other, so a swing under
+            // way is cleared below and the unit walks. Measured on client 15.535.29 and the 16.402 corpus, among kills
+            // whose next target was named at once: 23 of 23 with it out of reach dropped the swing (13 of them
+            // mid-swing, where the arms part); in reach 194 of 196 kept it. keeps_any (today's engine) keeps it
+            // whatever the range.
+            #[cfg(not(clash_plant = "corpse_switch_keeps_any"))]
+            let corpse_in_reach_only = calib.corpse_switch_reach == CorpseSwitchReach::ClientInReachOnly;
+            #[cfg(clash_plant = "corpse_switch_keeps_any")]
+            let corpse_in_reach_only = false; // PLANT (regression): client_in_reach_only still keeps the swing out of reach.
+            let corpse_keeps = !corpse_in_reach_only
+                || d.target.filter(|t| e.standing(*t, struck)).is_some_and(|t| {
+                    let ti = t.index as usize;
+                    target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
+                });
+            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some() && corpse_keeps;
             // combat.RETARGET_PROGRESS = keep_when_dead_or_in_reach: a switch from a LIVE target to one already in
             // attack range this tick keeps the swing as well. Only the `changed` route is widened: a
             // `cancel_attack` from a broken lock still cancels.
@@ -15033,6 +15073,9 @@ impl BattleState {
 /// 20, unchanged, targeting.CHASE_DROP_KNOCKED_TARGET: Calib gained chase_drop_knocked (serde default the old arm,
 ///    drops_knocked), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, combat.CORPSE_SWITCH_REACH: Calib gained corpse_switch_reach (serde default the old arm, keeps_any), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15334,6 +15377,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // knockback.PUSH_LOAD_TIMER: read only under reset_attack_keep_target, which a format-3 battle never ran; it keeps
     // the old arm whatever the ledger ships (the same rule).
     sh.insert("push_load_timer".into(), serde_json::to_value(PushLoadTimer::ResetToLoadTime).map_err(|e| e.to_string())?);
+    // combat.CORPSE_SWITCH_REACH: a format-3 battle kept a swing across a dead target whatever the new one's range;
+    // it keeps that whatever the ledger ships (the same rule).
+    sh.insert("corpse_switch_reach".into(), serde_json::to_value(CorpseSwitchReach::KeepsAny).map_err(|e| e.to_string())?);
     // FORMAT 15: a format-3 battle laid every deploy on the engine grid, on one tick,
     // with no column clamp; it keeps all three (the same rule).
     sh.insert("formation_layout".into(), serde_json::to_value(FormationLayout::EngineGrid).map_err(|e| e.to_string())?);
