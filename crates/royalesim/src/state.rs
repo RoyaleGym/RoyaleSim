@@ -12143,7 +12143,7 @@ impl BattleState {
             let acquire_delay = true;
             #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
             let acquire_delay = false; // PLANT: a target from its first frame.
-            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false });
+            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
@@ -12244,6 +12244,8 @@ impl BattleState {
                 facing: None,
                 summon_x: None,
                 morph_birth: false,
+                // A cloned barrel's container is not modelled (a copy's death bomb is unmeasured), so its units are not copies.
+                cloned: false,
             });
         }
     }

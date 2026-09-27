@@ -4184,7 +4184,7 @@ fn bottle_of(units: &BTreeMap<String, serde_json::Value>, name: &str) -> Option<
     }
     match hitpointless_building(&serde_json::from_value::<RawCard>(v).ok()?)? {
         Hitpointless::Bottle { fuse_ms, area } => Some((fuse_ms, area)),
-        Hitpointless::DeathBomb { .. } => None,
+        Hitpointless::DeathBomb { .. } | Hitpointless::BombWithDeathSpawn { .. } => None,
     }
 }
 
