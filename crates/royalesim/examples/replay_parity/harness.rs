@@ -905,6 +905,8 @@ impl Roots {
                     UnitRef::Spawner => continue,
                     // a life-state controller's wave is emitted by its hut, rooted like a spawner's
                     UnitRef::LifeState => continue,
+                    // a transformation keeps the entity: it was rooted when it appeared, and its root stays
+                    UnitRef::Transform => continue,
                 };
                 of.entry(unit).or_default().push(i);
             }

@@ -340,7 +340,8 @@ LOADED_NOT_RUN = {
     "MinimumRange": ("targeting.MINIMUM_RANGE", ("client16402_edge_distance",)),
     # The Battle Healer's river crossing (card.rs `CardDef::hovering`).
     "Hovering": ("pathfinding.HOVERING_WATER_RULE", ("priced_water_no_hop",)),
-    # The Phoenix's fireball and egg, and the Battle Healer's heal where she appears.
+    # The Phoenix's fireball and egg, the Goblin Demolisher's blast (the card row's and its
+    # kamikaze form's), and the Battle Healer's heal where she appears.
     "DeathSpawnProjectile": ("spawner.DEATH_SPAWN_PROJECTILE", ("client_projectile",)),
     "SpawnAreaObject": ("spawner.SPAWN_AREA_OBJECT_SCOPE", ("every_row",)),
     # Read straight out of the unit row's `raw` block (link 1): the Hunter's fan, the Electro
@@ -452,6 +453,7 @@ BLOCKS = {
     "variable_damage": "RawVariableDamage",
     "special": "RawSpecial",
     "action_graph": "RawActionGraph",
+    "transform_at_hp": "RawTransform",
     "level_scaling": "RawLevelScaling",
     "projectile": "RawProjectileObj",
     "spell": "RawSpell",

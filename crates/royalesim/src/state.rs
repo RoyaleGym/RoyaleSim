@@ -472,6 +472,22 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
     #[serde(default = "reflect_attack_default")]
     pub reflect_attack: ReflectAttack,
+    /// transform.HEALTH_TRIGGER_COMPARE, HEALTH_TRIGGER_TIMING, ATTACK_STATE and REDEPLOY (a health-threshold
+    /// transformation: card.rs `TransformDef`, `health_triggers`, `rebind_unit`). Added after SNAPSHOT_FORMAT 20; no
+    /// battle saved before them held a transforming unit.
+    #[serde(default = "transform_compare_default")]
+    pub transform_compare: TransformCompare,
+    #[serde(default = "transform_timing_default")]
+    pub transform_timing: TransformTiming,
+    #[serde(default = "transform_attack_state_default")]
+    pub transform_attack_state: TransformAttackState,
+    #[serde(default = "transform_redeploy_default")]
+    pub transform_redeploy: TransformRedeploy,
+    /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
+    /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
+    /// held a troop with a LifeTime.
+    #[serde(default = "troop_lifetime_default")]
+    pub troop_lifetime: TroopLifetime,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -1038,6 +1054,26 @@ fn action_spawner_spawn_speed_default() -> ActionSpawnSpeed {
 
 fn invisibility_default() -> Invisibility {
     Invisibility::ClientUntilHit
+}
+
+fn transform_compare_default() -> TransformCompare {
+    TransformCompare::AtOrBelow
+}
+
+fn transform_timing_default() -> TransformTiming {
+    TransformTiming::OwnUpdate
+}
+
+fn transform_attack_state_default() -> TransformAttackState {
+    TransformAttackState::KeepUnlessResetTarget
+}
+
+fn transform_redeploy_default() -> TransformRedeploy {
+    TransformRedeploy::None
+}
+
+fn troop_lifetime_default() -> TroopLifetime {
+    TroopLifetime::SameAsBuildings
 }
 
 macro_rules! calib_enum {
@@ -2163,6 +2199,61 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.HEALTH_TRIGGER_COMPARE -- how a unit's hp is held against its transformation's threshold
+    /// (`health_triggers`).
+    TransformCompare {
+        /// hp x 100 <= max hp x HealthPercentages. A guess: no hit on client 15.535.29 landed on the line.
+        AtOrBelow = "at_or_below",
+        /// hp x 100 < max hp x HealthPercentages.
+        StrictlyBelow = "strictly_below",
+    }
+);
+calib_enum!(
+    /// transform.HEALTH_TRIGGER_TIMING -- when a unit's hp is read against its transformation's threshold
+    /// (`health_triggers`).
+    TransformTiming {
+        /// At the unit's own update, the first thing it does in the Target phase: once for every unit under
+        /// match.TICK_ORDER = client16402, and at each unit's own turn under client_sequential_strike. Measured on
+        /// client 15.535.29: a crossing on tick C by a projectile is read on C + 1, and one by a melee strike from a
+        /// unit created earlier is read on C under the sequential order.
+        OwnUpdate = "own_update",
+        /// On the crossing tick itself, in Resolve right after the tick's damage lands.
+        CrossingTickResolve = "crossing_tick_resolve",
+    }
+);
+calib_enum!(
+    /// transform.ATTACK_STATE -- what a transformation does to the unit's target and attack (`rebind_unit`).
+    TransformAttackState {
+        /// Kept, unless the change sets ResetTarget: then the unit has no target and a fresh attack, and makes no
+        /// target decision on the switch tick. Measured on client 15.535.29: the Cannon Cart kept its target, its
+        /// attack progress and its cadence; the Goblin Demolisher had no target on the switch tick and a building the
+        /// tick after.
+        KeepUnlessResetTarget = "keep_unless_reset_target",
+        /// Reset on every transformation.
+        ResetAlways = "reset_always",
+    }
+);
+calib_enum!(
+    /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
+    TransformRedeploy {
+        /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
+        /// switch).
+        None = "none",
+        /// It serves the new row's DeployTime.
+        NewRowDeployTime = "new_row_deploy_time",
+    }
+);
+calib_enum!(
+    /// lifetime.TROOP_LIFETIME -- what a LifeTime does to a TROOP (`lifetime_of`, `phase_status`).
+    TroopLifetime {
+        /// lifetime.HP_DECAY's law, as a building's. Measured on client 15.535.29: the Goblin Demolisher's kamikaze
+        /// form drains 3, 3, 3, 4 (325 hundredths a tick on its 1300 max hp over LifeTime 20000).
+        SameAsBuildings = "same_as_buildings",
+        /// Full hp for the whole LifeTime, then one hit for everything it has.
+        ExpiryAtLifetime = "expiry_at_lifetime",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3012,6 +3103,11 @@ impl Calib {
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
+            transform_compare: pick(&v, &["transform", "HEALTH_TRIGGER_COMPARE", "value"], TransformCompare::from_calibration_name)?,
+            transform_timing: pick(&v, &["transform", "HEALTH_TRIGGER_TIMING", "value"], TransformTiming::from_calibration_name)?,
+            transform_attack_state: pick(&v, &["transform", "ATTACK_STATE", "value"], TransformAttackState::from_calibration_name)?,
+            transform_redeploy: pick(&v, &["transform", "REDEPLOY", "value"], TransformRedeploy::from_calibration_name)?,
+            troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -3156,6 +3252,12 @@ impl Calib {
         // measured on the melee Battle Ram; the projectile case is a hypothesis
         // under the same name).
         only(&v, &["combat", "KAMIKAZE_DEATH", "value"], "at_fire")?;
+        // THE TRANSFORMATION'S ONE-ARM KEYS (`rebind_unit`, `phase_status`): the same entity with its hp and max hp
+        // kept, the unit acting as before between its trigger and its change, and a drain whose base is the max hp
+        // (`lifetime_drain_per_tick` reads it). Their other candidates have no code and are refused here.
+        only(&v, &["transform", "ENTITY_CONTINUITY", "value"], "same_entity_keep_hp")?;
+        only(&v, &["transform", "ACT_DURING_DELAY", "value"], "acts_normally")?;
+        only(&v, &["lifetime", "DRAIN_BASE_AFTER_TRANSFORM", "value"], "max_hp")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -3422,6 +3524,23 @@ struct PendingSpawn {
     summon_x: Option<i32>,
 }
 
+/// AN ACTION A MECHANIC SCHEDULED FOR A LATER TICK (`BattleState::scheduled`): `ms` counts down by TICK_MS at the top
+/// of every Status phase and the action fires when it reaches 0 (`fire_scheduled`). Written on tick P with 100 ms it
+/// fires at the top of P + 2. State: it outlives the tick that wrote it, so it is saved and hashed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Scheduled {
+    pub ms: i32,
+    pub action: ScheduledAction,
+}
+
+/// What a `Scheduled` entry does when it fires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ScheduledAction {
+    /// A delayed transformation (card.rs `TransformDef` with a delay: the Goblin Demolisher's): `entity` becomes
+    /// row `into` in place (`rebind_unit`). Dropped when the entity is gone by then.
+    Transform { entity: EntityId, into: u16, reset_target: bool },
+}
+
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
 /// block's count and radius, the spawned unit's own radius and whether it flies, and
 /// the ring's base direction (the dying unit's, `phase_reap`) with its
@@ -3661,6 +3780,10 @@ struct Scratch {
     /// first update, native (x, y, radius, side): `first_update`'s avoidance-only blockers. Filled and drained
     /// inside one `phase_reap`, so it never outlives the phase.
     dying_blockers: Vec<(i32, i32, i32, u8)>,
+    /// transform.ATTACK_STATE: the entities a transformation reset on THIS tick (`rebind_unit`), which make no target
+    /// decision in its Target phase (`phase_target_with`). Cleared at the top of every Status phase
+    /// (`fire_scheduled`), before anything can fill it, so it never outlives its tick and is not state.
+    switched_reset: Vec<EntityId>,
 }
 
 /// The 16.402 path grid (path16402.rs): the static terrain, this tick's occlusion
@@ -3848,6 +3971,9 @@ pub struct BattleState {
     /// (`lifetime_drain_per_tick`). Meaningless (0) on
     /// anything without a LifeTime and under lifetime.HP_DECAY = expiry_hit.
     lifetime_acc: Vec<i32>,
+    /// Actions scheduled for a later tick (`Scheduled`: a delayed transformation), in the order they were written.
+    /// Empty in every battle without one, which hashes as it did before the field.
+    scheduled: Vec<Scheduled>,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -4089,6 +4215,7 @@ impl BattleState {
             outcome: None,
             lifetime_ms: Vec::new(),
             lifetime_acc: Vec::new(),
+            scheduled: Vec::new(),
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -4185,7 +4312,7 @@ impl BattleState {
         if self.lifetime_ms.len() <= i {
             self.lifetime_ms.resize(i + 1, None);
         }
-        self.lifetime_ms[i] = if kind == EntityKind::Building { c.lifetime_ms } else { None };
+        self.lifetime_ms[i] = self.lifetime_of(c, kind);
         if self.lifetime_acc.len() <= i {
             self.lifetime_acc.resize(i + 1, 0);
         }
@@ -5428,10 +5555,222 @@ impl BattleState {
     /// `linear_drain`. The number every caller needs to say how long a building lives
     /// (it empties after ceil(max_hp x 100 / drain) ticks past its deploy end).
     pub fn lifetime_drain(&self, id: EntityId) -> i32 {
-        if self.cfg.calib.lifetime_hp_decay != LifetimeDecay::LinearDrain || !self.ents.is_alive(id) {
+        if !self.ents.is_alive(id) || self.lifetime_decay_of(id.index as usize) != LifetimeDecay::LinearDrain {
             return 0;
         }
         self.lifetime_drain_per_tick(id.index as usize).unwrap_or(0)
+    }
+
+    /// The LifeTime entity `i` of `kind` gets from card `c`: a building's always, a troop's under
+    /// lifetime.TROOP_LIFETIME (a troop with a LifeTime is a transformation target, card.rs), none for a crown tower.
+    /// The one place a LifeTime is handed out: `spawn_now` and `rebind_unit` both call it.
+    fn lifetime_of(&self, c: &CardDef, kind: EntityKind) -> Option<i32> {
+        match kind {
+            EntityKind::Building => c.lifetime_ms,
+            // PLANT troop_lifetime_ignored (tests/transform.rs): a troop never gets its LifeTime, so the kamikaze
+            // form lives for ever.
+            #[cfg(not(clash_plant = "troop_lifetime_ignored"))]
+            EntityKind::Troop => c.lifetime_ms,
+            #[cfg(clash_plant = "troop_lifetime_ignored")]
+            EntityKind::Troop => None,
+            EntityKind::KingTower | EntityKind::PrincessTower => None,
+        }
+    }
+
+    /// The decay law entity `i`'s LifeTime runs under: lifetime.HP_DECAY for a building, and for a troop
+    /// lifetime.TROOP_LIFETIME's (the same law, or the expiry).
+    fn lifetime_decay_of(&self, i: usize) -> LifetimeDecay {
+        let c = &self.cfg.calib;
+        match (self.ents.kind[i], c.troop_lifetime) {
+            (EntityKind::Troop, TroopLifetime::ExpiryAtLifetime) => LifetimeDecay::ExpiryHit,
+            _ => c.lifetime_hp_decay,
+        }
+    }
+
+    /// The scheduled actions (`Scheduled`), in the order they fire: what is due, and when.
+    pub fn scheduled(&self) -> &[Scheduled] {
+        &self.scheduled
+    }
+
+    /// transform.HEALTH_TRIGGER_TIMING in force. The regression plant `transform_trigger_on_resolve` forces the
+    /// crossing-tick arm whatever the ledger says, so tests/transform.rs's own-update pins go red under it.
+    #[inline]
+    fn transform_timing(&self) -> TransformTiming {
+        #[cfg(clash_plant = "transform_trigger_on_resolve")]
+        {
+            return TransformTiming::CrossingTickResolve; // PLANT (regression): the trigger read in Resolve.
+        }
+        #[allow(unreachable_code)]
+        self.cfg.calib.transform_timing
+    }
+
+    /// THE SCHEDULED ACTIONS DUE THIS TICK, at the top of the Status phase: every entry's `ms` loses TICK_MS and the
+    /// ones at or below 0 fire, in the order they were written. A transformation whose entity is gone (dead, its slot
+    /// reused: the generation says) is dropped. Also empties this tick's switched list (`Scratch::switched_reset`)
+    /// before anything can fill it.
+    fn fire_scheduled(&mut self) {
+        self.scratch.switched_reset.clear();
+        if self.scheduled.is_empty() {
+            return;
+        }
+        let dt = self.cfg.calib.tick_ms;
+        let mut due: Vec<ScheduledAction> = Vec::new();
+        self.scheduled.retain_mut(|s| {
+            s.ms -= dt;
+            if s.ms <= 0 {
+                due.push(s.action);
+                false
+            } else {
+                true
+            }
+        });
+        for a in due {
+            match a {
+                ScheduledAction::Transform { entity, into, reset_target } => {
+                    if self.ents.is_alive(entity) {
+                        self.rebind_unit(entity.index as usize, into, reset_target);
+                    }
+                }
+            }
+        }
+    }
+
+    /// THE HEALTH TRIGGER (card.rs `TransformDef`; transform.HEALTH_TRIGGER_COMPARE, HEALTH_TRIGGER_TIMING). A live
+    /// unit whose card carries a transformation and whose hp has reached its threshold changes now (`rebind_unit`)
+    /// or, when the change has a delay, is given a `Scheduled` entry that changes it later. A unit with an entry
+    /// already pending is not read again, so a heal back above the line and a second crossing schedule nothing more;
+    /// a unit at 0 hp is dying, not changing. `only`: the units whose own update this is (one unit's turn under
+    /// match.TICK_ORDER = client_sequential_strike), every unit when None.
+    ///
+    /// Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios): read at the unit's own update,
+    /// a projectile's crossing on tick C changes a Cart on C + 1 (its first drain on C + 2) and schedules a Demolisher
+    /// on C + 1, which changes at the top of C + 3; a melee strike's crossing by a unit created before it is read on C
+    /// itself under the sequential order.
+    fn health_triggers(&mut self, only: Option<&[usize]>) {
+        #[cfg(clash_plant = "transform_never_fires")]
+        {
+            let _ = only;
+            return; // PLANT (regression): no unit ever reads its threshold.
+        }
+        #[allow(unreachable_code)]
+        {
+            let compare = self.cfg.calib.transform_compare;
+            let mut now: Vec<(u32, usize, u16, bool)> = Vec::new();
+            let mut later: Vec<(u32, Scheduled)> = Vec::new();
+            for i in 0..self.ents.capacity() {
+                if !self.ents.alive[i] || self.ents.hp[i] <= 0 || only.is_some_and(|o| !o.contains(&i)) {
+                    continue;
+                }
+                let Some(t) = self.cfg.cards.get(self.ents.card[i]).transform_at_hp else { continue };
+                let (hp, line) = (self.ents.hp[i] as i64 * 100, self.ents.max_hp[i] as i64 * t.pct as i64);
+                let reached = match compare {
+                    TransformCompare::AtOrBelow => hp <= line,
+                    TransformCompare::StrictlyBelow => hp < line,
+                };
+                if !reached {
+                    continue;
+                }
+                let id = self.ents.id_of(i);
+                if self.scheduled.iter().any(|s| matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id)) {
+                    continue;
+                }
+                #[cfg(not(clash_plant = "transform_group_delay_ignored"))]
+                let delay = t.delay_ms;
+                #[cfg(clash_plant = "transform_group_delay_ignored")]
+                let delay = 0; // PLANT (regression): the Goblin Demolisher changes on its trigger tick.
+                let seq = self.ents.creation_seq[i];
+                if delay <= 0 {
+                    now.push((seq, i, t.unit, t.reset_target));
+                } else {
+                    later.push((seq, Scheduled { ms: delay, action: ScheduledAction::Transform { entity: id, into: t.unit, reset_target: t.reset_target } }));
+                }
+            }
+            now.sort_by_key(|n| n.0);
+            for (_, i, into, reset_target) in now {
+                self.rebind_unit(i, into, reset_target);
+            }
+            later.sort_by_key(|l| l.0);
+            self.scheduled.extend(later.into_iter().map(|(_, s)| s));
+        }
+    }
+
+    /// THE TRANSFORMATION ITSELF (transform.ENTITY_CONTINUITY = same_entity_keep_hp): entity `i` becomes row `into`
+    /// in place. Measured on client 15.535.29: one id, one creation ordinal, the hp continuous and the max hp kept.
+    /// It keeps what makes it the same entity (entity.rs `rebind`); every stat the ROW carries comes from the new row
+    /// at the entity's level, as `spawn_now` computes it; the old row's walk and its row-bound state are dropped. The
+    /// attack follows transform.ATTACK_STATE, the deploy timer transform.REDEPLOY, and the LifeTime is the new row's
+    /// (`lifetime_of`), its drain started afresh on the kept max hp (lifetime.DRAIN_BASE_AFTER_TRANSFORM). No deploy
+    /// hook runs: the loader refuses a target row that would need one (card.rs, the unit loop).
+    fn rebind_unit(&mut self, i: usize, into: u16, reset_target: bool) {
+        let cards = self.cfg.cards.clone();
+        let c = cards.get(into);
+        let level = self.ents.level[i];
+        let scaled = |b: i32| cards.scaled(into, level, b).expect("the transformation's level validated at deploy");
+        let kind = match c.kind {
+            CardKind::Building => EntityKind::Building,
+            _ => EntityKind::Troop,
+        };
+        let speed = match self.cfg.path_model {
+            PathModel::Oracle2026 => c.move_speed(),
+            _ => c.speed,
+        } * self.cfg.calib.speed_to_subtiles_per_tick;
+        self.ents.rebind(
+            i,
+            crate::entity::RebindInit {
+                kind,
+                card: into,
+                damage: scaled(c.damage),
+                death_damage: scaled(c.death_damage),
+                radius: c.collision_radius,
+                mass: c.mass,
+                speed,
+                flying: c.is_flying(),
+                tick: self.tick,
+            },
+        );
+        // transform.ATTACK_STATE: a reset leaves the unit with no target and a fresh attack, and no target decision
+        // on this tick (the switched list, read by `phase_target_with`).
+        #[cfg(not(clash_plant = "transform_attack_state_reset"))]
+        let reset = reset_target || self.cfg.calib.transform_attack_state == TransformAttackState::ResetAlways;
+        #[cfg(clash_plant = "transform_attack_state_reset")]
+        let reset = {
+            let _ = reset_target;
+            true // PLANT (regression): every transformation drops the target and the attack.
+        };
+        if reset {
+            self.ents.reset_attack(i);
+            let id = self.ents.id_of(i);
+            if !self.scratch.switched_reset.contains(&id) {
+                self.scratch.switched_reset.push(id);
+            }
+        }
+        // transform.REDEPLOY: none keeps the deploy timer.
+        if self.cfg.calib.transform_redeploy == TransformRedeploy::NewRowDeployTime {
+            self.ents.deploy_ms[i] = c.deploy_time_ms;
+        }
+        // The new row's LifeTime, its drain started afresh on the kept max hp. PLANT transform_keeps_old_lifetime
+        // (tests/transform.rs): the old row's LifeTime stays (none on a Cannon Cart or a Goblin Demolisher), so the
+        // new row never drains.
+        if self.lifetime_ms.len() <= i {
+            self.lifetime_ms.resize(i + 1, None);
+        }
+        if self.lifetime_acc.len() <= i {
+            self.lifetime_acc.resize(i + 1, 0);
+        }
+        #[cfg(not(clash_plant = "transform_keeps_old_lifetime"))]
+        {
+            self.lifetime_ms[i] = self.lifetime_of(c, kind);
+            self.lifetime_acc[i] = 0;
+        }
+        // transform.ENTITY_CONTINUITY: hp and max hp are kept.
+        #[cfg(clash_plant = "transform_hp_refilled")]
+        {
+            // PLANT (regression): the new row's full hitpoints, as a new entity would have.
+            let hp = scaled(c.hitpoints);
+            self.ents.hp[i] = hp;
+            self.ents.max_hp[i] = hp;
+        }
+        self.hash.rebuild(&self.ents);
     }
 
     /// THE PER-TICK LIFETIME DRAIN of entity `i`, in HUNDREDTHS of a hitpoint, or
@@ -5447,8 +5786,10 @@ impl BattleState {
     /// A level-11 Tesla (1182 hp, LifeTime 25000) gets 118200000 / 25000 = 4728, then
     /// 4728 / 20 = 236 hundredths per tick: 2.36, not the 2.364 the exact fraction
     /// gives, so the Tesla outlives its own column by one tick (the live Teslas die on
-    /// tick 501 of a 500-tick LifeTime). `lifetime_ms` carries the column (buildings
-    /// only; the loader refuses a troop that ships one).
+    /// tick 501 of a 500-tick LifeTime). `lifetime_ms` carries the column (`lifetime_of`: a building's, and a
+    /// transformation target troop's under lifetime.TROOP_LIFETIME). The base is the entity's MAX hp, kept through a
+    /// transformation (lifetime.DRAIN_BASE_AFTER_TRANSFORM = max_hp, measured on client 15.535.29: the Cannon Cart's
+    /// broken cannon drains 301 hundredths a tick on its 1809, not a rate from the hp it broke at).
     ///
     /// A rate of 0 (a building whose max hp is under LifeTime_ms / 5000 -- no shipped
     /// card) never crosses a hitpoint, so nothing drains and nothing expires.
@@ -5461,6 +5802,10 @@ impl BattleState {
     }
 
     fn phase_status(&mut self) {
+        // The scheduled actions due this tick, first of all: a delayed transformation happens here, before the
+        // drain below reads the entity's LifeTime (measured on client 15.535.29: the Goblin Demolisher's switch and
+        // its first drain on the same tick).
+        self.fire_scheduled();
         let dt = self.cfg.calib.tick_ms;
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
         let short = self.cfg.calib.buff_expiry == BuffExpiry::OneTickShort;
@@ -5477,10 +5822,17 @@ impl BattleState {
         // for its whole LifeTime and killed it in one hit at the end.
         #[cfg(clash_plant = "lifetime_expiry_hit")]
         let decay = LifetimeDecay::ExpiryHit;
+        // lifetime.TROOP_LIFETIME: a troop's LifeTime (a transformation target's) runs the building law above, or
+        // the expiry.
+        let troop_decay = match self.cfg.calib.troop_lifetime {
+            TroopLifetime::SameAsBuildings => decay,
+            TroopLifetime::ExpiryAtLifetime => LifetimeDecay::ExpiryHit,
+        };
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
                 continue;
             }
+            let decay = if self.ents.kind[i] == EntityKind::Troop { troop_decay } else { decay };
             if lifetime_paused && self.ents.stun_ms[i] > 0 {
                 continue;
             }
@@ -5759,6 +6111,12 @@ impl BattleState {
     /// the tick's start: both readings stay the ones client16402 takes, and only the hp a direct
     /// strike already took is new to them.
     fn phase_target_with(&mut self, only: Option<&[usize]>, shots: usize) {
+        // transform.HEALTH_TRIGGER_TIMING = own_update: the health trigger is the first thing a unit's own update
+        // does (`health_triggers`), for every unit here under client16402 and for one at its own turn under the
+        // sequential order.
+        if self.transform_timing() == TransformTiming::OwnUpdate {
+            self.health_triggers(only);
+        }
         self.hash.rebuild(&self.ents);
         let mut decisions = std::mem::take(&mut self.scratch.decisions);
         let mut nb = std::mem::take(&mut self.scratch.nb);
@@ -5787,8 +6145,16 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &doomed_drop,
             };
+            // transform.ATTACK_STATE: a unit whose transformation reset its target on this tick makes no target
+            // decision until the next (measured on client 15.535.29: no target on the Goblin Demolisher's switch tick,
+            // a building the tick after, 3 of 3).
+            let switched = &self.scratch.switched_reset;
             for i in 0..self.ents.capacity() {
-                if self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 && only.map_or(true, |o| o.contains(&i)) {
+                if self.ents.alive[i]
+                    && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0
+                    && only.map_or(true, |o| o.contains(&i))
+                    && !switched.contains(&self.ents.id_of(i))
+                {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
             }
@@ -8851,6 +9217,11 @@ impl BattleState {
             }
         }
         self.death_queue = out.deaths;
+        // transform.HEALTH_TRIGGER_TIMING = crossing_tick_resolve: the health trigger read right after the tick's
+        // damage lands, on the crossing tick itself (the units it kills are skipped: they are dying).
+        if self.transform_timing() == TransformTiming::CrossingTickResolve {
+            self.health_triggers(None);
+        }
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
         if self.cfg.calib.buff_expiry == BuffExpiry::CeilFromNextTick {
             self.tick_status_timers();
@@ -10849,6 +11220,23 @@ impl BattleState {
             h.i32(x.amount);
         }
         h.u32(self.death_queue.len() as u32);
+        // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
+        // pending transformation -- hashes as it did before the list.
+        #[cfg(not(clash_plant = "hash_skips_scheduled"))]
+        if !legacy_v3 && !self.scheduled.is_empty() {
+            h.u32(self.scheduled.len() as u32);
+            for s in &self.scheduled {
+                h.i32(s.ms);
+                match s.action {
+                    ScheduledAction::Transform { entity, into, reset_target } => {
+                        h.u32(0x5452_4e53);
+                        h.id(entity);
+                        h.u32(into as u32);
+                        h.bool(reset_target);
+                    }
+                }
+            }
+        }
         h.finish()
     }
 }
@@ -11052,6 +11440,13 @@ impl BattleState {
 ///    `spark`, so the card fingerprint moves: a snapshot saved by an earlier build is refused
 ///    as saved against other card data. migrate_v3 strips it with the rest of the
 ///    post-format-3 tail and runs a migrated battle at not_read; no card's index moves.
+/// 20, unchanged, the health-threshold transformation (transform.* and lifetime.TROOP_LIFETIME): Calib gained five
+///    fields (serde default the shipped arm; no battle saved before them held a transforming unit) and the snapshot
+///    gained `scheduled` (serde default empty, hashed only when not empty), so a format-20 blob saved before them
+///    still deserializes and hashes as it did. No Entities column: a transformation writes columns already saved and
+///    hashed, and a troop's LifeTime is the per-entity `lifetime_ms` / `lifetime_acc` already there. CardDef gained
+///    `transform_at_hp`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved
+///    against other card data. migrate_v3 strips it with the rest of the post-format-3 tail; no card's index moves.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -11140,6 +11535,10 @@ struct Snapshot {
     /// that battle resumes with a fresh grid, as every load did before this field.
     #[serde(default)]
     grid16402: Option<GridSaved>,
+    /// The scheduled actions (`BattleState::scheduled`). Added after SNAPSHOT_FORMAT 20; `default` (empty) for a
+    /// snapshot saved before it, which held none.
+    #[serde(default)]
+    scheduled: Vec<Scheduled>,
     state_hash: u64,
 }
 
@@ -11238,7 +11637,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, transform_at_hp: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -11275,7 +11674,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.spark,
                     c.projectile_area,
                     c.life_state,
-                    c.invisible_when_idle
+                    c.invisible_when_idle,
+                    c.transform_at_hp
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -11545,6 +11945,10 @@ impl BattleState {
             mana_unit: self.mana_unit,
             mana_rate: self.mana_rate,
             grid16402: self.scratch.grid16402.as_ref().map(Grid16402::saved),
+            #[cfg(not(clash_plant = "scheduled_dropped_on_save"))]
+            scheduled: self.scheduled.clone(),
+            #[cfg(clash_plant = "scheduled_dropped_on_save")]
+            scheduled: Vec::new(), // PLANT: a pending transformation is lost across a save.
             state_hash: self.state_hash(),
         };
         #[cfg(clash_plant = "save_drops_path_grid")]
@@ -11667,6 +12071,16 @@ impl BattleState {
                 cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).and_then(|d| crate::spell::shape_at(&d.shape, s.depth)).is_none())
             })
             || snap.spawn_queue.iter().any(|p| (p.card as usize) >= cards.cards.len())
+            // A scheduled transformation names an entity of the table and a row of this card data, and a live
+            // entity's card must carry that transformation.
+            || snap.scheduled.iter().any(|s| match s.action {
+                ScheduledAction::Transform { entity, into, .. } => {
+                    (entity.index as usize) >= n
+                        || (into as usize) >= cards.cards.len()
+                        || (snap.ents.is_alive(entity)
+                            && cards.cards.get(snap.ents.card[entity.index as usize] as usize).and_then(|c| c.transform_at_hp).map(|t| t.unit) != Some(into))
+                }
+            })
         {
             return Err("snapshot entity tables are inconsistent".into());
         }
@@ -11708,6 +12122,7 @@ impl BattleState {
             outcome: snap.outcome,
             lifetime_ms: snap.lifetime_ms,
             lifetime_acc: snap.lifetime_acc,
+            scheduled: snap.scheduled,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),

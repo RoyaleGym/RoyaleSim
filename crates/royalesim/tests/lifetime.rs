@@ -33,20 +33,31 @@
 //!      out leaves its four Skeletons, as a killed one does;
 //!   6. the other arm (expiry_hit, the earlier engine) is runnable and
 //!      differs: full hp for the whole life, then one hit at the LifeTime tick;
-//!   7. a card with no LifeTime never drains (a Knight, a crown tower).
+//!   7. a card with no LifeTime never drains (a Knight, a crown tower);
+//!   8. the kind guard: a LifeTime on a non-building is the Goblin Demolisher's kamikaze form's alone, a troop row
+//!      that only a transformation reaches (card.rs; lifetime.TROOP_LIFETIME), and it drains;
+//!   9. a troop with a LifeTime reached any other way is still refused (a synthetic death spawn), and so is the 2018
+//!      Cannon Cart's BrokenCannon, a troop named by a death spawn in that table;
+//!  10. a troop's LifeTime runs lifetime.TROOP_LIFETIME's arm: the building law (same_as_buildings, shipped,
+//!      measured) or the expiry (expiry_at_lifetime), both by name.
 //!
-//! PLANT, run 2026-09-21: `lifetime_expiry_hit` forces the expiry arm whatever the
-//! ledger says -- 5 of the 8 tests go red, (2) and (3) (the curve and the death tick),
-//! (4), (5) and the save, plus (6), whose own control is the shipped arm the plant
-//! also overrides. (1) and (7) and the kind guard stay green: the rate is arithmetic
-//! and a card with no LifeTime never drained under either arm.
+//! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test lifetime`):
+//!   * `lifetime_expiry_hit`, run 2026-09-21, forces the expiry arm whatever the ledger says -- 5 of the 8 tests then
+//!     here go red, (2) and (3) (the curve and the death tick), (4), (5) and the save, plus (6), whose own control is
+//!     the shipped arm the plant also overrides. (1) and (7) and the kind guard stay green: the rate is arithmetic and
+//!     a card with no LifeTime never drained under either arm.
+//!   * `troop_lifetime_ignored` -- a troop never gets its LifeTime: (8) and (10) red.
+//!   * `troop_lifetime_refusal_lifted` -- a troop with a LifeTime loads whatever reaches it: (9) red (and the 2018
+//!     census in tests/loadable_census.rs).
+//!   * `census_admits_one` (tests/loadable_census.rs's) -- the rejected 2018 Cannon Cart is kept: (9)'s 2018 half red.
 
 mod common;
 
 use common::*;
+use royalesim::card::{CardDb, CardSource, UnitRef};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::Vec2;
-use royalesim::state::{BattleConfig, BattleState, Calib, LifetimeDecay};
+use royalesim::state::{BattleConfig, BattleState, Calib, LifetimeDecay, TroopLifetime};
 use royalesim::{EntityId, Team};
 
 fn calib() -> Calib {
@@ -348,23 +359,28 @@ fn a_snapshot_mid_drain_resumes_hitpoint_for_hitpoint() {
 }
 
 // ---------------------------------------------------------------------------
-// the kind guard
+// (8)-(10) the kind guard, and the one troop that carries a LifeTime
 
+/// Plant: troop_lifetime_ignored.
 #[test]
-fn only_buildings_carry_a_lifetime() {
-    // card.rs refuses a TROOP with a LifeTime (`units.{unit} is a troop with a
-    // LifeTime`), so nothing else can be draining; the engine's own column agrees.
+fn only_buildings_and_transformation_targets_carry_a_lifetime() {
+    // card.rs refuses a TROOP with a LifeTime (`units.{unit} is a troop with a LifeTime`) unless a transformation is
+    // what reaches it: the Goblin Demolisher's kamikaze form, and nothing else in the 15.535.29 table.
     let mut s = bare(config());
     let db = s.cards();
-    let troops: Vec<String> = (0..db.cards.len())
-        .map(|i| db.get(i as u16))
-        .filter(|c| c.kind != royalesim::card::CardKind::Building && c.lifetime_ms.is_some())
-        .map(|c| c.name.clone())
-        .collect();
-    assert!(troops.is_empty(), "the loader let a non-building keep a LifeTime: {troops:?}");
-    // and a building spawned as a TROOP kind would not drain either (the column is set
-    // on the Building arm of spawn_now alone)
-    let id = s.scenario_spawn_now(Team::Blue, "Tesla", spot(), None).unwrap();
+    let troops: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).kind != royalesim::card::CardKind::Building && db.get(*i).lifetime_ms.is_some()).collect();
+    let names: Vec<&str> = troops.iter().map(|i| db.get(*i).name.as_str()).collect();
+    assert_eq!(names, ["GoblinDemolisher_kamikaze_form"], "the non-buildings with a LifeTime");
+    let form = troops[0];
+    assert!(db.get(form).summon_only, "the kamikaze form is never played");
+    let named_by: Vec<UnitRef> = (0..db.cards.len() as u16).flat_map(|i| db.unit_refs(i)).filter(|(_, u, _)| *u == form).map(|(path, _, _)| path).collect();
+    assert!(!named_by.is_empty() && named_by.iter().all(|p| *p == UnitRef::Transform), "the kamikaze form is reached through a transformation alone: {named_by:?}");
+    // It drains as a building does (lifetime.TROOP_LIFETIME = same_as_buildings).
+    let id = s.scenario_spawn_now(Team::Blue, "GoblinDemolisher_kamikaze_form", spot(), None).unwrap();
+    assert_eq!(s.entity(id).unwrap().kind, EntityKind::Troop);
+    assert!(s.lifetime_drain(id) > 0, "a troop with a LifeTime does not drain");
+    // A building drains, whatever its card's kind column says (`lifetime_of`).
+    let id = s.scenario_spawn_now(Team::Blue, "Tesla", t(900, 1400), None).unwrap();
     assert_eq!(s.entity(id).unwrap().kind, EntityKind::Building);
     assert!(s.lifetime_drain(id) > 0);
     // a dead entity has no drain
@@ -372,4 +388,83 @@ fn only_buildings_carry_a_lifetime() {
     s.tick();
     assert_eq!(s.lifetime_drain(id), 0, "a dead entity still reported a drain");
     let _: EntityId = id;
+}
+
+/// Mourner death-spawns Wraith, a troop with a LifeTime; Shifter becomes it at half its hitpoints.
+const WRAITH: &str = r#"{ "version": "test", "cards": [
+ { "name":"Mourner", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":300, "hit_speed_ms":1000, "range_milli":1000,
+   "collision_radius_milli":500, "death_spawn":{"character":"Wraith", "count":1} }
+], "units": {
+ "Wraith": { "name":"Wraith", "rarity":"Common", "hitpoints":1000, "damage":10, "hit_speed_ms":1000, "range_milli":500,
+   "sight_range_milli":5500, "collision_radius_milli":500, "speed":60, "mass":4, "deploy_time_ms":1000, "lifetime_ms":2000 }
+} }"#;
+
+fn wraith_by_transformation() -> String {
+    WRAITH.replace(
+        r#""death_spawn":{"character":"Wraith", "count":1} }"#,
+        r#""action_graph":{"roots":{"OnStartingAction":"MournerAtHealth"},"class_types":["ActionChangeGameObjectData","ActionRunActionAtHealth"],"spawns":[],"mechanic":true},
+   "transform_at_hp":{"into":"Wraith","reset_target":false,"group_delays_ms":[],"at":0,"pct":50,"noop_spawns":[]} }"#,
+    )
+}
+
+/// Plant: troop_lifetime_refusal_lifted.
+#[test]
+fn a_troop_with_a_lifetime_is_still_refused_as_a_death_spawn() {
+    let db = CardDb::from_json_str(WRAITH, CardSource::DerivedJson).unwrap();
+    assert!(db.index("Mourner").is_none(), "a death spawn of a troop with a LifeTime loaded");
+    let why = db.rejected.iter().find(|(n, _)| n == "Mourner").map(|(_, w)| w.as_str());
+    assert_eq!(why, Some("units.Wraith is a troop with a LifeTime; not simulated"));
+    // The same row reached by a transformation loads.
+    let db = CardDb::from_json_str(&wraith_by_transformation(), CardSource::DerivedJson).unwrap();
+    let i = db.index("Mourner").unwrap_or_else(|| panic!("Mourner refused: {:?}", db.rejected));
+    let wraith = db.get(db.get(i).transform_at_hp.expect("the transformation").unit);
+    assert_eq!((wraith.name.as_str(), wraith.lifetime_ms), ("Wraith", Some(2000)));
+}
+
+/// Plants: census_admits_one, troop_lifetime_refusal_lifted.
+#[test]
+fn the_2018_cannon_cart_stays_refused() {
+    // The 2018 table's Cannon Cart death-spawns BrokenCannon, a troop with a LifeTime there: refused as before.
+    let path = format!("{}/../../data/derived/cards-2018.json", env!("CARGO_MANIFEST_DIR"));
+    if !std::path::Path::new(&path).is_file() {
+        if std::env::var_os("CI").is_some() {
+            panic!("{path} is absent -- and CI is set, where a skip would read as a pass");
+        }
+        let line = format!("\nSKIP lifetime::the_2018_cannon_cart_stays_refused: {path} is absent (tools/extract_cards.py --vintage 2018 writes it). The 2018 Cannon Cart was NOT checked: this is not a pass.\n");
+        let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
+        return;
+    }
+    let db = CardDb::load_repo_file("cards-2018.json").expect("cards-2018.json loads");
+    assert!(db.index("MovingCannon").is_none(), "the 2018 Cannon Cart loaded");
+    let why = db.rejected.iter().find(|(n, _)| n == "MovingCannon").map(|(_, w)| w.as_str()).unwrap_or("");
+    assert!(why.contains("units.BrokenCannon is a troop with a LifeTime"), "the 2018 Cannon Cart's reason: {why:?}");
+}
+
+/// Plant: troop_lifetime_ignored.
+#[test]
+fn a_troop_lifetime_expires_under_the_expiry_arm() {
+    // A troop with a LifeTime (Wraith, 2000 ms, 1000 hp at level 1) runs lifetime.TROOP_LIFETIME's arm, by name: the
+    // building law drains it 25 a tick (1000 x 100000 / 2000 / 20 = 2500 hundredths), the expiry keeps it whole and
+    // takes it all at once. Both empty it on the 40th tick.
+    for arm in [TroopLifetime::SameAsBuildings, TroopLifetime::ExpiryAtLifetime] {
+        let mut cfg = BattleConfig::with_cards(CardDb::from_json_str(&wraith_by_transformation(), CardSource::DerivedJson).unwrap());
+        cfg.card_level = [1, 1];
+        cfg.calib.troop_lifetime = arm;
+        let mut s = bare(cfg);
+        let id = s.scenario_spawn_now(Team::Blue, "Wraith", spot(), None).expect("place the Wraith");
+        assert_eq!(s.entity(id).unwrap().max_hp, 1000, "precondition: the row's hitpoints at level 1");
+        let mut hp = vec![1000];
+        for _ in 0..45 {
+            s.tick();
+            match s.entity(id) {
+                Some(e) => hp.push(e.hp),
+                None => break,
+            }
+        }
+        assert_eq!(hp.len(), 40, "{arm:?}: the Wraith lived {} ticks, not 39", hp.len() - 1);
+        match arm {
+            TroopLifetime::SameAsBuildings => assert!(hp.windows(2).all(|w| w[0] - w[1] == 25), "{arm:?}: {hp:?}"),
+            TroopLifetime::ExpiryAtLifetime => assert!(hp.iter().all(|h| *h == 1000), "{arm:?}: {hp:?}"),
+        }
+    }
 }

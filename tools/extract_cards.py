@@ -923,6 +923,101 @@ def life_state_spawner(t: dict, rec: dict) -> dict | None:
     }
 
 
+def _action_list(acts, name: str, col: str) -> list:
+    """An action row's column as a list: the continued (list) value when the row has one, else
+    the scalar alone, else empty."""
+    got = acts.arrays.get(name, {}).get(col)
+    if got is not None:
+        return list(got)
+    a = acts.get(name)
+    return [] if a is None or a[col] is None else [a[col]]
+
+
+def _transform_leaf(t: dict, name: str, delays: list | None, at: int | None, noops: list) -> dict | bool | None:
+    """One action under a health trigger (`transform_at_hp`): the transformation it is (a dict),
+    nothing the engine needs (None), or False for anything else, which refuses the whole block."""
+    acts = t["actions"]
+    a = acts.get(name)
+    if a is None:
+        return False
+    ct = a["ClassType"]
+    if ct == "ActionPlayEffect":
+        return None
+    if ct == "ActionChangeGameObjectData":
+        into = a["NewCharacterData"]
+        if not isinstance(into, str) or not into:
+            return False  # a projectile's or an area's change: not a unit's
+        return {
+            "into": into,
+            "reset_target": bool(flag(a, "ResetTarget")),
+            "group_delays_ms": list(delays or []),
+            "at": at or 0,
+        }
+    if ct == "ActionGroup":
+        if delays is not None:
+            return False  # a group inside a group
+        subs = _action_list(acts, name, "SubActions")
+        ds = _action_list(acts, name, "SubActionsDelay")
+        if len(ds) not in (0, len(subs)):
+            return False  # a delay list that does not pair with the sub-actions
+        ds = ds or [0] * len(subs)
+        out = None
+        for k, sub in enumerate(subs):
+            got = _transform_leaf(t, sub, ds, k, noops)
+            if got is False:
+                return False
+            if got is not None:
+                if out is not None:
+                    return False  # two transformations in one group
+                out = got
+        return out
+    if ct == "ActionSpawn" and a["SpawnType"] == "AreaEffectType" and isinstance(a["SpawnData"], str):
+        # A TAUNT CANCEL: an area whose whole graph is ActionTaunt. The engine has no taunt, so
+        # there is nothing for it to cancel; the loader accepts the spawn only by this name.
+        g = action_graph(t, t["area_effect_objects"].get(a["SpawnData"]))
+        if g and g["class_types"] == ["ActionTaunt"]:
+            noops.append(f"AreaEffectType:{a['SpawnData']}")
+            return None
+    return False
+
+
+def transform_at_hp(t: dict, rec: dict) -> dict | None:
+    """THE HEALTH-THRESHOLD TRANSFORMATION as a named block (15.535): the row's one root action,
+    OnStartingAction, is an ActionRunActionAtHealth whose HealthPercentages[i] runs Actions[i], and
+    exactly one of those actions is an ActionChangeGameObjectData into a character row, run directly
+    or as one sub-action of an ActionGroup. Effects are skipped, and the one spawn allowed is a taunt
+    cancel (`_transform_leaf`). The Cannon Cart and the Goblin Demolisher carry it; every other row
+    gives None, and the loader then refuses its graph as before. Fail-closed: any other action, a
+    nested group, a delay list that does not pair, a second transformation, or a change of a
+    projectile gives None.
+
+    SubActionsDelay is written raw, in SubActions order, with the transformation's place in it
+    (`at`): which of its two readings the client uses is not this function's to decide."""
+    g = action_graph(t, rec)
+    if not g or set(g["roots"]) != {"OnStartingAction"}:
+        return None
+    acts = t["actions"]
+    root = g["roots"]["OnStartingAction"]
+    a = acts.get(root)
+    if a is None or a["ClassType"] != "ActionRunActionAtHealth":
+        return None
+    pcts = _action_list(acts, root, "HealthPercentages")
+    names = _action_list(acts, root, "Actions")
+    if not names or len(pcts) != len(names):
+        return None
+    hits: list[dict] = []
+    noops: list[str] = []
+    for p, n in zip(pcts, names, strict=True):
+        got = _transform_leaf(t, n, None, None, noops)
+        if got is False:
+            return None
+        if got is not None:
+            hits.append({**got, "pct": p})
+    if len(hits) != 1:
+        return None
+    return {**hits[0], "noop_spawns": noops}
+
+
 def raw_logic(rec: dict) -> dict:
     out = {}
     for h, v in rec.items():
@@ -1409,6 +1504,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         ls = life_state_spawner(t, c)
         if ls is not None:
             u["life_state_spawner"] = ls
+        # The health-threshold transformation (the Cannon Cart, the Goblin Demolisher), when the
+        # row's graph is one (`transform_at_hp`); written only there, so every other row is unchanged.
+        tb = transform_at_hp(t, c)
+        if tb is not None:
+            u["transform_at_hp"] = tb
         # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
         # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
         # every other row are unchanged.
@@ -1741,6 +1841,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["action_graph"] = u["action_graph"]
     if "life_state_spawner" in u:
         card["life_state_spawner"] = u["life_state_spawner"]
+    if "transform_at_hp" in u:
+        card["transform_at_hp"] = u["transform_at_hp"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it

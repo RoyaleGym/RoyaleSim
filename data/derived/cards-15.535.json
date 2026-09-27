@@ -7716,6 +7716,14 @@
     "spawns": [],
     "mechanic": true
    },
+   "transform_at_hp": {
+    "into": "BrokenCannon",
+    "reset_target": false,
+    "group_delays_ms": [],
+    "at": 0,
+    "pct": 50,
+    "noop_spawns": []
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -12365,6 +12373,19 @@
      "AreaEffectType:CancelTauntAEO"
     ],
     "mechanic": true
+   },
+   "transform_at_hp": {
+    "into": "GoblinDemolisher_kamikaze_form",
+    "reset_target": true,
+    "group_delays_ms": [
+     0,
+     100
+    ],
+    "at": 1,
+    "pct": 50,
+    "noop_spawns": [
+     "AreaEffectType:CancelTauntAEO"
+    ]
    },
    "death_spawn_pushback": false,
    "count": 1,
@@ -35849,6 +35870,14 @@
     "spawns": [],
     "mechanic": true
    },
+   "transform_at_hp": {
+    "into": "BrokenCannon",
+    "reset_target": false,
+    "group_delays_ms": [],
+    "at": 0,
+    "pct": 50,
+    "noop_spawns": []
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
@@ -37722,6 +37751,19 @@
      "AreaEffectType:CancelTauntAEO"
     ],
     "mechanic": true
+   },
+   "transform_at_hp": {
+    "into": "GoblinDemolisher_kamikaze_form",
+    "reset_target": true,
+    "group_delays_ms": [
+     0,
+     100
+    ],
+    "at": 1,
+    "pct": 50,
+    "noop_spawns": [
+     "AreaEffectType:CancelTauntAEO"
+    ]
    },
    "death_spawn_pushback": false,
    "raw": {

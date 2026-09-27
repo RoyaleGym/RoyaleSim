@@ -116,6 +116,23 @@ pub struct SpawnInit {
     pub spawn_tick: u32,
 }
 
+/// What an in-place transformation takes from the new row (`Entities::rebind`), computed as `spawn` would compute it
+/// at the entity's level (state.rs `rebind_unit`).
+#[derive(Clone, Copy, Debug)]
+pub struct RebindInit {
+    pub kind: EntityKind,
+    pub card: u16,
+    pub damage: i32,
+    pub death_damage: i32,
+    pub radius: i32,
+    pub mass: Option<i32>,
+    /// Subtiles per tick.
+    pub speed: i32,
+    pub flying: bool,
+    /// The tick of the change: the new row plans its walk from here (`last_plan_tick`, as `spawn` sets it).
+    pub tick: u32,
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Entities {
     pub generation: Vec<u32>,
@@ -791,6 +808,85 @@ impl Entities {
         self.route[i].clear();
         self.free.push(id.index);
         true
+    }
+
+    /// THE IN-PLACE TRANSFORMATION (state.rs `rebind_unit`): entity `i` takes the new row's columns (`RebindInit`) and
+    /// stays the same entity. Every column is on one of three lists, and a column added to `Entities` must join one:
+    ///   KEPT, what makes it the same entity: generation, alive, team, level, team_seq, spawn_tick, creation_seq, pos,
+    ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, spawn_lane, lane_window_end, facing,
+    ///     acquirable_from, reveal_from, and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied,
+    ///     push_neighbours, hooked_by);
+    ///   THE CALLER'S, because the calibration decides them: the deploy timer (transform.REDEPLOY) and the target and
+    ///     attack columns (`reset_attack`, transform.ATTACK_STATE);
+    ///   FROM THE NEW ROW (`RebindInit`) or RESET to what `spawn` gives a new entity: the old row's walk (route,
+    ///     route_goal, seg_dir, move_frac, move_ticks, last_plan_tick, avoid_offset, stomp_clock), its row-bound
+    ///     state (charge, jump, dash, special, hide, spawner, life-state controller), a formation member's stagger
+    ///     and a death-spawn slide, and a building's knockback (a building is not moved).
+    pub fn rebind(&mut self, i: usize, r: RebindInit) {
+        self.card[i] = r.card;
+        self.kind[i] = r.kind;
+        self.damage[i] = r.damage;
+        self.death_damage[i] = r.death_damage;
+        self.radius[i] = r.radius;
+        self.mass[i] = r.mass;
+        self.speed[i] = r.speed;
+        self.flying[i] = r.flying;
+        self.route[i].clear();
+        self.route_goal[i] = None;
+        self.seg_dir[i] = Vec2::default();
+        self.move_frac[i] = Vec2::default();
+        self.move_ticks[i] = 0;
+        self.last_plan_tick[i] = r.tick;
+        self.avoid_offset[i] = 0;
+        self.stomp_clock[i] = 0;
+        self.charge_progress[i] = 0;
+        self.charged[i] = false;
+        self.jumping[i] = false;
+        self.dash_state[i] = DashState::None;
+        self.dash_mark[i] = 0;
+        self.dash_goal[i] = Vec2::default();
+        self.dash_target[i] = None;
+        self.dash_blocked[i] = false;
+        self.dash_immune_until[i] = 0;
+        self.special_ms[i] = 0;
+        self.special_on[i] = None;
+        self.hide[i] = HideState::Up;
+        self.hide_ms[i] = 0;
+        self.spawn_ms[i] = 0;
+        self.spawn_wave_left[i] = 0;
+        self.life_state[i] = 0;
+        self.life_ms[i] = 0;
+        self.life_target[i] = None;
+        self.life_n[i] = 0;
+        self.stagger_ms[i] = 0;
+        self.death_slide_centre[i] = Vec2::default();
+        self.death_slide_radius[i] = 0;
+        if r.kind.is_building() {
+            self.knock_rem[i] = Vec2::default();
+            self.knock_ms[i] = 0;
+            self.push_target[i] = Vec2::default();
+            self.push_speed[i] = 0;
+            self.push_active[i] = false;
+            self.push_applied[i] = Vec2::default();
+            self.push_neighbours[i] = 0;
+            self.hooked_by[i] = None;
+        }
+    }
+
+    /// Entity `i`'s target and attack back to a new entity's: no target, no lock, idle, both counters 0, no post-kill
+    /// wait and none of the per-target marks (a transformation that resets its target, state.rs `rebind_unit`).
+    pub fn reset_attack(&mut self, i: usize) {
+        self.target[i] = None;
+        self.target_locked[i] = false;
+        self.attack_phase[i] = AttackPhase::Idle;
+        self.attack_ms[i] = 0;
+        self.attack_load_ms[i] = 0;
+        self.retarget_wait[i] = 0;
+        self.target_doomed[i] = false;
+        self.fired_at[i] = None;
+        self.launched_beyond[i] = false;
+        self.chase_dropped[i] = None;
+        self.chase_inside[i] = None;
     }
 
     /// Largest collision radius among live entities (bounds neighbour queries).

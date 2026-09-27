@@ -1139,9 +1139,10 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     let tomb = db.get(db.index("Tombstone").unwrap());
     assert_eq!((tomb.range, tomb.sight_range, tomb.damage), (0, 0, 0));
     // Units the loader cannot run are REJECTED, naming the unit AND the reason: the
-    // bottles/containers are hitpoint-less objects, the 2018 BrokenCannon a
-    // troop with a LifeTime, the 15.535 Lumberjack's rage a death area effect, the
-    // 15.535 Cannon Cart and Skeleton Barrel action graphs. ~~SkeletonBalloon: a
+    // bottles/containers are hitpoint-less objects, the 15.535 Lumberjack's rage a
+    // death area effect, the 15.535 Skeleton Barrel's action graph. ~~MovingCannon~~ --
+    // the 15.535 Cannon Cart loads (its BrokenCannon is a transformation target);
+    // the 2018 one stays refused, pinned by tests/lifetime.rs. ~~SkeletonBalloon: a
     // chain~~ -- its SkeletonContainer is refused on `hitpoints` first; its
     // `SpawnCharacter = Skeleton` with blank SpawnNumber / SpawnPauseTime is read as
     // NO periodic spawner (the game's own blank), not as a partial block. Each card
@@ -1151,7 +1152,6 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     // unit (card.rs `convert_death_bomb`; tests/death_bomb.rs).
     for (card, reasons) in [
         ("RageBarbarian", &["RageBarbarianBottle: missing hitpoints", "death area effect RageBarbarianDummyForSpawn"][..]),
-        ("MovingCannon", &["BrokenCannon is a troop with a LifeTime", "action graph"]),
         ("SkeletonBalloon", &["SkeletonContainer: missing hitpoints", "action graph"]),
     ] {
         assert!(db.index(card).is_none(), "{card} must not be simulable");

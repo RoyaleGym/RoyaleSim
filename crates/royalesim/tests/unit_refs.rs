@@ -27,8 +27,9 @@
 //!      card's FIELDS name gets a card id, never -1 -- both shipped files and the
 //!      synthetic one, where the id is pinned to the first card that names the unit;
 //!   4. `a_rejected_card_keeps_no_unit_block`: cards rejected after their push, one
-//!      carrying a spawner, a death spawn, a second summon and a death area effect and
-//!      one a spell release, end with every block dropped, read off the fields;
+//!      carrying a spawner, a death spawn, a second summon and a death area effect, one
+//!      a spell release and one a transformation, end with every block dropped, read
+//!      off the fields;
 //!   5. `summon_only_numbering_is_breadth_first`: the summon-only records follow every
 //!      card, numbered in first-need order. That is breadth-first over ONE level: a
 //!      unit that itself puts units on the board is still refused as a spawn chain,
@@ -43,17 +44,18 @@
 //!   6. `a_unit_that_fails_a_check_is_caught_through_every_block`: the failing
 //!      direction of the two checks that read `unit_refs`, on a synthetic file.
 //!      (a) A Common card whose unit is a Legendary row, one per block (spawner,
-//!      death spawn, second summon, spell release): `check_levels` at unified 1 is Err
-//!      and names the unit, and passes at 9, where Legendary starts. (b) A death bomb
-//!      named by a spawner, a spell release and a second summon: each card is refused
-//!      with the exact text; the card that death-spawns it loads.
+//!      death spawn, second summon, spell release, transformation): `check_levels` at
+//!      unified 1 is Err and names the unit, and passes at 9, where Legendary starts.
+//!      (b) A death bomb named by a spawner, a spell release, a second summon and a
+//!      transformation: each card is refused with the exact text; the card that
+//!      death-spawns it loads.
 //!
 //! PLANT: `RUSTFLAGS='--cfg clash_plant="unit_refs_skips_new_paths"'
 //! CARGO_TARGET_DIR=target/plant cargo test --test unit_refs`: `unit_refs` drops the
-//! second summon -> 1, 3, 4 and 6 red (6 by its second-summon cases: the level check
-//! passes and the bomb card loads). 2 and 5 stay green: a block the enumeration skips
-//! skips its level check silently (the defect itself, which 6 shows failing), and the
-//! numbering does not read `unit_refs`.
+//! second summon and the transformation -> 1, 3, 4 and 6 red (6 by its second-summon
+//! and transformation cases: the level check passes and the bomb card loads). 2 and 5
+//! stay green: a block the enumeration skips skips its level check silently (the
+//! defect itself, which 6 shows failing), and the numbering does not read `unit_refs`.
 
 mod common;
 
@@ -68,7 +70,9 @@ use royalesim::py::ids_of_indices;
 ///   Delta   a death spawn (Nester) whose row death-spawns Imp itself: a chain;
 ///   Omega   a spawner, a death spawn, a death area effect and a second summon
 ///           (Nobody) with no `units` row;
-///   Sigma   a spell releasing Nobody.
+///   Sigma   a spell releasing Nobody;
+///   Tau     a transformation into Husk;
+///   Upsilon a transformation into Nobody.
 /// No towers: the fallback pair follows the units.
 const SYNTH: &str = r#"{ "version": "test", "cards": [
  { "name":"Alpha", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":300, "hit_speed_ms":1000,
@@ -87,7 +91,15 @@ const SYNTH: &str = r#"{ "version": "test", "cards": [
    "spawner":{"character":"Imp", "number":1, "pause_time_ms":5000}, "death_spawn":{"character":"Ghoul", "count":2},
    "death_area_effect":"OmegaArea", "second_summon":{"character":"Nobody", "count":1} },
  { "name":"Sigma", "kind":"spell", "elixir":2, "rarity":"Common",
-   "projectile":{"name":"SigmaBarrel", "speed":400, "spawn_character":"Nobody", "spawn_character_count":1} }
+   "projectile":{"name":"SigmaBarrel", "speed":400, "spawn_character":"Nobody", "spawn_character_count":1} },
+ { "name":"Tau", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":340, "hit_speed_ms":1000,
+   "range_milli":1000, "collision_radius_milli":500,
+   "action_graph":{"roots":{"OnStartingAction":"AtHealth"},"class_types":["ActionChangeGameObjectData","ActionRunActionAtHealth"],"spawns":[],"mechanic":true},
+   "transform_at_hp":{"into":"Husk","reset_target":false,"group_delays_ms":[],"at":0,"pct":50,"noop_spawns":[]} },
+ { "name":"Upsilon", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":350, "hit_speed_ms":1000,
+   "range_milli":1000, "collision_radius_milli":500,
+   "action_graph":{"roots":{"OnStartingAction":"AtHealth"},"class_types":["ActionChangeGameObjectData","ActionRunActionAtHealth"],"spawns":[],"mechanic":true},
+   "transform_at_hp":{"into":"Nobody","reset_target":false,"group_delays_ms":[],"at":0,"pct":50,"noop_spawns":[]} }
  ],
  "units": {
   "Imp":    { "name":"Imp", "rarity":"Common", "hitpoints":80, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
@@ -95,7 +107,8 @@ const SYNTH: &str = r#"{ "version": "test", "cards": [
   "Squire": { "name":"Squire", "rarity":"Common", "hitpoints":100, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Wisp":   { "name":"Wisp", "rarity":"Common", "hitpoints":110, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Nester": { "name":"Nester", "rarity":"Common", "hitpoints":120, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300,
-              "death_spawn":{"character":"Imp", "count":1} }
+              "death_spawn":{"character":"Imp", "count":1} },
+  "Husk":   { "name":"Husk", "rarity":"Common", "hitpoints":130, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 }
  },
  "area_effect_objects": {
   "OmegaArea": { "name":"OmegaArea", "radius_milli":2000, "damage":50, "hits_ground":true, "only_enemies":true }
@@ -139,6 +152,9 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(ls) = &c.life_state {
         out.push((UnitRef::LifeState, ls.unit, None));
     }
+    if let Some(t) = &c.transform_at_hp {
+        out.push((UnitRef::Transform, t.unit, None));
+    }
     out
 }
 
@@ -178,6 +194,7 @@ fn every_unit_block_is_enumerated() {
     assert_eq!(named("Alpha"), want(&[(UnitRef::Spawner, "Imp", None), (UnitRef::DeathSpawn, "Ghoul", None)]));
     assert_eq!(named("Beta"), want(&[(UnitRef::Spawner, "Imp", None), (UnitRef::SecondSummon, "Squire", None)]));
     assert_eq!(named("Gamma"), want(&[(UnitRef::SpellRelease, "Wisp", Some(2))]));
+    assert_eq!(named("Tau"), want(&[(UnitRef::Transform, "Husk", None)]));
     // Against the Debug text, which needs no list: a block holding a unit that neither
     // `unit_refs` nor `field_refs` names is counted here all the same.
     let why_debug = "unit_refs does not name every unit index its Debug text carries";
@@ -203,7 +220,7 @@ fn every_unit_block_is_enumerated() {
         }
         assert!(refs > 0, "{file}: vacuous, no record puts a unit on the board");
     }
-    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon] {
+    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Transform] {
         assert!(seen.contains(&path), "vacuous: no shipped record carries {path:?}");
     }
 }
@@ -275,8 +292,8 @@ fn every_unit_a_catalogue_card_puts_on_the_board_reports_its_card() {
     let id_of = |unit: &str| ids[db.cards.iter().position(|c| c.summon_only && c.name == unit).unwrap_or_else(|| panic!("no unit {unit}"))];
     let cid = |card: &str| catalogue.iter().position(|i| db.get(*i).name == card).unwrap_or_else(|| panic!("{card} not in the catalogue")) as i32;
     assert_eq!(
-        [id_of("Imp"), id_of("Ghoul"), id_of("Squire"), id_of("Wisp")],
-        [cid("Alpha"), cid("Alpha"), cid("Beta"), cid("Gamma")]
+        [id_of("Imp"), id_of("Ghoul"), id_of("Squire"), id_of("Wisp"), id_of("Husk")],
+        [cid("Alpha"), cid("Alpha"), cid("Beta"), cid("Gamma"), cid("Tau")]
     );
 }
 
@@ -287,7 +304,7 @@ fn every_unit_a_catalogue_card_puts_on_the_board_reports_its_card() {
 fn a_rejected_card_keeps_no_unit_block() {
     let db = synth();
     let why = |n: &str| db.rejected.iter().find(|(r, _)| r == n).map(|(_, w)| w.clone()).unwrap_or_else(|| panic!("{n} not rejected: {:?}", db.rejected));
-    for n in ["Omega", "Sigma"] {
+    for n in ["Omega", "Sigma", "Upsilon"] {
         assert_eq!(why(n), "spawned unit Nobody has no units record", "{n}");
     }
     let card = |n: &str| db.cards.iter().find(|c| c.name == n).unwrap_or_else(|| panic!("{n} was never pushed"));
@@ -295,13 +312,15 @@ fn a_rejected_card_keeps_no_unit_block() {
     // Sigma is a projectile spell (so its release would still be there).
     assert!(card("Alpha").spawner.is_some() && card("Alpha").death_spawn.is_some() && card("Beta").formation.second_summon.is_some());
     assert!(matches!(&card("Sigma").spell, Some(SpellDef { shape: SpellShape::Projectile { .. }, .. })), "Sigma is not a projectile spell");
-    for n in ["Omega", "Sigma", "Delta"] {
+    assert!(card("Tau").transform_at_hp.is_some(), "Tau's transformation does not resolve");
+    for n in ["Omega", "Sigma", "Delta", "Upsilon"] {
         assert!(db.index(n).is_none(), "{n} is still registered");
         let c = card(n);
         assert!(c.spawner.is_none(), "{n} kept its spawner");
         assert!(c.death_spawn.is_none(), "{n} kept its death spawn");
         assert!(c.formation.second_summon.is_none(), "{n} kept its second summon");
         assert!(c.death_area_effect.is_none(), "{n} kept its death area effect");
+        assert!(c.transform_at_hp.is_none(), "{n} kept its transformation");
         if let Some(SpellDef { shape: SpellShape::Projectile { spawn, .. } | SpellShape::Rolling { spawn, .. }, .. }) = &c.spell {
             assert!(spawn.is_none(), "{n} kept its spell release");
         }
@@ -319,14 +338,15 @@ fn a_rejected_card_keeps_no_unit_block() {
 #[test]
 fn summon_only_numbering_is_breadth_first() {
     let db = synth();
-    // The six cards keep their file order and places (the three rejected after their
+    // The eight cards keep their file order and places (the four rejected after their
     // push included); the units follow in first-need order -- Alpha's Imp and Ghoul,
-    // Beta's Squire (its Imp is loaded already), Gamma's Wisp -- then the fallback towers.
+    // Beta's Squire (its Imp is loaded already), Gamma's Wisp, Tau's Husk -- then the
+    // fallback towers.
     let names: Vec<&str> = db.cards.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(&names[..6], &["Alpha", "Beta", "Gamma", "Delta", "Omega", "Sigma"]);
+    assert_eq!(&names[..8], &["Alpha", "Beta", "Gamma", "Delta", "Omega", "Sigma", "Tau", "Upsilon"]);
     let units: Vec<(usize, &str)> = db.cards.iter().enumerate().filter(|(_, c)| c.summon_only).map(|(i, c)| (i, c.name.as_str())).collect();
-    assert_eq!(units, vec![(6, "Imp"), (7, "Ghoul"), (8, "Squire"), (9, "Wisp")]);
-    assert_eq!(&names[10..], &[KING_TOWER, PRINCESS_TOWER]);
+    assert_eq!(units, vec![(8, "Imp"), (9, "Ghoul"), (10, "Squire"), (11, "Wisp"), (12, "Husk")]);
+    assert_eq!(&names[13..], &[KING_TOWER, PRINCESS_TOWER]);
     // THERE IS NO SECOND LEVEL YET: Nester death-spawns Imp, so it is refused as a
     // chain and never numbered.
     let (_, why) = db.rejected.iter().find(|(n, _)| n == "Delta").expect("Delta is refused");
@@ -343,9 +363,10 @@ fn summon_only_numbering_is_breadth_first() {
 ///   DukeTomb      a death spawn of Duke,      a Legendary row;
 ///   EarlPair      a second summon of Earl,    a Legendary row;
 ///   BaronBarrel   a spell releasing Baron,    a Legendary row;
-///   BombSpawner, BombBarrel, BombPair: a spawner, a spell release and a second summon
-///                 of Bomb, a death bomb (a building row with a fuse, a death damage
-///                 and a radius, and nothing else);
+///   CountShift    a transformation into Count, a Legendary row;
+///   BombSpawner, BombBarrel, BombPair, BombShift: a spawner, a spell release, a second
+///                 summon and a transformation of Bomb, a death bomb (a building row with a
+///                 fuse, a death damage and a radius, and nothing else);
 ///   BombDropper   a death spawn of Bomb, the one block that may release it.
 const GUARDS: &str = r#"{ "version": "test", "cards": [
  { "name":"LordSpawner", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":300, "hit_speed_ms":1000,
@@ -363,13 +384,22 @@ const GUARDS: &str = r#"{ "version": "test", "cards": [
  { "name":"BombPair", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":340, "hit_speed_ms":1000,
    "range_milli":1000, "collision_radius_milli":500, "second_summon":{"character":"Bomb", "count":1} },
  { "name":"BombDropper", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":350, "hit_speed_ms":1000,
-   "range_milli":1000, "collision_radius_milli":500, "death_spawn":{"character":"Bomb", "count":1} }
+   "range_milli":1000, "collision_radius_milli":500, "death_spawn":{"character":"Bomb", "count":1} },
+ { "name":"CountShift", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":360, "hit_speed_ms":1000,
+   "range_milli":1000, "collision_radius_milli":500,
+   "action_graph":{"roots":{"OnStartingAction":"AtHealth"},"class_types":["ActionChangeGameObjectData","ActionRunActionAtHealth"],"spawns":[],"mechanic":true},
+   "transform_at_hp":{"into":"Count","reset_target":false,"group_delays_ms":[],"at":0,"pct":50,"noop_spawns":[]} },
+ { "name":"BombShift", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":370, "hit_speed_ms":1000,
+   "range_milli":1000, "collision_radius_milli":500,
+   "action_graph":{"roots":{"OnStartingAction":"AtHealth"},"class_types":["ActionChangeGameObjectData","ActionRunActionAtHealth"],"spawns":[],"mechanic":true},
+   "transform_at_hp":{"into":"Bomb","reset_target":false,"group_delays_ms":[],"at":0,"pct":50,"noop_spawns":[]} }
  ],
  "units": {
   "Lord":  { "name":"Lord", "rarity":"Legendary", "hitpoints":80, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Duke":  { "name":"Duke", "rarity":"Legendary", "hitpoints":90, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Earl":  { "name":"Earl", "rarity":"Legendary", "hitpoints":100, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Baron": { "name":"Baron", "rarity":"Legendary", "hitpoints":110, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
+  "Count": { "name":"Count", "rarity":"Legendary", "hitpoints":120, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Bomb":  { "name":"Bomb", "source_table":"buildings", "rarity":"Common", "deploy_time_ms":3000, "death_damage":200,
              "death_damage_radius_milli":2000 }
  }
@@ -383,7 +413,7 @@ fn a_unit_that_fails_a_check_is_caught_through_every_block() {
     // unit has none, at Legendary's first level (9, read off the table) each has one.
     let legendary_first = db.rarity("Legendary").expect("the shipped table has Legendary").relative_level + 1;
     assert!(legendary_first > 1, "vacuous: a Legendary row has a level 1 in this table");
-    for (card, unit) in [("LordSpawner", "Lord"), ("DukeTomb", "Duke"), ("EarlPair", "Earl"), ("BaronBarrel", "Baron")] {
+    for (card, unit) in [("LordSpawner", "Lord"), ("DukeTomb", "Duke"), ("EarlPair", "Earl"), ("BaronBarrel", "Baron"), ("CountShift", "Count")] {
         let i = idx(card);
         match db.check_levels(i, 1) {
             Ok(()) => panic!("{card} at level 1: check_levels passed, but its unit {unit} has no level 1"),
@@ -393,7 +423,7 @@ fn a_unit_that_fails_a_check_is_caught_through_every_block() {
     }
     // (b) A death bomb reaches the board through a death spawn and nothing else: every
     // other block that names one is refused, by name.
-    for (card, block) in [("BombSpawner", "a periodic spawner"), ("BombBarrel", "a spell release"), ("BombPair", "a second summon")] {
+    for (card, block) in [("BombSpawner", "a periodic spawner"), ("BombBarrel", "a spell release"), ("BombPair", "a second summon"), ("BombShift", "a transformation")] {
         let want = format!("Bomb is a death bomb, which only a death spawn releases; {block} cannot");
         let why = db.rejected.iter().find(|(n, _)| n == card).map(|(_, w)| w.as_str());
         assert_eq!(why, Some(want.as_str()), "{card}: {:?}", db.rejected);

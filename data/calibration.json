@@ -2343,7 +2343,7 @@
         true
       ],
       "promotion_rules": "Freeze a Cannon for 4 s and time its total lifetime.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, BattleState::phase_status); a candidate without an engine implementation is refused at load, never silently substituted. Applied as it is to a troop with a LifeTime (a transformation target: lifetime.TROOP_LIFETIME), which no scenario has stunned"
     },
     "STUN_PAUSES_KING_ACTIVATION": {
       "value": false,
@@ -2662,12 +2662,12 @@
       "value": "none",
       "candidates": ["none", "client_projectile"],
       "status": "hypothesis",
-      "confidence": "LOW for the shipped arm none, which is today's engine: the Phoenix row's DeathSpawnProjectile is not extracted. HIGH for client_projectile on client 15.535.29 for the Phoenix (three scenarios: the egg on D+2 in all three, the fireball's damage on 5 enemies, one hatch); OPEN for a death over water and for other rows with a DeathSpawnProjectile",
-      "provenance": "MEASURED on client 15.535.29, the Phoenix scenarios. With D the Phoenix's last frame, on D+2 its DeathSpawnProjectile (PhoenixFireball) acted at its death point: four enemies lost 163 (Damage 64 at level 11) at centre distances 915-2517 from the Phoenix's last position, within Radius 2500 plus their own radius, and a Minion at 2590 died of it; and the projectile's SpawnCharacter appeared there for the Phoenix's side: a PhoenixEgg with 317 hp (124 at level 1), on D+2 in all three runs, at the last position or one Phoenix step on (0 and 59 off). Left alone, the egg hatched 76 ticks after it appeared (its row's spawner, SpawnStartTime 3800 ms, limit 1) into a PhoenixNoRespawn with full hp (1052 at level 11), 1100 ahead of it for its side, deploying. A Phoenix that died over the river left its egg on the near bank (1275 from the death point).",
+      "confidence": "LOW for the shipped arm none, which is today's engine: the column is loaded and not read. HIGH for client_projectile on client 15.535.29 for the Phoenix (three scenarios: the egg on D+2 in all three, the fireball's damage on 5 enemies, one hatch) and for the Goblin Demolisher (five scenarios: the blast on D+2 on a tower and on troops, from both of its forms); OPEN for a death over water and for the Goblin Party Hut's release",
+      "provenance": "MEASURED on client 15.535.29, the Phoenix scenarios. With D the Phoenix's last frame, on D+2 its DeathSpawnProjectile (PhoenixFireball) acted at its death point: four enemies lost 163 (Damage 64 at level 11) at centre distances 915-2517 from the Phoenix's last position, within Radius 2500 plus their own radius, and a Minion at 2590 died of it; and the projectile's SpawnCharacter appeared there for the Phoenix's side: a PhoenixEgg with 317 hp (124 at level 1), on D+2 in all three runs, at the last position or one Phoenix step on (0 and 59 off). Left alone, the egg hatched 76 ticks after it appeared (its row's spawner, SpawnStartTime 3800 ms, limit 1) into a PhoenixNoRespawn with full hp (1052 at level 11), 1100 ahead of it for its side, deploying. A Phoenix that died over the river left its egg on the near bank (1275 from the death point). The Goblin Demolisher scenarios (client 15.535.29, level 11), both rows carrying GoblinDemolisherDeathProjectile (Damage 158 in a Radius of 2500, Pushback 2000, no SpawnCharacter): with D the unit's last frame, on D+2 a princess tower lost 404 (158 at level 11) in full, and Knights 1761, 2280 and 2545 from the death point lost 404 each and were pushed 250, 250, 250 (249 in one run) and on down a tick. The blast came whether the kamikaze form died at its own attack on a tower, was killed mid-run by a Knight, or the ranged form was killed from above half in one tick by a Rocket and never transformed.",
       "meaning": "client_projectile: when a unit whose row has a DeathSpawnProjectile dies, that projectile acts at its death point on the second tick after its last one: its area damage (Damage at the dead unit's level, to enemies whose centre is within Radius plus their own radius) and its SpawnCharacter, created there for the dead unit's side at its level (a ground unit on water is placed on land). The spawned unit is its own row from then on: the PhoenixEgg's spawner makes the new Phoenix. none: today's engine, where the column is not read.",
-      "open": "Where a spawned ground unit goes when the death point is water: one case, 1275 from it on the near bank (the Barbarian Barrel's water release goes to (x - 250, 14750); this one landed at y 14697). Other rows with a DeathSpawnProjectile. Whether the fireball can hit air units.",
-      "promotion_rules": "The test file passes. The flip moves every scene where a Phoenix dies, so replay reports can move; register the prediction before the flip.",
-      "engine": "tools/extract_cards.py (read the character's DeathSpawnProjectile, its damage and radius, and its SpawnCharacter) and the death path in state.rs (the area damage and the spawn on the second tick after the last one)"
+      "open": "Where a spawned ground unit goes when the death point is water: one case, 1275 from it on the near bank (the Barbarian Barrel's water release goes to (x - 250, 14750); this one landed at y 14697). Other rows with a DeathSpawnProjectile: the Goblin Demolisher's two rows are measured (above); the Goblin Party Hut's GoblinProjectile, which releases a Goblin_Stab, has no scenario. Whether the fireball can hit air units.",
+      "promotion_rules": "The test file passes. The flip moves every scene where a Phoenix or a Goblin Party Hut dies, so replay reports can move; register the prediction before the flip. It also gives the Goblin Demolisher its blast, which it lacks under none.",
+      "engine": "tools/extract_cards.py (read the character's DeathSpawnProjectile, its damage and radius, and its SpawnCharacter), card.rs (the card row's death projectile, and a spawned unit's that only deals damage: the Goblin Demolisher's kamikaze form) and the death path in state.rs (the area damage and the spawn on the second tick after the last one)"
     },
     "SPAWN_AREA_OBJECT_SCOPE": {
       "value": "morph_targets_only",
@@ -2795,8 +2795,9 @@
     "$comment": [
       "A LIFETIME BUILDING'S HITPOINTS (characters.csv / buildings.csv LifeTime, carried into",
       "data/derived/cards.json as `lifetime_ms` and read by card.rs `CardDef::lifetime_ms`).",
-      "The engine honours LifeTime on BUILDINGS only; the loader refuses a troop that ships one",
-      "(card.rs, `units.{unit} is a troop with a LifeTime`). Engine: state.rs `phase_status`.",
+      "The engine honours LifeTime on buildings, and on a troop that only a transformation reaches",
+      "(TROOP_LIFETIME below); the loader refuses a troop with one reached any other way (card.rs,",
+      "`units.{unit} is a troop with a LifeTime`). Engine: state.rs `lifetime_of`, `phase_status`.",
       "The column is the building's whole life, not a timer that fires at the end: the game",
       "bleeds the hitpoints away over it (HP_DECAY below), which is why a Tesla that nothing",
       "ever touched is at half hp halfway through. status.STUN_PAUSES_BUILDING_LIFETIME says",
@@ -2812,6 +2813,102 @@
       "meaning": "linear_drain (shipped): every tick past the deploy end the building's hundredths accumulator gains ((max_hp * 100000) / LifeTime_ms) / 20 and each whole hitpoint it crosses is dealt as a hit that ignores the hide state, so damage and the drain share one hp pool and a death by drain goes through the normal death path. expiry_hit (the earlier engine, kept runnable): hp is untouched and a hit for everything the building has left lands when LifeTime is up.",
       "promotion_rules": "Settled for every building the corpus shows. Open: whether the drain rate is recomputed when a buff changes max hp, and which pool the drain takes from on a shielded building (no shipped LifeTime card carries a shield, so neither is testable on the data).",
       "engine": "state.rs Calib::lifetime_hp_decay, read by BattleState::phase_status (`lifetime_drain_per_tick`, the accumulator BattleState::lifetime_acc); tests/lifetime.rs"
+    },
+    "TROOP_LIFETIME": {
+      "value": "same_as_buildings",
+      "candidates": ["same_as_buildings", "expiry_at_lifetime"],
+      "status": "measured",
+      "confidence": "MEDIUM: the drain is measured in 3 of 3 runs; its end (the expiry at 400 ticks) was never reached.",
+      "provenance": "Measured on client 15.535.29 on the Goblin Demolisher's kamikaze form (GoblinDemolisher_kamikaze_form, a troop row with LifeTime 20000), in the Goblin Demolisher scenarios at level 11: from its switch it lost 3, 3, 3, 4 hp a tick with nothing hitting it, in 3 of 3 runs. That is lifetime.HP_DECAY's building law on its max hp: 1300 x 100000 / 20000 / 20 = 325 hundredths a tick. Under expiry_at_lifetime its hp would have stood still.",
+      "meaning": "same_as_buildings: a troop's LifeTime runs lifetime.HP_DECAY's law, as a building's does. expiry_at_lifetime: the troop keeps its hp for the whole LifeTime, then takes one hit for everything it has. Only a troop row that a transformation reaches carries a LifeTime: card.rs refuses a troop with one reached any other way, so every battle without a transformation is the same under both values.",
+      "open": "The end of the life: 20000 ms is 400 ticks, and no scenario kept a kamikaze form alive that long.",
+      "promotion_rules": "A kamikaze form that nothing kills for 400 ticks.",
+      "engine": "state.rs lifetime_of (a troop's LifeTime) and phase_status (its decay law); card.rs, the unit loop (a troop with a LifeTime reached other than by a transformation is refused); tests/transform.rs, tests/lifetime.rs"
+    },
+    "DRAIN_BASE_AFTER_TRANSFORM": {
+      "value": "max_hp",
+      "candidates": ["max_hp", "hp_at_transform"],
+      "status": "measured",
+      "confidence": "HIGH: the rate fits exactly on both rows, and the other base is refuted by the cannon's 3 a tick.",
+      "provenance": "Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios, level 11): the Cannon Cart's broken cannon (BrokenCannon, LifeTime 30000) loses exactly 3 hp a tick from its switch, which is 301 hundredths = 1809 x 100000 / 30000 / 20 on its max hp; a base of the hp it broke at (860) would give 143 hundredths, under 2 a tick. The kamikaze form loses 3, 3, 3, 4: 325 hundredths on its max 1300.",
+      "meaning": "max_hp: after a transformation the drain is lifetime.HP_DECAY's rate on the entity's max hp, which the transformation keeps. hp_at_transform: the rate on the hp it had at the change (not implemented).",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs lifetime_drain_per_tick (reads the max hp) and rebind_unit (restarts the drain); only max_hp is implemented, the other value is refused at load"
+    }
+  },
+  "transform": {
+    "$comment": [
+      "THE HEALTH-THRESHOLD TRANSFORMATION (the 15.535.29 tables' ActionRunActionAtHealth whose action is an",
+      "ActionChangeGameObjectData into another character row: the Cannon Cart breaks into its cannon, the Goblin",
+      "Demolisher becomes its kamikaze form). tools/extract_cards.py writes the row's `transform_at_hp` block and",
+      "card.rs `TransformDef` loads it. Engine: state.rs `health_triggers` reads the threshold, `rebind_unit` changes",
+      "the unit in place, and a delayed change waits in `scheduled` (`fire_scheduled`, at the top of the Status",
+      "phase). Measured in the Cannon Cart and Goblin Demolisher scenarios on client 15.535.29 (six runs, level 11);",
+      "the 16.402 corpus holds no Cannon Cart and no Goblin Demolisher."
+    ],
+    "HEALTH_TRIGGER_COMPARE": {
+      "value": "at_or_below",
+      "candidates": ["at_or_below", "strictly_below"],
+      "status": "guess",
+      "confidence": "LOW: the tables give the percent (HealthPercentages 50 on both rows), and no run landed a hit on the line.",
+      "provenance": "Not measured. On client 15.535.29 no hit in the six Cannon Cart and Goblin Demolisher runs landed exactly on the line: the Cannon Cart's max hp 1809 is odd, so its crossings (969 -> 860, 1001 -> 799) are below half under either reading, and the Goblin Demolisher's went 694 -> 585, 755 -> 646 and 694 -> 492 of 1300. at_or_below is the reading of the column's name.",
+      "meaning": "at_or_below: the unit changes when hp x 100 <= max hp x HealthPercentages. strictly_below: when hp x 100 < max hp x HealthPercentages. They part only on a hit that lands exactly on the line.",
+      "open": "Which of the two the client uses.",
+      "promotion_rules": "A hit that brings a Goblin Demolisher to exactly 650 of its 1300 hp (a scenario not yet run).",
+      "engine": "state.rs health_triggers; tests/transform.rs the_threshold_compares_at_or_below"
+    },
+    "HEALTH_TRIGGER_TIMING": {
+      "value": "own_update",
+      "candidates": ["own_update", "crossing_tick_resolve"],
+      "status": "measured",
+      "confidence": "MEDIUM: two Cannon Cart and three Goblin Demolisher crossings fit it; the two melee crossings, one per card, fit it only under match.TICK_ORDER = client_sequential_strike.",
+      "provenance": "Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios, level 11). With C the frame a hit takes the unit to half or below: a princess tower's shot took a Cannon Cart from 969 to 860 on C, and it drained first on C + 2 (860, 860, 857, then 3 a tick); a Knight created before it took a Cannon Cart from 1001 to 799 with a melee strike on C, and it drained first on C + 1. Tower shots took a Goblin Demolisher to 585 and to 646 on C; it was still the ranged form on C + 1 and C + 2 and drained first as the kamikaze form on C + 3, which is a trigger on C + 1 and its 100 ms delay. A Knight created before it took one to 492 with a melee strike on C, and its first drain came on C + 2. Every case fits a threshold read at the unit's own update, which in the engine is its turn in the Target phase: the tick after a projectile's damage (a shot lands at the end of a tick), and the same tick after a melee strike by a unit earlier in the order under the sequential order. Reading it on the crossing tick itself (crossing_tick_resolve) puts every projectile case one tick early.",
+      "meaning": "own_update: the first thing a unit does in its own update, in the Target phase: once for every unit under match.TICK_ORDER = client16402, and at each unit's own turn under client_sequential_strike. crossing_tick_resolve: right after the tick's damage lands, in Resolve.",
+      "open": "Under the shipped match.TICK_ORDER = client16402 a melee crossing is read one tick late, as every melee strike is seen one tick late under that order.",
+      "promotion_rules": "More melee crossings, and the match.TICK_ORDER decision.",
+      "engine": "state.rs health_triggers, called first in phase_target_with, or from phase_resolve under crossing_tick_resolve; tests/transform.rs"
+    },
+    "ENTITY_CONTINUITY": {
+      "value": "same_entity_keep_hp",
+      "candidates": ["same_entity_keep_hp", "new_entity_full_hp"],
+      "status": "measured",
+      "confidence": "HIGH: one entity through the change in all six runs.",
+      "provenance": "Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios, level 11): across the change the entity kept its id and its creation ordinal, its hp went on from where it was (860 then 857 on a Cannon Cart, 585 then 582 on a Goblin Demolisher) and its max hp stayed the source row's at the unit's level (1809 is 707 at level 11, 1300 is 508), in all six runs. The target rows ship the same hitpoints as the source rows (707 and 508), so the max hp alone could not tell kept from read again; the continuous hp can.",
+      "meaning": "same_entity_keep_hp: the unit becomes the new row in place: the same entity, its hp and max hp kept, every stat the row carries read from the new row at the unit's level. new_entity_full_hp: a new entity with the new row's full hp (not implemented).",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs rebind_unit and entity.rs Entities::rebind; only same_entity_keep_hp is implemented, the other value is refused at load"
+    },
+    "ATTACK_STATE": {
+      "value": "keep_unless_reset_target",
+      "candidates": ["keep_unless_reset_target", "reset_always"],
+      "status": "measured",
+      "confidence": "MEDIUM: 2 of 2 Cannon Cart changes kept the attack, and 3 of 3 Goblin Demolisher changes reset it.",
+      "provenance": "Measured on client 15.535.29. The Cannon Cart's change sets no ResetTarget: its target stayed on it and its attack progress ran on by 50 a tick through the change (3300, 3350, 3400 in one run, 8750, 8800 in the other), a launch every 18 ticks straight through. The Goblin Demolisher's change sets ResetTarget: on its switch tick it had no target (3 of 3), and it held a building the tick after (3 of 3).",
+      "meaning": "keep_unless_reset_target: the target and the attack are kept unless the change sets ResetTarget; then the unit has no target and a fresh attack, and makes no target decision on the switch tick. reset_always: every change resets them.",
+      "open": "Whether a kept attack keeps its progress when the new row's HitSpeed differs (both measured rows share theirs).",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs rebind_unit (the switched list, read by phase_target_with) and entity.rs Entities::reset_attack; tests/transform.rs"
+    },
+    "REDEPLOY": {
+      "value": "none",
+      "candidates": ["none", "new_row_deploy_time"],
+      "status": "measured",
+      "confidence": "HIGH: no deploy frames after any of the six changes.",
+      "provenance": "Measured on client 15.535.29: after the Cannon Cart's change it went on attacking in state 2 on every one of the 40 frames that followed, and the Goblin Demolisher walked the tick after its switch. Both target rows ship DeployTime 1000, which would have held either for 20 ticks.",
+      "meaning": "none: the deploy timer is kept, so the unit does not deploy again. new_row_deploy_time: the unit serves the new row's DeployTime.",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs rebind_unit"
+    },
+    "ACT_DURING_DELAY": {
+      "value": "acts_normally",
+      "candidates": ["acts_normally", "held"],
+      "status": "measured",
+      "confidence": "LOW: the unit walked and its attack clock ran between trigger and switch, and no lob fell due in that window in any run.",
+      "provenance": "Measured on client 15.535.29: between its trigger and its switch the Goblin Demolisher walked on (steps of 59) and its attack progress kept running by 50 a tick, in all three runs.",
+      "meaning": "acts_normally: between the trigger and a delayed change the unit is still its old row and acts as it would. held: it stands and does not attack (not implemented).",
+      "open": "A lob that falls due inside the two-tick window.",
+      "promotion_rules": "A run where a lob falls due between trigger and switch.",
+      "engine": "state.rs health_triggers and fire_scheduled; only acts_normally is implemented, the other value is refused at load"
     }
   },
   "charge": {

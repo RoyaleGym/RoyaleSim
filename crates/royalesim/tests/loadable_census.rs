@@ -27,11 +27,11 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 103
-//!      loadable rows (the 101 catalogue cards, then PrincessTower and KingTower) and
-//!      43 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 112
+//!      loadable rows (the 110 catalogue cards, then PrincessTower and KingTower) and
+//!      34 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
-//!      69 loadable rows (the catalogue, then the towers) and 11 rejected ones, the
+//!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
 //!   3. `the_census_of_a_small_file_is_exact`: the census itself on a synthetic file
 //!      (a summon-only unit left out, a row refused before its push and one after,
@@ -45,7 +45,8 @@
 //! PLANT: `RUSTFLAGS='--cfg clash_plant="census_admits_one"' CARGO_TARGET_DIR=target/plant
 //! cargo test --test loadable_census`: `from_json_str` keeps a card it rejects after
 //! its push registered, its blocks dropped, running as the plain unit -> 1 red with
-//! ElixirGolem newly loadable and no longer rejected; 2 red with MovingCannon the same,
+//! ElixirGolem newly loadable and no longer rejected; 2 red with the 2018 MovingCannon the
+//! same (the 15.535.29 one loads: its BrokenCannon is a transformation target there),
 //! read from the loader before this file landed; 3, 4 and
 //! 5 are synthetic and stay green. The two rows are ones no other test pins in that
 //! table, which is the point: a row another test names is covered already. When the
@@ -153,6 +154,7 @@ const LOADABLE_15535: &[&str] = &[
     "Ghost",
     "MiniSparkys",
     "Rascals",
+    "MovingCannon",
     "MegaKnight",
     "DartBarrell",
     "Wallbreakers",
@@ -177,6 +179,7 @@ const LOADABLE_15535: &[&str] = &[
     "PrinceBuff",
     "Phoenix",
     "TriWizards",
+    "GoblinDemolisher",
     "GoblinMachine",
     "SuperKnight",
     "SkeletonWarriors_SpookyChess",
@@ -225,7 +228,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
     ("GoblinCurse", "area effect GoblinCurse runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionSpawn; spawns AreaEffectType:GoblinCurseBase)"),
-    ("GoblinDemolisher", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionRunActionAtHealth, ActionSpawn; spawns AreaEffectType:CancelTauntAEO)"),
     ("GoblinDrill", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 300, morphing into GoblinDrill on arrival)"),
     ("GoblinGiant", "spawner SpearGoblinGiant"),
     ("GoblinPartyRocket", "projectile GoblinMorphProjectile with a target cap or an area effect is not simulated"),
@@ -236,7 +238,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("MergeMaiden", "spell with no projectile and no area effect"),
     ("Miner", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 650)"),
     ("Mirror", "spell with no projectile and no area effect"),
-    ("MovingCannon", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionPlayEffect, ActionRunActionAtHealth)"),
     ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
     ("RamRider", "spawner RamRider"),
     ("Ronin", "the unit runs an action graph this loader does not read (ActionCounter, ActionDealDamage, ActionGroup, ActionPlayEffect, ActionRunForcedAnimationOnce, ActionSpawn, ActionWithDuration; spawns BuffType:ronin_reflect_stun_buff)"),
