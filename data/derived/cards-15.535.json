@@ -562,6 +562,9 @@
    "events/event_super_knight.toml": {
     "sha256": "24bb029cafbe869723b384b61271f72c10502949436d535e475b8d0caa3d8e97"
    },
+   "globals.csv": {
+    "sha256": "6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a"
+   },
    "projectiles.csv": {
     "sha256": "c59ef74273b721b861e6a499bc8869a6fc29ad07919884b79ebe859455d6eac5",
     "continuation_rows": 0
@@ -4446,14 +4449,25 @@
    "action_graph": {
     "roots": {
      "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
-     "VisualActions": "Healthbar_Medium"
+     "VisualActions": "Healthbar_Medium",
+     "AttackSequenceList[1].DoAttackAction": "ThreeMusketeer_Rework_Bayonet_Attack"
     },
     "class_types": [
+     "ActionDealDamage",
      "ActionFilter",
+     "ActionPlayEffect",
+     "ActionRunOnInstigator",
      "ActionSetAttackSequenceIndex"
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "attack_select": {
+    "melee_range_milli": 1600,
+    "melee_ground_only": true,
+    "melee_damage": 123,
+    "melee_index": 1,
+    "ranged_index": 0
    },
    "death_spawn_pushback": false,
    "count": 3,
@@ -4473,6 +4487,24 @@
      "ThreeMusketeer_Rework_Character_3"
     ]
    },
+   "summon_members": [
+    {
+     "character": "ThreeMusketeer_Rework_Character_1",
+     "offset_x_milli": 0,
+     "offset_y_milli": -1000
+    },
+    {
+     "character": "ThreeMusketeer_Rework_Character_2",
+     "offset_x_milli": -1000,
+     "offset_y_milli": 1000
+    },
+    {
+     "character": "ThreeMusketeer_Rework_Character_3",
+     "offset_x_milli": 1000,
+     "offset_y_milli": 1000
+    }
+   ],
+   "summon_offsets_x_mirrored": true,
    "deploy_area_effect": null,
    "deploy_projectile": null,
    "level_scaling": {
@@ -5025,6 +5057,8 @@
    "summon_deploy_delay_second_ms": null,
    "second_summon": null,
    "deploy_area_effect": null,
+   "can_deploy_on_enemy_side": true,
+   "touchdown_limited_deploy": true,
    "deploy_projectile": null,
    "level_scaling": {
     "rarity": "Legendary",
@@ -7293,7 +7327,8 @@
     "start_time_ms": null,
     "pause_time_ms": null,
     "limit": null,
-    "radius_milli": null
+    "radius_milli": null,
+    "attach": true
    },
    "spawn_radius_milli": null,
    "spawn_angle_shift_deg": null,
@@ -8459,7 +8494,8 @@
     "start_time_ms": null,
     "pause_time_ms": null,
     "limit": null,
-    "radius_milli": 900
+    "radius_milli": 900,
+    "attach": true
    },
    "spawn_radius_milli": 900,
    "spawn_angle_shift_deg": null,
@@ -9503,6 +9539,12 @@
    "attack_pushback_milli": null,
    "special": null,
    "action_graph": null,
+   "mana": {
+    "collect_amount": null,
+    "generate_time_ms": null,
+    "on_death": null,
+    "on_death_for_opponent": 1000
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -14663,6 +14705,12 @@
    "attack_pushback_milli": null,
    "special": null,
    "action_graph": null,
+   "mana": {
+    "collect_amount": 1,
+    "generate_time_ms": 13000,
+    "on_death": 1,
+    "on_death_for_opponent": null
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -14672,6 +14720,7 @@
    "second_summon": null,
    "deploy_area_effect": null,
    "deploy_projectile": null,
+   "omit_from_starting_hand": true,
    "level_scaling": {
     "rarity": "Rare",
     "level_count": 14,
@@ -14969,7 +15018,7 @@
   {
    "name": "FirespiritHut",
    "display_name": "Furnace",
-   "kind": "building",
+   "kind": "troop",
    "elixir": 4,
    "rarity": "Rare",
    "summon_character": "Furnace_rework",
@@ -15079,6 +15128,19 @@
     ],
     "mechanic": true
    },
+   "interval_spawner": {
+    "start_counter_at_ms": 1950,
+    "interval_ms": 5000,
+    "affected_by_spawn_speed": true,
+    "pause_tags": [
+     "NO_SUMMON",
+     "UNIT_CUSTOM_TAG_1"
+    ],
+    "character": "FireSpirits",
+    "deploy_time_ms": 500,
+    "mirrored_x": 0,
+    "mirrored_y": 3
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -15088,6 +15150,7 @@
    "second_summon": null,
    "deploy_area_effect": null,
    "deploy_projectile": null,
+   "card_table_kind": "building",
    "level_scaling": {
     "rarity": "Rare",
     "level_count": 14,
@@ -15454,6 +15517,8 @@
    "summon_deploy_delay_second_ms": null,
    "second_summon": null,
    "deploy_area_effect": null,
+   "can_deploy_on_enemy_side": true,
+   "touchdown_limited_deploy": true,
    "deploy_projectile": null,
    "level_scaling": {
     "rarity": "Epic",
@@ -16608,8 +16673,10 @@
     "can_deploy_on_enemy_side": true,
     "pushback_milli": null,
     "duration_seconds": null,
-    "spawn": null
+    "spawn": null,
+    "mirror": true
    },
+   "omit_from_starting_hand": true,
    "level_scaling": {
     "rarity": "Epic",
     "level_count": 11,
@@ -19352,7 +19419,24 @@
     "can_deploy_on_enemy_side": false,
     "pushback_milli": null,
     "duration_seconds": null,
-    "spawn": null
+    "spawn": null,
+    "variant": {
+     "options": [
+      {
+       "trigger_milli": 6000,
+       "precast_pending_ms": 1200,
+       "card": "MergeMaiden_Mounted"
+      },
+      {
+       "trigger_milli": 3000,
+       "precast_pending_ms": 1200,
+       "card": "MergeMaiden_Normal"
+      }
+     ],
+     "use_projected_time_summon": true,
+     "mirror_uses_root_spell": false,
+     "source": "spells_other.MergeMaiden.Options (2 entries)"
+    }
    },
    "level_scaling": {
     "rarity": "Legendary",
@@ -26188,7 +26272,8 @@
     "start_time_ms": null,
     "pause_time_ms": null,
     "limit": null,
-    "radius_milli": 900
+    "radius_milli": 900,
+    "attach": true
    },
    "spawn_area_object": null,
    "spawn_radius_milli": 900,
@@ -26467,6 +26552,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "spawn_max_angle_deg": 90,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SpearGoblinGiant",
@@ -26548,7 +26634,8 @@
     "start_time_ms": null,
     "pause_time_ms": null,
     "limit": null,
-    "radius_milli": null
+    "radius_milli": null,
+    "attach": true
    },
    "spawn_area_object": null,
    "spawn_radius_milli": null,
@@ -26729,6 +26816,28 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "target_only_troops": true,
+   "ignore_targets_with_buff": {
+    "name": "BolaSnare",
+    "speed_multiplier_raw": -70,
+    "hit_speed_multiplier_raw": null,
+    "spawn_speed_multiplier_raw": null,
+    "damage_per_second": null,
+    "hit_frequency_ms": null,
+    "heal_per_second": null,
+    "damage_reduction": null,
+    "damage_multiplier": null,
+    "crown_tower_damage_percent": null,
+    "immune_to_anti_magic": null,
+    "no_effect_to_crown_towers": false,
+    "attract_percentage": null,
+    "building_damage_percent": null,
+    "enable_stacking": false,
+    "hit_tick_from_source": false,
+    "controlled_by_parent": false
+   },
+   "deprioritize_targets_with_buff": true,
+   "attach_max_rotation_deg": 90,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "RamRider",
@@ -27210,6 +27319,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": null,
+    "generate_time_ms": null,
+    "on_death": null,
+    "on_death_for_opponent": 1000
+   },
    "attached_character": null,
    "defaults_applied": [
     "crown_tower_damage_percent",
@@ -27312,6 +27427,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": null,
+    "generate_time_ms": null,
+    "on_death": null,
+    "on_death_for_opponent": 500
+   },
    "attached_character": null,
    "defaults_applied": [
     "crown_tower_damage_percent",
@@ -27408,6 +27529,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": null,
+    "generate_time_ms": null,
+    "on_death": null,
+    "on_death_for_opponent": 500
+   },
    "attached_character": null,
    "defaults_applied": [
     "crown_tower_damage_percent",
@@ -36652,6 +36779,19 @@
     ],
     "mechanic": true
    },
+   "interval_spawner": {
+    "start_counter_at_ms": 1950,
+    "interval_ms": 5000,
+    "affected_by_spawn_speed": true,
+    "pause_tags": [
+     "NO_SUMMON",
+     "UNIT_CUSTOM_TAG_1"
+    ],
+    "character": "FireSpirits",
+    "deploy_time_ms": 500,
+    "mirrored_x": 0,
+    "mirrored_y": 3
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
@@ -37956,7 +38096,8 @@
     "start_time_ms": null,
     "pause_time_ms": null,
     "limit": null,
-    "radius_milli": 900
+    "radius_milli": 900,
+    "attach": true
    },
    "spawn_area_object": null,
    "spawn_radius_milli": 900,
@@ -38134,6 +38275,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "spawn_max_angle_deg": 90,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SpearGoblinGiant",
@@ -41740,14 +41882,25 @@
    "action_graph": {
     "roots": {
      "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
-     "VisualActions": "Healthbar_Medium"
+     "VisualActions": "Healthbar_Medium",
+     "AttackSequenceList[1].DoAttackAction": "ThreeMusketeer_Rework_Bayonet_Attack"
     },
     "class_types": [
+     "ActionDealDamage",
      "ActionFilter",
+     "ActionPlayEffect",
+     "ActionRunOnInstigator",
      "ActionSetAttackSequenceIndex"
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "attack_select": {
+    "melee_range_milli": 1600,
+    "melee_ground_only": true,
+    "melee_damage": 123,
+    "melee_index": 1,
+    "ranged_index": 0
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -41888,14 +42041,25 @@
    "action_graph": {
     "roots": {
      "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
-     "VisualActions": "Healthbar_Medium"
+     "VisualActions": "Healthbar_Medium",
+     "AttackSequenceList[1].DoAttackAction": "ThreeMusketeer_Rework_Bayonet_Attack"
     },
     "class_types": [
+     "ActionDealDamage",
      "ActionFilter",
+     "ActionPlayEffect",
+     "ActionRunOnInstigator",
      "ActionSetAttackSequenceIndex"
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "attack_select": {
+    "melee_range_milli": 1600,
+    "melee_ground_only": true,
+    "melee_damage": 123,
+    "melee_index": 1,
+    "ranged_index": 0
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -42036,14 +42200,25 @@
    "action_graph": {
     "roots": {
      "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
-     "VisualActions": "Healthbar_Medium"
+     "VisualActions": "Healthbar_Medium",
+     "AttackSequenceList[1].DoAttackAction": "ThreeMusketeer_Rework_Bayonet_Attack"
     },
     "class_types": [
+     "ActionDealDamage",
      "ActionFilter",
+     "ActionPlayEffect",
+     "ActionRunOnInstigator",
      "ActionSetAttackSequenceIndex"
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "attack_select": {
+    "melee_range_milli": 1600,
+    "melee_ground_only": true,
+    "melee_damage": 123,
+    "melee_index": 1,
+    "ranged_index": 0
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -42184,14 +42359,25 @@
    "action_graph": {
     "roots": {
      "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
-     "VisualActions": "Healthbar_Medium"
+     "VisualActions": "Healthbar_Medium",
+     "AttackSequenceList[1].DoAttackAction": "ThreeMusketeer_Rework_Bayonet_Attack"
     },
     "class_types": [
+     "ActionDealDamage",
      "ActionFilter",
+     "ActionPlayEffect",
+     "ActionRunOnInstigator",
      "ActionSetAttackSequenceIndex"
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "attack_select": {
+    "melee_range_milli": 1600,
+    "melee_ground_only": true,
+    "melee_damage": 123,
+    "melee_index": 1,
+    "ranged_index": 0
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -44543,6 +44729,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": 1,
+    "generate_time_ms": 13000,
+    "on_death": 1,
+    "on_death_for_opponent": null
+   },
    "attached_character": null,
    "defaults_applied": [
     "speed",
@@ -47081,6 +47273,26 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_targets_with_buff": {
+    "name": "Neutral_Rage",
+    "speed_multiplier_raw": 170,
+    "hit_speed_multiplier_raw": 170,
+    "spawn_speed_multiplier_raw": 170,
+    "damage_per_second": null,
+    "hit_frequency_ms": null,
+    "heal_per_second": null,
+    "damage_reduction": null,
+    "damage_multiplier": null,
+    "crown_tower_damage_percent": null,
+    "immune_to_anti_magic": null,
+    "no_effect_to_crown_towers": false,
+    "attract_percentage": null,
+    "building_damage_percent": null,
+    "enable_stacking": false,
+    "hit_tick_from_source": false,
+    "controlled_by_parent": false
+   },
+   "deprioritize_targets_with_buff": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Neutral_RageBarbarians",
@@ -47574,6 +47786,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": null,
+    "generate_time_ms": null,
+    "on_death": 2,
+    "on_death_for_opponent": null
+   },
    "attached_character": null,
    "defaults_applied": [
     "speed",
@@ -47784,6 +48002,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "target_only_troops": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Fisherbarrel",
@@ -51491,6 +51710,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": null,
+    "generate_time_ms": null,
+    "on_death": 4,
+    "on_death_for_opponent": null
+   },
    "attached_character": null,
    "defaults_applied": [
     "speed",
@@ -51705,6 +51930,12 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "special": null,
+   "mana": {
+    "collect_amount": 1,
+    "generate_time_ms": 3000,
+    "on_death": null,
+    "on_death_for_opponent": 4000
+   },
    "attached_character": null,
    "defaults_applied": [
     "speed",
@@ -51954,6 +52185,25 @@
     "spawns": [],
     "mechanic": true
    },
+   "ignore_targets_with_buff": {
+    "name": "IgnoreBarrel",
+    "speed_multiplier_raw": 100,
+    "hit_speed_multiplier_raw": 100,
+    "spawn_speed_multiplier_raw": 100,
+    "damage_per_second": null,
+    "hit_frequency_ms": null,
+    "heal_per_second": null,
+    "damage_reduction": null,
+    "damage_multiplier": null,
+    "crown_tower_damage_percent": null,
+    "immune_to_anti_magic": null,
+    "no_effect_to_crown_towers": false,
+    "attract_percentage": null,
+    "building_damage_percent": null,
+    "enable_stacking": false,
+    "hit_tick_from_source": false,
+    "controlled_by_parent": false
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "KingTower_IgnoreBarrel",
@@ -52079,6 +52329,25 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_targets_with_buff": {
+    "name": "IgnoreBarrel",
+    "speed_multiplier_raw": 100,
+    "hit_speed_multiplier_raw": 100,
+    "spawn_speed_multiplier_raw": 100,
+    "damage_per_second": null,
+    "hit_frequency_ms": null,
+    "heal_per_second": null,
+    "damage_reduction": null,
+    "damage_multiplier": null,
+    "crown_tower_damage_percent": null,
+    "immune_to_anti_magic": null,
+    "no_effect_to_crown_towers": false,
+    "attract_percentage": null,
+    "building_damage_percent": null,
+    "enable_stacking": false,
+    "hit_tick_from_source": false,
+    "controlled_by_parent": false
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "PrincessTower_IgnoreBarrel",
@@ -71286,5 +71555,10 @@
   "spells_characters.CHAR_DISABLED_7",
   "spells_buildings.DarkElixir_Bottle",
   "spells_buildings.ElixirBarrel"
- ]
+ ],
+ "globals": {
+  "MIRROR_LEVEL_OFFSET": 1,
+  "MIRROR_CAP_TO_MAX_LEVEL": false,
+  "MIRROR_IGNORE_CHAMPIONS": false
+ }
 }
