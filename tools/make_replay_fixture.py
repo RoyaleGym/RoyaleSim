@@ -124,9 +124,20 @@ DEPLOY POSITION AND TICK
     holds several ticks and the group is a SINGLE unit, its first step decides
     (`first_step_spawn_tick`: the first frame off the spawn point, when the frame
     before it was seen, is spawn + DeployTime / 50) if that lands inside the range;
-    else the latest is used and `tick_evidence` says "range [a, b]"; when the range is
+    else the EARLIEST is used and `tick_evidence` says "range [a, b]"; when the range is
     empty the first-seen tick is used and `tick_evidence` says so. `first_seen` keeps
     the raw frame tick.
+
+    Why the earliest: a range is left by a missed frame, and the missed frame is where
+    the group was created. On the 16.402 corpus, 12 of 12 range rows whose battle the
+    other seat recorded without the gap (Tombstone, Tesla x2, Royal Hogs, Goblin Hut x2,
+    Bats, Goblin Drill x2, Heal, Skeleton Warriors, Skeleton Army) were created on the
+    range's first tick, and 0 on its last; the lifetime drain of the three buildings among
+    them with a clean drain dates them the same way, and so do the first steps of the one
+    single-seat group checked (20260918-122757.b1 Goblins, 2414 of [2414, 2415]). The
+    frame of a creation tick is missed more often than others (26 % of 643 creation ticks
+    one seat pins, against 18 % of all ticks). Every range in the corpus is two ticks
+    wide; a wider one has no evidence.
 
     A capture can also SHOW a group late: some ticks after the spawn its own deploy
     timers give, later than any missed frame explains (`shown_late_spawn`). The frame
@@ -870,14 +881,14 @@ def refine_spawn_tick(
                 step = first_step_spawn_tick(ticks, positions or [], d)
                 if step is not None and lo2 <= step <= hi2:
                     return step, hi, f"exact (first step, in the transition range [{lo2}, {hi2}])"
-                return hi2, hi, f"range [{lo2}, {hi2}] (deploy-end transition), latest used"
+                return lo2, hi, f"range [{lo2}, {hi2}] (deploy-end transition), earliest used"
             return (
                 hi,
                 hi,
                 f"first-seen tick: the deploy-end transition [{a}, {b}] contradicts the frame gap"
                 f" [{lo}, {hi}]",
             )
-    return hi, hi, f"range [{lo}, {hi}] (frame gap, no transition seen), latest used"
+    return lo, hi, f"range [{lo}, {hi}] (frame gap, no transition seen), earliest used"
 
 
 #: The behavior_state of a summon member still waiting out its deploy stagger (entity kind 12); it

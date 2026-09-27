@@ -154,9 +154,14 @@ def spawn_tick_slack(d: dict) -> int:
     tick_evidence says "deploy-end transition; the capture shows") spawned more ticks
     before its first frame than the gap, so the gap says nothing about it. Its slack
     is read from the range its deploy ends left, "range [a, b] (...)": tick - a.
+
+    A row made since the maker takes the EARLIEST tick of a range ("earliest used",
+    make_replay_fixture.py `refine_spawn_tick`, where the range's evidence is) cannot
+    have spawned earlier than its tick: its slack is 0. 20260918-122757.b1's Goblins are
+    then on 2414, which is what the slack above allowed for.
     """
     evidence = str(d.get("tick_evidence", ""))
-    if evidence.startswith("exact"):
+    if evidence.startswith("exact") or evidence.endswith("earliest used"):
         return 0
     if "deploy-end transition; the capture shows" in evidence:
         m = re.match(r"range \[(-?\d+), (-?\d+)\]", evidence)

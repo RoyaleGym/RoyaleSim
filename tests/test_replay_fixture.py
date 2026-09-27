@@ -154,9 +154,11 @@ def test_spawn_tick_keeps_a_range_when_both_frames_were_missed(m):
     ticks = [170, 173, 174, 175, 176, 190, 192]
     states = [(1, 4), (2, 4), (3, 4), (4, 4), (5, 4), (6, 1)]
     tick, first_seen, why = m.refine_spawn_tick(ticks, 1, states, 1000)
-    # transition in (190, 192] -> spawn in [172, 173]; frame gap -> [171, 173]
-    assert (tick, first_seen) == (173, 173)
+    # transition in (190, 192] -> spawn in [172, 173]; frame gap -> [171, 173]; the earliest is taken: on the 16.402
+    # corpus 12 of 12 range rows the other seat pins were created on the range's first tick
+    assert (tick, first_seen) == (172, 173)
     assert why.startswith("range [172, 173]")
+    assert why.endswith("earliest used")
 
 
 def test_spawn_tick_is_pinned_by_the_first_step_inside_a_transition_range(m):
@@ -175,9 +177,9 @@ def test_spawn_tick_is_pinned_by_the_first_step_inside_a_transition_range(m):
     tick, first_seen, why = m.refine_spawn_tick(ticks, fi0, states, 1000, positions=positions)
     assert (tick, first_seen) == (936, 937)
     assert why.startswith("exact (first step")
-    # a formation member (no positions passed) keeps the latest of the range
+    # a formation member (no positions passed) takes the earliest of the range, which the first step confirms here
     tick, _, why = m.refine_spawn_tick(ticks, fi0, states, 1000)
-    assert tick == 937
+    assert tick == 936
     assert why.startswith("range [936, 937]")
     # the first step alone: gap-free before the first moved frame
     assert m.first_step_spawn_tick([100, 101, 102], [(0, 0, 0), (1, 0, 0), (2, 0, 59)], 20) == 82
@@ -189,15 +191,29 @@ def test_spawn_tick_is_pinned_by_the_first_step_inside_a_transition_range(m):
     assert m.first_step_spawn_tick(ticks, positions, 20) is None
 
 
-def test_spawn_tick_falls_back_to_first_seen_without_a_transition(m):
+def test_spawn_tick_takes_the_gap_s_earliest_tick_without_a_transition(m):
     ticks = [170, 173, 174]
     tick, first_seen, why = m.refine_spawn_tick(ticks, 1, [(1, 4), (2, 4)], 1000)
-    assert (tick, first_seen) == (173, 173)
+    assert (tick, first_seen) == (171, 173)
     assert "no transition" in why
+    assert why == "range [171, 173] (frame gap, no transition seen), earliest used"
     # a summon-delay card starts in state 11, not 4: no transition read either
     tick, _, why = m.refine_spawn_tick(ticks, 1, [(1, 11), (2, 4)], 1000)
-    assert tick == 173
+    assert tick == 171
     assert "no transition" in why
+
+
+def test_a_one_frame_range_is_the_missed_frame(m):
+    # 20260919-143305-A's Tombstone: frames 302 and 304 (303 missed); in state 4 through 321, 322 missed, state 0 on
+    # 323. The frame gap leaves [303, 304] and the deploy end (spawn + 19 in (321, 323]) the same range. Seat B of the
+    # same battle saw 303 and 322: it was created on 303, the missed frame, and so were 11 more such rows the other seat
+    # pins, with none on the range's last tick.
+    ticks = [300, 302, 304, *range(305, 322), 323, 324]
+    fi = ticks.index(304)
+    states = [(k, 4) for k in range(fi, ticks.index(321) + 1)] + [(ticks.index(323), 0)]
+    tick, first_seen, why = m.refine_spawn_tick(ticks, fi, states, 1000)
+    assert (tick, first_seen) == (303, 304)
+    assert why == "range [303, 304] (deploy-end transition), earliest used"
 
 
 @needs_modern_cards

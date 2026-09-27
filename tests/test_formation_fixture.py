@@ -103,3 +103,10 @@ def test_a_group_shown_late_takes_its_slack_from_its_deploy_end_range_not_the_fr
     }
     assert m.spawn_tick_slack(late) == 2
     assert m.spawn_tick_slack({**late, "tick_evidence": f"exact (deploy-end transition; {shown})"}) == 0
+    # A row whose range the maker now settles on its EARLIEST tick cannot have spawned earlier.
+    earliest = {
+        **gap_row,
+        "tick": 98,
+        "tick_evidence": "range [98, 100] (frame gap, no transition seen), earliest used",
+    }
+    assert m.spawn_tick_slack(earliest) == 0
