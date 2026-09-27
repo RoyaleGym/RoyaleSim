@@ -440,19 +440,23 @@ fn only_a_ground_melee_hit_is_countered() {
         let bat = s.scenario_spawn_now(Team::Blue, "Bats", at((9000, 15600)), None).expect("place a Bat");
         let tape = Tape::record(&mut s, &[ronin, bat], 80);
         let fires = tape.fires(1, hit_speed(&s, "Bats"));
-        assert!(fires.len() >= 2, "the Bat hit only {} times, so this looked at nothing", fires.len());
         (tape, fires)
     };
+    // The shipped arm: every hit in full, then at least two of them. A countered hit reads as "not taken in full"
+    // before the count is read.
     let (tape, fires) = bat_scene(cfg.clone());
     for f in &fires {
         assert_eq!(tape.lost(0, *f), BAT_HIT, "a Bat hit on tick {f} was not taken in full");
     }
+    assert!(fires.len() >= 2, "the Bat hit only {} times, so this looked at nothing", fires.len());
     assert!((tape.first..=tape.last()).all(|t| tape.at(0, t).parry_ms == 0), "a Bat hit spent the counter");
-    // parry.COUNTERED_HITS = melee: the first Bat hit is countered, and the reflect (162) kills the Bat.
+    // parry.COUNTERED_HITS = melee: the first Bat hit is countered, and the reflect (162) kills the Bat 6 ticks later,
+    // before its next hit (24 ticks). So this arm sees exactly one Bat hit, and the two the shipped arm needs cannot
+    // be asked of it.
     let mut melee = cfg;
     melee.calib.parry_hits = ParryHits::Melee;
     let (tape, fires) = bat_scene(melee);
-    let f = fires[0];
+    let f = *fires.first().expect("the Bat never hit under melee, so this looked at nothing");
     assert_eq!(tape.lost(0, f), 0, "melee counters the Bat's hit");
     assert!(tape.get(1, f + REFLECT_AFTER - 1).is_some() && tape.get(1, f + REFLECT_AFTER).is_none(), "the reflect kills the Bat on its tick");
 }

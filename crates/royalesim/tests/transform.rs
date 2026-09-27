@@ -293,7 +293,11 @@ fn a_cart_broken_by_a_tower_shot_becomes_its_cannon_in_place() {
     let (before, after) = (launches.iter().filter(|t| **t < fc.tick).count(), launches.iter().filter(|t| **t > f1.tick).count());
     assert!(before >= 1 && after >= 2, "the scene drifted: launches {launches:?} around the change on {}", f1.tick);
     assert!(launches.windows(2).all(|w| w[1] - w[0] == 18), "the launches keep one 18-tick cadence across the change: {launches:?}");
-    assert_eq!(s.entity(cart).map(|e| e.id), Some(cart), "one entity from first to last");
+    // One entity from first to last: every frame is read through the Cart's own id, so that id resolves on each frame
+    // until the unit falls. The tower's shots (109 every 16 ticks) and the drain (3 a tick) bring the cannon down inside
+    // this run, about 85 ticks after the crossing, so the check reads the frames and not the battle after the run.
+    let standing = frames.iter().take_while(|f| f.is_some()).count();
+    assert!(standing > c + 46, "one entity from first to last: the Cart's id stopped resolving on recorded frame {standing}");
 }
 
 /// Plant: transform_keeps_old_lifetime.
