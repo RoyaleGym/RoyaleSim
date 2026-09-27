@@ -10,7 +10,8 @@ Gate 11 holds the table to what the loader reads, and its plant lands.
 
 WHAT THIS PINS, 2: THE PROTOCOL (it needs an extension built from this tree): the catalogue's 10th element lists the
 Empress's forms; each player's `hand_costs` and `mirror_target` move with the elixir and the plays; a Mirror with
-nothing to copy answers NOTHING_TO_MIRROR.
+nothing to copy answers NOTHING_TO_MIRROR. The default catalogue (card_names=None) leaves the Mirror out, so it holds
+no kind code 6 (py.rs `Battle::new`).
 """
 
 from __future__ import annotations
@@ -165,6 +166,18 @@ def test_the_catalogue_lists_the_empress_forms(royalesim):
     assert rows[ID["MergeMaiden"]][col] == [[6000, ID["MergeMaiden_Mounted"], 6], [3000, ID["MergeMaiden_Normal"], 3]]
     assert rows[ID["Mirror"]][1] == 6, "the Mirror's kind code"
     assert all(r[col] is None for k, r in enumerate(rows) if k != ID["MergeMaiden"])
+
+
+def test_the_default_catalogue_leaves_the_mirror_out(royalesim):
+    """A card_names=None catalogue holds no Mirror, so no kind code 6: a decoder that maps only codes 0 to 4 refuses
+    a catalogue with a 6 (RoyaleGym's does, until it maps 6). Named in card_names the Mirror is there (the test
+    above). The other cards this batch loads stay in the default catalogue."""
+    rows = json.loads(royalesim.Battle(None, SLOTS).catalogue_json())
+    names = [r[0] for r in rows]
+    assert "Mirror" not in names
+    for card in ("MergeMaiden", "Miner"):
+        assert card in names, f"the default catalogue lost {card} besides the Mirror"
+    assert {r[1] for r in rows} <= {0, 1, 2, 3, 4}, sorted({r[1] for r in rows})
 
 
 def test_the_hand_prices_move_with_the_elixir_and_the_plays(royalesim):

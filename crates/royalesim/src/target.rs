@@ -535,6 +535,9 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i32, i32, i32, u32) {
     (edge, f.x, f.y, e.team_seq[c])
 }
 
+/// A candidate's rank in `scan_with`: (deprioritized, `key`), lowest first.
+type ScanKey = (bool, (i32, i32, i32, u32));
+
 /// Nearest valid enemy in sight, or None.
 pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityId> {
     scan_with(ctx, a, scratch, ctx.ents.chase_dropped[a])
@@ -553,7 +556,7 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
     ctx.hash.neighbours_within(e, e.pos[a], query, scratch);
     // targeting.DEPRIORITIZED_TARGET_BUFF: a carrier of the buff the attacker deprioritizes ranks after every other
     // candidate (`deprioritized`: false for every attacker that deprioritizes nothing, so the key is today's).
-    let mut best: Option<((bool, (i32, i32, i32, u32)), usize)> = None;
+    let mut best: Option<(ScanKey, usize)> = None;
     for &c in scratch.iter() {
         let c = c as usize;
         if !can_target(ctx, a, c, false) {

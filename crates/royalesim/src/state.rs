@@ -747,7 +747,7 @@ pub struct Calib {
     /// blank lays its death spawn on the fixed ring at DeathSpawnRadius (`phase_reap`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
     #[serde(default = "death_ring_default")]
-    pub death_ring: DeathSpawnRing,
+    pub death_ring: DeathRingArm,
     /// The UNIT names that ring applies to (value.units), matched against the dying unit's
     /// `CardDef::unit_name`.
     #[serde(default)]
@@ -1098,8 +1098,8 @@ fn spawned_first_step_default() -> SpawnedFirstStep {
     SpawnedFirstStep::None
 }
 
-fn death_ring_default() -> DeathSpawnRing {
-    DeathSpawnRing::None
+fn death_ring_default() -> DeathRingArm {
+    DeathRingArm::None
 }
 
 fn spawn_pathfind_default() -> SpawnPathfind {
@@ -3013,7 +3013,7 @@ calib_enum!(
 calib_enum!(
     /// spawner.DEATH_SPAWN_RING -- see `BattleState::phase_reap` (`fixed_ring_offset`): where a LISTED dying
     /// unit whose row leaves SpawnAngleShift blank and DeathSpawnPushback unset lays its death spawn.
-    DeathSpawnRing {
+    DeathRingArm {
         /// Every such row keeps spawner.DEATH_SPAWN_LAYOUT (the engine before the key).
         None = "none",
         /// A listed unit (`Calib::death_ring_units`, by the row's own name) lays member k of n at DeathSpawnRadius
@@ -3634,7 +3634,7 @@ impl Calib {
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             spawned_unit_acquire_delay: pick(&v, &["targeting", "SPAWNED_UNIT_ACQUIRE_DELAY", "value"], SpawnedUnitAcquireDelay::from_calibration_name)?,
             spawned_first_step: pick(&v, &["spawner", "SPAWNED_FIRST_STEP", "value"], SpawnedFirstStep::from_calibration_name)?,
-            death_ring: pick(&v, &["spawner", "DEATH_SPAWN_RING", "value", "arm"], DeathSpawnRing::from_calibration_name)?,
+            death_ring: pick(&v, &["spawner", "DEATH_SPAWN_RING", "value", "arm"], DeathRingArm::from_calibration_name)?,
             death_ring_units: v
                 .pointer("/spawner/DEATH_SPAWN_RING/value/units")
                 .and_then(Value::as_array)
@@ -4958,7 +4958,7 @@ impl BattleState {
         // run: this tick's for a unit created in the Spawn phase or by the Move phase's emissions,
         // the next tick's for one created at the end of Reap or by the scenario setup. HERE, where
         // every creation passes, so no path (a deploy, a release, an emission, the spawn list) is
-        // left out. Under the shipped morph_targets_only nothing is cast here: a MORPH TARGET (the
+        // left out (shipped since flip wave 2). Under morph_targets_only nothing is cast here. A MORPH TARGET (the
         // building a tunneller leaves, card.rs `CardDb::is_morph_target`) puts its area down on the
         // tick its tunneller comes up, under either arm (`surface`, spawner.SPAWN_AREA_OBJECT_TIMING),
         // and so never here.
@@ -10477,7 +10477,7 @@ impl BattleState {
             // (`fixed_death_ring`): the Elixir Golem's halves at +-750 on its x axis, the Goblin Drill's
             // building's two Goblins at +-(500, 0). Every other death keeps DEATH_SPAWN_LAYOUT (or the slide).
             #[cfg(not(clash_plant = "death_ring_facing"))]
-            let listed = self.cfg.calib.death_ring == DeathSpawnRing::ClientFixedRingListed
+            let listed = self.cfg.calib.death_ring == DeathRingArm::ClientFixedRingListed
                 && shift == 0
                 && !slide
                 && self.cfg.calib.death_ring_units.contains(&card.unit_name);
@@ -13278,7 +13278,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("life_state_wave_point".into(), serde_json::to_value(LifeStateWavePoint::OneDivision).map_err(|e| e.to_string())?);
     // The underground walk and the listed death ring: a format-3 battle ran no tunneller and laid every death
     // spawn by the layout key; it keeps that whatever the ledger ships (the same rule).
-    sh.insert("death_ring".into(), serde_json::to_value(DeathSpawnRing::None).map_err(|e| e.to_string())?);
+    sh.insert("death_ring".into(), serde_json::to_value(DeathRingArm::None).map_err(|e| e.to_string())?);
     sh.insert("death_ring_units".into(), Value::Array(Vec::new()));
     sh.insert("spawn_pathfind".into(), serde_json::to_value(SpawnPathfind::NotModelled).map_err(|e| e.to_string())?);
     sh.insert("spawn_pathfind_reach_from_speed".into(), Value::Bool(false));
