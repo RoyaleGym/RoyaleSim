@@ -36,7 +36,9 @@ NEW_ARM, OLD_ARM = "client_on_landing", "not_read"
 # ENTITY_FIELDS: 1 team, 3 card_id, 4 tower_slot, 5 x, 6 y, 7 hp
 TEAM, CARD, SLOT, X, Y, HP = 1, 3, 4, 5, 6, 7
 MK, KN, GOB = 0, 1, 2
-BLOW, DELAY, FIRST_SLIDE = 430, 6, 199
+BLOW, DELAY = 430, 6
+#: the recorded Knight's steps on the 8 ticks after the blow (client 15.535.29, side 0)
+SLIDES = [199, 174, 149, 125, 100, 74, 49, 25]
 
 
 def run(arm: str) -> dict:
@@ -78,7 +80,8 @@ def test_the_mega_knight_lands_with_a_blow():
     hit = r["rows"].get(r["first"] + DELAY, {})
     assert hit.get("Knight") == BLOW, r["rows"]
     assert "Goblins" not in hit, "a Goblin outside the radius was hit"
-    assert r["rows"].get(r["first"] + DELAY + 1, {}).get("knight_step") == FIRST_SLIDE, r["rows"]
+    after = [r["rows"].get(r["first"] + DELAY + k, {}).get("knight_step") for k in range(1, len(SLIDES) + 1)]
+    assert after == SLIDES, f"the Knight's steps after the blow: {after}, recorded {SLIDES}"
 
 
 def test_the_old_arm_is_todays_engine():

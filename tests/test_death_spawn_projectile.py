@@ -11,6 +11,10 @@ the 15.535.29 Phoenix scenarios: the fireball's 163 on four enemies at 915-2517 
 2590 (killed), the egg on D+2 in all three runs, the hatch on the egg's first tick + 76 at (0, +1100). Today's engine
 reads no DeathSpawnProjectile: the Phoenix dies and nothing follows.
 
+ONE COLUMN OF THE EGG ROW IS NOT READ YET: DestroyAtLimit. On client 15.535.29 the egg is gone once its one Phoenix
+is out; the engine's egg lives on. test_the_egg_is_gone_once_its_phoenix_is_out is a strict xfail naming it. The egg
+row's SpawnCharacterWithDeploy (the new Phoenix deploys) is not pinned here.
+
 NO CONTROL beyond the old arm: every other death spawn in the card data is a DeathSpawnCharacter, which the engine
 already reads and this key does not touch.
 
@@ -93,12 +97,26 @@ def test_the_egg_appears_on_d_plus_2_and_hatches_76_ticks_later():
     egg = eggs[0]
     assert near(pos(egg), at), f"the egg appeared at {pos(egg)}, not at the death point {at}"
     t = d + 2 + HATCH_TICKS
+    uid = egg[F["uid"]]
+    moved = [s for s in range(d + 3, t) if uid in rows[s] and not near(pos(rows[s][uid]), pos(egg))]
+    assert moved == [], f"the egg moved before it hatched, first on {moved[:1]}"
     born = [e for e in births(rows, t, 0) if e[F["max_hp"]] == PHOENIX_HP]
     assert len(born) == 1, f"no Phoenix of {PHOENIX_HP} hp hatched on {t}: {births(rows, t, 0)}"
     ahead = (pos(egg)[0], pos(egg)[1] + HATCH_AHEAD)
     assert near(pos(born[0]), ahead), f"it hatched at {pos(born[0])}, not {ahead}"
     early = [s for s in range(d + 3, t) if any(e[F["max_hp"]] == PHOENIX_HP for e in births(rows, s, 0))]
     assert early == [], f"a Phoenix hatched early, on {early}"
+
+
+@pytest.mark.xfail(strict=True, reason="the PhoenixEgg row's DestroyAtLimit is not read: the egg outlives its hatch")
+def test_the_egg_is_gone_once_its_phoenix_is_out():
+    rows = run(NEW_ARM, HATCH_SCENE)
+    d, _ = death(rows)
+    eggs = [e for e in births(rows, d + 2, 0) if e[F["max_hp"]] == EGG_HP]
+    assert len(eggs) == 1, f"the scene drifted: no egg of {EGG_HP} hp on {d + 2} (D = {d})"
+    t = d + 2 + HATCH_TICKS
+    assert len(rows) > t + 2, f"the run ended on {len(rows) - 1}"
+    assert eggs[0][F["uid"]] not in rows[t + 2], "the egg outlived its hatch"
 
 
 def test_the_fireball_hits_an_enemy_within_reach_on_d_plus_2():

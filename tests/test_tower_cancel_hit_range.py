@@ -48,12 +48,12 @@ KNIGHT_ON_GIANT = 2450
 LOCK = {"targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED": json.dumps(True)}
 
 
-def overrides(arm) -> dict:
-    return {**LOCK, KEY: json.dumps(arm)}
+def overrides(arm, lock: bool = True) -> dict:
+    return {**(LOCK if lock else {}), KEY: json.dumps(arm)}
 
 
-def battle(arm, spawns):
-    b = royalesim.Battle(["Giant", "Knight"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
+def battle(arm, spawns, lock: bool = True):
+    b = royalesim.Battle(["Giant", "Knight"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm, lock))
     units = [(t, c, x * SUB, y * SUB, -1) for t, c, x, y in spawns]
     b.reset(0, [[0] * 8, [1] * 8], 0, 200, [10_000, 10_000], None, units)
     return b
@@ -63,11 +63,12 @@ def dist(a, b) -> float:
     return math.hypot(a[F["x"]] - b[F["x"]], a[F["y"]] - b[F["y"]]) / SUB
 
 
-def tower_track(arm, ticks: int = 60) -> list[dict]:
+def tower_track(arm, ticks: int = 60, lock: bool = True) -> list[dict]:
     """A blue Giant at (14500, 18800) walks north and a red Knight at (14500, 14500) chases it out of the blue right
     princess tower's range. One row per tick: whether the tower targets the Knight, whether it fires at the Knight
-    this tick (attack phase 2), the Knight's centre distance to the tower and its hp."""
-    b = battle(arm, [(0, 0, 14500, 18800), (1, 1, 14500, 14500)])
+    this tick (attack phase 2), the Knight's centre distance to the tower and its hp. `lock` False runs the shipped
+    LOGIC_PRESERVE_TARGET_IF_HIT_STARTED."""
+    b = battle(arm, [(0, 0, 14500, 18800), (1, 1, 14500, 14500)], lock)
     rows = []
     for t in range(ticks):
         ents = json.loads(b.state_json())["entities"]
@@ -148,3 +149,13 @@ def test_the_old_arm_holds_a_tower_to_the_global_range():
     drop = next(r["t"] for r in rows[1:] if not r["on"])
     assert drop == 33
     assert hits(rows, TOWER_HIT) == [32, 50]
+
+
+def test_under_the_shipped_preserve_scope_the_key_changes_nothing():
+    """The shipped LOGIC_PRESERVE_TARGET_IF_HIT_STARTED (projectile_attackers_only) already drops a tower's target at
+    Range + both radii + 500, so both arms of this key give the measured drop (tick 27, one 109) and the same track."""
+    new = tower_track(NEW_ARM, lock=False)
+    old = tower_track(OLD_ARM, lock=False)
+    assert new == old, "the key moved the tower under the shipped preserve scope"
+    assert assert_tower_drop_rule(new) == 27
+    assert hits(new, TOWER_HIT) == [32]
