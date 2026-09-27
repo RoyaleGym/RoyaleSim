@@ -367,7 +367,13 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # slice gaps instead, as the loader reading their fields suggested, took that 75 to 72: the Baby
     # Dragon's gaps, the Mega Minion, the Skeleton Dragons and the mounted Merge Maiden left the
     # report while the shipped engine still never read those columns for them.
-    outside_by_vintage = {"2018": 40, "15.535": 74}
+    # 74 -> 79 on 2026-09-26: sim/loader2 makes seven rows load (Rage, Heal, Lightning, BarbLog, GoblinHut,
+    # Ghost, WarmSpell), and five of them join the outside set with what they carry unread: BarbLog
+    # (projectile.radius_y_milli), Ghost (AllowAreaDmgWhenInvisible, AttachedCharacter, BuffWhenNotAttacking*,
+    # HideTimeMs, Hovering), GoblinHut (DeployDelay, IsBuilding, OnStartingAction, SpawnInterval, SpawnNumber,
+    # SpawnPauseTime, projectile.only_enemies), Heal and Lightning (register entries only). Rage and WarmSpell
+    # load fully read. None left. Measured against 72ed062's outside set with each build's own module.
+    outside_by_vintage = {"2018": 40, "15.535": 79}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (
