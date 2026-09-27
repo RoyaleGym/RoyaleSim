@@ -6902,6 +6902,8 @@ impl BattleState {
     fn to_location_point(&self, i: usize, mx: i32, my: i32) -> Vec2 {
         let cell = self.cfg.arena.cell;
         let s = spell::forward_dy(self.ents.team[i]);
+        #[cfg(clash_plant = "to_location_arena_frame")]
+        let s = 1; // PLANT: Blue's offset for both seats, so a Red Furnace drops its spirits behind it.
         #[cfg(not(clash_plant = "to_location_by_facing"))]
         let off = Vec2::new(s * mx * cell, s * my * cell);
         #[cfg(clash_plant = "to_location_by_facing")]
@@ -11475,6 +11477,11 @@ impl BattleState {
         }
         let at = self.cfg.cards.get(self.ents.card[mi]).attach?;
         let radius = at.radius?;
+        #[cfg(clash_plant = "rider_arc_fixed_facing")]
+        let facing = {
+            let _ = facing;
+            Vec2::new(0, 256) // PLANT: every mount's riders laid out as if it faced +y, Red's included.
+        };
         let f = self.cfg.cards.get(rider).formation;
         Some(crate::formation::rider_arc_offset(radius, facing, at.number, k, f.spawn_angle_shift_deg, f.spawn_max_angle_deg))
     }
@@ -13751,9 +13758,15 @@ impl BattleState {
                 };
                 #[cfg(clash_plant = "relative_offset_native")]
                 let (ox, oy) = (x, y); // PLANT: one native unit a unit.
+                #[cfg(not(clash_plant = "relative_offset_arena_frame"))]
                 let (wx, wy) = match team {
                     Team::Blue => (ox, oy),
                     Team::Red => (-ox, -oy),
+                };
+                #[cfg(clash_plant = "relative_offset_arena_frame")]
+                let (wx, wy) = {
+                    let _ = team;
+                    (ox, oy) // PLANT: Blue's offset for both seats.
                 };
                 Vec2::new(centre.x + wx * K, centre.y + wy * K)
             }
