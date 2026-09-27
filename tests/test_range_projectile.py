@@ -20,6 +20,12 @@ pushback-1000 ladder, radially from the boulder's centre. Measured on the client
 - Executioner (a pingpong row, PingpongVisualTime 1500): the axe is 600 + 6400 sin(pi t / 30) from him t ticks after
   the throw, t = 0..30, out and back (within 5), and hits a target once a leg when the target's post-move centre is
   within ProjectileRadius + r (1500) of the axe's PREVIOUS-frame position (4 hits; 4 misses, the tightest 1519).
+  He waits for it: his attack progress stands at the throw's value from the throw tick T through T + 31 and steps
+  again on T + 32, so his throws are 49 ticks apart (247, 296, 345), not the 18 of HitSpeed 900. While he waits he
+  neither walks nor takes a new target: when the Knight died on 359 his target read none until 377 = 345 + 32, and he
+  walked on 377. The 16.402 corpus shows the same (one battle, two Executioners, 11 throws: 1403 and 1452, and 3477,
+  3526, 3575 and 3624, are 49 apart; a target killed on 1366 while the axe of 1338 was out read none until 1370 =
+  1338 + 32, and he walked on 1370).
 Today's engine aims these shots at the target and ends them on it: the boulder curves after the Knight, lands late,
 and pushes nothing; the Elite Archer's arrow stops on the first Knight.
 
@@ -36,6 +42,10 @@ in a scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target
     test_an_arrow_flies_on_through_its_first_victim.
   * `range_shot_unpushed` -- a straight shot's Pushback moves nothing:
     test_a_boulder_rolls_straight_to_its_range_and_pushes_radially.
+  * `pingpong_thrower_unheld` -- the thrower attacks on every HitSpeed while its axe is out, and retargets and walks
+    off as soon as its target dies: test_the_executioner_throws_again_only_49_ticks_after_a_throw[straight_to_range],
+    test_the_executioner_stands_with_no_target_until_his_axe_is_back, and (a second axe's hit inside the first one's
+    30 ticks) test_an_axe_flies_out_and_back_on_its_pingpong_path_and_hits_once_per_leg.
 """
 
 from __future__ import annotations
@@ -65,6 +75,12 @@ MUSKETEER_SCENE = ((12500, 18500), [(12500, 23500)])
 #: ProjectileRadius 1000) throwing at a Knight walking at it
 AXE_SCENE = ((12500, 18500), [(12500, 23500)])
 AXE_START, AXE_RANGE, AXE_PERIOD, AXE_REACH, AXE_HIT = 600, 7000, 30, 1000 + 500, 179
+#: he waits for his axe: the throw tick T and the 31 after it (client 15.535.29: 247-278, 296-327, 345-376; the 16.402
+#: corpus the same), so a throw comes 49 ticks after the one before (247, 296, 345; 1403, 1452), not HitSpeed 900 / 50
+#: = 18. Today's engine (the old arm, a homing axe) throws every 18.
+AXE_WAIT, AXE_THROW_GAP, HIT_SPEED_TICKS = 32, 49, 18
+#: a Knight the axe's way out kills (179 > 100), so the Executioner loses his target while the axe is out
+WEAK_KNIGHT_HP = 100
 
 
 def overrides(arm) -> dict:
@@ -169,11 +185,10 @@ def test_an_arrow_flies_on_through_its_first_victim():
     )
 
 
-# The Executioner throws its next axe every HitSpeed (900 ms, 18 ticks) while an axe flies for 30, so a second axe hits
-# the Knight on its way out inside this window. On the client the next throw waits for the axe to come back; the engine
-# does not hold it yet (state.rs `phase_attack_for`). The pingpong path itself is right. Strict, so the hold shows as
-# XPASS.
-@pytest.mark.xfail(strict=True, reason="the Executioner throws again while its axe is out: no hold for its return")
+# The Executioner's HitSpeed is 900 ms (18 ticks) and an axe flies for 30. On the client the next throw waits for the
+# axe to come back (combat.rs `throwers_out`, read in state.rs `phase_attack_for`), so no second axe hits the Knight
+# inside this window. Without that hold a second axe hits on its way out and the two-hit count below fails (plant
+# pingpong_thrower_unheld).
 def test_an_axe_flies_out_and_back_on_its_pingpong_path_and_hits_once_per_leg():
     rows = run(NEW_ARM, "AxeMan", AXE_SCENE, ticks=60)
     track = first_track(rows)
@@ -221,3 +236,60 @@ def test_old_arm_is_todays_engine():
     track = first_track(rows)
     hit_now = [u for u, e in rows[track[-1][0] + 1][1].items() if rows[track[-1][0]][1][u][F["hp"]] - e[F["hp"]]]
     assert len(hit_now) == 1, f"old arm: the arrow's end damaged {hit_now}"
+
+
+def run_axe(arm, knight_hp=-1, ticks=100):
+    """AXE_SCENE with the Knight at `knight_hp` (-1: full). Per tick: the Executioner's (x, y) and target uid (-1:
+    none), the Knight's hp (None once gone), and the positions of his axes in flight. Stops if he dies."""
+    at, ((kx, ky),) = AXE_SCENE
+    b = royalesim.Battle(["Knight", "AxeMan"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
+    spawns = [(1, 0, kx * SUB, ky * SUB, knight_hp), (0, 1, at[0] * SUB, at[1] * SUB, -1)]
+    b.reset(0, [[1] * 8, [0] * 8], 0, 200, [10_000, 10_000], None, spawns)
+    rows = []
+    for _ in range(ticks + 1):
+        st = json.loads(b.state_json())
+        ents = [e for e in st["entities"] if e[F["tower_slot"]] < 0]
+        me = next((e for e in ents if e[F["team"]] == 0), None)
+        if me is None:
+            break
+        ks = [e for e in ents if e[F["team"]] == 1 and e[F["hp"]] > 0]
+        axes = [native(p[P["x"]], p[P["y"]]) for p in st.get("projectiles", []) if p[P["firer_card_id"]] == 1]
+        rows.append((native(me[F["x"]], me[F["y"]]), me[F["target_uid"]], ks[0][F["hp"]] if ks else None, axes))
+        b.step([], 1)
+    return rows
+
+
+def throw_ticks(rows):
+    """The ticks a new axe of his appears: the count of his axes in flight rises."""
+    return [t for t in range(1, len(rows)) if len(rows[t][3]) > len(rows[t - 1][3])]
+
+
+@pytest.mark.parametrize(("arm", "gap"), [(NEW_ARM, AXE_THROW_GAP), (OLD_ARM, HIT_SPEED_TICKS)])
+def test_the_executioner_throws_again_only_49_ticks_after_a_throw(arm, gap):
+    rows = run_axe(arm)
+    throws = throw_ticks(rows)
+    assert len(throws) >= 2, f"{arm}: throws on {throws} in {len(rows) - 1} ticks"
+    assert throws[1] - throws[0] == gap, f"{arm}: throws on {throws[:3]}, {throws[1] - throws[0]} apart, not {gap}"
+    if arm == NEW_ARM:
+        most = max(len(rows[t][3]) for t in range(throws[0], throws[1] + 1))
+        assert most == 1, f"{most} of his axes in flight at once between the throws on {throws[:2]}"
+        back = [t for t in range(throws[0], throws[1]) if not rows[t][3]]
+        assert back, f"his first axe was still out on {throws[1]}"
+        assert back[0] == throws[0] + AXE_WAIT - 1, f"his first axe is gone from {back[0]}, not T + 31"
+
+
+def test_the_executioner_stands_with_no_target_until_his_axe_is_back():
+    rows = run_axe(NEW_ARM, knight_hp=WEAK_KNIGHT_HP, ticks=90)
+    throws = throw_ticks(rows)
+    assert throws, "no throw"
+    t0 = throws[0]
+    assert len(rows) > t0 + AXE_WAIT, f"the run ended on {len(rows) - 1}"
+    dead = next((t for t in range(t0, t0 + AXE_WAIT) if rows[t][2] is None), None)
+    assert dead is not None, f"the Knight ({WEAK_KNIGHT_HP} hp) outlived the axe thrown on {t0}"
+    assert dead <= t0 + AXE_PERIOD // 2, f"the Knight died on {dead}, not on the way out of the axe thrown on {t0}"
+    me = rows[t0][0]
+    moved = [t for t in range(t0, t0 + AXE_WAIT) if rows[t][0] != me]
+    assert moved == [], f"he moved on {moved[:4]} while his axe of {t0} was out (back on {t0 + AXE_WAIT})"
+    took = {t: rows[t][1] for t in range(dead, t0 + AXE_WAIT) if rows[t][1] != -1}
+    assert took == {}, f"he had a target after the Knight died on {dead} and before his axe was back: {took}"
+    assert rows[t0 + AXE_WAIT][0] != me, f"he did not walk on {t0 + AXE_WAIT} (T + 32), the tick his axe was gone"

@@ -6063,8 +6063,21 @@ impl BattleState {
         } else {
             Vec::new()
         };
+        // combat.RANGE_PROJECTILE = straight_to_range: the units whose pingpong throw is still out
+        // (combat.rs `throwers_out`). Empty in a battle without one.
+        let waiting = combat::throwers_out(&self.ents, &self.projectiles);
         for &(i, d) in &decisions {
             let e = &mut self.ents;
+            // A thrower waiting for its pingpong throw takes no decision: it keeps its target while
+            // that stands, has none once it has fallen, and starts no post-kill wait. Measured on
+            // client 15.535.29 and in the 16.402 corpus: the Executioner's target reads none from
+            // the kill until T + 32 (359 -> 377, 1366 -> 1370), and on T + 32 he takes a new one and
+            // walks (377, 1370) or swings on (1207, progress 950).
+            if waiting.get(i).copied().unwrap_or(false) {
+                let kept = e.target[i].filter(|t| e.standing(*t, struck));
+                e.target[i] = kept;
+                continue;
+            }
             // combat.POST_KILL_RETARGET_WAIT, either waiting arm. The loss L is the victim's death
             // tick (the first frame whose target reads none); this Target phase, L + 1, is the first
             // to find the target dead. A unit the arm makes wait (a LISTED unit under
@@ -8196,6 +8209,10 @@ impl BattleState {
 
     /// The Attack phase, for every unit or for a first update's fresh units alone.
     fn phase_attack_for(&mut self, only: Option<&[usize]>) {
+        // combat.RANGE_PROJECTILE = straight_to_range: the units whose pingpong throw is still out
+        // (combat.rs `throwers_out`), read before the pass; a throw made in it is its thrower's own
+        // and first holds it next tick. Empty, and nothing below reads it, in a battle without one.
+        let waiting = combat::throwers_out(&self.ents, &self.projectiles);
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] || self.cfg.cards.get(self.ents.card[i]).hit_speed_ms <= 0 || !only.map_or(true, |o| o.contains(&i)) {
                 continue;
@@ -8214,7 +8231,13 @@ impl BattleState {
             // braces, not a gate: a sliding member is born idle with no target and target.rs
             // `decide` gives it none until the slide ends, so both attack cycles already leave
             // it idle, and removing the term turns no test red.
-            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || e.retarget_wait[i] > 0 || e.death_sliding(i);
+            // ... and a thrower waiting for its pingpong throw (combat.rs `throwers_out`): the
+            // progress stands at the throw's value until the tick the throw is gone.
+            let held = e.held(&self.cfg.cards.buffs, i)
+                || e.knocked(i)
+                || e.retarget_wait[i] > 0
+                || e.death_sliding(i)
+                || waiting.get(i).copied().unwrap_or(false);
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing). The
@@ -10956,6 +10979,12 @@ impl BattleState {
                 if st.stop_on_hit {
                     h.u32(0x5354_4f50);
                 }
+                // A pingpong throw's thrower (combat.rs `throwers_out`): written only when set, so
+                // every other straight shot hashes as it did before the field.
+                if let Some(by) = st.thrower {
+                    h.u32(0x5448_5257);
+                    h.id(by);
+                }
             }
         }
         #[cfg(not(clash_plant = "hash_skips_spells"))]
@@ -11239,6 +11268,10 @@ impl BattleState {
 ///    gained `attract_pct` (which also made the Tornado loadable). So a format-20 blob saved
 ///    before any of them is refused as saved against different card data, never run on the
 ///    new cards; that refusal, not the format number, is what says it is stale.
+/// 20, unchanged, a pingpong throw's thrower (combat.RANGE_PROJECTILE = straight_to_range):
+///    `Straight` gained `thrower` (serde default None, hashed only when set, which is only on a
+///    pingpong throw), so a blob saved before it deserializes and hashes as it did. No Calib
+///    field, no CardDef change, no card fingerprint move.
 /// 20, unchanged, a straight shot's collision columns (combat.PROJECTILE_COLLISIONS, which
 ///    rides the projectile keys below): Calib gained projectile_collisions (serde default
 ///    not_read) and `Straight` gained `stop_on_hit` (serde default false, hashed only when

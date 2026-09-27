@@ -207,6 +207,44 @@ pub struct Straight {
     /// older snapshots = false.
     #[serde(default)]
     pub stop_on_hit: bool,
+    /// THE THROWER OF A PINGPONG THROW (`period` > 0): while this shot is in flight its
+    /// thrower's attack stands still, and it takes no new target (`throwers_out`). None on
+    /// every one-way shot. Hashed only when set; absent in older snapshots = None.
+    #[serde(default)]
+    pub thrower: Option<EntityId>,
+}
+
+/// THE THROWERS WAITING FOR A PINGPONG THROW (combat.RANGE_PROJECTILE = straight_to_range on a
+/// PingpongVisualTime row), by entity index: true for each live unit whose own throw is still
+/// in `projectiles`. Empty when there is none, which is every tick of a battle without one.
+///
+/// Measured on client 15.535.29 (the Executioner's catalogue scenario, 3 throws) and in the
+/// 16.402 corpus (the two Executioners of one battle, 11 throws): from the throw tick T through
+/// T + 31 his attack progress stands at the value of the throw, and on T + 32 it takes its
+/// first step again, so his throws are 49 ticks apart (247, 296, 345; 1403, 1452), not the 18
+/// of HitSpeed 900. The throw is in flight for T .. T + 30 and is removed in the Projectile
+/// phase of T + 31, which runs after that tick's Target and Attack phases, so "the throw is
+/// still in the list" is the rule for all 32 ticks. While he waits he neither walks nor takes
+/// a new target: a target killed on the way out reads none until T + 32 (359 -> 377 and
+/// 1366 -> 1370), and he walks on T + 32 (377 and 1370).
+pub fn throwers_out(ents: &Entities, projectiles: &[Projectile]) -> Vec<bool> {
+    let mut out = Vec::new();
+    #[cfg(clash_plant = "pingpong_thrower_unheld")]
+    let projectiles: &[Projectile] = {
+        let _ = projectiles;
+        &[] // PLANT (regression): the thrower attacks on every HitSpeed while its throw is out, and walks off.
+    };
+    for p in projectiles {
+        if let Some(t) = p.straight.as_ref().and_then(|s| s.thrower) {
+            if ents.is_alive(t) {
+                if out.is_empty() {
+                    out = vec![false; ents.capacity()];
+                }
+                out[t.index as usize] = true;
+            }
+        }
+    }
+    out
 }
 
 /// combat.MULTIPLE_PROJECTILES = client_fan: the angle between neighbouring pellets of a fan,
@@ -813,6 +851,8 @@ pub fn fire(
                             t: 0,
                             hit: Vec::new(),
                             stop_on_hit,
+                            // A pingpong throw holds its thrower until it is back (`throwers_out`).
+                            thrower: if period > 0 { Some(ents.id_of(a)) } else { None },
                         }),
                         hook: None,
                         release: None,
