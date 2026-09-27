@@ -78,8 +78,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
+import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -566,8 +566,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nEVERY GATE GREEN. Open {base.out} in a browser to watch it.")
     if args.open and base.out is not None:
-        # A local file the caller explicitly asked to open; no shell, no argument.
-        os.startfile(base.out)
+        # A local file the caller explicitly asked to open, in the default browser on any OS (os.startfile is
+        # Windows-only); no shell, no argument.
+        webbrowser.open(Path(base.out).resolve().as_uri())
     return 0
 
 

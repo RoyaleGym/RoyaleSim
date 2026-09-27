@@ -512,7 +512,11 @@ def main() -> int:
     doc = build(g, order)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     # newline="\n": derived artifacts must be byte-identical on every OS.
-    OUT.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8", newline="\n")
+    # Written only when the bytes differ: a rewrite of the same bytes still moves the file's mtime, which makes
+    # cargo rebuild everything.
+    text = json.dumps(doc, indent=1) + "\n"
+    if not OUT.is_file() or OUT.read_bytes() != text.encode("utf-8"):
+        OUT.write_text(text, encoding="utf-8", newline="\n")
     print(
         f"\nglobals -> {OUT.relative_to(ROOT)}  ({len(order)} keys, "
         f"{len(agree)} registry agreements, {len(superseded)} declared divergences, "
