@@ -17,6 +17,7 @@
 //!     progress unbroken;
 //!   - no enemy targeted it and its hp never moved over 146 ticks;
 //!   - it is gone on the Ram's last tick, at full hp.
+//!
 //! TargetOnlyTroops, the choice between a snared and an unsnared troop and an area landing on the pair were never
 //! offered in that battle: those tests pin the engine's rule (the column, and the keys' hypotheses).
 //!

@@ -9164,6 +9164,7 @@ impl BattleState {
     /// - a payout that overflows fills to the cap and the rest is lost (economy.PRODUCTION_OVERFLOW; the fill measured,
     ///   the loss not);
     /// - a stunned producer holds its timer (economy.STUN_PAUSES_PRODUCTION, unmeasured).
+    ///
     /// Walked in (team, team_seq) order, since two producers of one side can meet the same cap on one tick.
     fn mana_pass(&mut self) {
         let dt = self.cfg.calib.tick_ms;

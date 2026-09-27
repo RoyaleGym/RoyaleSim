@@ -26,6 +26,7 @@
 //!     Knight of 1766 hp at (14735, 20500).
 //!   * Three targets (the strikes.rs scene): red Knights of 1200, 1400 and 1300 hp at (8000, 22000), (9000, 22000) and
 //!     (10000, 22000), a Blue Lightning at (9000, 22000). Struck highest hp first.
+//!
 //! WHAT IS PINNED, each with its precondition:
 //!   1. the corpus cast under client16402: the tower loses one strike's crown share on k = 11 and the Knight one strike
 //!      on k = 21, nothing else, under either end (no third enemy in reach);

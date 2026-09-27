@@ -7,6 +7,7 @@
 //!   - a payout due while the owner holds 10 elixir is held and paid on the first tick below 10, with that tick's
 //!     spend; the next is 259 ticks after the release (economy.PRODUCTION_AT_CAP);
 //!   - a payout that would pass 10 fills to 10 (economy.PRODUCTION_OVERFLOW).
+//!
 //! Read from the 15.535.29 tables and not measured: ManaOnDeath on any death (economy.MANA_ON_DEATH_TRIGGER), a
 //! stun holding the timer (economy.STUN_PAUSES_PRODUCTION), the interval in double elixir
 //! (economy.PRODUCTION_RATE_IN_DOUBLE_ELIXIR), and the deal keeping OmitFromStartingHand cards out of the starting
