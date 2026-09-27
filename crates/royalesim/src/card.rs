@@ -3674,6 +3674,13 @@ impl CardDb {
                             return Err(format!("units.{unit} itself spawns units ({first}); a spawn chain is not simulated"));
                         }
                     }
+                    // A DEATH PROJECTILE'S SPAWNCHARACTER STANDS STILL (the PhoenixEgg). Measured on client
+                    // 15.535.29: the new Phoenix appears exactly (0, +1100) from where the egg appeared, 76 ticks
+                    // later, so the egg never walks. Its row's Speed 40 is not a walk: the row also sets
+                    // GameTagsToSet NO_MOVE_ALLOW_ATTRACT, which no other row carries.
+                    if which == UnitUse::DeathProjectileRelease {
+                        c.speed = 0;
+                    }
                     if c.kind == CardKind::Troop && c.lifetime_ms.is_some() {
                         // The engine honours LifeTime on BUILDINGS only (spawn_now); a
                         // troop unit that expires (BrokenCannon) would live for ever.

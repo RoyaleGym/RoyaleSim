@@ -1010,7 +1010,25 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 false
             }
             (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit }) => {
+                let first_new = fx.buffs.len();
                 impact(ctx, s.team, *pos, hit, s.damage, s.pulse, dmg, fx, nb, None);
+                // A UNIT'S SPAWN AREA (card.rs `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal; cast only
+                // under spawner.SPAWN_AREA_OBJECT_SCOPE = every_row, state.rs `spawn_now`): the tick its buff lands
+                // counts on the buff's pulse clock, so the first pulse falls HitFrequency - TICK_MS after it. Measured
+                // on client 15.535.29: her heal pulses on her first frame + 4, 9, 14 and 19 (HitFrequency 250), where
+                // a Poison's buff first pulses a whole HitFrequency after its area applies it.
+                #[cfg(not(clash_plant = "spawn_area_pulse_full_period"))]
+                let spawn_area = s.depth == 0
+                    && matches!((shape_of(def), def.spawn_area_effect.as_ref()), (Some(a), Some(b)) if std::ptr::eq(a, b));
+                #[cfg(clash_plant = "spawn_area_pulse_full_period")]
+                let spawn_area = false; // PLANT: the spawn area's buff first pulses a whole HitFrequency after it lands.
+                if spawn_area {
+                    for h in fx.buffs[first_new..].iter_mut().filter(|h| h.first_pulse_ms.is_none()) {
+                        if let Some(b) = ctx.cards.buffs.get(h.buff as usize) {
+                            h.first_pulse_ms = Some((b.hit_frequency_ms - tick).max(0));
+                        }
+                    }
+                }
                 false
             }
             // A PULSING AREA EFFECT (Poison, Earthquake; calibration
