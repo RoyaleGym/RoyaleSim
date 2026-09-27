@@ -236,7 +236,7 @@ fn walk_preconditions(run: &[Tick], ids: &[EntityId]) -> (usize, usize) {
 /// killed it; they land within the 600 ms gate.
 fn realised_doom(run: &[Tick]) -> (usize, usize) {
     let k = (0..run.len()).find(|&t| !run[t].alive[0]).expect("the Knight never died: the scene drifted");
-    let d = (1..k).filter(|&t| run[t].shots_at[0] > run[t - 1].shots_at[0]).last().expect("no shot ever flew at the Knight");
+    let d = (1..k).filter(|&t| run[t].shots_at[0] > run[t - 1].shots_at[0]).next_back().expect("no shot ever flew at the Knight");
     assert!((k - d) * TICK_MS <= ETA_LIMIT_MS, "precondition: the lethal shots land {} ms after D={d}", (k - d) * TICK_MS);
     assert!(d + 1 < k, "precondition: the Knight died on {k}, before the tick after the doom ({})", d + 1);
     (d, k)

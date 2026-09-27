@@ -342,9 +342,17 @@ fn default_tower_is_decided_in_the_units_own_frame() {
     // "Centre line x = 9 goes Left for both seats" is the reflection-only rule, and
     // is what the plant below restores.
     // Plant: reflection_centre_lane (turns the Red x = 9 row red).
-    let blue_towers = BattleState::new(1, config()).tower_ids(Team::Blue);
+    // This is targeting.CENTRE_LANE_FRAME under FIRST_TOWER_PICK = current_x, named here.
+    // The shipped client_spawn_lane breaks the x = 9 tie the other way on both seats (each
+    // unit takes its own right: state.rs creation_lane), which is symmetric too.
+    let cfg = || {
+        let mut c = config();
+        c.calib.first_tower_pick = royalesim::state::FirstTowerPick::CurrentX;
+        c
+    };
+    let blue_towers = BattleState::new(1, cfg()).tower_ids(Team::Blue);
     for (x100, slot) in [(350, 1usize), (1450, 2), (900, 2), (890, 1)] {
-        let mut s = BattleState::new(1, config());
+        let mut s = BattleState::new(1, cfg());
         s.spawn_unit(Team::Red, "Knight", t(x100, 2300), None).unwrap();
         // Check the route on the FIRST tick it exists, while the Knight still
         // stands where it was placed. Waiting even two ticks past the deploy

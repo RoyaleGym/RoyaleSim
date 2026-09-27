@@ -406,9 +406,13 @@ fn deploying_units_ignore_pushback_and_the_water_edge_under_the_ladder() {
     assert!(d.1 < carry, "the clamp cut the carry short");
     // walking: a Red Knight standing on the bank on the landing tick (it walks -y, away
     // from the river, so it is placed two ticks before the landing a little closer to
-    // the water) pushed +y into the river by a Fireball 300 native units behind it
+    // the water) pushed +y into the river by a Fireball 300 native units behind it. The bank
+    // is on x = 9 tiles exactly, where a new unit's lane is a tie the two arms of
+    // targeting.FIRST_TOWER_PICK break differently; this scene's walk is built on current_x's.
     let bank_hit = || -> (BattleState, EntityId) {
-        let mut s = BattleState::new(3, config());
+        let mut cfg = config();
+        cfg.calib.first_tower_pick = royalesim::state::FirstTowerPick::CurrentX;
+        let mut s = BattleState::new(3, cfg);
         let mut tap = Vec2::new(bank.x, bank.y - 300 * K);
         let mut spawn_at = Vec2::new(bank.x, bank.y);
         let mut arrival = 0;
