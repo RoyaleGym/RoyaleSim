@@ -191,7 +191,9 @@ pub struct Entities {
     /// directly: every stun the data ships is a buff whose three
     /// multiplier columns are -100, and `apply_effects` sets this from such a buff
     /// under status.FULL_STOP_BUFF_IS_STUN -- so a Zap, a Freeze spell, an Ice
-    /// Spirit's projectile and an Electro Wizard's hit all reach one hold.
+    /// Spirit's projectile and an Electro Wizard's hit all reach one hold. The Ronin's
+    /// counter stun (speed -100, hit speed -95) does not set it under the shipped
+    /// stun_timer_speed_and_hit_speed_zero: it stops the walk and slows the attack clock.
     pub stun_ms: Vec<i32>,
     /// THE BUFF LIST (status.rs; calibration status.*), `MAX_BUFFS_PER_ENTITY` slots
     /// per entity in one flat column: slot `k` of entity `i` is
@@ -248,6 +250,11 @@ pub struct Entities {
     /// load like `launched_beyond`.
     #[serde(default)]
     pub reveal_from: Vec<u32>,
+    /// THE COUNTER'S COOLDOWN (card.rs `ParryDef`; calibration parry.*): ms until the counter is ready, 0 = ready.
+    /// Counted down with the hold timer (state.rs `tick_status_timers`). 0 on every other entity, hashed only for a
+    /// card that carries a counter. `default` and sized on load like `reveal_from`.
+    #[serde(default)]
+    pub parry_ms: Vec<i32>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -570,11 +577,29 @@ impl Entities {
         crate::status::compose(self.buffs_of(table, i), sel, value)
     }
 
-    /// Is entity `i` HELD -- stunned, or frozen by a buff whose composed speed is 0?
-    /// The one predicate the walk, the attack and the stomp clock read.
+    /// Is entity `i` HELD -- stunned, or frozen by its buffs? The one predicate the walk, the attack and the stomp
+    /// clock read. Frozen is status.FULL_STOP_BUFF_IS_STUN's: a composed speed of 0 under stun_timer (and under the
+    /// refused buff_only); a composed speed AND hit speed of 0 under stun_timer_speed_and_hit_speed_zero, so a unit
+    /// under the Ronin's counter stun (speed -100, hit speed -95) is not held: it stays in the move pass and the
+    /// collision set with a step of 0, and its attack clock runs at the composed hit speed. On every -100 / -100 /
+    /// -100 row both terms hold, and the hold timer runs anyway.
     #[inline]
-    pub fn held(&self, table: &[BuffDef], i: usize) -> bool {
-        self.stun_ms[i] > 0 || self.buffed(table, i, Sel::Speed, 100) == 0
+    pub fn held(&self, table: &[BuffDef], i: usize, arm: crate::state::FullStopBuff) -> bool {
+        if self.stun_ms[i] > 0 {
+            return true;
+        }
+        let stopped = self.buffed(table, i, Sel::Speed, 100) == 0;
+        match arm {
+            crate::state::FullStopBuff::SpeedAndHitSpeedZero => {
+                #[cfg(not(clash_plant = "split_stop_is_stun"))]
+                let clock_stopped = self.buffed(table, i, Sel::HitSpeed, 100) == 0;
+                // PLANT (regression, tests/parry.rs): the split row holds the unit as a stun would.
+                #[cfg(clash_plant = "split_stop_is_stun")]
+                let clock_stopped = true;
+                stopped && clock_stopped
+            }
+            crate::state::FullStopBuff::StunTimer | crate::state::FullStopBuff::BuffOnly => stopped,
+        }
     }
 
     /// Is entity `i` travelling UNDER the arena (a Miner's or a Goblin Drill's way to its
@@ -669,6 +694,7 @@ impl Entities {
             self.life_target[i] = None;
             self.life_n[i] = 0;
             self.reveal_from[i] = 0;
+            self.parry_ms[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -751,6 +777,7 @@ impl Entities {
             self.life_target.push(None);
             self.life_n.push(0);
             self.reveal_from.push(0);
+            self.parry_ms.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);
@@ -814,7 +841,8 @@ impl Entities {
     /// stays the same entity. Every column is on one of three lists, and a column added to `Entities` must join one:
     ///   KEPT, what makes it the same entity: generation, alive, team, level, team_seq, spawn_tick, creation_seq, pos,
     ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, spawn_lane, lane_window_end, facing,
-    ///     acquirable_from, reveal_from, and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied,
+    ///     acquirable_from, reveal_from, parry_ms (0 on both rows: the loader refuses a transformation into a row with
+    ///     a counter, and a row with a counter carries no other action block), and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied,
     ///     push_neighbours, hooked_by);
     ///   THE CALLER'S, because the calibration decides them: the deploy timer (transform.REDEPLOY) and the target and
     ///     attack columns (`reset_attack`, transform.ATTACK_STATE);

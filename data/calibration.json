@@ -1330,7 +1330,7 @@
       "meaning": "client_reflect_stun: when an attack of a unit within ReflectedAttackRadius (plus its collision radius) of a unit whose card sets ReflectedAttackDamage lands on that unit, the attacker takes ReflectedAttackDamage (level-scaled; ReflectAttackCrownTowerDamage against a crown tower) in the same tick and receives ReflectedAttackBuff for ReflectedAttackBuffDuration, a stun that holds its attack progress without resetting it. not_read: today's engine, no reflect.",
       "open": "The radius edge (one hit at 2,008). A ranged attacker inside the radius (the table says any attacker in range; a Musketeer at 5,000 is outside). Whether a crown tower attacking him is reflected (towers were not: their shots came from beyond 2,000). Routing through the engine's buffered stun path may give 34 ticks, not 33: the test pins 33.",
       "promotion_rules": "The test file passes. No Electro Giant sits in a scored window of the corpus, so it flips on this evidence.",
-      "engine": "the hit pass (a reflect on landing, shared with the Ronin's parry as hit-source plumbing), the stun buff from the reflecting unit's row, and the card extractor must carry the five ReflectedAttack columns"
+      "engine": "the attack pass (state.rs reflect_melee_hit, beside the Ronin's counter, note_parry and parry_pass, which answer hits the same pass writes), the stun buff from the reflecting unit's row, and the card extractor must carry the five ReflectedAttack columns"
     },
     "RETARGET_PROGRESS": {
       "value": "keep_when_dead_or_in_reach",
@@ -2358,16 +2358,16 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     },
     "FULL_STOP_BUFF_IS_STUN": {
-      "value": "stun_timer",
-      "status": "hypothesis",
-      "confidence": "MEDIUM (ours; the two candidates agree on every gate the engine has)",
-      "provenance": "THE ENGINE'S OWN UNIFICATION. Every stun the data ships is a BUFF: a Zap, a Freeze spell, an Ice Spirit's projectile and an Electro Wizard's hit each hang a character_buffs row whose SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier are all -100, and under movement.BUFF_SPEED_COMPOSITION / combat.HIT_SPEED_BUFF / spawner.STUN_PAUSES_SPAWNER a composed 0 is what stops the unit. The engine already had a hold path -- `stun_ms`, and with it status.STUN_ATTACK_TIMER_MODEL, status.STUN_RETARGET_ON_RESUME, the three status.STUN_PAUSES_*, spawner.STUN_PAUSES_SPAWNER and charge.RESET_ON_STUN -- so `stun_timer` drives that one timer from such a buff and every one of those keys keeps the meaning it was written with. `buff_only` would leave the timer at 0 and make each gate read the composition itself, which re-attaches every STUN_PAUSES_* key; not implemented.",
-      "candidates": [
-        "stun_timer",
-        "buff_only"
-      ],
-      "promotion_rules": "None available: the two arms are observationally identical here. They separate only if a buff is found whose composed speed is 0 and which the game does NOT treat as a stun (no shipped row is like that).",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "value": "stun_timer_speed_and_hit_speed_zero",
+      "status": "measured",
+      "confidence": "HIGH for the one split row: the countered attacker's clock ran at 2 a tick on 5 of 5 counters. The arms agree on every other row in both card tables.",
+      "provenance": "The Ronin's counter stun row (ronin_reflect_stun_buff: SpeedMultiplier -100, HitSpeedMultiplier -95, SpawnSpeedMultiplier -100) separates the arms. Measured on client 15.535.29 in the Ronin scenarios (level 11): a countered Knight's attack progress ran at 2 a tick (5 % of 50) for the 10 ticks the 500 ms buff lasts, then at 50 again (2 of 2 runs); countered Skeletons ran at 2 a tick until the reflect killed them (3 of 3). The Knight's load timer kept falling 50 a tick, it kept its target and it did not step; a countered Skeleton kept drifting as it did before. Under stun_timer its attack would pause and it would be held. So only a row whose speed and hit speed both compose to 0 drives the hold timer; a row that stops the walk and leaves the clock running is a plain buff. Every other speed -100 row in both card tables (Freeze, ZapFreeze, Stun, ContinueFreeze, the Electro Giant's and the rest) is -100 in all three columns, so the arms agree on every other card.",
+      "candidates": ["stun_timer_speed_and_hit_speed_zero", "stun_timer", "buff_only"],
+      "meaning": "stun_timer_speed_and_hit_speed_zero: a buff drives the engine's one hold timer, and holds the unit (entity.rs Entities::held), when its speed and its hit speed both compose to 0; a buff that stops only the walk is a plain buff, so the unit stays in the move pass and the collision set with a step of 0 and its attack clock runs at the composed hit speed. stun_timer: any buff whose speed composes to 0 drives the timer and holds the unit. buff_only: no buff drives the timer and every gate reads the composition itself (not implemented, refused at load).",
+      "open": "Whether such a row pauses a spawner: under the shipped arm its hold timer stays 0, so spawner.STUN_PAUSES_SPAWNER does not read it (the Night Witch is a ground melee troop with a spawner). Not measured.",
+      "promotion_rules": "Settled for the one split row. A countered Night Witch would settle the spawner question.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, land_buff; entity.rs Entities::held); buff_only is refused at load, never silently substituted. tests/parry.rs, tests/status.rs",
+      "supersedes": ["\"stun_timer\", status hypothesis, shipped until the Ronin loaded, whose counter stun row separates the arms. Its confidence: 'MEDIUM (ours; the two candidates agree on every gate the engine has)'. Its provenance: 'THE ENGINE'S OWN UNIFICATION. Every stun the data ships is a BUFF: a Zap, a Freeze spell, an Ice Spirit's projectile and an Electro Wizard's hit each hang a character_buffs row whose SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier are all -100, and under movement.BUFF_SPEED_COMPOSITION / combat.HIT_SPEED_BUFF / spawner.STUN_PAUSES_SPAWNER a composed 0 is what stops the unit. The engine already had a hold path -- `stun_ms`, and with it status.STUN_ATTACK_TIMER_MODEL, status.STUN_RETARGET_ON_RESUME, the three status.STUN_PAUSES_*, spawner.STUN_PAUSES_SPAWNER and charge.RESET_ON_STUN -- so `stun_timer` drives that one timer from such a buff and every one of those keys keeps the meaning it was written with. `buff_only` would leave the timer at 0 and make each gate read the composition itself, which re-attaches every STUN_PAUSES_* key; not implemented.' Its promotion rule: 'None available: the two arms are observationally identical here. They separate only if a buff is found whose composed speed is 0 and which the game does NOT treat as a stun (no shipped row is like that).'"]
     },
     "BUFF_PULSE_AMOUNT": {
       "value": "per_second_times_frequency",
@@ -2909,6 +2909,86 @@
       "open": "A lob that falls due inside the two-tick window.",
       "promotion_rules": "A run where a lob falls due between trigger and switch.",
       "engine": "state.rs health_triggers and fire_scheduled; only acts_normally is implemented, the other value is refused at load"
+    }
+  },
+  "parry": {
+    "$comment": [
+      "THE COUNTER (the 15.535.29 tables' ActionCounter: the Ronin's). tools/extract_cards.py writes the row's",
+      "`parry` block and card.rs `ParryDef` loads it: Cooldown 3500, DeployActive, DamageScalar 200, DefenseScalar 0,",
+      "a stun row (speed -100, hit speed -95, spawn speed -100) for 500 ms at 50 ms into its group, and a reflect at",
+      "300 ms. Engine: state.rs `note_parry` collects the hits an attack writes on a unit with a counter, `parry_pass`",
+      "takes one, and the reflect waits in `scheduled`. Measured in the Ronin scenarios on client 15.535.29 (5",
+      "counters, level 11); the 16.402 corpus holds no Ronin."
+    ],
+    "COUNTERED_HITS": {
+      "value": "ground_melee",
+      "candidates": ["ground_melee", "melee", "entity_attacks"],
+      "status": "measured",
+      "confidence": "HIGH for ground melee against shots, tower arrows and a spell. MEDIUM for air: inferred from the Bats.",
+      "provenance": "Measured on client 15.535.29 on the Ronin (ActionCounter: Cooldown 3500, DamageScalar 200, DefenseScalar 0), level 11. Countered: the first hit a Knight landed (2 of 2 runs) and a Skeleton's (3 counters), one of them from a Skeleton the Ronin was not targeting. Not countered while the counter was ready: 7 Musketeer shots (217 each; the Ronin's own attack never reset and the Musketeer's launches stayed 20 ticks apart), every princess tower arrow (15 in one run, 14 in another), a Zap (it dealt 192 and stunned the Ronin for 10 ticks, with no reset) and about 25 Bat hits, some after the counter was ready again. Distance and state do not explain the Bats, so air is inferred to be out. The engine counts a hit that an attacker's own attack writes in the Attack phase when the attacker is a ground troop with no projectile.",
+      "meaning": "ground_melee: a hit an attacker's own attack writes in the Attack phase (combat.rs fire), when the attacker is a troop with no projectile that does not fly. melee: the same, flying troops too. entity_attacks: every attack, a projectile's arrival and a building's included (it needs a source on every hit and projectile; not implemented, refused at load).",
+      "open": "Instant ranged hits with no projectile (the Electro Wizard's: the engine counts them, a ground troop with no projectile) and buildings' (Tesla, Inferno Tower: the engine does not count them). A dash blow (it lands in the Path phase: not counted). A charge hit (counted, and reflected at twice the charged damage).",
+      "promotion_rules": "A Bat or a Minion alone on a ready Ronin settles air. An Electro Wizard's hit on a ready Ronin settles instant ranged hits.",
+      "engine": "state.rs note_parry (the candidates) and parry_pass; entity_attacks is refused at load. tests/parry.rs only_a_ground_melee_hit_is_countered"
+    },
+    "SAME_TICK_PICK": {
+      "value": "first_created_attacker",
+      "candidates": ["first_created_attacker", "largest_amount"],
+      "status": "guess",
+      "confidence": "LOW: never measured.",
+      "provenance": "Not measured. No measured tick had two hits on a Ronin while its counter was ready: the two ticks that had two hits fell in the cooldown. first_created_attacker follows the order the client updates units in, their creation order (match.TICK_ORDER's measurement); largest_amount takes the largest hit.",
+      "meaning": "first_created_attacker: the hit of the attacker created first, then the hit written first. largest_amount: the largest hit, ties by creation, then the hit written first.",
+      "open": "Which hit the client takes.",
+      "promotion_rules": "A swarm's first contact on a ready Ronin (a Skeleton Army), or two melee attackers timed to land on one tick.",
+      "engine": "state.rs parry_pick; tests/parry.rs parry_pick_orders_by_creation_then_amount"
+    },
+    "SELF_LOCK": {
+      "value": "attack_restart",
+      "candidates": ["attack_restart", "none", "hold_move_and_attack_paused"],
+      "status": "measured",
+      "confidence": "HIGH: 5 of 5 counters, and 2 of 2 next hits.",
+      "provenance": "What countering does to the Ronin's own attack. Measured on client 15.535.29 on 5 of 5 counters: its attack progress reads 0 on the counter tick (from 1450, 1150, 700 or 800), or its fresh cycle's first value when it updated after the hit (150), and then runs as a fresh cycle, its load timer reloading to LoadTime 1000. After a hit of its own 2 ticks before the counter, its next hit lands 25 ticks after the counter (2 of 2). It keeps its target. The forced animation's ForcedDuration 500 holds nothing that shows: a 10-tick hold would put that hit 10 ticks later, and the old cycle run on (none) one tick later.",
+      "meaning": "attack_restart: the Ronin's attack progress goes to 0 on the counter tick, its phase and target kept, and its next attack step makes a fresh entry (combat.ATTACK_CYCLE's entry: LoadTime less the load timer). none: its attack runs on. hold_move_and_attack_paused: a hold for ForcedDuration (refuted by the next hit's tick; not implemented, refused at load).",
+      "promotion_rules": "Settled on the 5 counters.",
+      "engine": "state.rs parry_pass; tests/parry.rs the_counter_restarts_the_ronins_own_swing"
+    },
+    "COOLDOWN_START": {
+      "value": "parry_tick",
+      "candidates": ["parry_tick", "lock_end"],
+      "status": "measured",
+      "confidence": "MEDIUM: one run brackets the re-arm between 68 and 71 ticks.",
+      "provenance": "Measured on client 15.535.29: in one run the Ronin countered twice, 71 ticks apart, and all 20 melee hits between the two landed in full, the last 67 ticks after the first counter. In the other runs hits 1, 34 and 58 ticks after a counter landed in full. Cooldown 3500 ms counted from the counter tick is 70 ticks. Counted from the end of the 500 ms forced animation it is 80, refuted by the counter 71 ticks after.",
+      "meaning": "parry_tick: the counter is ready again Cooldown ms after the counter tick (70 ticks for 3500). lock_end: Cooldown ms after the forced animation ends (80 ticks).",
+      "promotion_rules": "A melee hit 69 or 70 ticks after a counter would pin the edge; the choice between the two values is settled.",
+      "engine": "state.rs parry_pass (the cooldown) and tick_status_timers (its decrement); tests/parry.rs the_next_counter_is_ready_seventy_ticks_after_the_counter"
+    },
+    "READY_AT": {
+      "value": "spawn",
+      "candidates": ["spawn", "deploy_end"],
+      "status": "guess",
+      "confidence": "LOW: the column's name; no measurement.",
+      "provenance": "DeployActive is true on the only counter row, read as a counter that works from the unit's creation, through its deploy. No measured hit landed on a deploying Ronin.",
+      "meaning": "spawn: ready from the unit's creation, through its deploy, when the row sets DeployActive, and at its deploy's end otherwise. deploy_end: at the deploy's end whatever the row says.",
+      "open": "Whether a deploying Ronin counters.",
+      "promotion_rules": "A melee hit on a Ronin within its first 20 ticks.",
+      "engine": "state.rs parry_pass; tests/parry.rs the_counter_is_ready_while_deploying"
+    }
+  },
+  "actions": {
+    "$comment": [
+      "HOW AN ACTION GROUP TIMES ITS PARTS (the 15.535.29 tables' ActionGroup: SubActions, each with a",
+      "SubActionsDelay). Engine: state.rs `sub_action_delay_ms`, read by the counter (`parry_pass`). card.rs",
+      "`transform_of` reads a transformation's group only when both readings agree, so it does not read this key."
+    ],
+    "SUB_ACTIONS_DELAY": {
+      "value": "from_group_start",
+      "candidates": ["from_group_start", "cumulative"],
+      "status": "measured",
+      "confidence": "HIGH on the Ronin's counter group: 5 of 5 counters.",
+      "provenance": "An ActionGroup gives each SubAction a SubActionsDelay. Measured on client 15.535.29 on the Ronin's counter group (SubActionsDelay [50, 300, 150]: the stun, the damage, an effect): the damage landed 6 ticks after the counter on 5 of 5 counters, 300 ms from the group's start; read as gaps it would land on the 7th. The stun, first in the group, reads 50 either way, and the attacker was slowed from the tick after the counter.",
+      "meaning": "from_group_start: each entry is its action's offset from the group's start. cumulative: each entry is the gap after the action before it, so an action's offset is the sum of the entries up to and including its own.",
+      "promotion_rules": "Settled on the counter's group.",
+      "engine": "state.rs sub_action_delay_ms, read by parry_pass; tests/parry.rs a_ready_counter_takes_nothing_and_the_attacker_takes_twice_its_hit_six_ticks_later"
     }
   },
   "charge": {

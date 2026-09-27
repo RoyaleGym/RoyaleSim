@@ -113,7 +113,7 @@ KEPT_BY_AUDIT: dict[str, str] = {
     "Delays$": "ACTION:Vines_Target_Selector, and a champion's charge selector. The Vines' per-target pick timing.",
     "CapBuffTimeToAreaEffectTime$": "12 area effects, Rage, Graveyard and BarbarianRage among them. The buff may end when the area ends.",
     "OmitFromStartingHand$": "SPELL:Elixir Collector, SPELL:Mirror. By its name, the card is kept out of the opening hand.",
-    "PlaybackDuration$": "ACTION:ronin_play_deflect_animation, and an evolution's. The Ronin's forced animation after a parry; whether it holds him is open.",
+    "PlaybackDuration$": "ACTION:ronin_play_deflect_animation, and an evolution's. The Ronin's forced animation after a parry. It holds nothing that shows: measured on client 15.535.29, his own swing restarts at the parry and his next hit lands 25 ticks later (calibration parry.SELF_LOCK).",
     "CustomStateNumber$": "ACTION:ronin_play_deflect_animation. Which state that forced animation runs in.",
     "ProjectileYOffset$": "KingTower and other tower rows, and a hero's turret; no card's walk reaches them yet. A start offset on the king's projectile would move the tick of its every hit.",
     "ProjectileOffsetToCharacterLookDirection$": "ACTION:goblin_machine_rocket. Where the Goblin Machine's rocket starts, so its flight time.",

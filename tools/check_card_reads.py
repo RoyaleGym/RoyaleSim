@@ -454,6 +454,7 @@ BLOCKS = {
     "special": "RawSpecial",
     "action_graph": "RawActionGraph",
     "transform_at_hp": "RawTransform",
+    "parry": "RawParry",
     "level_scaling": "RawLevelScaling",
     "projectile": "RawProjectileObj",
     "spell": "RawSpell",

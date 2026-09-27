@@ -27,9 +27,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 112
-//!      loadable rows (the 110 catalogue cards, then PrincessTower and KingTower) and
-//!      34 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 113
+//!      loadable rows (the 111 catalogue cards, then PrincessTower and KingTower) and
+//!      33 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -186,6 +186,7 @@ const LOADABLE_15535: &[&str] = &[
     "Berserker",
     "MergeMaiden_Normal",
     "MergeMaiden_Mounted",
+    "Ronin",
     "Cannon",
     "GoblinHut",
     "Mortar",
@@ -240,7 +241,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("Mirror", "spell with no projectile and no area effect"),
     ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
     ("RamRider", "spawner RamRider"),
-    ("Ronin", "the unit runs an action graph this loader does not read (ActionCounter, ActionDealDamage, ActionGroup, ActionPlayEffect, ActionRunForcedAnimationOnce, ActionSpawn, ActionWithDuration; spawns BuffType:ronin_reflect_stun_buff)"),
     ("RoyalDelivery", "pulsing area effect RoyalDeliveryArea pulses no buff"),
     ("SkeletonBalloon", "the unit runs an action graph this loader does not read (ActionSkeletonBarrelPopBalloon)"),
     ("SuperEliteArcher", "the unit's projectile"),

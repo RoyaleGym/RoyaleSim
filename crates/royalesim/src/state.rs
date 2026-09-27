@@ -488,6 +488,22 @@ pub struct Calib {
     /// held a troop with a LifeTime.
     #[serde(default = "troop_lifetime_default")]
     pub troop_lifetime: TroopLifetime,
+    /// parry.COUNTERED_HITS, SAME_TICK_PICK, SELF_LOCK, COOLDOWN_START and READY_AT (the counter: card.rs `ParryDef`,
+    /// `note_parry`, `parry_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held a counter.
+    #[serde(default = "parry_hits_default")]
+    pub parry_hits: ParryHits,
+    #[serde(default = "parry_pick_default")]
+    pub parry_pick: ParryPick,
+    #[serde(default = "parry_self_default")]
+    pub parry_self: ParrySelf,
+    #[serde(default = "parry_cooldown_start_default")]
+    pub parry_cooldown_start: ParryCooldownStart,
+    #[serde(default = "parry_ready_at_default")]
+    pub parry_ready_at: ParryReadyAt,
+    /// actions.SUB_ACTIONS_DELAY (`sub_action_delay_ms`): how an ActionGroup's SubActionsDelay is read. Added after
+    /// SNAPSHOT_FORMAT 20; only a counter's group reads it, and no battle saved before it held a counter.
+    #[serde(default = "sub_actions_delay_default")]
+    pub sub_actions_delay: SubActionsDelay,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -711,7 +727,8 @@ pub struct Calib {
     /// combat.HIT_SPEED_BUFF: whether the attack progress counter is scaled by the
     /// HitSpeedMultiplier composition.
     pub hit_speed_buff: HitSpeedBuff,
-    /// status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 drives `stun_ms`.
+    /// status.FULL_STOP_BUFF_IS_STUN: which buff drives `stun_ms` and holds the unit (`land_buff`,
+    /// `Entities::held`): one whose composed speed is 0, or one whose speed and hit speed both are.
     pub full_stop_buff_is_stun: FullStopBuff,
     /// status.BUFF_PULSE_AMOUNT: what one DamagePerSecond / HealPerSecond pulse is worth.
     pub buff_pulse_amount: PulseAmount,
@@ -1074,6 +1091,40 @@ fn transform_redeploy_default() -> TransformRedeploy {
 
 fn troop_lifetime_default() -> TroopLifetime {
     TroopLifetime::SameAsBuildings
+}
+
+fn parry_hits_default() -> ParryHits {
+    ParryHits::GroundMelee
+}
+
+fn parry_pick_default() -> ParryPick {
+    ParryPick::FirstCreatedAttacker
+}
+
+fn parry_self_default() -> ParrySelf {
+    ParrySelf::AttackRestart
+}
+
+fn parry_cooldown_start_default() -> ParryCooldownStart {
+    ParryCooldownStart::ParryTick
+}
+
+fn parry_ready_at_default() -> ParryReadyAt {
+    ParryReadyAt::Spawn
+}
+
+fn sub_actions_delay_default() -> SubActionsDelay {
+    SubActionsDelay::FromGroupStart
+}
+
+/// THE DELAY OF THE ACTION AT PLACE `at` IN A GROUP whose SubActionsDelay is `d`, ms from the group's start
+/// (calibration actions.SUB_ACTIONS_DELAY): its own entry under from_group_start, the sum of the entries up to and
+/// including it under cumulative. The two agree while every entry before `at` is 0.
+pub(crate) fn sub_action_delay_ms(c: &Calib, d: &[i32], at: usize) -> i32 {
+    match c.sub_actions_delay {
+        SubActionsDelay::FromGroupStart => d.get(at).copied().unwrap_or(0),
+        SubActionsDelay::Cumulative => d.iter().take(at + 1).sum(),
+    }
 }
 
 macro_rules! calib_enum {
@@ -1440,10 +1491,19 @@ calib_enum!(
     HitSpeedBuff { ProgressScaled = "progress_scaled", None = "none" }
 );
 calib_enum!(
-    /// status.FULL_STOP_BUFF_IS_STUN -- a buff whose composed speed is 0 (all three
-    /// -100 columns) sets the engine's one hold timer, so every existing
-    /// status.STUN_* key keeps its meaning.
-    FullStopBuff { StunTimer = "stun_timer", BuffOnly = "buff_only" }
+    /// status.FULL_STOP_BUFF_IS_STUN -- which buff sets the engine's one hold timer (`land_buff`) and holds the unit
+    /// (entity.rs `Entities::held`), so every existing status.STUN_* key keeps its meaning.
+    FullStopBuff {
+        /// Any buff whose composed speed is 0.
+        StunTimer = "stun_timer",
+        /// Only a row whose speed and hit speed both compose to 0 drives the hold timer; a row that stops the walk
+        /// and leaves the attack clock running (the Ronin's counter stun, hit speed -95) is a plain buff. Measured on
+        /// client 15.535.29: a countered Knight's attack progress ran at 2 a tick and it kept its target. Every other
+        /// speed -100 row in both card tables is -100 in all three columns, so the two arms agree on them.
+        SpeedAndHitSpeedZero = "stun_timer_speed_and_hit_speed_zero",
+        /// No buff drives the timer (listed in the ledger, refused at load).
+        BuffOnly = "buff_only",
+    }
 );
 calib_enum!(
     /// status.BUFF_PULSE_AMOUNT -- what one pulse of a DamagePerSecond / HealPerSecond
@@ -2254,6 +2314,67 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// parry.COUNTERED_HITS -- which hits a ready counter takes (`note_parry`). The ledger also lists
+    /// entity_attacks (every attack, a projectile's included), which needs a source on every projectile and is
+    /// refused at load.
+    ParryHits {
+        /// A hit an attacker's own attack writes in the Attack phase, when the attacker is a ground troop with no
+        /// projectile. Measured on client 15.535.29: a Knight's and a Skeleton's hits were countered; Musketeer shots,
+        /// princess tower arrows, a Zap and Bats' hits were not.
+        GroundMelee = "ground_melee",
+        /// The same, flying troops too (a Bat, a Minion).
+        Melee = "melee",
+    }
+);
+calib_enum!(
+    /// parry.SAME_TICK_PICK -- which hit a ready counter takes when several land on one tick (`parry_pick`).
+    ParryPick {
+        /// The hit of the attacker created first, the order the client updates units in; then the first written.
+        FirstCreatedAttacker = "first_created_attacker",
+        /// The largest hit; ties by creation.
+        LargestAmount = "largest_amount",
+    }
+);
+calib_enum!(
+    /// parry.SELF_LOCK -- what countering does to the unit's own attack (`parry_pass`). The ledger also lists
+    /// hold_move_and_attack_paused (a hold for the forced animation), refuted and refused at load.
+    ParrySelf {
+        /// Its attack progress goes to 0 and the next attack step makes a fresh entry; its target and phase are
+        /// kept. Measured on client 15.535.29 on 5 of 5 counters.
+        AttackRestart = "attack_restart",
+        /// Nothing: its attack runs on.
+        None = "none",
+    }
+);
+calib_enum!(
+    /// parry.COOLDOWN_START -- where the counter's Cooldown is counted from (`parry_pass`).
+    ParryCooldownStart {
+        /// The counter tick. Measured on client 15.535.29: ready again 68 to 71 ticks after a counter.
+        ParryTick = "parry_tick",
+        /// The end of the forced animation (ForcedDuration later).
+        LockEnd = "lock_end",
+    }
+);
+calib_enum!(
+    /// parry.READY_AT -- when a new unit's counter is first ready (`parry_pass`).
+    ParryReadyAt {
+        /// From its creation, through its deploy, when the row sets DeployActive; otherwise at its deploy end.
+        Spawn = "spawn",
+        /// At its deploy end whatever DeployActive says.
+        DeployEnd = "deploy_end",
+    }
+);
+calib_enum!(
+    /// actions.SUB_ACTIONS_DELAY -- how an ActionGroup's SubActionsDelay is read (`sub_action_delay_ms`).
+    SubActionsDelay {
+        /// Each entry is its action's offset from the group's start. Measured on client 15.535.29 on the Ronin's
+        /// counter group ([50, 300, 150]): its damage lands 6 ticks after the counter, 5 of 5.
+        FromGroupStart = "from_group_start",
+        /// Each entry is the gap after the action before it.
+        Cumulative = "cumulative",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -2940,8 +3061,10 @@ impl Calib {
         only(&v, &["movement", "DEPLOY_TIMING", "value"], "spawn_anchored_full_first_step")?;
         // status.FULL_STOP_BUFF_IS_STUN: `buff_only` would re-attach every
         // status.STUN_PAUSES_* key to the composition instead of the timer, and is
-        // not implemented -- refused rather than run as `stun_timer`.
-        only(&v, &["status", "FULL_STOP_BUFF_IS_STUN", "value"], "stun_timer")?;
+        // not implemented -- refused rather than run as another arm. The other two are read with `pick` below.
+        if string(&v, &["status", "FULL_STOP_BUFF_IS_STUN", "value"])? == "buff_only" {
+            return Err("status.FULL_STOP_BUFF_IS_STUN = buff_only has no engine implementation (only stun_timer and stun_timer_speed_and_hit_speed_zero)".into());
+        }
         // status.BUFF_PULSE_AMOUNT: `per_pulse` is not written (status.rs
         // `BuffDef::pulse_amount` implements the other two arms).
         if string(&v, &["status", "BUFF_PULSE_AMOUNT", "value"])? == "per_pulse" {
@@ -3108,6 +3231,14 @@ impl Calib {
             transform_attack_state: pick(&v, &["transform", "ATTACK_STATE", "value"], TransformAttackState::from_calibration_name)?,
             transform_redeploy: pick(&v, &["transform", "REDEPLOY", "value"], TransformRedeploy::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
+            // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
+            // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
+            parry_hits: pick(&v, &["parry", "COUNTERED_HITS", "value"], ParryHits::from_calibration_name)?,
+            parry_pick: pick(&v, &["parry", "SAME_TICK_PICK", "value"], ParryPick::from_calibration_name)?,
+            parry_self: pick(&v, &["parry", "SELF_LOCK", "value"], ParrySelf::from_calibration_name)?,
+            parry_cooldown_start: pick(&v, &["parry", "COOLDOWN_START", "value"], ParryCooldownStart::from_calibration_name)?,
+            parry_ready_at: pick(&v, &["parry", "READY_AT", "value"], ParryReadyAt::from_calibration_name)?,
+            sub_actions_delay: pick(&v, &["actions", "SUB_ACTIONS_DELAY", "value"], SubActionsDelay::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -3526,7 +3657,8 @@ struct PendingSpawn {
 
 /// AN ACTION A MECHANIC SCHEDULED FOR A LATER TICK (`BattleState::scheduled`): `ms` counts down by TICK_MS at the top
 /// of every Status phase and the action fires when it reaches 0 (`fire_scheduled`). Written on tick P with 100 ms it
-/// fires at the top of P + 2. State: it outlives the tick that wrote it, so it is saved and hashed.
+/// fires at the top of P + 2; written in P's Attack phase with 300 ms, at the top of P + 6, which is where the Ronin's
+/// reflect lands. State: it outlives the tick that wrote it, so it is saved and hashed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Scheduled {
     pub ms: i32,
@@ -3539,6 +3671,16 @@ pub enum ScheduledAction {
     /// A delayed transformation (card.rs `TransformDef` with a delay: the Goblin Demolisher's): `entity` becomes
     /// row `into` in place (`rebind_unit`). Dropped when the entity is gone by then.
     Transform { entity: EntityId, into: u16, reset_target: bool },
+    /// A delayed hit (the counter's reflect, `parry_pass`): `amount` on `target` through its crown-tower percent
+    /// `crown_pct`, into the damage buffer at the top of the Status phase, so it lands in that tick's Resolve with the
+    /// tick's other damage. Dropped when the target is gone by then. It is not written by an attack, so no counter
+    /// ever takes it.
+    Damage { target: EntityId, amount: i32, crown_pct: i32 },
+    /// A delayed buff (a counter's stun whose SubActionsDelay is longer than one tick): `buff` for `time_ms` on
+    /// `target`, into the effect buffer at the top of the Status phase, so it lands in that tick's Resolve. Dropped
+    /// when the target is gone by then. The Ronin's own stun is never scheduled: its 50 ms is the next tick, which the
+    /// effect buffer gives at once (`parry_pass`).
+    Buff { target: EntityId, buff: u16, time_ms: i32 },
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -3674,6 +3816,9 @@ pub struct EntityView<'a> {
     pub route: &'a [Vec2],
     /// ms of stun remaining.
     pub stun_ms: i32,
+    /// ms until the counter is ready again (card.rs `ParryDef`; entity.rs `parry_ms`), 0 when it is ready and on
+    /// every entity whose card carries no counter.
+    pub parry_ms: i32,
     /// THE BUFF LIST (status.rs): every slot, empty ones included. `id` is the index
     /// into `BattleState::cards().buffs` plus one.
     pub buffs: &'a [crate::status::BuffSlot],
@@ -3784,6 +3929,41 @@ struct Scratch {
     /// decision in its Target phase (`phase_target_with`). Cleared at the top of every Status phase
     /// (`fire_scheduled`), before anything can fill it, so it never outlives its tick and is not state.
     switched_reset: Vec<EntityId>,
+    /// THE COUNTER'S CANDIDATES (`note_parry`, `parry_pass`): the hits this Attack phase wrote on a unit that carries
+    /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
+    /// state: not saved, not hashed.
+    parry: Vec<ParryCand>,
+}
+
+/// One hit a counter may take (`Scratch::parry`): hit `k` of the damage buffer, which attacker `attacker` (created
+/// `seq`-th: its `creation_seq`) wrote on defender `d`, for `amount`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParryCand {
+    pub d: usize,
+    pub k: usize,
+    pub attacker: EntityId,
+    pub seq: u32,
+    pub amount: i32,
+}
+
+/// WHICH HIT A READY COUNTER TAKES among `cands`, all on one defender and landing on one tick (calibration
+/// parry.SAME_TICK_PICK): the index into `cands`. first_created_attacker takes the attacker created first, then the
+/// hit written first; largest_amount the largest hit, then the attacker created first, then the hit written first.
+/// Never measured: no measured tick had two hits while the counter was ready. Panics on an empty list.
+pub fn parry_pick(arm: ParryPick, cands: &[ParryCand]) -> usize {
+    assert!(!cands.is_empty(), "a pick among no candidates");
+    #[cfg(clash_plant = "parry_pick_by_slot")]
+    {
+        // PLANT (regression, tests/parry.rs): the hit written first, whatever the arm says, so the pick follows the
+        // attackers' slot order.
+        let _ = arm;
+        return (0..cands.len()).min_by_key(|&j| cands[j].k).expect("not empty");
+    }
+    #[allow(unreachable_code)]
+    match arm {
+        ParryPick::FirstCreatedAttacker => (0..cands.len()).min_by_key(|&j| (cands[j].seq, cands[j].k)).expect("not empty"),
+        ParryPick::LargestAmount => (0..cands.len()).min_by_key(|&j| (std::cmp::Reverse(cands[j].amount), cands[j].seq, cands[j].k)).expect("not empty"),
+    }
 }
 
 /// The 16.402 path grid (path16402.rs): the static terrain, this tick's occlusion
@@ -4028,11 +4208,23 @@ fn land_buff(
     source: Option<Vec2>,
 ) -> bool {
     let Some(def) = table.get(buff as usize).copied() else { return false };
-    // status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 (the -100 / -100 / -100
-    // rows: ZapFreeze, Freeze, ContinueFreeze) also drives the engine's one hold timer, so every
-    // status.STUN_* key keeps its meaning and a Zap, a Freeze spell and an Ice Spirit all hold
-    // alike.
-    let full_stop = c.full_stop_buff_is_stun == FullStopBuff::StunTimer && crate::status::compose([def].iter(), Sel::Speed, 100) == 0;
+    // status.FULL_STOP_BUFF_IS_STUN: a full-stop buff (the -100 / -100 / -100 rows: ZapFreeze,
+    // Freeze, ContinueFreeze) also drives the engine's one hold timer, so every status.STUN_* key
+    // keeps its meaning and a Zap, a Freeze spell and an Ice Spirit all hold alike. Under
+    // stun_timer that is any row whose speed composes to 0; under stun_timer_speed_and_hit_speed_zero
+    // its hit speed must compose to 0 too, so the Ronin's counter stun (hit speed -95) is a plain
+    // buff that stops the walk and slows the attack clock to 2 a tick.
+    let speed0 = crate::status::compose([def].iter(), Sel::Speed, 100) == 0;
+    let full_stop = match c.full_stop_buff_is_stun {
+        FullStopBuff::StunTimer => speed0,
+        // PLANT (regression, tests/parry.rs): the split row drives the hold timer as a stun would.
+        #[cfg(clash_plant = "split_stop_is_stun")]
+        FullStopBuff::SpeedAndHitSpeedZero => speed0,
+        #[cfg(not(clash_plant = "split_stop_is_stun"))]
+        FullStopBuff::SpeedAndHitSpeedZero => speed0 && crate::status::compose([def].iter(), Sel::HitSpeed, 100) == 0,
+        // Refused at load (`Calib::from_json`); a config built in code that sets it drives nothing.
+        FullStopBuff::BuffOnly => false,
+    };
     // status.BUFF_PULSE_TIMING: the pulse clock starts a whole period out, so an area that
     // refreshes its buff four times a second still pulses once a second. An area that sets the
     // clock itself (HitTickFromSource under status.AREA_BUFF_SOURCE_BINDING = client_source_bound,
@@ -5463,6 +5655,9 @@ impl BattleState {
                 continue;
             }
             self.ents.stun_ms[i] = (self.ents.stun_ms[i] - dt).max(0);
+            // THE COUNTER'S COOLDOWN (`parry_pass`) runs on the same clock: set in the Attack phase of the counter
+            // tick C, it is 0 again by the Attack phase of C + cooldown / TICK_MS under either alignment.
+            self.ents.parry_ms[i] = (self.ents.parry_ms[i] - dt).max(0);
             for slot in self.ents.buff_slots_mut(i) {
                 if slot.is_empty() {
                     continue;
@@ -5629,6 +5824,18 @@ impl BattleState {
                 ScheduledAction::Transform { entity, into, reset_target } => {
                     if self.ents.is_alive(entity) {
                         self.rebind_unit(entity.index as usize, into, reset_target);
+                    }
+                }
+                ScheduledAction::Damage { target, amount, crown_pct } => {
+                    if self.ents.is_alive(target) {
+                        let kind = self.ents.kind[target.index as usize];
+                        let amount = combat::damage_against(kind, amount, crown_pct, self.cfg.calib.crown_rounding);
+                        self.dmg.hits.push(Hit { target, amount, ignores_hide: false });
+                    }
+                }
+                ScheduledAction::Buff { target, buff, time_ms } => {
+                    if self.ents.is_alive(target) {
+                        self.effects.buffs.push(crate::status::BuffHit { target, buff, time_ms, pulse_amount: 0, first_pulse_ms: None, source: None });
                     }
                 }
             }
@@ -6709,7 +6916,7 @@ impl BattleState {
                     let alive = e.alive[i];
                     let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
                     // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide
-                    let held = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
+                    let held = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
                     move16402::Body {
                         x,
                         y,
@@ -6945,7 +7152,7 @@ impl BattleState {
                 let phase_hold = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0;
                 // A unit a hook is dragging (combat.SPECIAL_HOOK) is out of the pass like a slide:
                 // the Move phase steps it (`step_hook_drags`).
-                let frozen = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
+                let frozen = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
                 if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
                     // a stun, a freeze or a knockback ends a dash where it stands (unmeasured:
                     // combat.DASH_ATTACK's open list); an attacking unit is not dashing
@@ -7874,7 +8081,7 @@ impl BattleState {
                 if e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
+                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -8099,7 +8306,7 @@ impl BattleState {
                 if e.speed[i] <= 0 {
                     continue;
                 }
-                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
+                if e.deploy_ms[i] > 0 || e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knocked(i) || calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 {
                     continue;
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
@@ -8337,14 +8544,16 @@ impl BattleState {
             }
             let e = &self.ents;
             // stunned, mid-slide or mid-ladder: the attack timers freeze (a landed
-            // push already reset a running windup in `apply_effects`)
+            // push already reset a running windup in `apply_effects`). A unit under the Ronin's
+            // counter stun is not held (`Entities::held`, status.FULL_STOP_BUFF_IS_STUN): its step
+            // runs, at the composed hit speed.
             // ... and a unit in its post-kill retarget wait (combat.POST_KILL_RETARGET_WAIT),
             // and a death-spawn member still sliding out (spawner.DEATH_SPAWN_PUSHBACK), which
             // neither walks nor attacks until the slide ends. That last term is belt and
             // braces, not a gate: a sliding member is born idle with no target and target.rs
             // `decide` gives it none until the slide ends, so both attack cycles already leave
             // it idle, and removing the term turns no test red.
-            let held = e.held(&self.cfg.cards.buffs, i) || e.knocked(i) || e.retarget_wait[i] > 0 || e.death_sliding(i);
+            let held = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knocked(i) || e.retarget_wait[i] > 0 || e.death_sliding(i);
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing). The
@@ -8434,6 +8643,14 @@ impl BattleState {
                     &bolts,
                     self.tick,
                 );
+                // THE COUNTER (card.rs `ParryDef`, calibration parry.*): the hits `fire` just wrote on a unit that
+                // carries a counter are its candidates. Under the sequential order the pass runs in creation order,
+                // so the counter takes this attacker's hit before any later attacker's, and before the strike below
+                // lands it; under the other orders it picks across the whole pass (after the loop).
+                self.note_parry(i, strike_from);
+                if self.tick_order() == TickOrder::ClientSequentialStrike {
+                    self.parry_pass();
+                }
                 // match.TICK_ORDER = client_sequential_strike: a DIRECT strike (no projectile: the
                 // single hit, or the melee splash) lands at once, so every later unit of the pass
                 // reads its victim's hp and death (`phase_target_attack_sequential`). A projectile
@@ -8513,6 +8730,126 @@ impl BattleState {
                     }
                 }
             }
+        }
+        // THE COUNTER, across the whole pass (the sequential order ran it after each attacker, and it is empty now).
+        self.parry_pass();
+    }
+
+    /// THE COUNTER'S CANDIDATES (parry.COUNTERED_HITS): the hits attacker `a`'s `fire` wrote from `from` on that land
+    /// on a live enemy whose card carries a counter. Under ground_melee the attacker must be a troop with no
+    /// projectile that does not fly; under melee a flying one counts too. So a shot never counts, a tower's or a
+    /// building's attack never does, and neither does a spell, a dash blow or a reflect, none of which `fire` writes
+    /// here. Measured on client 15.535.29: a Knight's and a Skeleton's hits were countered; Musketeer shots, princess
+    /// tower arrows, a Zap and about 25 Bat hits were not.
+    fn note_parry(&mut self, a: usize, from: usize) {
+        if self.dmg.hits.len() <= from {
+            return;
+        }
+        let card = self.cfg.cards.get(self.ents.card[a]);
+        if card.projectile.is_some() || self.ents.kind[a] != EntityKind::Troop {
+            return;
+        }
+        #[cfg(not(clash_plant = "parry_counters_air"))]
+        let air_excluded = self.cfg.calib.parry_hits == ParryHits::GroundMelee && self.ents.flying[a];
+        // PLANT (regression, tests/parry.rs): a flying attacker's hit is countered under ground_melee too.
+        #[cfg(clash_plant = "parry_counters_air")]
+        let air_excluded = false;
+        if air_excluded {
+            return;
+        }
+        let (attacker, seq, team) = (self.ents.id_of(a), self.ents.creation_seq[a], self.ents.team[a]);
+        for k in from..self.dmg.hits.len() {
+            let h = self.dmg.hits[k];
+            let d = h.target.index as usize;
+            if !self.ents.is_alive(h.target) || self.ents.team[d] == team || self.cfg.cards.get(self.ents.card[d]).parry.is_none() {
+                continue;
+            }
+            self.scratch.parry.push(ParryCand { d, k, attacker, seq, amount: h.amount });
+        }
+    }
+
+    /// THE COUNTER (card.rs `ParryDef`; calibration parry.*, actions.SUB_ACTIONS_DELAY), over this pass's candidates
+    /// (`note_parry`), each defender once, in (team, team_seq) order. A defender is READY when it is alive with hp
+    /// left, its cooldown is 0, and it is past its deploy or its counter works while it deploys (parry.READY_AT =
+    /// spawn and DeployActive). A ready defender takes one candidate (`parry_pick`) and:
+    ///   - takes DefenseScalar percent of that hit (0 on the Ronin: the hit is edited in the buffer, so it never
+    ///     lands and never marks the Ronin doomed);
+    ///   - spends its counter for Cooldown ms from this tick (parry.COOLDOWN_START = parry_tick; lock_end adds the
+    ///     forced animation's ForcedDuration);
+    ///   - restarts its own attack (parry.SELF_LOCK = attack_restart): the progress goes to 0, the phase and the
+    ///     target stay, and its next attack step makes a fresh entry;
+    ///   - hangs its stun on the attacker at the stun's place in the instigator group: a delay of one tick or less
+    ///     through the effect buffer now, which lands in this tick's Resolve after the hold timers' decrement, so the
+    ///     attacker is slowed on the next 10 ticks for the Ronin's 500 ms; a longer one through `scheduled`;
+    ///   - answers with DamageScalar percent of the countered hit, not level-scaled, at the reflect's place in the
+    ///     group, through `scheduled`: 300 ms is 6 ticks.
+    ///
+    /// Measured on client 15.535.29 on 5 counters (2 on a Knight, 3 on Skeletons): the Ronin's hp unchanged on the
+    /// counter tick and the next; the attacker's attack progress +2 a tick for 10 ticks, its target kept; the reflect,
+    /// twice the countered hit, 6 ticks after the counter; the Ronin's progress 0 on the counter tick and a fresh cycle
+    /// after it; ready again 68 to 71 ticks later.
+    fn parry_pass(&mut self) {
+        if self.scratch.parry.is_empty() {
+            return;
+        }
+        let mut cands = std::mem::take(&mut self.scratch.parry);
+        #[cfg(clash_plant = "parry_never_counters")]
+        {
+            // PLANT (regression, tests/parry.rs): no counter ever takes a hit.
+            cands.clear();
+            self.scratch.parry = cands;
+            return;
+        }
+        #[allow(unreachable_code)]
+        {
+            let c = self.cfg.calib.clone();
+            let mut defenders: Vec<usize> = cands.iter().map(|x| x.d).collect();
+            defenders.sort_by_key(|&d| (self.ents.team[d] as u8, self.ents.team_seq[d], d));
+            defenders.dedup();
+            for d in defenders {
+                let e = &self.ents;
+                let Some(p) = self.cfg.cards.get(e.card[d]).parry else { continue };
+                let deploy_ok = e.deploy_ms[d] == 0 || (c.parry_ready_at == ParryReadyAt::Spawn && p.ready_at_deploy);
+                if !e.alive[d] || e.hp[d] <= 0 || e.parry_ms[d] > 0 || !deploy_ok {
+                    continue;
+                }
+                let id = e.id_of(d);
+                // Only the candidates whose hit is still in the buffer where `note_parry` saw it.
+                let mine: Vec<ParryCand> = cands.iter().copied().filter(|x| x.d == d && x.k < self.dmg.hits.len() && self.dmg.hits[x.k].target == id).collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                let pick = mine[parry_pick(c.parry_pick, &mine)];
+                let countered = self.dmg.hits[pick.k].amount;
+                self.dmg.hits[pick.k].amount = (countered as i64 * p.taken_pct as i64 / 100) as i32;
+                self.ents.parry_ms[d] = p.cooldown_ms + if c.parry_cooldown_start == ParryCooldownStart::LockEnd { p.self_lock_ms } else { 0 };
+                if c.parry_self == ParrySelf::AttackRestart {
+                    self.ents.attack_ms[d] = 0;
+                }
+                let group = &p.delays_ms[..p.group_len as usize];
+                let dt = c.tick_ms.max(1);
+                // The stun: the next tick through the effect buffer, or later through `scheduled`.
+                let stun_ms = sub_action_delay_ms(&c, group, p.stun_at as usize);
+                if stun_ms <= dt {
+                    self.effects.buffs.push(crate::status::BuffHit { target: pick.attacker, buff: p.stun.buff, time_ms: p.stun.time_ms, pulse_amount: 0, first_pulse_ms: None, source: None });
+                } else {
+                    self.scheduled.push(Scheduled { ms: stun_ms - dt, action: ScheduledAction::Buff { target: pick.attacker, buff: p.stun.buff, time_ms: p.stun.time_ms } });
+                }
+                // The reflect: DamageScalar percent of the countered hit, not scaled by level.
+                #[cfg(not(clash_plant = "parry_reflect_level_scaled"))]
+                let reflect = (countered as i64 * p.reflect_pct as i64 / 100) as i32;
+                // PLANT (regression, tests/parry.rs): the reflect scaled by the countering unit's level, as a card stat.
+                #[cfg(clash_plant = "parry_reflect_level_scaled")]
+                let reflect = self.cfg.cards.scaled(self.ents.card[d], self.ents.level[d], (countered as i64 * p.reflect_pct as i64 / 100) as i32).expect("level validated at spawn");
+                let reflect_ms = sub_action_delay_ms(&c, group, p.reflect_at as usize);
+                if reflect_ms <= 0 {
+                    self.dmg.hits.push(Hit { target: pick.attacker, amount: reflect, ignores_hide: false });
+                } else {
+                    self.scheduled.push(Scheduled { ms: reflect_ms, action: ScheduledAction::Damage { target: pick.attacker, amount: reflect, crown_pct: 100 } });
+                }
+            }
+            cands.clear();
+            self.scratch.parry = cands;
         }
     }
 
@@ -10687,6 +11024,7 @@ impl BattleState {
             move_frac: e.move_frac[i],
             route: &e.route[i],
             stun_ms: e.stun_ms[i],
+            parry_ms: e.parry_ms[i],
             buffs: e.buff_slots(i),
             stomp_clock: e.stomp_clock[i],
             speed_now: self.effective_speed(i),
@@ -10912,6 +11250,12 @@ impl BattleState {
                 #[cfg(not(clash_plant = "hash_skips_reveal"))]
                 if self.cfg.cards.get(e.card[i]).invisible_when_idle.is_some() {
                     h.u32(e.reveal_from[i]);
+                }
+                // The counter's cooldown, only on a card that carries a counter: a battle without one hashes as before
+                // the column. PLANT hash_skips_parry (tests/parry.rs): the cooldown is not hashed.
+                #[cfg(not(clash_plant = "hash_skips_parry"))]
+                if self.cfg.cards.get(e.card[i]).parry.is_some() {
+                    h.i32(e.parry_ms[i]);
                 }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
@@ -11234,6 +11578,18 @@ impl BattleState {
                         h.u32(into as u32);
                         h.bool(reset_target);
                     }
+                    ScheduledAction::Damage { target, amount, crown_pct } => {
+                        h.u32(0x444d_4745);
+                        h.id(target);
+                        h.i32(amount);
+                        h.i32(crown_pct);
+                    }
+                    ScheduledAction::Buff { target, buff, time_ms } => {
+                        h.u32(0x4255_4646);
+                        h.id(target);
+                        h.u32(buff as u32);
+                        h.i32(time_ms);
+                    }
                 }
             }
         }
@@ -11447,6 +11803,13 @@ impl BattleState {
 ///    hashed, and a troop's LifeTime is the per-entity `lifetime_ms` / `lifetime_acc` already there. CardDef gained
 ///    `transform_at_hp`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved
 ///    against other card data. migrate_v3 strips it with the rest of the post-format-3 tail; no card's index moves.
+/// 20, unchanged, the counter (parry.*, actions.SUB_ACTIONS_DELAY, and status.FULL_STOP_BUFF_IS_STUN's new arm):
+///    Calib gained six fields (serde default the shipped arm; no battle saved before them held a counter), Entities
+///    gained `parry_ms` (serde default, sized on load, hashed only on a card that carries a counter) and
+///    `ScheduledAction` gained `Damage` and `Buff` (the reflect in flight rides the `scheduled` list). CardDef gained
+///    `parry`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other
+///    card data. migrate_v3 strips it with the rest of the post-format-3 tail. The Ronin's stun row is a new buff
+///    interned at the Ronin's place in load order, so every buff first interned by a later card moves up one index.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -11637,7 +12000,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, transform_at_hp: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, transform_at_hp: {:?}, parry: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -11675,7 +12038,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.projectile_area,
                     c.life_state,
                     c.invisible_when_idle,
-                    c.transform_at_hp
+                    c.transform_at_hp,
+                    c.parry
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -12042,6 +12406,7 @@ impl BattleState {
         snap.ents.life_target.resize(n, None);
         snap.ents.life_n.resize(n, 0);
         snap.ents.reveal_from.resize(n, 0);
+        snap.ents.parry_ms.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);
@@ -12080,6 +12445,9 @@ impl BattleState {
                         || (snap.ents.is_alive(entity)
                             && cards.cards.get(snap.ents.card[entity.index as usize] as usize).and_then(|c| c.transform_at_hp).map(|t| t.unit) != Some(into))
                 }
+                // A delayed hit or buff names an entity of the table, and a buff a row of this card data's table.
+                ScheduledAction::Damage { target, .. } => (target.index as usize) >= n,
+                ScheduledAction::Buff { target, buff, .. } => (target.index as usize) >= n || (buff as usize) >= cards.buffs.len(),
             })
         {
             return Err("snapshot entity tables are inconsistent".into());

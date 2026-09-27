@@ -29,7 +29,9 @@
 //! 68; movement.BUFF_SPEED_RULE). `Freeze` ships -100 in all three multiplier
 //! columns, which makes `neg` 0 and the whole product 0: a FROZEN UNIT IS A HELD
 //! UNIT, and the engine runs it down the same path a Zap stun takes
-//! (`Entities::held`).
+//! (`Entities::held`). The Ronin's counter stun stops the walk (speed -100) and not the
+//! clock (hit speed -95: 2 of every 50 ms), and under the shipped
+//! status.FULL_STOP_BUFF_IS_STUN such a row is a plain buff, not a hold.
 //!
 //! WHERE THE TWO COMPOSITIONS ARE READ
 //!   * SPEED, `Sel::Speed`: `state.rs effective_speed` (the walk, before the charge

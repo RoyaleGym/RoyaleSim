@@ -121,6 +121,9 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     // slots reached through these two rows alone.
     ("cards.json", "MovingCannon"),
     ("cards.json", "GoblinDemolisher"),
+    // The counter (tests/parry.rs): refused in `convert` for its action graph, never pushed. Its stun row is a new
+    // buff interned at its place in load order, so without it every later buff keeps its parent's index too.
+    ("cards.json", "Ronin"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

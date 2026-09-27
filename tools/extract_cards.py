@@ -270,6 +270,9 @@ SECTION_TABLE = {
     "AEO": "area_effect_objects",
     "BUFF": "character_buffs",
     "ACTION": "actions",
+    # A damage type an ActionDealDamage names (BaseDamageType): the Ronin's reflect says whether its
+    # damage scales with level. Read by `parry` alone; its own table, built from overlays only.
+    "DAMAGE_TYPE": "damage_types",
     "SPELL_CHARACTER": "spells_characters",
     "SPELL_BUILDING": "spells_buildings",
     "SPELL_OTHER": "spells_other",
@@ -755,6 +758,9 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
     for k, f in v.sources.items():
         t[k] = OverlayTable(k, v.raw / f)
     t["actions"] = OverlayTable("actions", None)
+    # [DAMAGE_TYPE.*] sections of the per-character files (SECTION_TABLE). No output lists this
+    # table's files, and nothing but `parry` reads it, so every other row is unchanged by it.
+    t["damage_types"] = OverlayTable("damage_types", None)
     for k, files in v.overlays.items():
         for f in files:
             p = v.raw / f
@@ -1016,6 +1022,95 @@ def transform_at_hp(t: dict, rec: dict) -> dict | None:
     if len(hits) != 1:
         return None
     return {**hits[0], "noop_spawns": noops}
+
+
+def _group_leaves(acts, name: str) -> tuple[list[str], list[int]] | None:
+    """An ActionGroup's sub-actions and their SubActionsDelay, raw and in SubActions order; None
+    when `name` is not a group, a delay list does not pair with the sub-actions, or a sub-action is
+    itself a group or names no action row."""
+    a = acts.get(name)
+    if a is None or a["ClassType"] != "ActionGroup":
+        return None
+    subs = _action_list(acts, name, "SubActions")
+    ds = _action_list(acts, name, "SubActionsDelay")
+    if not subs or len(ds) not in (0, len(subs)):
+        return None
+    for s in subs:
+        sa = acts.get(s)
+        if sa is None or sa["ClassType"] == "ActionGroup":
+            return None
+    return subs, list(ds) if ds else [0] * len(subs)
+
+
+def parry(t: dict, rec: dict) -> dict | None:
+    """THE COUNTER as a named block (15.535: the Ronin). The row's OnStartingAction is an
+    ActionGroup of one ActionCounter and cosmetic effects. The counter's SelfAction group is one
+    ActionRunForcedAnimationOnce and one ActionWithDuration (the cooldown tag). Its
+    InstigatorAction group is one ActionSpawn of a BuffType, one ActionDealDamage and cosmetic
+    effects, each at its SubActionsDelay. Every other root the row names must name no action row
+    (the Ronin's VisualActions names a health bar that is not in the action tables).
+
+    Fail-closed: any other action, a nested group, a delay list that does not pair, a second
+    counter, spawn or damage gives None, and the loader then refuses the graph as before. The
+    delays are written raw, in SubActions order, with each action's place in them: which of the
+    two readings of SubActionsDelay the client uses is calibration actions.SUB_ACTIONS_DELAY's.
+    `deploy_active` and `reflect_level_scaling` are True or False, and None when the column is not
+    in the table at all (`flag`)."""
+    g = action_graph(t, rec)
+    if not g or "OnStartingAction" not in g["roots"]:
+        return None
+    acts = t["actions"]
+    if any(acts.get(v) is not None for k, v in g["roots"].items() if k != "OnStartingAction"):
+        return None
+    root = _group_leaves(acts, g["roots"]["OnStartingAction"])
+    if root is None:
+        return None
+    root_subs, root_delays = root
+    counters = [k for k, s in enumerate(root_subs) if acts.get(s)["ClassType"] == "ActionCounter"]
+    others = [s for s in root_subs if acts.get(s)["ClassType"] not in ("ActionCounter", "ActionPlayEffect")]
+    if len(counters) != 1 or others:
+        return None
+    counter = acts.get(root_subs[counters[0]])
+    own = _group_leaves(acts, counter["SelfAction"]) if isinstance(counter["SelfAction"], str) else None
+    inst = _group_leaves(acts, counter["InstigatorAction"]) if isinstance(counter["InstigatorAction"], str) else None
+    if own is None or inst is None:
+        return None
+    own_subs, own_delays = own
+    own_classes = sorted(acts.get(s)["ClassType"] for s in own_subs)
+    if own_classes != ["ActionRunForcedAnimationOnce", "ActionWithDuration"]:
+        return None
+    anim = next(acts.get(s) for s in own_subs if acts.get(s)["ClassType"] == "ActionRunForcedAnimationOnce")
+    tag = next(acts.get(s) for s in own_subs if acts.get(s)["ClassType"] == "ActionWithDuration")
+    inst_subs, inst_delays = inst
+    cls = [acts.get(s)["ClassType"] for s in inst_subs]
+    spawns = [k for k, c in enumerate(cls) if c == "ActionSpawn"]
+    damages = [k for k, c in enumerate(cls) if c == "ActionDealDamage"]
+    known = ("ActionSpawn", "ActionDealDamage", "ActionPlayEffect")
+    if len(spawns) != 1 or len(damages) != 1 or any(c not in known for c in cls):
+        return None
+    spawn = acts.get(inst_subs[spawns[0]])
+    damage = acts.get(inst_subs[damages[0]])
+    if spawn["SpawnType"] != "BuffType" or not isinstance(spawn["SpawnData"], str):
+        return None
+    dt_name = damage["BaseDamageType"]
+    dt = t["damage_types"].get(dt_name) if "damage_types" in t and isinstance(dt_name, str) else None
+    return {
+        "counter_cooldown_ms": counter["Cooldown"],
+        "deploy_active": flag(counter, "DeployActive"),
+        "damage_scalar_pct": counter["DamageScalar"],
+        "defense_scalar_pct": counter["DefenseScalar"],
+        "root_delays_ms": root_delays,
+        "counter_at": counters[0],
+        "self_delays_ms": own_delays,
+        "self_forced_ms": anim["ForcedDuration"],
+        "self_tag_ms": tag["ActionDuration"],
+        "instigator_delays_ms": inst_delays,
+        "stun_at": spawns[0],
+        "reflect_at": damages[0],
+        "stun": norm_buff(t, spawn["SpawnData"]),
+        "stun_time_ms": spawn["SpawnTime"],
+        "reflect_level_scaling": flag(dt, "EnableLevelScaling") if dt is not None else None,
+    }
 
 
 def raw_logic(rec: dict) -> dict:
@@ -1509,6 +1604,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         tb = transform_at_hp(t, c)
         if tb is not None:
             u["transform_at_hp"] = tb
+        # The counter (the Ronin), when the row's graph is one (`parry`); written only there, so
+        # every other row is unchanged.
+        pr = parry(t, c)
+        if pr is not None:
+            u["parry"] = pr
         # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
         # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
         # every other row are unchanged.
@@ -1843,6 +1943,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["life_state_spawner"] = u["life_state_spawner"]
     if "transform_at_hp" in u:
         card["transform_at_hp"] = u["transform_at_hp"]
+    if "parry" in u:
+        card["parry"] = u["parry"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
