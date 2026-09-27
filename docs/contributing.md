@@ -19,8 +19,9 @@ cd RoyaleSim
 ```
 
 Fat LTO, so it is not quick. Measured from a fresh clone with no `target/`: 160 seconds cold, 88
-with a warm cargo registry cache, and the build processes peaked under a gigabyte. A rebuild after
-touching one file takes longer than either, because that command also runs the Rust suite.
+with a warm cargo registry cache, and the build processes peaked under a gigabyte. That command
+builds and installs the module only. It does not run the Rust suite; `cargo test --release`, under
+Gates, does.
 
 `maturin develop` installs into the active venv. With no venv active, it installs into a `.venv`
 found in the current or a parent directory. A venv under any other name needs `VIRTUAL_ENV`
@@ -31,6 +32,12 @@ compiled in with `include_str!`, and the env layer's `RustEngine` refuses a buil
 compiled-in **values** differ from the files on disk. After changing either file, run
 `maturin develop --release` again. Prose fields of the ledger (provenance, notes, promotion
 rules) are not compared, so a prose-only edit needs no rebuild.
+
+**Run the Rust suite before the Python suite.** Cargo re-runs the build script when anything under
+`data/` changes, even a file rewritten with the same bytes, and then rebuilds the crate and every
+test binary. At `1d661b0` the Python suite rewrites `data/derived/globals.json`, so a
+`cargo test --release` after it starts its long build again. The Gates list below is in that
+order.
 
 Building needs about 1.5 GB of RAM; on a small machine run one release build at a time and
 nothing else heavy beside it.
@@ -65,12 +72,13 @@ other, so on the 2018 table they do not apply.
 
 Both files are needed. The engine reads `cards.json`, and some tests load `cards-2018.json` by
 that name (`crates/royalesim/tests/charge.rs`, `crates/royalesim/tests/loadable_census.rs` and
-`tests/test_card_reads.py` among them). The three checks that are about the 15.535 table itself
-read it from `cards.json`, so the copy is what they need: `tests/levels.rs` (the level ladder
-against recorded `max_hp`), `tests/jump16402.rs` (the jump blocks of the Hog Rider, Prince and
-Dark Prince, which the 2018 columns give to the Hog alone) and `tools/check_data.py`'s live-level
-rows. The asset pack and `extract_cards.py` with no `--vintage` are needed only to rebuild
-`cards-15.535.json` itself.
+`tests/test_card_reads.py` among them). Two Rust tests about the 15.535 table itself read it from
+`cards.json`, so the copy is what they need: `tests/levels.rs` (the level ladder against recorded
+`max_hp`) and `tests/jump16402.rs` (the jump blocks of the Hog Rider, Prince and Dark Prince,
+which the 2018 columns give to the Hog alone). The asset pack and `extract_cards.py` with no
+`--vintage` are needed to rebuild `cards-15.535.json` itself, and by the tools that read the pack
+directly: `tools/check_data.py` with no `--vintage` (its live-level rows included) and
+`tools/mechanic_register.py`. On a clone both stop at once and ask for the pack.
 
 The recorded traces in `data/oracle-native/` are not distributed; without them
 `tests/test_oracle_native_diff.py` skips and says so.
@@ -101,6 +109,13 @@ the card data is what the client ships, whether the engine reads what the cards 
 layer driving the engine. No counts are quoted here, because a number typed into prose is stale the
 moment the suite moves; each command prints its own.
 
+`check_data.py` with no flag rebuilds the 15.535 table from the asset pack, so on a clone it stops
+at once and asks for the pack. There, run this instead, which checks the 2018 table:
+
+```
+..\.venv\Scripts\python tools\check_data.py --vintage 2018
+```
+
 The integer-only rule used to be a `grep` on this page, which is not a gate, because nobody runs a
 page. `tests/test_no_floats.py` holds it now, over `src/`, `tests/`, `examples/` and `build.rs`.
 
@@ -121,7 +136,8 @@ cd ..\..
 ..\.venv\Scripts\python tools\watch_battle.py --open
 ```
 
-The first is the timing run. The second opens a battle you can watch.
+The first is the timing run. The second opens a battle you can watch. On macOS and Linux, if
+`--open` stops with `no attribute 'startfile'`, open the `battle.html` it names in your browser.
 
 ### `tools/check_card_reads.py`
 
@@ -147,7 +163,8 @@ what the engine does instead; the gate also fails when one of those entries goes
 It needs `cards.json`, `card.rs` and `calibration.json` and nothing else. `--cards data/derived/cards-2018.json` scores
 the 2018 table. Two passes are optional and each says out loud when it is skipped: the engine's own
 catalogue needs the built extension module, and the per-object pass needs
-`data/derived/mechanic_register.json`. A skip is not a pass.
+`data/derived/mechanic_register.json`. `tools/mechanic_register.py` writes that file from the
+15.535 asset pack, so on a clone the per-object pass always skips. A skip is not a pass.
 
 `--all-plants` runs six plants and reports whether each one still reddens the gate.
 `tests/test_card_reads.py` drives all of it.
@@ -183,9 +200,10 @@ catalogue needs the built extension module, and the per-object pass needs
 
 Plays a whole battle on `RustEngine` through the env layer, scores five gates over it, and writes
 a self-contained `battle.html`. A 3-minute battle (`--seed 7 --steps 400 --noop-prob 0.2`) took
-1.4 s end to end on 2026-09-21 including the re-simulation and the 2.8 MB, 4001-frame page (about
-5 s on the 2026-09-13 machine). `--trace-out battle.msgpack` also saves the trace, which
-RoyaleViser plays (`python -m royaleviser battle.msgpack`). The five gates:
+1.4 s end to end on 2026-09-21 including the re-simulation and the page (about 5 s on the
+2026-09-13 machine). At `1d661b0` on 2026-09-27 the same command wrote a 3601-frame page of
+4,810,216 bytes; its `render` line prints both numbers. `--trace-out battle.msgpack` also saves
+the trace, which RoyaleViser plays (`python -m royaleviser battle.msgpack`). The five gates:
 
 | Gate | What it checks |
 |---|---|
@@ -250,9 +268,10 @@ Two rules go with them, and both were learned the hard way:
   headers on the Rust modules, sentence case in the ledger.
 - The docs and the env layer reference module and tool names, so renaming one is a cross-repo
   change, not a local tidy-up.
-- `data/raw/cr-*` (the decoded modern asset pack), `data/derived/` (generated) and
-  `data/oracle-native/` (large traces) are gitignored and never committed.
-  `data/raw/retroroyale-2018/` is tracked.
+- `data/raw/cr-*` (the decoded modern asset pack) and `data/oracle-native/` (large traces) are
+  gitignored and never committed. `data/derived/` is generated and gitignored too, with one
+  exception: a clone carries only `cards-15.535.json` there, and the README's stage 3 lines
+  generate the rest. `data/raw/retroroyale-2018/` is tracked.
 
 ## Repository layout
 
