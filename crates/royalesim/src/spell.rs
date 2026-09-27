@@ -462,6 +462,12 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib
     if !ents.alive[v] || ents.hp[v] <= 0 {
         return false;
     }
+    // movement.SPAWN_PATHFIND_BODY = untouchable: no area, roll or strike reaches a unit under ground
+    // (entity.rs `underground`; client 15.535.29: Zap and Arrows left a Miner and a dig as in the control).
+    #[cfg(not(clash_plant = "tunnel_targetable"))]
+    if calib.spawn_pathfind_body == crate::state::SpawnPathfindBody::Untouchable && ents.underground(v) {
+        return false;
+    }
     // OnlyOwnTroops (card.rs SpellHit `only_own_troops`: the Battle Healer's spawn heal, Rage, the
     // Heal Spirit's heal): the releaser's side only, and within it the kinds
     // spells.OWN_SIDE_AREA_SCOPE names.

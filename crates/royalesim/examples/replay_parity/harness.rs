@@ -190,9 +190,19 @@ pub struct Deploy {
     /// tap_request_no_unit_observed, ...). Absent from a corpus fixture.
     #[serde(default)]
     pub pos_source: Option<String>,
+    /// THE DESTINATION of a deploy of a card that travels underground (cards.json `spawn_pathfind`: the Miner,
+    /// the Goblin Drill), native, as the fixture maker (tools/make_replay_fixture.py `tunnel_destinations`)
+    /// reads it off the truth: where the Miner turns deploying after its tunnel, where the Drill's building
+    /// first stands. Absent on every other deploy, and on a tunnel whose surfacing the frames do not hold.
+    #[serde(default)]
+    pub destination: Option<[i32; 2]>,
 }
 
 /// THE POINT A DEPLOY IS PLAYED AT, native.
+///
+/// A deploy that carries a `destination` (a card that tunnels) is played THERE: its `pos` is the tunnel's
+/// first frame, next to its owner's King, and the engine puts the unit at its King itself and walks it to the
+/// point it is played at (state.rs `phase_tunnel`). Plant: replay_plays_the_tunnel_start.
 ///
 /// A scenario fixture's `pos` is what was SEEN. For a multi-unit troop that is the members' centroid
 /// (pos_source observed_spawn_centroid), which lies off the tile the formation was laid around (the Rascals'
@@ -214,6 +224,10 @@ pub fn play_point(d: &Deploy) -> [i32; 2] {
     #[cfg(clash_plant = "replay_plays_the_centroid")]
     {
         return d.pos; // PLANT (regression): every deploy at what was seen.
+    }
+    #[cfg(not(clash_plant = "replay_plays_the_tunnel_start"))]
+    if let Some(dest) = d.destination {
+        return dest;
     }
     #[allow(unreachable_code)]
     let tile = SUBTILE / SUBTILE_PER_MILLITILE;
@@ -881,6 +895,10 @@ struct Roots {
     /// Girls): rooted to the card the harness itself deployed on that tick
     /// (card.rs `FormationDef::second_summon`).
     second_summon_of: BTreeMap<u16, Vec<u16>>,
+    /// A summon-only record that itself puts units on the board (the Goblin Drill's building, the
+    /// Elixir Golem's ElixirGolem2) -> the playable card at the top of its chain, so a unit its death
+    /// releases is rooted to that card and not to the summon-only record.
+    card_of: BTreeMap<u16, u16>,
 }
 
 impl Roots {
@@ -897,6 +915,9 @@ impl Roots {
                     // A death projectile's release (the Phoenix's egg) comes out of a death
                     // too, a tick after it: rooted to the nearest recent death, as a death spawn.
                     UnitRef::DeathProjectile => &mut death_spawn_of,
+                    // A tunneller's building (the Goblin Drill's) appears on the tick its dig goes,
+                    // where the dig came up: rooted to that disappearance, as a death spawn.
+                    UnitRef::Morph => &mut death_spawn_of,
                     // a spell summon's unit (the Heal Spirit) is put down by its spell, as a release is
                     UnitRef::SpellRelease | UnitRef::SpellSummon => &mut spell_release_of,
                     UnitRef::SecondSummon => &mut second_summon_of,
@@ -909,7 +930,31 @@ impl Roots {
                 of.entry(unit).or_default().push(i);
             }
         }
-        Roots { death_spawn_of, spell_release_of, second_summon_of }
+        // The top of each summon-only record's chain: the first playable card, in CardDb order, whose
+        // blocks reach it, level by level (py.rs `ids_of_indices` attributes a unit the same way).
+        let mut card_of: BTreeMap<u16, u16> = BTreeMap::new();
+        let mut frontier: Vec<(u16, u16)> = (0..db.cards.len() as u16)
+            .filter(|i| !db.get(*i).summon_only && db.index(&db.get(*i).name) == Some(*i))
+            .map(|i| (i, i))
+            .collect();
+        while !frontier.is_empty() {
+            let mut next = Vec::new();
+            for (top, idx) in frontier {
+                for (_, u, _) in db.unit_refs(idx) {
+                    if (u as usize) < db.cards.len() && db.get(u).summon_only && !card_of.contains_key(&u) {
+                        card_of.insert(u, top);
+                        next.push((top, u));
+                    }
+                }
+            }
+            frontier = next;
+        }
+        Roots { death_spawn_of, spell_release_of, second_summon_of, card_of }
+    }
+
+    /// The playable card a record roots to: itself when it is one, else the top of its chain.
+    fn card(&self, idx: u16) -> u16 {
+        self.card_of.get(&idx).copied().unwrap_or(idx)
     }
 }
 
@@ -1107,7 +1152,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     }
                 }
                 if let Some((_, cidx)) = best {
-                    (db.get(cidx).name.clone(), "death-spawn")
+                    // a parent that is itself a unit of a chain (the Drill's building) roots to its card
+                    (db.get(roots.card(cidx)).name.clone(), "death-spawn")
                 } else {
                     let spells = roots.spell_release_of.get(&e.card_idx);
                     let cast = spells.and_then(|sp| spell_casts.iter().rev().find(|(t, team, cidx)| *team == e.team && tick.saturating_sub(*t) <= SPELL_RELEASE_LOOKBACK && sp.contains(cidx)));

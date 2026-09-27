@@ -30,16 +30,12 @@
 //!      carrying a spawner, a death spawn, a second summon and a death area effect and
 //!      one a spell release, end with every block dropped, read off the fields;
 //!   5. `summon_only_numbering_is_breadth_first`: the summon-only records follow every
-//!      card, numbered in first-need order. That is breadth-first over ONE level: a
-//!      unit that itself puts units on the board is still refused as a spawn chain,
-//!      and this test asserts the refusal, so the change that lifts it must replace
-//!      that assertion with the second level's order. A death area's units are the
-//!      dying card's needs, at its own level; no accepted area has any yet, and the
-//!      change that gives one some pins their place here too. ONE EXCEPTION IS LIFTED
-//!      AND NOT PINNED HERE YET: a death projectile's SpawnCharacter may carry a periodic
-//!      spawner (card.rs `UnitUse::DeathProjectileRelease`, the Phoenix's egg), whose
-//!      unit is a second level. No file this test reads has one; the file that first
-//!      does must pin that second level's order here;
+//!      card, numbered in first-need order, one level at a time. A unit that itself puts
+//!      units on the board loads (a spawn chain): Delta's Nester death-spawns Imp, which is
+//!      loaded already, so it adds no record. The second level's own order, and the chain's
+//!      limit, are pinned in tests/spawn_chain.rs. A death area's units are the dying
+//!      card's needs, at its own level; no accepted area has any yet, and the change that
+//!      gives one some pins their place here too;
 //!   6. `a_unit_that_fails_a_check_is_caught_through_every_block`: the failing
 //!      direction of the two checks that read `unit_refs`, on a synthetic file.
 //!      (a) A Common card whose unit is a Legendary row, one per block (spawner,
@@ -65,7 +61,7 @@ use royalesim::py::ids_of_indices;
 ///   Alpha   a spawner (Imp) and a death spawn (Ghoul);
 ///   Beta    a spawner (Imp, shared) and a second summon (Squire);
 ///   Gamma   a spell releasing Wisp, SpawnCharacterLevelIndex 2;
-///   Delta   a death spawn (Nester) whose row death-spawns Imp itself: a chain;
+///   Delta   a death spawn (Nester) whose row death-spawns Imp itself: a chain, which loads;
 ///   Omega   a spawner, a death spawn, a death area effect and a second summon
 ///           (Nobody) with no `units` row;
 ///   Sigma   a spell releasing Nobody.
@@ -139,15 +135,20 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(ls) = &c.life_state {
         out.push((UnitRef::LifeState, ls.unit, None));
     }
+    if let Some(m) = c.spawn_pathfind.and_then(|p| p.morph) {
+        out.push((UnitRef::Morph, m, None));
+    }
     out
 }
 
 /// The unit indices a record carries, counted off its Debug text: every `unit: <n>`
 /// field of any block, whether or not a list names the block (today SpawnDef,
-/// SpawnerDef, DeathSpawnDef and SecondSummonDef). `unit_name:` does not match.
+/// SpawnerDef, DeathSpawnDef and SecondSummonDef), and the underground walk's
+/// `morph: Some(<n>)` (SpawnPathfindDef, the Goblin Drill's building). `unit_name:` does not
+/// match.
 fn unit_fields_in_debug(c: &CardDef) -> usize {
     let text = format!("{c:?}");
-    ["{ unit: ", ", unit: "]
+    ["{ unit: ", ", unit: ", "morph: Some("]
         .into_iter()
         .map(|sep| text.match_indices(sep).filter(|&(at, _)| text[at + sep.len()..].starts_with(|ch: char| ch.is_ascii_digit())).count())
         .sum()
@@ -295,7 +296,7 @@ fn a_rejected_card_keeps_no_unit_block() {
     // Sigma is a projectile spell (so its release would still be there).
     assert!(card("Alpha").spawner.is_some() && card("Alpha").death_spawn.is_some() && card("Beta").formation.second_summon.is_some());
     assert!(matches!(&card("Sigma").spell, Some(SpellDef { shape: SpellShape::Projectile { .. }, .. })), "Sigma is not a projectile spell");
-    for n in ["Omega", "Sigma", "Delta"] {
+    for n in ["Omega", "Sigma"] {
         assert!(db.index(n).is_none(), "{n} is still registered");
         let c = card(n);
         assert!(c.spawner.is_none(), "{n} kept its spawner");
@@ -325,13 +326,15 @@ fn summon_only_numbering_is_breadth_first() {
     let names: Vec<&str> = db.cards.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(&names[..6], &["Alpha", "Beta", "Gamma", "Delta", "Omega", "Sigma"]);
     let units: Vec<(usize, &str)> = db.cards.iter().enumerate().filter(|(_, c)| c.summon_only).map(|(i, c)| (i, c.name.as_str())).collect();
-    assert_eq!(units, vec![(6, "Imp"), (7, "Ghoul"), (8, "Squire"), (9, "Wisp")]);
-    assert_eq!(&names[10..], &[KING_TOWER, PRINCESS_TOWER]);
-    // THERE IS NO SECOND LEVEL YET: Nester death-spawns Imp, so it is refused as a
-    // chain and never numbered.
-    let (_, why) = db.rejected.iter().find(|(n, _)| n == "Delta").expect("Delta is refused");
-    assert_eq!(why, "units.Nester itself spawns units (Imp); a spawn chain is not simulated");
-    assert!(names.iter().all(|n| *n != "Nester" && *n != "units.Nester"));
+    assert_eq!(units, vec![(6, "Imp"), (7, "Ghoul"), (8, "Squire"), (9, "Wisp"), (10, "Nester")]);
+    assert_eq!(&names[11..], &[KING_TOWER, PRINCESS_TOWER]);
+    // A CHAIN LOADS: Nester, Delta's first-level need, death-spawns Imp itself; its own
+    // need is the Imp record already loaded, so the second level adds nothing here.
+    let delta = db.index("Delta").unwrap_or_else(|| panic!("Delta refused: {:?}", db.rejected));
+    let nester = db.get(delta).death_spawn.expect("Delta's death spawn").unit;
+    assert_eq!(db.get(nester).name, "Nester");
+    let imp = db.get(nester).death_spawn.expect("Nester's own death spawn").unit;
+    assert_eq!((imp, db.get(imp).name.as_str()), (6, "Imp"), "Nester's Imp is the Imp record");
 }
 
 // ---------------------------------------------------------------------------

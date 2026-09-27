@@ -262,6 +262,13 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     if invisible(ctx, c) {
         return false;
     }
+    // movement.SPAWN_PATHFIND_BODY = untouchable: a unit under ground (a Miner, a Goblin Drill's dig on its way to
+    // its tap; entity.rs `underground`) is nobody's target, a kept one included (client 15.535.29: never targeted,
+    // even inside a princess tower's footprint).
+    #[cfg(not(clash_plant = "tunnel_targetable"))]
+    if ctx.calib.spawn_pathfind_body == crate::state::SpawnPathfindBody::Untouchable && e.underground(c) {
+        return false;
+    }
     // formation.STAGGER_WAIT: a member still waiting out its deploy stagger is nobody's target
     // (0 of 972,681 corpus target rows point at one). The one definition, so the scan, a locked
     // target and a hidden building's wake all read it.

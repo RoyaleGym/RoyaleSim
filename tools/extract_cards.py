@@ -485,7 +485,7 @@ SCALAR_STAT_COLUMNS = {
     "SummonCharacterSecondCount", "SummonWidth", "SummonDeployDelay", "SummonDeployDelaySecond",
     "SpawnAngleShift", "CustomFirstProjectile", "AreaEffectObject", "InstantDamage",
     "MultipleProjectiles", "ProjectileWaves", "ProjectileWaveInterval", "SpellAsDeploy",
-    "CanPlaceOnBuildings", "CanDeployOnEnemySide", "DurationSeconds",
+    "CanPlaceOnBuildings", "CanDeployOnEnemySide", "TouchdownLimitedDeploy", "DurationSeconds",
     "CheckCollisions", "ProjectileStartExtraRadius", "RandomDelay", "SpawnCount", "Scatter",
 }
 
@@ -1279,9 +1279,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # to the tap. With SpawnPathfindMorph it then MORPHS into the named row on
         # arrival -- the
         # GoblinDrillDig troop becomes the GoblinDrill building, a different hp, a
-        # different LifeTime and a spawner the dig row does not have. The engine runs
-        # neither, so card.rs REFUSES any card whose summon ships either column
-        # (Miner, GoblinDrill); carried here so the loader can see them.
+        # different LifeTime and a spawner the dig row does not have. card.rs runs the
+        # walk and the morph for a played card whose spell row sets CanDeployOnEnemySide
+        # (`summon_card` writes the flag beside this block, 15.535 only) and refuses every
+        # other shape: a spawned unit that tunnels, a row without the flag.
         "spawn_pathfind": None
         if c.get("SpawnPathfindSpeed") is None and c.get("SpawnPathfindMorph") is None
         else {"speed": c.get("SpawnPathfindSpeed"), "morph": c.get("SpawnPathfindMorph")},
@@ -1784,6 +1785,15 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         # 15.535 only, so the 2018 file stays byte-identical: the card row's own AreaEffectObject
         # column when that area IS the deploy of the card's unit (`deploy_area_effect`).
         card["deploy_area_effect"] = deploy_area_effect(t, s, res["character"])
+        # 15.535 only, and only on a card whose unit travels underground (`spawn_pathfind`: the Miner,
+        # the Goblin Drill), so every other row and the 2018 file stay as they were: the spell row's two
+        # placement flags. CanDeployOnEnemySide is read by card.rs with the walk (the territory,
+        # placement.SPAWN_PATHFIND_TERRITORY); a tunnelling card without it is refused. TouchdownLimitedDeploy
+        # is carried for the record: what it limits is established neither by the tables nor by any
+        # measurement, and the engine does not read it.
+        if u.get("spawn_pathfind") is not None:
+            card["can_deploy_on_enemy_side"] = flag(s, "CanDeployOnEnemySide")
+            card["touchdown_limited_deploy"] = flag(s, "TouchdownLimitedDeploy")
     card["deploy_projectile"] = norm_projectile(t, s["Projectile"])
     # The ladder is the UNIT row's Rarity (15.535: Common on every base card, so a
     # Rare card scales on the Common ladder from unified level 1; module doc).

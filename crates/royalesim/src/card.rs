@@ -553,6 +553,22 @@ pub struct JumpDef {
     pub height_raw: i32,
 }
 
+/// THE UNDERGROUND SPAWN WALK (characters.csv SpawnPathfindSpeed / SpawnPathfindMorph; the
+/// Miner 650, the Goblin Drill's dig 300). Measured on client 16.402 (capture 20260920-083112,
+/// both seats) and on client 15.535.29: the unit is born at its owner's King, moves under ground
+/// at SpawnPathfindSpeed native units per tick toward the cell that holds its destination, and
+/// comes up within one step of it -- as itself (the Miner), or by leaving its MORPH target in its
+/// place (the Drill's dig becomes the 1313-hp building). state.rs `phase_tunnel`, calibration
+/// movement.SPAWN_PATHFIND_STATES and its sibling keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpawnPathfindDef {
+    /// SpawnPathfindSpeed, NATIVE units per tick (no buff reads it, as the river leap's speed).
+    pub speed: i32,
+    /// SpawnPathfindMorph resolved to a CardDb index (a summon-only building); None = the
+    /// tunneller itself comes up. u16::MAX until `CardDb::from_json_str` resolves it.
+    pub morph: Option<u16>,
+}
+
 /// THE DASH (characters.csv DashDamage / DashMinRange / DashMaxRange / DashCooldown /
 /// DashRadius / DashPushBack / DashImmuneToDamageTime, with JumpSpeed, DashConstantTime and
 /// DashLandingTime; 15.535: the Bandit's Assassin row 152 / 3500 / 6000 / 800 / - / - / 100
@@ -957,13 +973,24 @@ pub struct CardDef {
     /// BuffWhenNotAttacking is an invisibility, None on every other card. Read by target.rs `can_target` through
     /// the entity's `reveal_from`.
     pub invisible_when_idle: Option<i32>,
+    /// THE UNDERGROUND SPAWN WALK (`SpawnPathfindDef`; state.rs `phase_tunnel`): a played card
+    /// whose unit is born at its owner's King and travels under ground to the destination the
+    /// play resolved (the Miner; the Goblin Drill, whose dig leaves its building there). None on
+    /// every other card, and on every spawned unit: a units row that tunnels is refused.
+    pub spawn_pathfind: Option<SpawnPathfindDef>,
+    /// spells_characters / spells_buildings CanDeployOnEnemySide on a card that tunnels (cards.json
+    /// `can_deploy_on_enemy_side`, the card row's flag): its play goes anywhere on land
+    /// (placement.SPAWN_PATHFIND_TERRITORY, state.rs `deploy_rule`). The loader refuses a
+    /// tunnelling card without it, so this is true on every card with `spawn_pathfind` and false
+    /// on every other (a spell's own flag stays in its `SpellPlacement`).
+    pub can_deploy_on_enemy_side: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `invisible_when_idle`, and onto the end of that tail
+    // field goes HERE, after `can_deploy_on_enemy_side`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1190,9 +1217,13 @@ struct RawCard {
     kamikaze: Option<bool>,
     kamikaze_time_ms: Option<i32>,
     /// cards.json `spawn_pathfind` (characters.csv SpawnPathfindSpeed /
-    /// SpawnPathfindMorph). Present = the row is born somewhere else and travels
-    /// underground to the tap; `refuse_spawn_pathfind` refuses the card.
+    /// SpawnPathfindMorph). Present = the row is born at its owner's King and travels
+    /// underground to the tap (`spawn_pathfind_of`, `CardDef::spawn_pathfind`).
     spawn_pathfind: Option<RawSpawnPathfind>,
+    /// cards.json `can_deploy_on_enemy_side` on a troop or building CARD row (spells_characters /
+    /// spells_buildings CanDeployOnEnemySide; written on the 15.535 rows only): read with
+    /// `spawn_pathfind` alone (`CardDef::can_deploy_on_enemy_side`). Absent reads false.
+    can_deploy_on_enemy_side: Option<bool>,
     /// cards.json `buff_on_damage` (characters.csv BuffOnDamage / BuffTime): the buff
     /// this unit's own hit hangs on its victim, for a unit whose attack is not a
     /// projectile (the Electro Wizard's ZapFreeze, 500 ms). Loaded onto
@@ -1319,28 +1350,33 @@ struct RawSpawnPathfind {
     morph: Option<String>,
 }
 
-/// Err when `sp` says the row is not born where it was tapped.
+/// THE UNDERGROUND SPAWN WALK OF A ROW (characters.csv SpawnPathfindSpeed / SpawnPathfindMorph),
+/// or None for a row born where it is played. With the morph's NAME, for the unit loop to load.
 ///
-/// THE UNDERGROUND SPAWN WALK (characters.csv SpawnPathfindSpeed / SpawnPathfindMorph).
-/// A row with SpawnPathfindSpeed is NOT born at the tap: the recordings show it
-/// appearing at its owner's king tower and travelling underground at that speed to
-/// the tap. With SpawnPathfindMorph it then MORPHS into the named row on arrival,
-/// which is a different card entirely -- the 2560-hp GoblinDrillDig troop the tap
-/// answers becomes a 1313-hp GoblinDrill BUILDING with a LifeTime and a Goblin
-/// spawner the dig row does not carry. The engine runs neither the travel nor the
-/// morph, so a card that needs one is refused rather than played as its first row
-/// alone: the replay harness scored the Goblin Drill at 0.0 % within 250 native with
-/// 99.6 % of its unit-ticks an alive mismatch, because everything the game put on the
-/// board was a row the engine never loaded.
-fn refuse_spawn_pathfind(sp: &Option<RawSpawnPathfind>, what: &str) -> Result<(), String> {
-    match sp {
-        Some(p) if p.morph.is_some() || p.speed.is_some() => Err(format!(
-            "{what} is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed {}{}); not simulated",
-            p.speed.map_or_else(|| "blank".to_string(), |v| v.to_string()),
-            p.morph.as_ref().map_or(String::new(), |m| format!(", morphing into {m} on arrival")),
-        )),
-        _ => Ok(()),
+/// A row with SpawnPathfindSpeed is NOT born at the tap: the recordings show it appearing at its
+/// owner's king tower and travelling underground at that speed to the tap. With SpawnPathfindMorph
+/// it then MORPHS into the named row on arrival, which is a different card entirely -- the 2560-hp
+/// GoblinDrillDig troop the tap answers becomes a 1313-hp GoblinDrill BUILDING with a LifeTime and
+/// a Goblin spawner the dig row does not carry (state.rs `phase_tunnel`, `surface`). Before the
+/// walk was run the card was refused rather than played as its first row alone: the replay harness
+/// had scored the Goblin Drill at 0.0 % within 250 native, 99.6 % of its unit-ticks an alive
+/// mismatch, because everything the game put on the board was a row the engine never loaded.
+///
+/// FAIL CLOSED on every shape the measurement does not cover: a morph without a speed, a speed
+/// that is not positive, and a row WITHOUT CanDeployOnEnemySide, whose territory nothing measured
+/// (both 15.535.29 rows set it; the 2018 Miner row does not carry the flag in cards.json).
+fn spawn_pathfind_of(sp: &Option<RawSpawnPathfind>, enemy_side: bool, what: &str) -> Result<Option<(SpawnPathfindDef, Option<String>)>, String> {
+    let Some(p) = sp.as_ref().filter(|p| p.morph.is_some() || p.speed.is_some()) else { return Ok(None) };
+    let speed = match p.speed {
+        Some(v) if v > 0 => v,
+        other => return Err(format!("{what} travels underground with SpawnPathfindSpeed {other:?}, not a positive speed")),
+    };
+    if !enemy_side {
+        return Err(format!(
+            "{what} travels underground to the tap (SpawnPathfindSpeed {speed}) without CanDeployOnEnemySide, a territory not simulated"
+        ));
     }
+    Ok(Some((SpawnPathfindDef { speed, morph: p.morph.as_ref().map(|_| u16::MAX) }, p.morph.clone())))
 }
 
 /// cards.json `second_summon` block.
@@ -1546,11 +1582,63 @@ enum UnitUse {
     ProjectileArea,
     /// The unit a life-state controller releases (`LifeStateDef::unit`, the Goblin Hut's SpearGoblin_Dummy).
     LifeState,
+    /// SpawnPathfindMorph: the row a tunneller leaves where it comes up (`SpawnPathfindDef::morph`, the
+    /// Goblin Drill's building). A unit, loaded from `units` like a death spawn's; never the card of
+    /// the same name (the GoblinDrill CARD's row is the dig), which the name rule below already says.
+    Morph,
+}
+
+impl UnitUse {
+    /// A need resolved against one of the file's own tables into a block of the card (an area or a
+    /// projectile), not loaded as a unit: it adds no summon-only record, and the units IT needs
+    /// are queued at the end of its owner's level of the worklist.
+    fn is_table(self) -> bool {
+        matches!(self, UnitUse::DeathAreaEffect | UnitUse::ProjectileArea | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect)
+    }
+}
+
+/// A record's needs in the order the worklist takes them: the TABLE needs first (`UnitUse::is_table`),
+/// then the units, each group in the converter's order. A table need adds no summon-only record and
+/// queues its own units at the end of its level, so this order numbers no record differently; what
+/// it changes is that a card refused by a table row is refused BEFORE any unit of its is loaded, so
+/// a refused card leaves no summon-only record behind (the SuperLavaHound, refused for its chained
+/// FireWallProjectile, would otherwise load SuperLavaHound2 and renumber every later record).
+/// Plant `unit_needs_first` (tests/spawn_chain.rs) keeps the converter's order.
+fn table_needs_first(needs: UnitNeeds) -> UnitNeeds {
+    // PLANT unit_needs_first leaves the converter's order (a unit need before a table need).
+    #[cfg(not(clash_plant = "unit_needs_first"))]
+    let needs = {
+        let (mut tables, units): (UnitNeeds, UnitNeeds) = needs.into_iter().partition(|(w, _)| w.is_table());
+        tables.extend(units);
+        tables
+    };
+    needs
 }
 
 /// The units a converter's record needs loaded: (which mechanic, unit name), for
 /// `CardDb::from_json_str` to resolve.
 type UnitNeeds = Vec<(UnitUse, String)>;
+
+/// THE LONGEST SPAWN CHAIN the loader follows (card -> unit -> unit ...): a record first loaded
+/// at this depth of the worklist may not need units of its own. A policy, not a measurement: the
+/// longest chain a 15.535.29 card carries is two deep (the Elixir Golem: ElixirGolem2 ->
+/// ElixirGolem4; the Goblin Drill: its building -> Goblin), and four leaves room without
+/// letting a cycle of rows run away. `CardDb::check_levels` walks no deeper.
+pub const MAX_CHAIN_DEPTH: u8 = 4;
+
+/// An elixir grant on death (characters.csv ManaOnDeath / ManaOnDeathForOpponent) in a unit row's
+/// `raw` block, as "Column value", or None. The grant is not simulated in this loader: a card whose
+/// row carries one is refused, never played as a card whose death gives nothing (the Elixir Golem:
+/// 1000 / 500 / 500 to the opponent over its three generations). The rows that carry one and load
+/// otherwise are the Elixir Golem's three; the Elixir Collector is refused before this is asked.
+fn elixir_grant_of(unit_raw: Option<&serde_json::Value>) -> Option<String> {
+    let r = unit_raw?;
+    ["ManaOnDeath", "ManaOnDeathForOpponent"].into_iter().find_map(|col| match r.get(col) {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) if v.as_i64() == Some(0) => None,
+        Some(v) => Some(format!("{col} {v}")),
+    })
+}
 
 /// A BLOCK OF A CARD THAT PUTS ANOTHER RECORD ON THE BOARD, as `CardDb::unit_refs`
 /// names it. The death area effect is not one: it is an area, not a unit.
@@ -1574,6 +1662,9 @@ pub enum UnitRef {
     SpellSummon,
     /// A life-state controller's unit (`LifeStateDef::unit`).
     LifeState,
+    /// The row a tunneller leaves where it comes up (`SpawnPathfindDef::morph`, the Goblin Drill's
+    /// building).
+    Morph,
 }
 
 impl UnitRef {
@@ -1587,6 +1678,7 @@ impl UnitRef {
             UnitRef::DeathProjectile => "a death projectile",
             UnitRef::SpellSummon => "a spell summon",
             UnitRef::LifeState => "a life-state controller",
+            UnitRef::Morph => "an underground morph",
         }
     }
 }
@@ -2063,6 +2155,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_area: None,
         life_state: None,
         invisible_when_idle: None,
+        spawn_pathfind: None,
+        can_deploy_on_enemy_side: false,
     }
 }
 
@@ -2945,7 +3039,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         }
         Some(ls) => Some(life_state_of(ls, &raw.action_graph)?),
     };
-    refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
+    // THE UNDERGROUND SPAWN WALK: read, or refused with the shape it has (`spawn_pathfind_of`). The
+    // morph target is a need of the card, loaded from `units` by the unit loop.
+    let can_deploy_on_enemy_side = raw.can_deploy_on_enemy_side.unwrap_or(false);
+    let spawn_pathfind = spawn_pathfind_of(&raw.spawn_pathfind, can_deploy_on_enemy_side, "the unit")?;
+    let tunnels = spawn_pathfind.is_some();
     // INVISIBLE WHEN IDLE: the idle time, with area damage still landing (AllowAreaDmgWhenInvisible) -- the one
     // reading the engine runs (target.rs `can_target`); a row that would keep area damage off is refused.
     let invisible_when_idle = match &raw.idle_invisibility {
@@ -3109,6 +3207,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     if let Some(a) = &raw.spawn_area_object {
         units.push((UnitUse::SpawnAreaEffect, a.clone()));
     }
+    if let Some((_, Some(m))) = &spawn_pathfind {
+        units.push((UnitUse::Morph, m.clone()));
+    }
     let nonneg = |v: Option<i32>, what: &str| match v {
         Some(x) if x < 0 => Err(format!("{what} {x} < 0")),
         Some(x) => Ok(x),
@@ -3264,6 +3365,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         projectile_area: None,
         life_state: life_state.map(|(d, _)| d),
         invisible_when_idle,
+        // Its morph resolved by `CardDb::from_json_str` (the name pushed on `units` above).
+        spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
+        // Read with `spawn_pathfind` alone: a card that does not tunnel keeps false.
+        can_deploy_on_enemy_side: can_deploy_on_enemy_side && tunnels,
     }, display, units))
 }
 
@@ -3438,8 +3543,12 @@ impl CardDb {
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
         let ctx = LoadCtx { aeos: &file.area_effect_objects, units: &file.units, projectiles: &file.projectiles };
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
+        // Cards refused AFTER their push, each with its reason (filled from here on; see below).
+        let mut unloadable: Vec<(u16, String)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
+            // The row the card puts on the board, for the elixir-grant refusal below.
+            let unit_row = raw.summon_character.clone().unwrap_or_else(|| raw.name.clone());
             match convert(raw, &mut buffs, &ctx) {
                 Ok((c, display, units)) => {
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
@@ -3447,8 +3556,16 @@ impl CardDb {
                         continue;
                     }
                     db.push(c, display)?;
-                    for (which, unit) in units {
-                        spawns.push(((db.cards.len() - 1) as u16, which, unit));
+                    let idx = (db.cards.len() - 1) as u16;
+                    // AN ELIXIR GRANT ON DEATH is not simulated (`elixir_grant_of`): the card is refused
+                    // AFTER its push, so it keeps its slot and every later index stays where it was, and
+                    // BEFORE any of its units loads, so it leaves no summon-only record behind.
+                    if let Some(grant) = elixir_grant_of(ctx.units.get(&unit_row).and_then(|u| u.get("raw"))) {
+                        unloadable.push((idx, format!("the unit's death grants elixir ({grant}), which is not simulated")));
+                        continue;
+                    }
+                    for (which, unit) in table_needs_first(units) {
+                        spawns.push((idx, which, unit));
                     }
                 }
                 Err(e) => db.rejected.push((name, e)),
@@ -3462,8 +3579,8 @@ impl CardDb {
         // table for all three mechanics. A card whose unit cannot be loaded is REJECTED
         // (unregistered again, with the unit's reason), never left pointing at nothing:
         // SkeletonBalloon goes this way (SkeletonContainer, a building with no
-        // hitpoints, refused on `hitpoints` before its own 8-Skeleton death spawn --
-        // a chain -- is even reached), and so does MovingCannon (BrokenCannon, a troop
+        // hitpoints, refused on `hitpoints` before its own 8-Skeleton death spawn
+        // is even reached), and so does MovingCannon (BrokenCannon, a troop
         // with a LifeTime).
         // NOT every hitpoint-less "unit" is a refusal: a DEATH BOMB (BalloonBomb,
         // GiantSkeletonBomb, BombTowerBomb) is a timed impact rather than an entity
@@ -3475,17 +3592,25 @@ impl CardDb {
         // deeper, and so on. The order matters because the summon-only records are
         // NUMBERED in the order they load, and those numbers are inside the card
         // fingerprint (state.rs `cards_fingerprint`): all first-level units in
-        // first-need order, then theirs. Today there is no second level -- a unit that
-        // itself puts units on the board is refused below as a spawn chain -- so the
-        // order is `spawns` order exactly (tests/unit_refs.rs
-        // `summon_only_numbering_is_breadth_first`). The one exception is a death
-        // projectile's SpawnCharacter whose row carries a periodic spawner (the Phoenix's
-        // egg): its spawner's unit is a second level, and no shipped file has one until
-        // cards.json carries `death_spawn_projectile`.
+        // first-need order, then theirs (tests/unit_refs.rs
+        // `summon_only_numbering_is_breadth_first`, tests/spawn_chain.rs).
+        //
+        // A SPAWN CHAIN LOADS: a unit whose own row puts units on the board (the Goblin
+        // Drill's building, with its Goblin spawner and its two death Goblins; the Elixir
+        // Golem's ElixirGolem2, which death-spawns ElixirGolem4) has those units queued one
+        // level deeper, as its OWN needs, down to MAX_CHAIN_DEPTH. A chain is as loadable as
+        // its weakest link: after the worklist, every record that reaches a record that could
+        // not load, at any depth, is refused too (the fixpoint below), so no playable card
+        // keeps a block whose unit lost its own.
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
-        let mut unloadable: Vec<(u16, String)> = Vec::new();
         let mut work: VecDeque<(u16, UnitUse, String, u8)> = spawns.into_iter().map(|(owner, which, unit)| (owner, which, unit, 0)).collect();
         while let Some((spell_idx, which, unit, depth)) = work.pop_front() {
+            // A RECORD ALREADY REFUSED loads nothing more: it keeps the one reason it has, and it
+            // leaves no summon-only record behind (its needs come table first, so a refusal by a
+            // table row lands before any of its units loads: `table_needs_first`).
+            if unloadable.iter().any(|(i, _)| *i == spell_idx) {
+                continue;
+            }
             if which == UnitUse::DeathAreaEffect || which == UnitUse::ProjectileArea {
                 // A DEATH AREA EFFECT IS NOT A UNIT. It is an `area_effect_objects`
                 // row the death leaves standing where the unit stood, so it is
@@ -3656,12 +3781,21 @@ impl CardDb {
                             #[cfg(clash_plant = "unit_never_card")]
                             let serves = false; // PLANT (regression): no card serves; the name always loads a `units` row.
                             if serves {
+                                // A card that tunnels is played, never spawned: only a deploy starts the walk.
+                                if c.spawn_pathfind.is_some() {
+                                    return Err(format!("spawned unit {unit} is a card that travels underground; only a played one is simulated"));
+                                }
                                 return Ok(existing);
                             }
                             true
                         }
                     };
                     let mut v = file.units.get(&unit).cloned().ok_or_else(|| format!("spawned unit {unit} has no units record"))?;
+                    // An elixir grant on death is not simulated (`elixir_grant_of`), whichever level of a
+                    // chain carries it.
+                    if let Some(grant) = elixir_grant_of(v.get("raw")) {
+                        return Err(format!("units.{unit}: its death grants elixir ({grant}), which is not simulated"));
+                    }
                     let kind = match v.get("source_table").and_then(|t| t.as_str()) {
                         Some("buildings") => "building",
                         _ => "troop",
@@ -3670,6 +3804,11 @@ impl CardDb {
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
+                    // A SPAWNED UNIT THAT TUNNELS is refused: only a played card starts the walk, at its
+                    // owner's King (the one other row that tunnels, GoblinDrill_EV1_Dig, is an evolution).
+                    if raw.spawn_pathfind.as_ref().is_some_and(|p| p.speed.is_some() || p.morph.is_some()) {
+                        return Err(format!("units.{unit} travels underground; only a played card is simulated doing that"));
+                    }
                     let (mut c, _, nested) = convert(raw, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;
                     // A SPAWNED UNIT'S PROJECTILE AREA (the Heal Spirit's heal) is an area, not a unit: it
                     // resolves here, onto the unit's own card, and only unit needs remain a chain.
@@ -3684,15 +3823,24 @@ impl CardDb {
                         }
                     }
                     let nested = chain;
-                    // ONE SECOND LEVEL, AND ONLY ONE: a death projectile's SpawnCharacter may carry a
-                    // periodic spawner and nothing else (the Phoenix's PhoenixEgg hatches a
-                    // PhoenixNoRespawn: measured on client 15.535.29, 76 ticks after the egg
-                    // appeared). Its spawner's unit loads one level deeper and must not spawn in turn
-                    // (the refusal below, from that unit's own need). Every other chain is refused.
-                    let hatches = which == UnitUse::DeathProjectileRelease && nested.iter().all(|(w, _)| *w == UnitUse::Spawner);
+                    // A UNIT'S OWN UNITS LOAD, one level deeper (the Goblin Drill's building's Goblins,
+                    // the Elixir Golem's ElixirGolem4, the Phoenix egg's PhoenixNoRespawn), down to
+                    // MAX_CHAIN_DEPTH: a record first loaded at that depth may not need units of its own.
+                    // PLANT chain_refused (tests/spawn_chain.rs) keeps the earlier refusal: every chain
+                    // but a death projectile's hatching egg refused.
+                    #[cfg(clash_plant = "chain_refused")]
                     if let Some((_, first)) = nested.first() {
+                        let hatches = which == UnitUse::DeathProjectileRelease && nested.iter().all(|(w, _)| *w == UnitUse::Spawner);
                         if !hatches {
                             return Err(format!("units.{unit} itself spawns units ({first}); a spawn chain is not simulated"));
+                        }
+                    }
+                    if let Some((_, first)) = nested.first() {
+                        if depth >= MAX_CHAIN_DEPTH {
+                            return Err(format!(
+                                "units.{unit} itself spawns units ({first}) {} levels below a card, deeper than the {MAX_CHAIN_DEPTH} this loader follows",
+                                depth + 1
+                            ));
                         }
                     }
                     // A DEATH PROJECTILE'S SPAWNCHARACTER STANDS STILL (the PhoenixEgg). Measured on client
@@ -3716,13 +3864,18 @@ impl CardDb {
                     }
                     db.push(c, None)?;
                     let idx = (db.cards.len() - 1) as u16;
-                    // The loaded unit's own needs, one level deeper (none but a death
-                    // projectile's egg's spawner while the chain refusal above stands).
-                    work.extend(nested.into_iter().map(|(w, u)| (idx, w, u, depth + 1)));
+                    // The loaded unit's own needs, one level deeper, table needs first (`table_needs_first`).
+                    work.extend(table_needs_first(nested).into_iter().map(|(w, u)| (idx, w, u, depth + 1)));
                     Ok(idx)
                 })
                 .clone();
             match got {
+                // THE MORPH TARGET IS A BUILDING WITH HITPOINTS (the one measured: the Goblin Drill's
+                // 1313-hp building). A morph into a troop, or into a hitpoint-less death bomb, is a
+                // shape nothing measured: the card is refused.
+                Ok(u) if which == UnitUse::Morph && (db.cards[u as usize].kind != CardKind::Building || db.cards[u as usize].death_bomb_fuse_ms().is_some()) => {
+                    unloadable.push((spell_idx, format!("units.{unit}: an underground morph into anything but a building with hitpoints is not simulated")));
+                }
                 Ok(u) => {
                     let card = &mut db.cards[spell_idx as usize];
                     match which {
@@ -3745,6 +3898,7 @@ impl CardDb {
                             }
                         }
                         UnitUse::LifeState => card.life_state.as_mut().expect("life_state present").unit = u,
+                        UnitUse::Morph => card.spawn_pathfind.as_mut().expect("spawn_pathfind present").morph = Some(u),
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
@@ -3772,6 +3926,47 @@ impl CardDb {
                 unloadable.push((idx, format!("{name} is a death bomb, which only a death spawn releases; {} cannot", path.block_name())));
             }
         }
+        // A CHAIN IS AS LOADABLE AS ITS WEAKEST LINK. A record whose own need failed is refused
+        // above, against itself; every record that REACHES it through `unit_refs`, at any depth,
+        // is refused here too, until nothing more changes (a fixpoint, so the order the roots
+        // were loaded in does not decide which of them is refused). Two cards that share a unit
+        // whose own unit fails are both refused, not only the one that loaded it first. The
+        // reason names the unit reached, in the `units.<row>` form of a direct refusal.
+        {
+            let mut broken: std::collections::BTreeSet<u16> = unloadable.iter().map(|(i, _)| *i).collect();
+            #[allow(unused_mut)]
+            let mut first_only = false;
+            loop {
+                let before = broken.len();
+                for idx in 0..db.cards.len() as u16 {
+                    if broken.contains(&idx) {
+                        continue;
+                    }
+                    let reached = db.unit_refs(idx).into_iter().find(|(_, u, _)| *u == u16::MAX || broken.contains(u));
+                    if let Some((path, u, _)) = reached {
+                        let why = match db.cards.get(u as usize) {
+                            None => format!("{} names a unit that never resolved", path.block_name()),
+                            Some(c) => {
+                                let first = unloadable.iter().find(|(i, _)| *i == u).map(|(_, w)| w.clone()).unwrap_or_default();
+                                format!("units.{}: {first}", c.unit_name)
+                            }
+                        };
+                        unloadable.push((idx, why));
+                        broken.insert(idx);
+                        // PLANT chain_failure_first_root_only (tests/spawn_chain.rs): only the first
+                        // record found reaching the failure is refused; the others keep the block.
+                        #[cfg(clash_plant = "chain_failure_first_root_only")]
+                        {
+                            first_only = true;
+                            break;
+                        }
+                    }
+                }
+                if first_only || broken.len() == before {
+                    break;
+                }
+            }
+        }
         for (spell_idx, why) in unloadable {
             // Keep indices stable: the card stays in `cards` but is unregistered and
             // listed as rejected, so no name resolves to it. Its unit blocks are
@@ -3782,17 +3977,26 @@ impl CardDb {
             // index cards[65535] at its death. Dropped, it runs
             // as the plain unit format 3 ran it.
             db.clear_unit_refs(spell_idx);
+            // A SUMMON-ONLY RECORD refused in a chain (its own unit could not load) is not a row of
+            // the file's card list: its blocks go and its name is unregistered, and the refusal is
+            // listed against every card that reaches it (the fixpoint above), not against it, so
+            // `rejected` keeps meaning "a card of the file that is not simulable".
+            if db.cards[spell_idx as usize].summon_only {
+                db.by_name.retain(|_, i| *i != spell_idx);
+                continue;
+            }
             let name = db.cards[spell_idx as usize].name.clone();
             // PLANT census_admits_one (tests/loadable_census.rs): a card rejected here
             // is KEPT -- registered, its blocks dropped, running as the plain unit --
             // the way a lifted refusal admits a row nobody planned for. One row per
             // table whose status no other test pins in that table, so only the check
-            // over every row sees it move: the 15.535.29 ElixirGolem (its
-            // ElixirGolem2 death-spawns units: a chain) and the 2018 MovingCannon (its
+            // over every row sees it move: the 15.535.29 SuperHogRider (its spawner's
+            // SantaPresent is a building with no hitpoints) and the 2018 MovingCannon (its
             // BrokenCannon is a troop with a LifeTime). The 15.535.29 MovingCannon is
-            // refused before its push and never gets here.
+            // refused before its push and never gets here; the 15.535.29 ElixirGolem, the
+            // row before, is pinned by tests/spawn_chain.rs now.
             #[cfg(clash_plant = "census_admits_one")]
-            if name == "ElixirGolem" || name == "MovingCannon" {
+            if name == "SuperHogRider" || name == "MovingCannon" {
                 continue;
             }
             db.by_name.retain(|_, i| *i != spell_idx);
@@ -3891,26 +4095,46 @@ impl CardDb {
     }
 
     /// Every level a card at unified `level` can put on the board exists: the card's
-    /// own, and the level of every unit `unit_refs` names. Called at deck
-    /// validation and every scenario / debug spawn, so a spawn later in the tick
-    /// loop can never fail on a level. A death projectile's release is followed one
-    /// level down: the unit its own blocks put on the board (the Phoenix's egg hatching
-    /// a Phoenix) is checked at the egg's level, because it is the one unit the loader
-    /// lets carry a spawner of its own.
+    /// own, and the level of every unit `unit_refs` names, and of every unit THOSE put
+    /// on the board, down the whole chain (the Goblin Drill's building and its Goblins;
+    /// the Elixir Golem's ElixirGolem2 and ElixirGolem4; the Phoenix's egg and the Phoenix
+    /// it hatches), each at the level its parent gives it. Called at deck validation and
+    /// every scenario / debug spawn, so a spawn later in the tick loop can never fail on
+    /// a level. A record already checked at a level is not checked again, so a chain that
+    /// comes back on itself ends.
     pub fn check_levels(&self, idx: u16, level: i32) -> Result<(), String> {
+        let mut seen: Vec<(u16, i32)> = Vec::new();
+        self.check_levels_at(idx, level, &mut seen)
+    }
+
+    /// `check_levels` below one record: its level, then each unit it names at the level it gives
+    /// that unit, recursively. `seen` holds every (record, level) already checked on this walk.
+    fn check_levels_at(&self, idx: u16, level: i32, seen: &mut Vec<(u16, i32)>) -> Result<(), String> {
+        if seen.contains(&(idx, level)) {
+            return Ok(());
+        }
+        seen.push((idx, level));
         self.level_multiplier(idx, level)?;
         for (path, unit, level_index) in self.unit_refs(idx) {
             let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState => {
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState | UnitRef::Morph => {
                     self.unit_level(idx, unit, level_index, level)?
                 }
             };
-            if path == UnitRef::DeathProjectile {
-                for (_, sub, sub_index) in self.unit_refs(unit) {
-                    self.unit_level(unit, sub, sub_index, at)?;
+            // PLANT check_levels_one_deep (tests/spawn_chain.rs): the earlier body, which
+            // checked a unit's own units only under a death projectile, one level down.
+            #[cfg(clash_plant = "check_levels_one_deep")]
+            {
+                if path == UnitRef::DeathProjectile {
+                    for (_, sub, sub_index) in self.unit_refs(unit) {
+                        self.unit_level(unit, sub, sub_index, at)?;
+                    }
                 }
+                continue;
             }
+            #[allow(unreachable_code)]
+            self.check_levels_at(unit, at, seen)?;
         }
         Ok(())
     }
@@ -3955,7 +4179,18 @@ impl CardDb {
         if let Some(ls) = c.life_state {
             out.push((UnitRef::LifeState, ls.unit, None));
         }
+        if let Some(SpawnPathfindDef { morph: Some(m), .. }) = c.spawn_pathfind {
+            out.push((UnitRef::Morph, m, None));
+        }
         out
+    }
+
+    /// Is record `unit` the building some card's tunneller leaves where it comes up
+    /// (`SpawnPathfindDef::morph`)? Such a record is created by that surfacing alone, which puts
+    /// its SpawnAreaObject down (state.rs `surface`); `spawn_now` asks this so it does not put it
+    /// down a second time.
+    pub fn is_morph_target(&self, unit: u16) -> bool {
+        self.cards.iter().any(|c| c.spawn_pathfind.is_some_and(|s| s.morph == Some(unit)))
     }
 
     /// DROP EVERY UNIT BLOCK of card `idx` that `unit_refs` names, and its death area
@@ -3978,6 +4213,8 @@ impl CardDb {
                 // A summon with no unit summons nothing: the spell goes with it.
                 UnitRef::SpellSummon => card.spell = None,
                 UnitRef::LifeState => card.life_state = None,
+                // A tunneller whose building never resolved does not tunnel: the walk goes with it.
+                UnitRef::Morph => card.spawn_pathfind = None,
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -4352,6 +4589,9 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // shape a spell's "projectile" block has; `convert_death_projectile`), "deploy_area_effect" and
 // "spawn_area_object" (rows of "area_effect_objects"; `convert_deploy_area_effect`,
 // `convert_spawn_area_effect`). Also "minimum_range_milli" (MinimumRange; null reads as none).
+// Also the "spawn_pathfind" block {speed, morph} (`spawn_pathfind_of`: a positive speed, and on
+// a played card "can_deploy_on_enemy_side" true, or the card is refused; a units row that
+// carries it is refused), "morph" the NAME of a "units" row loaded as the card's building.
 // Unknown fields are ignored.
 
 #[cfg(test)]

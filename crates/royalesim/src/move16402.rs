@@ -464,6 +464,23 @@ pub fn move_towards_extra(
     Moved { x: nx, y: ny, dir: new_dir, reached: proj <= 1000, push, push_count }
 }
 
+/// ONE STEP OF THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `tunnel_step`), native units: at most
+/// `speed` straight toward `aim`, each axis through the 1/256 direction and the truncation the walk's step uses
+/// (`move_towards`), with no 250 cap, no contact and no water edge (the unit is under ground). Returns the new point
+/// and the new facing (length 256), None when already on `aim`. Measured on client 16.402: the Goblin Drill's dig
+/// steps 300 on the axes and 297-299 on the diagonals, the Miner 650 and 646-647.
+pub fn tunnel_step(u: (i32, i32), aim: (i32, i32), speed: i32) -> ((i32, i32), Option<(i32, i32)>) {
+    let (x, y) = u;
+    let dist = distance(x, y, aim.0, aim.1).max(1);
+    let step = speed.max(0).min(dist);
+    let (dx, dy) = (aim.0 - x, aim.1 - y);
+    let sx = trunc_shr8(tdiv(dx << 8, dist) * step);
+    let sy = trunc_shr8(tdiv(dy << 8, dist) * step);
+    let mut d = (dx, dy);
+    let dir = if normalize_to(&mut d, 256) != 0 { Some(d) } else { None };
+    ((x + sx, y + sy), dir)
+}
+
 /// THE COLLISION MEAN a separation scan left in `con`: the accumulator over its count,
 /// scaled back to 150 when it is longer (`len_sq >= 22501`), with the count; `con` is
 /// drained. (0, 0) and 0 when nothing overlapped (the accumulator is then untouched). The

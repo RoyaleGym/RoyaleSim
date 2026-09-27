@@ -194,6 +194,25 @@ pub fn cell_cost_for(t: &Terrain, occ: &[i32], col: i32, row: i32, jumper: bool)
     }
 }
 
+/// The SPAWN-PATHFINDING price of ENTERING a cell (movement.SPAWN_PATHFIND_STATES; state.rs `tunnel_step`), or -1
+/// out of bounds: every dry cell at `default` -- no lane bonus -- and water at the walker's BLOCKED price, with no
+/// building occlusion (the walk runs through its own King's box). Measured on client 16.402 (capture
+/// 20260920-083112): the Goblin Drill's 39-cell route from its King to (6, 46) is cost-optimal with every dry cell at
+/// 8 and water at 50 and is the route this search returns, where road cells at 5 give another; it crosses on the
+/// bridge, not the river.
+#[inline]
+pub fn cell_cost_spawn_pathfind(t: &Terrain, col: i32, row: i32, default: i32) -> i32 {
+    if col < 0 || row < 0 || t.cols <= col || t.rows <= row {
+        return -1;
+    }
+    let i = (row * t.cols + col) as usize;
+    if t.water[i] {
+        t.base[i]
+    } else {
+        default
+    }
+}
+
 /// The ONE cell the search is handed. `actor` and `target` in native units, `reach` = Range + the
 /// mover's own CollisionRadius. `avoid_buildings` follows the datamined global
 /// `KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS` ANDed with the TARGET not flying

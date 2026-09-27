@@ -1505,12 +1505,17 @@ pub struct ResolveOut {
 /// entity.rs `dash_immune`): a hit on a unit that is dashing, or whose dash ended within
 /// its DashImmuneToDamageTime, is dropped on the Resolve phase of `tick`, not deferred.
 /// Measured on client 15.535.29 with tower arrows only; every writer is dropped alike.
-pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, tick: u32) -> ResolveOut {
+pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, underground_immune: bool, tick: u32) -> ResolveOut {
     let cap = ents.capacity();
     sums.clear();
     sums.resize(cap, 0);
     for h in dmg.hits.drain(..) {
         if !ents.is_alive(h.target) || h.amount <= 0 {
+            continue;
+        }
+        // movement.SPAWN_PATHFIND_BODY = untouchable (the caller passes it): a unit under ground takes no
+        // hit, whatever wrote it -- a splash, a death's damage, an area (entity.rs `underground`).
+        if underground_immune && ents.underground(h.target.index as usize) {
             continue;
         }
         #[cfg(not(clash_plant = "hidden_takes_damage"))]

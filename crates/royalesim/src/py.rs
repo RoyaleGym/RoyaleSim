@@ -76,7 +76,7 @@
 
 use crate::arena::Arena;
 use crate::arena::Territory;
-use crate::card::{CardDb, CardKind, UnitRef, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardKind, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
@@ -472,31 +472,39 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
     // RascalBoy): it reported card -1 in every entity row and firer -1 on every shot --
     // which the projectile export's contract reserves for a crown tower, so a viewer
     // drew RascalGirls' shots as tower bolts flying from mid-field.
-    for (cid, idx) in catalogue.iter().enumerate() {
-        for (_, u, _) in cards.unit_refs(*idx) {
-            // A card whose unit could not be loaded is rejected (unregistered, its
-            // unit index unresolved) and never in a catalogue that came from names;
-            // the by-index default catalogue below skips it too.
-            if (u as usize) < id_of_idx.len() && id_of_idx[u as usize] == -1 {
-                id_of_idx[u as usize] = cid as i32;
-            }
-        }
-    }
-    // ONE LEVEL DOWN, after every first-level unit has its card, so no first-level id
-    // moves: the unit a DEATH PROJECTILE's release itself puts on the board (the Phoenix's
-    // egg hatches a Phoenix) reports under the card whose death released the egg. It is the
-    // one unit the loader lets carry blocks of its own (card.rs `UnitRef::DeathProjectile`).
-    for (cid, idx) in catalogue.iter().enumerate() {
-        for (path, u, _) in cards.unit_refs(*idx) {
-            if path != UnitRef::DeathProjectile || (u as usize) >= id_of_idx.len() {
-                continue;
-            }
-            for (_, w, _) in cards.unit_refs(u) {
-                if (w as usize) < id_of_idx.len() && id_of_idx[w as usize] == -1 {
-                    id_of_idx[w as usize] = cid as i32;
+    //
+    // DOWN THE WHOLE CHAIN, ONE LEVEL AT A TIME: every catalogue card's own units first, then
+    // the units THOSE put on the board, and so on (the Goblin Drill's building, then its
+    // Goblins; the Elixir Golem's ElixirGolem2, then ElixirGolem4; the Phoenix's egg, then the
+    // Phoenix it hatches). A unit reached deeper reports under the card at the top of the
+    // first chain that reached it, and a whole level is done before the next, so no nearer
+    // unit's id moves. A unit that is a record reached already is not walked again (a chain
+    // that comes back on itself ends), and a catalogue card reached as a unit keeps its own id
+    // and is not walked through: its own units are its own.
+    let mut frontier: Vec<(i32, u16)> = catalogue.iter().enumerate().map(|(cid, idx)| (cid as i32, *idx)).collect();
+    let mut walked: Vec<bool> = vec![false; cards.cards.len()];
+    while !frontier.is_empty() {
+        let mut next: Vec<(i32, u16)> = Vec::new();
+        for (cid, idx) in frontier {
+            for (_, u, _) in cards.unit_refs(idx) {
+                // A card whose unit could not be loaded is rejected (unregistered, its
+                // unit index unresolved) and never in a catalogue that came from names;
+                // the by-index default catalogue below skips it too.
+                let Some(slot) = id_of_idx.get_mut(u as usize) else { continue };
+                if *slot == -1 {
+                    *slot = cid;
+                }
+                if !catalogue.contains(&u) && !walked[u as usize] {
+                    walked[u as usize] = true;
+                    next.push((*slot, u));
                 }
             }
         }
+        // PLANT ids_one_level (tests/spawn_chain.rs): the first level only, so a unit a
+        // loaded unit puts on the board reports card -1.
+        #[cfg(clash_plant = "ids_one_level")]
+        next.clear();
+        frontier = next;
     }
     id_of_idx
 }

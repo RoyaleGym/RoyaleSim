@@ -377,7 +377,14 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # 79 -> 78 at the loader2 flip: the Inferno Dragon leaves, its ramp columns now run under
     # combat.VARIABLE_DAMAGE = client16402_attack_progress_stages (the Inferno Tower keeps other
     # unread columns and stays). None joined. Measured against the pre-flip set with each build.
-    outside_by_vintage = {"2018": 40, "15.535": 78}
+    # NOT MOVED by flip wave 2 (eight keys): measured on the 126992a module's catalogue with the ledger before and
+    # after, 78 both, the same cards.
+    # 78 -> 80 on 2026-09-26: THE MINER AND THE GOBLIN DRILL load (the underground walk). Both join the report,
+    # neither is in the thin slice: the Miner for WalkingSpeedTweakPercentage and touchdown_limited_deploy, the
+    # Drill for IgnoreClone and touchdown_limited_deploy. The WHOLE delta, measured with a stand-in catalogue
+    # (the 126992a module's catalogue plus the two rows, register present): 78 without the two rows, 80 with
+    # them, and the two added cards are exactly these.
+    outside_by_vintage = {"2018": 40, "15.535": 80}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

@@ -321,6 +321,14 @@ pub struct Entities {
     /// steps it toward that unit. None otherwise. `default` and sized on load.
     #[serde(default)]
     pub hooked_by: Vec<Option<EntityId>>,
+    /// THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `phase_tunnel`): the DESTINATION of a
+    /// unit still under ground, WORLD subtiles, from its birth at its owner's King until the tick it comes up
+    /// (the Miner, the Goblin Drill's dig). While Some its deploy timer is frozen, it moves only in
+    /// `phase_tunnel`, and under movement.SPAWN_PATHFIND_BODY = untouchable nothing targets, hits, buffs,
+    /// pushes or meets it. None on every other unit. `default` and sized on load like `hooked_by`; hashed
+    /// only while Some.
+    #[serde(default)]
+    pub tunnel_dest: Vec<Option<Vec2>>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -561,12 +569,11 @@ impl Entities {
     }
 
     /// Is entity `i` travelling UNDER the arena (a Miner's or a Goblin Drill's way to its
-    /// tap)? No card the engine loads does that yet, so this is false for every entity; the
-    /// window that loads the first one makes it read that state, and `status_flags` bit 0
-    /// follows without a change.
+    /// tap; `tunnel_dest`)? The one predicate: the Path phase, the untouchable body's readers
+    /// and `status_flags` bit 0 all read it.
     #[inline]
-    pub fn underground(&self, _i: usize) -> bool {
-        false
+    pub fn underground(&self, i: usize) -> bool {
+        self.tunnel_dest.get(i).is_some_and(Option::is_some)
     }
 
     /// THE STATUS BITS of entity `i` that the entity table alone decides, as the protocol's
@@ -669,6 +676,7 @@ impl Entities {
             self.special_ms[i] = 0;
             self.special_on[i] = None;
             self.hooked_by[i] = None;
+            self.tunnel_dest[i] = None;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -751,6 +759,7 @@ impl Entities {
             self.special_ms.push(0);
             self.special_on.push(None);
             self.hooked_by.push(None);
+            self.tunnel_dest.push(None);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);

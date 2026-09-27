@@ -32,8 +32,9 @@
 //! converting the row lists that row there. This file builds each CardDb from the table
 //! WITHOUT those rows, so every other slot is where the parent had it, and the battles
 //! (which never play those cards) must hash as before. A row the parent refused AFTER
-//! pushing it (a refusal found while loading the units it needs, such as the 15.535.29
-//! ElixirGolem's unit chain) kept its slot at the parent, so it is never listed: listing
+//! pushing it (a refusal found after the row converted, such as the 15.535.29
+//! ElixirGolem's: first its unit chain, now its elixir grant) kept its slot at the
+//! parent, so it is never listed: listing
 //! it takes a slot the parent had, and the SLOTS line of the failure names it. When such
 //! a row loads, its slot stays, but the units it needs are new summon-only slots and can
 //! renumber later ones: that shows as movement too, and is named in the change that
@@ -115,7 +116,11 @@ const ROW: usize = 8;
 /// The rows this change makes loadable that its parent refused while converting them,
 /// as (table file, card name). Empty in a change that loads no card. The rule is in the
 /// header (LOADED_SINCE_PARENT): never a row the parent refused after pushing it.
-const LOADED_SINCE_PARENT: &[(&str, &str)] = &[];
+const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
+    // the underground walk (movement.SPAWN_PATHFIND_STATES): both refused in `convert` at the parent
+    ("cards.json", "GoblinDrill"),
+    ("cards.json", "Miner"),
+];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is
 /// accepted). Any other refusal fails the run that meets it, recording or checking: a

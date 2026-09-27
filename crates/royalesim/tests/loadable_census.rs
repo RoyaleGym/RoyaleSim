@@ -34,8 +34,8 @@
 //!      69 loadable rows (the catalogue, then the towers) and 11 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
 //!   3. `the_census_of_a_small_file_is_exact`: the census itself on a synthetic file
-//!      (a summon-only unit left out, a row refused before its push and one after,
-//!      the fallback towers last);
+//!      (a summon-only unit left out, a row refused before its push and one after, by a
+//!      broken link of its spawn chain, the fallback towers last);
 //!   4. `the_comparison_names_every_row_that_moved`: a row admitted, a row refused at
 //!      another site and a pure reorder are each reported, and an unmoved row is not;
 //!   5. `a_first_clause_ends_at_a_colon_or_semicolon_outside_parentheses`.
@@ -45,12 +45,12 @@
 //! PLANT: `RUSTFLAGS='--cfg clash_plant="census_admits_one"' CARGO_TARGET_DIR=target/plant
 //! cargo test --test loadable_census`: `from_json_str` keeps a card it rejects after
 //! its push registered, its blocks dropped, running as the plain unit -> 1 red with
-//! ElixirGolem newly loadable and no longer rejected; 2 red with MovingCannon the same,
+//! SuperHogRider newly loadable and no longer rejected; 2 red with MovingCannon the same,
 //! read from the loader before this file landed; 3, 4 and
 //! 5 are synthetic and stay green. The two rows are ones no other test pins in that
-//! table, which is the point: a row another test names is covered already. When the
-//! 15.535.29 ElixirGolem loads for real, the plant lands on the 2018 table alone and
-//! needs another 15.535.29 row.
+//! table, which is the point: a row another test names is covered already. The
+//! 15.535.29 row was the ElixirGolem until the spawn chain loaded; its refusal (the
+//! elixir grant on death) is pinned by tests/spawn_chain.rs now, so it left the plant.
 
 use royalesim::card::{CardDb, CardSource, KING_TOWER, PRINCESS_TOWER};
 
@@ -134,6 +134,7 @@ const LOADABLE_15535: &[&str] = &[
     "LavaHound",
     "IceSpirits",
     "FireSpirits",
+    "Miner",
     "ZapMachine",
     "Bowler",
     "BattleRam",
@@ -194,6 +195,7 @@ const LOADABLE_15535: &[&str] = &[
     "Tombstone",
     "BarbarianLauncher",
     "GoblinCage",
+    "GoblinDrill",
     "GoblinPartyHut",
     "Fireball",
     "Arrows",
@@ -219,14 +221,13 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("Clone", "area effect Clone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),
     ("Elixir Collector", "missing hit_speed_ms"),
-    ("ElixirGolem", "units.ElixirGolem2 itself spawns units (ElixirGolem4)"),
+    ("ElixirGolem", "the unit's death grants elixir (ManaOnDeathForOpponent 1000), which is not simulated"),
     ("FirespiritHut", "the unit runs an action graph this loader does not read (ActionInterval, ActionPlayEffect, ActionSpawnToLocation; spawns CharacterType:FireSpirits)"),
     ("GiantBuffer", "the unit runs an action graph this loader does not read (ActionGiantBufferBuff, ActionGiantBufferBuffVisual, ActionGiantBufferCollectFriends, ActionPlayEffect)"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
     ("GoblinCurse", "area effect GoblinCurse runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionSpawn; spawns AreaEffectType:GoblinCurseBase)"),
     ("GoblinDemolisher", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionRunActionAtHealth, ActionSpawn; spawns AreaEffectType:CancelTauntAEO)"),
-    ("GoblinDrill", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 300, morphing into GoblinDrill on arrival)"),
     ("GoblinGiant", "spawner SpearGoblinGiant"),
     ("GoblinPartyRocket", "projectile GoblinMorphProjectile with a target cap or an area effect is not simulated"),
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
@@ -234,7 +235,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("Graveyard", "area effect Graveyard_rework runs an action graph this loader does not read (ActionGroup, ActionSpawnToLocation; spawns CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton)"),
     ("LittlePrince", "the unit runs an action graph this loader does not read (ActionFilter, ActionGroup, ActionInterval, ActionSetAttackSequenceIndex, ActionSetVariable)"),
     ("MergeMaiden", "spell with no projectile and no area effect"),
-    ("Miner", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 650)"),
     ("Mirror", "spell with no projectile and no area effect"),
     ("MovingCannon", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionPlayEffect, ActionRunActionAtHealth)"),
     ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
@@ -244,7 +244,7 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("SkeletonBalloon", "the unit runs an action graph this loader does not read (ActionSkeletonBarrelPopBalloon)"),
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),
-    ("SuperLavaHound", "units.SuperLavaHound2 itself spawns units (LavaPups)"),
+    ("SuperLavaHound", "death projectile FireWallProjectile"),
     ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
     ("SuperWitch", "the unit's projectile"),
     ("SuspiciousBush", "an invisibility with no BuffWhenNotAttackingTime"),
@@ -337,7 +337,7 @@ const REJECTED_2018: &[(&str, &str)] = &[
     ("Elixir Collector", "missing hit_speed_ms"),
     ("Graveyard", "area effect Graveyard with targets / projectile / spawn is not simulated"),
     ("Lightning", "pulsing area effect Lightning pulses no buff"),
-    ("Miner", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 650)"),
+    ("Miner", "the unit travels underground to the tap (SpawnPathfindSpeed 650) without CanDeployOnEnemySide, a territory not simulated"),
     ("Mirror", "spell with no projectile and no area effect"),
     ("MovingCannon", "units.BrokenCannon is a troop with a LifeTime"),
     ("RageBarbarian", "units.RageBarbarianBottle"),
@@ -555,8 +555,9 @@ fn the_2018_table_loads_exactly_the_pinned_rows() {
 ///   Alpha    loads, with a spawner whose Imp is a summon-only unit (not a row, not
 ///            listed);
 ///   Beta     refused before its push (no HitSpeed);
-///   Gamma    refused AFTER its push: its death spawn Nester death-spawns Imp itself,
-///            a chain, and the refusal goes on after a `;`;
+///   Gamma    refused AFTER its push: its death spawn Nester death-spawns Missing, which
+///            has no row, so the chain's weakest link refuses it, and the refusal goes on
+///            after a `:`;
 ///   Delta    refused before its push from inside its spawner block (a `:`);
 ///   Epsilon  loads.
 /// No towers: the fallback pair follows every card.
@@ -575,7 +576,7 @@ const SMALL: &str = r#"{ "version": "test", "cards": [
  "units": {
   "Imp":    { "name":"Imp", "rarity":"Common", "hitpoints":80, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 },
   "Nester": { "name":"Nester", "rarity":"Common", "hitpoints":120, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300,
-              "death_spawn":{"character":"Imp", "count":1} }
+              "death_spawn":{"character":"Missing", "count":1} }
  }
 }"#;
 
@@ -585,10 +586,12 @@ fn the_census_of_a_small_file_is_exact() {
     let got = census(&db);
     assert_eq!(got.loadable, ["Alpha", "Epsilon", KING_TOWER, PRINCESS_TOWER], "{:?}", db.rejected);
     let rejected: Vec<(&str, &str)> = got.rejected.iter().map(|(n, w)| (n.as_str(), w.as_str())).collect();
-    assert_eq!(rejected, [("Beta", "missing hit_speed_ms"), ("Delta", "spawner Imp"), ("Gamma", "units.Nester itself spawns units (Imp)")]);
-    // What the census leaves out is there: the unit loaded, and the chain's refusal
-    // is longer than its first clause.
+    assert_eq!(rejected, [("Beta", "missing hit_speed_ms"), ("Delta", "spawner Imp"), ("Gamma", "units.Nester")]);
+    // What the census leaves out is there: the unit loaded, the broken link is not a
+    // row of the file and is not listed, and the chain's refusal is longer than its first
+    // clause.
     assert!(db.cards.iter().any(|c| c.summon_only && c.name == "Imp"), "the spawner's unit did not load");
+    assert!(db.cards.iter().any(|c| c.summon_only && c.name == "Nester") && db.index("Nester").is_none(), "the broken link");
     let (_, gamma) = db.rejected.iter().find(|(n, _)| n == "Gamma").expect("Gamma is refused");
     assert!(gamma.len() > rejected[2].1.len(), "{gamma}");
 }

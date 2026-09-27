@@ -668,6 +668,28 @@
       "promotion_rules": "Record a building tapped past the far bank after an enemy princess has fallen. One placement settles it.",
       "engine_contract": "crates/royalesim/src/state.rs deploy_rule returns Territory::OwnHalf for a building; arena.rs box_zone judges the BOX against it, not the tap.",
       "gap_box_zone_has_no_rect_test": "arena.rs box_zone applies NO enemy-crown-tower no-deploy rect test, and it should, because the BOX is what occupies the ground. The tap rule does apply one (territory_zone, alive enemy rects) but only under EnemyTowerRects, and a building uses OwnHalf, so today nothing consults a rect for a building and the gap cannot fire. It fires the moment this key takes its rival arm: the box would go untested against rects while its snapped centre is tested, which is the wrong one to test. The concrete wrong outcome is a building whose BOX overlaps an alive enemy tower's rect while its centre does not. Whoever flips this key adds the rect test to box_zone IN THE SAME CHANGE. Noted 2026-09-22 after the gym session proved its honest-tap arm lossless on the invariant BOX LEGALITY IMPLIES TAP LEGALITY, which this gap would silently falsify."
+    },
+    "SPAWN_PATHFIND_TERRITORY": {
+      "value": "anywhere_but_water",
+      "candidates": ["anywhere_but_water"],
+      "status": "measured",
+      "confidence": "HIGH that a tunnelling card goes down on the enemy side, on the bridge and behind the enemy King, and that a river tap refuses it; OPEN on the own King box (see open).",
+      "provenance": "MEASURED on client 16.402 (capture 20260920-083112: a Goblin Drill tapped on the enemy side at (3500, 23500) came up at (3000, 23000)) and on client 15.535.29 (the Miner and Goblin Drill tunnel runs): the Miner's bridge tap (3500, 16500) and behind-the-King tap (9500, 31500) land exact, and its river tap (4500, 16500) is refused; the Drill's taps on an enemy tower and an enemy Cannon are moved off them ((1000, 26000); (7000, 22000)).",
+      "meaning": "anywhere_but_water: a card whose unit tunnels, on a row that sets CanDeployOnEnemySide, goes down anywhere on land on either side, the no-deploy strips included; a troop is still refused on a building, and a building card is judged by its building's footprint (placement.SPAWN_PATHFIND_DESTINATION). A tunnelling row without CanDeployOnEnemySide is refused at load.",
+      "open": "On client 15.535.29 side 0's own King-box tap (8500, 1500) is refused for both cards, where client 16.402 places them ((6000, 2000) for the Drill, (8500, 500) for the Miner) and client 15.535.29 places side 1's; the engine relocates, as client 16.402 does. A Miner tapped on an enemy footprint: client 15.535.29 moves it 2000 toward the caster in y ((3500, 23500) from a tower tap, (9500, 19500) from a Cannon tap); the engine refuses the tap. The Drill's two enemy-footprint relocations are not in the tests.",
+      "promotion_rules": "A side-0 King-box tap on both clients separates a version change from a side rule.",
+      "engine": "state.rs deploy_rule (one implemented arm, read with only())"
+    },
+    "SPAWN_PATHFIND_DESTINATION": {
+      "value": "client_tile_centre_morph_footprint",
+      "candidates": ["client_tile_centre_morph_footprint", "ordinary_ground_deploy_point"],
+      "status": "measured",
+      "confidence": "HIGH for the Miner's tile centre (both halves, both sides) and for the Drill's 2x2 footprint on the enemy side; MEDIUM for the relocation's tie (two King-box taps).",
+      "provenance": "MEASURED on client 16.402 (capture 20260920-083112) and client 15.535.29. The Miner comes up on its resolved tap's tile centre exactly: (3500, 1500) -> (3500, 1500), where an ordinary single troop on that tile stands at (3499, 1500); on client 15.535.29 the same on both halves and both sides, where a Knight on the tile gets x - 1 on the left half and y - 1 on side 1. A King-box tap is moved off the tower as a single troop's is: (8500, 1500) -> (8500, 500) (client 16.402), and on side 1 (8500, 30500) -> (8500, 31500) (client 15.535.29). The Goblin Drill comes up on its BUILDING's footprint, the 2x2 box of its 500 radius snapped to a tile corner and relocated as a building is, not on its dig's (radius 0, which would stand on (3500, 23500)): (3500, 23500) -> (3000, 23000); an own King-box tap (8500, 1500) -> (6000, 2000) (client 16.402) and on side 1 (8500, 30500) -> (6000, 30000) (client 15.535.29). In the engine's building relocation both are ties at one distance with the candidate a tile nearer the back ((6000, 1000); (6000, 31000)), and the client took the one further forward in the placer's frame both times. On client 15.535.29 the destination is fixed at the tap: the Drill still comes up on top of a Cannon placed after the tap.",
+      "meaning": "client_tile_centre_morph_footprint: the destination is the point the play resolves to, with no formation offset: the Miner's resolved tap (placement.TAP_SNAP, placement.TROOP_TOWER_TAPS), the Goblin Drill's building placement on its building's footprint, a tie between equally near relocations going to the one further forward in the placer's frame. ordinary_ground_deploy_point: the card's own row is placed as a deploy of it would be: the Miner at the single troop's point, one unit off the tile centre, and the Drill on its dig's own footprint.",
+      "open": "The right half's Drill taps and an enemy-side side-1 tap; the tie rule rests on two King-box taps.",
+      "promotion_rules": "A Drill tap that relocates with a tie away from the King box.",
+      "engine": "state.rs enqueue, building_placement, resolve_point"
     }
   },
   "pathfinding": {
@@ -846,7 +868,7 @@
         true,
         false
       ],
-      "engine": "Not read by the engine: no engine card walks in state 6 (movement.SPAWN_PATHFIND_STATES).",
+      "engine": "state.rs tunnel_step (Calib::spawn_pathfind_reach_from_speed): after each step every route node within SpawnPathfindSpeed of the tunneller is dropped, and the walk ends when the goal node goes. On client 15.535.29 the reach is bracketed to [255.2, 359.2) for the Goblin Drill's dig (21 tunnels) and [638.5, 671) for the Miner, each holding its own speed.",
       "promotion_rules": "Measured on two speeds from one battle, and only two cards carry a SpawnPathfindSpeed in the 15.535 card files (Miner 650, GoblinDrillDig 300). A Miner track with frames that keep a tail node would bound the Miner's side from above; today it is only bounded below.",
       "history": [
         {
@@ -2579,7 +2601,8 @@
       "carry the owner's team and the owner's unified level (card.rs `unit_level`; the 2018",
       "SpawnCharacterLevelIndex is not carried into cards.json, see above) and NO deploy timer",
       "(spawner.SPAWNED_DEPLOY_TIME = zero, measured); a DEATH spawn serves DeathSpawnDeployTime",
-      "when the row sets one and otherwise none (DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero, measured)."
+      "when the row sets one and otherwise none (DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero, measured).",
+      "A spawned unit's own spawner and death spawn are honoured at any depth of a chain, down to card.rs MAX_CHAIN_DEPTH (the Goblin Drill's building's Goblins; the Elixir Golem's three generations)."
     ],
     "FIRST_WAVE": {
       "value": "first_wave_after_start_time_or_immediately",
@@ -2694,7 +2717,7 @@
       "candidates": ["facing_ring", "engine_grid_within_radius", "ring_at_radius", "facing_ring_rounded"],
       "meaning": "facing_ring: member k at DeathSpawnRadius from the death point in the direction of the dying unit's facing rotated by SpawnAngleShift + k x 360 / DeathSpawnCount (through formation.rs's sine table; a unit that never moved faces its seat's forward); then water-ejected like a release. engine_grid_within_radius: the old grid arm, kept runnable. ring_at_radius: the community picture without a base direction, no implementation.",
       "promotion_rules": "To HIGH: a live capture of a Lava Hound's six Pups or a Golem's two Golemites, their first positions relative to the death point and the parent's facing, settles the base angle for counts above two. The columns DeathSpawnPushback (Golem / LavaHound / DarkWitch true) and DeathSpawnMinRadius (SkeletonContainer 100) are not modelled.",
-      "engine": "state.rs Calib::from_json -> death_spawn_layout; BattleState::death_spawn_points (the facing from Entities::facing, SpawnAngleShift from CardDef::formation); ring_at_radius is refused at load"
+      "engine": "state.rs Calib::from_json -> death_spawn_layout; BattleState::death_spawn_points (the facing from Entities::facing, SpawnAngleShift from CardDef::formation); ring_at_radius is refused at load. Two keys take rows away from it: a row that sets DeathSpawnPushback under spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide, and a unit listed in spawner.DEATH_SPAWN_RING (the Elixir Golem's two generations, the Goblin Drill's building) under its shipped client_fixed_ring_listed (BattleState::fixed_death_ring)"
     },
     "DEATH_SPAWN_PROJECTILE": {
       "value": "none",
@@ -2717,7 +2740,18 @@
       "meaning": "every_row: a unit whose row sets SpawnAreaObject spawns that area effect on its own position when it is deployed, as the morph targets already do. The tick its buff lands counts on the buff's pulse clock, so the first pulse comes one tick short of HitFrequency: the heal (250 ms, 5 ticks) lands on her first frame and first pulses on her 4th (spell.rs step_spells, the one-shot area branch). morph_targets_only: only morph targets read the column (the Battle Healer's spawn heal is unread).",
       "open": "Whether a Clone of her heals (16.402 says no).",
       "promotion_rules": "The test file passes. No Battle Healer deploy sits in a scored window of the corpus.",
-      "engine": "I-23's spawn_area_effect read widened from morph targets to every row with SpawnAreaObject (window W5)"
+      "engine": "state.rs spawn_now casts a unit's SpawnAreaObject at its creation under every_row; a morph target (the Goblin Drill's building) puts its own down when its tunneller comes up, under either value (state.rs surface, spawner.SPAWN_AREA_OBJECT_TIMING), and never in spawn_now."
+    },
+    "SPAWN_AREA_OBJECT_TIMING": {
+      "value": "on_surfacing_tick",
+      "candidates": ["on_surfacing_tick"],
+      "status": "measured",
+      "confidence": "HIGH on the tick and on the amount at two levels; the reach is inferred.",
+      "provenance": "MEASURED on client 15.535.29 (the Goblin Drill surface-damage runs): the Goblin Drill building's SpawnAreaObject, GoblinDrillDamage, lands on the building's first frame, 84 at level 11 and 58 at level 7, which is floor(33 x the card level's multiplier) and not a fixed level index, on ground units whose centre is within 2000 plus their own radius (in at 2121, a radius-600 Cannon in at 2550, a radius-500 unit out at 2549); air is not hit; a building is hit and not moved; the push runs 8 frames from the next one (199, 174, 149, 124, 99, 74, 50, 24), on deploying and walking units alike. The table's SpawnAreaObjectLevelIndex 5 is not the level used.",
+      "meaning": "on_surfacing_tick: a tunneller's building puts its SpawnAreaObject down on the tick the walk ends, on the destination, so it lands in that tick's Projectile and Resolve phases, on the building's first frame, at the building's level. The reading it replaces, a cast as the building is created at the end of Reap that lands a tick later, is refuted by the same runs and not implemented.",
+      "open": "Whether the engine's push from GoblinDrillDamage reproduces the measured 8 frames; the tests pin the damage only.",
+      "promotion_rules": "Settled for the Goblin Drill.",
+      "engine": "state.rs surface (one implemented arm, read with only())"
     },
     "DEATH_SPAWN_PUSHBACK": {
       "value": "not_read",
@@ -2729,6 +2763,17 @@
       "open": "Settled on client 15.535.29 (8 runs, both sides): the ring does not turn with the owner, and member k is k in creation order. A Pup sliding directly away from its target turns back after 4 ticks. What the 250 is (the same for both cards). The early steps' excess over 250 (the Golemites' first step 351-400, the Pups' first two 263-398), probably the collision pass separating overlapping newborns. Whether a Pup already flies to its target near the end of the slide: the two on the x axis stop at exactly 2500 and one at 2499, but one turns at 2459 and two carry on past it (to 2614 and 2657). The DeathPushBack column (Golem 1800) that pushes nearby enemies is separate and still unread.",
       "promotion_rules": "The test file passes. No Golem or LavaHound death falls in a scored window of the corpus, so no report moves; it flips on this evidence, before ElixirGolem and GoblinDrill reuse it.",
       "engine": "BattleState::death_spawn_points (the ring's base angle and start radius when the row's DeathSpawnPushback is true), a slide state moved in the move pass until DeathSpawnRadius, and the card extractor must carry DeathSpawnPushback"
+    },
+    "DEATH_SPAWN_RING": {
+      "value": {"arm": "client_fixed_ring_listed", "units": ["GoblinDrill", "ElixirGolem1", "ElixirGolem2"]},
+      "candidates": ["none", "client_fixed_ring_listed"],
+      "status": "measured",
+      "confidence": "HIGH for the Elixir Golem's pairs (23 of 23 on client 15.535.29, 6 of them side 1, and one exact client 16.402 death); HIGH for the positions of the Goblin Drill's pair (3 client 16.402 deaths, 6 Goblins), OPEN on which of its two Goblins takes -x. Scoped to the listed units: no card that loads without this window moves.",
+      "provenance": "MEASURED. Elixir Golem, client 15.535.29 (the Elixir Golem death runs): each child's first point is the parent's death point + (-750, 0) or (+750, 0) exactly (21 of 23 pairs; the other 2 are still 1500 apart, centred one frame of the parent's move away), on the arena's x axis whatever the parent's heading (-169 to +84 degrees) and side (6 side-1 pairs), the lower ordinal on -x in 23 of 23; no 250 start and no slide. Client 16.402 (a level-12 Elixir Golem of the corpus): (2523, 23116) and (4023, 23116) around (3273, 23116), its target at 84.6 degrees, where the facing ring gives about (+-71, +-746). Goblin Drill building, client 16.402 (capture 20260920-083112, 3 deaths, 2 by its lifetime and 1 by the King): 2 Goblins at building +-(500, 0) on its vanishing frame, deploying 10 frames (DeathSpawnDeployTime 500); client 15.535.29 the same.",
+      "meaning": "client_fixed_ring_listed: a dying unit whose row name is in value.units, whose SpawnAngleShift is blank and whose row does not set DeathSpawnPushback lays member k of n at DeathSpawnRadius on the fixed angle -(k + 1) x 360 / n in the native frame (0 = +x), whatever its heading and side: a pair on the x axis, the first-created member on -x. none: every such row keeps spawner.DEATH_SPAWN_LAYOUT. The angles are spawner.DEATH_SPAWN_PUSHBACK's troop ring, here at the full radius and with no slide.",
+      "open": "Which of the Drill's Goblins takes -x. The Golem and the Lava Hound are spawner.DEATH_SPAWN_PUSHBACK's rows, not this list's.",
+      "promotion_rules": "A unit joins the list by a measured death.",
+      "engine": "state.rs phase_reap (listed), fixed_death_ring"
     },
     "DEATH_SPAWN_AT_EMISSION_POINT": {
       "value": {
@@ -3168,10 +3213,43 @@
         "not_modelled"
       ],
       "measured_2026_09_22": "The replay fixtures now publish each unit's path (data/derived/replay, truth.path_cells, goal first), so the state-6 paths of 20260920-083112-A and -B can be scored: 5 distinct units (3 Goblin Drills, 2 Miners), each seen from both seats with the same lists. THE GOAL: the path's goal cell is the cell holding the point where the unit comes up (the Drill's building, the Miner's first position after state 6) on 5 of 5, and the tap's own cell on 1 of 5 (the game moves a tap it will not accept). For the Drill of tick 2974 that point, (3000, 23000), is a cell corner, and the goal (6, 46) is not the one of its four cells nearest the unit ((6, 45) is), so a goal chosen by the ordinary nearest-cell scan around the point would have missed it. THE LANE BONUS: one path separates the arms, that Drill's 39 cells from its king to (6, 46). With every dry cell at 8 and water at 50 it is cost-optimal (3424) and the 16.402 search returns all 39 cells from the unit's own cell (18, 7); with road cells at 5 it costs 2908 against an optimum of 2380, and no start next to it returns it. (The search was run as a line-for-line Python port of path16402.rs, which returns 615 of 616 live and 128 of 128 offline paths of crates/royalesim/tests/fixtures/oracle2026/client16402_first_paths.json exactly under the walker's costs, the engine gate's own score. With every dry cell at 8 it returns only 123 of those 616: ordinary walking has the lane bonus, spawn pathfinding does not.) The three shorter paths (4, 4 and 7 cells) fit every arm. THE WATER: the same path crosses the river on the bridge (column 8). Water at 7 makes it more expensive than a crossing through the water (3424 against 3368), and water at 8 keeps it cost-optimal but is not the route the search returns, so a spawn-pathfinding unit pays the walker's 50. THE OCCLUSIONS: not separated. No spawn path comes near a building box except its own king's, which the unit starts inside and must leave either way; stamping every building of both sides at 50 returns all four paths too. Recorded by the client instrument that records ground-truth traces from the real game.",
-      "cards": "Which cards need it (data/derived/mechanic_register.json, tools/mechanic_register.py): spawn pathfinding (SpawnPathfindSpeed / SpawnPathfindEffect / SpawnPathfindMorph, family spawner) -- Miner and GoblinDrill (the underground walk to the tap point, state 6 / 7), Wallbreakers (the run-in), and the register's family `dash` -- Bandit (Assassin), MegaKnight's jump, Bats, DarkWitch, GoldenKnight, LittlePrince, BossBandit, SuperHogRider Terry -- for states 3 / 5. None of them is in the engine's cards.json thin slice today: no ENGINE card carries an explicit goal, so no engine unit ever walks in state 6 and the cost field's state test is never reached. The corpus does hold them: 175 state-6 frames, all in capture 20260920-083112 (Goblin Drill 162, Miner 13).",
-      "engine": "RECORDED, NOT IMPLEMENTED. Not read by Calib::from_json -- like movement.BUFF_SPEED_RULE, a rule the engine records ahead of a card that exercises it; when Miner / GoblinDrill / Wallbreakers enter the thin slice the key becomes a Calib field, the cost closure in state.rs phase_path16402 gains the state test and path16402::choose_goal_cell is bypassed by the explicit goal. WHAT THE ENGINE WILL THEN DO: price every dry cell at DEFAULT (8) with no lane bonus and water at BLOCKED (50), and run to the cell holding the explicit goal point, all three measured (measured_2026_09_22); skip the building boxes and the avoidance and separation scans, which remain choices awaiting the capture named in promotion_rules and not observations. Until then the value names the rule and `not_modelled` is what the engine does.",
+      "cards": "The rows that carry SpawnPathfindSpeed in the 15.535 card files: the Miner (650) and the Goblin Drill's dig (300), both loaded and tunnelling under the shipped value since window W5, and the evolved Drill's dig, which belongs to no loadable card. The other families the register names beside them (the Wallbreakers' run-in, the dash family for states 3 / 5) carry no SpawnPathfindSpeed there and are not run by this key. The corpus holds 175 state-6 frames, all in capture 20260920-083112 (Goblin Drill 162, Miner 13).",
+      "engine": "state.rs phase_tunnel, tunnel_step and surface (Calib::spawn_pathfind); path16402.rs cell_cost_spawn_pathfind prices every dry cell at DEFAULT (8) with no lane bonus and water at BLOCKED (50), with no building occlusion; the goal is the cell holding the destination, never choose_goal_cell's scan. Under not_modelled a card that tunnels is refused at the deck (BattleState::try_new) and at every play (simulable).",
       "promotion_rules": "The speed, goal and lane clauses are measured (capture 20260920-083112; measured_2026_09_22). To measured for the value as a whole: a spawn path that has to pass a building box other than its own king's, for example a Goblin Drill or a Miner sent to a point with a building standing on the straight line to it. A path straight through the box (every building ignored) against a detour around it (boxes stamped) settles the last clause.",
       "units": "native millitiles; SpawnPathfindSpeed is native units per tick"
+    },
+    "SPAWN_PATHFIND_START": {
+      "value": "king_centre_step_at_creation",
+      "candidates": ["king_centre_step_at_creation", "king_centre_no_creation_step"],
+      "status": "hypothesis",
+      "confidence": "MEDIUM on where a tunneller is on its first frame (two steps out from its King's centre, on client 16.402 and client 15.535.29); LOW on the mechanism, a step taken at creation, which is inferred. The first step's exact geometry is not reproduced (see open).",
+      "provenance": "MEASURED on client 16.402 (capture 20260920-083112, both seats: 3 Goblin Drill and 2 Miner tunnels, side 0) and on client 15.535.29 (the Goblin Drill and Miner tunnel runs, both sides): on its first frame a tunneller's previous-tick position is already one step from its King's centre and its position a second step on. The Goblin Drill's dig: previous positions 289, 289 and 299 from the King, first positions (8477, 3215), (8477, 3215) and (9178, 3569). The Miner: previous positions 612 from the King on both corpus trips. On client 15.535.29 the first step depends on the heading: the Miner's west and south first steps are 611.7 long, its north and east ones 646.2; a side-1 dig's first step repeats a side-0 one's offsets, unmirrored.",
+      "meaning": "king_centre_step_at_creation: a tunneller is created on its owner's King centre and takes one tunnel step at once, and the Path phase of its first tick gives it its second. king_centre_no_creation_step: created on the King's centre and first moved by that Path phase.",
+      "open": "The first step's geometry: the engine steps a full SpawnPathfindSpeed toward the route's first node (300 for the dig, 650 for the Miner), where the measured first steps are 289-299 (the dig) and 611.7 or 646.2 (the Miner, by heading), and they do not point at one node. The tests pin the engine's own first positions, not the measured ones.",
+      "promotion_rules": "A capture that records a tunneller's position on its creation tick separates the two arms and settles the geometry.",
+      "engine": "state.rs spawn_tunneller, tunnel_step"
+    },
+    "SPAWN_PATHFIND_BODY": {
+      "value": "untouchable",
+      "candidates": ["untouchable", "ordinary_troop"],
+      "status": "measured",
+      "confidence": "HIGH that nothing targets a unit under ground; MEDIUM that no damage, stun or push reaches it (a Zap and Arrows left it as in the control run, but no positive control stood inside either spell); OPEN on contact, which nothing recorded touched.",
+      "provenance": "MEASURED on client 15.535.29 (the Miner and Goblin Drill tunnel runs): a Goblin Drill's dig was never targeted, even inside a princess tower's footprint, and a Zap and Arrows cast at it left every entity as in the control run; a Miner under ground was never targeted, damaged or stunned by a Zap or Arrows. No positive control stood inside either spell, and no push was staged. On client 16.402 (capture 20260920-083112) no tunneller was targeted, but no enemy came within 8000 of any tunnel frame.",
+      "meaning": "untouchable: a unit under ground is nobody's target, no hit, area, roll or strike lands on it, no buff, stun or push applies to it, it wakes no Goblin Hut and no unit meets it in contact. ordinary_troop: it is an ordinary troop at its tunnel position, apart from its walk.",
+      "open": "Whether a unit under ground collides; whether a spell whose area must cover it (a positive control) leaves it untouched.",
+      "promotion_rules": "A scenario with a spell whose area certainly covers the tunnel path and a unit standing on it.",
+      "engine": "target.rs can_target, combat.rs resolve, spell.rs eligible, state.rs apply_effects, phase_path16402_for (contact bodies) and life_wakers; collide.rs is_mobile_unit leaves a unit under ground out of the frame-planned models' separation under either value"
+    },
+    "SPAWN_PATHFIND_MORPH_BIRTH": {
+      "value": "one_drain_step",
+      "candidates": ["one_drain_step", "none"],
+      "status": "measured",
+      "confidence": "HIGH on the number (1307 of 1313 at level 11, 898 of 902 at level 7); the mechanism, one lifetime-drain step at creation, is inferred.",
+      "provenance": "MEASURED on client 16.402 (capture 20260920-083112, 3 of 3 Goblin Drill buildings) and on client 15.535.29: the building a Goblin Drill's dig leaves shows 1307 of its 1313 hitpoints on its first frame at level 11 (one drain step is ((1313 x 100000) / 10000) / 20 = 656 hundredths, 6 whole) and 898 of 902 at level 7 (451 hundredths, 4 whole), holds that through its 20 deploying frames and loses its next drain step on F + 21. The drain then fits hp100 = 131300 - 656 (k + 1), shown as ceil(hp100 / 100), over 400 frames with 0 misses, and the building is gone on F + 220.",
+      "meaning": "one_drain_step: the building takes one lifetime-drain step when it is created, its remainder carried, and its drain then holds through its deploy window as every building's does. none: it comes up at full hitpoints.",
+      "open": "Whether another building created mid-battle shows the same first-frame step.",
+      "promotion_rules": "Settled for the Goblin Drill.",
+      "engine": "state.rs morph_birth (from materialise_released)"
     },
     "BUFF_SPEED_COMPOSITION": {
       "value": "strongest_up_and_down",

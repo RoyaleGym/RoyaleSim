@@ -706,6 +706,42 @@ pub struct Calib {
     /// `None`, what a battle saved before it actually ran.
     #[serde(default = "spawned_first_step_default")]
     pub spawned_first_step: SpawnedFirstStep,
+    /// spawner.DEATH_SPAWN_RING (value.arm): whether a LISTED dying unit whose row leaves SpawnAngleShift
+    /// blank lays its death spawn on the fixed ring at DeathSpawnRadius (`phase_reap`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
+    #[serde(default = "death_ring_default")]
+    pub death_ring: DeathSpawnRing,
+    /// The UNIT names that ring applies to (value.units), matched against the dying unit's
+    /// `CardDef::unit_name`.
+    #[serde(default)]
+    pub death_ring_units: Vec<String>,
+    /// movement.SPAWN_PATHFIND_STATES: whether a card that tunnels runs (`phase_tunnel`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is `NotModelled`, what a battle saved before it ran (no card
+    /// tunnelled then).
+    #[serde(default = "spawn_pathfind_default")]
+    pub spawn_pathfind: SpawnPathfind,
+    /// pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED: a tunneller's route node is reached
+    /// within its SpawnPathfindSpeed (true) or within WAYPOINT_ARRIVE_RADIUS (false). Added after
+    /// SNAPSHOT_FORMAT 20; `default` false, read by nothing before it.
+    #[serde(default)]
+    pub spawn_pathfind_reach_from_speed: bool,
+    /// movement.SPAWN_PATHFIND_START: a tunneller's step at its creation (`phase_spawn`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is `KingCentreNoCreationStep`.
+    #[serde(default = "spawn_pathfind_start_default")]
+    pub spawn_pathfind_start: SpawnPathfindStart,
+    /// movement.SPAWN_PATHFIND_BODY: what a unit under ground is to the board (entity.rs `underground`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is `OrdinaryTroop`.
+    #[serde(default = "spawn_pathfind_body_default")]
+    pub spawn_pathfind_body: SpawnPathfindBody,
+    /// movement.SPAWN_PATHFIND_MORPH_BIRTH: the drain step a tunneller's building takes at its creation
+    /// (`materialise_released`). Added after SNAPSHOT_FORMAT 20; the `default` is `None`.
+    #[serde(default = "morph_birth_drain_default")]
+    pub morph_birth_drain: MorphBirthDrain,
+    /// placement.SPAWN_PATHFIND_DESTINATION: where a tunnelling card's play puts its destination
+    /// (`resolve_point`, `building_placement`, `enqueue`). Added after SNAPSHOT_FORMAT 20; the `default`
+    /// is `OrdinaryGroundDeployPoint`.
+    #[serde(default = "spawn_pathfind_destination_default")]
+    pub spawn_pathfind_destination: SpawnPathfindDestination,
 
     // --- status effects (status.rs). Each is one calibration.json
     // key; a candidate with no implementation is refused in from_json.
@@ -1023,6 +1059,30 @@ fn preserve_target_scope_default() -> PreserveTargetScope {
 
 fn spawned_first_step_default() -> SpawnedFirstStep {
     SpawnedFirstStep::None
+}
+
+fn death_ring_default() -> DeathSpawnRing {
+    DeathSpawnRing::None
+}
+
+fn spawn_pathfind_default() -> SpawnPathfind {
+    SpawnPathfind::NotModelled
+}
+
+fn spawn_pathfind_start_default() -> SpawnPathfindStart {
+    SpawnPathfindStart::KingCentreNoCreationStep
+}
+
+fn spawn_pathfind_body_default() -> SpawnPathfindBody {
+    SpawnPathfindBody::OrdinaryTroop
+}
+
+fn morph_birth_drain_default() -> MorphBirthDrain {
+    MorphBirthDrain::None
+}
+
+fn spawn_pathfind_destination_default() -> SpawnPathfindDestination {
+    SpawnPathfindDestination::OrdinaryGroundDeployPoint
 }
 
 fn dash_attack_default() -> DashAttack {
@@ -2742,6 +2802,86 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_SPAWN_RING -- see `BattleState::phase_reap` (`fixed_ring_offset`): where a LISTED dying
+    /// unit whose row leaves SpawnAngleShift blank and DeathSpawnPushback unset lays its death spawn.
+    DeathSpawnRing {
+        /// Every such row keeps spawner.DEATH_SPAWN_LAYOUT (the engine before the key).
+        None = "none",
+        /// A listed unit (`Calib::death_ring_units`, by the row's own name) lays member k of n at DeathSpawnRadius
+        /// on the fixed angle -(k + 1) x 360 / n in the native frame (0 = +x), whatever its heading and its side:
+        /// the Elixir Golem's two halves on its x axis at +-750, the lower-created on -x (client 15.535.29, 23 of
+        /// 23 pairs, 6 of them side 1), the Goblin Drill's two Goblins at +-(500, 0) (client 16.402, 3 deaths). No
+        /// start radius and no slide: those are spawner.DEATH_SPAWN_PUSHBACK's, for the rows that set the column.
+        ClientFixedRingListed = "client_fixed_ring_listed",
+    }
+);
+calib_enum!(
+    /// movement.SPAWN_PATHFIND_STATES -- see `BattleState::phase_tunnel`: whether a card that travels under ground
+    /// (card.rs `SpawnPathfindDef`, the Miner and the Goblin Drill) is run at all.
+    SpawnPathfind {
+        /// The engine before the walk: a card that tunnels is refused at the deck and at every play, never run
+        /// as a card born at its tap (`BattleState::try_new`, `simulable`).
+        NotModelled = "not_modelled",
+        /// Born at its owner's King, it walks under ground at SpawnPathfindSpeed toward the cell holding its
+        /// destination, every dry cell at DEFAULT, water at BLOCKED, no lane bonus and no building occlusion
+        /// (path16402.rs `cell_cost_spawn_pathfind`), and comes up when its route's goal node is reached.
+        /// Measured on client 16.402 (capture 20260920-083112: 5 tunnels, both seats) and client 15.535.29.
+        Client16402ExplicitGoal = "client16402_explicit_goal_no_lane_no_occlusion",
+    }
+);
+calib_enum!(
+    /// movement.SPAWN_PATHFIND_START -- see `BattleState::phase_spawn`: where a tunneller is on its first frame.
+    SpawnPathfindStart {
+        /// Created on its King's centre and first moved by the Path phase of its first tick.
+        KingCentreNoCreationStep = "king_centre_no_creation_step",
+        /// Created on its King's centre and moved one tunnel step at once, so its first frame shows it two steps
+        /// out (the previous-tick position one step out and the position a second step on, measured on client
+        /// 16.402 and client 15.535.29).
+        KingCentreStepAtCreation = "king_centre_step_at_creation",
+    }
+);
+calib_enum!(
+    /// movement.SPAWN_PATHFIND_BODY -- see entity.rs `underground`: what a unit under ground is to the rest of
+    /// the board.
+    SpawnPathfindBody {
+        /// An ordinary troop at its current position: targetable, hit, pushed and in contact.
+        OrdinaryTroop = "ordinary_troop",
+        /// Untouchable: nobody targets it, no hit and no area reaches it, no buff, stun or push lands on it, and
+        /// no unit meets it in contact (target.rs `can_target`, combat.rs `resolve`, spell.rs `eligible`,
+        /// `apply_effects`, the move passes). Measured on client 15.535.29: a Miner and a Goblin Drill's dig
+        /// were never targeted, even inside a princess tower's footprint, and Zap and Arrows left them as in the
+        /// control (no positive control stood inside either spell).
+        Untouchable = "untouchable",
+    }
+);
+calib_enum!(
+    /// movement.SPAWN_PATHFIND_MORPH_BIRTH -- see `BattleState::materialise_released`: what the building a
+    /// tunneller leaves shows on its first frame.
+    MorphBirthDrain {
+        /// Full hitpoints, as any building released at the end of Reap.
+        None = "none",
+        /// One lifetime-drain step taken at its creation, then held through its deploy window as every
+        /// building's drain is: the Goblin Drill's building shows 1307 of 1313 on its first frame (client 16.402,
+        /// 3 of 3; client 15.535.29, 898 of 902 at level 7).
+        OneDrainStep = "one_drain_step",
+    }
+);
+calib_enum!(
+    /// placement.SPAWN_PATHFIND_DESTINATION -- see `BattleState::resolve_point` and `enqueue`: where a tunnelling
+    /// card's play puts its destination.
+    SpawnPathfindDestination {
+        /// As the card's row would be placed: a troop at the single-unit ground deploy point
+        /// (formation.GROUND_DEPLOY_POINT), a building on the tunneller row's own footprint.
+        OrdinaryGroundDeployPoint = "ordinary_ground_deploy_point",
+        /// The Miner on the resolved tap itself, the tile centre with no one-unit offset (client 15.535.29, both
+        /// halves and both sides); the Goblin Drill on its BUILDING's footprint (the 2x2 box, snapped and
+        /// relocated as a building is), a tie between two equally near relocations going to the one further
+        /// forward in the placer's frame (client 16.402 (8500, 1500) -> (6000, 2000); client 15.535.29 side 1
+        /// (8500, 30500) -> (6000, 30000)).
+        ClientTileCentreMorphFootprint = "client_tile_centre_morph_footprint",
+    }
+);
+calib_enum!(
     /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY -- see `BattleState::delay_acquisition` (the one
     /// setter) and target.rs `can_target` (the one reader).
     SpawnedUnitAcquireDelay {
@@ -3273,6 +3413,20 @@ impl Calib {
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             spawned_unit_acquire_delay: pick(&v, &["targeting", "SPAWNED_UNIT_ACQUIRE_DELAY", "value"], SpawnedUnitAcquireDelay::from_calibration_name)?,
             spawned_first_step: pick(&v, &["spawner", "SPAWNED_FIRST_STEP", "value"], SpawnedFirstStep::from_calibration_name)?,
+            death_ring: pick(&v, &["spawner", "DEATH_SPAWN_RING", "value", "arm"], DeathSpawnRing::from_calibration_name)?,
+            death_ring_units: v
+                .pointer("/spawner/DEATH_SPAWN_RING/value/units")
+                .and_then(Value::as_array)
+                .ok_or("spawner.DEATH_SPAWN_RING.value.units: a list of unit names is required")?
+                .iter()
+                .map(|u| u.as_str().map(str::to_string).ok_or("spawner.DEATH_SPAWN_RING.value.units: every entry is a unit name"))
+                .collect::<Result<Vec<_>, _>>()?,
+            spawn_pathfind: pick(&v, &["movement", "SPAWN_PATHFIND_STATES", "value"], SpawnPathfind::from_calibration_name)?,
+            spawn_pathfind_reach_from_speed: boolean(&v, &["pathfinding", "LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED", "value"])?,
+            spawn_pathfind_start: pick(&v, &["movement", "SPAWN_PATHFIND_START", "value"], SpawnPathfindStart::from_calibration_name)?,
+            spawn_pathfind_body: pick(&v, &["movement", "SPAWN_PATHFIND_BODY", "value"], SpawnPathfindBody::from_calibration_name)?,
+            morph_birth_drain: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_BIRTH", "value"], MorphBirthDrain::from_calibration_name)?,
+            spawn_pathfind_destination: pick(&v, &["placement", "SPAWN_PATHFIND_DESTINATION", "value"], SpawnPathfindDestination::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -3321,6 +3475,11 @@ impl Calib {
         // measured on the melee Battle Ram; the projectile case is a hypothesis
         // under the same name).
         only(&v, &["combat", "KAMIKAZE_DEATH", "value"], "at_fire")?;
+        // The underground walk's two single-arm keys: a tunnelling card's territory is land on either
+        // side (state.rs `deploy_rule`), and a tunneller's building puts its SpawnAreaObject down on the
+        // tick the walk ends (`surface`), so the area lands on the building's first frame.
+        only(&v, &["placement", "SPAWN_PATHFIND_TERRITORY", "value"], "anywhere_but_water")?;
+        only(&v, &["spawner", "SPAWN_AREA_OBJECT_TIMING", "value"], "on_surfacing_tick")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -3585,6 +3744,12 @@ struct PendingSpawn {
     /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     summon_x: Option<i32>,
+    /// movement.SPAWN_PATHFIND_MORPH_BIRTH: the building a tunneller leaves where it came up (`surface`),
+    /// which takes its birth drain step when it is created (`materialise_released`). False on every other
+    /// spawn. A morph birth goes straight to the end-of-Reap list (`released`), never into `spawn_queue`,
+    /// so it is not in a snapshot's queue and not hashed. Added after SNAPSHOT_FORMAT 20; `default`.
+    #[serde(default)]
+    morph_birth: bool,
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -3786,6 +3951,9 @@ pub struct EntityView<'a> {
     /// The frozen segment direction of the 16.402 move pass (entity.rs `seg_dir`): the direction toward
     /// the route's last node, fixed when the segment starts; (0, 0) with no segment.
     pub seg_dir: Vec2,
+    /// THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; entity.rs `tunnel_dest`): the destination of a
+    /// unit still under ground, world subtiles; None on every unit above ground.
+    pub tunnel_dest: Option<Vec2>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -3826,6 +3994,52 @@ struct Scratch {
     /// first update, native (x, y, radius, side): `first_update`'s avoidance-only blockers. Filled and drained
     /// inside one `phase_reap`, so it never outlives the phase.
     dying_blockers: Vec<(i32, i32, i32, u8)>,
+    /// movement.SPAWN_PATHFIND_STATES: the tunnellers that came up this tick as the building they leave
+    /// (`surface`), removed in this tick's Reap without a death (`phase_reap`). Filled in the Path phase and
+    /// drained in the Reap of the same tick, so it is empty between ticks: not saved, not hashed.
+    vanish: Vec<EntityId>,
+    /// The underground walk's search grid (`TunnelGrid`), built on first use from the arena and the
+    /// calibration: static, so not saved.
+    tunnel_grid: Option<TunnelGrid>,
+}
+
+/// THE UNDERGROUND WALK'S SEARCH (movement.SPAWN_PATHFIND_STATES): the 16.402 terrain and path finder, priced
+/// by `path16402::cell_cost_spawn_pathfind` (every dry cell at DEFAULT, water at BLOCKED, no occlusion). A
+/// function of the arena and the calibration alone.
+#[derive(Clone, Debug)]
+struct TunnelGrid {
+    terrain: path16402::Terrain,
+    costs: path16402::Costs,
+    pf: path16402::PathFinder,
+}
+
+impl TunnelGrid {
+    fn new(arena: &Arena, calib: &Calib) -> TunnelGrid {
+        let costs = path2026::costs16402(calib);
+        let terrain = path2026::terrain16402(arena, &costs);
+        TunnelGrid { terrain, costs, pf: path16402::PathFinder::new(arena.cols, arena.rows, costs.heuristic) }
+    }
+
+    /// The cell chain from cell `start` to cell `goal`, GOAL FIRST and without the start cell
+    /// (path16402.rs `PathFinder::find_path`), under the spawn-pathfinding prices; empty when the start is the
+    /// goal or nothing is found.
+    fn route(&mut self, start: (i32, i32), goal: (i32, i32)) -> Vec<i32> {
+        let TunnelGrid { terrain, costs, pf } = self;
+        #[cfg(not(clash_plant = "tunnel_walker_costs"))]
+        let walker = false;
+        #[cfg(clash_plant = "tunnel_walker_costs")]
+        let walker = true; // PLANT: a walker's prices, the lane bonus on the road cells.
+        let occ: Vec<i32> = if walker { vec![0; (terrain.cols * terrain.rows) as usize] } else { Vec::new() };
+        let default = costs.default;
+        let cost = |c: i32, r: i32| {
+            if walker {
+                path16402::cell_cost_for(terrain, &occ, c, r, false)
+            } else {
+                path16402::cell_cost_spawn_pathfind(terrain, c, r, default)
+            }
+        };
+        pf.find_path(start.0, start.1, goal.0, goal.1, true, &cost).to_vec()
+    }
 }
 
 /// The 16.402 path grid (path16402.rs): the static terrain, this tick's occlusion
@@ -4000,6 +4214,15 @@ fn axis_push(raw: Vec2, centre: Vec2, tower: Rect, snapped: Vec2) -> Vec2 {
 }
 
 pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
+    // placement.SPAWN_PATHFIND_TERRITORY = anywhere_but_water: a card that tunnels (the loader takes it
+    // only with CanDeployOnEnemySide) goes down anywhere on land, the enemy side and the no-deploy strips
+    // included; a troop's tap is still refused on a building, and a building card is judged by the
+    // footprint of the building it leaves (`building_placement`). Measured on client 15.535.29: a Miner
+    // and a Goblin Drill tapped on the enemy side landed there; a river tap is refused.
+    #[cfg(not(clash_plant = "tunnel_territory_own_half"))]
+    if card.spawn_pathfind.is_some() && card.can_deploy_on_enemy_side {
+        return (Territory::AnywhereButWater, true);
+    }
     let placement = card.spell.as_ref().map(|s| s.placement);
     let territory = match (card.kind, calib.territory_model) {
         (CardKind::Building, _) => Territory::OwnHalf,
@@ -4258,6 +4481,11 @@ impl BattleState {
                 if cards.get(idx).summon_only {
                     return Err(format!("{name} is a spawned unit, not a playable card"));
                 }
+                // movement.SPAWN_PATHFIND_STATES = not_modelled: a card that tunnels is refused whole, never
+                // run as a card born at its tap.
+                if cards.get(idx).spawn_pathfind.is_some() && c.spawn_pathfind == SpawnPathfind::NotModelled {
+                    return Err(format!("{name} travels underground, which movement.SPAWN_PATHFIND_STATES = not_modelled does not run"));
+                }
                 deck.push(idx);
             }
             if config.shuffle_decks {
@@ -4433,13 +4661,15 @@ impl BattleState {
         // run: this tick's for a unit created in the Spawn phase or by the Move phase's emissions,
         // the next tick's for one created at the end of Reap or by the scenario setup. HERE, where
         // every creation passes, so no path (a deploy, a release, an emission, the spawn list) is
-        // left out. Under the shipped morph_targets_only nothing is cast: no loaded row is a morph
-        // target.
+        // left out. Under the shipped morph_targets_only nothing is cast here: a MORPH TARGET (the
+        // building a tunneller leaves, card.rs `CardDb::is_morph_target`) puts its area down on the
+        // tick its tunneller comes up, under either arm (`surface`, spawner.SPAWN_AREA_OBJECT_TIMING),
+        // and so never here.
         #[cfg(not(clash_plant = "spawn_area_effect_unread"))]
         let puts_area = self.cfg.calib.spawn_area_object_scope == SpawnAreaObjectScope::EveryRow;
         #[cfg(clash_plant = "spawn_area_effect_unread")]
         let puts_area = false; // PLANT (regression): the Battle Healer heals nobody on deploy under every_row too.
-        if puts_area && c.spawn_area_effect.is_some() {
+        if puts_area && c.spawn_area_effect.is_some() && !cards.is_morph_target(card) {
             let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos)?;
             self.spells.extend(area);
         }
@@ -4592,6 +4822,10 @@ impl BattleState {
             }
             if p.first_update {
                 fresh.push(id.index as usize);
+            }
+            // The building a tunneller left where it came up (`surface`): its birth drain step.
+            if p.morph_birth {
+                self.morph_birth(id.index as usize);
             }
         }
         // spawner.SPAWNED_FIRST_STEP: the death spawns take their first update now.
@@ -4907,7 +5141,7 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false }));
                     k += 1;
                 }
                 left -= 1;
@@ -5044,8 +5278,10 @@ impl BattleState {
                 LifeWakeReach::Same => 0,
             };
         let mut out = Vec::new();
+        // movement.SPAWN_PATHFIND_BODY = untouchable: a unit under ground wakes nothing, and no wave aims at it.
+        let untouchable = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
         for v in 0..e.capacity() {
-            if !e.alive[v] || e.hp[v] <= 0 || e.team[v] == e.team[i] {
+            if !e.alive[v] || e.hp[v] <= 0 || e.team[v] == e.team[i] || (untouchable && e.underground(v)) {
                 continue;
             }
             let bound = match e.kind[v] {
@@ -5140,6 +5376,7 @@ impl BattleState {
             first_update: false,
             facing: None,
             summon_x: None,
+            morph_birth: false,
         };
         Some((team, self.ents.team_seq[i], 0, p))
     }
@@ -5391,6 +5628,32 @@ impl BattleState {
             .collect()
     }
 
+    /// spawner.DEATH_SPAWN_RING = client_fixed_ring_listed: member k of `count` at `radius` (SUBTILES; the row's
+    /// DeathSpawnRadius) from the death point `pos`, on the fixed angle -(k + 1) x 360 / n in the native frame
+    /// (`fixed_ring_offset`, the slide ring's angle law, here at the full radius and with no slide), whatever the
+    /// dying unit's heading and side. For a pair, the first-created member on -x and the other on +x: the Elixir
+    /// Golem's halves at exactly +-750 on its x axis (client 15.535.29: 23 of 23 pairs, 6 of them side 1, the
+    /// lower ordinal on -x; client 16.402: +-750 exact with the Golem's target at 84.6 degrees), the Goblin Drill's
+    /// building's Goblins at +-(500, 0) (client 16.402, 3 deaths; which member takes -x is not measured there). A
+    /// ground member that lands on water is put on the nearest land, as every death spawn layout's is.
+    fn fixed_death_ring(&self, team: Team, pos: Vec2, count: i32, radius: i32, flying: bool) -> Vec<Vec2> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let n = count.max(1);
+        let r = radius.max(0) / K;
+        (0..n)
+            .map(|k| {
+                let (dx, dy) = fixed_ring_offset(k, n, r);
+                let q = pos.add(Vec2::new(dx * K, dy * K));
+                if flying || arena.is_passable_ground(q) {
+                    q
+                } else {
+                    arena.nearest_passable_ground(q, team).unwrap_or(q)
+                }
+            })
+            .collect()
+    }
+
     /// Does entity `i`'s card hide (card.rs `HideDef`) -- and is it a building, the
     /// only kind the machinery runs for?
     #[inline]
@@ -5549,7 +5812,8 @@ impl BattleState {
         let dt = self.cfg.calib.tick_ms;
         let paused_by_stun = self.cfg.calib.stun_pauses_deploy;
         for i in 0..self.ents.capacity() {
-            if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) {
+            // A unit under ground (movement.SPAWN_PATHFIND_STATES) holds its timer until it comes up (`surface`).
+            if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) && !self.ents.underground(i) {
                 self.ents.deploy_ms[i] = (self.ents.deploy_ms[i] - dt).max(0);
                 self.ents.stagger_ms[i] = (self.ents.stagger_ms[i] - dt).max(0);
                 if self.ents.deploy_ms[i] == 0 {
@@ -5795,6 +6059,12 @@ impl BattleState {
             queue = order.into_iter().map(|k| q[k]).collect();
         }
         for p in queue {
+            // A PLAY OF A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): its unit is born at its owner's King
+            // and walks under ground to `p.pos` (`spawn_tunneller`).
+            if self.cfg.cards.get(p.card).spawn_pathfind.is_some() {
+                self.spawn_tunneller(p);
+                continue;
+            }
             let kind = match self.cfg.cards.get(p.card).kind {
                 CardKind::Building => EntityKind::Building,
                 CardKind::Troop => EntityKind::Troop,
@@ -5859,6 +6129,204 @@ impl BattleState {
             self.spawner_pass();
             self.life_state_pass();
         }
+    }
+
+    /// A PLAY OF A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`; movement.SPAWN_PATHFIND_STATES), queued by
+    /// `enqueue` with its DESTINATION as `p.pos`: ONE unit, created as a TROOP on its owner's King centre
+    /// whatever the card's kind (the Goblin Drill's card row is its dig; the building it leaves is its own
+    /// record), at the card's level. Its deploy timer is frozen while it is under ground (`deploy_countdown`),
+    /// so it neither targets nor acts. Under movement.SPAWN_PATHFIND_START = king_centre_step_at_creation it
+    /// takes one tunnel step at once, so its first frame shows it two steps out (the Path phase gives it the
+    /// second): measured on client 16.402 and client 15.535.29, the previous-tick position a tunneller shows on
+    /// its first frame is already one step from its King's centre.
+    fn spawn_tunneller(&mut self, p: PendingSpawn) {
+        let king = self.cfg.arena.king_tower_pos(p.team);
+        let id = self.spawn_now(p.team, p.card, p.level, king, EntityKind::Troop).expect("level validated at enqueue");
+        let i = id.index as usize;
+        self.ents.tunnel_dest[i] = Some(p.pos);
+        if self.cfg.calib.spawn_pathfind_start == SpawnPathfindStart::KingCentreStepAtCreation && self.tunnel_step(i) {
+            self.surface(i);
+        }
+    }
+
+    /// movement.SPAWN_PATHFIND_STATES: every unit under ground takes its step, in creation order, FIRST in the
+    /// Path phase under every path arm (`tunnel_step`), and one whose route's goal node is reached comes up
+    /// (`surface`). No other unit's move reads a unit under ground and it reads none, so stepping it before
+    /// the arm's own pass is the same as stepping it at its own place in that pass.
+    fn phase_tunnel(&mut self) {
+        if !self.ents.tunnel_dest.iter().any(Option::is_some) {
+            return;
+        }
+        let mut order: Vec<usize> = self.ents.live_indices().filter(|&i| self.ents.underground(i)).collect();
+        order.sort_by_key(|&i| self.ents.creation_seq[i]);
+        for i in order {
+            // A dig that came up already this tick waits under ground for its Reap and takes no step.
+            if self.scratch.vanish.contains(&self.ents.id_of(i)) {
+                continue;
+            }
+            if self.tunnel_step(i) {
+                self.surface(i);
+            }
+        }
+    }
+
+    /// ONE UNDERGROUND STEP of entity `i` (movement.SPAWN_PATHFIND_STATES =
+    /// client16402_explicit_goal_no_lane_no_occlusion), in NATIVE units; true when its route's goal node is
+    /// reached, which is the tick it comes up.
+    ///
+    /// THE GOAL IS EXPLICIT: the cell holding the destination, floor(destination / 500) (measured, 5 of 5 on
+    /// client 16.402 and on every client 15.535.29 tunnel), never the nearest-cell scan a walker's goal comes
+    /// from. The route is planned on the first step by the 16.402 search (path16402.rs) with every dry cell at
+    /// DEFAULT, water at BLOCKED, no lane bonus and no building occlusion (`cell_cost_spawn_pathfind`): in the
+    /// absolute frame under pathfinding.PATH_SEARCH = client16402, as a walker's is (client 15.535.29: a side-1
+    /// dig's first step repeats a side-0 one's offsets, unmirrored), and in the owner's frame under the other
+    /// searches, whose seat symmetry the rotation gates hold. It is kept goal first in `route` (cell centres),
+    /// its goal cell in `route_goal`, as a 16.402 walker's route is.
+    ///
+    /// THE STEP is SpawnPathfindSpeed straight at the route's next node, less when the node is nearer, through
+    /// the 1/256 direction the walk uses and with no 250 cap (move16402.rs `tunnel_step`): 300 on the Drill's
+    /// axis steps and 297-299 on its diagonals, measured. THE REACHED RADIUS IS THE SPEED
+    /// (pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED, measured; WAYPOINT_ARRIVE_RADIUS when false):
+    /// after the step every node within it is dropped, several on one tick if the step reaches them.
+    fn tunnel_step(&mut self, i: usize) -> bool {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let Some(sp) = self.cfg.cards.get(self.ents.card[i]).spawn_pathfind else { return true };
+        let Some(dest) = self.ents.tunnel_dest[i] else { return false };
+        let cell = path16402::CELL;
+        let (cols, rows) = (self.cfg.arena.cols, self.cfg.arena.rows);
+        let on_grid = |v: i32, n: i32| v.clamp(0, n - 1);
+        let goal = (on_grid((dest.x / K).div_euclid(cell), cols), on_grid((dest.y / K).div_euclid(cell), rows));
+        let goal_v = Vec2::new(goal.0, goal.1);
+        let (ax, ay) = (self.ents.pos[i].x / K, self.ents.pos[i].y / K);
+        if self.ents.route_goal[i] != Some(goal_v) {
+            let start = (on_grid(ax.div_euclid(cell), cols), on_grid(ay.div_euclid(cell), rows));
+            let rotate = self.cfg.calib.path_search != PathSearch::Client16402 && self.ents.team[i] == Team::Red;
+            let turn = move |c: (i32, i32)| if rotate { (cols - 1 - c.0, rows - 1 - c.1) } else { c };
+            let (arena, calib) = (&self.cfg.arena, &self.cfg.calib);
+            let chain = self.scratch.tunnel_grid.get_or_insert_with(|| TunnelGrid::new(arena, calib)).route(turn(start), turn(goal));
+            let mut route: Vec<Vec2> = chain.iter().map(|&n| turn((n % cols, n / cols))).map(|(c, r)| arena.half_to_subtile_center(c, r)).collect();
+            if route.is_empty() {
+                // The start cell is the goal cell, or the search found nothing: the goal's own centre.
+                route.push(arena.half_to_subtile_center(goal.0, goal.1));
+            }
+            self.ents.route[i] = route;
+            self.ents.route_goal[i] = Some(goal_v);
+        }
+        #[cfg(not(clash_plant = "tunnel_at_card_speed"))]
+        let speed = sp.speed;
+        #[cfg(clash_plant = "tunnel_at_card_speed")]
+        let speed = {
+            let _ = sp;
+            self.ents.speed[i] / K // PLANT: the card's walking speed.
+        };
+        let Some(&next) = self.ents.route[i].last() else { return true };
+        let ((nx, ny), dir) = move16402::tunnel_step((ax, ay), (next.x / K, next.y / K), speed);
+        self.ents.pos[i] = Vec2::new(nx * K, ny * K);
+        if let Some(d) = dir {
+            self.ents.facing[i] = Vec2::new(d.0, d.1);
+        }
+        let reach = if self.cfg.calib.spawn_pathfind_reach_from_speed { speed } else { self.cfg.calib.waypoint_arrive_radius / K };
+        while let Some(&n) = self.ents.route[i].last() {
+            if move16402::distance(nx, ny, n.x / K, n.y / K) > reach {
+                break;
+            }
+            self.ents.route[i].pop();
+        }
+        self.ents.route[i].is_empty()
+    }
+
+    /// movement.SPAWN_PATHFIND_STATES: unit `i` comes up at its destination, on the tick its step reached its
+    /// route's goal.
+    ///
+    /// THE MINER (no morph): the SAME entity is put on the destination and runs the ordinary single-troop deploy
+    /// from this tick (measured on client 16.402 and client 15.535.29: deploying on the surfacing frame S and the
+    /// 18 after it, not deploying and unmoved on S + 19, its first step on S + 20; a jump of up to 1640 native from
+    /// its last tunnel point). Under targeting.FIRST_TOWER_PICK = client_spawn_lane its lane is the destination's
+    /// (client 15.535.29: 14 of 14 Miners took the lane of the point they came up on, not of the King's mouth).
+    ///
+    /// THE GOBLIN DRILL (a morph): the dig stays under ground, untouchable, until this tick's Reap removes it
+    /// WITHOUT a death (`scratch.vanish`), and its building is created at the end of that Reap on the destination
+    /// (a morph birth in `released`), so the two never share a frame and the building's first frame is this
+    /// tick's (measured: it appears on the dig's last frame + 1). Its level is the dig's, through `unit_level`.
+    /// spawner.SPAWN_AREA_OBJECT_TIMING = on_surfacing_tick: the building's SpawnAreaObject (GoblinDrillDamage) is
+    /// cast here, on the destination, so it lands in this tick's Projectile and Resolve phases, on the building's
+    /// first frame (measured on client 15.535.29: 84 at level 11 and 58 at level 7, on that frame). A morph
+    /// target reads its SpawnAreaObject under both arms of spawner.SPAWN_AREA_OBJECT_SCOPE (`spawn_now` leaves
+    /// it to this).
+    fn surface(&mut self, i: usize) {
+        let Some(dest) = self.ents.tunnel_dest[i] else { return };
+        self.ents.route[i].clear();
+        self.ents.route_goal[i] = None;
+        self.ents.seg_dir[i] = Vec2::default();
+        let card_idx = self.ents.card[i];
+        let card = self.cfg.cards.get(card_idx);
+        #[cfg(not(clash_plant = "drill_surfaces_as_dig"))]
+        let morph = card.spawn_pathfind.and_then(|s| s.morph);
+        #[cfg(clash_plant = "drill_surfaces_as_dig")]
+        let morph: Option<u16> = None; // PLANT: the Drill's dig comes up as itself.
+        let deploy_ms = card.deploy_time_ms;
+        match morph {
+            None => {
+                self.ents.tunnel_dest[i] = None;
+                self.ents.pos[i] = dest;
+                self.ents.deploy_ms[i] = deploy_ms;
+                if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && self.ents.kind[i] == EntityKind::Troop {
+                    self.ents.spawn_lane[i] = crate::formation::nearest_lane(&self.cfg.arena, dest);
+                    self.ents.lane_window_end[i] = u32::MAX;
+                }
+                if deploy_ms == 0 {
+                    self.on_deployed(i);
+                }
+            }
+            Some(m) => {
+                let team = self.ents.team[i];
+                let level = self.cfg.cards.unit_level(card_idx, m, None, self.ents.level[i]).expect("the building's level is validated at the play (check_levels)");
+                self.scratch.vanish.push(self.ents.id_of(i));
+                self.released.push(PendingSpawn {
+                    team,
+                    card: m,
+                    level,
+                    pos: dest,
+                    deploy_ms: None,
+                    owner: None,
+                    stagger_ms: 0,
+                    slide_centre: Vec2::default(),
+                    slide_radius: 0,
+                    acquire_delay: false,
+                    first_update: false,
+                    facing: None,
+                    summon_x: None,
+                    morph_birth: true,
+                });
+                if self.cfg.cards.get(m).spawn_area_effect.is_some() {
+                    let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest).expect("the spawn area's level is validated at the play");
+                    self.spells.extend(area);
+                }
+            }
+        }
+    }
+
+    /// movement.SPAWN_PATHFIND_MORPH_BIRTH = one_drain_step: the building a tunneller leaves (`surface`) takes one
+    /// lifetime-drain step at its creation, straight off its hitpoints (the Reap that creates it has resolved this
+    /// tick's hits already), the remainder carried as every drain step carries it; its deploy window then holds its
+    /// drain as every building's is held. Measured: the Goblin Drill's building shows 1307 of 1313 on its first
+    /// frame (client 16.402, 3 of 3) and 898 of 902 at level 7 (client 15.535.29), and loses its next drain step on
+    /// F + 21.
+    fn morph_birth(&mut self, i: usize) {
+        #[cfg(not(clash_plant = "morph_birth_full_hp"))]
+        let on = self.cfg.calib.morph_birth_drain == MorphBirthDrain::OneDrainStep;
+        #[cfg(clash_plant = "morph_birth_full_hp")]
+        let on = false; // PLANT: the building comes up at full hitpoints.
+        if !on || self.cfg.calib.lifetime_hp_decay != LifetimeDecay::LinearDrain {
+            return;
+        }
+        let Some(rate) = self.lifetime_drain_per_tick(i) else { return };
+        let whole = rate / 100;
+        self.ents.hp[i] -= whole;
+        if self.lifetime_acc.len() <= i {
+            self.lifetime_acc.resize(i + 1, 0);
+        }
+        self.lifetime_acc[i] = rate - whole * 100;
     }
 
     /// THE HIDE STATE MACHINE (entity.rs `HideState`), one step per tick for every
@@ -6334,6 +6802,8 @@ impl BattleState {
     ///      moves it -- with the avoidance rotation, the position write and the
     ///      reached test that pops the waypoint and refreezes the segment direction.
     fn phase_path16402(&mut self) {
+        // The units under ground first, under every path arm (movement.SPAWN_PATHFIND_STATES).
+        self.phase_tunnel();
         self.phase_path16402_for(None, &[], &[]);
     }
 
@@ -6587,12 +7057,17 @@ impl BattleState {
             // units move; `start_*` is the start-of-tick position the neighbour
             // grouping uses.
             let index = move16402::Index::new(arena.cols, arena.rows);
+            // movement.SPAWN_PATHFIND_BODY = untouchable: a unit under ground meets nobody in contact.
+            #[cfg(not(clash_plant = "tunnel_targetable"))]
+            let buried = |i: usize| calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable && e.underground(i);
+            #[cfg(clash_plant = "tunnel_targetable")]
+            let buried = |_: usize| false; // PLANT: a unit under ground is an ordinary body.
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
                     let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
                     // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide
-                    let held = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
+                    let held = e.held(&self.cfg.cards.buffs, i) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried(i);
                     move16402::Body {
                         x,
                         y,
@@ -6642,7 +7117,8 @@ impl BattleState {
             // by `creation_seq`, the per-battle creation counter, not by (spawn tick,
             // slot), which put a unit that reused a freed low slot ahead of older units
             // spawned the same tick.
-            let mut order: Vec<usize> = (0..cap).filter(|&i| e.alive[i] && e.kind[i] == EntityKind::Troop).collect();
+            // A unit under ground walks in `phase_tunnel` alone, never in this pass.
+            let mut order: Vec<usize> = (0..cap).filter(|&i| e.alive[i] && e.kind[i] == EntityKind::Troop && !e.underground(i)).collect();
             #[cfg(not(clash_plant = "slot_order_move_pass"))]
             order.sort_by_key(|&i| e.creation_seq[i]);
             #[cfg(clash_plant = "slot_order_move_pass")]
@@ -7709,6 +8185,8 @@ impl BattleState {
     /// Applying a made-up deflection here would corrupt the one law that IS
     /// measured.
     fn phase_path_2026(&mut self) {
+        // The units under ground first, under every path arm (movement.SPAWN_PATHFIND_STATES).
+        self.phase_tunnel();
         self.build_obstacles();
         let cap = self.ents.capacity();
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
@@ -7931,6 +8409,8 @@ impl BattleState {
     }
 
     fn phase_path(&mut self) {
+        // The units under ground first, under every path arm (movement.SPAWN_PATHFIND_STATES).
+        self.phase_tunnel();
         self.build_obstacles();
         let cap = self.ents.capacity();
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
@@ -8766,7 +9246,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -8887,8 +9367,15 @@ impl BattleState {
         let c = self.cfg.calib.clone();
         let cap = self.ents.capacity();
         // A HIDDEN building is out of reach of every effect too (knockback never moved
-        // a building; a stun on it is a no-op).
-        let survivor = |e: &Entities, id: EntityId| e.is_alive(id) && e.hp[id.index as usize] > 0 && e.hide[id.index as usize] != HideState::Hidden;
+        // a building; a stun on it is a no-op), and so is a unit under ground under
+        // movement.SPAWN_PATHFIND_BODY = untouchable (no buff, stun or push lands on it).
+        #[cfg(not(clash_plant = "tunnel_targetable"))]
+        let untouchable = c.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
+        #[cfg(clash_plant = "tunnel_targetable")]
+        let untouchable = false; // PLANT: a unit under ground is an ordinary body.
+        let survivor = |e: &Entities, id: EntityId| {
+            e.is_alive(id) && e.hp[id.index as usize] > 0 && e.hide[id.index as usize] != HideState::Hidden && !(untouchable && e.underground(id.index as usize))
+        };
         // BUFFS (status.rs), before the stun merge, because a FULL-STOP buff feeds
         // it. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): an application either
         // refreshes the slot that already holds that row or takes a free one, and
@@ -9103,7 +9590,12 @@ impl BattleState {
     }
 
     fn phase_resolve(&mut self) {
-        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, self.tick);
+        // movement.SPAWN_PATHFIND_BODY = untouchable: no hit lands on a unit under ground.
+        #[cfg(not(clash_plant = "tunnel_targetable"))]
+        let underground_immune = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
+        #[cfg(clash_plant = "tunnel_targetable")]
+        let underground_immune = false; // PLANT: a unit under ground is an ordinary body.
+        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, self.tick);
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -9270,8 +9762,20 @@ impl BattleState {
                 }
                 _ => None,
             };
+            // spawner.DEATH_SPAWN_RING = client_fixed_ring_listed: a LISTED unit whose row leaves SpawnAngleShift
+            // blank and does not slide lays its members on the fixed ring at DeathSpawnRadius
+            // (`fixed_death_ring`): the Elixir Golem's halves at +-750 on its x axis, the Goblin Drill's
+            // building's two Goblins at +-(500, 0). Every other death keeps DEATH_SPAWN_LAYOUT (or the slide).
+            #[cfg(not(clash_plant = "death_ring_facing"))]
+            let listed = self.cfg.calib.death_ring == DeathSpawnRing::ClientFixedRingListed
+                && shift == 0
+                && !slide
+                && self.cfg.calib.death_ring_units.contains(&card.unit_name);
+            #[cfg(clash_plant = "death_ring_facing")]
+            let listed = false; // PLANT: the listed units keep DEATH_SPAWN_LAYOUT (the facing ring).
             let points = match emission {
                 Some(p) => vec![p; ds.count.max(1) as usize],
+                None if listed => self.fixed_death_ring(team, self.ents.pos[i], ds.count, radius, unit.is_flying()),
                 None => self.death_spawn_points(team, self.ents.pos[i], ring),
             };
             // The slide each member of the fixed ring carries: from the death point out to
@@ -9309,7 +9813,7 @@ impl BattleState {
             // ring's axis normalized to 256 in native units (measured on client 15.535.29: (28, -254) for a Ram dying
             // on a tower). Only where that ring was laid: not on the slide, not at the emission point.
             #[cfg(not(clash_plant = "death_ring_members_face_forward"))]
-            let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none();
+            let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none() && !listed;
             #[cfg(clash_plant = "death_ring_members_face_forward")]
             let keeps_heading = false; // PLANT (regression): the members face their side's forward.
             let member_facing = if keeps_heading && facing != Vec2::default() {
@@ -9320,7 +9824,7 @@ impl BattleState {
                 None
             };
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing, summon_x: None }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false }));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -9399,6 +9903,12 @@ impl BattleState {
                     self.king_wake_ms[team] = Some(0);
                 }
             }
+        }
+        // movement.SPAWN_PATHFIND_STATES: a tunneller that came up as its building this tick (`surface`) leaves
+        // WITHOUT a death -- no death spawn, no area, no damage, no crown -- and its building is created below
+        // (`materialise_released`), on the same frame: the two never share one.
+        for id in std::mem::take(&mut self.scratch.vanish) {
+            self.ents.despawn(id);
         }
         for id in deaths {
             self.ents.despawn(id);
@@ -9633,7 +10143,21 @@ impl BattleState {
                 return;
             }
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
+            return;
+        }
+        // A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): ONE entry whatever `count` says (both rows ship
+        // 1), `pos` its DESTINATION; `phase_spawn` creates its unit at its owner's King (`spawn_tunneller`).
+        // placement.SPAWN_PATHFIND_DESTINATION = client_tile_centre_morph_footprint: the destination is the
+        // point the play resolved (`resolve_point`), with no formation offset -- the Miner stands on the tile
+        // centre where a single troop stands one unit off it (client 15.535.29, both halves and both sides).
+        // Under ordinary_ground_deploy_point it is where the card's row would stand, the single troop's point.
+        if card.spawn_pathfind.is_some() {
+            let dest = match self.cfg.calib.spawn_pathfind_destination {
+                SpawnPathfindDestination::ClientTileCentreMorphFootprint => pos,
+                SpawnPathfindDestination::OrdinaryGroundDeployPoint => self.formation_members(team, idx, level, pos).first().map_or(pos, |m| m.pos),
+            };
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -9693,7 +10217,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -9883,6 +10407,11 @@ impl BattleState {
 
     fn simulable(&self, name: &str) -> Result<u16, DeployError> {
         match self.cfg.cards.index(name) {
+            // movement.SPAWN_PATHFIND_STATES = not_modelled: a card that tunnels is refused at every play, never
+            // run as a card born at its tap.
+            Some(i) if self.cfg.cards.get(i).spawn_pathfind.is_some() && self.cfg.calib.spawn_pathfind == SpawnPathfind::NotModelled => {
+                Err(DeployError::UnsupportedCard(name.to_string(), "movement.SPAWN_PATHFIND_STATES = not_modelled: a card that travels underground is not run".into()))
+            }
             Some(i) => Ok(i),
             None => match self.cfg.cards.rejected.iter().find(|(n, _)| n == name) {
                 Some((n, why)) => Err(DeployError::UnsupportedCard(n.clone(), why.clone())),
@@ -10116,7 +10645,21 @@ impl BattleState {
         if card.kind != CardKind::Building {
             return None;
         }
-        let n = crate::arena::placement_tiles(card.collision_radius);
+        // placement.SPAWN_PATHFIND_DESTINATION = client_tile_centre_morph_footprint: a card that tunnels into a
+        // building (the Goblin Drill, whose card row is its 0-radius dig) is placed on the BUILDING's footprint,
+        // the 2x2 box of its 500 radius (client 16.402: (3500, 23500) -> (3000, 23000)), and a tie between two
+        // equally near relocations goes to the one further forward in the placer's frame (client 16.402: an own
+        // King-box tap (8500, 1500) -> (6000, 2000) over (6000, 1000); client 15.535.29, side 1: (8500, 30500) ->
+        // (6000, 30000)). Every other building keeps its own footprint and the first-found tie.
+        let tunnels = card.spawn_pathfind.is_some() && self.cfg.calib.spawn_pathfind_destination == SpawnPathfindDestination::ClientTileCentreMorphFootprint;
+        #[cfg(not(clash_plant = "drill_footprint_from_dig"))]
+        let radius = match card.spawn_pathfind.and_then(|s| s.morph) {
+            Some(m) if tunnels => self.cfg.cards.get(m).collision_radius,
+            _ => card.collision_radius,
+        };
+        #[cfg(clash_plant = "drill_footprint_from_dig")]
+        let radius = card.collision_radius; // PLANT: the dig's own footprint.
+        let n = crate::arena::placement_tiles(radius);
         let arena = &self.cfg.arena;
         let (territory, _) = deploy_rule(&self.cfg.calib, card);
         // THE TAP POINT'S OWN RULES FIRST. Relocation rescues a tap whose POINT is
@@ -10163,7 +10706,7 @@ impl BattleState {
                 let dist = candidate.dist2(tap);
                 let better = match best {
                     None => true,
-                    Some((b, _)) => dist < b,
+                    Some((b, c)) => dist < b || (tunnels && dist == b && arena.to_frame(team, candidate).y > arena.to_frame(team, c).y),
                 };
                 if better {
                     best = Some((dist, candidate));
@@ -10397,14 +10940,26 @@ impl BattleState {
         }
         // Level last: the order the one-at-a-time path always reported in (the
         // level used to fail inside spawn_now, after the position checks).
-        let full_hp = self.cfg.cards.scaled(idx, level, card.hitpoints).map_err(DeployError::InvalidLevel)?;
         self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
+        // A card that tunnels INTO A BUILDING is set up as that building, where it would have come up (the
+        // board after a finished walk); a Miner is set up as the Miner above ground.
+        let (on_board, on_board_level) = self.setup_record(idx, level).map_err(DeployError::InvalidLevel)?;
+        let full_hp = self.cfg.cards.scaled(on_board, on_board_level, self.cfg.cards.get(on_board).hitpoints).map_err(DeployError::InvalidLevel)?;
         Ok((idx, full_hp))
+    }
+
+    /// The record a setup spawn of card `idx` at `level` puts on the board, and its level: the card itself, or
+    /// for a card that tunnels into a building (card.rs `SpawnPathfindDef::morph`) that building.
+    fn setup_record(&self, idx: u16, level: i32) -> Result<(u16, i32), String> {
+        match self.cfg.cards.get(idx).spawn_pathfind.and_then(|s| s.morph) {
+            Some(m) => Ok((m, self.cfg.cards.unit_level(idx, m, None, level)?)),
+            None => Ok((idx, level)),
+        }
     }
 
     /// Materialise one validated setup spawn (no hash rebuild).
     fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
-        let level = self.cfg.card_level[team as usize];
+        let (idx, level) = self.setup_record(idx, self.cfg.card_level[team as usize]).map_err(DeployError::InvalidLevel)?;
         let kind = if self.cfg.cards.get(idx).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
         let id = self.spawn_now(team, idx, level, pos, kind).map_err(DeployError::InvalidLevel)?;
         let i = id.index as usize;
@@ -10623,6 +11178,7 @@ impl BattleState {
             acquirable_from: e.acquirable_from[i],
             avoid_offset: e.avoid_offset[i],
             seg_dir: e.seg_dir[i],
+            tunnel_dest: e.tunnel_dest.get(i).copied().flatten(),
         }
     }
     /// Live entities in slot order.
@@ -10876,6 +11432,13 @@ impl BattleState {
                 }
                 if let Some(by) = e.hooked_by[i] {
                     h.id(by);
+                }
+                // movement.SPAWN_PATHFIND_STATES: a unit under ground's destination, only while it is under ground,
+                // so a battle with no tunneller hashes as it did before the column.
+                #[cfg(not(clash_plant = "hash_skips_tunnel"))]
+                if let Some(d) = e.tunnel_dest.get(i).copied().flatten() {
+                    h.u32(0x5455_4e4c);
+                    h.vec(d);
                 }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
@@ -11355,6 +11918,20 @@ impl BattleState {
 ///    Calib gained pulsing_area_offsets (serde default empty), so a blob saved before it
 ///    deserializes and hashes as it did; a blob saved by this build carries the list, so its BYTES
 ///    differ. No card data, no Entities column and no state moved.
+/// 20, unchanged, the underground walk, the listed death ring and the spawn chain
+///    (movement.SPAWN_PATHFIND_STATES, SPAWN_PATHFIND_START, SPAWN_PATHFIND_BODY, SPAWN_PATHFIND_MORPH_BIRTH,
+///    placement.SPAWN_PATHFIND_DESTINATION, pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED,
+///    spawner.DEATH_SPAWN_RING): Calib gained eight fields (serde defaults: no walk, the listed ring off, an
+///    empty list), Entities gained `tunnel_dest` (serde default None, sized on load, hashed only while Some) and
+///    PendingSpawn gained `morph_birth` (serde default false; a morph birth never enters the queue), so a format-20
+///    blob saved before them deserializes and hashes as it did. CardDef gained `spawn_pathfind` and
+///    `can_deploy_on_enemy_side`, and the Miner and the Goblin Drill now load (both refused while converting
+///    their rows before, so every later card index, both towers and every summon-only record move up), so the
+///    card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
+///    The Miner joins the rebuilt format-3 card list (a troop), which moves that fingerprint too; every format-3
+///    blob is refused already. migrate_v3 strips the two fields with the rest of the post-format-3 tail and runs a
+///    migrated battle with no walk and the ring off. The underground walk's grid and the tick's vanishing digs
+///    are scratch, rebuilt or empty between ticks.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -11536,12 +12113,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... hovering~~ -- targeting.MINIMUM_RANGE (still format 20) added
                 // `minimum_range` after it.
                 // ~~... minimum_range~~ -- the sparks (still format 20) added `spark` after it.
+                // ~~... invisible_when_idle~~ -- the underground walk (still format 20) added
+                // `spawn_pathfind` and `can_deploy_on_enemy_side` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -11578,7 +12157,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.spark,
                     c.projectile_area,
                     c.life_state,
-                    c.invisible_when_idle
+                    c.invisible_when_idle,
+                    c.spawn_pathfind,
+                    c.can_deploy_on_enemy_side
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -11686,6 +12267,16 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // old arms whatever the ledger ships (the same rule).
     sh.insert("life_state_first_update".into(), serde_json::to_value(LifeStateFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
     sh.insert("life_state_wave_point".into(), serde_json::to_value(LifeStateWavePoint::OneDivision).map_err(|e| e.to_string())?);
+    // The underground walk and the listed death ring: a format-3 battle ran no tunneller and laid every death
+    // spawn by the layout key; it keeps that whatever the ledger ships (the same rule).
+    sh.insert("death_ring".into(), serde_json::to_value(DeathSpawnRing::None).map_err(|e| e.to_string())?);
+    sh.insert("death_ring_units".into(), Value::Array(Vec::new()));
+    sh.insert("spawn_pathfind".into(), serde_json::to_value(SpawnPathfind::NotModelled).map_err(|e| e.to_string())?);
+    sh.insert("spawn_pathfind_reach_from_speed".into(), Value::Bool(false));
+    sh.insert("spawn_pathfind_start".into(), serde_json::to_value(SpawnPathfindStart::KingCentreNoCreationStep).map_err(|e| e.to_string())?);
+    sh.insert("spawn_pathfind_body".into(), serde_json::to_value(SpawnPathfindBody::OrdinaryTroop).map_err(|e| e.to_string())?);
+    sh.insert("morph_birth_drain".into(), serde_json::to_value(MorphBirthDrain::None).map_err(|e| e.to_string())?);
+    sh.insert("spawn_pathfind_destination".into(), serde_json::to_value(SpawnPathfindDestination::OrdinaryGroundDeployPoint).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -11968,6 +12559,7 @@ impl BattleState {
         snap.ents.special_ms.resize(n, 0);
         snap.ents.special_on.resize(n, None);
         snap.ents.hooked_by.resize(n, None);
+        snap.ents.tunnel_dest.resize(n, None);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

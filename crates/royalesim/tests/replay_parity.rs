@@ -381,3 +381,19 @@ fn a_scenario_deploy_seen_as_a_centroid_or_never_seen_is_played_at_its_tapped_ti
     let corpus = deploy(r#", "tap": {"x": 9500, "y": 11500}"#);
     assert_eq!(play_point(&corpus), [9500, 11262], "a corpus deploy is played at pos");
 }
+
+/// A deploy of a card that travels underground (a corpus Miner: `pos` is its tunnel's first frame, next to its own
+/// King) is played at its `destination`, where it came up; the engine walks it there from the King itself. The same
+/// deploy without a destination is played at `pos`, as every corpus deploy is. Plant: replay_plays_the_tunnel_start.
+#[test]
+fn a_tunnelling_deploy_is_played_at_its_destination() {
+    let deploy = |extra: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 1203, "side": 0, "card": "Miner", "card_id": 26000032, "kind": "troop", "level": 11, "count": 1,
+                "pos": [9235, 1777], "source": "centroid", "tap": {{"x": 3500, "y": 1500}}{extra}}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    assert_eq!(play_point(&deploy(r#", "destination": [3500, 1500]"#)), [3500, 1500], "a tunnel is played where it came up");
+    assert_eq!(play_point(&deploy("")), [9235, 1777], "a corpus deploy with no destination is played at pos");
+}

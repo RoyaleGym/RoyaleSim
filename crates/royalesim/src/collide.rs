@@ -71,7 +71,10 @@ fn share(push: PushModel, ents: &Entities, i: usize, j: usize) -> (i64, i64) {
 /// Is entity i a unit that takes part in unit-unit separation?
 #[inline]
 fn is_mobile_unit(ents: &Entities, i: usize) -> bool {
-    ents.kind[i] == EntityKind::Troop
+    // A unit under ground (a Miner, a Goblin Drill's dig; entity.rs `underground`) is in nobody's
+    // separation under the frame-planned path models, whatever movement.SPAWN_PATHFIND_BODY says: its
+    // position is written by the tunnel walk alone. The shipped 16.402 move pass reads the key.
+    ents.kind[i] == EntityKind::Troop && !ents.underground(i)
 }
 
 /// Keep a ground unit off water: prefer the full move, then each axis alone.
