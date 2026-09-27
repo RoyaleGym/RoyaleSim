@@ -10283,7 +10283,10 @@ impl BattleState {
             hide_state: e.hide[i],
             hide_ms: e.hide_ms[i],
             hidden: e.hide[i] == HideState::Hidden,
-            status_flags: e.status_flags(i),
+            // Bit 1 is the targeting predicate itself, asked for the tick the next targeting runs on (`self.tick`
+            // already counts the tick just run).
+            status_flags: e.status_flags(i)
+                | if crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, i) { 2 } else { 0 },
             spawn_ms: e.spawn_ms[i],
             spawn_wave_left: e.spawn_wave_left[i],
             spawned_by: e.spawned_by[i],

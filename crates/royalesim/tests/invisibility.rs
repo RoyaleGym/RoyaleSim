@@ -14,12 +14,15 @@
 //!   3. the tower that took the Ghost on a hit holds it through hit + 45 and drops it on hit + 46, the Ghost walking
 //!      and not hitting between;
 //!   4. a Zap lands on an invisible Ghost;
-//!   5. the Ghost's reveal is state: a save edited only in it fails the load's hash self-check.
+//!   5. the Ghost's reveal is state: a save edited only in it fails the load's hash self-check;
+//!   6. the export's `status_flags` bit 1 is that same targeting predicate: read after tick k it says whether an
+//!      enemy may target the Ghost on tick k + 1 (set before the hit, clear from the hit through hit + 44, set again
+//!      on hit + 45, the tower dropping it on hit + 46).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test invisibility`):
 //!   * `invisible_targetable` -- invisibility not read: (2) goes red.
-//!   * `reveal_never` -- a hit reveals nothing: (2) and (3) go red.
-//!   * `rehide_never` -- once revealed, visible for good: (3) goes red.
+//!   * `reveal_never` -- a hit reveals nothing: (2), (3) and (6) go red.
+//!   * `rehide_never` -- once revealed, visible for good: (3) and (6) go red.
 //!   * `hash_skips_reveal` -- the reveal is not hashed: (5) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -56,6 +59,8 @@ struct Tick {
     targets_ghost: bool,
     dist: i64,
     ghost_hit: bool,
+    /// The Ghost's exported `status_flags` bit 1 after this tick.
+    invisible_bit: bool,
 }
 
 fn run(s: &mut BattleState, ghost_at: (i32, i32), tower: (EntityId, Vec2), ticks: u32) -> Vec<Tick> {
@@ -64,10 +69,15 @@ fn run(s: &mut BattleState, ghost_at: (i32, i32), tower: (EntityId, Vec2), ticks
     for _ in 0..ticks {
         let red_hp: i64 = s.entities().filter(|v| v.team == Team::Red).map(|v| v.hp as i64).sum();
         s.tick();
-        let Some(g) = s.entities().find(|v| v.card == "Ghost").map(|v| (v.id, v.pos)) else { break };
+        let Some((g, bit)) = s.entities().find(|v| v.card == "Ghost").map(|v| ((v.id, v.pos), v.status_flags & 2 != 0)) else { break };
         let red_after: i64 = s.entities().filter(|v| v.team == Team::Red).map(|v| v.hp as i64).sum();
         let t = s.entity(tower.0);
-        out.push(Tick { targets_ghost: t.and_then(|t| t.target) == Some(g.0), dist: dist(g.1, tower.1), ghost_hit: red_after < red_hp });
+        out.push(Tick {
+            targets_ghost: t.and_then(|t| t.target) == Some(g.0),
+            dist: dist(g.1, tower.1),
+            ghost_hit: red_after < red_hp,
+            invisible_bit: bit,
+        });
     }
     out
 }
@@ -101,6 +111,23 @@ fn the_tower_drops_the_ghost_46_ticks_after_its_last_hit() {
     assert!(ticks[h + 1].targets_ghost, "the scene drifted: the tower did not take the Ghost on hit + 1 (it stood {} away)", ticks[h + 1].dist);
     let held: Vec<usize> = (h + 1..=h + 46).filter(|&k| ticks[k].targets_ghost).map(|k| k - h).collect();
     assert_eq!(held, (1..=45).collect::<Vec<usize>>(), "the ticks after the hit on which the tower held the Ghost");
+}
+
+/// Plants: reveal_never, rehide_never.
+#[test]
+fn the_exported_invisible_bit_is_the_targeting_predicate() {
+    let mut s = BattleState::new(0, config());
+    let tower = red_tower_near(&s, at((14500, 26000)));
+    s.scenario_spawn_now(Team::Red, "Skeleton", at((14500, 28500)), None).expect("spawn the Skeleton");
+    let ticks = run(&mut s, (14500, 12000), tower, 400);
+    let h = ticks.iter().position(|t| t.ghost_hit).expect("the scene drifted: the Ghost never hit");
+    assert!(ticks.len() > h + 47, "the scene drifted: the Ghost died before hit + 46");
+    assert!(ticks[h + 1..=h + 46].iter().all(|t| !t.ghost_hit), "the scene drifted: the Ghost hit again before hit + 46");
+    assert!(ticks[..h].iter().all(|t| t.invisible_bit), "bit 1 was clear before the Ghost's first hit");
+    let clear: Vec<usize> = (h..=h + 46).filter(|&k| !ticks[k].invisible_bit).map(|k| k - h).collect();
+    assert_eq!(clear, (0..=44).collect::<Vec<usize>>(), "the ticks after the hit on which bit 1 was clear");
+    // The same predicate, as targeting acted on it: the tower holds the Ghost on hit + 1 ..= hit + 45 and not on + 46.
+    assert!(ticks[h + 45].targets_ghost && !ticks[h + 46].targets_ghost, "the tower's hold moved: the bit is not the one targeting read");
 }
 
 #[test]

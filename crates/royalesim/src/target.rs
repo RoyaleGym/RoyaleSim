@@ -186,22 +186,28 @@ pub fn hidden_from_targeting(calib: &Calib, e: &Entities, c: usize) -> bool {
 /// unit.
 #[inline]
 pub fn invisible(ctx: &TargetCtx, c: usize) -> bool {
-    if ctx.calib.invisibility != crate::state::Invisibility::ClientUntilHit {
+    invisible_at(ctx.calib, ctx.cards, ctx.ents, ctx.tick, c)
+}
+
+/// `invisible` from its parts, for a reader with no TargetCtx: the export's `status_flags` bit 1 (state.rs `view`),
+/// asked with the tick the next targeting runs on, so the bit is the predicate that targeting will act on.
+pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c: usize) -> bool {
+    if calib.invisibility != crate::state::Invisibility::ClientUntilHit {
         return false;
     }
-    let Some(idle_ms) = ctx.cards.get(ctx.ents.card[c]).invisible_when_idle else { return false };
-    let from = ctx.ents.reveal_from[c];
+    let Some(idle_ms) = cards.get(ents.card[c]).invisible_when_idle else { return false };
+    let from = ents.reveal_from[c];
     if from == 0 {
         return true;
     }
     #[cfg(not(clash_plant = "rehide_never"))]
-    let until = from + (idle_ms / ctx.calib.tick_ms.max(1)) as u32 + INVIS_VISIBLE_AFTER_HIT_EXTRA;
+    let until = from + (idle_ms / calib.tick_ms.max(1)) as u32 + INVIS_VISIBLE_AFTER_HIT_EXTRA;
     #[cfg(clash_plant = "rehide_never")]
     let until = {
         let _ = idle_ms;
         u32::MAX // PLANT: once revealed, never hidden again.
     };
-    ctx.tick < from || ctx.tick >= until
+    tick < from || tick >= until
 }
 
 /// targeting.INVISIBILITY: the ticks an invisible unit stays visible after its idle time, counted from the tick after

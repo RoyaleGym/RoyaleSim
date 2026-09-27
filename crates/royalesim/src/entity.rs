@@ -569,27 +569,17 @@ impl Entities {
         false
     }
 
-    /// May NO enemy target entity `i` whatever its range (an invisible unit)? No card the
-    /// engine loads is invisible yet, so this is false for every entity; the window that
-    /// loads the first one makes target.rs `can_target` read this same predicate, and
-    /// `status_flags` bit 1 follows without a change.
-    #[inline]
-    pub fn invisible_to_enemies(&self, _i: usize) -> bool {
-        false
-    }
-
-    /// THE STATUS BITS of entity `i`, as the protocol's `status_flags` column reports
-    /// them (py.rs ENTITY_FIELDS): bit 0 `underground`, bit 1 `invisible_to_enemies`,
-    /// bit 2 under ground by its own hide (`HideState::Hidden`: a Tesla with nothing to
-    /// shoot). Each bit is the predicate the engine itself acts on, so an observation
-    /// built from it reads what the battle does, never a second derivation of it.
+    /// THE STATUS BITS of entity `i` that the entity table alone decides, as the protocol's
+    /// `status_flags` column reports them (py.rs ENTITY_FIELDS): bit 0 `underground`, bit 2
+    /// under ground by its own hide (`HideState::Hidden`: a Tesla with nothing to shoot).
+    /// Bit 1, invisible to enemies, needs the ledger, the card table and the tick, so the
+    /// export adds it from target.rs `invisible_at` (state.rs `view`). Each bit is the
+    /// predicate the engine itself acts on, so an observation built from it reads what the
+    /// battle does, never a second derivation of it.
     pub fn status_flags(&self, i: usize) -> i32 {
         let mut bits = 0;
         if self.underground(i) {
             bits |= 1;
-        }
-        if self.invisible_to_enemies(i) {
-            bits |= 2;
         }
         if self.hide[i] == HideState::Hidden {
             bits |= 4;
