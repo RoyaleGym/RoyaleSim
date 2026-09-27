@@ -126,6 +126,8 @@ fn the_loader_takes_the_ram_riders_rider_and_refuses_the_shapes_it_does_not_simu
          "collision_radius_milli":600,"spawner":{"character":"Rider","number":1,"pause_time_ms":5000,"attach":true}},
         {"name":"Offset","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
          "collision_radius_milli":600,"spawner":{"character":"Rider","number":2,"radius_milli":900,"attach":true}},
+        {"name":"Twins","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
+         "collision_radius_milli":600,"spawner":{"character":"Rider","number":2,"attach":true}},
         {"name":"Dismount","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
          "collision_radius_milli":600,"spawner":{"character":"Dropper","number":1,"attach":true}},
         {"name":"Flyer","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
@@ -154,6 +156,7 @@ fn the_loader_takes_the_ram_riders_rider_and_refuses_the_shapes_it_does_not_simu
     for (card, says) in [
         ("Cadence", "attached rider Rider: a periodic cadence"),
         ("Offset", "attached rider Rider: an offset from its mount (SpawnRadius 900)"),
+        ("Twins", "attached rider Rider: 2 riders on one mount"),
         ("Dismount", "units.Dropper: an attached rider that leaves something on the board of its own"),
         ("Flyer", "units.Bird: an attached rider that flies (FlyingHeight 4000)"),
         ("Hut", "an attached rider on a building"),

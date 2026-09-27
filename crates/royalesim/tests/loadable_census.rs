@@ -7,8 +7,12 @@
 //! sees it. So this file builds the CardDb from each shipped table and holds it
 //! against two lists written out below:
 //!   (a) the LOADABLE rows (registered, not a summon-only unit) in CardDb order. That
-//!       is the default catalogue's order (py.rs `Battle(card_names=None)`), so a
-//!       row's place is its catalogue id, and the crown towers follow it;
+//!       is the default catalogue's order (py.rs `Battle(card_names=None)`), and the
+//!       crown towers follow it. The default leaves out the Mirror (code 6) and the
+//!       cards that travel under ground (the Miner, the Goblin Drill), which a decoder
+//!       of codes 0 to 4 cannot place yet; a `card_names` list that names one gets it.
+//!       So this list is the default before that filter: a row's default catalogue id
+//!       is its place here less the number of those three rows before it;
 //!   (b) the REJECTED rows, sorted, each with the FIRST CLAUSE of its refusal
 //!       (`first_clause`: up to the first `:` or `;` outside parentheses), so a row
 //!       that is still refused, but by another site, shows up too. The clause names
@@ -27,11 +31,11 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 103
-//!      loadable rows (the 101 catalogue cards, then PrincessTower and KingTower) and
-//!      43 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 119
+//!      loadable rows (117 cards, then PrincessTower and KingTower) and 27 rejected
+//!      ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
-//!      69 loadable rows (the catalogue, then the towers) and 11 rejected ones, the
+//!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
 //!   3. `the_census_of_a_small_file_is_exact`: the census itself on a synthetic file
 //!      (a summon-only unit left out, a row refused before its push and one after, by a
@@ -89,17 +93,20 @@ const TABLE_2018: Table = Table {
 
 /// A table's two lists.
 struct Pin {
-    /// Every loadable row, in CardDb order: the default catalogue, then the towers.
+    /// Every loadable row, in CardDb order: the default catalogue before it leaves out the Mirror and the cards
+    /// that travel under ground (the module doc, (a)), then the towers.
     loadable: &'static [&'static str],
     /// Every rejected row with the first clause of its refusal, sorted.
     rejected: &'static [(&'static str, &'static str)],
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 51c67a4b9e79d10e (the rows gained `death_spawn_pushback` with no row loading or refusing differently). The lists are what the loader gives for that file.
+/// 1a50080f65ba958a (51c67a4b9e79d10e before the table gained the `globals` block and the columns that load the
+/// Miner, the Goblin Drill, the Elixir Collector, the Furnace, the Elixir Golem, the Ram Rider, the Three
+/// Musketeers, the Mirror and the Spirit Empress). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
-/// --census`), written from the same file, holds the same 103 loadable rows in the
-/// same order and the same 43 refusals, word for word.
+/// --census`), written from the same file, holds the same 119 loadable rows in the
+/// same order and the same 27 refusals, word for word.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[

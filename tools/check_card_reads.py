@@ -78,9 +78,13 @@ WHAT COULD MAKE THIS WRONG (read this before trusting a green run)
       the table calls them run on the Wizard's projectile too, which still never reads
       them.  The per-card splash check below (AoeToAir / AoeToGround against the
       attacker's own flags) does not depend on it.
-    - "Loaded" is the engine's own catalogue when the extension module imports
-      (royalesim.Battle(None, ...)); without it the gate falls back to every card in
-      the file and says so.  The thin slice is loaded under either reading.
+    - "Loaded" is every card the engine loads when the extension module imports:
+      its default catalogue (royalesim.Battle(None, ...)) and every other card row
+      a catalogue that names it alone builds with (royalesim.Battle([name], ...)).
+      The default is not the whole set: it leaves out the Mirror and the cards that
+      travel under ground (the Miner, the Goblin Drill), which a decoder of codes
+      0 to 4 cannot place yet.  Without the module the gate falls back to every card
+      in the file and says so.  The thin slice is loaded under either reading.
 
 VINTAGE AND A THIN CHECKOUT
     Runs on both card tables: `--cards data/derived/cards-2018.json` scores the 2018
@@ -761,13 +765,32 @@ class Result:
         self.lines.append(msg)
 
 
-def loaded_catalogue() -> tuple[set[str] | None, str]:
-    """The names the engine actually registers, from the built extension module."""
+def loaded_catalogue(names: list[str]) -> tuple[set[str] | None, str]:
+    """The cards of `names` (the file's card rows) the engine actually loads, from the built extension module.
+
+    The default catalogue (`Battle(None, ...)`) is not that set: it leaves out cards that load (the Mirror, and the
+    cards that travel under ground, the Miner and the Goblin Drill), which a decoder of placement codes 0 to 4 cannot
+    place yet. So every card row the default does not hold is offered to the engine by name, alone, and kept when a
+    catalogue that names it builds. The engine refuses a card it does not load with a ValueError that names the
+    reason; any other error is not an answer about the card, and skips the whole pass loudly."""
     try:
         import royalesim
 
-        rows = json.loads(royalesim.Battle(None, [[0, 1, 2], [0, 1, 2]]).catalogue_json())
-        return {r[0] for r in rows}, f"royalesim.Battle catalogue ({len(rows)} cards)"
+        slots = [[0, 1, 2], [0, 1, 2]]
+        rows = json.loads(royalesim.Battle(None, slots).catalogue_json())
+        loaded = {r[0] for r in rows}
+        named = set()
+        for n in names:
+            if n in loaded:
+                continue
+            try:
+                royalesim.Battle([n], slots)
+            except ValueError:
+                continue
+            named.add(n)
+        how = f"royalesim.Battle catalogue ({len(rows)} cards by default"
+        how += f", and {len(named)} more by name: {', '.join(sorted(named))})" if named else ", none more by name)"
+        return loaded | named, how
     except Exception as e:
         why = f"{type(e).__name__}: {e}"
         return None, f"SKIPPED the engine's own catalogue ({why}); every card in the file is scored instead"
@@ -780,7 +803,7 @@ def check(
     units = doc["units"]
     slice_names = set(doc.get("thin_slice") or [])
     cards = {c["name"]: c for c in doc["cards"]}
-    loaded, how = loaded_catalogue()
+    loaded, how = loaded_catalogue(list(cards))
     if loaded is None:
         r.notes.append(how)
         loaded = set(cards)

@@ -15,7 +15,9 @@
 //!   - a tunnelling card goes down on the enemy side, never on water.
 //!
 //! WHAT IS PINNED, each with its precondition:
-//!   1. the loader reads both walks, and the Drill's building from its `units` row, not its card row;
+//!   1. the loader reads both walks, and the Drill's building from its `units` row, not its card row; on a synthetic
+//!      file it refuses a tunnelling card of any other shape (a count other than 1, a second summon, attached riders,
+//!      a building with no morph) and loads the plain one beside them;
 //!   2. the Miner: born on its King, two steps out on its first frame, every step under ground a full 650, and up on
 //!      the tile centre it was played at, the same entity, deploying 19 frames;
 //!   3. the creation step: the first frame is more than one step out under king_centre_step_at_creation, at most one
@@ -50,7 +52,7 @@
 mod common;
 
 use common::*;
-use royalesim::card::CardKind;
+use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::path16402::{self, PathFinder, CELL};
 use royalesim::path2026;
@@ -163,6 +165,40 @@ fn the_loader_reads_both_walks_and_the_drills_building_from_its_units_row() {
     assert!(b.spawner.is_some(), "its periodic Goblin");
     let ds = b.death_spawn.expect("its two death Goblins");
     assert_eq!(ds.count, 2);
+}
+
+/// The loader's side, on a synthetic file: the walk is measured on one unit that comes up as itself (the Miner) or
+/// morphs into its building (the Goblin Drill), so a tunnelling card of any other shape is refused with the reason
+/// (card.rs `convert`), and the plain one beside them loads.
+#[test]
+fn the_loader_refuses_a_tunnelling_card_of_a_shape_nobody_measured() {
+    let row = |name: &str, kind: &str, extra: &str| {
+        format!(
+            r#"{{"name":"{name}","kind":"{kind}","elixir":3,"rarity":"Common","hitpoints":1000,"hit_speed_ms":1200,"range_milli":800,"collision_radius_milli":500,"can_deploy_on_enemy_side":true,"spawn_pathfind":{{"speed":650}}{extra}}}"#
+        )
+    };
+    let rows = [
+        row("Mole", "troop", ""),
+        row("Moles", "troop", r#","count":3"#),
+        row("MoleAndPal", "troop", r#","second_summon":{"character":"Pal","count":1}"#),
+        row("MoleRider", "troop", r#","spawner":{"character":"Pal","number":1,"attach":true}"#),
+        row("Burrow", "building", ""),
+    ];
+    let pal = r#""Pal":{"name":"Pal","rarity":"Common","hitpoints":100,"hit_speed_ms":1000,"range_milli":800,"collision_radius_milli":400}"#;
+    let db = CardDb::from_json_str(&format!(r#"{{"cards":[{}],"units":{{{pal}}}}}"#, rows.join(",")), CardSource::DerivedJson).expect("the file parses");
+    let mole = db.index("Mole").unwrap_or_else(|| panic!("Mole refused: {:?}", db.rejected));
+    assert_eq!(db.get(mole).spawn_pathfind.map(|p| (p.speed, p.morph)), Some((650, None)), "the plain one tunnels");
+    let why = |n: &str| db.rejected.iter().find(|(r, _)| r == n).map(|(_, w)| w.clone()).unwrap_or_else(|| panic!("{n} loaded"));
+    for (card, says) in [
+        ("Moles", "a count of 3"),
+        ("MoleAndPal", "a second summon"),
+        ("MoleRider", "attached riders"),
+        ("Burrow", "a building with no SpawnPathfindMorph"),
+    ] {
+        let w = why(card);
+        assert!(w.contains(says) && w.contains("beside the underground walk"), "{card}: {w}");
+        assert!(db.index(card).is_none(), "{card} is still registered");
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -220,6 +220,7 @@ fn the_loader_takes_the_interval_block_only_with_exactly_its_graph() {
         oven("Unaffected", &format!("{good},{}", block(false, ""))),
         oven("Tagged", &format!("{good},{}", block(true, r#""SOMETHING_ELSE""#))),
         oven("BothBlocks", &format!(r#"{good},{},"spawner":{{"character":"Spirit","number":1,"pause_time_ms":5000}}"#, block(true, ""))),
+        oven("Sideways", &format!("{good},{}", block(true, "").replace(r#""mirrored_x":0"#, r#""mirrored_x":2"#))),
     ];
     let db = CardDb::from_json_str(&format!(r#"{{"cards":[{}]}}"#, rows.join(",")), CardSource::DerivedJson).expect("the file parses");
     let oven = db.get(db.index("Oven").unwrap_or_else(|| panic!("Oven refused: {:?}", db.rejected)));
@@ -233,6 +234,7 @@ fn the_loader_takes_the_interval_block_only_with_exactly_its_graph() {
         ("Unaffected", "SpawnSpeed"),
         ("Tagged", "pause tag SOMETHING_ELSE"),
         ("BothBlocks", "a Spawn* block and an interval spawner"),
+        ("Sideways", "MirroredX 2"),
     ] {
         assert!(why(n).contains(text), "{n}: {}", why(n));
     }

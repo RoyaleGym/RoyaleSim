@@ -53,10 +53,11 @@
 //!     out, because a decoder that maps only codes 0 to 4 refuses a catalogue holding
 //!     a 6 (RoyaleGym's does, until it maps code 6). A `card_names` list that names
 //!     the Mirror gets it. The cards that travel under ground (the Miner, the Goblin
-//!     Drill) are left out of the default catalogue too: they go down anywhere on land
-//!     (placement.SPAWN_PATHFIND_TERRITORY), which no code 0 to 4 describes; they
-//!     report the code of their kind (0, 1) and join the default once a code for
-//!     their territory exists. A VARIANT card (the Spirit Empress) reports its first form's
+//!     Drill) are left out of the default catalogue too: they go down anywhere but water
+//!     (placement.SPAWN_PATHFIND_TERRITORY) with a troop's or a building's footprint
+//!     rule, a pair no code 0 to 4 describes (code 4 is that territory for a spell,
+//!     which has no footprint); they report the code of their kind (0, 1) and join the
+//!     default once a code for that pair exists. A VARIANT card (the Spirit Empress) reports its first form's
 //!     code and row, and its forms in the catalogue's 10th element; what each hand slot
 //!     costs right now is each player's `hand_costs` in `state_json`.
 //!     Spell rows report count 0, radius 0, flying false, hitpoints 0 (protocol.py
@@ -91,7 +92,7 @@ use crate::card::{CardDb, CardKind, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
-use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, Outcome, HAND_SIZE};
+use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, Outcome, SpawnPathfindDestination, HAND_SIZE};
 use crate::{Rng, Team};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -562,8 +563,18 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
         // The 8th element: the side of the card's placement footprint in TILES, or
         // null for a card that is not a building. A mask can then test a tap
         // before the building exists (calibration placement.FOOTPRINT_TILES).
+        // A card that tunnels into a building (the Goblin Drill, whose card row is
+        // its 0-radius dig) is placed on the BUILDING's footprint under
+        // placement.SPAWN_PATHFIND_DESTINATION = client_tile_centre_morph_footprint,
+        // so its row gives the morph's, as state.rs `building_placement` places it.
         let footprint = match s.kind {
-            CardKind::Building => crate::arena::placement_tiles(s.collision_radius).to_string(),
+            CardKind::Building => {
+                let radius = match s.spawn_pathfind.and_then(|p| p.morph) {
+                    Some(m) if calib.spawn_pathfind_destination == SpawnPathfindDestination::ClientTileCentreMorphFootprint => cards.get(m).collision_radius,
+                    _ => s.collision_radius,
+                };
+                crate::arena::placement_tiles(radius).to_string()
+            }
             _ => "null".to_string(),
         };
         // The 9th element: what the card IS (CARD_KINDS), which the kind code above does not say; a variant card's is
@@ -826,7 +837,10 @@ impl Battle {
 #[pymethods]
 impl Battle {
     /// `card_names`: the catalogue, in card-id order (None = every simulable
-    /// non-tower card in cards.json order). `slot_of_k[team][k]` names engine tower
+    /// non-tower card in cards.json order except the Mirror (code 6) and the cards
+    /// that travel under ground (the Miner, the Goblin Drill), which a decoder of
+    /// codes 0 to 4 cannot place yet; a list that names one gets it; module doc,
+    /// SPELLS). `slot_of_k[team][k]` names engine tower
     /// k (0 king, 1 engine-Left princess, 2 engine-Right) as a protocol TowerSlot.
     ///
     /// `path_search`: None = the ledger's pathfinding.PATH_SEARCH (the measured
@@ -939,9 +953,11 @@ impl Battle {
             // push (its spawned unit could not load) is in `cards` but not by name.
             // The Mirror is left out (module doc, SPELLS): its kind code 6 is one a
             // caller's decoder may not know yet. So are the cards that travel under
-            // ground (the Miner, the Goblin Drill): they go down anywhere on land, which
-            // no placement code 0 to 4 describes, so a mask built from codes 0 to 4 would
-            // offer only their own half. Name any of them in `card_names` to play it.
+            // ground (the Miner, the Goblin Drill): they go down anywhere but water with a
+            // troop's or a building's footprint rule. Code 4 is that territory for a spell,
+            // with no footprint, and no placement code 0 to 4 describes the pair, so a mask
+            // built from codes 0 to 4 would offer only their own half (the code of their
+            // kind). Name any of them in `card_names` to play it.
             None => (0..db.cards.len() as u16)
                 .filter(|i| {
                     let c = db.get(*i);
@@ -1991,5 +2007,23 @@ mod tests {
         assert_eq!(p["hand"][0], id("Mirror"), "the Mirror came up from the queue: {p}");
         assert_eq!(p["mirror_target"], id("Knight"));
         assert_eq!(p["hand_costs"][0], 4, "a Mirror of the Knight costs 3 + 1");
+    }
+
+    #[test]
+    fn a_named_goblin_drill_reports_its_buildings_footprint() {
+        // The Goblin Drill's card row is its 0-radius dig, and the engine places the 2x2 building the dig morphs into
+        // (placement.SPAWN_PATHFIND_DESTINATION = client_tile_centre_morph_footprint, state.rs `building_placement`).
+        // A catalogue that names the card gives that building's footprint, not the dig's.
+        let db = cards();
+        let calib = crate::state::Calib::shipped();
+        let drill = db.index("GoblinDrill").unwrap_or_else(|| panic!("the Goblin Drill is refused: {:?}", db.rejected.iter().find(|(n, _)| n == "GoblinDrill")));
+        let morph = db.get(drill).spawn_pathfind.and_then(|p| p.morph).expect("the dig morphs into its building");
+        let dig = crate::arena::placement_tiles(db.get(drill).collision_radius);
+        let building = crate::arena::placement_tiles(db.get(morph).collision_radius);
+        assert_ne!(dig, building, "vacuous: the dig and its building give one footprint");
+        assert_eq!(building, 2, "the building's 2x2 box");
+        let fp = CATALOGUE_FIELDS.iter().position(|f| *f == "footprint_tiles").unwrap();
+        let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &[drill], db.lowest_level_valid_for_every_rarity()).unwrap()).unwrap();
+        assert_eq!(rows[0][fp], building, "the Goblin Drill's footprint_tiles");
     }
 }

@@ -156,20 +156,22 @@ The crate itself has no Python dependency and builds alone.
   not serialised by it. Bulk state crosses as one JSON byte string (`state_json()`), which the env
   layer decodes with msgspec's typed C decoder.
 - **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
-  `cards.json` order. The 15.535.29 table holds 144 cards (101 troops, 16 buildings, 27 spells)
+  `cards.json` order. The 15.535.29 table holds 144 cards (102 troops, 15 buildings, 27 spells)
   and 334 units, and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
-  the rest with the reason. `path_search="trace_fitted_astar"` selects the frame-planned arm and
-  `ground_y_clamp="deploy_column_range_own_frame"` the own-frame summon clamp (see "Selectable
-  model arms"); each defaults to the ledger's value, `pathfinding.PATH_SEARCH` and
-  `formation.GROUND_Y_CLAMP`.
+  the rest with the reason. The default leaves out three cards that load: the Mirror (code 6) and
+  the cards that travel under ground (the Miner, the Goblin Drill), which a decoder of codes 0 to 4
+  cannot place yet. A `card_names` list that names one gets it. `path_search="trace_fitted_astar"`
+  selects the frame-planned arm and `ground_y_clamp="deploy_column_range_own_frame"` the own-frame
+  summon clamp (see "Selectable model arms"); each defaults to the ledger's value,
+  `pathfinding.PATH_SEARCH` and `formation.GROUND_Y_CLAMP`.
 - **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
   `tower_positions`), so a learner's action mask is the engine's own answer rather than a
   reimplementation. `check_deploy(team, slot, x, y)` returns an index into `DEPLOY_REASONS`, which
-  holds thirteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
+  holds fifteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
   `OUT_OF_ARENA`, `WATER`, `NO_DEPLOY`, `OUT_OF_TERRITORY`, `OCCUPIED`, `GAME_OVER`,
-  `DUPLICATE_TEAM`, `ENGINE_ERROR`. For example, with a Giant in hand slot 0 at the start of a
-  battle (re-run 2026-09-21):
+  `DUPLICATE_TEAM`, `ENGINE_ERROR`, `TOO_EARLY`, `NOTHING_TO_MIRROR`. For example, with a Giant
+  in hand slot 0 at the start of a battle (re-run 2026-09-21):
 
   ```python
   T, R = royalesim.SUBTILE, royalesim.DEPLOY_REASONS

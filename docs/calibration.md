@@ -91,12 +91,12 @@ ledger disagree, because these figures went stale twice in one afternoon before 
   universal, so check rather than assume.** All 256 carry a status. That 256 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
   another and carries its own `measured` status, so counting every status in the file gives 257
-  and 144 measured. The tools agree on 256 by convention, and the convention undercounts by one. 202 name the rivals the
+  and 148 measured. The tools agree on 256 by convention, and the convention undercounts by one. 202 name the rivals the
   value was chosen against and 210 state what would move it, and 194 do both. The gap is mostly
   the 31 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 21 of
-  the 143 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 147 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -151,7 +151,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 256 top-level keys with a status, 143 are `measured`; a 257th entry nested inside another is measured too.
+disagree. Of the 256 top-level keys with a status, 147 are `measured`; a 257th entry nested inside another is measured too.
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
@@ -169,7 +169,7 @@ disagree. Of the 256 top-level keys with a status, 143 are `measured`; a 257th e
 | `knockback` (5 of 9 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `DIRECTION_ROLLING` and `ROLLING_CONTACT_RADIUS` are measured |
 | `spells.*` (8 keys) | see `spell-spec.md` | guess / hypothesis, LOW | each key in `spell-spec.md` carries its own deciding observation |
 | `status.*` (stun and buff timing) | see `spell-spec.md` | community / hypothesis | likewise |
-| `economy` (6 of 7 keys) | the Elixir Collector's overflow, double-elixir step and stun, elixir on death, the starting-hand rule | guess / community, LOW-MEDIUM | each key's `promotion_rules` names the 15.535.29 scenario it needs. `PRODUCTION_AT_CAP` is measured; `MANA_ON_DEATH_FOR_OPPONENT_UNIT` rests on the tables' pattern |
+| `economy` (2 of 7 keys) | the elixir a death pays the opponent, the starting-hand rule | guess / community, LOW-MEDIUM | each key's `promotion_rules` names the 15.535.29 scenario it needs. `MANA_ON_DEATH_FOR_OPPONENT_UNIT` rests on the tables' pattern. The other five are measured: the Elixir Collector's payout at the cap, its overflow, its step in double elixir, its stun and the elixir its death pays its owner |
 | `spawner.INTERVAL_START_ORIGIN` | `placement_counter_first_frame_counts` | hypothesis, MEDIUM | an interval spawner whose DeployTime is not StartCounterAt - 950: the tick of its first unit |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
 

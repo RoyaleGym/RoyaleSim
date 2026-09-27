@@ -10,8 +10,9 @@ Gate 11 holds the table to what the loader reads, and its plant lands.
 
 WHAT THIS PINS, 2: THE PROTOCOL (it needs an extension built from this tree): the catalogue's 10th element lists the
 Empress's forms; each player's `hand_costs` and `mirror_target` move with the elixir and the plays; a Mirror with
-nothing to copy answers NOTHING_TO_MIRROR. The default catalogue (card_names=None) leaves the Mirror out, so it holds
-no kind code 6 (py.rs `Battle::new`).
+nothing to copy answers NOTHING_TO_MIRROR. The default catalogue (card_names=None) leaves out the Mirror (code 6) and
+the cards that travel under ground (the Miner, the Goblin Drill), which a decoder of codes 0 to 4 cannot place yet, so
+it holds no kind code 6; a card_names list that names one gets it (py.rs `Battle::new`).
 """
 
 from __future__ import annotations
@@ -171,8 +172,9 @@ def test_the_catalogue_lists_the_empress_forms(royalesim):
 def test_the_default_catalogue_leaves_the_mirror_and_the_tunnellers_out(royalesim):
     """A card_names=None catalogue holds no Mirror, so no kind code 6: a decoder that maps only codes 0 to 4 refuses
     a catalogue with a 6 (RoyaleGym's does, until it maps 6). The Miner and the Goblin Drill are left out too: they
-    go down anywhere on land, which no code 0 to 4 describes. Named in card_names each is there. The other cards
-    this batch loads stay in the default catalogue."""
+    go down anywhere but water with a troop's or a building's footprint rule, a pair no code 0 to 4 describes (code
+    4 is that territory for a spell, with no footprint). Named in card_names each is there. The other cards this
+    batch loads stay in the default catalogue."""
     rows = json.loads(royalesim.Battle(None, SLOTS).catalogue_json())
     names = [r[0] for r in rows]
     for card in ("Mirror", "Miner", "GoblinDrill"):

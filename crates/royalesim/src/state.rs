@@ -6694,7 +6694,9 @@ impl BattleState {
     /// from this tick (measured on client 16.402 and client 15.535.29: deploying on the surfacing frame S and the
     /// 18 after it, not deploying and unmoved on S + 19, its first step on S + 20; a jump of up to 1640 native from
     /// its last tunnel point). Under targeting.FIRST_TOWER_PICK = client_spawn_lane its lane is the destination's
-    /// (client 15.535.29: 14 of 14 Miners took the lane of the point they came up on, not of the King's mouth).
+    /// (client 15.535.29: 14 of 14 Miners took the lane of the point they came up on, not of the King's mouth), read
+    /// in its owner's frame as every creation's is (`creation_lane`), so a Miner that comes up on x = W/2 takes its
+    /// own right on both seats.
     ///
     /// THE GOBLIN DRILL (a morph): the dig stays under ground, untouchable, until this tick's Reap removes it
     /// WITHOUT a death (`scratch.vanish`), and its building is created at the end of that Reap on the destination
@@ -6723,7 +6725,8 @@ impl BattleState {
                 self.ents.pos[i] = dest;
                 self.ents.deploy_ms[i] = deploy_ms;
                 if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && self.ents.kind[i] == EntityKind::Troop {
-                    self.ents.spawn_lane[i] = crate::formation::nearest_lane(&self.cfg.arena, dest);
+                    let team = self.ents.team[i];
+                    self.ents.spawn_lane[i] = creation_lane(&self.cfg.arena, team, dest);
                     self.ents.lane_window_end[i] = u32::MAX;
                 }
                 if deploy_ms == 0 {
@@ -10887,8 +10890,9 @@ impl BattleState {
             self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
             return;
         }
-        // A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): ONE entry whatever `count` says (both rows ship
-        // 1), `pos` its DESTINATION; `phase_spawn` creates its unit at its owner's King (`spawn_tunneller`).
+        // A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): ONE entry, its count 1 (card.rs `convert` refuses any
+        // other beside the walk), `pos` its DESTINATION; `phase_spawn` creates its unit at its owner's King
+        // (`spawn_tunneller`).
         // placement.SPAWN_PATHFIND_DESTINATION = client_tile_centre_morph_footprint: the destination is the
         // point the play resolved (`resolve_point`), with no formation offset -- the Miner stands on the tile
         // centre where a single troop stands one unit off it (client 15.535.29, both halves and both sides).

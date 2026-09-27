@@ -44,7 +44,7 @@ Three things are worth stating up front, because they bound everything below:
 | Several projectiles or bolts per attack | `combat.rs::fire`, `combat.rs::fan_aim` | the Hunter fires its fan of pellets (`combat.MULTIPLE_PROJECTILES = client_fan`), the Princess fires her damaging first arrow (`combat.CUSTOM_FIRST_PROJECTILE = client_first_of_volley`), and the Electro Wizard's bolts hit one target each (`combat.MULTIPLE_TARGETS = client_bolts_per_target`) |
 | Inferno damage that grows | `combat.rs`, `card.rs` (`variable_damage`) | the Inferno Tower and the Inferno Dragon raise their damage twice while they hold a target, by their `VariableDamage2` / `VariableDamage3` and their times (`combat.VARIABLE_DAMAGE = client16402_attack_progress_stages`, measured on the 16.402 corpus) |
 | The Mortar's minimum range | `target.rs` | the Mortar drops a target whose edge distance falls below its `MinimumRange` (3.5 tiles) and never takes it again while it stays that close (`targeting.MINIMUM_RANGE = client16402_edge_distance`, measured on the 16.402 corpus) |
-| Leaps and chases | `target.rs::can_target`, `target.rs::chase_drop_applies` | a unit in its river leap (Hog Rider, Prince, Dark Prince, Royal Hogs, Battle Ram) can be targeted only by an attacker that hits air (`targeting.LEAPING_UNIT_TARGETABILITY = airborne`). A walking troop drops a troop it chases once the gap passes its sight range plus both radii, less 1000 (`targeting.CHASE_DROP_RANGE = client_sight_minus_1000`). Both measured on client 15.535.29 |
+| Leaps and chases | `target.rs::can_target`, `target.rs::chase_drop_applies` | a unit in its river leap (Hog Rider, Prince, Dark Prince, Royal Hogs, Battle Ram) can be targeted only by an attacker that hits air (`targeting.LEAPING_UNIT_TARGETABILITY = airborne`). A walking troop drops a troop it chases once the gap passes its sight range plus both radii, less 1000 (`targeting.CHASE_DROP_RANGE = client_sight_minus_1000`). The leap rule is measured on client 15.535.29 only for the Hog Rider against melee ground-only attackers; for the other leaping cards and for ranged attackers and buildings it is inferred. The chase drop is measured on client 15.535.29 along a lane |
 | Launch recoil (Sparky, Firecracker) | `state.rs::attack_recoil` | a launch pushes the unit away from its target down the knockback ladder, by its `AttackPushBack` (`knockback.ATTACK_PUSHBACK = ladder_away_from_target`, measured on client 15.535.29) |
 | The Hunter's pellets | `combat.rs::fire`, `combat.rs::step_straight` | a pellet is gone on the tick it hits (`CheckCollisions`) and waits its `RandomDelay` before its first step. A pellet's first-tick hit test reaches its `ProjectileStartExtraRadius` further (`combat.PROJECTILE_COLLISIONS = client_columns`, measured on client 15.535.29) |
 | Deploy effects (Electro Wizard, Ice Wizard, Mega Knight, Battle Healer) | `state.rs::spawn_now`, `spell.rs::cast` | the Electro Wizard's and the Ice Wizard's area acts where the unit appears, on its first tick (`spells.DEPLOY_AREA_EFFECT = client_area_effect`). The Mega Knight's deploy blow lands 6 ticks after he appears (`combat.DEPLOY_PROJECTILE = client_on_landing`). The Battle Healer's spawn heal goes down where she appears (`spawner.SPAWN_AREA_OBJECT_SCOPE = every_row`). All measured on client 15.535.29 |
@@ -70,7 +70,7 @@ engine is usable for your purpose.
 |---|---|
 | `DeathSpawnPushback`, `DeathSpawnMinRadius` | `DeathSpawnPushback` is loaded, but the shipped value of `spawner.DEATH_SPAWN_PUSHBACK` (`not_read`) does not act on it. So a Golem's or a Lava Hound's children appear at `DeathSpawnRadius` on the parent's facing ring. In the game they appear 250 from the death point on a fixed ring and slide out to that radius (measured on client 16.402). The other value, `client_ring_slide`, runs that law and is not shipped yet. `DeathSpawnMinRadius` is not read: nothing holds a death spawn's units off a minimum radius |
 | The Mega Knight's jump push (`DashPushBack`) | not read: his landing deals `DashDamage` around him and pushes nothing. `DashLandingTime` is not read either |
-| Morph, chained hits, the Golden Knight's dash | absent. The Golden Knight's dash starts from its ability, which the engine does not run. The river hop IS modelled (`jump16402.rs`, `movement.JUMP_WATER_HOP`) |
+| Morph (all but the Goblin Drill's), chained hits, the Golden Knight's dash | absent. The one morph modelled is the Goblin Drill's: its dig turns into its building where it comes up (`state.rs::surface`). The Golden Knight's dash starts from its ability, which the engine does not run. The river hop IS modelled (`jump16402.rs`, `movement.JUMP_WATER_HOP`) |
 | The Monk's two damages, and the Inferno ramp on the 2018 table | the Monk and the Mega Monk carry `VariableDamage2` with no times, and theirs are not loaded. The 2018 table carries no ramp columns at all, so on it the Inferno Tower and the Inferno Dragon keep their first-stage damage |
 | Rage and Heal, the parts not measured | both load. Rage's bottle stands for its DeployTime and then leaves an area that speeds up your own side and damages enemies once. The Heal card puts down a Heal Spirit like a one-unit troop, and its shot leaves a heal on your own troops. Three things are not measured. Whether a Rage also speeds up your own buildings and crown towers is the `spells.OWN_SIDE_AREA_SCOPE` key's guess. A Rage does not speed up a spawner's waves here. Two Heal Spirits on one unit heal as one, not two |
 | Evolutions, champions, tower troops | post-2023; no public data |
@@ -81,11 +81,14 @@ engine is usable for your purpose.
 
 ### Cards outside the slice
 
-`data/derived/cards.json` holds **144 cards** (101 troops, 16 buildings, 27 spells) and 334
+`data/derived/cards.json` holds **144 cards** (102 troops, 15 buildings, 27 spells) and 334
 units. The engine loads every simulable non-tower card of it;
 `Battle(card_names=None).catalogue_json()` lists what loaded and `CardDb::rejected` what did
-not, with the reason. Some of the loaded cards carry a mechanic `card.rs` never parses, so an
-8-card deck drawn uniformly from the whole catalogue is much more likely than not to hold one.
+not, with the reason. The one exception: that default leaves out the Mirror (code 6) and the
+cards that travel under ground (the Miner, the Goblin Drill), which a decoder of codes 0 to 4
+cannot place yet. They load, and a `card_names` list that names one gets it. Some of the loaded
+cards carry a mechanic `card.rs` never parses, so an 8-card deck drawn uniformly from the whole
+catalogue is much more likely than not to hold one.
 If you are picking decks programmatically, draw from `cards.json`'s own `thin_slice` key rather
 than from the catalogue. Parse that key, never hand-copy it.
 

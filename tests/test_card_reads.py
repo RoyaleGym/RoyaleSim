@@ -388,6 +388,11 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # and THE SPIRIT EMPRESS (named by the register pass alone). The Mirror loads and carries nothing unread. The
     # WHOLE delta, measured with a stand-in catalogue (the 126992a module's catalogue plus the nine rows, register
     # present): 78 without them, 86 with them, the eight added cards exactly these and none removed.
+    # NOT MOVED on 2026-09-27, when the default catalogue began leaving out the Mirror, the Miner and the Goblin
+    # Drill: the gate's loaded set is every card the engine loads, the default plus every card row a catalogue that
+    # names it alone builds with (`loaded_catalogue`). Scored against the default alone it was 84, the Miner and the
+    # Goblin Drill missing with their unread columns (measured with a stand-in engine: the 126992a module's default
+    # plus the six rows the new default holds, the three by name).
     outside_by_vintage = {"2018": 40, "15.535": 86}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"

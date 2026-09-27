@@ -258,6 +258,12 @@ def catalogue_id(battle, name: str) -> int:
     raise SystemExit(f"{name} is not in the engine catalogue")
 
 
+def catalogue_of(names: list[str]) -> list[str]:
+    """`names` once each, in first-seen order: the `card_names` of a Battle whose catalogue holds exactly the cards
+    a run needs (the engine refuses a name listed twice)."""
+    return list(dict.fromkeys(names))
+
+
 class Engine:
     """One royalesim battle: the tracked troop, the four crown towers, and any
     FRIENDLY buildings the trace placed.
@@ -282,14 +288,21 @@ class Engine:
                  late_buildings: list[tuple[int, str, tuple[int, int]]] = ()):
         royalesim = engine_module()
         self.sub_per_native = royalesim.SUBTILE_PER_MILLITILE
-        self.battle = royalesim.Battle(None, [[0, 1, 2], [0, 1, 2]])
-        cid = catalogue_id(self.battle, card)
         self.side = side
         sub = self.sub_per_native
         # The deck's first HAND_SIZE cards are the hand, and a mid-walk building is
         # deployed from it; elixir is set high so nothing is refused for cost.
         extra = [n for _t, n, _p in late_buildings]
         names = [card] + extra + [n for n in ("Cannon", "Archer", "Musketeer") if n != card and n not in extra]
+        # The catalogue NAMES the cards the trace needs: the default one (card_names=None) leaves out cards that
+        # load (the Mirror, the Miner, the Goblin Drill), so a trace of one of them could not be replayed. A card
+        # the engine does not load is refused by name (ValueError, with the reason), which `diff_trace` reports as
+        # a skip, as it did when the card was missing from the default catalogue.
+        try:
+            self.battle = royalesim.Battle(catalogue_of(names + [n for n, _p in pre_buildings]), [[0, 1, 2], [0, 1, 2]])
+        except ValueError as e:
+            raise SystemExit(f"the engine does not load a card this trace needs: {e}") from e
+        cid = catalogue_id(self.battle, card)
         self.deck = [catalogue_id(self.battle, n) for n in names[:8]]
         self.slot_of = {n: i for i, n in enumerate(names[:8])}
         spawns = [(side, cid, native_xy[0] * sub, native_xy[1] * sub, -1)]
@@ -481,8 +494,9 @@ def deploy_countdown_is_spawn_plus_deploy_time(card: str = "Knight", command_tic
     cards = json.loads((ROOT / "data" / "derived" / "cards.json").read_text(encoding="utf-8"))["cards"]
     deploy_ms = next(c["deploy_time_ms"] for c in cards if c["name"] == card)
 
-    battle = royalesim.Battle(None, [[0, 1, 2], [0, 1, 2]])
-    deck = [catalogue_id(battle, n) for n in (card, "Cannon", "Archer", "Musketeer")]
+    names = (card, "Cannon", "Archer", "Musketeer")
+    battle = royalesim.Battle(catalogue_of(list(names)), [[0, 1, 2], [0, 1, 2]])
+    deck = [catalogue_id(battle, n) for n in names]
     # The battle stands AT `command_tick`; the step that carries the command takes it
     # to command_tick + 1, which is where the entity must appear.
     battle.reset(2, [deck, deck], 0, command_tick, [200000, 200000], None, [])

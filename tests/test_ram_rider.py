@@ -30,10 +30,10 @@ CARDS = ["RamRider", "Knight", "Musketeer"]
 def run(ticks):
     """A blue Ram Rider set up at (9500, 12500) native, walking to the red towers; one row per tick, the uid -> row
     map of the non-tower entities, and the `rider_states` of that tick."""
-    catalogue = json.loads(royalesim.Battle(None, [[0, 1, 2], [0, 1, 2]]).catalogue_json())
-    if not any(row[0] == "RamRider" for row in catalogue):
-        pytest.skip("SKIPPED, NOT PASSED: this royalesim build does not load the Ram Rider; rebuild the module")
-    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]])
+    try:
+        b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]])
+    except ValueError as e:
+        pytest.fail(f"this royalesim build does not load the Ram Rider ({e}): rebuild the extension from this tree")
     b.reset(0, [[0] * 8, [1] * 8], 0, 200, [10_000, 10_000], None, [(0, 0, 9500 * SUB, 12500 * SUB, -1)])
     rows = []
     for _ in range(ticks + 1):
