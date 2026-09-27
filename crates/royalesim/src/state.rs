@@ -425,6 +425,10 @@ pub struct Calib {
     /// `NotRead`, what a battle saved before it actually ran.
     #[serde(default = "special_hook_default")]
     pub special_hook: SpecialHook,
+    /// combat.HOOK_DRAG_ROUTE: whether a unit a hook dragged keeps the route it had when the hook landed
+    /// (`step_hook_drags`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "hook_drag_route_default")]
+    pub hook_drag_route: HookDragRoute,
     /// movement.WAITING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is `Kept`,
     /// which is what a battle saved before this key actually ran.
     #[serde(default = "waiting_heading_default")]
@@ -1264,6 +1268,10 @@ fn attack_pushback_default() -> AttackPushback {
 
 fn special_hook_default() -> SpecialHook {
     SpecialHook::NotRead
+}
+
+fn hook_drag_route_default() -> HookDragRoute {
+    HookDragRoute::Kept
 }
 
 fn waiting_heading_default() -> WaitingHeading {
@@ -2755,6 +2763,18 @@ calib_enum!(
         /// bring the centres within DragMargin plus both radii. The hook deals no damage; then
         /// the unit's ordinary attack starts.
         ClientHookDrag = "client_hook_drag",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_DRAG_ROUTE -- the route of a unit a hook dragged (combat.SPECIAL_HOOK), when the drag ends on its
+    /// margin (`BattleState::step_hook_drags`). The drag moves the unit off the route it was walking; the route's next
+    /// waypoint can lie behind it.
+    HookDragRoute {
+        /// Today's engine: the unit keeps the route it had when the hook landed and walks back to its next waypoint.
+        Kept = "kept",
+        /// Measured on the 16.402 corpus (both drags of a Giant in 20260920-081819, both seats): the route is dropped
+        /// when the drag ends, and the next path request plans a fresh one from where the drag left the unit.
+        Client16402Dropped = "client16402_dropped",
     }
 );
 
@@ -4798,6 +4818,7 @@ impl Calib {
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
             attack_pushback: pick(&v, &["knockback", "ATTACK_PUSHBACK", "value"], AttackPushback::from_calibration_name)?,
             special_hook: pick(&v, &["combat", "SPECIAL_HOOK", "value"], SpecialHook::from_calibration_name)?,
+            hook_drag_route: pick(&v, &["combat", "HOOK_DRAG_ROUTE", "value"], HookDragRoute::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             zero_step_waypoint_test: pick(&v, &["pathfinding", "ZERO_STEP_WAYPOINT_TEST", "value"], ZeroStepWaypointTest::from_calibration_name)?,
             avoidance_drop_segment: pick(&v, &["pathfinding", "AVOIDANCE_DROP_SEGMENT", "value"], AvoidanceDropSegment::from_calibration_name)?,
@@ -12748,6 +12769,20 @@ impl BattleState {
             let room = len > stop; // PLANT (regression): the drag takes the step that ends inside the margin.
             if !room || len <= 0 {
                 self.end_drag(i, by);
+                // combat.HOOK_DRAG_ROUTE = client16402_dropped: the drag left the unit off the route it was walking,
+                // and its next waypoint can lie behind it. The route is dropped here, as the knockback ladder's end
+                // drops it (phase_path16402_for), and the replan gate plans a fresh one from where the unit stands.
+                // Measured on the 16.402 corpus: both drags of a Giant in 20260920-081819 end with no route on the
+                // frame after the stop and a fresh one from the end point on the frame after that (both seats).
+                #[cfg(not(clash_plant = "hook_drag_route_kept"))]
+                let drop_route = self.cfg.calib.hook_drag_route == HookDragRoute::Client16402Dropped;
+                #[cfg(clash_plant = "hook_drag_route_kept")]
+                let drop_route = false; // PLANT (regression): the new arm keeps the pre-drag route.
+                if drop_route {
+                    self.ents.route[i].clear();
+                    self.ents.route_goal[i] = None;
+                    self.ents.seg_dir[i] = Vec2::default();
+                }
                 continue;
             }
             let np = Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32);
@@ -16600,6 +16635,9 @@ impl BattleState {
 ///    old arm, unit_deploy_time), no new state (the new arm puts one more tick on the deploy timer an entity already
 ///    carries), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
+/// 20, unchanged, combat.HOOK_DRAG_ROUTE: Calib gained hook_drag_route (serde default the old arm, kept), no new state
+///    (the route, goal and segment are the saved columns it clears), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16957,6 +16995,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
     sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
     sh.insert("special_hook".into(), serde_json::to_value(SpecialHook::NotRead).map_err(|e| e.to_string())?);
+    // combat.HOOK_DRAG_ROUTE: a format-3 battle ran no hook, so it dropped no route; it keeps the old arm whatever the
+    // ledger ships (the same rule).
+    sh.insert("hook_drag_route".into(), serde_json::to_value(HookDragRoute::Kept).map_err(|e| e.to_string())?);
     // The river turn, the spawn area, the death projectile and the deploy area: a format-3
     // battle ran none of them; it keeps that whatever the ledger ships (the same rule).
     sh.insert("emission_water_turn".into(), serde_json::to_value(EmissionWaterTurn::None).map_err(|e| e.to_string())?);
