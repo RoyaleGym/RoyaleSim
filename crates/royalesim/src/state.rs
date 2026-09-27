@@ -1705,12 +1705,13 @@ calib_enum!(
 calib_enum!(
     /// placement.TROOP_TOWER_TAPS -- a troop tap at the owner's own crown tower.
     TroopTowerTaps {
-        /// Today's engine: the king block closed on every edge, a tap overlapping the tower
-        /// laid where tapped, a single unit not clamped.
+        /// The old arm (shipped until the 2026-09-27 flip): the king block closed on every edge, a
+        /// tap overlapping the tower laid where tapped, a single unit not clamped. Seat-symmetric, so
+        /// the rotation gates select it (tests/common `symmetric_config`).
         ClosedBlock = "closed_block",
-        /// Measured on 48 scenario casts on client 15.535.29: the king block half-open in absolute
-        /// coordinates; a troop tap whose tile overlaps an alive own crown tower relocated by
-        /// the building ring search; side 1's ground clamp on a single unit too.
+        /// Measured on 48 scenario casts on client 15.535.29 (shipped): the king block half-open in
+        /// absolute coordinates; a troop tap whose tile overlaps an alive own crown tower relocated
+        /// (placement.TOWER_TAP_PUSH); side 1's ground clamp on a single unit too.
         HalfOpenRelocate = "client16402_half_open_relocate",
     }
 );
@@ -16086,6 +16087,9 @@ mod tests {
         let deck: Vec<String> =
             ["Minions", "Knight", "Giant", "Archers", "Archers", "Giant", "Knight", "Minions"].iter().map(|s| s.to_string()).collect();
         cfg.decks = [deck.clone(), deck];
+        // The old arm of placement.TROOP_TOWER_TAPS: the shipped half-open arm moves a troop tapped on its
+        // own princess tower off it instead of refusing it (tests/tower_tap_push.rs pins where it goes).
+        cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
         let mut s = BattleState::new(1, cfg);
         // past match.DEPLOY_LOCKOUT_TICKS: before it every slot answers TooEarly and none of
         // the reasons this test is about -- Occupied, BadSlot -- is ever reached

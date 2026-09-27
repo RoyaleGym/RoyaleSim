@@ -102,7 +102,7 @@ mod common;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardColumn;
-use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection};
+use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, TroopTowerTaps};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -1487,6 +1487,10 @@ fn spell_placement_follows_the_card_data() {
     let deck: Vec<String> = ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Knight", "Giant", "Cannon"].iter().map(|x| x.to_string()).collect();
     let mut cfg = config();
     cfg.decks = [deck.clone(), deck];
+    // The Knight control below needs a troop refused on its own tower: placement.TROOP_TOWER_TAPS's old
+    // arm. The shipped half-open arm moves a troop tap off an own crown tower (tests/tower_tap_push.rs);
+    // it reads troops only, so every spell verdict here is the shipped engine's.
+    cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
     let mut s = BattleState::new(1, cfg);
     // past match.DEPLOY_LOCKOUT_TICKS: the cycling deploy below must be legal, and before it
     // every card is refused for its timing rather than for where it was put

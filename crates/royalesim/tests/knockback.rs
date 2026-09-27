@@ -56,7 +56,7 @@ use royalesim::arena::Lane;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{milli, Vec2, SUBTILE};
 use royalesim::path::Obstacle;
-use royalesim::state::{footprint_of, BattleConfig, BattleState, KnockLaw};
+use royalesim::state::{footprint_of, BattleConfig, BattleState, KnockLaw, TroopTowerTaps};
 use royalesim::{EntityId, Team};
 use common::*;
 
@@ -146,6 +146,12 @@ struct Item {
 /// (displaced on the landing tick under the slide; its ladder armed under the
 /// shipped law, whose first step comes the tick after).
 fn run_item(item: &Item, cfg: &BattleConfig) -> (bool, bool) {
+    // The victim stands where the item puts it. placement.TROOP_TOWER_TAPS's shipped half-open arm moves a troop
+    // spawned on its own crown tower's box off it, and the tower rings below put some victims there (the Knight's
+    // diagonals at all three towers, the Giant's at the king), away from the point the Fireball is aimed from.
+    let mut own = cfg.clone();
+    own.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
+    let cfg = &own;
     let mut s = BattleState::new(1, cfg.clone());
     let push = knock_carry(&cfg.calib, pushbacks()[0]);
     let caster = if item.at.y > s.arena().height / 2 { Team::Blue } else { Team::Red };

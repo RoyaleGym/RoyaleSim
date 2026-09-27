@@ -148,8 +148,9 @@ def test_a_king_area_tap_lands_as_on_client_15535(push, side, card, tile, accept
 
 
 def test_the_old_arm_is_todays_engine():
-    """Today's closed block refuses side 1's own (8500, 1500), which client 15.535.29 accepts; and today a tap at
-    own y 1499 is laid where it was tapped, not one tile back."""
+    """The old arm (closed_block, shipped until the 2026-09-27 flip): its closed block refuses side 1's own
+    (8500, 1500), which client 15.535.29 accepts, and a tap at own y 1499 is laid where it was tapped, not one tile
+    back."""
     assert play(1, "Knight", (8500, 1500), "closed_block")[0] is False
     accepted, got = play(0, "Knight", (8500, 1499), "closed_block")
     assert accepted
