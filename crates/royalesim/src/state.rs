@@ -11338,7 +11338,10 @@ impl BattleState {
                 }
                 // Troops this unit may have to walk around (path::avoid_units),
                 // in its frame. Its own target is never a blocker: a unit walks
-                // up to what it means to hit. Query radius covers the probe
+                // up to what it means to hit. Neither is a unit under ground under
+                // movement.SPAWN_PATHFIND_BODY = untouchable, nor an attached rider
+                // (entity.rs `attached`): no unit meets either, in the shipped move pass
+                // and in the contact law. Query radius covers the probe
                 // (2 steps + clearance) plus both radii.
                 let query = e.radius[i] * 2 + self.hash.max_radius() + eff * 2;
                 self.hash.neighbours_within(e, e.pos[i], query, &mut nb);
@@ -11346,6 +11349,10 @@ impl BattleState {
                 for &j in nb.iter() {
                     let j = j as usize;
                     if j == i || e.kind[j] != EntityKind::Troop || e.flying[j] != e.flying[i] || Some(e.id_of(j)) == e.target[i] {
+                        continue;
+                    }
+                    #[cfg(not(clash_plant = "legacy_walk_avoids_untouchable"))]
+                    if (calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable && e.underground(j)) || e.attached(j) {
                         continue;
                     }
                     blockers.push(UnitBlocker {
