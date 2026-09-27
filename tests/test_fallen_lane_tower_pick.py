@@ -4,7 +4,7 @@ WHAT THIS PINS. On the 16.402 corpus, with one enemy princess tower down, a troo
 (no crown tower in sight) takes the king when the princess tower of its SPAWN lane is the one down, wherever it stands:
 5 of 5 such picks, by troops standing on the other side of the centre, beside the standing princess tower. In
 20260920-082459 an Inferno Dragon created at x 8500, with the left tower down, chased a Giant to x 9460 and then flew
-to the king for 282 ticks. Today's engine takes the tower of the troop's current x after the first-pick window, so it
+to the king for 282 ticks. The old arm takes the tower of the troop's current x after the first-pick window, so it
 sent that Dragon to the right princess tower.
 
 The scene: the red left princess tower is down; a blue Baby Dragon created at x 8500 (spawn lane left) chases a red
@@ -14,7 +14,7 @@ default tower, and the heading between the kill and the first crown tower it nam
 WHY THE CONTROLS ARE HERE. "Walks to the king" also passes for an engine that sends every troop to the king once any
 princess tower is down, so a Baby Dragon created at x 9500 (its spawn lane's tower standing) must still head for the
 right princess tower under both values; and with both princess towers standing the value must not matter. The old
-value must be today's engine.
+value is the one the engine ran before the flip, and the shipped value is the new one.
 
 PLANTS. Each is a cfg in the engine source, aimed at the tests named. Prove one on a plant build of the module in a
 scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant maturin develop --release`), then
@@ -140,7 +140,7 @@ def test_with_both_princess_towers_standing_the_value_does_not_matter(arm):
     assert slot == 2, f"{arm}: with both towers standing it walked to tower slot {slot}, not the right princess"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["FALLEN_LANE_TOWER_PICK"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]

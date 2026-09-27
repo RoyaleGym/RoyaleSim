@@ -3,7 +3,7 @@
 //!
 //! THE LAW, measured on the 16.402 corpus: with one enemy princess tower down, a troop that picks a crown tower to walk
 //! to (none in sight) takes the king when the princess tower of its SPAWN lane is the one down, wherever it stands (5 of
-//! 5 such picks, all by troops standing beside the standing princess tower). Today's engine takes the tower of the
+//! 5 such picks, all by troops standing beside the standing princess tower). The old arm takes the tower of the
 //! troop's current x once targeting.FIRST_TOWER_PICK's window is over.
 //!
 //! The scene is tests/test_fallen_lane_tower_pick.py's: the Red left princess tower down, a Blue Baby Dragon created at
@@ -13,13 +13,13 @@
 //! the window, at x > W/2, and at least 20 walked ticks):
 //!   1. client16402_spawn_lane_king: it heads for the king, under both of FIRST_TOWER_PICK's spawn-lane arms
 //!      (client_spawn_lane, the shipped one, and client_spawn_lane_own_frame, which agrees with it on every Blue unit);
-//!   2. current_x: it heads for the right princess tower (today's engine);
+//!   2. current_x: it heads for the right princess tower (the old arm);
 //!   3. both values: a Baby Dragon created at (9500, 13000), its spawn lane's tower standing, heads for the right
 //!      princess tower (an implementation that sends every troop to the king once any princess tower is down is
 //!      refused);
 //!   4. both values: with both princess towers standing, the one created at 8500 heads for the right princess tower;
 //!   5. under FIRST_TOWER_PICK = current_x, which keeps no spawn lane, the new value reads nothing: the right princess;
-//!   6. the shipped value is current_x.
+//!   6. the shipped value is client16402_spawn_lane_king.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test fallen_lane_tower_pick`):
 //!   * `fallen_lane_by_x` -- the new value still takes the tower of the current x: (1) goes red.
@@ -145,6 +145,6 @@ fn with_both_princess_towers_standing_the_value_does_not_matter() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().fallen_lane_tower_pick, OLD);
+fn the_shipped_value_is_the_new_one() {
+    assert_eq!(Calib::shipped().fallen_lane_tower_pick, NEW);
 }
