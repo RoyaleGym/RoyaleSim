@@ -4172,6 +4172,7 @@ impl BattleState {
                     damage,
                     pulse: 0,
                     motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
+                    depth: 0,
                 });
             }
         }

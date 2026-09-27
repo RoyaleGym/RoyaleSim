@@ -809,6 +809,7 @@ pub fn fire(
                             stop_on_hit,
                         }),
                         hook: None,
+                        release: None,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -1037,6 +1038,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         straight: None,
         hook: Some(ents.id_of(a)),
         carrier: None,
+        release: None,
     });
 }
 
@@ -1367,6 +1369,7 @@ fn release_sparks(
             carrier: None,
             straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),
             hook: None,
+            release: None,
         };
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);

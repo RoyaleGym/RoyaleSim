@@ -351,7 +351,10 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
     let buff = match &p.target_buff {
         None => None,
         Some(v) if v.is_null() => None,
-        Some(b) => Some(buffs.apply(b, p.buff_time_ms, &format!("striking area effect {what}'s projectile"))?),
+        Some(v) => {
+            let b: RawBuff = serde_json::from_value(v.clone()).map_err(|e| format!("striking area effect {what}'s projectile TargetBuff: {e}"))?;
+            Some(buffs.apply(&b, p.buff_time_ms, &format!("striking area effect {what}'s projectile"))?)
+        }
     };
     let mut gaps_ms = Vec::new();
     let mut sum = hit_speed_ms;
