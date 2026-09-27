@@ -1228,10 +1228,25 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             seen_alive.insert((e.id.index, e.id.generation));
             let card = db.get(e.card_idx);
             let mut tower_slot = None;
+            // A spawner's emission whose unit is a playable card's own record (the Furnace's Fire Spirits: its interval
+            // spawner puts down the card FireSpirits' unit) is rooted through its spawner, as a summon-only emission is
+            // below. Rooted as "deployed" it was a FireSpirits deploy nobody played, and the recording's spirits (card
+            // id the Furnace's) had no counterpart. Only an emission carries `spawned_by`; a deployed unit never does.
+            let emitted_by = e.spawned_by.filter(|_| !card.summon_only).and_then(|o| sim_index_of.get(&(o.index, o.generation)).copied());
             let (root, how): (String, &'static str) = if matches!(e.kind, EntityKind::KingTower | EntityKind::PrincessTower) {
                 let ids = s.tower_ids(e.team);
                 tower_slot = ids.iter().position(|t| *t == Some(e.id));
                 (e.card.to_string(), "tower")
+            } else if let Some(k) = emitted_by {
+                #[cfg(not(clash_plant = "replay_roots_an_emitted_card_as_deployed"))]
+                let root = (sim[k].root.clone(), "spawner");
+                // PLANT (regression): an emission whose unit is a card's own record roots as that card's deploy.
+                #[cfg(clash_plant = "replay_roots_an_emitted_card_as_deployed")]
+                let root = {
+                    let _ = k;
+                    (e.card.to_string(), "deployed")
+                };
+                root
             } else if !card.summon_only {
                 (e.card.to_string(), "deployed")
             } else if let Some(mount) = e.attached_to {

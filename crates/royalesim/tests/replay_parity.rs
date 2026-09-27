@@ -506,3 +506,52 @@ fn the_same_row_resolves_elsewhere_once_a_building_stands_on_its_landing_tile() 
     let built = resolve_on_board(&s, &db, &row).expect("Skeletons load");
     assert_ne!(built, empty, "a building on the landing tile must move the landing");
 }
+
+/// A SPAWNER'S EMISSION IS ROOTED THROUGH ITS SPAWNER, whatever record its unit is. The Furnace (FirespiritHut) puts
+/// down the card FireSpirits' own unit on an interval, and the recording labels each spirit with the Furnace's card
+/// id (client 16.402, 20260920-071744 and 071056: its spirits every 100 ticks from its deploy + 38). The harness rooted
+/// the engine's spirits as a FireSpirits deploy, so the recording's had no counterpart. A synthetic fixture: one
+/// Furnace, its first spirit in the truth on the tick the engine emits it; the spirit must pair, through the spawner,
+/// and nothing of the engine's is left over. Plant: replay_roots_an_emitted_card_as_deployed.
+#[test]
+fn a_spawners_emission_whose_unit_is_a_card_is_rooted_through_its_spawner() {
+    let n = 91usize;
+    let ticks: Vec<u32> = (0..n as u32).collect();
+    let col = |v: i64, frames: usize| format!("[{v}, {frames}]");
+    let entity = |key: i64, role: &str, unit: &str, max_hp: i64, t0: usize, x: i64, y: i64| -> String {
+        let frames = n - t0;
+        format!(
+            r#"{{"key": {key}, "side": 0, "card_id": 27000010, "card": "FirespiritHut", "role": "{role}", "unit": "{unit}",
+                "level": 11, "max_hp": {max_hp}, "t0": {t0}, "n": {frames}, "x": {}, "y": {}, "hp": {}, "target": {},
+                "path_n": {}, "state": {}}}"#,
+            col(x, frames),
+            col(y, frames),
+            col(max_hp, frames),
+            col(-1, frames),
+            col(0, frames),
+            col(4, frames)
+        )
+    };
+    let furnace = entity(7, "summon", "Furnace_rework", 727, 10, 8500, 500);
+    let spirit = entity(9, "spawned", "FireSpirits", 215, 48, 8500, 1500);
+    let text = format!(
+        r#"{{"format": "{FORMAT}", "deploy_tick_convention": "{DEPLOY_TICK_CONVENTION}", "capture": "synthetic-furnace",
+            "frame": {{"blue_native_side": 0, "transform": "identity"}}, "truth_stride": 1, "playable": true,
+            "ticks": {{"first": 0, "last": {last}, "frames": {n}}}, "tower_level": {{"0": 11, "1": 11}},
+            "decks": {{"0": {{"deploy_order": ["FirespiritHut"]}}, "1": {{"deploy_order": ["Knight"]}}}},
+            "deploys": [{{"tick": 10, "side": 0, "card": "FirespiritHut", "card_id": 27000010, "kind": "building",
+                "level": 11, "count": 1, "keys": [7], "pos": [8500, 500], "source": "centroid"}}],
+            "truth": {{"ticks": {ticks:?}, "entities": [{furnace}, {spirit}]}}}}"#,
+        last = n - 1
+    );
+    let f = Fixture::from_str(&text).expect("the synthetic fixture parses");
+    let r = replay(&f, &common::cards(), &register(), &Options::default()).expect("the synthetic fixture replays");
+    let hut = r.pairs.iter().find(|p| p.truth_key == 7).unwrap_or_else(|| panic!("the Furnace did not pair: {:?}", r.pairs));
+    assert_eq!(hut.root_how, "deployed");
+    let p = r.pairs.iter().find(|p| p.truth_key == 9).unwrap_or_else(|| {
+        panic!("the Furnace's spirit did not pair: pairs {:?}, the engine's unmatched {:?}", r.pairs, r.unmatched_sim)
+    });
+    assert_eq!((p.root.as_str(), p.sim_card.as_str(), p.root_how.as_str()), ("FirespiritHut", "FireSpirits", "spawner"), "{p:?}");
+    assert!(p.sim_first_tick.abs_diff(p.truth_first_tick) <= 2, "the spirit pairs with the engine's first emission: {p:?}");
+    assert!(r.unmatched_sim.iter().all(|(_, _, root)| root != "FireSpirits"), "an engine spirit rooted as a deploy: {:?}", r.unmatched_sim);
+}
