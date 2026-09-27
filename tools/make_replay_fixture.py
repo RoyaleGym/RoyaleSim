@@ -132,7 +132,11 @@ DEPLOY POSITION AND TICK
     the units went, not where the player tapped; the engine is charged with that
     difference). A single unit is placed where it appeared (its centroid, which is the
     tap snapped to the game's grid). Without a tap the centroid is used. `source` says
-    which. A spell cast comes from the `effects` stream (`spell_casts`: the stream
+    which. A matched tap is kept on the row as `tap` (`tick`, `native`, `cycled`): the
+    harness resolves a tapped troop's point on the board of `tap.tick`, where the client
+    resolved it (replay_parity/harness.rs `resolve_tick`). A log names a card as the client
+    showed it; `canon_name` matches that to cards.json by name or display name. A spell
+    cast comes from the `effects` stream (`spell_casts`: the stream
     lists every projectile object on every frame it exists, so ONE cast is the run of
     class-28 objects of one (side, card) with no gap over CAST_GAP_TICKS between
     sightings -- a Fireball seen on 15 frames, a Log's airborne object then its rolling
@@ -396,13 +400,38 @@ def load_id_table() -> dict[int, str]:
     return table
 
 
-def canon_name(name: str, card_names: set[str]) -> str:
-    """A placements-log card name (display or internal) -> the cards.json name."""
+def display_names(cards: list[dict]) -> dict[str, str]:
+    """cards.json's names and display names, squashed (no spaces) and lower-cased -> the card's name. A key two
+    cards share is left out, so it can only fail to match, never match the wrong card."""
+    seen: dict[str, set[str]] = {}
+    for c in cards:
+        for label in (c["name"], c.get("display_name")):
+            if label:
+                seen.setdefault(label.replace(" ", "").lower(), set()).add(c["name"])
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
+def canon_name(name: str, card_names: set[str], display: dict[str, str] | None = None) -> str:
+    """A placements-log card name (display or internal) -> the cards.json name.
+
+    The logs write the name the client showed. cards.json keys the internal name and keeps a display name
+    beside it (`display`, from `display_names`). Taken in order: the name itself, the name without spaces, then
+    a display or internal name that differs only in spaces and case, then the same with a plural "s" added.
+    Without the last two, 48 records of the 96 placement logs of 2026-09-18/20 matched no card, so their taps
+    carried no tick or point into a fixture: "Ice Spirit" (IceSpirits, display "Ice Spirits"; 28), "Ice Golem"
+    (IceGolemite; 9), "Wall Breakers" (Wallbreakers; 2), "Executioner" (AxeMan; 2), "Furnace" (FirespiritHut;
+    2), "ElixirCollector" ("Elixir Collector"; 2), "Guards" (SkeletonWarriors), "Night Witch" (DarkWitch) and
+    "The Log" (Log). Still unmatched, because cards.json names them otherwise: "Giant Snowball" (19),
+    "Barbarian Barrel" (2), "HealSpirit" (2), "Magic Archer" (1). A name that matches nothing is returned as
+    it is."""
     if name in card_names:
         return name
     squashed = name.replace(" ", "")
     if squashed in card_names:
         return squashed
+    for key in (squashed.lower(), squashed.lower() + "s"):
+        if display and key in display:
+            return display[key]
     return name
 
 
@@ -912,6 +941,7 @@ def read_placements(
     name_to_id: dict[str, int],
     spell_names: set[str] | None = None,
     default_sides: dict[str, int] | None = None,
+    display: dict[str, str] | None = None,
 ):
     """-> (taps, decks): taps = [{side, card, id, tick, native, kind, cycled}],
     decks = {side: [ids]}.
@@ -951,7 +981,7 @@ def read_placements(
                 sx, sy = float(tile[0]), float(tile[1])
                 nx, ny = (18.0 - sx, sy) if s == 0 else (sx, 32.0 - sy)
                 native = [round(nx * 1000), round(ny * 1000)]
-            name = canon_name(card, card_names)
+            name = canon_name(card, card_names, display)
             taps.append(
                 {
                     "side": s,
@@ -1385,7 +1415,9 @@ def build(
             m = SEAT_FILE_TAG.search(os.path.basename(pf))
             if m:
                 default_sides[m.group(1)] = own_side if m.group(1) == own_tag.group(1) else 1 - own_side
-    taps, decks = read_placements(placements, card_names, name_to_id, spell_names, default_sides)
+    taps, decks = read_placements(
+        placements, card_names, name_to_id, spell_names, default_sides, display_names(doc["cards"])
+    )
     used_taps: set[int] = set()
     deploys = []
     latencies = []

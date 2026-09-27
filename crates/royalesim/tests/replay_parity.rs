@@ -440,3 +440,69 @@ fn a_mirror_row_plays_the_card_it_copied() {
         "a mirror row with no copy is refused, never guessed"
     );
 }
+
+/// A corpus troop row is resolved on the board of its TAP tick when that tick is before its issue tick: its
+/// placements-log tap is an object with a `tick` (20260918-134739's Goblins, tapped on 204 on the tile of a Rage
+/// cast on 202, are laid one tile over in the client though they appear on 228). A tap on the issue tick itself, a
+/// scenario row (its tap an [x, y] pair), a row with no tap, a spell and a building are resolved when issued.
+/// Plant: replay_resolves_at_issue.
+#[test]
+fn a_corpus_troop_is_resolved_on_the_board_of_its_tap_tick() {
+    let row = |kind: &str, extra: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 228, "side": 0, "card": "Goblins", "card_id": 26000002, "kind": "{kind}", "level": 11, "count": 4,
+                "pos": [3500, 1500], "source": "tap_tile"{extra}}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let tapped = r#", "tap": {"tick": 204, "native": [3500, 1500], "cycled": true}"#;
+    assert_eq!(resolve_tick(&row("troop", tapped)), Some(204), "tapped on 204, issued on 227: resolved on 204");
+    assert_eq!(resolve_tick(&row("troop", r#", "tap": {"tick": 227, "native": [3500, 1500]}"#)), None, "a tap on the issue tick");
+    assert_eq!(resolve_tick(&row("troop", r#", "tap": [3500, 1500]"#)), None, "a scenario row");
+    assert_eq!(resolve_tick(&row("troop", "")), None, "a row with no tap");
+    assert_eq!(resolve_tick(&row("spell", tapped)), None, "a spell");
+    assert_eq!(resolve_tick(&row("building", tapped)), None, "a building");
+}
+
+/// Every row of the committed sample is a troop that carries its placements-log tap, 22 to 36 ticks before its units
+/// appear, and the report says it was resolved on that tap's tick. The play is the one the gates above pin: under the
+/// shipped ledger the resolution does not read the board, so the tick changes nothing here. Plant:
+/// replay_resolves_at_issue.
+#[test]
+fn the_sample_rows_are_resolved_on_their_tap_ticks() {
+    let f = sample();
+    let r = play(&f);
+    for d in &f.deploys {
+        let tap = d.tap.as_ref().and_then(|t| t.get("tick")).and_then(|t| t.as_u64()).unwrap_or_else(|| panic!("{d:?} carries no tap tick")) as u32;
+        let issued = r.deploys.iter().find(|i| i.tick == d.tick && i.side == d.side && Some(&i.card) == d.card.as_ref()).unwrap_or_else(|| panic!("deploy {d:?} not issued"));
+        assert_eq!(issued.resolved_on, Some(tap), "{} at {}: resolved on {:?}, tapped on {tap}", issued.card, d.tick, issued.resolved_on);
+        assert_eq!(issued.issued_at + 1, d.tick, "{} at {}: still issued on the tick before", issued.card, d.tick);
+    }
+    assert_eq!(r.deploys.iter().filter(|i| i.resolved_on.is_some()).count(), 6, "{:?}", r.deploys);
+}
+
+/// Why the tick matters: the engine's placement resolution reads the board. Under placement.TROOP_TOWER_TAPS the
+/// sample's Skeletons tap on the own king tile goes to the tile behind the king on an empty board, and elsewhere once
+/// a building stands on that tile, so one row resolved on its tap tick's board and on its issue tick's can land
+/// apart.
+#[test]
+fn the_same_row_resolves_elsewhere_once_a_building_stands_on_its_landing_tile() {
+    use royalesim::state::{BattleState, TapSnap, TroopTowerTaps};
+    let k = royalesim::fixed::SUBTILE_PER_MILLITILE;
+    let mut cfg = common::config();
+    cfg.calib.placement_troop_tower_taps = TroopTowerTaps::HalfOpenRelocate;
+    cfg.calib.placement_tap_snap = TapSnap::TileCentre;
+    let db = common::cards();
+    let mut s = BattleState::new(1, cfg);
+    let row: Deploy = serde_json::from_str(
+        r#"{"tick": 603, "side": 0, "card": "Skeletons", "card_id": 26000010, "kind": "troop", "level": 11, "count": 3,
+            "pos": [8500, 1500], "source": "tap_tile", "tap": {"tick": 577, "native": [8500, 1500], "cycled": true}}"#,
+    )
+    .expect("a deploy parses");
+    let empty = resolve_on_board(&s, &db, &row).expect("Skeletons load");
+    assert_eq!(empty, Vec2::new(8500 * k, 500 * k), "on an empty board the king tap goes to the tile behind the king");
+    s.spawn_unit(royalesim::Team::Blue, "Cannon", Vec2::new(8500 * k, 500 * k), None).expect("a Cannon is placed as given");
+    s.tick();
+    let built = resolve_on_board(&s, &db, &row).expect("Skeletons load");
+    assert_ne!(built, empty, "a building on the landing tile must move the landing");
+}

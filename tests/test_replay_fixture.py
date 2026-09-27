@@ -371,6 +371,46 @@ def test_a_log_without_its_own_side_takes_the_captures(m, tmp_path):
     assert [t["side"] for t in taps] == [0]
 
 
+def test_a_log_name_the_client_showed_matches_its_card_by_display_name(m, tmp_path):
+    # The logs write the name the client showed; cards.json keys the internal name and keeps the display name
+    # beside it. Unmatched, the tap carried no tick and no point into its fixture: 48 records of the 96 logs of
+    # 2026-09-18/20, among them every cycled "Ice Spirit" (28) and "Ice Golem" (9) of the Rage-tile battles.
+    cards = [
+        {"name": "IceSpirits", "display_name": "Ice Spirits"},
+        {"name": "IceGolemite", "display_name": "Ice Golem"},
+        {"name": "Wallbreakers", "display_name": "Wallbreakers"},
+        {"name": "AxeMan", "display_name": "Executioner"},
+        {"name": "Elixir Collector", "display_name": "Elixir Collector"},
+        {"name": "Goblins", "display_name": "Goblins"},
+        {"name": "TwinA", "display_name": "Twin"},
+        {"name": "TwinB", "display_name": "Twin"},
+    ]
+    names = {c["name"] for c in cards}
+    display = m.display_names(cards)
+    for log, card in [
+        ("Ice Spirit", "IceSpirits"),
+        ("Ice Golem", "IceGolemite"),
+        ("Wall Breakers", "Wallbreakers"),
+        ("Executioner", "AxeMan"),
+        ("ElixirCollector", "Elixir Collector"),
+        ("Goblins", "Goblins"),
+    ]:
+        assert m.canon_name(log, names, display) == card, log
+    # a display name two cards share matches neither; a name nothing carries is kept as it is
+    assert m.canon_name("Twin", names, display) == "Twin"
+    assert m.canon_name("Giant Snowball", names, display) == "Giant Snowball"
+    # the tap reaches the fixture with its tick and point
+    log = tmp_path / "placements.jsonl"
+    rows = [{"local_side_native": 0}, {"tick": 1912, "cycled": "Ice Spirit", "tile": [14.5, 1.5], "for": "Knight"}]
+    log.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    ids = {"IceSpirits": 26000030}
+    taps, _ = m.read_placements([str(log)], names, ids, set(), None, display)
+    got = [(t["card"], t["id"], t["tick"], t["native"]) for t in taps]
+    assert got == [("IceSpirits", 26000030, 1912, [3500, 1500])], got
+    taps, _ = m.read_placements([str(log)], names, ids, set())
+    assert [t["id"] for t in taps] == [None], "without the display names the tap names no card, as before"
+
+
 def test_a_troop_tap_on_the_centre_line_goes_to_the_tile_on_its_right(m):
     # 002736's Royal Hogs: the log asked for (9000, 12500), the tile boundary on the centre line,
     # and the game put them one tile right; the fixture fed the raw point and the hogs started

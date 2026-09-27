@@ -25,6 +25,11 @@
 //! carries and all of which the game already enforced) and not `scenario_spawn_now` (ONE
 //! entity, no formation, NO deploy timer: it would walk 20 ticks early).
 //!
+//! WHERE THE POINT IS RESOLVED. The client resolves a tap on the board of the tick it was
+//! TAPPED, some 25 ticks before the units appear. A corpus troop row whose placements-log tap
+//! is older than its issue tick has its point resolved on the tap tick's board and is played
+//! from there (`resolve_tick`); every other row is resolved when it is issued.
+//!
 //! MATCHING. A sim entity is reduced to its ROOT card: the card that was deployed to
 //! put it there -- itself for a deployed card, its spawner's card for a spawner
 //! emission (`spawned_by`), the card the harness deployed on that tick for a SECOND
@@ -183,7 +188,8 @@ pub struct Deploy {
     #[serde(default)]
     pub families: Vec<String>,
     /// The tap, native, as the 15.535.29 scenario emitter writes it: an [x, y] pair. A corpus fixture writes
-    /// an object here, which this harness does not play from (`play_point`).
+    /// an object here, `{"tick", "native", "cycled"}` from the placements log, which this harness does not play
+    /// from (`play_point`); its `tick` is the board a troop's point is resolved on (`resolve_tick`).
     #[serde(default)]
     pub tap: Option<serde_json::Value>,
     /// Where `pos` came from, as the scenario emitter labels it (observed_spawn, observed_spawn_centroid,
@@ -264,6 +270,43 @@ pub fn play_point(d: &Deploy) -> [i32; 2] {
         (Some("observed_spawn_centroid" | "tap_request_no_unit_observed"), Some(t)) => t,
         _ => d.pos,
     }
+}
+
+/// THE TICK WHOSE BOARD A DEPLOY'S POINT IS RESOLVED ON, when that is not the issue tick (`tick - 1`).
+///
+/// The client resolves a tap -- snaps it, moves it off a tile it may not stand on -- when the player taps, and the
+/// units appear 22 to 75 ticks later (median 25 over the 623 tapped troop rows of the 16.402 corpus). A law that
+/// reads the board therefore reads the board of the TAP tick. Measured on the corpus: a troop tapped on the tile of
+/// a Rage its own side cast 1 to 4 ticks before is laid one tile over, though the bottle is gone (C + 9) long before
+/// the troop appears (C + 25 to C + 28): 20260918-134739 and 20260919-182539 (both seats) and 20260918-133849. The
+/// same tile tapped 30 or more ticks after a cast is laid as tapped (20260919-182539 t532 and t1094, 20260919-143305).
+///
+/// A troop row of a corpus fixture carries its placements-log tap as an object with a `tick`; when that tick is before
+/// the issue tick, the row's play point is resolved on that tick's board (`resolve_on_board`) and played, at the
+/// issue tick, from the resolved point. Every other row (a scenario row, whose tap is an [x, y] pair and whose issue
+/// tick is its tap; a spell; a building, which `spawn_unit` plays where it was seen; a row with no tap) is resolved
+/// at its issue as before. `spawn_unit` resolves the point again at the issue; a point already resolved is legal
+/// there unless the board changed under it, and then the issue tick's law applies to it.
+///
+/// Plant: replay_resolves_at_issue.
+pub fn resolve_tick(d: &Deploy) -> Option<u32> {
+    #[cfg(clash_plant = "replay_resolves_at_issue")]
+    {
+        return None; // PLANT (regression): every deploy resolved on its issue tick's board.
+    }
+    #[allow(unreachable_code)]
+    let tap = d.tap.as_ref()?.as_object()?;
+    let t = u32::try_from(tap.get("tick")?.as_u64()?).ok()?;
+    (d.kind == "troop" && t.saturating_add(1) < d.tick).then_some(t)
+}
+
+/// The point `spawn_unit` would put deploy `d` at on the board `s` holds NOW: `play_point`, through the engine's
+/// own placement resolution (state.rs `resolve_point`: the snap, the relocation off a tile the troop may not take).
+/// None for a card this CardDb does not hold.
+pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2> {
+    let idx = db.index(&mirror_play(d))?;
+    let p = play_point(d);
+    Some(s.resolve_point(team_of(d.side), idx, from_native(p[0], p[1])))
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -647,6 +690,9 @@ pub struct DeployIssue {
     pub card: String,
     /// `tick_count()` when spawn_unit was called.
     pub issued_at: u32,
+    /// `tick_count()` of the board the play point was resolved on, when that was not the issue tick's
+    /// (`resolve_tick`); None when it was resolved at the issue.
+    pub resolved_on: Option<u32>,
     pub result: Result<(), String>,
 }
 
@@ -1161,9 +1207,16 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     // (tick the units exist from, team, card) of every troop deploy the harness issued
     let mut deploys_issued: Vec<(u32, Team, u16)> = Vec::new();
     let mut seen_alive: BTreeSet<(u32, u32)> = BTreeSet::new();
-    let mut deploys_by_tick: BTreeMap<u32, Vec<&Deploy>> = BTreeMap::new();
-    for d in f.deploys.iter().filter(|d| cut.map_or(true, |c| d.tick < c)) {
-        deploys_by_tick.entry(d.tick).or_default().push(d);
+    let mut deploys_by_tick: BTreeMap<u32, Vec<(usize, &Deploy)>> = BTreeMap::new();
+    // the rows resolved on an earlier board than their issue tick's, by that board's tick (`resolve_tick`), and
+    // the point each was resolved to, by its index in `f.deploys`
+    let mut resolve_on: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    let mut resolved: BTreeMap<usize, (u32, Vec2)> = BTreeMap::new();
+    for (i, d) in f.deploys.iter().enumerate().filter(|(_, d)| cut.map_or(true, |c| d.tick < c)) {
+        deploys_by_tick.entry(d.tick).or_default().push((i, d));
+        if let Some(t) = resolve_tick(d) {
+            resolve_on.entry(t).or_default().push(i);
+        }
     }
     let last_tick = report.last_tick;
 
@@ -1276,12 +1329,26 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         // before, so the engine's units exist one tick after the recording's.
         #[cfg(clash_plant = "replay_deploys_one_tick_late")]
         let due = tick;
+        // rows tapped on this tick are resolved on this board (`resolve_tick`); nothing is issued here, so the
+        // order against the issues below does not matter (spawn_unit only queues)
+        if let Some(ix) = resolve_on.get(&tick) {
+            for &i in ix {
+                if let Some(p) = resolve_on_board(&s, db, &f.deploys[i]) {
+                    resolved.insert(i, (tick, p));
+                }
+            }
+        }
         if let Some(list) = deploys_by_tick.get(&due) {
-            for d in list {
+            for (i, d) in list {
                 let team = team_of(d.side);
                 let name = mirror_play(d);
-                let p = play_point(d);
-                let pos = from_native(p[0], p[1]);
+                let (resolved_on, pos) = match resolved.get(i) {
+                    Some(&(t, p)) => (Some(t), p),
+                    None => {
+                        let p = play_point(d);
+                        (None, from_native(p[0], p[1]))
+                    }
+                };
                 let r = s.spawn_unit(team, &name, pos, d.level);
                 if r.is_ok() {
                     if let Some(idx) = db.index(&name) {
@@ -1292,7 +1359,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                         }
                     }
                 }
-                report.deploys.push(DeployIssue { tick: d.tick, side: d.side, card: name, issued_at: s.tick_count(), result: r.map_err(|e| format!("{e:?}")) });
+                report.deploys.push(DeployIssue { tick: d.tick, side: d.side, card: name, issued_at: s.tick_count(), resolved_on, result: r.map_err(|e| format!("{e:?}")) });
             }
         }
         let alive_before: Vec<(EntityId, Team, u16, Vec2)> = s.entities().map(|e| (e.id, e.team, e.card_idx, e.pos)).collect();
