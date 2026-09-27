@@ -5,7 +5,7 @@ on (a princess tower killing one-shot Skeletons keeps its 16-tick cadence). On c
 that holds only when the new target stands in attack range: of the kills whose next target was named at once (no
 post-kill wait), 194 of 196 in reach kept the swing and 23 of 23 out of reach dropped it (progress 0, walking), 13 of
 them mid-swing: a Bowler whose boulder killed a Skeleton walked on the next tick after a Knight out of its reach
-(20260920-081819, 1673 and 1674). Today's engine keeps the swing whatever the range, so the Bowler stands until the
+(20260920-081819, 1673 and 1674). The old arm keeps the swing whatever the range, so the Bowler stands until the
 swing lands.
 The scene: a blue Bowler at (9500, 8000), a red Skeleton at (9500, 12500) and a red Knight at (9500, 14700), with
 combat.RANGE_PROJECTILE = straight_to_range. The Bowler's first boulder kills the Skeleton some ticks after the launch,
@@ -112,7 +112,7 @@ def test_a_kill_followed_by_a_target_out_of_reach_drops_the_swing():
     assert_the_swing_is_dropped(NEW_ARM)
 
 
-def test_old_arm_is_todays_engine():
+def test_old_arm_is_the_pre_flip_engine():
     rows, _, _, switch = the_switch(OLD_ARM)
     assert rows[switch][0][F["attack_phase"]] == WINDUP, (
         f"old arm: the swing did not run on across the kill on {switch + 1}"

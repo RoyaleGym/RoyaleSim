@@ -11,10 +11,10 @@
 //! Skeleton mid-swing and its next target is the Knight, out of reach. WHAT IS PINNED, each with its precondition:
 //!   1. client_in_reach_only: on the tick the Bowler takes the Knight its swing is dropped (Idle, progress 0), and it
 //!      walks;
-//!   2. keeps_any: on that tick the swing runs on (today's engine);
+//!   2. keeps_any: on that tick the swing runs on (the old arm);
 //!   3. both values: a princess tower replacing its dead Skeletons by Skeletons in its range keeps its cadence
 //!      (tests/test_retarget_cadence.py's swarm: kills at most 17 ticks apart, its HitSpeed 16);
-//!   4. the shipped value is keeps_any.
+//!   4. the shipped value is client_in_reach_only.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test corpse_switch_reach`):
 //!   * `corpse_switch_keeps_any` -- client_in_reach_only still keeps the swing onto a target out of reach: (1) goes red.
@@ -156,6 +156,6 @@ fn a_tower_replacing_its_victims_in_range_keeps_its_cadence_on_both_values() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().corpse_switch_reach, OLD);
+fn the_shipped_value_is_the_new_one() {
+    assert_eq!(Calib::shipped().corpse_switch_reach, NEW);
 }
