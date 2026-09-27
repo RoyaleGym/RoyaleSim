@@ -443,6 +443,32 @@ fn keeps_fired(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     attacking || in_attack_range(ctx.calib, e.pos[a], keep, e.radius[a], e.pos[c], e.radius[c])
 }
 
+/// targeting.DOOMED_DROP_SWING = client_keep_in_reach: is `a`'s live target `t` let go of ONLY because the shots in
+/// flight doom it (targeting.DOOMED_TARGET_DROP: `can_target` refuses it, and would take it with no unit doomed)? Such a
+/// drop is a switch away from a live target, not a broken lock, so `decide` does not cancel the swing for it and
+/// combat.RETARGET_PROGRESS decides (state.rs `phase_target_with`): under keep_when_dead_or_in_reach a switch to an enemy
+/// already in reach keeps the swing, and one to an enemy out of reach, or to nothing, cancels it. Measured on the 16.402
+/// corpus, one seat per battle (38 battles): a projectile attacker attacking a target that the shots in flight doom, and
+/// that has not fired at it, switches on the next tick; when the new target stands in its reach on the start-of-tick
+/// positions its attack progress runs on (57 of 57: 38 troops, 19 crown towers; 20260920-072148 tick 1035: a Minion at
+/// progress 1050 of 1200 switches from a Skeleton doomed by a Musketeer's shot to another in reach, reads 1100 and 1150,
+/// and fires on 1037), and when it does not the attacker walks with progress 0 (44 of 44 troops; 19 of 19 towers go
+/// idle). Client 15.535.29 battery: 31 of 31 in reach kept. Always false under cancel, today's engine.
+#[inline]
+fn dropped_for_doom(ctx: &TargetCtx, a: usize, t: EntityId) -> bool {
+    #[cfg(not(clash_plant = "doomed_drop_cancels_swing"))]
+    let keep_swing = ctx.calib.doomed_drop_swing == crate::state::DoomedDropSwing::ClientKeepInReach;
+    #[cfg(clash_plant = "doomed_drop_cancels_swing")]
+    let keep_swing = false; // PLANT (regression): the new arm still cancels the swing when a doomed target is dropped.
+    if !keep_swing {
+        return false;
+    }
+    let e = ctx.ents;
+    let c = t.index as usize;
+    let undoomed = TargetCtx { doomed: &[], ..*ctx };
+    e.is_alive(t) && ctx.doomed.get(c).copied().unwrap_or(false) && can_target(&undoomed, a, c, keeps_fired(ctx, a, c))
+}
+
 /// targeting.MINIMUM_RANGE = client16402_edge_distance: does `c` stand inside attacker `a`'s MinimumRange, its edge
 /// distance (centre distance less both collision radii) below it? Start-of-tick positions (the Target phase). The
 /// measured law names both radii, so this does not follow targeting.ATTACK_RANGE_RULE. False for a card without
@@ -742,7 +768,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             if dropped {
                 return TargetDecision { target: scan_with(ctx, a, scratch, Some(t)), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
             }
-        } else if e.target_locked[a] || too_close {
+        } else if (e.target_locked[a] && !dropped_for_doom(ctx, a, t)) || too_close {
             cancel = true;
         }
     }

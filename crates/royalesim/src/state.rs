@@ -329,6 +329,10 @@ pub struct Calib {
     /// `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "doomed_target_drop_default")]
     pub doomed_target_drop: DoomedTargetDrop,
+    /// targeting.DOOMED_DROP_SWING: whether dropping a doomed target cancels the attacker's swing (target.rs
+    /// `decide`, `dropped_for_doom`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "doomed_drop_swing_default")]
+    pub doomed_drop_swing: DoomedDropSwing,
     /// targeting.CHASE_DROP_RANGE: how far a walking troop keeps a troop it chases out of its attack reach
     /// (target.rs `decide`, `scan`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle
     /// saved before it actually ran.
@@ -1051,6 +1055,10 @@ fn spawn_projectile_default() -> SpawnProjectile {
 
 fn doomed_target_drop_default() -> DoomedTargetDrop {
     DoomedTargetDrop::Keep
+}
+
+fn doomed_drop_swing_default() -> DoomedDropSwing {
+    DoomedDropSwing::Cancel
 }
 
 fn chase_drop_range_default() -> ChaseDropRange {
@@ -1994,6 +2002,20 @@ impl DoomedTargetDrop {
         self != DoomedTargetDrop::Keep
     }
 }
+calib_enum!(
+    /// targeting.DOOMED_DROP_SWING -- what dropping a doomed target (targeting.DOOMED_TARGET_DROP) does to the
+    /// attacker's swing (target.rs `decide`, `dropped_for_doom`).
+    DoomedDropSwing {
+        /// Today's engine: an attacker in its swing (the windup lock) that drops a doomed target cancels the swing, so
+        /// its next shot comes a whole fresh cycle later, whatever it takes next.
+        Cancel = "cancel",
+        /// Measured on the 16.402 corpus: the drop is a switch away from a live target, so combat.RETARGET_PROGRESS
+        /// decides. Under keep_when_dead_or_in_reach an attacker whose new target already stands in its reach keeps its
+        /// progress and fires on the old cycle (57 of 57 corpus switches, 19 of them crown towers; 31 of 31 in the
+        /// client 15.535.29 battery), and one whose new target is out of reach walks with progress 0 (44 of 44).
+        ClientKeepInReach = "client_keep_in_reach",
+    }
+);
 calib_enum!(
     /// targeting.CHASE_DROP_RANGE -- how far a walking troop keeps a troop it chases out of its attack reach
     /// (target.rs `decide`, `scan`).
@@ -4239,6 +4261,7 @@ impl Calib {
             deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
             spawn_projectile: pick(&v, &["combat", "SPAWN_PROJECTILE", "value"], SpawnProjectile::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
+            doomed_drop_swing: pick(&v, &["targeting", "DOOMED_DROP_SWING", "value"], DoomedDropSwing::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
@@ -14974,6 +14997,9 @@ impl BattleState {
 /// 20, unchanged, targeting.FALLEN_LANE_TOWER_PICK: Calib gained fallen_lane_tower_pick (serde default the old arm,
 ///    current_x), no new state (the rule reads entity.rs `spawn_lane`, already saved), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_DROP_SWING: Calib gained doomed_drop_swing (serde default the old arm, cancel), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15374,6 +15400,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_pathfind_body".into(), serde_json::to_value(SpawnPathfindBody::OrdinaryTroop).map_err(|e| e.to_string())?);
     sh.insert("morph_birth_drain".into(), serde_json::to_value(MorphBirthDrain::None).map_err(|e| e.to_string())?);
     sh.insert("spawn_pathfind_destination".into(), serde_json::to_value(SpawnPathfindDestination::OrdinaryGroundDeployPoint).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_DROP_SWING: a format-3 battle dropped no doomed target, so it cancelled no swing for one; it runs
+    // the old arm whatever the ledger ships (the same rule).
+    sh.insert("doomed_drop_swing".into(), serde_json::to_value(DoomedDropSwing::Cancel).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
