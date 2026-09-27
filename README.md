@@ -507,8 +507,9 @@ Working:
 Not modelled yet, in plain words:
 
 - The 18 cards in `thin_slice` (`data/derived/cards.json`) are the ones the engine has been
-  checked on. The rest of the cards it plays are not. A few of those show up in tests
-  of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
+  checked on. For the other cards it loads from the 15.535 table, only some rules are measured
+  against recordings, such as the Inferno damage ramp and the Mortar's minimum range. A few of
+  those cards show up in tests of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
   mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
 - Morph, air units beyond flying straight at their target, evolutions, champions' abilities
