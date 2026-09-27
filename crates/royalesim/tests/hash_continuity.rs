@@ -116,36 +116,7 @@ const ROW: usize = 8;
 /// The rows this change makes loadable that its parent refused while converting them,
 /// as (table file, card name). Empty in a change that loads no card. The rule is in the
 /// header (LOADED_SINCE_PARENT): never a row the parent refused after pushing it.
-const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
-    // the underground walk (movement.SPAWN_PATHFIND_STATES): both refused in `convert` at the parent
-    ("cards.json", "GoblinDrill"),
-    ("cards.json", "Miner"),
-    // the elixir economy and the interval spawner: both refused in `convert` at the parent
-    ("cards.json", "Elixir Collector"),
-    ("cards.json", "FirespiritHut"),
-    // the Ram Rider: its parent refused the Ram's row while converting it (its Spawn* block had no
-    // SpawnPauseTime), and it now loads with its attached rider
-    ("cards.json", "RamRider"),
-    // the explicit offsets, the Mirror and the variant card: all three refused in `convert` at the parent
-    ("cards.json", "ThreeMusketeers"),
-    ("cards.json", "Mirror"),
-    ("cards.json", "MergeMaiden"),
-    // the curses and the centre-aimed strike: all three refused in `convert` at the parent
-    ("cards.json", "WitchMother"),
-    ("cards.json", "RoyalDelivery"),
-    ("cards.json", "GoblinCurse"),
-    // The Rune Giant, with his enchant (the ledger's `enchant` section). It needs no summon-only unit, so no later slot
-    // moves once it is removed.
-    ("cards.json", "GiantBuffer"),
-    // The health-threshold transformation (tests/transform.rs): both were refused in `convert` for their action
-    // graph, never pushed. Their target rows, BrokenCannon and GoblinDemolisher_kamikaze_form, are new summon-only
-    // slots reached through these two rows alone.
-    ("cards.json", "MovingCannon"),
-    ("cards.json", "GoblinDemolisher"),
-    // The counter (tests/parry.rs): refused in `convert` for its action graph, never pushed. Its stun row is a new
-    // buff interned at its place in load order, so without it every later buff keeps its parent's index too.
-    ("cards.json", "Ronin"),
-];
+const LOADED_SINCE_PARENT: &[(&str, &str)] = &[];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is
 /// accepted). Any other refusal fails the run that meets it, recording or checking: a
