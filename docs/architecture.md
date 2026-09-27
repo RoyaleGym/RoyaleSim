@@ -110,16 +110,22 @@ favour one side of the board. `tests/mirror.rs` checks this every tick over scri
 games, including multi-unit deploys, the centre column, and both seats casting the same spell on
 the same tick.
 
-Two laws are deliberate exceptions, and both are measured properties of the game rather than
-engine conveniences. Routing: the client plans in **absolute arena coordinates**, so a Red unit's
-route is not the rotation of its Blue twin's. The engine reproduces that under the `client16402`
-arm, and the rotation gates run under the frame-planned arm instead. `pathfinding.md` gives the
-evidence. The summon ground clamp (`formation.GROUND_Y_CLAMP`): the deployable y range a
-multi-unit summon's ground members are held inside is measured per side, and side 1's is not the
-rotation of side 0's. So a Red multi-unit GROUND deploy is not the rotation of its Blue twin
-either. Flying members and single-unit cards are untouched by the clamp, so they are the rotation
-of their twins. The rotation gates select `deploy_column_range_own_frame` for the same reason they
-select the frame-planned search: so that the exception does not answer for everything else.
+Some laws are deliberate exceptions, each a measured property of the game rather than an engine
+convenience. `symmetric_config` in `crates/royalesim/tests/common/mod.rs` lists every arm the
+rotation gates select instead. Three of them follow. Routing: the client plans in **absolute arena
+coordinates**, so a Red unit's route is not the rotation of its Blue twin's. The engine reproduces
+that under the `client16402` arm, and the rotation gates run under the frame-planned arm instead.
+`pathfinding.md` gives the evidence. The summon ground clamp (`formation.GROUND_Y_CLAMP`): the
+deployable y range a multi-unit summon's ground members are held inside is measured per side, and
+side 1's is not the rotation of side 0's. So a Red multi-unit GROUND deploy is not the rotation of
+its Blue twin either. Flying members are untouched by the clamp, so they are the rotation of their
+twins, and a single ground unit is held only at its column's back bound (the next law). The
+rotation gates select `deploy_column_range_own_frame` for the same reason they select the
+frame-planned search: so that the exception does not answer for everything else. Troop taps at the
+own crown towers (`placement.TROOP_TOWER_TAPS`): the own king's no-deploy block is half-open in
+absolute arena coordinates, so a troop tapped on its edge can be legal for one seat and refused to
+the rotated twin. Side 1's single ground unit tapped behind its column's back bound stands on that
+bound; side 0's bound is the arena's edge. The rotation gates select `closed_block`.
 
 ## Module map
 

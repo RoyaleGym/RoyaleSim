@@ -41,7 +41,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Lane};
-use crate::card::CardDb;
+use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
@@ -153,6 +153,41 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
         in_range_edge(from, target, reach, target_radius)
     } else {
         in_range_edge(from, target, range, 0)
+    }
+}
+
+/// targeting.VARIABLE_DAMAGE_WALK_REACH: the attacker radius a WALKING unit's reach adds, where `own` is its
+/// collision radius (subtiles). Under client16402_no_own_radius_walking, 0 for a FLYING card whose row sets
+/// VariableDamage2 (card.rs `CardDef::variable_damage`, `is_flying`): in the 15.535.29 tables that is the Inferno
+/// Dragon's row alone. `own` for every other card (the Mighty Miner, a ground row with the column, is unmeasured and
+/// keeps its own radius) and under the old arm. The caller decides what "walking" is (the Path phase's goal cell and
+/// direct aim, which run only for a unit about to walk; a unit holding a walking goal, entity.rs `route_goal`, in the
+/// Path phase's in-range test and the attack cycle's range gate). A STANDING unit's reach adds its own radius under
+/// both arms.
+///
+/// Measured on the 16.402 corpus (one Inferno Dragon battle, one seat) and on client 15.535.29 (the Inferno Dragon
+/// sweep scene): a walking Inferno Dragon walked on through 31 + 16 ticks that started with its target inside Range +
+/// both radii but outside Range + the target's radius, and stopped on none; it stopped 4 + 2 times, each on the first
+/// tick that started inside Range + the target's radius. Walkers of every other card stood on 979 + 235 such ticks
+/// (and walked on 277 + 38). Standing, it held its place through 42 + 17 ticks with the target in that band, and its
+/// attack gate let go only past Range + both radii (the sweep's 4,506 from a Knight, 6 past it). Its goal cells lie
+/// within Range of the target's centre (the largest 3,523 of 20 choices on the corpus seat, 3,509 of 5 in the
+/// sweep); every other flyer's reach Range + its radius.
+#[inline]
+pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
+    #[cfg(not(clash_plant = "walk_reach_keeps_own_radius"))]
+    let no_own = calib.variable_damage_walk_reach == crate::state::VariableDamageWalkReach::Client16402NoOwnRadiusWalking
+        && card.variable_damage.is_some()
+        && card.is_flying();
+    #[cfg(clash_plant = "walk_reach_keeps_own_radius")]
+    let no_own = {
+        let _ = (calib, card);
+        false // PLANT (regression): the new arm still adds the walker's own radius.
+    };
+    if no_own {
+        0
+    } else {
+        own
     }
 }
 
@@ -406,6 +441,32 @@ fn keeps_fired(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     let attacking = false; // PLANT (regression): the keep reach alone decides, so an attacker in its attack drops too.
     let keep = ctx.cards.get(e.card[a]).range + ctx.calib.range_extension_to_keep_target;
     attacking || in_attack_range(ctx.calib, e.pos[a], keep, e.radius[a], e.pos[c], e.radius[c])
+}
+
+/// targeting.DOOMED_DROP_SWING = client_keep_in_reach: is `a`'s live target `t` let go of ONLY because the shots in
+/// flight doom it (targeting.DOOMED_TARGET_DROP: `can_target` refuses it, and would take it with no unit doomed)? Such a
+/// drop is a switch away from a live target, not a broken lock, so `decide` does not cancel the swing for it and
+/// combat.RETARGET_PROGRESS decides (state.rs `phase_target_with`): under keep_when_dead_or_in_reach a switch to an enemy
+/// already in reach keeps the swing, and one to an enemy out of reach, or to nothing, cancels it. Measured on the 16.402
+/// corpus, one seat per battle (38 battles): a projectile attacker attacking a target that the shots in flight doom, and
+/// that has not fired at it, switches on the next tick; when the new target stands in its reach on the start-of-tick
+/// positions its attack progress runs on (57 of 57: 38 troops, 19 crown towers; 20260920-072148 tick 1035: a Minion at
+/// progress 1050 of 1200 switches from a Skeleton doomed by a Musketeer's shot to another in reach, reads 1100 and 1150,
+/// and fires on 1037), and when it does not the attacker walks with progress 0 (44 of 44 troops; 19 of 19 towers go
+/// idle). Client 15.535.29 battery: 31 of 31 in reach kept. Always false under cancel, today's engine.
+#[inline]
+fn dropped_for_doom(ctx: &TargetCtx, a: usize, t: EntityId) -> bool {
+    #[cfg(not(clash_plant = "doomed_drop_cancels_swing"))]
+    let keep_swing = ctx.calib.doomed_drop_swing == crate::state::DoomedDropSwing::ClientKeepInReach;
+    #[cfg(clash_plant = "doomed_drop_cancels_swing")]
+    let keep_swing = false; // PLANT (regression): the new arm still cancels the swing when a doomed target is dropped.
+    if !keep_swing {
+        return false;
+    }
+    let e = ctx.ents;
+    let c = t.index as usize;
+    let undoomed = TargetCtx { doomed: &[], ..*ctx };
+    e.is_alive(t) && ctx.doomed.get(c).copied().unwrap_or(false) && can_target(&undoomed, a, c, keeps_fired(ctx, a, c))
 }
 
 /// targeting.MINIMUM_RANGE = client16402_edge_distance: does `c` stand inside attacker `a`'s MinimumRange, its edge
@@ -698,6 +759,24 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             // THE DROP IS AN EDGE: only a target the previous Target phase found within the limit (entity.rs
             // `chase_inside` names it) is let go. One taken past the limit, at plain sight, is walked after and
             // rescanned as today until it has been inside (client 15.535.29, the chase scenarios: 31 of 31 such ticks).
+            //
+            // targeting.CHASE_DROP_KNOCKED_TARGET = client_holds_knocked: a troop target SLIDING under a knockback (the
+            // slide or the ladder; not a hook's drag), still in sight, is held through the slide: neither the chase
+            // drop nor the rescan below lets it go, as the early return above holds an attacker's own target while the
+            // attacker slides. After the slide it stands where the push left it; past the limit it has not been inside
+            // since (the Target phase records `chase_inside` only within the limit), so it is walked after and
+            // rescanned as any troop taken past the limit. Measured on the 16.402 corpus: 3 of 3 pushes that carried a
+            // held troop target across the limit kept it, all three by the holder's own boulder (a Bowler; a Bomber
+            // twice, attacking, and a Knight, walking). A push by anything else is inferred.
+            #[cfg(not(clash_plant = "chase_drop_knocked_dropped"))]
+            let holds_sliding = ctx.calib.chase_drop_knocked == crate::state::ChaseDropKnocked::ClientHoldsKnocked
+                && chase_drop_applies(ctx, a, ti)
+                && (e.knock_ms[ti] > 0 || e.push_active[ti]);
+            #[cfg(clash_plant = "chase_drop_knocked_dropped")]
+            let holds_sliding = false; // PLANT (regression): client_holds_knocked still lets a sliding target go.
+            if holds_sliding && in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti), e.radius[a], e.pos[ti], e.radius[ti]) {
+                return TargetDecision { target: Some(t), cancel_attack: cancel, resumed: false, chase_dropped: None };
+            }
             #[cfg(not(any(clash_plant = "chase_drop_ignored", clash_plant = "chase_drop_level_triggered")))]
             let dropped = chase_drop_applies(ctx, a, ti) && e.chase_inside[a] == Some(t) && beyond_chase_limit(ctx, a, ti);
             #[cfg(all(clash_plant = "chase_drop_level_triggered", not(clash_plant = "chase_drop_ignored")))]
@@ -707,7 +786,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             if dropped {
                 return TargetDecision { target: scan_with(ctx, a, scratch, Some(t)), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
             }
-        } else if e.target_locked[a] || too_close {
+        } else if (e.target_locked[a] && !dropped_for_doom(ctx, a, t)) || too_close {
             cancel = true;
         }
     }
@@ -737,6 +816,24 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         if lane_pick {
             let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
             return live(ctx.towers[enemy][1 + lane as usize]).or_else(|| live(ctx.towers[enemy][0]));
+        }
+        // targeting.FALLEN_LANE_TOWER_PICK = client16402_spawn_lane_king: after the window, a troop whose SPAWN lane's
+        // enemy princess tower is down walks to the king, wherever it stands; one whose spawn-lane tower stands takes
+        // the tower of its current x below, as today. Read under both of FIRST_TOWER_PICK's spawn-lane arms, the ones
+        // that keep `spawn_lane`. Measured on the 16.402 corpus (one seat per battle): 5 default picks, by 5 troops in
+        // 3 battles, made with one enemy princess tower down while the troop stood on the other side of the centre
+        // from its spawn lane, took the king, 0 the princess tower of their x (20260920-082459 tick 2635: an Inferno
+        // Dragon created at x 8500, at x 9460 after a chase, flew to the king past a standing right princess tower).
+        // No client 15.535.29 run separates the rules (10 default picks with one tower down, all where they agree).
+        #[cfg(not(clash_plant = "fallen_lane_by_x"))]
+        let fallen_lane_king = ctx.calib.fallen_lane_tower_pick == crate::state::FallenLaneTowerPick::Client16402SpawnLaneKing;
+        #[cfg(clash_plant = "fallen_lane_by_x")]
+        let fallen_lane_king = false; // PLANT (regression): the new arm still takes the tower of the current x.
+        if fallen_lane_king && ctx.calib.first_tower_pick.spawn_lane() && e.spawn_lane[a] != 0 {
+            let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
+            if live(ctx.towers[enemy][1 + lane as usize]).is_none() && live(ctx.towers[enemy][0]).is_some() {
+                return live(ctx.towers[enemy][0]);
+            }
         }
         // THE LANE IS DECIDED IN THE ATTACKER'S OWN FRAME, with the centre line going
         // own-left. targeting.CENTRE_LANE_FRAME, and the ledger entry carries the history.

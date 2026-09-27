@@ -9,7 +9,8 @@ Measured on the client 15.535.29 Hunter scenarios, 26 volleys in 5 runs: the spa
 Knight's start-of-tick centre to 0.04 degrees, the offsets hold to 0.06 degrees, every aim point is 6499-6501 out, and
 every delay is 1-5 (a single 1 among about 250). The delays repeat by volley number across scenes on the same battle
 seed ([4, 2, 3, 4, 3, 4, 3, 5, 3, 4] for the first), so they come from the battle's random stream; this key pins their
-range, not their order. Today's engine fires one projectile a shot.
+range, not their order. The old arms (to_target and one, shipped until the 2026-09-27 and 2026-09-26 flips) fire
+one projectile a shot.
 
 WHY THE CONTROL IS HERE. A row without MultipleProjectiles (a Musketeer) fires one projectile a shot on both arms.
 

@@ -130,6 +130,9 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // No kwarg: `calibration_overrides` reaches it, {"targeting.FIRST_TOWER_PICK": "client_spawn_lane_own_frame"}
     // (RoyaleGym rust_engine.py SYMMETRIC_ARMS selects its arms that way).
     "first_tower_pick",
+    // No kwarg either: {"placement.TROOP_TOWER_TAPS": "closed_block"} (SYMMETRIC_ARMS names it too). The shipped
+    // half-open king block is judged in absolute coordinates.
+    "placement_troop_tower_taps",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

@@ -81,6 +81,10 @@ pub fn symmetric_config() -> BattleConfig {
     // deploy at 9500 flips and its rotated twin does not. client_spawn_lane_own_frame runs the same rule in the
     // owner's frame. mirror.rs `a_summon_on_the_flip_band_is_symmetric_only_in_its_own_frame` deploys there.
     c.calib.first_tower_pick = royalesim::state::FirstTowerPick::ClientSpawnLaneOwnFrame;
+    // A troop tap at the own crown towers (placement.TROOP_TOWER_TAPS): the shipped client16402_half_open_relocate
+    // judges the own king block HALF-OPEN in ABSOLUTE coordinates, as measured, so a tap on its max edge is legal for
+    // one seat and its rotated twin is not. closed_block, the old arm, is the same for both seats.
+    c.calib.placement_troop_tower_taps = royalesim::state::TroopTowerTaps::ClosedBlock;
     c
 }
 

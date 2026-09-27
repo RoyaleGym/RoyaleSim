@@ -23,12 +23,18 @@
 //! WHAT IT CANNOT CATCH: whether the live 2026 game uses these sizes (the
 //! registry's promotion rule), and points off the half-cell lattice other than
 //! the +-1 subtile probes at rect edges.
+//!
+//! THE OWN TOWERS: the rule above is placement.TROOP_TOWER_TAPS = closed_block's, the
+//! old arm, which `board` selects. The shipped client16402_half_open_relocate opens the
+//! own king block's max edges in absolute coordinates (so it is not rotation-invariant)
+//! and moves a troop tapped on an own crown tower off it; tests/king_area_spawn_unit.rs,
+//! tests/tower_tap_push.rs and tests/test_king_area_placement.py pin that arm.
 mod common;
 
 use royalesim::arena::Rect;
 use royalesim::card::{KING_TOWER, PRINCESS_TOWER};
 use royalesim::fixed::Vec2;
-use royalesim::state::{footprint_of, BattleState, DeployError};
+use royalesim::state::{footprint_of, BattleState, DeployError, TroopTowerTaps};
 use royalesim::Team;
 use common::*;
 
@@ -37,6 +43,8 @@ use common::*;
 /// destroyed before the battle.
 fn board(down: &[(Team, usize)]) -> BattleState {
     let mut cfg = config();
+    // The closed block, the rule this file writes out (THE OWN TOWERS, above).
+    cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
     let deck: Vec<String> = ["Knight", "Archer", "Giant", "Minions", "Knight", "Archer", "Giant", "Minions"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     let mut s = BattleState::new(3, cfg);

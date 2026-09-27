@@ -329,11 +329,20 @@ pub struct Calib {
     /// `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "doomed_target_drop_default")]
     pub doomed_target_drop: DoomedTargetDrop,
+    /// targeting.DOOMED_DROP_SWING: whether dropping a doomed target cancels the attacker's swing (target.rs
+    /// `decide`, `dropped_for_doom`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "doomed_drop_swing_default")]
+    pub doomed_drop_swing: DoomedDropSwing,
     /// targeting.CHASE_DROP_RANGE: how far a walking troop keeps a troop it chases out of its attack reach
     /// (target.rs `decide`, `scan`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle
     /// saved before it actually ran.
     #[serde(default = "chase_drop_range_default")]
     pub chase_drop_range: ChaseDropRange,
+    /// targeting.CHASE_DROP_KNOCKED_TARGET: whether a troop holds a troop target that is sliding under a knockback
+    /// through the slide, where the chase drop and the rescan would let it go (target.rs `decide`). Read only under
+    /// chase_drop_range = client_sight_minus_1000. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "chase_drop_knocked_default")]
+    pub chase_drop_knocked: ChaseDropKnocked,
     /// targeting.LEAPING_UNIT_TARGETABILITY: who may target a troop in its river leap (target.rs `can_target`).
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "leaping_unit_targetability_default")]
@@ -342,6 +351,15 @@ pub struct Calib {
     /// `inside_minimum_range`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "minimum_range_default")]
     pub minimum_range: MinimumRange,
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH: whether a walking flyer whose row sets VariableDamage2 adds its own radius
+    /// to the reach it walks to and stops at (target.rs `walking_own_radius`). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is the old arm.
+    #[serde(default = "variable_damage_walk_reach_default")]
+    pub variable_damage_walk_reach: VariableDamageWalkReach,
+    /// collision.HELD_UNIT_CONTACT: whether a unit held by a freeze or a stun keeps its contact update and stays in
+    /// its neighbours' scans (`phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "held_unit_contact_default")]
+    pub held_unit_contact: HeldUnitContact,
     /// targeting.TARGET_RANK_DISTANCE: the distance a scan ranks its candidates by (target.rs `key`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "target_rank_distance_default")]
@@ -350,6 +368,11 @@ pub struct Calib {
     /// `spawn_now`, `summon_lane_flip`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "first_tower_pick_default")]
     pub first_tower_pick: FirstTowerPick,
+    /// targeting.FALLEN_LANE_TOWER_PICK: the default tower of a troop whose spawn lane's enemy princess tower is down,
+    /// after FIRST_TOWER_PICK's window (target.rs `default_tower`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// the old arm.
+    #[serde(default = "fallen_lane_tower_pick_default")]
+    pub fallen_lane_tower_pick: FallenLaneTowerPick,
     /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE: how far past its reach a crown tower holds a started
     /// shot (target.rs `locked_hold_beyond`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "tower_cancel_range_default")]
@@ -439,6 +462,15 @@ pub struct Calib {
     /// arm, what a battle saved before it actually ran.
     #[serde(default = "dash_attack_default")]
     pub dash_attack: DashAttack,
+    /// combat.DASH_FIRST_SIGHT_TRIGGER: whether a dasher that first sees its target already inside its trigger
+    /// distance starts its stand on that tick or on the next (`phase_path16402`'s dash). Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm.
+    #[serde(default = "dash_first_sight_trigger_default")]
+    pub dash_first_sight_trigger: DashFirstSightTrigger,
+    /// combat.DASH_PUSHBACK: whether a dash blow pushes its victims DashPushBack (`land_dash_blows`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "dash_pushback_default")]
+    pub dash_pushback: DashPushback,
     /// spells.SUMMON_FUSE_START (the bottle; spell.rs `step_spells`). Added after SNAPSHOT_FORMAT 20;
     /// a battle saved before it held no bottle, so the default is the shipped arm.
     #[serde(default = "summon_fuse_start_default")]
@@ -683,6 +715,10 @@ pub struct Calib {
     pub knock_zero_vector: KnockZeroVector,
     /// knockback.ATTACK_RESET.
     pub knock_attack_reset: KnockAttackReset,
+    /// knockback.PUSH_LOAD_TIMER: what the ATTACK_RESET reset does to the victim's load timer (`apply_effects`). Read
+    /// only under reset_attack_keep_target. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "push_load_timer_default")]
+    pub push_load_timer: PushLoadTimer,
     /// knockback.AFFECTS_DEPLOYING_UNITS.
     pub knock_affects_deploying: bool,
     /// knockback.DIRECTION_ROLLING.
@@ -704,6 +740,11 @@ pub struct Calib {
     pub resume_retarget_windup: ResumeWindup,
     /// combat.RETARGET_PROGRESS.
     pub retarget_progress: RetargetProgress,
+    /// combat.CORPSE_SWITCH_REACH: whether replacing a dead target keeps the swing only when the new target stands in
+    /// attack range (`phase_target`). Read only under the keep_when_dead arms of retarget_progress. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "corpse_switch_reach_default")]
+    pub corpse_switch_reach: CorpseSwitchReach,
     /// status.BUFF_EXPIRY_TICK_ALIGNMENT.
     pub buff_expiry: BuffExpiry,
     /// status.SAME_BUFF_REAPPLY.
@@ -1069,8 +1110,24 @@ fn doomed_target_drop_default() -> DoomedTargetDrop {
     DoomedTargetDrop::Keep
 }
 
+fn doomed_drop_swing_default() -> DoomedDropSwing {
+    DoomedDropSwing::Cancel
+}
+
 fn chase_drop_range_default() -> ChaseDropRange {
     ChaseDropRange::SightPlusRadii
+}
+
+fn chase_drop_knocked_default() -> ChaseDropKnocked {
+    ChaseDropKnocked::DropsKnocked
+}
+
+fn push_load_timer_default() -> PushLoadTimer {
+    PushLoadTimer::ResetToLoadTime
+}
+
+fn corpse_switch_reach_default() -> CorpseSwitchReach {
+    CorpseSwitchReach::KeepsAny
 }
 
 fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
@@ -1081,12 +1138,24 @@ fn minimum_range_default() -> MinimumRange {
     MinimumRange::NotRead
 }
 
+fn variable_damage_walk_reach_default() -> VariableDamageWalkReach {
+    VariableDamageWalkReach::RangePlusBothRadii
+}
+
+fn held_unit_contact_default() -> HeldUnitContact {
+    HeldUnitContact::OutOfThePass
+}
+
 fn target_rank_distance_default() -> TargetRankDistance {
     TargetRankDistance::CentreMinusTargetRadius
 }
 
 fn first_tower_pick_default() -> FirstTowerPick {
     FirstTowerPick::CurrentX
+}
+
+fn fallen_lane_tower_pick_default() -> FallenLaneTowerPick {
+    FallenLaneTowerPick::CurrentX
 }
 
 /// targeting.FIRST_TOWER_PICK = client_spawn_lane: the ENGINE lane bits of a troop created at `pos`, the tilemap read
@@ -1268,6 +1337,14 @@ fn spawn_pathfind_destination_default() -> SpawnPathfindDestination {
 
 fn dash_attack_default() -> DashAttack {
     DashAttack::None
+}
+
+fn dash_first_sight_trigger_default() -> DashFirstSightTrigger {
+    DashFirstSightTrigger::NextTick
+}
+
+fn dash_pushback_default() -> DashPushback {
+    DashPushback::NotRead
 }
 
 fn summon_fuse_start_default() -> SummonFuseStart {
@@ -1731,12 +1808,13 @@ calib_enum!(
 calib_enum!(
     /// placement.TROOP_TOWER_TAPS -- a troop tap at the owner's own crown tower.
     TroopTowerTaps {
-        /// Today's engine: the king block closed on every edge, a tap overlapping the tower
-        /// laid where tapped, a single unit not clamped.
+        /// The old arm (shipped until the 2026-09-27 flip): the king block closed on every edge, a
+        /// tap overlapping the tower laid where tapped, a single unit not clamped. Seat-symmetric, so
+        /// the rotation gates select it (tests/common `symmetric_config`).
         ClosedBlock = "closed_block",
-        /// Measured on 48 scenario casts on client 15.535.29: the king block half-open in absolute
-        /// coordinates; a troop tap whose tile overlaps an alive own crown tower relocated by
-        /// the building ring search; side 1's ground clamp on a single unit too.
+        /// Measured on 48 scenario casts on client 15.535.29 (shipped): the king block half-open in
+        /// absolute coordinates; a troop tap whose tile overlaps an alive own crown tower relocated
+        /// (placement.TOWER_TAP_PUSH); side 1's ground clamp on a single unit too.
         HalfOpenRelocate = "client16402_half_open_relocate",
     }
 );
@@ -1817,11 +1895,12 @@ calib_enum!(
     /// target.rs through `Entities::knocked`).
     KnockAttackReset {
         /// MEASURED on the live 16.402 captures (capture 20260920-081819-B: a Bomber
-        /// between hits at tick 2020, a Knight mid-windup at 3535): the push
+        /// between hits at tick 2020, a Knight pushed on the tick of its own hit, 3535): the push
         /// interrupts the attack whatever its phase -- state 1 through the ladder, the
-        /// swing counter zeroed, the load timer back to LoadTime on the hit tick, and a
-        /// FRESH LoadTime windup on re-entering range after the ladder; the target kept.
-        /// Windup or Cooldown -> Idle here.
+        /// swing counter zeroed, and a fresh entry on re-entering range after the
+        /// ladder; the target kept. Windup or Cooldown -> Idle here. What the push does
+        /// to the load timer is knockback.PUSH_LOAD_TIMER's (the Knight's 700 on 3535
+        /// was its own hit's reset: it hit on that tick).
         ResetAttackKeepTarget = "reset_attack_keep_target",
         /// The community reading this file shipped before the captures: a windup in
         /// progress returns to Idle, a cooldown is untouched (it freezes through the
@@ -1829,6 +1908,22 @@ calib_enum!(
         ResetWindupKeepTarget = "reset_windup_keep_target",
         /// The windup reset with the target dropped as well.
         ResetWindupClearTarget = "reset_windup_clear_target",
+    }
+);
+calib_enum!(
+    /// knockback.PUSH_LOAD_TIMER -- what the knockback.ATTACK_RESET = reset_attack_keep_target reset does to the
+    /// victim's load timer (state.rs `apply_effects`). The re-entry after the ladder takes the ordinary progress credit
+    /// off what is left of it (combat.ATTACK_CYCLE = progress_credit).
+    PushLoadTimer {
+        /// Today's engine: the landing tick sets the load timer to LoadTime, so a unit back in range within LoadTime of
+        /// the push swings late.
+        ResetToLoadTime = "reset_to_load_time",
+        /// Measured on client 15.535.29 and the 16.402 corpus: the push leaves the load timer as it was and it runs
+        /// down through the ladder (23 of 23 push landings where that differs from a reset, 25 records: 15 Knights
+        /// on client 15.535.29, 16 records, and 8 landings on the 16.402 corpus, 9 records); the re-entry reads
+        /// progress LoadTime + 100 minus the timer of the frame before (24 of 24 re-entries after a push). A Bomber
+        /// pushed at load 0 re-enters at 1650 and launches 3 ticks later (20260920-081051, 963 and 966).
+        ClientRunsOn = "client_runs_on",
     }
 );
 calib_enum!(
@@ -1894,6 +1989,21 @@ calib_enum!(
         /// reach on the next tick and hits it on the tick its swing at the Hog would have landed. A switch
         /// to a target out of range still clears the swing.
         KeepWhenDeadOrInReach = "keep_when_dead_or_in_reach",
+    }
+);
+calib_enum!(
+    /// combat.CORPSE_SWITCH_REACH -- under the keep_when_dead arms of combat.RETARGET_PROGRESS, whether a unit that
+    /// replaces a dead target keeps its swing whatever the new target's range (`phase_target`).
+    CorpseSwitchReach {
+        /// Today's engine: replacing a dead target is never a switch, so a swing already under way runs on and the
+        /// unit stands until it lands, even when the new target is out of reach.
+        KeepsAny = "keeps_any",
+        /// Measured on client 15.535.29 and the 16.402 corpus: the swing runs on only when the new target stands in
+        /// attack range on that tick; out of reach the swing is dropped (progress 0) and the unit walks. Among kills
+        /// whose next target was named at once (no post-kill wait), 23 of 23 with the new target out of reach dropped
+        /// the swing, 13 of them mid-swing, where the arms part (a Bowler whose boulder killed a Skeleton,
+        /// 20260920-081819 tick 1673, walked on 1674); in reach 194 of 196 kept it (the Inferno's ramp resets aside).
+        ClientInReachOnly = "client_in_reach_only",
     }
 );
 calib_enum!(
@@ -2030,6 +2140,20 @@ impl DoomedTargetDrop {
     }
 }
 calib_enum!(
+    /// targeting.DOOMED_DROP_SWING -- what dropping a doomed target (targeting.DOOMED_TARGET_DROP) does to the
+    /// attacker's swing (target.rs `decide`, `dropped_for_doom`).
+    DoomedDropSwing {
+        /// Today's engine: an attacker in its swing (the windup lock) that drops a doomed target cancels the swing, so
+        /// its next shot comes a whole fresh cycle later, whatever it takes next.
+        Cancel = "cancel",
+        /// Measured on the 16.402 corpus: the drop is a switch away from a live target, so combat.RETARGET_PROGRESS
+        /// decides. Under keep_when_dead_or_in_reach an attacker whose new target already stands in its reach keeps its
+        /// progress and fires on the old cycle (57 of 57 corpus switches, 19 of them crown towers; 31 of 31 in the
+        /// client 15.535.29 battery), and one whose new target is out of reach walks with progress 0 (44 of 44).
+        ClientKeepInReach = "client_keep_in_reach",
+    }
+);
+calib_enum!(
     /// targeting.CHASE_DROP_RANGE -- how far a walking troop keeps a troop it chases out of its attack reach
     /// (target.rs `decide`, `scan`).
     ChaseDropRange {
@@ -2044,6 +2168,26 @@ calib_enum!(
         /// of 31 such ticks in the chase scenarios kept it). Its later scans take that troop again only within the
         /// same limit, measured the same way; every other enemy is a candidate at plain sight.
         ClientSightMinus1000 = "client_sight_minus_1000",
+    }
+);
+calib_enum!(
+    /// targeting.CHASE_DROP_KNOCKED_TARGET -- what a troop does with a troop target that is sliding under a knockback
+    /// (the fixed-distance slide or the 16.402 ladder; a hook's drag is not one) beyond its keep reach (target.rs
+    /// `decide`). Read only under targeting.CHASE_DROP_RANGE = client_sight_minus_1000.
+    ChaseDropKnocked {
+        /// Today's engine: the sliding target is treated as any other: the chase drop lets it go on the first tick it
+        /// stands past the limit, and a rescan may take another enemy.
+        DropsKnocked = "drops_knocked",
+        /// Measured on the 16.402 corpus: a troop target sliding under a knockback, still in sight, is HELD through
+        /// the slide; neither the chase drop nor a rescan lets it go (as the engine already holds an attacker's own
+        /// target while the attacker slides). After the slide the target stands where the push left it; past the
+        /// limit, which it has not been inside since, it is walked after and rescanned as any troop taken past the
+        /// limit. 3 of 3 pushes that carried a held troop target across the limit kept it, all three by the holder's
+        /// own boulder: a Bowler pushing a Bomber 259 past at most (20260920-081051, attacking; it crossed the limit
+        /// over ticks 947-949), a Bomber 362 past (20260920-081819, attacking; crossing over 2023-2025) and a Knight
+        /// 327 past (20260920-081819, walking; crossing over 1687-1688).
+        /// A push by anything else, and a nearer enemy in sight during the slide, are inferred, not measured.
+        ClientHoldsKnocked = "client_holds_knocked",
     }
 );
 calib_enum!(
@@ -2072,6 +2216,43 @@ calib_enum!(
         /// collision radii) is below it, on the start-of-tick positions. A target that falls inside is dropped on
         /// that tick with its swing cancelled, as a lost target and not a kill, so no post-kill wait follows.
         Client16402EdgeDistance = "client16402_edge_distance",
+    }
+);
+calib_enum!(
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH -- whether a WALKING flyer whose row sets VariableDamage2 (the Inferno
+    /// Dragon's row alone in the 15.535.29 tables) adds its own collision radius to the reach it walks to and stops at
+    /// (target.rs `walking_own_radius`, read by the Path phase's goal cell, direct aim and in-range test and by the
+    /// attack cycle's range gate). The Mighty Miner, a ground row with the column, keeps its own radius under both.
+    VariableDamageWalkReach {
+        /// Today's engine: every unit walks to and stops at Range + its own radius + the target's radius
+        /// (targeting.ATTACK_RANGE_RULE), walking or standing.
+        RangePlusBothRadii = "range_plus_both_radii",
+        /// Measured on the 16.402 corpus and on client 15.535.29: a walking Inferno Dragon stops, and its attack
+        /// starts, only once the target's centre is within Range + the TARGET's radius; its goal cell lies within
+        /// Range of the target's centre. Once it stands (its attack under way, or standing since its last target)
+        /// its reach is Range + both radii again, as for every other unit. "Walking" is the state the previous
+        /// tick's Path phase left: a unit that holds a walking goal (entity.rs `route_goal`).
+        Client16402NoOwnRadiusWalking = "client16402_no_own_radius_walking",
+    }
+);
+calib_enum!(
+    /// collision.HELD_UNIT_CONTACT -- what the move pass does with a unit held by a freeze or a stun (`Entities::held`:
+    /// a stun timer, or a speed buff composing to 0 as status.FULL_STOP_BUFF_IS_STUN reads it). A knockback and a
+    /// hook's drag are not this key's; they keep the held branch under both arms, and a unit under ground stays out of
+    /// every scan under both.
+    HeldUnitContact {
+        /// Today's engine: the held unit is out of the move pass (a pull alone under status.ATTRACT_WHILE_HELD =
+        /// pulled) and its body is not collidable, so no neighbour's avoidance or separation scan meets it.
+        OutOfThePass = "out_of_the_pass",
+        /// Measured on the 16.402 corpus: the held unit takes its ordinary update at speed 0 -- no path request, no
+        /// stomp clock, no step and no facing change of its own, but the avoidance scan while it is not attacking,
+        /// the offset's decay in both states, and the separation scan, whose mean is written to its position -- and it
+        /// stays in every neighbour's scans as the troop it is. A held troop with a ground neighbour overlapping it
+        /// moved on 52 of 52 held unit-ticks (6 Goblins frozen by Ice Spirits, 3 battles), with none it stood still on
+        /// 353 of 353, and a nonzero avoidance offset shrank by 10 on 28 of 28 (21 walking, 7 attacking). On client
+        /// 15.535.29 a Knight stunned by an Electro Giant's reflect moved on 13 of 13 stunned ticks that began with the
+        /// Giant overlapping it and on 0 of 5 that began apart.
+        Client16402SpeedZeroUpdate = "client16402_speed_zero_update",
     }
 );
 calib_enum!(
@@ -2118,6 +2299,21 @@ impl FirstTowerPick {
         matches!(self, Self::ClientSpawnLane | Self::ClientSpawnLaneOwnFrame)
     }
 }
+calib_enum!(
+    /// targeting.FALLEN_LANE_TOWER_PICK -- the enemy crown tower a troop with no target walks to once its SPAWN lane's
+    /// enemy princess tower is down, after targeting.FIRST_TOWER_PICK's window (target.rs `default_tower`). Read only
+    /// under FIRST_TOWER_PICK's spawn-lane arms (client_spawn_lane, client_spawn_lane_own_frame), which keep the spawn
+    /// lane.
+    FallenLaneTowerPick {
+        /// Today's engine: the princess tower of the troop's current x, the king once that one is down.
+        CurrentX = "current_x",
+        /// Measured on the 16.402 corpus (5 of 5 default picks that separate the arms, 5 troops in 3 battles, 3
+        /// independent events: 3 of the 5 are Skeletons of one Tombstone): a troop whose spawn lane's enemy princess
+        /// tower is down walks to the king, wherever it stands, even when the other princess tower stands on its side
+        /// of the centre. A troop whose spawn-lane tower stands takes the tower of its current x, as today.
+        Client16402SpawnLaneKing = "client16402_spawn_lane_king",
+    }
+);
 calib_enum!(
     /// combat.HIT_BEYOND_CANCEL_RANGE -- what a direct hit deals when its target stands far past the attacker's
     /// reach (combat.rs `fire`).
@@ -2175,9 +2371,10 @@ calib_enum!(
     /// combat.RANGE_PROJECTILE -- what a troop projectile whose row has a ProjectileRange does
     /// (combat.rs `fire`, `step_straight`).
     RangeProjectile {
-        /// Aimed at the target and ended on it, like every other shot (ProjectileRange unread).
+        /// The old arm (shipped until the 2026-09-27 flip): aimed at the target and ended on it,
+        /// like every other shot (ProjectileRange unread).
         ToTarget = "to_target",
-        /// Measured on client 15.535.29 (the Bowler, the Hunter, the Elite Archer): it flies
+        /// Measured on client 15.535.29 (the Bowler, the Hunter, the Elite Archer; shipped): it flies
         /// straight along the launch line to the last point within ProjectileRange, hitting each
         /// enemy it passes once (ProjectileRadius plus the enemy's radius), pushing it radially
         /// from the projectile's centre on a Pushback. A PingpongVisualTime row flies out and back.
@@ -3517,6 +3714,34 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_FIRST_SIGHT_TRIGGER -- the trigger tick of a dasher (combat.DASH_ATTACK = client_dash) whose target
+    /// is already inside DashMaxRange + the target's radius on the first tick it has that target, and not nearer
+    /// than DashMinRange edge to edge. A dasher that walks into its trigger distance is not this key's.
+    DashFirstSightTrigger {
+        /// Today's engine: the first-sight tick records the target and stands, and the trigger is the next tick, so
+        /// the unit moves on the first sight + DashCooldown / 50 (+ 1 for the Bandit's still entry tick).
+        NextTick = "next_tick",
+        /// Measured on client 15.535.29: the first-sight tick is the trigger. Of 12 dashers that first saw their
+        /// target inside the trigger distance, the 2 Mega Knights moved on the first sight + 17 and the 10 Bandits on
+        /// + 16. Those are the counts from the trigger of the 16 dashers that walked into it (16 of 16).
+        FirstSightTick = "first_sight_tick",
+    }
+);
+calib_enum!(
+    /// combat.DASH_PUSHBACK -- what a dash blow with a DashRadius (the Mega Knight's jump) does to the enemies it hits
+    /// besides DashDamage (`land_dash_blows`).
+    DashPushback {
+        /// Today's engine: DashPushBack is loaded and never applied; the victims stay where the blow found them.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 and the 16.402 corpus: every enemy troop the blow hits is pushed DashPushBack
+        /// through the knockback ladder, radially from the dasher's position on the blow tick, under the eligibility
+        /// of a spell's push (IgnorePushback refuses it unless PushbackAll; buildings and towers are never moved). 4 of
+        /// 4 Knights hit by a jump slid 199, 174, 149, ... 24, 0 and 25 back from the next tick, away from the landing
+        /// point within 0.1 degree; 2 of 2 Giants (IgnorePushback) and a princess tower did not move.
+        ClientLadderFromLanding = "client_ladder_from_landing",
+    }
+);
+calib_enum!(
     /// pathfinding.GOAL_TARGET_POSITION -- the target centre a chaser's goal cell is chosen around
     /// (the cells within its Range + own CollisionRadius of that centre, the nearest one to the
     /// chaser winning; path16402.rs `choose_goal_cell`).
@@ -4366,11 +4591,16 @@ impl Calib {
             deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
             spawn_projectile: pick(&v, &["combat", "SPAWN_PROJECTILE", "value"], SpawnProjectile::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
+            doomed_drop_swing: pick(&v, &["targeting", "DOOMED_DROP_SWING", "value"], DoomedDropSwing::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
+            chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
+            variable_damage_walk_reach: pick(&v, &["targeting", "VARIABLE_DAMAGE_WALK_REACH", "value"], VariableDamageWalkReach::from_calibration_name)?,
+            held_unit_contact: pick(&v, &["collision", "HELD_UNIT_CONTACT", "value"], HeldUnitContact::from_calibration_name)?,
             target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
+            fallen_lane_tower_pick: pick(&v, &["targeting", "FALLEN_LANE_TOWER_PICK", "value"], FallenLaneTowerPick::from_calibration_name)?,
             tower_cancel_range: tower_cancel_value(&v)?,
             hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
@@ -4402,6 +4632,8 @@ impl Calib {
                 .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: every entry is a unit name"))
                 .collect::<Result<Vec<_>, _>>()?,
             dash_attack: pick(&v, &["combat", "DASH_ATTACK", "value"], DashAttack::from_calibration_name)?,
+            dash_first_sight_trigger: pick(&v, &["combat", "DASH_FIRST_SIGHT_TRIGGER", "value"], DashFirstSightTrigger::from_calibration_name)?,
+            dash_pushback: pick(&v, &["combat", "DASH_PUSHBACK", "value"], DashPushback::from_calibration_name)?,
             summon_fuse_start: pick(&v, &["spells", "SUMMON_FUSE_START", "value"], SummonFuseStart::from_calibration_name)?,
             child_area_birth: pick(&v, &["spells", "CHILD_AREA_BIRTH", "value"], ChildAreaBirth::from_calibration_name)?,
             own_side_area_scope: pick(&v, &["spells", "OWN_SIDE_AREA_SCOPE", "value"], OwnSideScope::from_calibration_name)?,
@@ -4496,6 +4728,7 @@ impl Calib {
             knock_duration_ms: int(&v, &["knockback", "DURATION_MS", "value"])?,
             knock_zero_vector: pick(&v, &["knockback", "ZERO_VECTOR_DIRECTION", "value"], KnockZeroVector::from_calibration_name)?,
             knock_attack_reset: pick(&v, &["knockback", "ATTACK_RESET", "value"], KnockAttackReset::from_calibration_name)?,
+            push_load_timer: pick(&v, &["knockback", "PUSH_LOAD_TIMER", "value"], PushLoadTimer::from_calibration_name)?,
             knock_affects_deploying: boolean(&v, &["knockback", "AFFECTS_DEPLOYING_UNITS", "value"])?,
             knock_direction_rolling: pick(&v, &["knockback", "DIRECTION_ROLLING", "value"], RollDirection::from_calibration_name)?,
             projectile_spawn_formation: pick(&v, &["spells", "PROJECTILE_SPAWN_FORMATION", "value"], ProjectileSpawnFormation::from_calibration_name)?,
@@ -4504,6 +4737,7 @@ impl Calib {
             stun_retarget_on_resume: boolean(&v, &["status", "STUN_RETARGET_ON_RESUME", "value"])?,
             resume_retarget_windup: pick(&v, &["status", "RESUME_RETARGET_WINDUP", "value"], ResumeWindup::from_calibration_name)?,
             retarget_progress: pick(&v, &["combat", "RETARGET_PROGRESS", "value"], RetargetProgress::from_calibration_name)?,
+            corpse_switch_reach: pick(&v, &["combat", "CORPSE_SWITCH_REACH", "value"], CorpseSwitchReach::from_calibration_name)?,
             buff_expiry: pick(&v, &["status", "BUFF_EXPIRY_TICK_ALIGNMENT", "value"], BuffExpiry::from_calibration_name)?,
             same_buff_reapply: pick(&v, &["status", "SAME_BUFF_REAPPLY", "value"], BuffReapply::from_calibration_name)?,
             buff_speed_composition: pick(&v, &["movement", "BUFF_SPEED_COMPOSITION", "value"], BuffComposition::from_calibration_name)?,
@@ -9071,7 +9305,22 @@ impl BattleState {
             // RESET ARE SUPPRESSED, not just the `changed` one: a locked unit whose target
             // dies arrives here with `cancel_attack` set by target.rs instead, and gating
             // only `changed` would have left the tower's own case untouched.
-            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some();
+            // combat.CORPSE_SWITCH_REACH = client_in_reach_only: the swing runs on only when the new target stands in
+            // attack range this tick; out of reach the corpse replacement is a change like any other, so a swing under
+            // way is cleared below and the unit walks. Measured on client 15.535.29 and the 16.402 corpus, among kills
+            // whose next target was named at once: 23 of 23 with it out of reach dropped the swing (13 of them
+            // mid-swing, where the arms part); in reach 194 of 196 kept it. keeps_any (today's engine) keeps it
+            // whatever the range.
+            #[cfg(not(clash_plant = "corpse_switch_keeps_any"))]
+            let corpse_in_reach_only = calib.corpse_switch_reach == CorpseSwitchReach::ClientInReachOnly;
+            #[cfg(clash_plant = "corpse_switch_keeps_any")]
+            let corpse_in_reach_only = false; // PLANT (regression): client_in_reach_only still keeps the swing out of reach.
+            let corpse_keeps = !corpse_in_reach_only
+                || d.target.filter(|t| e.standing(*t, struck)).is_some_and(|t| {
+                    let ti = t.index as usize;
+                    target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
+                });
+            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some() && corpse_keeps;
             // combat.RETARGET_PROGRESS = keep_when_dead_or_in_reach: a switch from a LIVE target to one already in
             // attack range this tick keeps the swing as well. Only the `changed` route is widened: a
             // `cancel_attack` from a broken lock still cancels.
@@ -9256,6 +9505,13 @@ impl BattleState {
     /// the entity table borrowed): a dash with no DashRadius hits its dash target alone, one with
     /// a radius every enemy it reaches from `centre`, both at DashDamage at the unit's level and
     /// through the crown-tower percent of its ordinary hit. Resolved with the tick's other hits.
+    ///
+    /// combat.DASH_PUSHBACK = client_ladder_from_landing: each enemy a radius blow hits is also pushed DashPushBack
+    /// radially from `centre` (spell.rs `push_from`: the ladder under knockback.DISPLACEMENT_LAW = client16402, the
+    /// eligibility of a spell's push). The push rides the tick's knockback buffer, which Resolve drains, so the victim
+    /// takes its first ladder step on the next tick, as it does under a spell. Measured on client 15.535.29 and the
+    /// 16.402 corpus: 4 of 4 Knights hit by the Mega Knight's jump slid 199, 174, 149, ... from the blow's next tick,
+    /// away from its landing point; Giants (IgnorePushback) and a princess tower did not move.
     fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
         for (a, target, centre) in blows {
             let card = self.cfg.cards.get(self.ents.card[a]);
@@ -9270,20 +9526,38 @@ impl BattleState {
                         self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false });
                     }
                 }
-                Some(r) => combat::splash(
-                    &self.ents,
-                    &self.hash,
-                    self.ents.team[a],
-                    centre,
-                    r,
-                    card.attacks_air,
-                    card.attacks_ground,
-                    amount,
-                    pct,
-                    self.cfg.calib.crown_rounding,
-                    &mut self.dmg,
-                    &mut self.scratch.nb,
-                ),
+                Some(r) => {
+                    combat::splash(
+                        &self.ents,
+                        &self.hash,
+                        self.ents.team[a],
+                        centre,
+                        r,
+                        card.attacks_air,
+                        card.attacks_ground,
+                        amount,
+                        pct,
+                        self.cfg.calib.crown_rounding,
+                        &mut self.dmg,
+                        &mut self.scratch.nb,
+                    );
+                    // `splash` leaves the victims it hit in the scratch list.
+                    #[cfg(not(clash_plant = "dash_pushback_unapplied"))]
+                    let pushes = self.cfg.calib.dash_pushback == DashPushback::ClientLadderFromLanding;
+                    #[cfg(clash_plant = "dash_pushback_unapplied")]
+                    let pushes = false; // PLANT (regression): the new arm leaves the victims where the blow found them.
+                    if let (true, Some(pb)) = (pushes, d.pushback_raw) {
+                        let k = crate::card::KnockbackDef { distance: crate::fixed::milli(pb), all: false };
+                        let team = self.ents.team[a];
+                        let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[] };
+                        for &v in self.scratch.nb.iter() {
+                            let v = v as usize;
+                            if self.ents.team[v] != team && self.ents.hp[v] > 0 {
+                                spell::push_from(&ctx, team, v, centre, &k, &mut self.effects);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -9509,8 +9783,16 @@ impl BattleState {
                 .map(|i| {
                     let alive = e.alive[i];
                     let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
-                    // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide
-                    let held = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried(i);
+                    // a unit a hook is dragging (combat.SPECIAL_HOOK) is held like a slide.
+                    // collision.HELD_UNIT_CONTACT = client16402_speed_zero_update: a unit held by a freeze or a
+                    // stun stays in its neighbours' scans (a held troop with an overlapping ground neighbour
+                    // moved on 52 of 52 corpus held unit-ticks). A knockback, a hook's drag and a unit under
+                    // ground still hide it, under both arms.
+                    #[cfg(not(clash_plant = "held_contact_invisible"))]
+                    let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) && calib.held_unit_contact == HeldUnitContact::OutOfThePass;
+                    #[cfg(clash_plant = "held_contact_invisible")]
+                    let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun); // PLANT (regression): the new arm still hides a held unit.
+                    let held = held_hidden || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried(i);
                     move16402::Body {
                         x,
                         y,
@@ -9754,6 +10036,22 @@ impl BattleState {
                 // A unit a hook is dragging (combat.SPECIAL_HOOK) is out of the pass like a slide:
                 // the Move phase steps it (`step_hook_drags`).
                 let frozen = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
+                // collision.HELD_UNIT_CONTACT = client16402_speed_zero_update: A HOLD STOPS THE STEP, NOT THE
+                // CONTACT UPDATE. A unit held by a freeze or a stun -- not knocked back, not dragged, not mid-leap,
+                // not held by its attack under the `frozen` arm of movement.ATTACKING_UNIT_MOVEMENT -- takes its
+                // ordinary update below at speed 0: no path request, no stomp clock, no step and no facing change of
+                // its own, but the avoidance scan while it is not attacking, the offset's decay in both states, and
+                // the separation scan whose mean moves it (a unit under ground is not in this pass). Measured on the
+                // 16.402 corpus: a held
+                // troop moved on 52 of 52 held unit-ticks with a ground neighbour overlapping it (6 Goblins frozen by
+                // Ice Spirits, 3 battles) and stood still on 353 of 353 with none; a nonzero avoidance offset shrank
+                // by 10 on 28 of 28, walking (21) and attacking (7).
+                let held_walk = calib.held_unit_contact == HeldUnitContact::Client16402SpeedZeroUpdate
+                    && e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun)
+                    && e.knock_ms[i] == 0
+                    && e.hooked_by[i].is_none()
+                    && !jumping[i]
+                    && !(phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen);
                 if frozen || (phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen) {
                     // a stun, a freeze or a knockback ends a dash where it stands (unmeasured:
                     // combat.DASH_ATTACK's open list); an attacking unit is not dashing
@@ -9763,28 +10061,31 @@ impl BattleState {
                         }
                         dash_state[i] = DashState::None;
                     }
-                    if jumping[i] {
-                        // a movement hold on a jumper: the leap is cancelled where it
-                        // stands and the unit replans when the hold ends (UNVERIFIED: no
-                        // capture has a stunned jumper; calibration movement.JUMP_WATER_HOP)
-                        jumping[i] = false;
-                        routes[i].clear();
-                        goals[i] = None;
-                        segs[i] = Vec2::default();
+                    if !held_walk {
+                        if jumping[i] {
+                            // a movement hold on a jumper: the leap is cancelled where it
+                            // stands and the unit replans when the hold ends (UNVERIFIED: no
+                            // capture has a stunned jumper; calibration movement.JUMP_WATER_HOP)
+                            jumping[i] = false;
+                            routes[i].clear();
+                            goals[i] = None;
+                            segs[i] = Vec2::default();
+                        }
+                        // status.ATTRACT_WHILE_HELD = pulled: THE HOLD STOPS THE WALK, NOT THE
+                        // PULL. The pull is otherwise applied inside the move pass this branch
+                        // skips, so a stunned, frozen or attack-held victim was never moved --
+                        // while every walking victim was, which is why nothing noticed. Applied
+                        // alone here: no walk, no avoidance, no separation (a held unit is not
+                        // collidable under collision.HELD_UNIT_CONTACT = out_of_the_pass), through
+                        // the same grid clamp as any other displacement.
+                        if calib.attract_while_held == AttractWhileHeld::Pulled && attract[i] != (0, 0) {
+                            let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, false, &is_water, arena.cols, arena.rows);
+                            bodies[i].x = nx;
+                            bodies[i].y = ny;
+                            deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
+                        }
+                        continue; // held: the freeze holds the whole unit (battle F sc5)
                     }
-                    // status.ATTRACT_WHILE_HELD = pulled: THE HOLD STOPS THE WALK, NOT THE
-                    // PULL. The pull is otherwise applied inside the move pass this branch
-                    // skips, so a stunned, frozen or attack-held victim was never moved --
-                    // while every walking victim was, which is why nothing noticed. Applied
-                    // alone here: no walk, no avoidance, no separation (a held unit is not
-                    // collidable), through the same grid clamp as any other displacement.
-                    if calib.attract_while_held == AttractWhileHeld::Pulled && attract[i] != (0, 0) {
-                        let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, false, &is_water, arena.cols, arena.rows);
-                        bodies[i].x = nx;
-                        bodies[i].y = ny;
-                        deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
-                    }
-                    continue; // held: the freeze holds the whole unit (battle F sc5)
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
                 let team = e.team[i];
@@ -9802,7 +10103,10 @@ impl BattleState {
                 // target's radius starts the stand. Three Bandits and a Mega Knight put down inside that
                 // distance moved on their first active frame + 17 and + 18: the trigger falls on the
                 // frame after first sight, and on the first-sight frame itself the unit already stands (a
-                // Mega Knight put down 4,805 from its target stood from its first active tick). A dash's
+                // Mega Knight put down 4,805 from its target stood from its first active tick). That first
+                // active frame is the tick BEFORE first sight: a unit put down has its first target on its
+                // first active frame + 1. Under combat.DASH_FIRST_SIGHT_TRIGGER = first_sight_tick the
+                // first-sight tick is the trigger, which is that count; under next_tick it is one later. A dash's
                 // end forgets its target, so the next sight of it is a first sight: a unit whose dash
                 // ended in melee sees it inside DashMinRange and walks in.
                 //
@@ -9817,7 +10121,8 @@ impl BattleState {
                 // DashImmuneToDamageTime it discards damage from here (`dash_immune_until`).
                 let mut dash_stand = false;
                 let mut stand_goal: Option<(i32, i32)> = None;
-                if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash) {
+                // a held unit (`held_walk`) starts no dash: its dash, if any, ended above
+                if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash && !held_walk) {
                     let tk = calib.tick_ms.max(1);
                     let live = |t: Option<EntityId>| t.filter(|t| e.is_alive(*t));
                     let d2 = |ti: usize| {
@@ -9841,6 +10146,18 @@ impl BattleState {
                                 #[cfg(not(clash_plant = "dash_first_sight_walks"))]
                                 {
                                     dash_stand = within && !dash_blocked[i];
+                                }
+                                // combat.DASH_FIRST_SIGHT_TRIGGER = first_sight_tick: that first-sight tick IS the
+                                // trigger (measured on client 15.535.29: 12 of 12 dashers first seeing their target
+                                // inside the trigger distance moved on the first sight + 17, the Mega Knight, or
+                                // + 16, the Bandit). Under next_tick the branch below triggers on the next tick.
+                                #[cfg(not(clash_plant = "dash_first_sight_next_tick"))]
+                                let on_sight = calib.dash_first_sight_trigger == DashFirstSightTrigger::FirstSightTick;
+                                #[cfg(clash_plant = "dash_first_sight_next_tick")]
+                                let on_sight = false; // PLANT (regression): the new arm triggers on the tick after first sight.
+                                if on_sight && within && !dash_blocked[i] {
+                                    dash_state[i] = DashState::Standing;
+                                    dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
                                 }
                             } else if !dash_blocked[i] && within {
                                 dash_state[i] = DashState::Standing;
@@ -9902,8 +10219,9 @@ impl BattleState {
                         //
                         // A DashConstantTime (the Mega Knight): JumpSpeed a tick to the goal (about 250,
                         // resting on the goal's centre), the blow DashConstantTime / 50 ticks after the entry
-                        // over DashRadius (537 on the Giant at level 11 in both jumps; the radius and the
-                        // DashPushBack are open), and the end DASH_BLOW_TO_END_TICKS after the blow.
+                        // over DashRadius (537 on the Giant at level 11 in both jumps; the radius is open, and the
+                        // DashPushBack is combat.DASH_PUSHBACK's, `land_dash_blows`), and the end
+                        // DASH_BLOW_TO_END_TICKS after the blow.
                         let goal = (dash_goal[i].x / K, dash_goal[i].y / K);
                         let step = |p: (i32, i32), len: i32| {
                             let mut v = (goal.0 - p.0, goal.1 - p.1);
@@ -10042,14 +10360,21 @@ impl BattleState {
                 // corpus says otherwise: 50.6 per cent within 250 against 50.5 with the
                 // clear, so the replan is not the cost. The cost is the push itself
                 // taking the unit out of range.
+                // targeting.VARIABLE_DAMAGE_WALK_REACH: the radius a walking unit's reach adds (its own, but 0 for an
+                // Inferno Dragon under client16402_no_own_radius_walking). The in-range test reads it only for a unit
+                // that walked on the previous tick (it still holds a walking goal); the goal cell and the direct aim
+                // below run only for a unit about to walk, so they read it always.
+                let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
                 if phase_hold {
                     routes[i].clear();
                     goals[i] = None;
                     segs[i] = Vec2::default();
                 }
-                if let (false, false, Some(gid)) = (deploying, phase_hold, goal_id) {
+                // a held unit (`held_walk`) asks for no path either: its route waits out the hold as it is
+                if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk, goal_id) {
                     let gi = gid.index as usize;
-                    if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
+                    let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
+                    if target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
                         // SPEC 5.3: the path is cleared on the transition to attacking
                         routes[i].clear();
                         goals[i] = None;
@@ -10067,7 +10392,7 @@ impl BattleState {
                         let as_held = false; // PLANT (regression): the new arm reads the start of the tick.
                         let target = if as_held { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
                         target_abs = Some(target);
-                        let reach = (card.range + e.radius[i]) / K;
+                        let reach = (card.range + walk_own) / K;
                         // pathfinding.FLYER_GOAL_WATER: whether this chaser's goal choice ranks water
                         // below dry ground. A ground chaser always does.
                         #[cfg(not(clash_plant = "flyer_water_demoted"))]
@@ -10165,13 +10490,14 @@ impl BattleState {
                 move16402::decay_offset(&mut con);
                 move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
                 // ---- 4. the step (move16402::move_towards)
-                let paused = if !deploying && !attacking && !routes[i].is_empty() {
+                let paused = if !deploying && !attacking && !held_walk && !routes[i].is_empty() {
                     // THE STOMP CLOCK (movement.STOMP_PAUSE_SCHEDULE). Both arms run
                     // here and both counters advance, so the key is switchable on one
                     // tree; only the chosen one decides the pause. The clock's advance
                     // is the composed SPEED buff (`stomp_advance`): 50 unbuffed, 65
                     // under Rage, 0 while frozen -- and a frozen unit never reaches
-                    // this line anyway (it is held above).
+                    // this line anyway (it is held above, or `held_walk` skips the
+                    // clock under collision.HELD_UNIT_CONTACT's new arm).
                     let k = kticks[i];
                     kticks[i] = k.saturating_add(1);
                     let (clock, hit) = path2026::stomp_clock_step(clocks[i], advances[i], card.stop_movement_after_ms, card.wait_ms);
@@ -10188,13 +10514,19 @@ impl BattleState {
                 // returns `speed` itself for every card without a buff, so this arm
                 // is unchanged for the whole contact corpus
                 let native_speed = if paused || dash_stand { 0 } else { self.effective_speed(i) / K };
+                // a held unit (`held_walk`) aims at itself at speed 0, as an attacking one does: the separation
+                // mean alone moves it and its facing stays
+                #[cfg(not(clash_plant = "held_contact_walks"))]
+                let still = held_walk;
+                #[cfg(clash_plant = "held_contact_walks")]
+                let (still, native_speed) = (false, if held_walk { e.speed[i] / K } else { native_speed }); // PLANT (regression): a held unit takes its walking step at its own speed.
                 let (aim, speed) = match routes[i].last() {
-                    Some(&p) if !deploying && !attacking => (node_centre(p), native_speed),
-                    None if !deploying && !attacking && feasible => match target_abs {
+                    Some(&p) if !deploying && !attacking && !still => (node_centre(p), native_speed),
+                    None if !deploying && !attacking && !still && feasible => match target_abs {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
                         // target on the line to itself (move16402::direct_aim)
-                        Some(t) => (move16402::direct_aim(actor, t, (card.range + e.radius[i]) / K), native_speed),
+                        Some(t) => (move16402::direct_aim(actor, t, (card.range + walk_own) / K), native_speed),
                         None => (actor, 0),
                     },
                     _ => (actor, 0),
@@ -10210,7 +10542,7 @@ impl BattleState {
                 let zero_step_runs = calib.zero_step_waypoint_test == ZeroStepWaypointTest::Run;
                 #[cfg(clash_plant = "zero_step_waypoint_skipped")]
                 let zero_step_runs = false; // PLANT (regression): a paused walker tests nothing.
-                let walks_route = routes[i].last().is_some() && !deploying && !attacking;
+                let walks_route = routes[i].last().is_some() && !deploying && !attacking && !held_walk;
                 let bookkeeping = speed > 0 || (zero_step_runs && walks_route);
                 if segs[i] == Vec2::default() && routes[i].last().is_some() && bookkeeping {
                     // a new segment's direction is frozen from the position toward
@@ -10231,7 +10563,8 @@ impl BattleState {
                     is_water,
                     arena.cols,
                     arena.rows,
-                    attract[i],
+                    // a held unit is pulled only under status.ATTRACT_WHILE_HELD = pulled, as in the held branch
+                    if held_walk && calib.attract_while_held != AttractWhileHeld::Pulled { (0, 0) } else { attract[i] },
                 );
                 offsets[i] = con.offset;
                 push_applied[i] = Vec2::new(m.push.0, m.push.1);
@@ -12504,10 +12837,11 @@ impl BattleState {
             // ATTACK (calibration knockback.ATTACK_RESET): MEASURED on two ladders
             // landing on attacking units (capture 20260920-081819-B:
             // a Bomber between hits, swing counter 3500 -> 0 at tick 2021; a
-            // Knight mid-windup, load 300 -> 700 on the hit tick 3535): the push
-            // interrupts the attack whatever its phase, the unit is state 1 through the
-            // ladder and starts a FRESH LoadTime windup on re-entering range after it,
-            // the target kept. reset_attack_keep_target: Windup or Cooldown -> Idle;
+            // Knight that hit on 3535 and was pushed that tick): the push interrupts
+            // the attack whatever its phase, the unit is state 1 through the ladder and
+            // enters afresh on re-entering range after it (the progress credit of
+            // combat.ATTACK_CYCLE, off what knockback.PUSH_LOAD_TIMER leaves of the load
+            // timer), the target kept. reset_attack_keep_target: Windup or Cooldown -> Idle;
             // the two reset_windup_* foils leave a cooldown running (frozen by
             // `Entities::knocked` while the ladder runs, resumed after).
             #[cfg(not(clash_plant = "knockback_keeps_windup"))]
@@ -12521,13 +12855,22 @@ impl BattleState {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
-                // THE LOAD TIMER with it (the same measurement): the Knight's load
-                // reads 700 = LoadTime on the hit tick itself, not the 300 it had
-                // left. Under combat.ATTACK_CYCLE = progress_credit the timer is what
-                // a re-entry's credit is taken off, so a reset that left it running
-                // would give the pushed unit a shorter windup than the capture shows.
-                // The windup arm never reads the column.
-                e.attack_load_ms[i] = self.cfg.cards.get(e.card[i]).load_time_ms.max(0);
+                // THE LOAD TIMER (knockback.PUSH_LOAD_TIMER). reset_to_load_time (today's
+                // engine) sets it to LoadTime, read off the Knight of 081819-B whose load
+                // reads 700 on 3535; that Knight hit on 3535 (progress 1200 = HitSpeed),
+                // so the 700 is its own hit's reset. client_runs_on leaves the timer as it
+                // was: on client 15.535.29 and the 16.402 corpus it reads its value before
+                // minus 50 (or 0) on the first ladder frame and runs down through the
+                // ladder, 23 of 23 push landings where that differs from a reset, and the
+                // re-entry credit (combat.ATTACK_CYCLE = progress_credit) takes off what is
+                // left, 24 of 24 re-entries. The windup arm never reads the column.
+                #[cfg(not(clash_plant = "push_load_timer_reset"))]
+                let runs_on = c.push_load_timer == PushLoadTimer::ClientRunsOn;
+                #[cfg(clash_plant = "push_load_timer_reset")]
+                let runs_on = false; // PLANT (regression): client_runs_on still resets the timer to LoadTime.
+                if !runs_on {
+                    e.attack_load_ms[i] = self.cfg.cards.get(e.card[i]).load_time_ms.max(0);
+                }
             }
             // CHARGE (calibration charge.RESET_ON_KNOCKBACK): a push that LANDS clears
             // the charge and the run-up. A sum exists here only for a victim spell.rs
@@ -15762,6 +16105,33 @@ impl BattleState {
 ///    `ignore_clone`, and cards.json `globals` the CLONE_* rows, so the card fingerprint moves: a snapshot saved by an
 ///    earlier build is refused as saved against other card data. migrate_v3 strips `ignore_clone` with the rest of the
 ///    post-format-3 tail. No new spell motion: the Clone is an `Area`, the Vines and the Void `Strikes`.
+/// 20, unchanged, combat.DASH_FIRST_SIGHT_TRIGGER: Calib gained dash_first_sight_trigger (serde default the old arm,
+///    next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_PUSHBACK: Calib gained dash_pushback (serde default the old arm, not_read), no new
+///    state (the push rides the tick's knockback buffer, drained in Resolve), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.PUSH_LOAD_TIMER: Calib gained push_load_timer (serde default the old arm,
+///    reset_to_load_time), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, collision.HELD_UNIT_CONTACT: Calib gained held_unit_contact (serde default the old arm,
+///    out_of_the_pass), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, targeting.VARIABLE_DAMAGE_WALK_REACH: Calib gained variable_damage_walk_reach (serde default the
+///    old arm, range_plus_both_radii), no new state (the walking test reads entity.rs `route_goal`, already saved),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.FALLEN_LANE_TOWER_PICK: Calib gained fallen_lane_tower_pick (serde default the old arm,
+///    current_x), no new state (the rule reads entity.rs `spawn_lane`, already saved), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_DROP_SWING: Calib gained doomed_drop_swing (serde default the old arm, cancel), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
+/// 20, unchanged, targeting.CHASE_DROP_KNOCKED_TARGET: Calib gained chase_drop_knocked (serde default the old arm,
+///    drops_knocked), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, combat.CORPSE_SWITCH_REACH: Calib gained corpse_switch_reach (serde default the old arm, keeps_any), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16064,6 +16434,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // windup only on a landed push; it keeps both (the same rule).
     sh.insert("tower_ladder".into(), serde_json::to_value(TowerLadder::CommonCardLadder).map_err(|e| e.to_string())?);
     sh.insert("knock_attack_reset".into(), serde_json::to_value(KnockAttackReset::ResetWindupKeepTarget).map_err(|e| e.to_string())?);
+    // knockback.PUSH_LOAD_TIMER: read only under reset_attack_keep_target, which a format-3 battle never ran; it keeps
+    // the old arm whatever the ledger ships (the same rule).
+    sh.insert("push_load_timer".into(), serde_json::to_value(PushLoadTimer::ResetToLoadTime).map_err(|e| e.to_string())?);
+    // combat.CORPSE_SWITCH_REACH: a format-3 battle kept a swing across a dead target whatever the new one's range;
+    // it keeps that whatever the ledger ships (the same rule).
+    sh.insert("corpse_switch_reach".into(), serde_json::to_value(CorpseSwitchReach::KeepsAny).map_err(|e| e.to_string())?);
     // FORMAT 15: a format-3 battle laid every deploy on the engine grid, on one tick,
     // with no column clamp; it keeps all three (the same rule).
     sh.insert("formation_layout".into(), serde_json::to_value(FormationLayout::EngineGrid).map_err(|e| e.to_string())?);
@@ -16096,6 +16472,11 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("multiple_projectiles".into(), serde_json::to_value(MultipleProjectiles::One).map_err(|e| e.to_string())?);
     sh.insert("multiple_targets".into(), serde_json::to_value(MultipleTargets::NotRead).map_err(|e| e.to_string())?);
     sh.insert("deploy_projectile".into(), serde_json::to_value(DeployProjectile::NotRead).map_err(|e| e.to_string())?);
+    // combat.DASH_FIRST_SIGHT_TRIGGER: a format-3 battle ran no dash; it keeps the old arm whatever the ledger ships
+    // (the same rule).
+    sh.insert("dash_first_sight_trigger".into(), serde_json::to_value(DashFirstSightTrigger::NextTick).map_err(|e| e.to_string())?);
+    // combat.DASH_PUSHBACK: the same rule.
+    sh.insert("dash_pushback".into(), serde_json::to_value(DashPushback::NotRead).map_err(|e| e.to_string())?);
     // The special attacks: a format-3 battle ran no damage ramp, no first-hit load, no recoil
     // and no hook; it keeps that whatever the ledger ships (the same rule).
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
@@ -16118,12 +16499,24 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pick, the tower's cancel range and the far hit: a format-3 battle ran none of them; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
+    // targeting.CHASE_DROP_KNOCKED_TARGET: read only under client_sight_minus_1000, which a format-3 battle never ran;
+    // it keeps the old arm whatever the ledger ships (the same rule).
+    sh.insert("chase_drop_knocked".into(), serde_json::to_value(ChaseDropKnocked::DropsKnocked).map_err(|e| e.to_string())?);
     sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
     sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
+    // targeting.VARIABLE_DAMAGE_WALK_REACH: a format-3 battle walked every unit to Range + both radii; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("variable_damage_walk_reach".into(), serde_json::to_value(VariableDamageWalkReach::RangePlusBothRadii).map_err(|e| e.to_string())?);
+    // collision.HELD_UNIT_CONTACT: a format-3 battle took a held unit out of the move pass; it keeps that whatever the
+    // ledger ships (the same rule).
+    sh.insert("held_unit_contact".into(), serde_json::to_value(HeldUnitContact::OutOfThePass).map_err(|e| e.to_string())?);
     // targeting.TARGET_RANK_DISTANCE: a format-3 battle ranked by centre minus the candidate's radius; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
     sh.insert("first_tower_pick".into(), serde_json::to_value(FirstTowerPick::CurrentX).map_err(|e| e.to_string())?);
+    // targeting.FALLEN_LANE_TOWER_PICK: a format-3 battle took the tower of the current x; it keeps that whatever the
+    // ledger ships (the same rule).
+    sh.insert("fallen_lane_tower_pick".into(), serde_json::to_value(FallenLaneTowerPick::CurrentX).map_err(|e| e.to_string())?);
     sh.insert("tower_cancel_range".into(), serde_json::to_value(TowerCancelRange::Global).map_err(|e| e.to_string())?);
     sh.insert("hit_beyond_cancel_range".into(), serde_json::to_value(HitBeyondCancelRange::Damage).map_err(|e| e.to_string())?);
     // combat.PROJECTILE_COLLISIONS: a format-3 battle read none of a straight shot's three columns
@@ -16149,6 +16542,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_pathfind_body".into(), serde_json::to_value(SpawnPathfindBody::OrdinaryTroop).map_err(|e| e.to_string())?);
     sh.insert("morph_birth_drain".into(), serde_json::to_value(MorphBirthDrain::None).map_err(|e| e.to_string())?);
     sh.insert("spawn_pathfind_destination".into(), serde_json::to_value(SpawnPathfindDestination::OrdinaryGroundDeployPoint).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_DROP_SWING: a format-3 battle dropped no doomed target, so it cancelled no swing for one; it runs
+    // the old arm whatever the ledger ships (the same rule).
+    sh.insert("doomed_drop_swing".into(), serde_json::to_value(DoomedDropSwing::Cancel).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -16755,6 +17151,9 @@ mod tests {
         let deck: Vec<String> =
             ["Minions", "Knight", "Giant", "Archers", "Archers", "Giant", "Knight", "Minions"].iter().map(|s| s.to_string()).collect();
         cfg.decks = [deck.clone(), deck];
+        // The old arm of placement.TROOP_TOWER_TAPS: the shipped half-open arm moves a troop tapped on its
+        // own princess tower off it instead of refusing it (tests/tower_tap_push.rs pins where it goes).
+        cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
         let mut s = BattleState::new(1, cfg);
         // past match.DEPLOY_LOCKOUT_TICKS: before it every slot answers TooEarly and none of
         // the reasons this test is about -- Occupied, BadSlot -- is ever reached

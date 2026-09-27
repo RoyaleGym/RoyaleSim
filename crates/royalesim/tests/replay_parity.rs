@@ -38,6 +38,13 @@
 //!                formation out differently and the maker places the group at the
 //!                tap tile (the formation gap); that row is deliberately NOT
 //!                pinned, so the gate never discriminates on a formation artefact.
+//!                The 0 % and 24 % were read under placement.TROOP_TOWER_TAPS =
+//!                closed_block, and the tap, not the layout, was most of the gap: the
+//!                group is tapped on the own king's tile (own (8500, 1500)), which the
+//!                shipped arm moves to own (8500, 500), the point the recording's three
+//!                stand around. Scored by override on RoyaleSim 5a1e0e8, the whole
+//!                battle's Skeletons then walk 765 of 765 isolated ticks within 20.
+//!                The sample's own figures were not re-read (no build).
 //!
 //! NOT gated: the parity numbers themselves. Those are the corpus report's
 //! (`cargo run --example replay_parity -- --all`), and they are expected to move.
