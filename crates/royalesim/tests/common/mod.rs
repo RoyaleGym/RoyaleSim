@@ -9,6 +9,7 @@
 //! number (a range, a radius, a sight) it reads it from the loaded CardDb or
 //! `Calib::shipped()`.
 #![allow(dead_code)]
+#![allow(unexpected_cfgs)]
 
 use royalesim::arena::Arena;
 use royalesim::card::{CardDb, CardSource};
@@ -59,6 +60,13 @@ pub fn symmetric_config() -> BattleConfig {
     c.calib.knock_law = royalesim::state::KnockLaw::FixedDistance;
     c.calib.knock_stacking = royalesim::state::KnockStacking::VectorSum;
     c.calib.knock_zero_vector = royalesim::state::KnockZeroVector::CasterForward;
+    // The launch recoil (knockback.ATTACK_PUSHBACK = ladder_away_from_target) IS the 16.402 ladder, which has no code
+    // under the fixed-distance knockback: the loader refuses that pairing. Its old arm, none, goes with the pair (py.rs
+    // `selected_calib` selects the same), and the result is checked as the loader checks a ledger, at the end.
+    #[cfg(not(clash_plant = "symmetric_config_keeps_attack_recoil"))]
+    {
+        c.calib.attack_pushback = royalesim::state::AttackPushback::None;
+    }
     // The summon formation's ground clamp (formation.GROUND_Y_CLAMP): the shipped
     // per-side formula is the measured one and is not the rotation of itself at the
     // back edge; the own-frame arm is (tests/formations.rs pins both).
@@ -85,6 +93,7 @@ pub fn symmetric_config() -> BattleConfig {
     // judges the own king block HALF-OPEN in ABSOLUTE coordinates, as measured, so a tap on its max edge is legal for
     // one seat and its rotated twin is not. closed_block, the old arm, is the same for both seats.
     c.calib.placement_troop_tower_taps = royalesim::state::TroopTowerTaps::ClosedBlock;
+    c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }
 

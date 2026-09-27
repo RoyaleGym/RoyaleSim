@@ -62,7 +62,7 @@ use common::*;
 use royalesim::card::CardDef;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE};
-use royalesim::state::{AttackCycle, AttackRangeRule, BattleConfig, BattleState, Calib, ChargedHitTiming, ProjectileLaunch};
+use royalesim::state::{AttackCycle, AttackPushback, AttackRangeRule, BattleConfig, BattleState, Calib, ChargedHitTiming, LoadFirstHit, ProjectileLaunch, VariableDamage};
 use royalesim::{EntityId, Team};
 
 /// Engine subtiles per native millitile (the recordings' unit).
@@ -462,6 +462,11 @@ fn a_melee_first_hit_lands_hit_speed_minus_load_time_after_the_target_came_into_
     let (fentry, fhit) = run(with_calib(|c| {
         c.attack_cycle = AttackCycle::WindupLoadTime;
         c.charged_hit_timing = ChargedHitTiming::AfterLoadTimeWindup;
+        // The three arms that read the progress counter have no code under the windup, so the loader refuses them
+        // there (`Calib::validate`); their old arms go with it. None of them touches a Knight.
+        c.variable_damage = VariableDamage::NotModelled;
+        c.load_first_hit = LoadFirstHit::None;
+        c.attack_pushback = AttackPushback::None;
     }));
     // the windup arm starts its clock with one TICK_MS already on it, so its first
     // hit lands LoadTime / TICK_MS - 1 ticks after the entry (the Knight's LoadTime

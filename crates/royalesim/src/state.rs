@@ -4857,9 +4857,6 @@ impl Calib {
                 return Err(format!("globals.csv: {name} = {got} parts from the one AT/AFTER_TOURNAMENTCAP rate {want} the tower ladder reads (combat.TOWER_HITPOINT_LADDER)"));
             }
         }
-        if c.tower_ladder_cap_level < 1 {
-            return Err(format!("combat.TOWER_HITPOINT_LADDER.value.cap_level = {} is not a tower level", c.tower_ladder_cap_level));
-        }
         // hide.HIDDEN_OCCLUDES_PATH: the one implemented candidate is `true` (a hidden
         // footprint still occludes the path grid and blocks deploys -- the grid never
         // looks at the hide state). `false` needs the pathfinder's code and is refused,
@@ -4871,14 +4868,6 @@ impl Calib {
         only(&v, &["spells", "LAUNCH_POINT", "value"], "caster_king_tower_centre")?;
         only(&v, &["spells", "WAVE_AREA_MODEL", "value"], "single_disc_one_hit_per_wave")?;
         only(&v, &["spells", "ONE_SHOT_AREA_EFFECT_APPLICATION", "value"], "first_update_only")?;
-        // knockback.STACKING is implemented PER LAW: the ladder's gate refuses a push
-        // while a ladder runs and never sums, and the fixed-distance slide sums and
-        // never refuses. The other two pairings have no code and are refused here
-        // rather than run as the nearest thing.
-        match (c.knock_law, c.knock_stacking) {
-            (KnockLaw::Client16402, KnockStacking::FirstWinsWhileActive) | (KnockLaw::FixedDistance, KnockStacking::VectorSum) => {}
-            (law, st) => return Err(format!("knockback.STACKING = {st:?} has no engine implementation under knockback.DISPLACEMENT_LAW = {law:?}")),
-        }
         only(&v, &["knockback", "WATER_RESOLUTION", "value"], "eject_to_nearest_land")?;
         // spawner.LIMIT_RULE: one implemented arm (the `only()` rule); the other
         // candidate is refused, never mapped. (DEATH_SPAWN_LAYOUT has two arms:
@@ -4923,6 +4912,33 @@ impl Calib {
         only(&v, &["transform", "ENTITY_CONTINUITY", "value"], "same_entity_keep_hp")?;
         only(&v, &["transform", "ACT_DURING_DELAY", "value"], "acts_normally")?;
         only(&v, &["lifetime", "DRAIN_BASE_AFTER_TRANSFORM", "value"], "max_hp")?;
+        c.validate()?;
+        Ok(c)
+    }
+
+    /// THE CHECKS ON A CALIBRATION'S OWN FIELDS: the pairings of arms that have code together, and the numbers that
+    /// must be positive. `from_json` runs them on every ledger it reads, and a battle runs them on its calibration
+    /// (`BattleState::try_new`), so a calibration edited after it was read (tests/common `symmetric_config()`, the
+    /// Python constructor's `path_search`) is held to the same rules as one read from the file. The pairings:
+    ///   - knockback.STACKING with knockback.DISPLACEMENT_LAW: first_wins_while_active with client16402, vector_sum
+    ///     with fixed_distance;
+    ///   - combat.VARIABLE_DAMAGE = client16402_attack_progress_stages, combat.LOAD_FIRST_HIT =
+    ///     load_time_from_deploy_end and knockback.ATTACK_PUSHBACK = ladder_away_from_target each need combat.ATTACK_CYCLE
+    ///     = progress_credit;
+    ///   - knockback.ATTACK_PUSHBACK = ladder_away_from_target needs knockback.DISPLACEMENT_LAW = client16402.
+    pub fn validate(&self) -> Result<(), String> {
+        let c = self;
+        if c.tower_ladder_cap_level < 1 {
+            return Err(format!("combat.TOWER_HITPOINT_LADDER.value.cap_level = {} is not a tower level", c.tower_ladder_cap_level));
+        }
+        // knockback.STACKING is implemented PER LAW: the ladder's gate refuses a push
+        // while a ladder runs and never sums, and the fixed-distance slide sums and
+        // never refuses. The other two pairings have no code and are refused here
+        // rather than run as the nearest thing.
+        match (c.knock_law, c.knock_stacking) {
+            (KnockLaw::Client16402, KnockStacking::FirstWinsWhileActive) | (KnockLaw::FixedDistance, KnockStacking::VectorSum) => {}
+            (law, st) => return Err(format!("knockback.STACKING = {st:?} has no engine implementation under knockback.DISPLACEMENT_LAW = {law:?}")),
+        }
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -4953,7 +4969,7 @@ impl Calib {
         if c.diag_den <= 0 || c.diag_num <= 0 || c.path_cost_road <= 0 || c.path_cost_default <= 0 || c.path_cost_water <= 0 {
             return Err("calibration.json: non-positive pathfinding cost or diagonal ratio".into());
         }
-        Ok(c)
+        Ok(())
     }
 
     /// The shipped calibration.json, parsed once per process.
@@ -6151,6 +6167,10 @@ impl BattleState {
     }
 
     pub fn try_new(seed: u64, config: BattleConfig) -> Result<BattleState, String> {
+        // A CALIBRATION THE LOADER WOULD REFUSE IS REFUSED HERE TOO: one edited after it was read (a test's config, the
+        // Python constructor's keywords) is held to the rules `Calib::from_json` holds a ledger to.
+        #[cfg(not(clash_plant = "battle_calib_unchecked"))]
+        config.calib.validate()?;
         // cards.CLIENT16402_VALUES: the card data this battle runs (`with_card_values`).
         let mut config = config;
         config.cards = with_card_values(&config.calib, config.cards.clone())?;
@@ -6282,8 +6302,9 @@ impl BattleState {
     }
 
     /// `spawn_now`, with `appearance` false for a unit that does not appear the way a deploy does (a copy the Clone
-    /// makes, `materialise_clones`): no deploy projectile and no spawn area object (not measured on a copy; an engine
-    /// choice). Everything else a creation does, its lane and its riders included, it does.
+    /// makes, `materialise_clones`): no spawn area object (not measured on a copy; an engine choice). Everything else
+    /// a creation does, its lane and its riders included, it does. A card's deploy projectile is never cast here, on
+    /// any creation: it is the play's (`deploy_blow`).
     fn spawn_with(&mut self, team: Team, card: u16, level: i32, pos: Vec2, kind: EntityKind, appearance: bool) -> Result<EntityId, String> {
         let cards = self.cfg.cards.clone();
         let c = cards.get(card);
@@ -6347,33 +6368,7 @@ impl BattleState {
         self.lifetime_acc[i] = 0;
         #[cfg(clash_plant = "acquire_delay_every_unit")]
         self.delay_acquisition(i); // PLANT: every new troop waits, hand-played and periodic included.
-        // combat.DEPLOY_PROJECTILE = client_on_landing: a unit whose card carries a deploy
-        // projectile (card.rs `deploy_projectile`, the Mega Knight's MegaKnightAppear) lands it
-        // at its own position on the 6th tick after its first frame (combat.rs
-        // DEPLOY_PROJECTILE_DELAY_TICKS), measured on client 15.535.29: a Knight 560 away
-        // loses 430 (168 at level 1, on this card's ladder) and slides 199, 174, 149, ... away;
-        // Goblins 5,300 out lose nothing. The blow is an ordinary `Spell` on a zero-length leg,
-        // as a death bomb is (`phase_reap`): its `delay_ms` counts down in the Projectile phase
-        // from this tick's, so a unit created in the Spawn phase is hit on the tick 6 later,
-        // through spell.rs `impact` (its radius, its ground/air filter, its knockback).
-        #[cfg(not(clash_plant = "deploy_projectile_unfired"))]
-        let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
-        #[cfg(clash_plant = "deploy_projectile_unfired")]
-        let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
-        if blows && appearance {
-            if let Some(SpellShape::Projectile { hit: Some(h), .. }) = c.deploy_projectile.as_ref().map(|d| &d.shape) {
-                let damage = scaled(h.damage)?;
-                self.spells.push(Spell {
-                    team,
-                    card,
-                    level,
-                    damage,
-                    pulse: 0,
-                    motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
-                    depth: 0,
-                });
-            }
-        }
+        // A card's deploy projectile is not cast here: it belongs to the PLAY (`deploy_blow`, from `phase_spawn`).
         // spawner.SPAWN_AREA_OBJECT_SCOPE = every_row: a unit whose row sets SpawnAreaObject (card.rs
         // `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal) puts that area effect down
         // on its own position as it appears, under its own card index and level -- the same `cast` a
@@ -6915,6 +6910,8 @@ impl BattleState {
     fn to_location_point(&self, i: usize, mx: i32, my: i32) -> Vec2 {
         let cell = self.cfg.arena.cell;
         let s = spell::forward_dy(self.ents.team[i]);
+        #[cfg(clash_plant = "to_location_arena_frame")]
+        let s = 1; // PLANT: Blue's offset for both seats, so a Red Furnace drops its spirits behind it.
         #[cfg(not(clash_plant = "to_location_by_facing"))]
         let off = Vec2::new(s * mx * cell, s * my * cell);
         #[cfg(clash_plant = "to_location_by_facing")]
@@ -8751,6 +8748,8 @@ impl BattleState {
                 }
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
+            // combat.DEPLOY_PROJECTILE: the play's blow, on the tick its unit is created (`deploy_blow`).
+            self.deploy_blow(p.team, p.card, p.level, p.pos);
             // targeting.FIRST_TOWER_PICK = client_spawn_lane: a summon member's lane, flipped against its deploy point.
             if let Some(ax) = p.summon_x {
                 self.summon_lane_flip(id.index as usize, ax);
@@ -8809,6 +8808,38 @@ impl BattleState {
         }
         // The Rune Giant's look, on the start-of-tick positions, the units created this tick included.
         self.enchant_pass();
+    }
+
+    /// combat.DEPLOY_PROJECTILE = client_on_landing: a card whose play carries a deploy projectile (card.rs
+    /// `deploy_projectile`, the Mega Knight's MegaKnightAppear) lands it at its unit's position on the 6th tick after
+    /// the unit's first frame (combat.rs DEPLOY_PROJECTILE_DELAY_TICKS), measured on client 15.535.29: a Knight 560
+    /// away loses 430 (168 at level 1, on this card's ladder) and slides 199, 174, 149, ... away; Goblins 5,300 out
+    /// lose nothing. The blow is an ordinary `Spell` on a zero-length leg, as a death bomb is (`phase_reap`): its
+    /// `delay_ms` counts down in the Projectile phase from this tick's, so a unit created in the Spawn phase is hit on
+    /// the tick 6 later, through spell.rs `impact` (its radius, its ground/air filter, its knockback).
+    ///
+    /// THE PLAY'S, as spells.DEPLOY_AREA_EFFECT is: `phase_spawn` casts it as a queued play's unit is created (a play
+    /// from the hand, a Mirror's copy, `spawn_unit`). A unit the scenario setup puts down (`setup_spawn_place`) stands
+    /// as if it had been played earlier and lands none, and neither does a Clone's copy.
+    fn deploy_blow(&mut self, team: Team, card: u16, level: i32, pos: Vec2) {
+        #[cfg(not(clash_plant = "deploy_projectile_unfired"))]
+        let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
+        #[cfg(clash_plant = "deploy_projectile_unfired")]
+        let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
+        if !blows {
+            return;
+        }
+        let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|d| &d.shape) else { return };
+        let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the deploy projectile's level is validated at the play");
+        self.spells.push(Spell {
+            team,
+            card,
+            level,
+            damage,
+            pulse: 0,
+            motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
+            depth: 0,
+        });
     }
 
     /// A PLAY OF A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`; movement.SPAWN_PATHFIND_STATES), queued by
@@ -8875,15 +8906,28 @@ impl BattleState {
         let cell = path16402::CELL;
         let (cols, rows) = (self.cfg.arena.cols, self.cfg.arena.rows);
         let on_grid = |v: i32, n: i32| v.clamp(0, n - 1);
-        let goal = (on_grid((dest.x / K).div_euclid(cell), cols), on_grid((dest.y / K).div_euclid(cell), rows));
+        let grid = move |p: Vec2| (on_grid((p.x / K).div_euclid(cell), cols), on_grid((p.y / K).div_euclid(cell), rows));
+        // THE ROUTE PROBLEM'S FRAME: the arena's under the 16.402 search (measured on both seats), the owner's under the
+        // frame-planned searches. There BOTH cells, the start and the goal, are read from the owner's-frame point, so a
+        // point on a cell boundary (the King's centre x 9000, a tile-centre tap, a Drill footprint) lands in the rotation
+        // of its twin's cell. `turn` takes a planning cell to the arena's cell (the rotation, for Red).
+        let team = self.ents.team[i];
+        let framed = self.cfg.calib.path_search != PathSearch::Client16402;
+        let rotate = framed && team == Team::Red;
+        let turn = move |c: (i32, i32)| if rotate { (cols - 1 - c.0, rows - 1 - c.1) } else { c };
+        let arena = &self.cfg.arena;
+        #[cfg(not(clash_plant = "tunnel_cells_arena_frame"))]
+        let plan_cell = |p: Vec2| grid(if framed { arena.to_frame(team, p) } else { p });
+        #[cfg(clash_plant = "tunnel_cells_arena_frame")]
+        let plan_cell = |p: Vec2| turn(grid(p)); // PLANT: floored in the arena's frame, then turned.
+        let goal_plan = plan_cell(dest);
+        let goal = turn(goal_plan);
         let goal_v = Vec2::new(goal.0, goal.1);
         let (ax, ay) = (self.ents.pos[i].x / K, self.ents.pos[i].y / K);
         if self.ents.route_goal[i] != Some(goal_v) {
-            let start = (on_grid(ax.div_euclid(cell), cols), on_grid(ay.div_euclid(cell), rows));
-            let rotate = self.cfg.calib.path_search != PathSearch::Client16402 && self.ents.team[i] == Team::Red;
-            let turn = move |c: (i32, i32)| if rotate { (cols - 1 - c.0, rows - 1 - c.1) } else { c };
-            let (arena, calib) = (&self.cfg.arena, &self.cfg.calib);
-            let chain = self.scratch.tunnel_grid.get_or_insert_with(|| TunnelGrid::new(arena, calib)).route(turn(start), turn(goal));
+            let start_plan = plan_cell(self.ents.pos[i]);
+            let calib = &self.cfg.calib;
+            let chain = self.scratch.tunnel_grid.get_or_insert_with(|| TunnelGrid::new(arena, calib)).route(start_plan, goal_plan);
             let mut route: Vec<Vec2> = chain.iter().map(|&n| turn((n % cols, n / cols))).map(|(c, r)| arena.half_to_subtile_center(c, r)).collect();
             if route.is_empty() {
                 // The start cell is the goal cell, or the search found nothing: the goal's own centre.
@@ -11460,6 +11504,11 @@ impl BattleState {
         }
         let at = self.cfg.cards.get(self.ents.card[mi]).attach?;
         let radius = at.radius?;
+        #[cfg(clash_plant = "rider_arc_fixed_facing")]
+        let facing = {
+            let _ = facing;
+            Vec2::new(0, 256) // PLANT: every mount's riders laid out as if it faced +y, Red's included.
+        };
         let f = self.cfg.cards.get(rider).formation;
         Some(crate::formation::rider_arc_offset(radius, facing, at.number, k, f.spawn_angle_shift_deg, f.spawn_max_angle_deg))
     }
@@ -13763,9 +13812,15 @@ impl BattleState {
                 };
                 #[cfg(clash_plant = "relative_offset_native")]
                 let (ox, oy) = (x, y); // PLANT: one native unit a unit.
+                #[cfg(not(clash_plant = "relative_offset_arena_frame"))]
                 let (wx, wy) = match team {
                     Team::Blue => (ox, oy),
                     Team::Red => (-ox, -oy),
+                };
+                #[cfg(clash_plant = "relative_offset_arena_frame")]
+                let (wx, wy) = {
+                    let _ = team;
+                    (ox, oy) // PLANT: Blue's offset for both seats.
                 };
                 Vec2::new(centre.x + wx * K, centre.y + wy * K)
             }
@@ -14875,11 +14930,18 @@ impl BattleState {
         }
     }
 
-    /// Materialise one validated setup spawn (no hash rebuild).
+    /// Materialise one validated setup spawn (no hash rebuild). A CREATION, NOT A PLAY: the unit puts its spawn area
+    /// object down as every creation does (spawner.SPAWN_AREA_OBJECT_SCOPE, `spawn_now`), and its card's deploy effects,
+    /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`).
     fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
         let (idx, level) = self.setup_record(idx, self.cfg.card_level[team as usize]).map_err(DeployError::InvalidLevel)?;
         let kind = if self.cfg.cards.get(idx).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
+        #[cfg(not(clash_plant = "setup_spawn_skips_spawn_area"))]
         let id = self.spawn_now(team, idx, level, pos, kind).map_err(DeployError::InvalidLevel)?;
+        #[cfg(clash_plant = "setup_spawn_skips_spawn_area")]
+        let id = self.spawn_with(team, idx, level, pos, kind, false).map_err(DeployError::InvalidLevel)?; // PLANT: no spawn area either.
+        #[cfg(clash_plant = "setup_spawn_lands_deploy_blow")]
+        self.deploy_blow(team, idx, level, pos); // PLANT: the setup spawn lands its card's deploy projectile.
         let i = id.index as usize;
         self.ents.deploy_ms[i] = 0;
         self.on_deployed(i);

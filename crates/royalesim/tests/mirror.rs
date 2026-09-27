@@ -37,6 +37,22 @@
 //!   eject_tie_engine_frame          a unit pushed exactly mid-river is ejected by Blue's
 //!                                   side preference for both seats
 //!   reflection_formation            (above) -- also the Goblin Barrel's released units
+//! THE UNDERGROUND WALK AND THE CARDS OF THE LAST TWO BUILDS (the scenes near the end of the file):
+//!   tunnel_cells_arena_frame        a tunnel route's cells floored in the arena's frame, then turned for Red:
+//!                                   mirror_miner_to_the_enemy_side, mirror_miner_to_its_own_side,
+//!                                   mirror_goblin_drill_to_the_enemy_side, mirror_hand_played_mirror_empress_...
+//!   to_location_arena_frame         a Furnace puts Blue's spirit offset down for both seats: mirror_collector_and_furnace
+//!   rider_arc_fixed_facing          a mount's riders laid out as if it faced +y: mirror_riders
+//!   nearer_wall_unmirrored          (tests/scheduled_area.rs) the Graveyard's x offset never mirrored: mirror_graveyard
+//!   relative_offset_arena_frame     a Suspicious Bush's goblins put Blue's offset down for both seats:
+//!                                   mirror_skeleton_barrel_and_suspicious_bush
+//!   reflection_frame                (above) every one of those scenes, the ones without a card plant of their own
+//!                                   included (mirror_musketeers_mother_witch_and_rune_giant, mirror_transformations,
+//!                                   mirror_ronin_elixir_golem_and_lumberjack, mirror_delivery_and_curse,
+//!                                   mirror_vines_and_void, mirror_clone)
+//!   symmetric_config_keeps_attack_recoil  `symmetric_config()` keeps the shipped recoil ladder, a pairing its own
+//!                                   check refuses: every test here that builds it goes red, and
+//!                                   the_symmetric_config_is_a_calibration_the_loader_accepts with them
 //!
 //! WHAT IT CANNOT CATCH: an asymmetry that only arises in a configuration no
 //! scenario here reaches, and any bias that is symmetric (both seats equally
@@ -81,6 +97,11 @@ struct Engagement {
     building_damaged: bool,
     /// Some crown tower ended a tick below max hp.
     tower_damaged: bool,
+    /// Every card name that stood on the board on some tick, either team, and every spell object's as
+    /// "spell:NAME": what the scene's cards actually put down (a release, a transformation, a death area).
+    seen: std::collections::BTreeSet<String>,
+    /// The most entities alive at once.
+    peak: usize,
 }
 
 /// Run a mirror scenario, checking the rotation mirror at every tick.
@@ -123,6 +144,14 @@ fn run_mirror(name: &str, units: &[Unit], red_reversed: bool, cfg: BattleConfig,
                 _ => eng.tower_damaged = true,
             }
         }
+        for e in s.entities() {
+            if !eng.seen.contains(e.card) {
+                eng.seen.insert(e.card.to_string());
+            }
+        }
+        for sp in s.spells() {
+            eng.seen.insert(format!("spell:{}", s.cards().get(sp.card).name));
+        }
     }
     // Vacuity guards: the scenario must have run past its spawns with units in it.
     // A spell card is a cast, not a unit: it adds no entity.
@@ -135,6 +164,7 @@ fn run_mirror(name: &str, units: &[Unit], red_reversed: bool, cfg: BattleConfig,
         s.outcome(),
         s.tower_hp(Team::Blue)
     );
+    eng.peak = peak;
     println!("{name}: {eng:?}");
     (s, eng)
 }
@@ -809,4 +839,282 @@ fn every_asymmetric_calib_key_is_selectable_from_python() {
          layer's rotation gate runs the asymmetric arm. Add the kwarg in py.rs and the name to \
          SYMMETRY_SELECTABLE_CALIB_FIELDS."
     );
+}
+
+/// THE SYMMETRIC ARMS ARE A CALIBRATION THE LOADER ACCEPTS. `symmetric_config()` puts the knockback on
+/// fixed_distance after the ledger is read, and knockback.ATTACK_PUSHBACK = ladder_away_from_target (shipped) has no
+/// code there: `Calib::from_json` refuses that pairing. The helper used to write its arms past that check, so every
+/// gate here ran a Sparky on the 16.402 recoil ladder. It now selects ATTACK_PUSHBACK's old arm, none, and checks its
+/// result as the loader checks a ledger (`Calib::validate`). A Sparky firing at a Giant recoils under the shipped
+/// arms and never under the symmetric ones. Plant: symmetric_config_keeps_attack_recoil.
+#[test]
+fn the_symmetric_config_is_a_calibration_the_loader_accepts() {
+    symmetric_config().calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
+    // A Red Giant walking down Blue's own-left lane past a Blue Sparky: (ticks the Sparky spent on a ladder, whether
+    // it hit the Giant).
+    let run = |cfg: BattleConfig| -> (u32, bool) {
+        let mut s = BattleState::new(1, cfg);
+        let sparky = s.scenario_spawn_now(Team::Blue, "ZapMachine", t(600, 900), None).unwrap();
+        let giant = s.scenario_spawn_now(Team::Red, "Giant", t(350, 1300), None).unwrap();
+        let full = s.entity(giant).unwrap().hp;
+        let mut ladder = 0;
+        let mut hit = false;
+        for _ in 0..400 {
+            s.tick();
+            if s.entity(sparky).is_some_and(|e| e.push_active) {
+                ladder += 1;
+            }
+            hit |= s.entity(giant).map_or(true, |e| e.hp < full);
+        }
+        (ladder, hit)
+    };
+    let (shipped, hit) = run(config());
+    assert!(hit && shipped > 0, "vacuous: under the shipped arms the Sparky hit the Giant: {hit}, recoiled for {shipped} ticks");
+    let (symmetric, hit) = run(symmetric_config());
+    assert!(hit, "vacuous: under the symmetric arms the Sparky never hit the Giant");
+    assert_eq!(symmetric, 0, "the Sparky ran a recoil ladder for {symmetric} ticks under the symmetric arms");
+}
+
+// ---------------------------------------------------------------------------
+// THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `tunnel_step`). A tunneller is born on its King's
+// centre and walks to its destination under ground. Under the frame-planned search both cells of its route problem,
+// the start and the goal, are read in its owner's frame. Floored in the ARENA's frame and then turned, a point on a
+// 500 boundary (the King's centre x 9000, every tile-centre tap, every Drill footprint) fell one cell over for Red,
+// and a Red walk was not the rotation of a Blue one from its first step. The shipped 16.402 search plans in the
+// arena's frame for both seats, as measured, and is not what these scenes measure. Plant: tunnel_cells_arena_frame.
+
+/// The card names a scene must have put down, so a scene whose card did nothing is not mistaken for evidence.
+fn assert_seen(name: &str, eng: &Engagement, cards: &[&str]) {
+    for c in cards {
+        assert!(eng.seen.contains(*c), "{name}: no {c} was ever on the board: saw {:?}", eng.seen);
+    }
+}
+
+#[test]
+fn mirror_miner_to_the_enemy_side() {
+    // Onto a point on a 500 boundary beside the enemy's own-left princess tower.
+    let units = [Unit { card: "Miner", at: (350, 2350), tick: 0 }];
+    let (s, eng) = run_mirror("miner_enemy_side", &units, false, symmetric_config(), Some(700));
+    assert!(eng.tower_damaged, "miner_enemy_side: the Miners never hit a tower: {eng:?}");
+    assert_draw("miner_enemy_side", &s);
+}
+
+#[test]
+fn mirror_miner_to_its_own_side() {
+    // Onto its own half, off every boundary but the start's (the King's centre), and then the walk up its lane.
+    let units = [Unit { card: "Miner", at: (1430, 1070), tick: 0 }];
+    let (s, eng) = run_mirror("miner_own_side", &units, false, symmetric_config(), Some(900));
+    assert!(eng.tower_damaged, "miner_own_side: the Miners never reached a tower: {eng:?}");
+    assert_draw("miner_own_side", &s);
+}
+
+#[test]
+fn mirror_goblin_drill_to_the_enemy_side() {
+    // The Drill's building is placed on a tile corner (its 2x2 box), so its destination is on a 500 boundary. The dig is
+    // the card's row, GoblinDrill; the building it leaves is its own row, units.GoblinDrill.
+    let units = [Unit { card: "GoblinDrill", at: (400, 2300), tick: 0 }];
+    let (s, eng) = run_mirror("drill_enemy_side", &units, false, symmetric_config(), Some(700));
+    assert!(eng.tower_damaged, "drill_enemy_side: the Drills' Goblins never hit a tower: {eng:?}");
+    assert_seen("drill_enemy_side", &eng, &["GoblinDrill", "units.GoblinDrill", "Goblin"]);
+    assert_draw("drill_enemy_side", &s);
+}
+
+// ---------------------------------------------------------------------------
+// THE CARDS THE LAST TWO BUILDS LOAD, one rotation scene each at least (the file's harness: Red's units are the
+// rotation of Blue's, on the same tick, and every tick is compared). A pair (X at P, Y at the rotation of P) puts
+// Red's twin of Y on top of Blue's X, so each seat's X meets the other seat's Y. Each scene also asserts that its
+// cards put down what they put down (`assert_seen`).
+
+#[test]
+fn mirror_collector_and_furnace() {
+    // An Elixir Collector each (elixir is compared on every tick) and a Furnace walking up the other lane, dropping
+    // Fire Spirits; a Blue Knight at the rotation of the Collector goes for the Red one, so a Collector dies and pays.
+    let units = [
+        Unit { card: "Elixir Collector", at: (600, 500), tick: 0 },
+        Unit { card: "Knight", at: (1200, 2500), tick: 0 },
+        Unit { card: "FirespiritHut", at: (1450, 1300), tick: 5 },
+    ];
+    let (s, eng) = run_mirror("collector_furnace", &units, true, symmetric_config(), Some(1500));
+    assert!(eng.building_damaged && eng.tower_damaged, "collector_furnace: did not engage: {eng:?}");
+    assert_seen("collector_furnace", &eng, &["FireSpirits"]);
+    assert_draw("collector_furnace", &s);
+}
+
+#[test]
+fn mirror_riders() {
+    // The Ram Rider (its rider snares) and the Goblin Giant (its Spear Goblins ride it), each at the other seat's
+    // tower, and a defender each: a Knight in front of the Ram Rider's twin, a Musketeer behind the Goblin Giant's.
+    let units = [
+        Unit { card: "RamRider", at: (350, 1900), tick: 0 },
+        Unit { card: "Knight", at: (1450, 1000), tick: 0 },
+        Unit { card: "GoblinGiant", at: (1450, 1900), tick: 10 },
+        Unit { card: "Musketeer", at: (350, 900), tick: 10 },
+    ];
+    let (s, eng) = run_mirror("riders", &units, true, symmetric_config(), Some(1500));
+    assert!(eng.troop_damaged && eng.tower_damaged, "riders: did not engage: {eng:?}");
+    assert_seen("riders", &eng, &["SpearGoblinGiant", "units.RamRider"]);
+    assert_draw("riders", &s);
+}
+
+#[test]
+fn mirror_musketeers_mother_witch_and_rune_giant() {
+    // Three Musketeers on the centre column against their twins; a Mother Witch on a Skeleton Army's twin (the
+    // Skeletons she kills come back as her side's Cursed Hogs); a Rune Giant walking with a Knight and Archers,
+    // whom he enchants.
+    let units = [
+        Unit { card: "ThreeMusketeers", at: (900, 1100), tick: 0 },
+        Unit { card: "WitchMother", at: (350, 1200), tick: 0 },
+        Unit { card: "SkeletonArmy", at: (1450, 2000), tick: 20 },
+        Unit { card: "GiantBuffer", at: (1450, 1300), tick: 5 },
+        Unit { card: "Knight", at: (1450, 1200), tick: 5 },
+        Unit { card: "Archer", at: (1450, 1100), tick: 5 },
+    ];
+    let (s, eng) = run_mirror("musketeers_witch_rune", &units, true, symmetric_config(), Some(1500));
+    assert!(eng.troop_died, "musketeers_witch_rune: nothing died: {eng:?}");
+    assert_seen("musketeers_witch_rune", &eng, &["ThreeMusketeer_Rework_Character_2", "ThreeMusketeer_Rework_Character_3", "VoodooHog", "GiantBuffer"]);
+    assert_draw("musketeers_witch_rune", &s);
+}
+
+#[test]
+fn mirror_transformations() {
+    // A Cannon Cart and a Goblin Demolisher each walk into the other seat's princess towers, which bring them down
+    // their transformation lines: the Cart breaks into a building, the Demolisher turns kamikaze.
+    let units = [Unit { card: "MovingCannon", at: (350, 2000), tick: 0 }, Unit { card: "GoblinDemolisher", at: (1450, 2000), tick: 0 }];
+    let (s, eng) = run_mirror("transformations", &units, true, symmetric_config(), Some(1200));
+    assert!(eng.tower_damaged, "transformations: did not engage: {eng:?}");
+    assert_seen("transformations", &eng, &["BrokenCannon", "GoblinDemolisher_kamikaze_form"]);
+    assert_draw("transformations", &s);
+}
+
+#[test]
+fn mirror_ronin_elixir_golem_and_lumberjack() {
+    // The Ronin (a counter and a stun) on a Knight's twin; an Elixir Golem (its splits pay the other side elixir on
+    // death) on a Mini P.E.K.K.A's; a Lumberjack (his Rage bottle drops where he dies) on a Valkyrie's.
+    let units = [
+        Unit { card: "Ronin", at: (350, 1100), tick: 0 },
+        Unit { card: "Knight", at: (1450, 2100), tick: 0 },
+        Unit { card: "ElixirGolem", at: (1450, 1200), tick: 5 },
+        Unit { card: "MiniPekka", at: (350, 2000), tick: 5 },
+        Unit { card: "RageBarbarian", at: (900, 1200), tick: 10 },
+        Unit { card: "Valkyrie", at: (900, 2000), tick: 10 },
+    ];
+    let (s, eng) = run_mirror("ronin_golem_lumberjack", &units, true, symmetric_config(), Some(1500));
+    assert!(eng.troop_died, "ronin_golem_lumberjack: nothing died: {eng:?}");
+    assert_seen("ronin_golem_lumberjack", &eng, &["ElixirGolem2", "ElixirGolem4", "spell:RageBarbarian"]);
+    assert_draw("ronin_golem_lumberjack", &s);
+}
+
+#[test]
+fn mirror_skeleton_barrel_and_suspicious_bush() {
+    // A Skeleton Barrel flying at the other seat's own-left tower (its Skeletons drop where it bursts) and a
+    // Suspicious Bush walking at its own-right one.
+    let units = [Unit { card: "SkeletonBalloon", at: (350, 1700), tick: 0 }, Unit { card: "SuspiciousBush", at: (1450, 1900), tick: 0 }];
+    let (s, eng) = run_mirror("barrel_bush", &units, true, symmetric_config(), Some(1200));
+    assert!(eng.tower_damaged, "barrel_bush: did not engage: {eng:?}");
+    assert_seen("barrel_bush", &eng, &["spell:SkeletonContainerNew", "Skeleton", "BushGoblin"]);
+    assert_draw("barrel_bush", &s);
+}
+
+#[test]
+fn mirror_delivery_and_curse() {
+    // A Royal Delivery, then a Goblin Curse, on the twins of a Knight and Skeletons that stand on the other half.
+    let units = [
+        Unit { card: "Knight", at: (1450, 2000), tick: 0 },
+        Unit { card: "Skeletons", at: (1400, 2050), tick: 0 },
+        Unit { card: "RoyalDelivery", at: (350, 1200), tick: 10 },
+        Unit { card: "GoblinCurse", at: (350, 1150), tick: 60 },
+    ];
+    let (s, eng) = run_mirror("delivery_curse", &units, true, symmetric_config(), Some(900));
+    assert!(eng.troop_damaged, "delivery_curse: nothing was hit: {eng:?}");
+    assert_seen("delivery_curse", &eng, &["spell:RoyalDelivery", "DeliveryRecruit", "spell:GoblinCurse", "GoblinCurseGoblin"]);
+    assert_draw("delivery_curse", &s);
+}
+
+#[test]
+fn mirror_vines_and_void() {
+    // Vines, then a Void, on the twins of a Giant and a Knight.
+    let units = [
+        Unit { card: "Giant", at: (1450, 1900), tick: 0 },
+        Unit { card: "Knight", at: (1500, 2000), tick: 0 },
+        Unit { card: "Vines", at: (350, 1300), tick: 20 },
+        Unit { card: "DarkMagic", at: (300, 1250), tick: 50 },
+    ];
+    let (s, eng) = run_mirror("vines_void", &units, true, symmetric_config(), Some(900));
+    assert!(eng.troop_damaged, "vines_void: nothing was hit: {eng:?}");
+    assert_seen("vines_void", &eng, &["spell:Vines", "spell:DarkMagic"]);
+    assert_draw("vines_void", &s);
+}
+
+#[test]
+fn mirror_graveyard() {
+    // A Graveyard beside the other seat's own-left tower: its Skeletons come up over the area.
+    let units = [Unit { card: "Graveyard", at: (350, 2350), tick: 0 }];
+    let (s, eng) = run_mirror("graveyard", &units, false, symmetric_config(), Some(700));
+    assert!(eng.tower_damaged, "graveyard: no Skeleton hit the tower: {eng:?}");
+    assert_seen("graveyard", &eng, &["spell:Graveyard", "Graveyard_rework_Skeleton"]);
+    assert_draw("graveyard", &s);
+}
+
+#[test]
+fn mirror_clone() {
+    // A Clone on each seat's own Knight and Archers, then the copies walk at the other seat's towers.
+    let units = [Unit { card: "Knight", at: (350, 1300), tick: 0 }, Unit { card: "Archer", at: (350, 1250), tick: 0 }, Unit { card: "Clone", at: (350, 1300), tick: 30 }];
+    let (s, eng) = run_mirror("clone", &units, true, symmetric_config(), Some(1200));
+    assert!(eng.tower_damaged, "clone: did not engage: {eng:?}");
+    // The Clone's orders are carried out inside the tick it lands (no spell object is left between ticks), so its
+    // evidence is the head count: six towers and each seat's Knight and two Archers, twice.
+    assert!(eng.peak >= 6 + 2 * 2 * 3, "clone: nothing was copied: peak live count {}", eng.peak);
+    assert_draw("clone", &s);
+}
+
+/// THE MIRROR AND THE SPIRIT EMPRESS are played from a hand (`spawn_unit` refuses both: a Mirror replays its side's
+/// last play, and the Empress's form is chosen by the elixir at the play), so both seats play the same deck through
+/// `deploy`, Red first, at rotated taps, with an Elixir Collector, a Miner and a Goblin Drill in it too. Before each
+/// play both seats are given the same elixir, 10, 6.5 or 4 in turn, so the Empress comes in both forms and the dearer
+/// cards come up; the Collector's payouts are compared on every tick between.
+#[test]
+fn mirror_hand_played_mirror_empress_collector_and_tunnellers() {
+    let deck = ["Mirror", "MergeMaiden", "Elixir Collector", "Knight", "Miner", "GoblinDrill", "RoyalDelivery", "Archer"];
+    let mut cfg = symmetric_config();
+    cfg.decks = [deck.iter().map(|x| x.to_string()).collect(), deck.iter().map(|x| x.to_string()).collect()];
+    let mut s = BattleState::new(13, cfg);
+    past_deploy_lockout(&mut s);
+    let mut played: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    let mut turn = 0usize;
+    while !s.is_done() && s.tick_count() < 2400 {
+        if s.tick_count() % 31 == 0 {
+            let milli = [10_000, 6_500, 4_000][turn % 3];
+            s.scenario_set_elixir_milli(Team::Blue, milli);
+            s.scenario_set_elixir_milli(Team::Red, milli);
+            let hand: Vec<String> = s.hand(Team::Blue).iter().map(|x| x.to_string()).collect();
+            let pick = hand[turn % hand.len()].clone();
+            let x = [350, 900, 1450][turn % 3];
+            turn += 1;
+            let c = card_stat(&s, &pick);
+            // The tunnellers go to the other half, on a 500 boundary; everything else on its own half.
+            let blue = if c.spawn_pathfind.is_some() { t(x, 2300) } else { t(x, 1000) };
+            let r1 = s.deploy(Team::Red, &pick, mirror(&s, blue));
+            let r2 = s.deploy(Team::Blue, &pick, blue);
+            assert_eq!(r1.is_ok(), r2.is_ok(), "tick {}: rotated plays of {pick} disagreed: {r1:?} vs {r2:?}", s.tick_count());
+            assert_eq!(s.mirror_target(Team::Blue), s.mirror_target(Team::Red), "tick {}: the seats' last plays differ", s.tick_count());
+            if r2.is_ok() {
+                // The Empress is recorded as the form she was played in (match.MIRROR_OF_VARIANT = played_form).
+                let name = match s.mirror_target(Team::Blue) {
+                    Some(i) if pick != "Mirror" => s.cards().get(i).name.clone(),
+                    _ => pick,
+                };
+                *played.entry(name).or_insert(0) += 1;
+            }
+        }
+        s.tick();
+        if let Err(e) = check_mirror(&s) {
+            panic!("hand-played mirror: {e}
+census: {:?}", census(&s));
+        }
+    }
+    println!("hand-played mirror: ticks={} played={played:?} towers={:?}", s.tick_count(), s.tower_hp(Team::Blue));
+    for c in ["Mirror", "MergeMaiden_Mounted", "MergeMaiden_Normal", "Elixir Collector", "Miner", "GoblinDrill"] {
+        assert!(played.get(c).copied().unwrap_or(0) > 0, "{c} was never played: {played:?}");
+    }
+    assert_draw("hand-played mirror", &s);
 }

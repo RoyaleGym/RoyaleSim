@@ -120,11 +120,13 @@ pub const EMBEDDED_CALIBRATION_JSON: &str = include_str!("../../../data/calibrat
 /// the clamp shipped without one, and then the ground deploy point did it again.
 pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // `path_search` selects the frame-planned search AND the fixed-distance knockback
-    // pair with it, so one kwarg reaches four fields.
+    // pair with it, and the launch recoil's old arm that pairs with that knockback, so
+    // one kwarg reaches five fields.
     "path_search",
     "knock_law",
     "knock_stacking",
     "knock_zero_vector",
+    "attack_pushback",
     "formation_ground_y_clamp",
     "formation_ground_deploy_point",
     // No kwarg: `calibration_overrides` reaches it, {"targeting.FIRST_TOWER_PICK": "client_spawn_lane_own_frame"}
@@ -849,6 +851,51 @@ impl Battle {
         self.cards.lowest_level_valid_for_every_rarity()
     }
 
+    /// The calibration every battle this object starts runs (`selected_calib`).
+    fn battle_calib(&self) -> Result<Calib, String> {
+        selected_calib(self.calib.as_ref(), self.path_search, self.ground_y_clamp, self.ground_deploy_point, self.death_spawn_pushback)
+    }
+}
+
+/// THE CALIBRATION A `Battle` RUNS: the experiment's (`calibration_overrides`) or the ledger's, then the arms the
+/// constructor's keywords select. `path_search` = trace_fitted_astar selects the seat-symmetric PAIR: the
+/// frame-planned search and the fixed-distance knockback (knockback.DISPLACEMENT_LAW = fixed_distance with
+/// vector_sum and caster_forward, tests/common `symmetric_config()`). With it goes knockback.ATTACK_PUSHBACK's old
+/// arm, none: the launch recoil IS the 16.402 ladder, which has no code under fixed_distance, so the loader refuses
+/// ladder_away_from_target there. The result is checked as the loader checks a ledger (`Calib::validate`), so no
+/// keyword can hand a battle a calibration the file could not.
+pub fn selected_calib(
+    base: Option<&Calib>,
+    path_search: Option<crate::state::PathSearch>,
+    ground_y_clamp: Option<crate::state::GroundYClamp>,
+    ground_deploy_point: Option<crate::state::GroundDeployPoint>,
+    death_spawn_pushback: Option<crate::state::DeathSpawnPushback>,
+) -> Result<Calib, String> {
+    let mut c = base.cloned().unwrap_or_else(Calib::shipped);
+    if let Some(ps) = path_search {
+        c.path_search = ps;
+        if ps == crate::state::PathSearch::TraceFittedAstar {
+            c.knock_law = crate::state::KnockLaw::FixedDistance;
+            c.knock_stacking = crate::state::KnockStacking::VectorSum;
+            c.knock_zero_vector = crate::state::KnockZeroVector::CasterForward;
+            #[cfg(not(clash_plant = "symmetric_selection_keeps_attack_recoil"))]
+            {
+                c.attack_pushback = crate::state::AttackPushback::None;
+            }
+        }
+    }
+    if let Some(gc) = ground_y_clamp {
+        c.formation_ground_y_clamp = gc;
+    }
+    if let Some(gd) = ground_deploy_point {
+        c.formation_ground_deploy_point = gd;
+    }
+    if let Some(dp) = death_spawn_pushback {
+        c.death_spawn_pushback = dp;
+    }
+    #[cfg(not(clash_plant = "symmetric_selection_unchecked"))]
+    c.validate()?;
+    Ok(c)
 }
 
 #[pymethods]
@@ -868,7 +915,9 @@ impl Battle {
     /// (knockback.DISPLACEMENT_LAW = fixed_distance with vector_sum and
     /// caster_forward, tests/common `symmetric_config()`): the shipped ladder is the
     /// game's and has two absolute-frame points (the zero-vector direction by id
-    /// parity, the water teleport's tie), so the seat-symmetric arm is the pair.
+    /// parity, the water teleport's tie), so the seat-symmetric arm is the pair. The
+    /// launch recoil (knockback.ATTACK_PUSHBACK) runs on that ladder, so it goes too:
+    /// under this selection a Sparky and a Firecracker do not recoil (`selected_calib`).
     ///
     /// `ground_y_clamp`: None = the ledger's formation.GROUND_Y_CLAMP, the measured
     /// arm "client16402_deploy_column_range". It holds every GROUND member of a
@@ -999,11 +1048,15 @@ impl Battle {
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
     /// hitpoints at the card level battles run at]. Kind codes: module doc, SPELLS.
     /// The hitpoints are the card data this object's battles run: cards.CLIENT16402_VALUES
-    /// under the calibration they run under (`reset`), so a row agrees with a spawn.
+    /// under the calibration they run under (`reset`), so a row agrees with a spawn. The
+    /// kind codes and footprints are read under that calibration too (a Goblin Drill's
+    /// footprint follows placement.SPAWN_PATHFIND_DESTINATION), overrides included.
     fn catalogue_json(&self) -> PyResult<String> {
-        let calib = self.calib.clone().unwrap_or_else(crate::state::Calib::shipped);
+        let calib = self.battle_calib().map_err(PyValueError::new_err)?;
         let cards = calib.card_data(self.cards.clone()).map_err(PyValueError::new_err)?;
-        catalogue_rows(&cards, &crate::state::Calib::shipped(), &self.catalogue, self.level()).map_err(PyValueError::new_err)
+        #[cfg(clash_plant = "catalogue_reads_shipped_calib")]
+        let calib = crate::state::Calib::shipped(); // PLANT: the rows read the shipped ledger.
+        catalogue_rows(&cards, &calib, &self.catalogue, self.level()).map_err(PyValueError::new_err)
     }
 
     /// The unified card and tower level every battle from this object uses.
@@ -1137,30 +1190,8 @@ impl Battle {
         }
         let mut cfg = BattleConfig::with_cards(CardDb::clone(&self.cards));
         cfg.cards = self.cards.clone();
-        if let Some(c) = &self.calib {
-            // THE EXPERIMENT'S CALIBRATION, applied before the narrow overrides below so
-            // they still layer on top (set_calib carries the model fields with it).
-            cfg.set_calib(c.clone());
-        }
-        if let Some(ps) = self.path_search {
-            cfg.calib.path_search = ps;
-            if ps == crate::state::PathSearch::TraceFittedAstar {
-                // the seat-symmetric arm is the PAIR: the frame-planned search and the
-                // fixed-distance knockback (tests/common symmetric_config())
-                cfg.calib.knock_law = crate::state::KnockLaw::FixedDistance;
-                cfg.calib.knock_stacking = crate::state::KnockStacking::VectorSum;
-                cfg.calib.knock_zero_vector = crate::state::KnockZeroVector::CasterForward;
-            }
-        }
-        if let Some(gc) = self.ground_y_clamp {
-            cfg.calib.formation_ground_y_clamp = gc;
-        }
-        if let Some(gd) = self.ground_deploy_point {
-            cfg.calib.formation_ground_deploy_point = gd;
-        }
-        if let Some(dp) = self.death_spawn_pushback {
-            cfg.calib.death_spawn_pushback = dp;
-        }
+        // THE EXPERIMENT'S CALIBRATION with the keywords' arms on top (set_calib carries the model fields with it).
+        cfg.set_calib(self.battle_calib().map_err(PyValueError::new_err)?);
         match shuffle {
             0 => cfg.shuffle_decks = false,
             1 => cfg.shuffle_decks = true,
@@ -2085,5 +2116,92 @@ mod tests {
         let fp = CATALOGUE_FIELDS.iter().position(|f| *f == "footprint_tiles").unwrap();
         let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &[drill], db.lowest_level_valid_for_every_rarity()).unwrap()).unwrap();
         assert_eq!(rows[0][fp], building, "the Goblin Drill's footprint_tiles");
+    }
+
+    /// A `Battle` as Python builds one, with `overrides` as `calibration_overrides`. Its error is dropped unread:
+    /// reading a Python error needs the interpreter, which these tests do not start.
+    fn battle_with(names: &[&str], overrides: &[(&str, &str)]) -> Battle {
+        let m: BTreeMap<String, String> = overrides.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let names = Some(names.iter().map(|n| n.to_string()).collect());
+        let Ok(b) = Battle::new(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None) else { panic!("the Battle was refused") };
+        b
+    }
+
+    /// THE CATALOGUE IS THE BATTLE'S. `catalogue_json` reports the card data and the placement a battle from the
+    /// same object runs, overrides included. It used to read the shipped ledger for the rows, so with
+    /// placement.SPAWN_PATHFIND_DESTINATION overridden to ordinary_ground_deploy_point a named Goblin Drill reported
+    /// its building's 2-tile footprint while the engine placed it on its dig's 1 tile. The engine's answer is read
+    /// from the engine (`building_placement`), under the calibration `Calib::shipped_with_overrides` builds, and the
+    /// two arms must give different footprints or the check could not see the defect.
+    /// Plant: catalogue_reads_shipped_calib.
+    #[test]
+    fn a_named_goblin_drill_reports_the_footprint_the_battle_places() {
+        let key = "placement.SPAWN_PATHFIND_DESTINATION";
+        let fp = CATALOGUE_FIELDS.iter().position(|f| *f == "footprint_tiles").unwrap();
+        let mut placed = Vec::new();
+        for arm in ["client_tile_centre_morph_footprint", "ordinary_ground_deploy_point"] {
+            let value = format!("\"{arm}\"");
+            let b = battle_with(&["GoblinDrill", "Knight"], &[(key, value.as_str())]);
+            let Ok(text) = b.catalogue_json() else { panic!("{arm}: catalogue_json failed") };
+            let rows: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let reported = rows[0][fp].as_i64().expect("the Drill's row has a footprint");
+            let m: BTreeMap<String, String> = [(key.to_string(), value.clone())].into_iter().collect();
+            let (calib, _) = Calib::shipped_with_overrides(&m).unwrap();
+            let mut cfg = BattleConfig::with_cards(CardDb::clone(&b.cards));
+            cfg.set_calib(calib);
+            let s = BattleState::new(0, cfg);
+            let drill = s.cards().index("GoblinDrill").unwrap();
+            let (_, rect) = s.building_placement(Team::Blue, drill, Vec2::new(crate::fixed::tiles(9), crate::fixed::tiles(8))).expect("the tap is legal");
+            let tiles = i64::from((rect.max.x - rect.min.x) / crate::fixed::tiles(1));
+            assert_eq!(reported, tiles, "{arm}: the catalogue reports {reported} tiles, the battle places the Drill on {tiles}");
+            placed.push(tiles);
+        }
+        assert_ne!(placed[0], placed[1], "vacuous: both arms place the Drill on one footprint");
+    }
+
+    /// THE SEAT-SYMMETRIC ARMS ARE A CALIBRATION THE LOADER ACCEPTS. `path_search` = trace_fitted_astar puts the
+    /// knockback on fixed_distance, and knockback.ATTACK_PUSHBACK = ladder_away_from_target (shipped) has no code
+    /// there: the loader refuses that pairing. The selection used to be written after the ledger was read, past the
+    /// loader's check, so under it a Sparky ran the 16.402 recoil ladder. It now selects ATTACK_PUSHBACK's old arm,
+    /// none, with the rest, and the result is checked as the loader checks a ledger (`Calib::validate`), for the
+    /// shipped ledger and for an experiment's, with the arms RoyaleGym's symmetric engine selects.
+    /// Plant: symmetric_selection_keeps_attack_recoil.
+    #[test]
+    fn the_symmetric_selection_is_a_calibration_the_loader_accepts() {
+        use crate::state::{AttackPushback, DeathSpawnPushback, GroundDeployPoint, GroundYClamp, KnockLaw, PathSearch};
+        let m: BTreeMap<String, String> = [("targeting.FIRST_TOWER_PICK".to_string(), "\"client_spawn_lane_own_frame\"".to_string())].into_iter().collect();
+        let (experiment, _) = Calib::shipped_with_overrides(&m).unwrap();
+        for base in [None, Some(&experiment)] {
+            let c = selected_calib(base, Some(PathSearch::TraceFittedAstar), Some(GroundYClamp::DeployColumnRangeOwnFrame), Some(GroundDeployPoint::None), Some(DeathSpawnPushback::NotRead))
+                .unwrap_or_else(|e| panic!("the symmetric selection was refused: {e}"));
+            assert_eq!((c.knock_law, c.attack_pushback), (KnockLaw::FixedDistance, AttackPushback::None));
+            c.validate().unwrap_or_else(|e| panic!("the symmetric selection is a calibration the loader refuses: {e}"));
+        }
+        // The shipped ledger itself pairs the ladder with the recoil, so the selection above changed something.
+        assert_eq!(Calib::shipped().attack_pushback, AttackPushback::LadderAwayFromTarget, "vacuous: the recoil is not shipped");
+    }
+
+    /// A REFUSED PAIRING IS REFUSED ON EVERY PATH: in a ledger (`Calib::from_json`, through an override), in the
+    /// calibration a `Battle` selects (`selected_calib`), and in a battle built from a hand-edited `BattleConfig`
+    /// (`BattleState::try_new`). The pairing: the recoil ladder under the fixed-distance knockback.
+    /// Plants: symmetric_selection_unchecked (the selection), battle_calib_unchecked (the battle).
+    #[test]
+    fn a_refused_pairing_is_refused_on_every_path() {
+        use crate::state::{AttackCycle, KnockLaw, KnockStacking, PathSearch};
+        let m: BTreeMap<String, String> =
+            [("knockback.DISPLACEMENT_LAW", "\"fixed_distance\""), ("knockback.STACKING", "\"vector_sum\"")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let Err(e) = Calib::shipped_with_overrides(&m) else { panic!("the ledger path accepted the recoil ladder under fixed_distance") };
+        assert!(e.contains("ATTACK_PUSHBACK"), "the ledger path refused it for another reason: {e}");
+        // The selection: a base whose own pairing is refused and which the keyword does not touch.
+        let mut hand = Calib::shipped();
+        hand.attack_cycle = AttackCycle::WindupLoadTime;
+        let Err(e) = selected_calib(Some(&hand), Some(PathSearch::TraceFittedAstar), None, None, None) else { panic!("the selection accepted a refused pairing") };
+        assert!(e.contains("ATTACK_CYCLE"), "the selection refused it for another reason: {e}");
+        // A hand-edited battle config.
+        let mut cfg = BattleConfig::with_cards(CardDb::clone(&cards()));
+        cfg.calib.knock_law = KnockLaw::FixedDistance;
+        cfg.calib.knock_stacking = KnockStacking::VectorSum;
+        let Err(e) = BattleState::try_new(0, cfg) else { panic!("a battle ran the recoil ladder under fixed_distance") };
+        assert!(e.contains("ATTACK_PUSHBACK"), "the battle refused it for another reason: {e}");
     }
 }

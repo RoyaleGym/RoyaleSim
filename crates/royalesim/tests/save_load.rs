@@ -260,6 +260,9 @@ fn spell_battle() -> BattleState {
     cfg.calib.knock_law = royalesim::state::KnockLaw::FixedDistance;
     cfg.calib.knock_stacking = royalesim::state::KnockStacking::VectorSum;
     cfg.calib.knock_zero_vector = royalesim::state::KnockZeroVector::CasterForward;
+    // The launch recoil runs on the ladder, which the fixed-distance arm has no code for (`Calib::validate`); no
+    // card in this battle recoils.
+    cfg.calib.attack_pushback = royalesim::state::AttackPushback::None;
     cfg.calib.knock_duration_ms = 500;
     let mut s = BattleState::new(372_241, cfg);
     // Cannons on x = 9 so both Logs' rolls hit something (the troops walk off the axis).
