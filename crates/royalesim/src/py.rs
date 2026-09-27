@@ -2006,12 +2006,15 @@ mod tests {
             let kind = r[kind_col].as_str().unwrap();
             let shown = db.get(*idx).variant().map_or(*idx, |opts| opts[0].card);
             assert_eq!(kind, card_kind_name(db.get(shown).kind), "{r:?}");
-            let band = match r[1].as_u64().unwrap() {
+            let code = r[1].as_u64().unwrap();
+            let band = match code {
                 0 => "TROOP",
                 1 => "BUILDING",
                 _ => "SPELL",
             };
-            assert_eq!(kind, band, "{r:?}");
+            // A spell placed as a troop is (troop territory with a troop's footprint rule: Heal) reports a troop's 0.
+            let troop_placed_spell = kind == "SPELL" && code == 0 && matches!(deploy_rule(&calib, db.get(shown)), (Territory::EnemyTowerRects, true));
+            assert!(kind == band || troop_placed_spell, "{r:?}: card_kind {kind}, kind code band {band}");
             seen.insert(kind);
         }
         assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec!["BUILDING", "SPELL", "TROOP"], "the catalogue should carry every kind");

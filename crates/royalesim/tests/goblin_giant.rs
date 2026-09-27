@@ -44,9 +44,11 @@ use royalesim::{EntityId, Team};
 /// The level of the measured runs.
 const LEVEL: i32 = 11;
 
-/// The rider row and the card that serves as its dismount.
+/// The rider row and its dismount's record. The loader resolves a unit by NAME: no card is named SpearGoblin (the
+/// Spear Goblins card is SpearGoblins, whose unit row is SpearGoblin), so the dismount is the summon-only SpearGoblin
+/// record, not that card.
 const RIDER: &str = "SpearGoblinGiant";
-const DISMOUNT: &str = "SpearGoblins";
+const DISMOUNT: &str = "SpearGoblin";
 
 /// The shipped config at level 11, asserting the arms this file pins.
 fn shipped() -> BattleConfig {
@@ -99,7 +101,7 @@ fn the_loader_takes_the_giants_two_riders_and_puts_them_on_the_arc() {
     assert_eq!((r.formation.spawn_angle_shift_deg, r.formation.spawn_max_angle_deg), (-22, 90), "SpawnAngleShift, SpawnMaxAngle");
     let ds = r.death_spawn.expect("the rider's dismount");
     let d = db.get(ds.unit);
-    assert_eq!((d.name.as_str(), d.unit_name.as_str(), d.summon_only), (DISMOUNT, "SpearGoblin", false), "the dismount unit: a card whose row is SpearGoblin");
+    assert_eq!((d.name.as_str(), d.unit_name.as_str(), d.summon_only), (DISMOUNT, "SpearGoblin", true), "the dismount unit: the summon-only SpearGoblin record");
     assert_eq!((ds.count, ds.deploy_time_ms), (1, Some(700)), "DeathSpawnCount, DeathSpawnDeployTime");
     assert_eq!(db.unit_refs(gg), vec![(UnitRef::Attach, at_.unit, None)], "the Giant puts its riders on the board");
     assert_eq!(db.unit_refs(at_.unit), vec![(UnitRef::DeathSpawn, ds.unit, None)], "a rider puts its dismount on the board");

@@ -42,9 +42,10 @@
 //!                closed_block, and the tap, not the layout, was most of the gap: the
 //!                group is tapped on the own king's tile (own (8500, 1500)), which the
 //!                shipped arm moves to own (8500, 500), the point the recording's three
-//!                stand around. Scored by override on RoyaleSim 5a1e0e8, the whole
-//!                battle's Skeletons then walk 765 of 765 isolated ticks within 20.
-//!                The sample's own figures were not re-read (no build).
+//!                stand around. Since that arm ships, the sample's own Skeletons walk
+//!                765 of 765 isolated ticks within 20 and within 250 (printed by
+//!                the_engine_meets_the_isolated_walk_floor_on_the_sample), and the
+//!                sample has no first divergence at the shipped values.
 //!
 //! NOT gated: the parity numbers themselves. Those are the corpus report's
 //! (`cargo run --example replay_parity -- --all`), and they are expected to move.
@@ -235,10 +236,17 @@ fn the_score_counters_are_consistent() {
     let king = &r.per_card["KingTower"];
     assert_eq!(king.unit_ticks, 2 * frames, "two kings on every frame");
     assert_eq!(king.both_alive, king.unit_ticks);
-    // the first divergence is the earliest unit-tick beyond the tolerance or an alive
-    // mismatch, so nothing before it may be one
-    let d = r.first_divergence.as_ref().expect("the sample diverges (the tower falls later in the engine)");
-    assert!(d.tick > 0 && d.tick <= r.last_tick);
+    // THE FIRST DIVERGENCE is the earliest unit-tick beyond the tolerance or an alive mismatch, so nothing before it
+    // may be one. At the shipped values the engine follows the client through the whole sample, since
+    // placement.TROOP_TOWER_TAPS = client16402_half_open_relocate lays the own-king Skeletons where the client does:
+    // there is none. Under the key's old arm, closed_block, those Skeletons spawn off, and the divergence's own
+    // invariants are checked on that run.
+    assert!(r.first_divergence.is_none(), "at the shipped values the sample diverges: {:?}", r.first_divergence);
+    let mut opts = Options::default();
+    opts.calibration_overrides.insert("placement.TROOP_TOWER_TAPS".to_string(), "\"closed_block\"".to_string());
+    let old = replay(&sample(), &common::cards(), &register(), &opts).expect("the sample replays under closed_block");
+    let d = old.first_divergence.as_ref().expect("under closed_block the own-king Skeletons spawn where the client's do not");
+    assert!(d.tick > 0 && d.tick <= old.last_tick);
     assert!(["walking", "contact", "spawn", "death", "attack-timing", "knockback", "status"].contains(&d.cause.as_str()), "{}", d.cause);
     assert!(d.onset_tick <= d.tick);
 }

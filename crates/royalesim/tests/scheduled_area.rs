@@ -257,7 +257,11 @@ fn a_slot_off_the_arena_is_clamped_and_a_slot_on_the_river_is_kept() {
     for (k, ((tick, p), want)) in got.iter().zip(kept).enumerate() {
         assert_eq!(*tick, TICKS[k], "entry {k}'s tick");
         if want == river || want == bridge_end {
-            assert!(s.arena().is_passable_ground(at(*p)), "entry {k} left on the river at {p:?}");
+            // Ejected to the first subtile past the bank's half-cell boundary (arena.rs `nearest_passable_ground`),
+            // which the native point this test reads rounds back onto the boundary itself: land within one subtile.
+            let q = at(*p);
+            let on_land = [(0, 0), (0, 1), (0, -1), (1, 0), (-1, 0)].iter().any(|&(dx, dy)| s.arena().is_passable_ground(Vec2::new(q.x + dx, q.y + dy)));
+            assert!(on_land, "entry {k} left on the river at {p:?}");
             assert_ne!(*p, want, "entry {k} not moved");
         } else {
             assert_eq!(*p, want, "entry {k} on land moved");

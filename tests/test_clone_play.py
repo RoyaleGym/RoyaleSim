@@ -42,6 +42,7 @@ def units(b, team: int) -> dict:
 
 def test_the_three_load_together():
     b = battle(["Clone", "Vines", "DarkMagic", "Knight"])
+    b.reset(0, [[0] * 8, [1] * 8], 0, 200, [10_000, 10_000], None, [])
     assert b.clone_states() == [], "nothing is a copy before the battle starts"
 
 

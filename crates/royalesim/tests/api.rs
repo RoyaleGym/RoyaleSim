@@ -76,10 +76,11 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // was measured and implemented -- it now loads, and it has moved to the
     // NotInHand list below, which is where a simulable card belongs.
     // RAGE WAS THE EXAMPLE until it loaded as a spell summon, and then MIRROR until it loaded as the
-    // replay of the side's last play; Clone runs an area action graph the loader does not read yet.
-    match s.check_deploy(Team::Blue, "Clone", t(900, 1000)) {
-        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "Clone"),
-        other => panic!("expected UnsupportedCard for Clone, got {other:?}"),
+    // replay of the side's last play, and then CLONE until it loaded as its own shape; GlobalClone, the event's, runs
+    // an area action graph the loader does not read yet.
+    match s.check_deploy(Team::Blue, "GlobalClone", t(900, 1000)) {
+        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "GlobalClone"),
+        other => panic!("expected UnsupportedCard for GlobalClone, got {other:?}"),
     }
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never
