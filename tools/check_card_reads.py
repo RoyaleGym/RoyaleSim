@@ -201,6 +201,9 @@ PROLOGUE = {
     "BuffWhenNotAttackingUseAttackRange": "idle_invisibility.use_attack_range",
     "AllowAreaDmgWhenInvisible": "idle_invisibility.area_damage_when_invisible",
     "Invisible": "idle_invisibility",
+    # A second periodic unit (the Super Witch's Bat), written into the spawner block after the literal on
+    # the 15.535 rows only; the loader refuses a row that sets it.
+    "SpawnCharacter2": "spawner.character2",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was

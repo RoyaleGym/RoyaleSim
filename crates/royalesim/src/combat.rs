@@ -160,6 +160,16 @@ pub struct Projectile {
     /// snapshot older than the field. In the state hash only when set.
     #[serde(default)]
     pub release: Option<(u16, i32)>,
+    /// The firer's row sets ApplyBuffBeforeDamage (`CardDef::attack_buff_first`, the Mother Witch's): its
+    /// buff lands before its damage (status.APPLY_BUFF_BEFORE_DAMAGE). In the state hash only on a shot
+    /// whose buff has a death spawn, so every other shot hashes as before. `default` so a snapshot saved
+    /// before it still loads.
+    #[serde(default)]
+    pub buff_first: bool,
+    /// The firer's unified level, carried to the buff it lands (`BuffHit::src_level`). Hashed with
+    /// `buff_first`, on the same shots only.
+    #[serde(default)]
+    pub src_level: i32,
 }
 
 /// The state of a spark carrier (`Projectile::carrier`).
@@ -816,6 +826,8 @@ pub fn fire(
                         }),
                         hook: None,
                         release: None,
+                        buff_first: card.attack_buff_first,
+                        src_level: ents.level[a],
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -897,6 +909,8 @@ pub fn fire(
             hook: None,
             carrier,
             release: card.projectile_area.as_ref().map(|_| (ents.card[a], ents.level[a])),
+            buff_first: card.attack_buff_first,
+            src_level: ents.level[a],
         });
         return;
     }
@@ -910,7 +924,7 @@ pub fn fire(
         #[cfg(clash_plant = "aoe_centre_on_target")]
         let centre = ents.pos[ti];
         splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
-        apply_attack_buff(ents, calib, atk_buff, atk_pulse, target, scratch, fx);
+        apply_attack_buff(ents, calib, atk_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
     } else {
         // combat.HIT_BEYOND_CANCEL_RANGE = no_damage: a single-target direct hit whose target stands more than
         // targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past the attacker's reach (Range + both collision radii
@@ -926,7 +940,7 @@ pub fn fire(
         if !void {
             dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
             if let Some(b) = atk_buff {
-                fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
+                fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
         }
         // combat.MULTIPLE_TARGETS = client_bolts_per_target: every other bolt of the attack is
@@ -941,7 +955,7 @@ pub fn fire(
             let bi = b.index as usize;
             dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding), ignores_hide: false });
             if let Some(bf) = atk_buff {
-                fx.buffs.push(BuffHit { target: b, buff: bf.buff, time_ms: bf.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
+                fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
         }
     }
@@ -1045,31 +1059,37 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         hook: Some(ents.id_of(a)),
         carrier: None,
         release: None,
+        buff_first: false,
+        src_level: ents.level[a],
     });
 }
 
 /// Buffer `buff` on everything the hit it rode landed on. `scratch` is the victim
 /// list `splash` just filled, so the buff lands on exactly the units the damage did
 /// (calibration status.TARGET_BUFF_ON_SPLASH = whole_splash); under
-/// `primary_target_only` only `target` takes it.
+/// `primary_target_only` only `target` takes it. `firer` is the attacker's unified level and whether
+/// its row lands the buff before the damage (`BuffHit::src_level`, `before_damage`).
+#[allow(clippy::too_many_arguments)]
 fn apply_attack_buff(
     ents: &Entities,
     calib: &Calib,
     buff: Option<BuffApply>,
     pulse: i32,
+    firer: (i32, bool),
     target: EntityId,
     scratch: &[u32],
     fx: &mut EffectBuffer,
 ) {
     let Some(b) = buff else { return };
+    let (src_level, before_damage) = firer;
     match calib.target_buff_on_splash {
         TargetBuffScope::WholeSplash => {
             for &v in scratch {
-                fx.buffs.push(BuffHit { target: ents.id_of(v as usize), buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse, first_pulse_ms: None, source: None });
+                fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(ents.id_of(v as usize), b.buff, b.time_ms, pulse) });
             }
         }
         TargetBuffScope::PrimaryTargetOnly => {
-            fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse, first_pulse_ms: None, source: None });
+            fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(target, b.buff, b.time_ms, pulse) });
         }
     }
 }
@@ -1098,6 +1118,7 @@ fn straight_hits(
     tick: u32,
 ) -> bool {
     let (team, damage, crown_pct, hits_air, hits_ground, buff, pulse) = (p.team, p.damage, p.crown_pct, p.hits_air, p.hits_ground, p.buff, p.pulse);
+    let (src_level, before_damage) = (p.src_level, p.buff_first);
     let Some(s) = p.straight.as_mut() else { return false };
     let ctx = SpellCtx { ents, hash, cards, calib, steps: &[] };
     hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
@@ -1129,7 +1150,7 @@ fn straight_hits(
         any = true;
         dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding), ignores_hide: false });
         if let Some(b) = buff {
-            fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms: b.time_ms, pulse_amount: pulse, first_pulse_ms: None, source: None });
+            fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
         }
         #[cfg(not(clash_plant = "range_shot_unpushed"))]
         if s.push > 0 {
@@ -1302,12 +1323,15 @@ pub fn step_projectiles(
         }
         if p.splash > 0 {
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
-            apply_attack_buff(ents, calib, p.buff, p.pulse, p.target, scratch, fx);
+            apply_attack_buff(ents, calib, p.buff, p.pulse, (p.src_level, p.buff_first), p.target, scratch, fx);
         } else if alive {
             let ti = p.target.index as usize;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding), ignores_hide: false });
             if let Some(b) = p.buff {
-                fx.buffs.push(BuffHit { target: p.target, buff: b.buff, time_ms: b.time_ms, pulse_amount: p.pulse, first_pulse_ms: None, source: None });
+                // The shot's buff rides its arrival. A row that sets ApplyBuffBeforeDamage (the Mother Witch's) says so
+                // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills
+                // (status.APPLY_BUFF_BEFORE_DAMAGE, state.rs `apply_effects`).
+                fx.buffs.push(BuffHit { src_level: p.src_level, before_damage: p.buff_first, ..BuffHit::plain(p.target, b.buff, b.time_ms, p.pulse) });
             }
         }
         // THE AREA THE SHOT LEAVES (CardDef::projectile_area), at the point it landed on: cast in
@@ -1376,6 +1400,8 @@ fn release_sparks(
             straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),
             hook: None,
             release: None,
+            buff_first: false,
+            src_level: p.src_level,
         };
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);

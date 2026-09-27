@@ -47,7 +47,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::fixed::{milli, tiles, Vec2};
-use crate::status::{BuffApply, BuffDef};
+use crate::status::{BuffApply, BuffDeathSpawn, BuffDef};
 use serde::Deserialize;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::OnceLock;
@@ -216,6 +216,11 @@ pub struct SpellHit {
     /// status.FULL_STOP_BUFF_IS_STUN, so Zap and Freeze keep the one hold path they
     /// always had and every other buff joins it.
     pub buff: Option<BuffApply>,
+    /// A SECOND BUFF THE SAME IMPACT HANGS (an area whose OnHitAction spawns two buffs: the Goblin Curse's
+    /// circle hangs its damage and slow in `buff` and its mark, the buff whose carrier leaves a goblin when it
+    /// dies, here). Never a pulsing buff: the loader puts the one that pulses in `buff`, so the spell's
+    /// `pulse` stays that one's. None on every other hit.
+    pub buff2: Option<BuffApply>,
     /// area_effect_objects CapBuffTimeToAreaEffectTime: an application of `buff` lasts no longer
     /// than the area it came from has left to live (status.AREA_BUFF_SOURCE_BINDING =
     /// client_source_bound; spell.rs `area_bound`). False on every hit that is not an area's.
@@ -312,6 +317,23 @@ pub struct StrikeDef {
     /// The projectile row's Speed, raw. The strike lands the next tick whatever it is: the projectile is born on its
     /// victim.
     pub speed: i32,
+    /// WHAT A STRIKE AIMS AT: the highest-hp enemy (Lightning) or the area's own centre (the Royal Delivery).
+    pub pick: StrikePick,
+    /// THE OBJECT A CENTRE-AIMED STRIKE MAKES (`StrikePick::AreaCentre`): a `SpellShape::Projectile` of the
+    /// projectile row, its hit and its SpawnCharacter, made on the centre on the strike tick and landing on the
+    /// next (spell.rs `step_spells`). It is the chain's next object (`SpellShape::child`) and the shape's release
+    /// (`SpellShape::release`). None on a strike that picks a victim.
+    pub delivery: Option<Box<SpellShape>>,
+}
+
+/// What a striking area's strike aims at (`StrikeDef::pick`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StrikePick {
+    /// The eligible enemy with the highest hp (spell.rs `strike`; Lightning, HitBiggestTargets).
+    HighestHp,
+    /// The area's own centre, whoever stands there: the strike makes its `delivery` there (the Royal Delivery's
+    /// crate, a row with a Projectile and no HitBiggestTargets).
+    AreaCentre,
 }
 
 /// THE STRIKING AREA a HitBiggestTargets row is (`StrikeDef`), or the reason it is refused. Exactly one shape is
@@ -382,6 +404,7 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
         no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
         knockback: None,
         buff,
+        buff2: None,
         caps_buff_time: false,
         controls_buff: false,
     };
@@ -391,7 +414,120 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
     if !hit.hits_air && !hit.hits_ground {
         return refuse("it hits neither ground nor air");
     }
-    Ok(StrikeDef { hit, life_ms, gaps_ms, speed })
+    Ok(StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::HighestHp, delivery: None })
+}
+
+/// THE CENTRE-AIMED STRIKE an area with a Projectile row and no HitBiggestTargets is (`StrikePick::AreaCentre`; the
+/// Royal Delivery), with the unit its delivery releases as the need, or the reason it is refused. Exactly one shape is
+/// accepted, the Royal Delivery's:
+///   - the area: HitSpeed and LifeDuration set, and no Damage, Buff, MaximumTargets, SpawnCharacter, child area,
+///     own-side filter or Pushback of its own;
+///   - its projectile: Damage, Speed and a positive Radius, a SpawnCharacter with a count of at least one (a blank
+///     count is refused, as on a spell projectile), and no Pushback, MaximumTargets, TargetBuff, SpawnProjectile,
+///     SpawnAreaEffectObject or scripted action;
+///   - the area's SpawnTime, when set, equal to the projectile's SpawnCharacterDeployTime: the two say how long the
+///     released unit deploys, and a pair that disagreed would need a reading of which one wins.
+///
+/// The strike's `hit` is the AREA's filters (its Radius, air and ground, OnlyEnemies, IgnoreBuildings) with the
+/// PROJECTILE's damage and crown share, so the spell object scales the damage the delivery deals. The strikes fall
+/// every HitSpeed while the running sum is at most LifeDuration, as a striking area's do.
+fn centre_strike_shape(aeo: &RawAreaEffect) -> Result<(StrikeDef, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: &str| Err(format!("area effect {what} with a projectile: {why}; not simulated"));
+    let hit_speed_ms = match aeo.hit_speed_ms {
+        Some(h) if h > 0 => h,
+        _ => return refuse("no HitSpeed"),
+    };
+    let life_ms = match aeo.life_duration_ms {
+        Some(l) if l > 0 => l,
+        _ => return refuse("no LifeDuration"),
+    };
+    if aeo.damage.is_some() || aeo.buff.is_some() || aeo.maximum_targets.is_some() || aeo.spawn_character.is_some() {
+        return refuse("the area carries its own Damage, Buff, MaximumTargets or SpawnCharacter");
+    }
+    if aeo.spawn_area_effect_object.is_some() || aeo.only_own_troops.unwrap_or(false) || aeo.pushback_milli.is_some() {
+        return refuse("the area makes a child area, reaches its own side or pushes");
+    }
+    let p: RawSpellProjectile = match &aeo.projectile {
+        Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(|e| format!("area effect {what}: its projectile: {e}"))?,
+        _ => return refuse("no Projectile"),
+    };
+    let pname = p.name.clone().unwrap_or_default();
+    if p.pushback_milli.is_some() || p.maximum_targets.is_some() || p.target_buff.as_ref().is_some_and(|b| !b.is_null()) {
+        return refuse(&format!("its projectile {pname} pushes, caps its targets or hangs a buff"));
+    }
+    if p.spawn_projectile.is_some() || p.spawn_area_effect_object.is_some() || p.action_graph.is_some() {
+        return refuse(&format!("its projectile {pname} releases a projectile, an area or an action"));
+    }
+    let damage = p.damage.ok_or_else(|| format!("area effect {what}: its projectile {pname} deals no Damage"))?;
+    let speed = p.speed.filter(|s| *s > 0).ok_or_else(|| format!("area effect {what}: its projectile {pname} has no Speed"))?;
+    let p_radius = p.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("area effect {what}: its projectile {pname} has no Radius"))?;
+    let unit = p.spawn_character.clone().ok_or_else(|| format!("area effect {what}: its projectile {pname} releases no unit; not simulated"))?;
+    let count = p.spawn_character_count.filter(|c| *c > 0).ok_or_else(|| format!("area effect {what}: its projectile {pname} spawns {unit} with no count"))?;
+    #[cfg(not(clash_plant = "delivery_spawn_time_unchecked"))]
+    if let (Some(a), Some(b)) = (aeo.spawn_time_ms, p.spawn_character_deploy_time_ms) {
+        if a != b {
+            return refuse(&format!("its SpawnTime {a} and its projectile's SpawnCharacterDeployTime {b} disagree"));
+        }
+    }
+    let mut gaps_ms = Vec::new();
+    let mut sum = hit_speed_ms;
+    while sum <= life_ms {
+        gaps_ms.push(hit_speed_ms);
+        sum += hit_speed_ms;
+    }
+    if gaps_ms.is_empty() {
+        return refuse("its HitSpeed outlasts its LifeDuration: it never strikes");
+    }
+    let crown_pct = crown(p.crown_tower_damage_percent);
+    let hit = SpellHit {
+        damage,
+        crown_pct,
+        radius: milli(aeo.radius_milli.ok_or_else(|| format!("area effect {what} without radius"))?),
+        hits_air: aeo.hits_air.unwrap_or(false),
+        hits_ground: aeo.hits_ground.unwrap_or(false),
+        only_enemies: aeo.only_enemies.unwrap_or(false),
+        only_own_troops: false,
+        ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
+        no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
+        knockback: None,
+        buff: None,
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    if !hit.only_enemies {
+        return refuse("it strikes both sides");
+    }
+    // THE DELIVERY: the projectile row's own hit (its Radius, its AoeToAir / AoeToGround and OnlyEnemies; the row
+    // carries no IgnoreBuildings, spells.AREA_PROJECTILE_IGNORE_BUILDINGS) and its release.
+    let delivery_hit = SpellHit {
+        damage,
+        crown_pct,
+        radius: milli(p_radius),
+        hits_air: p.aoe_to_air.unwrap_or(false),
+        hits_ground: p.aoe_to_ground.unwrap_or(false),
+        only_enemies: p.only_enemies.unwrap_or(false),
+        only_own_troops: false,
+        ignore_buildings: false,
+        no_effect_to_crown_towers: false,
+        knockback: None,
+        buff: None,
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    if !delivery_hit.hits_air && !delivery_hit.hits_ground {
+        return refuse(&format!("its projectile {pname} hits neither ground nor air"));
+    }
+    let spawn = SpawnDef {
+        unit: u16::MAX, // resolved by from_json_str
+        count,
+        deploy_time_ms: p.spawn_character_deploy_time_ms,
+        level_index: p.spawn_character_level_index,
+    };
+    let delivery = SpellShape::Projectile { speed, hit: Some(delivery_hit), waves: 1, wave_interval_ms: 0, spawn: Some(spawn) };
+    Ok((StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::AreaCentre, delivery: Some(Box::new(delivery)) }, vec![(UnitUse::Spell, unit)]))
 }
 
 impl SpellShape {
@@ -401,6 +537,8 @@ impl SpellShape {
     pub fn release(&self) -> Option<&SpawnDef> {
         match self {
             SpellShape::Projectile { spawn, .. } | SpellShape::Rolling { spawn, .. } => spawn.as_ref(),
+            // A centre-aimed strike releases what its delivery releases (the Royal Delivery's Recruit).
+            SpellShape::Strikes(d) => d.delivery.as_deref().and_then(SpellShape::release),
             _ => None,
         }
     }
@@ -409,16 +547,40 @@ impl SpellShape {
     pub fn release_slot(&mut self) -> Option<&mut Option<SpawnDef>> {
         match self {
             SpellShape::Projectile { spawn, .. } | SpellShape::Rolling { spawn, .. } => Some(spawn),
+            SpellShape::Strikes(d) => d.delivery.as_deref_mut().and_then(SpellShape::release_slot),
             _ => None,
         }
     }
 
-    /// The next object of this shape's chain: what a `Fuse` releases, or a pulsing area's child.
+    /// The next object of this shape's chain: what a `Fuse` releases, a pulsing area's child, or the object a
+    /// centre-aimed strike makes (`StrikeDef::delivery`).
     pub fn child(&self) -> Option<&SpellShape> {
         match self {
             SpellShape::Fuse { then, .. } => Some(then),
             SpellShape::PulsingAreaEffect { child, .. } => child.as_deref(),
+            SpellShape::Strikes(d) => d.delivery.as_deref(),
             _ => None,
+        }
+    }
+
+    /// EVERY BUFF THIS SHAPE'S CHAIN CAN HANG, into `out` (each index once, in chain order: `buff`, then `buff2`,
+    /// then the next object's). Read by `card_buffs`.
+    fn buffs_into(&self, out: &mut Vec<u16>) {
+        let hit = match self {
+            SpellShape::Projectile { hit, .. } => hit.as_ref(),
+            SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. } | SpellShape::Rolling { hit, .. } => Some(hit),
+            SpellShape::Strikes(d) => Some(&d.hit),
+            SpellShape::Fuse { .. } | SpellShape::Summon { .. } => None,
+        };
+        if let Some(h) = hit {
+            for b in [h.buff, h.buff2].into_iter().flatten() {
+                if !out.contains(&b.buff) {
+                    out.push(b.buff);
+                }
+            }
+        }
+        if let Some(c) = self.child() {
+            c.buffs_into(out);
         }
     }
 }
@@ -946,13 +1108,22 @@ pub struct CardDef {
     /// BuffWhenNotAttacking is an invisibility, None on every other card. Read by target.rs `can_target` through
     /// the entity's `reveal_from`.
     pub invisible_when_idle: Option<i32>,
+    /// THE BUFFS THAT NEVER LAND ON THIS UNIT (characters / buildings IgnoreBuff): `CardDb::buffs` indices, sorted.
+    /// The VoodooHog lists VoodooCurse and GoblinCurse, so a hog is never cursed into a second hog; the Golem, the
+    /// Lava Hound and the Battle Ram list them too. A listed name no loaded buff carries is dropped. Read by state.rs
+    /// `land_buff`. Empty on every other card.
+    pub ignore_buffs: Vec<u16>,
+    /// projectiles ApplyBuffBeforeDamage (the Mother Witch's VoodooProjectile): this card's attack buff lands before
+    /// its damage, so a unit the hit kills can still carry it (status.APPLY_BUFF_BEFORE_DAMAGE, state.rs
+    /// `apply_effects`). False on every other card.
+    pub attack_buff_first: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `invisible_when_idle`, and onto the end of that tail
+    // field goes HERE, after `attack_buff_first`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -963,6 +1134,32 @@ impl CardDef {
     #[inline]
     pub fn is_flying(&self) -> bool {
         self.flying_height > 0
+    }
+
+    /// EVERY BUFF THIS CARD CAN HANG, as `CardDb::buffs` indices, each once: its attack buff, its reflect's, then each
+    /// buff (`buff`, then `buff2`) along the chain of every spell object it carries -- its spell, death area, deploy
+    /// blow, death projectile, deploy area, spawn area and projectile area, in that order. The one enumeration the
+    /// loader's buff death-spawn needs and `CardDb::unit_refs` read.
+    pub fn hung_buffs(&self) -> Vec<u16> {
+        let mut out: Vec<u16> = Vec::new();
+        for b in [self.attack_buff, self.reflect.and_then(|r| r.buff)].into_iter().flatten() {
+            if !out.contains(&b.buff) {
+                out.push(b.buff);
+            }
+        }
+        let blocks = [
+            &self.spell,
+            &self.death_area_effect,
+            &self.deploy_projectile,
+            &self.death_projectile,
+            &self.deploy_area_effect,
+            &self.spawn_area_effect,
+            &self.projectile_area,
+        ];
+        for d in blocks.into_iter().flatten() {
+            d.shape.buffs_into(&mut out);
+        }
+        out
     }
 
     /// THE FUSE OF A DEATH BOMB, ms, or None on every other card.
@@ -1068,6 +1265,9 @@ struct RawProjectileObj {
     /// projectiles.csv SpawnAreaEffectObject: the NAME of the area the projectile leaves where it lands
     /// (`CardDef::projectile_area`; the Heal Spirit's heal, the SuperArcher's charge pull).
     spawn_area_effect_object: Option<String>,
+    /// projectiles ApplyBuffBeforeDamage (`CardDef::attack_buff_first`; the Mother Witch's VoodooProjectile). Written
+    /// on the 15.535 rows only; absent reads false.
+    apply_buff_before_damage: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1224,6 +1424,10 @@ struct RawCard {
     /// BattleHealerSpawnHeal). `from_json_str` resolves it into `CardDef::spawn_area_effect`.
     /// Absent reads as none.
     spawn_area_object: Option<String>,
+    /// cards.json `ignore_buffs` (characters / buildings IgnoreBuff, a list; 15.535 rows only): the buff rows that
+    /// never land on this unit. `from_json_str` resolves the names into `CardDef::ignore_buffs` once every buff is
+    /// interned.
+    ignore_buffs: Option<Vec<String>>,
 }
 
 /// cards.json `buff_on_damage`.
@@ -1350,6 +1554,8 @@ struct RawSecondSummon {
 #[derive(Deserialize, Default, Clone)]
 #[serde(default)]
 struct RawActionGraph {
+    /// The row's *Action columns and the action each names (OnStartingAction, OnHitAction, ...).
+    roots: BTreeMap<String, String>,
     class_types: Vec<String>,
     spawns: Vec<String>,
     mechanic: Option<bool>,
@@ -1488,6 +1694,9 @@ struct RawSpawner {
     pause_time_ms: Option<i32>,
     limit: Option<i32>,
     radius_milli: Option<i32>,
+    /// SpawnCharacter2: a second periodic unit (the Super Witch's Bat), refused at the top of `convert`. Written on the
+    /// 15.535 rows only.
+    character2: Option<String>,
 }
 
 /// cards.json `death_spawn` block.
@@ -1535,6 +1744,10 @@ enum UnitUse {
     ProjectileArea,
     /// The unit a life-state controller releases (`LifeStateDef::unit`, the Goblin Hut's SpearGoblin_Dummy).
     LifeState,
+    /// The death-spawn unit of buff index `.0` (`BuffDef::death_spawn`: the Mother Witch's VoodooHog, the Goblin
+    /// Curse's GoblinCurseGoblin), a need of every card that can hang that buff. Resolved onto the buff table's row,
+    /// which every such card shares, not onto the card.
+    BuffDeathSpawn(u16),
 }
 
 /// The units a converter's record needs loaded: (which mechanic, unit name), for
@@ -1563,6 +1776,10 @@ pub enum UnitRef {
     SpellSummon,
     /// A life-state controller's unit (`LifeStateDef::unit`).
     LifeState,
+    /// The death spawn of a buff the card hangs (`BuffDef::death_spawn`; the Mother Witch's VoodooHog, the Goblin
+    /// Curse's GoblinCurseGoblin), one entry per buff (`CardDb::card_buffs`). The unit is released for the side
+    /// the buff says, usually the caster's, where the dying unit fell.
+    BuffDeathSpawn,
 }
 
 impl UnitRef {
@@ -1576,6 +1793,7 @@ impl UnitRef {
             UnitRef::DeathProjectile => "a death projectile",
             UnitRef::SpellSummon => "a spell summon",
             UnitRef::LifeState => "a life-state controller",
+            UnitRef::BuffDeathSpawn => "a buff's death spawn",
         }
     }
 }
@@ -1712,6 +1930,25 @@ struct RawBuff {
     hit_tick_from_source: Option<bool>,
     /// character_buffs ControlledByParent (`BuffDef::controlled_by_parent`); not extracted yet.
     controlled_by_parent: Option<bool>,
+    /// character_buffs DeathSpawn and its columns (`BuffDef::death_spawn`); 15.535 only.
+    death_spawn: Option<RawBuffDeathSpawn>,
+    /// character_buffs IgnoreBuildings (`BuffDef::ignore_buildings`); 15.535 only.
+    ignore_buildings: Option<bool>,
+    /// character_buffs CrownTowerDamagePerHit (`BuffDef::crown_hit`); 15.535 only.
+    crown_tower_damage_per_hit: Option<i32>,
+}
+
+/// cards.json buff `death_spawn` block, every field nullable (the extractor writes the whole block whenever
+/// DeathSpawn is set).
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+struct RawBuffDeathSpawn {
+    character: Option<String>,
+    count: Option<i32>,
+    is_enemy: Option<bool>,
+    deploy_delay: Option<bool>,
+    same_location: Option<bool>,
+    other_buff_death_spawn_allowed: Option<bool>,
 }
 
 impl RawBuff {
@@ -1748,7 +1985,21 @@ impl RawBuff {
             attract_pct: self.attract_percentage.unwrap_or(0),
             hit_tick_from_source: self.hit_tick_from_source.unwrap_or(false),
             controlled_by_parent: self.controlled_by_parent.unwrap_or(false),
+            death_spawn: match &self.death_spawn {
+                None => None,
+                Some(ds) => Some(buff_death_spawn(ds, &name, what)?),
+            },
+            ignore_buildings: self.ignore_buildings.unwrap_or(false),
+            crown_hit: self.crown_tower_damage_per_hit.unwrap_or(0),
         };
+        // CrownTowerDamagePerHit replaces a PULSE's crown-tower damage (state.rs `buff_pulse_pass`); on a buff that
+        // does not pulse it would have nothing to replace.
+        if def.crown_hit != 0 && !def.pulses() {
+            return Err(format!("{what}: buff {name} carries CrownTowerDamagePerHit {} but deals no damage over time; not simulated", def.crown_hit));
+        }
+        if def.crown_hit < 0 {
+            return Err(format!("{what}: buff {name}: CrownTowerDamagePerHit {} is negative", def.crown_hit));
+        }
         if def.is_inert() {
             // A row with no multiplier, no damage and no heal is a MARKER (Invisible,
             // Clone, a filter) whose mechanic lives in an action graph.
@@ -1761,6 +2012,28 @@ impl RawBuff {
     }
 }
 
+/// A buff row's death spawn (`BuffDeathSpawn`), its unit still unresolved (u16::MAX: `BuffTable::set_death_unit`
+/// fills it once the loader has loaded the unit), or the reason it is refused. Accepted: one unit (a blank
+/// DeathSpawnCount reads one, as a unit's does), with OtherBuffDeathSpawnAllowed set, so the carrier's own death spawn
+/// still happens beside it (the engine runs both, state.rs `phase_reap`).
+fn buff_death_spawn(ds: &RawBuffDeathSpawn, name: &str, what: &str) -> Result<BuffDeathSpawn, String> {
+    let unit = ds.character.as_deref().filter(|c| !c.is_empty()).ok_or_else(|| format!("{what}: buff {name}: a death spawn with no DeathSpawn"))?;
+    let count = ds.count.unwrap_or(1);
+    if count != 1 {
+        return Err(format!("{what}: buff {name}: a buff death spawn of {count} units ({unit}) has no measured layout; not simulated"));
+    }
+    if ds.other_buff_death_spawn_allowed != Some(true) {
+        return Err(format!("{what}: buff {name}: without OtherBuffDeathSpawnAllowed the carrier's own death spawn would be suppressed; not simulated"));
+    }
+    Ok(BuffDeathSpawn {
+        unit: u16::MAX,
+        count,
+        for_other_side: ds.is_enemy.unwrap_or(false),
+        deploy_delay: ds.deploy_delay.unwrap_or(false),
+        same_location: ds.same_location.unwrap_or(false),
+    })
+}
+
 /// A buff table built while the cards load: every distinct `BuffDef` the file uses,
 /// once. `CardDb::buffs` is this vector, and every `BuffApply` (on a card, a
 /// projectile or a spell) is an index into it.
@@ -1771,6 +2044,20 @@ pub(crate) struct BuffTable {
     /// carry identical columns: `intern` merges by VALUE, so one index can stand for
     /// more than one row of the card data.
     names: Vec<Vec<String>>,
+    /// The NAME of each index's death-spawn unit (`BuffDef::death_spawn`), for the loader to load it
+    /// (`death_needs`, `set_death_unit`); None on every buff without one. Part of an index's identity:
+    /// two rows whose columns agree but whose death units differ never merge.
+    death_names: Vec<Option<String>>,
+}
+
+/// `def` with its death-spawn unit set to the unresolved u16::MAX: what `BuffTable::intern` compares, so a row
+/// interned after its death unit was resolved still finds the index of the same row interned before.
+fn death_unit_masked(def: &BuffDef) -> BuffDef {
+    let mut d = *def;
+    if let Some(ds) = d.death_spawn.as_mut() {
+        ds.unit = u16::MAX;
+    }
+    d
 }
 
 impl BuffTable {
@@ -1788,8 +2075,16 @@ impl BuffTable {
         (self.defs, names)
     }
 
-    fn intern(&mut self, def: BuffDef, name: &str) -> Result<u16, String> {
-        if let Some(i) = self.defs.iter().position(|d| *d == def) {
+    fn intern(&mut self, def: BuffDef, name: &str, death: Option<&str>) -> Result<u16, String> {
+        let key = death_unit_masked(&def);
+        #[cfg(not(clash_plant = "buff_interns_without_death_unit"))]
+        let found = (0..self.defs.len()).find(|&k| death_unit_masked(&self.defs[k]) == key && self.death_names[k].as_deref() == death);
+        #[cfg(clash_plant = "buff_interns_without_death_unit")]
+        let found = {
+            let _ = death; // PLANT (regression): two rows whose death units differ merge into one index.
+            (0..self.defs.len()).find(|&k| death_unit_masked(&self.defs[k]) == key)
+        };
+        if let Some(i) = found {
             if !name.is_empty() && !self.names[i].iter().any(|n| n == name) {
                 self.names[i].push(name.to_string());
             }
@@ -1800,6 +2095,7 @@ impl BuffTable {
         }
         self.defs.push(def);
         self.names.push(if name.is_empty() { Vec::new() } else { vec![name.to_string()] });
+        self.death_names.push(death.map(str::to_string));
         Ok((self.defs.len() - 1) as u16)
     }
 
@@ -1807,7 +2103,49 @@ impl BuffTable {
     fn apply(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
         let def = raw.convert(what)?;
         let time_ms = time_ms.filter(|t| *t > 0).ok_or_else(|| format!("{what}: buff {} without BuffTime", raw.name.clone().unwrap_or_default()))?;
-        Ok(BuffApply { buff: self.intern(def, raw.name.as_deref().unwrap_or(""))?, time_ms })
+        let death = raw.death_spawn.as_ref().and_then(|d| d.character.as_deref());
+        Ok(BuffApply { buff: self.intern(def, raw.name.as_deref().unwrap_or(""), death)?, time_ms })
+    }
+
+    /// The death-spawn units the buffs `used` release, as (buff index, unit name), each index once: the loader's
+    /// needs for a card that can hang those buffs (`CardDb::from_json_str`).
+    fn death_needs(&self, used: &[u16]) -> Vec<(u16, String)> {
+        let mut out: Vec<(u16, String)> = Vec::new();
+        for &b in used {
+            if let Some(Some(n)) = self.death_names.get(b as usize) {
+                if !out.iter().any(|(k, _)| *k == b) {
+                    out.push((b, n.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Buff `b`'s death spawn releases the loaded unit `u`.
+    fn set_death_unit(&mut self, b: u16, u: u16) {
+        if let Some(ds) = self.defs.get_mut(b as usize).and_then(|d| d.death_spawn.as_mut()) {
+            ds.unit = u;
+        }
+    }
+
+    /// Whether buff `b` has a death spawn whose unit was never loaded.
+    fn death_unresolved(&self, b: u16) -> bool {
+        self.defs.get(b as usize).and_then(|d| d.death_spawn).is_some_and(|ds| ds.unit == u16::MAX)
+    }
+
+    /// Every death spawn whose unit was never loaded is dropped: no loaded card hangs that buff (a card that does
+    /// was refused already, `CardDb::from_json_str`), so nothing can reach it.
+    fn drop_unresolved_deaths(&mut self) {
+        for d in &mut self.defs {
+            if d.death_spawn.is_some_and(|ds| ds.unit == u16::MAX) {
+                d.death_spawn = None;
+            }
+        }
+    }
+
+    /// Every buff index some name of `name`'s row interned to.
+    fn indices_named(&self, name: &str) -> Vec<u16> {
+        (0..self.names.len()).filter(|&k| self.names[k].iter().any(|n| n == name)).map(|k| k as u16).collect()
     }
 }
 
@@ -1843,6 +2181,48 @@ struct RawAreaEffect {
     buff_number: Option<i32>,
     /// HitBiggestTargets (`StrikeDef`; 15.535 only).
     hit_biggest_targets: Option<bool>,
+    /// What the area's OnStartingAction runs, in order (tools/extract_cards.py `action_schedule`; 15.535 only): read
+    /// by `area_spawns_area` (the Goblin Curse's area makes its curse circle).
+    schedule: Option<RawSchedule>,
+    /// What the area's OnHitAction runs on each unit it hits (15.535 only): read by `on_hit_buffs` (the curse
+    /// circle hangs two buffs).
+    on_hit: Option<RawSchedule>,
+    /// SpawnTime: how long the unit the area's projectile releases deploys, as the area row says it (the Royal
+    /// Delivery's 250; `centre_strike_shape` holds it against the projectile's SpawnCharacterDeployTime).
+    spawn_time_ms: Option<i32>,
+}
+
+/// cards.json `schedule` / `on_hit` (tools/extract_cards.py `action_schedule`): the entries an action runs, in order.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawSchedule {
+    root: Option<String>,
+    entries: Vec<RawScheduleEntry>,
+}
+
+/// One entry of a `RawSchedule` (tools/extract_cards.py `schedule_entry`), every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawScheduleEntry {
+    delay_ms: Option<i32>,
+    class: Option<String>,
+    /// The class only plays an effect, a sound or an animation.
+    cosmetic: Option<bool>,
+    /// An ActionSpawn's SpawnType (AreaEffectType, BuffType, CharacterType) and SpawnData.
+    spawn_type: Option<String>,
+    spawn: Option<String>,
+    /// An ActionSpawn's SpawnTime, ms: a spawned buff's time.
+    spawn_time_ms: Option<i32>,
+    /// A BuffType spawn's buff row.
+    buff: Option<RawBuff>,
+    /// Every class and column the extractor's reader does not understand.
+    unread: Vec<String>,
+}
+
+impl RawScheduleEntry {
+    fn is_cosmetic(&self) -> bool {
+        self.cosmetic.unwrap_or(false)
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -2052,6 +2432,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_area: None,
         life_state: None,
         invisible_when_idle: None,
+        ignore_buffs: Vec::new(),
+        attack_buff_first: false,
     }
 }
 
@@ -2082,9 +2464,156 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 /// Returns the shape and the units it needs loaded, like every converter (neither
 /// accepted shape releases one, so the list is empty).
 fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    // AN AREA WHOSE ONE ACTION MAKES ANOTHER AREA (the Goblin Curse) is recognised first: its action is what it does.
+    if let Some(got) = area_spawns_area(aeo, buffs, ctx) {
+        return got;
+    }
     let what = aeo.name.clone().unwrap_or_default();
-    refuse_action_mechanic(&aeo.action_graph, &format!("area effect {what}"))?;
+    refuse_action_mechanic_but_on_hit(aeo, &format!("area effect {what}"))?;
     area_effect_shape(aeo, buffs, ctx)
+}
+
+/// `refuse_action_mechanic` for an area, except a graph that is exactly the area's readable OnHitAction: an
+/// ActionGroup of BuffType spawns, which `on_hit_buffs` reads into the area's hit. Such a graph is accepted whether the
+/// extractor calls it a mechanic or not (today it walks named actions only, so the Goblin Curse circle's inline buffs
+/// leave it cosmetic; a walker that followed inline tables would call it one).
+fn refuse_action_mechanic_but_on_hit(aeo: &RawAreaEffect, what: &str) -> Result<(), String> {
+    if let (Some(g), Some(oh)) = (&aeo.action_graph, &aeo.on_hit) {
+        let spawns: Vec<String> = oh
+            .entries
+            .iter()
+            .filter(|e| !e.is_cosmetic() && e.spawn_type.as_deref() == Some("BuffType"))
+            .filter_map(|e| e.spawn.as_ref().map(|s| format!("BuffType:{s}")))
+            .collect();
+        let only_its_hit = g.class_types.iter().all(|c| matches!(c.as_str(), "ActionGroup" | "ActionSpawn")) && g.spawns.iter().all(|s| spawns.contains(s));
+        let roots_on_hit = g.roots.keys().all(|k| k == "OnHitAction");
+        if only_its_hit && roots_on_hit {
+            return Ok(());
+        }
+    }
+    refuse_action_mechanic(&aeo.action_graph, what)
+}
+
+/// AN AREA WHOSE ONE ACTION MAKES ANOTHER AREA (the Goblin Curse: an area of LifeDuration 6000 that hits nothing, whose
+/// OnStartingAction spawns the curse circle GoblinCurseBase at once). The parent is COLLAPSED into a zero fuse over the
+/// child (`SpellShape::Fuse { fuse_ms: 0, then }`): the fuse releases the child on the cast tick's own update, and the
+/// child acts from the next tick with its whole life (spells.AREA_SPAWNED_AREA_START). Measured on client 15.535.29 (five
+/// casts): the curse circle first applies one tick after the cast and last on the 120th tick after it; the parent's own
+/// Damage never lands (spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS).
+///
+/// None, and the caller's refusal stands, unless ALL hold:
+///   1. the area's schedule has exactly one entry that is not cosmetic: an ActionSpawn of an AreaEffectType at delay 0,
+///      with nothing unread (the global Lightning's spawn carries an ActionDelay, which is unread: that row stays
+///      refused as before);
+///   2. the parent lands nothing: it hits neither ground nor air, and it carries no Buff, Pushback, Projectile,
+///      SpawnCharacter, MaximumTargets, child area, positive HitSpeed or HitBiggestTargets. Its own Damage is not read.
+///
+/// Then the child is read by the non-collapsing path, and must be a one-shot or pulsing area that does not outlive its
+/// parent, else the parent is refused with the reason.
+fn area_spawns_area(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Option<Result<(SpellShape, UnitNeeds), String>> {
+    let sched = aeo.schedule.as_ref()?;
+    let live: Vec<&RawScheduleEntry> = sched.entries.iter().filter(|e| !e.is_cosmetic()).collect();
+    let [e] = live.as_slice() else { return None };
+    if e.class.as_deref() != Some("ActionSpawn") || e.spawn_type.as_deref() != Some("AreaEffectType") || e.delay_ms.unwrap_or(0) != 0 || !e.unread.is_empty() {
+        return None;
+    }
+    let lands_nothing = !aeo.hits_ground.unwrap_or(false)
+        && !aeo.hits_air.unwrap_or(false)
+        && aeo.buff.is_none()
+        && aeo.pushback_milli.is_none()
+        && aeo.projectile.as_ref().map_or(true, serde_json::Value::is_null)
+        && aeo.spawn_character.is_none()
+        && aeo.maximum_targets.is_none()
+        && aeo.spawn_area_effect_object.is_none()
+        && aeo.hit_speed_ms.map_or(true, |h| h <= 0)
+        && aeo.hit_biggest_targets != Some(true);
+    if !lands_nothing {
+        return None;
+    }
+    let root = sched.root.clone().unwrap_or_default();
+    let cname = e.spawn.clone().unwrap_or_default();
+    Some(collapse_into_child(aeo, &root, &cname, buffs, ctx))
+}
+
+/// The collapse `area_spawns_area` recognised: parent `aeo`, whose action `root` spawns area `cname`.
+fn collapse_into_child(aeo: &RawAreaEffect, root: &str, cname: &str, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let c = ctx.aeos.get(cname).ok_or_else(|| format!("area effect {what}'s action {root} spawns {cname}, which has no area_effect_objects record"))?;
+    // The child by the NON-collapsing path: its own graph (accepted when it is its readable hit), then its shape.
+    refuse_action_mechanic_but_on_hit(c, &format!("area effect {cname}")).map_err(|e| format!("area effect {what} spawns {cname}: {e}"))?;
+    let (child, needs) = area_effect_shape(c, buffs, ctx).map_err(|e| format!("area effect {what} spawns {cname}: {e}"))?;
+    if !matches!(child, SpellShape::PulsingAreaEffect { .. } | SpellShape::AreaEffect { .. }) {
+        return Err(format!("area effect {what} spawns {cname}, which is neither a one-shot nor a pulsing area; not simulated"));
+    }
+    if c.life_duration_ms.unwrap_or(0) > aeo.life_duration_ms.unwrap_or(0) {
+        return Err(format!("area effect {what} spawns {cname}, which outlives its parent; not simulated"));
+    }
+    #[cfg(not(clash_plant = "curse_parent_as_disc"))]
+    let shape = SpellShape::Fuse { fuse_ms: 0, then: Box::new(child) };
+    #[cfg(clash_plant = "curse_parent_as_disc")]
+    let shape = {
+        // PLANT: the parent read as a one-shot disc of its own Damage on both air and ground; the child is lost.
+        let _ = child;
+        SpellShape::AreaEffect {
+            hit: SpellHit {
+                damage: aeo.damage.unwrap_or(0),
+                crown_pct: crown(aeo.crown_tower_damage_percent),
+                radius: milli(aeo.radius_milli.unwrap_or(0)),
+                hits_air: true,
+                hits_ground: true,
+                only_enemies: aeo.only_enemies.unwrap_or(false),
+                only_own_troops: false,
+                ignore_buildings: false,
+                no_effect_to_crown_towers: false,
+                knockback: None,
+                buff: None,
+                buff2: None,
+                caps_buff_time: false,
+                controls_buff: false,
+            },
+        }
+    };
+    Ok((shape, needs))
+}
+
+/// THE BUFFS AN AREA'S OnHitAction HANGS on each unit it hits, as (`buff`, `buff2`) of its `SpellHit`, or the reason the
+/// area is refused. None, None for an area whose row names no OnHitAction. Accepted: every entry that is not cosmetic
+/// is an ActionSpawn of a BuffType at delay 0 with nothing unread, at most two of them and at most one that pulses, on
+/// an area whose own Buff column is blank. The one that pulses goes in `buff` (the spell object's `pulse` is that
+/// buff's), else the first; each lasts its entry's SpawnTime.
+fn on_hit_buffs(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<(Option<BuffApply>, Option<BuffApply>), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let names_on_hit = aeo.action_graph.as_ref().is_some_and(|g| g.roots.contains_key("OnHitAction"));
+    let Some(oh) = &aeo.on_hit else {
+        if names_on_hit {
+            return Err(format!("area effect {what} applies its hit through an action this loader does not read"));
+        }
+        return Ok((None, None));
+    };
+    let root = oh.root.clone().unwrap_or_default();
+    let refuse = |why: &str| Err(format!("area effect {what}: its hit action {root} {why}; not simulated"));
+    if aeo.buff.is_some() {
+        return refuse("hangs its buffs beside the area's own Buff");
+    }
+    let mut got: Vec<BuffApply> = Vec::new();
+    for e in oh.entries.iter().filter(|e| !e.is_cosmetic()) {
+        if e.class.as_deref() != Some("ActionSpawn") || e.spawn_type.as_deref() != Some("BuffType") || e.delay_ms.unwrap_or(0) != 0 || !e.unread.is_empty() {
+            return refuse(&format!("runs {} ({})", e.class.clone().unwrap_or_default(), e.unread.join(", ")));
+        }
+        let b = e.buff.as_ref().ok_or_else(|| format!("area effect {what}: its hit action {root} spawns buff {} with no buff row", e.spawn.clone().unwrap_or_default()))?;
+        got.push(buffs.apply(b, e.spawn_time_ms, &format!("area effect {what}'s hit action"))?);
+    }
+    if got.len() > 2 {
+        return refuse(&format!("hangs {} buffs", got.len()));
+    }
+    let pulsing: Vec<usize> = (0..got.len()).filter(|&k| buffs.defs[got[k].buff as usize].pulses()).collect();
+    if pulsing.len() > 1 {
+        return refuse("hangs two buffs that pulse");
+    }
+    let first = pulsing.first().copied().unwrap_or(0);
+    let buff = got.get(first).copied();
+    let buff2 = got.iter().enumerate().find(|(k, _)| *k != first).map(|(_, b)| *b);
+    Ok((buff, buff2))
 }
 
 /// THE AREA EFFECT A CARD IS, when its character is what the area spawns (spells_characters
@@ -2123,6 +2652,14 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
     if aeo.hit_biggest_targets == Some(true) {
         return strike_shape(aeo, buffs).map(|d| (SpellShape::Strikes(Box::new(d)), Vec::new()));
     }
+    // AN AREA WITH A PROJECTILE ROW AND NO HitBiggestTargets strikes its own centre (the Royal Delivery): its
+    // HitSpeed times the strike, and the projectile is what the strike delivers (`centre_strike_shape`).
+    if aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) {
+        return centre_strike_shape(aeo).map(|(d, needs)| (SpellShape::Strikes(Box::new(d)), needs));
+    }
+    // THE BUFFS THE AREA'S OnHitAction HANGS (the Goblin Curse's circle: its damage and slow, and its mark), read
+    // before the pulse's own refusals, which they answer.
+    let (hit_buff, hit_buff2) = on_hit_buffs(aeo, buffs)?;
     // A PULSING area effect (HitSpeed set) stands on the ground and re-applies its
     // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
     // pulse that carries a BUFF and nothing else -- Poison and
@@ -2134,7 +2671,7 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
         if aeo.damage.is_some() {
             return Err(format!("pulsing area effect {what} deals its own Damage every HitSpeed; not simulated"));
         }
-        if aeo.buff.is_none() {
+        if aeo.buff.is_none() && hit_buff.is_none() {
             return Err(format!("pulsing area effect {what} pulses no buff: its mechanic is not in the columns"));
         }
     }
@@ -2152,7 +2689,7 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
     // (15.535 Graveyard_rework, Vines_AeO: no Damage, no Buff, no Pushback; the
     // Skeletons / the vines are OnStartingAction scripts the extractor does not
     // walk). Running it as a zero-damage Zap would be a different card.
-    if aeo.damage.is_none() && aeo.buff.is_none() && aeo.pushback_milli.is_none() {
+    if aeo.damage.is_none() && aeo.buff.is_none() && hit_buff.is_none() && aeo.pushback_milli.is_none() {
         return Err(format!("area effect {what} carries no damage, buff or pushback: its mechanic is an action graph this loader does not read"));
     }
     if !aeo.hits_ground.unwrap_or(false) && !aeo.hits_air.unwrap_or(false) {
@@ -2162,7 +2699,7 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
     // case is gone -- a -100 / -100 / -100 row is just a buff whose composed speed
     // is 0, and `apply_effects` turns that into the hold every stun already used.
     let area_buff = match &aeo.buff {
-        None => None,
+        None => hit_buff,
         Some(b) => Some(buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?),
     };
     // AN OWN-SIDE AREA WHOSE BUFF IS A FULL STOP is refused: the 2018 Clone row would otherwise load
@@ -2183,6 +2720,7 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
         no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
         knockback: knockback(aeo.pushback_milli, None),
         buff: area_buff,
+        buff2: hit_buff2,
         caps_buff_time: aeo.cap_buff_time_to_area_effect_time.unwrap_or(false),
         controls_buff: aeo.controls_buff.unwrap_or(false),
     };
@@ -2355,6 +2893,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                 no_effect_to_crown_towers: false,
                 knockback: knockback(roll.pushback_milli, roll.pushback_all),
                 buff: None,
+                buff2: None,
                 caps_buff_time: false,
                 controls_buff: false,
             };
@@ -2404,6 +2943,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                     no_effect_to_crown_towers: false,
                     knockback: knockback(carrier.pushback_milli, carrier.pushback_all),
                     buff: target_buff,
+                    buff2: None,
                     caps_buff_time: false,
                     controls_buff: false,
                 }),
@@ -2810,6 +3350,7 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
                 no_effect_to_crown_towers: false,
                 knockback: None,
                 buff: None,
+                buff2: None,
                 caps_buff_time: false,
                 controls_buff: false,
             }),
@@ -2872,6 +3413,7 @@ fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable) -> Re
             no_effect_to_crown_towers: false,
             knockback: knockback(p.pushback_milli, p.pushback_all),
             buff: target_buff,
+            buff2: None,
             caps_buff_time: false,
             controls_buff: false,
         }),
@@ -2925,6 +3467,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         };
         return Ok((c, raw.display_name.clone(), Vec::new()));
     }
+    // A SECOND PERIODIC UNIT (SpawnCharacter2, the Super Witch's Bat) is not simulated. Refused here, before anything
+    // of the row is interned, so a refused row adds no buff to the table and moves no other card's buff index.
+    if let Some(c2) = raw.spawner.as_ref().and_then(|s| s.character2.as_deref()) {
+        return Err(format!("spawner SpawnCharacter2 {c2}: a second periodic unit is not simulated"));
+    }
     // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) is the one action graph a unit may run, when the graph
     // is exactly that controller and its cosmetic hooks (`life_state_of`). Every other graph is refused as before.
     let life_state = match &raw.life_state_spawner {
@@ -2949,6 +3496,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
     let mut attack_buff: Option<BuffApply> = None;
+    let mut attack_buff_first = false;
     let mut projectile_homing = false;
     let mut projectile_name: Option<String> = None;
     let mut range_shot: Option<RangeShotDef> = None;
@@ -2984,6 +3532,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             if let Some(b) = &p.target_buff {
                 attack_buff = Some(buffs.apply(b, p.buff_time_ms, "the unit's projectile")?);
             }
+            // ApplyBuffBeforeDamage (the Mother Witch's): the buff lands before the damage
+            // (status.APPLY_BUFF_BEFORE_DAMAGE).
+            attack_buff_first = p.apply_buff_before_damage.unwrap_or(false);
             projectile_homing = p.homing.unwrap_or(true);
             projectile_name = p.name.clone();
             range_shot = range_shot_of(&p);
@@ -3023,12 +3574,18 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         None => return Err("missing range_milli".into()),
     };
     // BuffOnDamage: a unit whose own hit buffs its victim without a projectile (the
-    // Electro Wizard's ZapFreeze, 500 ms). A card ships this OR a projectile
-    // TargetBuff, never both; two would be a shape this loader does not read.
+    // Electro Wizard's ZapFreeze, 500 ms). A card that ships this beside a projectile
+    // TargetBuff names ONE buff twice when the two are the same row for the same time (the
+    // Mother Witch's VoodooCurse, 5000 ms both): one attack buff. Two different buffs would
+    // be a shape this loader does not read.
     if let Some(bod) = &raw.buff_on_damage {
         let b = bod.buff.as_ref().ok_or("buff_on_damage without a buff")?;
         let got = buffs.apply(b, bod.time_ms, "the unit's BuffOnDamage")?;
-        if attack_buff.is_some() {
+        #[cfg(not(clash_plant = "attack_buff_pair_refused"))]
+        let same = attack_buff == Some(got);
+        #[cfg(clash_plant = "attack_buff_pair_refused")]
+        let same = false; // PLANT (regression): a TargetBuff and a BuffOnDamage naming one buff are refused as two.
+        if attack_buff.is_some() && !same {
             return Err("the unit carries both a projectile TargetBuff and a BuffOnDamage; not simulated".into());
         }
         attack_buff = Some(got);
@@ -3253,6 +3810,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         projectile_area: None,
         life_state: life_state.map(|(d, _)| d),
         invisible_when_idle,
+        // Resolved by `CardDb::from_json_str` once every buff is interned (the names in `RawCard::ignore_buffs`).
+        ignore_buffs: Vec::new(),
+        attack_buff_first,
     }, display, units))
 }
 
@@ -3373,6 +3933,7 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
                 no_effect_to_crown_towers: false,
                 knockback: knockback(p.pushback_milli, p.pushback_all),
                 buff: None,
+                buff2: None,
                 caps_buff_time: false,
                 controls_buff: false,
             }),
@@ -3427,8 +3988,11 @@ impl CardDb {
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
         let ctx = LoadCtx { aeos: &file.area_effect_objects, units: &file.units, projectiles: &file.projectiles };
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
+        // Each loaded record's IgnoreBuff names, resolved once every buff is interned (below).
+        let mut ignore_names: Vec<(u16, Vec<String>)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
+            let ignore = raw.ignore_buffs.clone().unwrap_or_default();
             match convert(raw, &mut buffs, &ctx) {
                 Ok((c, display, units)) => {
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
@@ -3436,8 +4000,20 @@ impl CardDb {
                         continue;
                     }
                     db.push(c, display)?;
+                    let idx = (db.cards.len() - 1) as u16;
                     for (which, unit) in units {
-                        spawns.push(((db.cards.len() - 1) as u16, which, unit));
+                        spawns.push((idx, which, unit));
+                    }
+                    // THE DEATH SPAWNS OF THE BUFFS THE CARD HANGS (the Mother Witch's VoodooHog, the Goblin Curse's
+                    // goblin): each a need of this card, after its other needs, so every other card's units keep
+                    // their breadth-first numbering. Each card that hangs the buff has its own need; a unit that
+                    // fails refuses every one of them.
+                    #[cfg(not(clash_plant = "buff_death_spawn_unloaded"))]
+                    for (b, unit) in buffs.death_needs(&db.cards[idx as usize].hung_buffs()) {
+                        spawns.push((idx, UnitUse::BuffDeathSpawn(b), unit));
+                    }
+                    if !ignore.is_empty() {
+                        ignore_names.push((idx, ignore));
                     }
                 }
                 Err(e) => db.rejected.push((name, e)),
@@ -3659,7 +4235,13 @@ impl CardDb {
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
+                    let ignore = raw.ignore_buffs.clone().unwrap_or_default();
                     let (mut c, _, nested) = convert(raw, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;
+                    // A SPAWNED UNIT THAT HANGS A BUFF WHOSE CARRIER RELEASES A UNIT WHEN IT DIES would put units on the
+                    // board in turn: a spawn chain, refused like every other.
+                    if let Some(b) = c.hung_buffs().into_iter().find(|b| buffs.defs[*b as usize].death_spawn.is_some()) {
+                        return Err(format!("units.{unit} hangs buff {}, whose carrier releases a unit when it dies; a spawn chain is not simulated", buffs.names[b as usize].join("|")));
+                    }
                     // A SPAWNED UNIT'S PROJECTILE AREA (the Heal Spirit's heal) is an area, not a unit: it
                     // resolves here, onto the unit's own card, and only unit needs remain a chain.
                     let mut chain: UnitNeeds = Vec::new();
@@ -3705,6 +4287,9 @@ impl CardDb {
                     }
                     db.push(c, None)?;
                     let idx = (db.cards.len() - 1) as u16;
+                    if !ignore.is_empty() {
+                        ignore_names.push((idx, ignore));
+                    }
                     // The loaded unit's own needs, one level deeper (none but a death
                     // projectile's egg's spawner while the chain refusal above stands).
                     work.extend(nested.into_iter().map(|(w, u)| (idx, w, u, depth + 1)));
@@ -3734,6 +4319,8 @@ impl CardDb {
                             }
                         }
                         UnitUse::LifeState => card.life_state.as_mut().expect("life_state present").unit = u,
+                        // The buff's row, which every card that hangs it shares, not the card.
+                        UnitUse::BuffDeathSpawn(b) => buffs.set_death_unit(b, u),
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
@@ -3742,6 +4329,46 @@ impl CardDb {
                 Err(e) => unloadable.push((spell_idx, e)),
             }
         }
+        // A CARD THAT HANGS A BUFF WHOSE DEATH UNIT WAS NEVER LOADED FOR IT is refused, never run as a card whose curse
+        // leaves nothing (a buff it hangs through a block resolved above, whose need no card pushed). Then every death
+        // spawn still unresolved belongs to a buff no loaded card hangs, and is dropped.
+        for idx in 0..db.cards.len() as u16 {
+            if unloadable.iter().any(|(i, _)| *i == idx) {
+                continue;
+            }
+            if let Some(b) = db.cards[idx as usize].hung_buffs().into_iter().find(|b| buffs.death_unresolved(*b)) {
+                unloadable.push((idx, format!("buff {} releases a unit when its carrier dies, and that unit was not loaded for this card; not simulated", buffs.names[b as usize].join("|"))));
+            }
+        }
+        buffs.drop_unresolved_deaths();
+        // IgnoreBuff, resolved now that every buff is interned: each name becomes the indices it interned to. A name no
+        // buff carries is dropped (the towers' event buff). A name whose index also stands for a row the list does not
+        // name is refused: interning merges rows by value, so the immunity would reach a buff the row never listed.
+        for (idx, names) in ignore_names {
+            if unloadable.iter().any(|(i, _)| *i == idx) {
+                continue;
+            }
+            let mut ids: Vec<u16> = Vec::new();
+            let mut why: Option<String> = None;
+            for n in &names {
+                for b in buffs.indices_named(n) {
+                    if let Some(other) = buffs.names[b as usize].iter().find(|x| !names.contains(x)) {
+                        why = Some(format!("IgnoreBuff {n} shares its row with {other}; the immunity would be ambiguous"));
+                    }
+                    if !ids.contains(&b) {
+                        ids.push(b);
+                    }
+                }
+            }
+            ids.sort_unstable();
+            match why {
+                Some(w) => unloadable.push((idx, w)),
+                None => db.cards[idx as usize].ignore_buffs = ids,
+            }
+        }
+        // THE BUFF TABLE AS IT STANDS NOW, so `unit_refs` sees the buffs' death spawns in the scan below and in the
+        // cleanup after it. The final assignment is `into_parts`, after the fallback towers.
+        db.buffs = buffs.defs.clone();
         // A DEATH BOMB IS IMPLEMENTED ON THE DEATH-SPAWN PATH ALONE (state.rs
         // `phase_reap`, which leaves a timed impact instead of a spawn). Any other
         // block that named one (`unit_refs`: a periodic spawner, a spell release, a
@@ -3891,7 +4518,7 @@ impl CardDb {
         for (path, unit, level_index) in self.unit_refs(idx) {
             let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState => {
+                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState | UnitRef::BuffDeathSpawn => {
                     self.unit_level(idx, unit, level_index, level)?
                 }
             };
@@ -3921,7 +4548,14 @@ impl CardDb {
         let c = self.get(idx);
         let mut out = Vec::new();
         if let Some(sp) = c.spell.as_ref().and_then(|d| d.shape.release()) {
-            out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
+            // PLANT unit_refs_skips_new_paths also drops a centre-aimed strike's delivery.
+            #[cfg(clash_plant = "unit_refs_skips_new_paths")]
+            let skip = matches!(c.spell.as_ref().map(|d| &d.shape), Some(SpellShape::Strikes(_)));
+            #[cfg(not(clash_plant = "unit_refs_skips_new_paths"))]
+            let skip = false;
+            if !skip {
+                out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
+            }
         }
         if let Some(sp) = c.spawner {
             out.push((UnitRef::Spawner, sp.unit, None));
@@ -3943,6 +4577,14 @@ impl CardDb {
         }
         if let Some(ls) = c.life_state {
             out.push((UnitRef::LifeState, ls.unit, None));
+        }
+        // The death spawn of every buff the card hangs (`CardDef::hung_buffs`), one entry per buff. The buff's row
+        // holds the unit, so the entry is read off the buff table.
+        #[cfg(not(clash_plant = "unit_refs_skips_new_paths"))]
+        for b in c.hung_buffs() {
+            if let Some(ds) = self.buffs.get(b as usize).and_then(|d| d.death_spawn) {
+                out.push((UnitRef::BuffDeathSpawn, ds.unit, None));
+            }
         }
         out
     }
@@ -3967,6 +4609,8 @@ impl CardDb {
                 // A summon with no unit summons nothing: the spell goes with it.
                 UnitRef::SpellSummon => card.spell = None,
                 UnitRef::LifeState => card.life_state = None,
+                // The unit is on the buff's row, which other cards share: the card holds nothing to drop.
+                UnitRef::BuffDeathSpawn => {}
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -4146,7 +4790,13 @@ impl CardDb {
                         | Some(SpellShape::PulsingAreaEffect { hit: h, .. })
                         | Some(SpellShape::Rolling { hit: h, .. }) => h.crown_pct = pct,
                         Some(SpellShape::Projectile { hit: None, .. }) => return Err(format!("{what}: the spell deals no damage")),
-                        Some(SpellShape::Strikes(d)) => d.hit.crown_pct = pct,
+                        Some(SpellShape::Strikes(d)) => {
+                            d.hit.crown_pct = pct;
+                            // A centre-aimed strike's damage lands through its delivery's hit.
+                            if let Some(SpellShape::Projectile { hit: Some(h), .. }) = d.delivery.as_deref_mut() {
+                                h.crown_pct = pct;
+                            }
+                        }
                         Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. }) => {
                             return Err(format!("{what}: the spell's own object carries no crown-tower share"))
                         }
@@ -4321,6 +4971,14 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // shape a spell's "projectile" block has; `convert_death_projectile`), "deploy_area_effect" and
 // "spawn_area_object" (rows of "area_effect_objects"; `convert_deploy_area_effect`,
 // `convert_spawn_area_effect`). Also "minimum_range_milli" (MinimumRange; null reads as none).
+// On the 15.535 rows only (absent reads blank): "ignore_buffs" (IgnoreBuff, a list of buff names;
+// `CardDef::ignore_buffs`), the spawner block's "character2" (SpawnCharacter2, refused), a projectile's
+// "apply_buff_before_damage" (`CardDef::attack_buff_first`), an area's "schedule" and "on_hit" (what its
+// OnStartingAction and OnHitAction run, {root, entries: [{delay_ms, action, class, cosmetic, spawn_type, spawn,
+// spawn_time_ms, buff, unread}]}; `area_spawns_area`, `on_hit_buffs`) and "spawn_time_ms" (SpawnTime;
+// `centre_strike_shape`), and a buff's "death_spawn" block {character, count, is_enemy, deploy_delay,
+// same_location, other_buff_death_spawn_allowed}, "ignore_buildings" and "crown_tower_damage_per_hit"
+// (`RawBuff::convert`).
 // Unknown fields are ignored.
 
 #[cfg(test)]

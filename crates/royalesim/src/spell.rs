@@ -56,13 +56,16 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Rect, Shape};
-use crate::card::{CardDb, KnockbackDef, SpawnDef, SpellHit, SpellShape, StrikeDef};
+use crate::card::{CardDb, KnockbackDef, SpawnDef, SpellHit, SpellShape, StrikeDef, StrikePick};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope};
+use crate::state::{
+    AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea,
+    RollDirection, RollFirstStep, RollHitShape, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope,
+};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -415,9 +418,21 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             };
             out.push(Spell { team, card, level, damage, pulse, motion, depth });
         }
-        // A bottle: it deals nothing itself and releases `then` when its fuse runs out.
-        SpellShape::Fuse { fuse_ms, .. } => {
-            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Fuse { pos: tap, ms: *fuse_ms }, depth });
+        // A bottle: it deals nothing itself and releases `then` when its fuse runs out. A ZERO fuse is an area whose
+        // action makes another area (card.rs `area_spawns_area`, the Goblin Curse): spells.AREA_SPAWNED_AREA_START =
+        // on_parent_first_update releases the child on the fuse's first update, so it first acts the next tick with
+        // its whole life (measured on client 15.535.29: the curse circle applies from the cast tick + 1 to + 120);
+        // with_parent makes the child here, with its parent, so it acts on the cast tick.
+        SpellShape::Fuse { fuse_ms, then } => {
+            #[cfg(not(clash_plant = "curse_child_with_parent"))]
+            let with_parent = calib.area_spawned_area_start == AreaSpawnedAreaStart::WithParent;
+            #[cfg(clash_plant = "curse_child_with_parent")]
+            let with_parent = true; // PLANT: the child is made with its parent whatever the key says.
+            if *fuse_ms == 0 && with_parent {
+                out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, then, tap)?);
+            } else {
+                out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Fuse { pos: tap, ms: *fuse_ms }, depth });
+            }
         }
         // Never cast: state.rs `enqueue` puts the unit down as a troop deploy.
         SpellShape::Summon { .. } => {}
@@ -606,12 +621,40 @@ fn area_bound(ctx: &SpellCtx, hit: &SpellHit, b: BuffApply, area: Option<AreaClo
     (time_ms, first_pulse_ms, source)
 }
 
-/// Apply one circular impact of `hit` at `centre` for `team`. `damage` is level-scaled. `area`: the
-/// clock of the pulsing area this impact is one application of (`area_bound`), None for every
-/// other impact.
+/// WHAT ONE PULSE OF BUFF `b` DEALS A CROWN TOWER when its row sets CrownTowerDamagePerHit (`BuffDef::crown_hit`),
+/// hung by card `card` at unified `level`: status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING = level_scaled scales it like
+/// every other level-1 figure (the Goblin Curse's 4 is 10 at level 11), unscaled takes it as the row ships it. 0 for a
+/// buff without the column, whose pulse takes the crown-tower percent (state.rs `buff_pulse_pass`). The one site this is
+/// computed.
+fn crown_pulse(ctx: &SpellCtx, card: u16, level: i32, b: BuffApply) -> i32 {
+    let per_hit = ctx.cards.buffs.get(b.buff as usize).map_or(0, |d| d.crown_hit);
+    if per_hit <= 0 {
+        return 0;
+    }
+    match ctx.calib.crown_per_hit_scaling {
+        // Level validated when the cast was accepted.
+        CrownPerHitScaling::LevelScaled => ctx.cards.scaled(card, level, per_hit).unwrap_or(per_hit),
+        CrownPerHitScaling::Unscaled => per_hit,
+    }
+}
+
+/// Apply one circular impact of `hit` at `centre` for `team`, of card `card` cast at unified `level`. `damage` is
+/// level-scaled. `area`: the clock of the pulsing area this impact is one application of (`area_bound`), None for every
+/// other impact. Each buff the impact hangs (`buff`, then `buff2`) carries `level` (`BuffHit::src_level`) and its
+/// crown-tower pulse (`crown_pulse`).
 #[allow(clippy::too_many_arguments)]
-fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>, area: Option<AreaClock>) {
+fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>, area: Option<AreaClock>) {
     let e = ctx.ents;
+    // `buff` with the spell's pulse, then `buff2`, which never pulses (the loader puts the pulsing one first).
+    #[cfg(not(clash_plant = "curse_mark_dropped"))]
+    let second = hit.buff2;
+    #[cfg(clash_plant = "curse_mark_dropped")]
+    let second: Option<BuffApply> = None; // PLANT: the impact never hangs its second buff.
+    let hung: [(Option<BuffApply>, i32); 2] = [(hit.buff, pulse), (second, 0)];
+    let application = |id: EntityId, b: BuffApply, pulse: i32| -> BuffHit {
+        let (time_ms, first_pulse_ms, source) = area_bound(ctx, hit, b, area);
+        BuffHit { first_pulse_ms, source, src_level: level, crown_amount: crown_pulse(ctx, card, level, b), ..BuffHit::plain(id, b.buff, time_ms, pulse) }
+    };
     ctx.hash.neighbours_within(e, centre, hit.radius + ctx.hash.max_radius(), nb);
     // the fixed_distance arm's zero-vector fallback, a unit axis per victim
     let fallback = |v: usize| match ctx.calib.knock_zero_vector {
@@ -652,7 +695,7 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             let pct = 100; // PLANT: crown towers take full spell damage.
             dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false });
         }
-        if let Some(b) = hit.buff {
+        if hit.buff.is_some() || second.is_some() {
             // THE BUFF RIDES THE IMPACT and lands on every victim the impact lands on
             // (calibration status.TARGET_BUFF_ON_SPLASH = whole_splash): a Snowball's
             // slow is on everything in its 2500 disc, not on one unit. `pulse_amount`
@@ -664,8 +707,11 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             // buff until the two were joined.
             match ctx.calib.target_buff_on_splash {
                 TargetBuffScope::WholeSplash => {
-                    let (time_ms, first_pulse_ms, source) = area_bound(ctx, hit, b, area);
-                    fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms, pulse_amount: pulse, first_pulse_ms, source })
+                    for (b, p) in hung {
+                        if let Some(b) = b {
+                            fx.buffs.push(application(id, b, p));
+                        }
+                    }
                 }
                 TargetBuffScope::PrimaryTargetOnly => {
                     let d = e.pos[v].sub(centre);
@@ -701,9 +747,12 @@ fn impact(ctx: &SpellCtx, team: Team, centre: Vec2, hit: &SpellHit, damage: i32,
             }
         }
     }
-    if let (Some((_, id)), Some(b)) = (primary, hit.buff) {
-        let (time_ms, first_pulse_ms, source) = area_bound(ctx, hit, b, area);
-        fx.buffs.push(BuffHit { target: id, buff: b.buff, time_ms, pulse_amount: pulse, first_pulse_ms, source });
+    if let Some((_, id)) = primary {
+        for (b, p) in hung {
+            if let Some(b) = b {
+                fx.buffs.push(application(id, b, p));
+            }
+        }
     }
 }
 
@@ -722,7 +771,7 @@ pub const STRIKE_REACH_EXTRA: i32 = 170;
 ///
 /// No candidate: no strike, and the strike is spent.
 #[allow(clippy::too_many_arguments)]
-fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, pos: Vec2, struck: &mut Vec<EntityId>, launched: &mut Vec<Projectile>, nb: &mut Vec<u32>) {
+fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &StrikeDef, pos: Vec2, struck: &mut Vec<EntityId>, launched: &mut Vec<Projectile>, nb: &mut Vec<u32>) {
     let e = ctx.ents;
     #[cfg(not(clash_plant = "strike_reach_bare"))]
     let reach_rule = ctx.calib.strike_reach;
@@ -797,6 +846,8 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, p
         hook: None,
         carrier: None,
         release: None,
+        buff_first: false,
+        src_level: level,
     });
 }
 
@@ -1001,17 +1052,37 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 if np != *aim {
                     return true;
                 }
+                // A CENTRE-AIMED STRIKE'S DELIVERY (the Royal Delivery's crate, the chain's depth-1 object): its hit is
+                // the projectile row's, whose buildings filter spells.AREA_PROJECTILE_IGNORE_BUILDINGS names. Measured
+                // on client 15.535.29: an enemy building 2550 from the tap took the full hit, although the area row sets
+                // IgnoreBuildings (projectile_row).
+                let area_ignores = match shape_of(def).map(|d| &d.shape) {
+                    Some(SpellShape::Strikes(d)) if d.pick == StrikePick::AreaCentre && s.depth == 1 => Some(d.hit.ignore_buildings),
+                    _ => None,
+                };
+                #[cfg(not(clash_plant = "area_projectile_reads_area_row"))]
+                let rule = ctx.calib.area_projectile_ignore_buildings;
+                #[cfg(clash_plant = "area_projectile_reads_area_row")]
+                let rule = AreaProjectileIgnoreBuildings::AreaRow; // PLANT: the area row's IgnoreBuildings, whatever the key.
                 if let Some(h) = hit {
-                    impact(ctx, s.team, *aim, h, s.damage, s.pulse, dmg, fx, nb, None);
+                    let h = match (area_ignores, rule) {
+                        (Some(ignore), AreaProjectileIgnoreBuildings::AreaRow) => SpellHit { ignore_buildings: ignore, ..*h },
+                        _ => *h,
+                    };
+                    impact(ctx, s.team, s.card, s.level, *aim, &h, s.damage, s.pulse, dmg, fx, nb, None);
                 }
-                if let Some(sp) = spawn {
+                #[cfg(not(clash_plant = "delivery_release_dropped"))]
+                let released = spawn.as_ref();
+                #[cfg(clash_plant = "delivery_release_dropped")]
+                let released = spawn.as_ref().filter(|_| area_ignores.is_none()); // PLANT: a delivery releases nothing.
+                if let Some(sp) = released {
                     release_units(ctx, s.team, s.card, s.level, sp, *aim, &mut out.released);
                 }
                 false
             }
             (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit }) => {
                 let first_new = fx.buffs.len();
-                impact(ctx, s.team, *pos, hit, s.damage, s.pulse, dmg, fx, nb, None);
+                impact(ctx, s.team, s.card, s.level, *pos, hit, s.damage, s.pulse, dmg, fx, nb, None);
                 // A UNIT'S SPAWN AREA (card.rs `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal; cast only
                 // under spawner.SPAWN_AREA_OBJECT_SCOPE = every_row, state.rs `spawn_now`): the tick its buff lands
                 // counts on the buff's pulse clock, so the first pulse falls HitFrequency - TICK_MS after it. Measured
@@ -1053,7 +1124,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 }
                 while p.next_ms <= 0 && p.life_ms > 0 {
                     let clock = AreaClock { pos: p.pos, age_ms: *total_ms - p.life_ms + tick, left_ms: p.life_ms };
-                    impact(ctx, s.team, p.pos, hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
+                    impact(ctx, s.team, s.card, s.level, p.pos, hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
                     p.next_ms += (*hit_speed_ms).max(tick);
                 }
                 p.next_ms -= tick;
@@ -1102,11 +1173,35 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // update whose clock falls below zero strikes (`strike`). Under carried the next strike is timed from
             // the strike time itself, so strike k falls on the cast tick + floor(k x HitSpeed / TICK_MS); under
             // dropped from the end of the strike's tick. The object goes with its last strike.
+            // spells.STRIKE_DUE: the update whose clock falls to zero strikes (clock_at_or_below_zero; measured on the Royal
+            // Delivery, whose HitSpeed 2000 is exactly 40 ticks: its crate is made on the cast tick + 39), or only one
+            // that falls below it. Lightning's 460 never reaches zero exactly, so its strikes fall on the same ticks
+            // under both. A centre-aimed strike (`StrikePick::AreaCentre`) makes its delivery on the centre, born
+            // after this tick's spells stepped, so it lands on the next tick.
             (SpellMotion::Strikes { pos, life_ms, next_ms, k, struck }, SpellShape::Strikes(def)) => {
                 *next_ms -= tick;
                 *life_ms -= tick;
-                if *next_ms < 0 && (*k as usize) < def.gaps_ms.len() {
-                    strike(ctx, s.team, s.card, s.damage, def, *pos, struck, &mut out.launched, nb);
+                #[cfg(not(clash_plant = "strike_due_below_zero"))]
+                let due_rule = ctx.calib.strike_due;
+                #[cfg(clash_plant = "strike_due_below_zero")]
+                let due_rule = StrikeDue::ClockBelowZero; // PLANT: the strike waits for the clock to fall below zero.
+                let due = match due_rule {
+                    StrikeDue::ClockAtOrBelowZero => *next_ms <= 0,
+                    StrikeDue::ClockBelowZero => *next_ms < 0,
+                };
+                if due && (*k as usize) < def.gaps_ms.len() {
+                    match def.pick {
+                        StrikePick::HighestHp => strike(ctx, s.team, s.card, s.level, s.damage, def, *pos, struck, &mut out.launched, nb),
+                        StrikePick::AreaCentre => out.born.push(Spell {
+                            team: s.team,
+                            card: s.card,
+                            level: s.level,
+                            damage: s.damage,
+                            pulse: 0,
+                            motion: SpellMotion::Flight { pos: *pos, aim: *pos, frac: Vec2::default(), delay_ms: 0 },
+                            depth: s.depth + 1,
+                        }),
+                    }
                     *k += 1;
                     let gap = def.gaps_ms.get(*k as usize).copied().unwrap_or(0);
                     #[cfg(not(clash_plant = "strike_timer_restarts"))]

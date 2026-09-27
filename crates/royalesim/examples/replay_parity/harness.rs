@@ -897,6 +897,10 @@ impl Roots {
                     // A death projectile's release (the Phoenix's egg) comes out of a death
                     // too, a tick after it: rooted to the nearest recent death, as a death spawn.
                     UnitRef::DeathProjectile => &mut death_spawn_of,
+                    // A buff's death spawn (the Mother Witch's hog, the Goblin Curse's goblin) comes out of a death too:
+                    // rooted to the nearest recent death, as a death spawn. It belongs to the side OPPOSITE the dying
+                    // unit's (the caster's), and the client reports its card as -1.
+                    UnitRef::BuffDeathSpawn => &mut death_spawn_of,
                     // a spell summon's unit (the Heal Spirit) is put down by its spell, as a release is
                     UnitRef::SpellRelease | UnitRef::SpellSummon => &mut spell_release_of,
                     UnitRef::SecondSummon => &mut second_summon_of,

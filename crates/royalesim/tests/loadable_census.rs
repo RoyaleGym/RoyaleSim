@@ -27,9 +27,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 103
-//!      loadable rows (the 101 catalogue cards, then PrincessTower and KingTower) and
-//!      43 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 113
+//!      loadable rows (the 111 catalogue cards, then PrincessTower and KingTower) and
+//!      33 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      69 loadable rows (the catalogue, then the towers) and 11 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -96,10 +96,11 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 51c67a4b9e79d10e (the rows gained `death_spawn_pushback` with no row loading or refusing differently). The lists are what the loader gives for that file.
+/// 179828db4e576a77 (the rows gained the curses' and the Royal Delivery's columns: a buff's death spawn, an area's
+/// action schedule, IgnoreBuff, SpawnCharacter2). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
-/// --census`), written from the same file, holds the same 103 loadable rows in the
-/// same order and the same 43 refusals, word for word.
+/// --census`), written from the same file, holds the same 113 loadable rows in the
+/// same order and the same 33 refusals, word for word.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[
@@ -172,6 +173,7 @@ const LOADABLE_15535: &[&str] = &[
     "RoyalRecruits_Chess",
     "SkeletonDragons",
     "SuperHogRiderTerry",
+    "WitchMother",
     "ElectroSpirit",
     "ElectroGiant",
     "PrinceBuff",
@@ -210,7 +212,9 @@ const LOADABLE_15535: &[&str] = &[
     "BarbLog",
     "Heal",
     "Snowball",
+    "RoyalDelivery",
     "WarmSpell",
+    "GoblinCurse",
     "PrincessTower",
     "KingTower",
 ];
@@ -224,7 +228,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("GiantBuffer", "the unit runs an action graph this loader does not read (ActionGiantBufferBuff, ActionGiantBufferBuffVisual, ActionGiantBufferCollectFriends, ActionPlayEffect)"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
-    ("GoblinCurse", "area effect GoblinCurse runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionSpawn; spawns AreaEffectType:GoblinCurseBase)"),
     ("GoblinDemolisher", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionRunActionAtHealth, ActionSpawn; spawns AreaEffectType:CancelTauntAEO)"),
     ("GoblinDrill", "the unit is spawned at its own king tower and travels underground to the tap (SpawnPathfindSpeed 300, morphing into GoblinDrill on arrival)"),
     ("GoblinGiant", "spawner SpearGoblinGiant"),
@@ -240,17 +243,15 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
     ("RamRider", "spawner RamRider"),
     ("Ronin", "the unit runs an action graph this loader does not read (ActionCounter, ActionDealDamage, ActionGroup, ActionPlayEffect, ActionRunForcedAnimationOnce, ActionSpawn, ActionWithDuration; spawns BuffType:ronin_reflect_stun_buff)"),
-    ("RoyalDelivery", "pulsing area effect RoyalDeliveryArea pulses no buff"),
     ("SkeletonBalloon", "the unit runs an action graph this loader does not read (ActionSkeletonBarrelPopBalloon)"),
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),
     ("SuperLavaHound", "units.SuperLavaHound2 itself spawns units (LavaPups)"),
     ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
-    ("SuperWitch", "the unit's projectile"),
+    ("SuperWitch", "spawner SpawnCharacter2 Bat"),
     ("SuspiciousBush", "an invisibility with no BuffWhenNotAttackingTime"),
     ("ThreeMusketeers", "the unit runs an action graph this loader does not read (ActionFilter, ActionSetAttackSequenceIndex)"),
     ("Vines", "area effect Vines_AeO runs an action graph this loader does not read (ActionAirToGround, ActionGroup, ActionRunActionListOnObjectsInShapeWithPrio, ActionSelect, ActionSpawn; spawns BuffType:Vines_Trap_Snare_XXLarge, BuffType:Vines_Trap_Snare_XLarge, BuffType:Vines_Trap_Snare_Large, BuffType:Vines_Trap_Snare_Medium, BuffType:Vines_Trap_Snare_Small)"),
-    ("WitchMother", "the unit's projectile"),
 ];
 
 /// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a

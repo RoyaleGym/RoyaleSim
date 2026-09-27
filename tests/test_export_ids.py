@@ -48,3 +48,27 @@ def test_a_second_summon_reports_its_card_and_its_shots_are_not_a_towers():
                 # red has no crown tower in range of a Knight at y=14, so a red -1 is a lie
                 assert firer != -1, f"a red shot mid-field reads as a crown tower's: {p}"
     assert rascal_shots > 0, "no RascalGirl shot was seen in 120 ticks, so the firer was never checked"
+
+
+#: the Royal Delivery first in hand
+DELIVERY_DECK = ["RoyalDelivery", "Knight", "Archer", "Musketeer", "Giant", "Minions", "Cannon", "Zap"]
+
+
+def test_the_royal_deliverys_recruit_reports_its_card():
+    """The Recruit the Royal Delivery's crate releases is a unit no card deploys. It reports the Royal Delivery's
+    catalogue id (py.rs `ids_of_indices`, which walks card.rs `CardDb::unit_refs`), never -1. The play is Blue's, on
+    its own half, out of every tower's reach for 50 ticks."""
+    b = royalesim.Battle(card_names=DELIVERY_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+    b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, [])
+    [(_card, reason, *_)] = b.step([(0, 0, 9 * TILE, 12 * TILE)], 1)
+    assert royalesim.DEPLOY_REASONS[reason] == "OK", royalesim.DEPLOY_REASONS[reason]
+    delivery = DELIVERY_DECK.index("RoyalDelivery")
+    seen = False
+    for _ in range(50):
+        b.step([], 1)
+        st = json.loads(b.state_json())
+        for e in st["entities"]:
+            if e[4] < 0:  # not a crown tower
+                assert e[3] >= 0, f"a unit on the board reports no card (-1), so it cannot be named: {e}"
+                seen = seen or e[3] == delivery
+    assert seen, "no unit reporting the Royal Delivery's id appeared in 50 ticks: its Recruit reports another card"

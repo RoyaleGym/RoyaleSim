@@ -898,6 +898,118 @@ def action_graph(t: dict, rec: dict) -> dict | None:
     }
 
 
+# THE ACTION SCHEDULE (15.535 only). `action_graph` above SUMMARISES what a row's actions reach
+# (class names, de-duplicated, string references only), so the loader can refuse a mechanic it does
+# not run. The schedule is the other reading, for an area whose action the loader DOES run: what the
+# area's OnStartingAction / OnHitAction runs, in order, with each entry's delay and parameters. It is a
+# separate walker on purpose: changing what `action_graph` calls a mechanic would flip cards that load
+# today.
+#
+# An ActionGroup's SubActions keep their REPEATS (Graveyard names one action twelve times) and each one's
+# SubActionsDelay. An inline `[[ACTION.X.SubActions]]` table (the Goblin Curse's two buffs) arrives as a
+# dict in `acts.arrays[X]["SubActions"]` and is read like a named action. A lone action is a one-entry
+# schedule at delay 0. Every entry carries the parameters this reader understands, and anything else is
+# kept under `unread`, so the loader refuses the area rather than run a plainer one (the global
+# Lightning's ActionDelay is one such column).
+X_EXPR = re.compile(
+    r"^\s*x\s*\+\s*\(\s*(-?\d+)\s*\*\s*select\("
+    r"\s*x\s*>\s*\(\s*map_width\s*/\s*2\s*\)\s*,\s*-1\s*,\s*1\s*\)\s*\)\s*$"
+)
+Y_EXPR = re.compile(r"^\s*y\s*-\s*\(\s*(-?\d+)\s*\*\s*team_y_direction\(\s*team_index\s*\)\s*\)\s*$")
+# Action columns that only name the row or address effects, animation or display.
+COSMETIC_ACTION_COLUMNS = {
+    "Name",
+    "ClassType",
+    "Base",
+    "IgnoreEffects",
+    "InheritPrestigeFromParent",
+    "Effect",
+    "EffectFlags",
+    "SpawnDeployBaseAnim",
+    "StatsTags",
+}
+
+
+def action_schedule(t: dict, root) -> dict | None:
+    """What an area's OnStartingAction / OnHitAction RUNS, in order (15.535): {root, entries}. An
+    ActionGroup's SubActions with repeats kept and each one's SubActionsDelay, inline tables read like
+    named actions; a lone action is a one-entry schedule at delay 0. None when the root names no
+    action."""
+    if "actions" not in t:
+        return None
+    acts = t["actions"]
+    a = acts.get(root) if isinstance(root, str) else None
+    if a is None:
+        return None
+    if a["ClassType"] == "ActionGroup":
+        arr = acts.arrays.get(root, {})
+        subs = arr.get("SubActions") or ([a.get("SubActions")] if a.get("SubActions") is not None else [])
+        delays = arr.get("SubActionsDelay") or (
+            [a.get("SubActionsDelay")] if a.get("SubActionsDelay") is not None else [0] * len(subs)
+        )
+        if len(delays) != len(subs):
+            raise SystemExit(f"actions.{root}: {len(subs)} SubActions, {len(delays)} SubActionsDelay")
+    else:
+        subs, delays = [root], [0]
+    entries = []
+    for sub, delay in zip(subs, delays, strict=True):
+        rec = acts.get(sub) if isinstance(sub, str) else sub
+        entries.append(schedule_entry(t, rec, sub if isinstance(sub, str) else None, delay))
+    return {"root": root, "entries": entries}
+
+
+def schedule_entry(t: dict, rec, name: str | None, delay) -> dict:
+    """One entry of `action_schedule`: its delay, its action's name (None for an inline table) and
+    class; a cosmetic class is marked `cosmetic`; an ActionSpawn carries what it spawns, how, and
+    where; every other class, and every column this reader does not understand, lands in `unread`."""
+    cls = rec.get("ClassType") if isinstance(rec, dict) else None
+    e: dict = {"delay_ms": delay, "action": name, "class": cls}
+    if cls in COSMETIC_ACTION_CLASSES and cls != "ActionGroup":
+        e["cosmetic"] = True
+        return e
+    if cls in ("ActionSpawn", "ActionSpawnToLocation"):
+        e.update(
+            {
+                "spawn_type": rec.get("SpawnType"),
+                "spawn": rec.get("SpawnData"),
+                "use_deploy": bool(rec.get("UseDeploy")),
+                "deploy_time_ms": rec.get("DeployTime"),
+                "spawn_time_ms": rec.get("SpawnTime"),
+            }
+        )
+        for axis, rx, col in (("x", X_EXPR, "XPositionExpression"), ("y", Y_EXPR, "YPositionExpression")):
+            text = rec.get(col)
+            if text is None:
+                continue
+            m = rx.match(text) if isinstance(text, str) else None
+            if m:
+                form = "nearer_wall_mirror" if axis == "x" else "team_y_direction"
+                e[axis] = {"form": form, "offset_milli": int(m.group(1))}
+            else:
+                e.setdefault("unread", []).append(f"{col} {text!r}")
+        if rec.get("RelativeX") is not None or rec.get("RelativeY") is not None:
+            e["relative"] = {"x": rec.get("RelativeX") or 0, "y": rec.get("RelativeY") or 0}
+        if e["spawn_type"] == "BuffType":
+            e["buff"] = norm_buff(t, e["spawn"])
+        known = {
+            "SpawnType",
+            "SpawnData",
+            "UseDeploy",
+            "DeployTime",
+            "SpawnTime",
+            "XPositionExpression",
+            "YPositionExpression",
+            "RelativeX",
+            "RelativeY",
+        } | COSMETIC_ACTION_COLUMNS
+        extra = sorted(k for k, v in rec.items() if v is not None and k not in known)
+        if extra:
+            e.setdefault("unread", []).append("columns " + ", ".join(extra))
+        return e
+    e["unread"] = [f"class {cls}"]
+    return e
+
+
 def life_state_spawner(t: dict, rec: dict) -> dict | None:
     """THE GOBLIN HUT'S CONTROLLER as a named block (15.535): the one root action of class
     ActionGoblinHutLifeState the row names, with the parameters the loader reads. None for
@@ -981,6 +1093,26 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
         # with the area that applies it (the Tornado's), read with the area's ControlsBuff under
         # calibration status.AREA_BUFF_SOURCE_BINDING.
         out["controlled_by_parent"] = flag(b, "ControlledByParent")
+        # THE BUFF'S DEATH SPAWN (15.535 only, so the 2018 file stays byte-identical): a unit that dies
+        # while it carries the buff leaves `count` of `character` (the Mother Witch's VoodooCurse leaves a
+        # VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin), read under calibration
+        # status.BUFF_DEATH_SPAWN_*. IgnoreBuildings: the buff never lands on a building.
+        # CrownTowerDamagePerHit: the pulse a crown tower takes instead of the percent route
+        # (status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING).
+        out["death_spawn"] = (
+            None
+            if b["DeathSpawn"] is None
+            else {
+                "character": b["DeathSpawn"],
+                "count": b["DeathSpawnCount"],
+                "is_enemy": flag(b, "DeathSpawnIsEnemy"),
+                "deploy_delay": flag(b, "DeathSpawnDeployDelay"),
+                "same_location": flag(b, "DeathSpawnSameLocation"),
+                "other_buff_death_spawn_allowed": flag(b, "OtherBuffDeathSpawnAllowed"),
+            }
+        )
+        out["ignore_buildings"] = flag(b, "IgnoreBuildings")
+        out["crown_tower_damage_per_hit"] = b["CrownTowerDamagePerHit"]
     return out
 
 
@@ -1048,6 +1180,10 @@ def norm_projectile(t: dict[str, Table], name: str | None, chain: tuple[str, ...
         out["spawn_count"] = p["SpawnCount"]
         out["scatter"] = p["Scatter"]
         out["spawn_radius_raw"] = p["SpawnRadius"]
+        # ApplyBuffBeforeDamage: the TargetBuff lands before the hit's damage, so a unit the hit kills
+        # still carries it (the Mother Witch's VoodooProjectile), read under calibration
+        # status.APPLY_BUFF_BEFORE_DAMAGE. 15.535 only, so the 2018 file stays byte-identical.
+        out["apply_buff_before_damage"] = flag(p, "ApplyBuffBeforeDamage")
     return out
 
 
@@ -1100,6 +1236,14 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         # Projectile row (Lightning; spells.STRIKE_*). 15.535 only, so the 2018 file stays
         # byte-identical.
         out["hit_biggest_targets"] = flag(a, "HitBiggestTargets")
+        # What the area's OnStartingAction and OnHitAction RUN, in order (`action_schedule`): the Goblin
+        # Curse's area makes its curse circle, and the circle's hit hangs two buffs. SpawnTime: how long
+        # the unit an area's projectile releases takes to deploy, as the area row says it (the Royal
+        # Delivery's 250, which the loader holds against the projectile's own). 15.535 only, so the 2018
+        # file stays byte-identical.
+        out["schedule"] = action_schedule(t, a["OnStartingAction"]) if isinstance(a["OnStartingAction"], str) else None
+        out["on_hit"] = action_schedule(t, a["OnHitAction"]) if isinstance(a["OnHitAction"], str) else None
+        out["spawn_time_ms"] = a["SpawnTime"]
     return out
 
 
@@ -1334,6 +1478,12 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         "buff_on_damage": None
         if c["BuffOnDamage"] is None
         else {"buff": norm_buff(t, c["BuffOnDamage"]), "time_ms": c["BuffOnDamageTime"]},
+        # IgnoreBuff: the buff rows that never land on this unit (a list column; the VoodooHog lists
+        # VoodooCurse and GoblinCurse, so a hog is never cursed into a second hog). 15.535 rows only
+        # (dropped below on 2018 rows).
+        "ignore_buffs": None
+        if c.get("IgnoreBuff") is None
+        else list(t[table].arrays.get(name, {}).get("IgnoreBuff") or [c.get("IgnoreBuff")]),
         # THE DAMAGE RAMP (VariableDamage2 / VariableDamage3 / VariableDamageTime1 /
         # VariableDamageTime2): a hit deals Damage, then damage2, then damage3 as the attack
         # progress on one target passes time1_ms and time1_ms + time2_ms (calibration
@@ -1428,6 +1578,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # after the literal and on the 15.535 rows only, so the 2018 file stays byte-identical;
         # tools/check_card_reads.py's PROLOGUE names it for that reason.
         u["death_spawn_pushback"] = flag(c, "DeathSpawnPushback")
+        # SpawnCharacter2, into the spawner block: a second periodic unit (the Super Witch's Bat), which
+        # the loader refuses. Written on the 15.535 rows only, after the literal, for the reason
+        # DeathSpawnPushback is; tools/check_card_reads.py's PROLOGUE names it.
+        if u["spawner"] is not None:
+            u["spawner"]["character2"] = c["SpawnCharacter2"]
         # THE DASH'S MOTION, into the dash block: JumpSpeed (native units per tick while it
         # dashes), DashConstantTime (the Mega Knight's blow lands this long after the dash
         # starts) and DashLandingTime, all read by calibration combat.DASH_ATTACK. On the
@@ -1575,6 +1730,7 @@ UNIT_FIELDS_15535 = [
     "variable_damage",
     "attack_pushback_milli",
     "special",
+    "ignore_buffs",
 ]
 
 

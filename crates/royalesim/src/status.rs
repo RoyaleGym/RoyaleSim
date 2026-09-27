@@ -103,12 +103,45 @@ pub struct BuffDef {
     /// taken away when the ControlsBuff area that hung it ends (state.rs
     /// `release_orphaned_buffs`). cards.json does not carry the column yet, so this reads false.
     pub controlled_by_parent: bool,
+    /// THE BUFF'S DEATH SPAWN (character_buffs DeathSpawn and its columns): a unit that dies while
+    /// it carries this buff leaves a unit where it fell (state.rs `phase_reap`; the Mother Witch's
+    /// VoodooCurse leaves a VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin). None on every
+    /// other row. `default` so a record written before the field still reads.
+    #[serde(default)]
+    pub death_spawn: Option<BuffDeathSpawn>,
+    /// IgnoreBuildings: the buff never lands on a building or a crown tower (state.rs `land_buff`).
+    #[serde(default)]
+    pub ignore_buildings: bool,
+    /// CrownTowerDamagePerHit, level 1 (0 = blank): what one pulse deals a crown tower instead of
+    /// the crown-tower percent of the pulse (status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING; the Goblin
+    /// Curse's damage buff, 4). Read on a pulsing buff only; the loader refuses it on any other.
+    #[serde(default)]
+    pub crown_hit: i32,
+}
+
+/// A UNIT THAT DIES WITH THIS BUFF LIVE RELEASES `count` of `unit` (character_buffs DeathSpawn,
+/// DeathSpawnCount, DeathSpawnIsEnemy, DeathSpawnDeployDelay, DeathSpawnSameLocation). Part of
+/// `BuffDef`, so the card fingerprint moves when one moves.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct BuffDeathSpawn {
+    /// The released unit's CardDb index (a `summon_only` card), filled once the loader has loaded it.
+    pub unit: u16,
+    /// DeathSpawnCount (1 on every row the loader accepts).
+    pub count: i32,
+    /// DeathSpawnIsEnemy: the unit is released for the side opposite the one that died (the caster's).
+    pub for_other_side: bool,
+    /// DeathSpawnDeployDelay: the unit deploys (status.BUFF_DEATH_SPAWN_DEPLOY_TIME).
+    pub deploy_delay: bool,
+    /// DeathSpawnSameLocation: the unit stands on the dead unit's point (status.BUFF_DEATH_SPAWN_POINT).
+    pub same_location: bool,
 }
 
 impl BuffDef {
     /// Does this buff do anything the engine implements? A row with no multiplier,
     /// no damage and no heal is a marker (an Invisible or a Clone flag) and the
     /// loader refuses the card that carries it rather than running it as a no-op.
+    /// A buff that releases a unit when its carrier dies does something: that is its
+    /// whole mechanic (the curses).
     pub fn is_inert(&self) -> bool {
         self.speed_pct == 0
             && self.hit_speed_pct == 0
@@ -116,6 +149,7 @@ impl BuffDef {
             && self.damage_per_second == 0
             && self.heal_per_second == 0
             && self.attract_pct == 0
+            && self.death_spawn.is_none()
     }
 
     /// Does this buff pulse damage or healing?
@@ -252,6 +286,18 @@ pub struct BuffSlot {
     /// `default` so a snapshot saved before it still loads.
     #[serde(default)]
     pub source: Option<Vec2>,
+    /// The unified level of whatever hung this application (the caster, the attacker): the level a
+    /// buff's death spawn takes under status.BUFF_DEATH_SPAWN_LEVEL = source_level. A refresh takes
+    /// the latest application's. Hashed only on a slot whose buff has a death spawn, so every other
+    /// slot hashes as before. `default` so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub src_level: i32,
+    /// What one pulse deals a CROWN TOWER, already scaled by the caster (BuffDef::crown_hit under
+    /// status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING); 0 takes the crown-tower percent of the pulse, as
+    /// before the column. Hashed only when positive. `default` so a snapshot saved before it still
+    /// loads.
+    #[serde(default)]
+    pub crown_amount: i32,
 }
 
 impl BuffSlot {
@@ -293,6 +339,26 @@ pub struct BuffHit {
     /// The area the buff is bound to (`BuffSlot::source`), or None.
     #[serde(default)]
     pub source: Option<Vec2>,
+    /// The unified level of whatever hung the buff (`BuffSlot::src_level`); 0 where nothing reads it.
+    #[serde(default)]
+    pub src_level: i32,
+    /// The hit that carried the buff sets ApplyBuffBeforeDamage (the Mother Witch's projectile): under
+    /// status.APPLY_BUFF_BEFORE_DAMAGE = lands_on_a_unit_the_hit_kills a buff with a death spawn lands
+    /// on a unit that same hit kills (state.rs `apply_effects`).
+    #[serde(default)]
+    pub before_damage: bool,
+    /// The scaled crown-tower pulse (`BuffSlot::crown_amount`); 0 for the percent route.
+    #[serde(default)]
+    pub crown_amount: i32,
+}
+
+impl BuffHit {
+    /// A plain application: `buff` for `time_ms` with `pulse_amount` a pulse, bound to nothing, carrying no
+    /// source level, no crown-tower pulse and no before-damage flag. What every hit that is not an area's,
+    /// a curse's or the Mother Witch's hangs.
+    pub fn plain(target: crate::EntityId, buff: u16, time_ms: i32, pulse_amount: i32) -> BuffHit {
+        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0 }
+    }
 }
 
 /// A pulsing area effect standing on the ground (Poison, Earthquake). Its position
