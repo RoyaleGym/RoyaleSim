@@ -8,7 +8,7 @@ Bomber pushed it from 5,499 to 5,767 (limit 5,750) with its boulder, kept it thr
 launched its next boulder one HitSpeed after the first (ticks 928 and 978), standing where it was. 3 of 3 such pushes
 in the corpus kept the target, all three by the holder's own boulder. Under client_holds_knocked the sliding target is
 held through the slide (neither the chase drop nor a rescan lets it go); a push by anything else is inferred and not
-pinned here. Today's engine lets the Bomber go on the crossing tick and walks the Bowler off.
+pinned here. The old arm lets the Bomber go on the crossing tick and walks the Bowler off.
 The scene is that battle's geometry: a blue Bowler at (14735, 17126), a red Bomber at (13669, 22260), 5,244 apart
 (the Bowler's reach is 4000 + 750 + 500 = 5,250), with combat.RANGE_PROJECTILE = straight_to_range, under which the
 boulder pushes.
@@ -132,7 +132,7 @@ def test_a_target_pushed_past_the_limit_is_kept():
     assert_kept_through_the_push(NEW_ARM)
 
 
-def test_old_arm_is_todays_engine():
+def test_old_arm_is_the_pre_flip_engine():
     rows = bowler(OLD_ARM)
     bomber_uid = rows[0][1][F["uid"]]
     i = crossing(rows, BOWLER_LIMIT)

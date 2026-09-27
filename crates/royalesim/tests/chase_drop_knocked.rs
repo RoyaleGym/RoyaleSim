@@ -14,9 +14,9 @@
 //! lane. WHAT IS PINNED, each with its precondition:
 //!   1. client_holds_knocked: the Bomber crosses the limit while sliding, and from its first boulder to its second the
 //!      Bowler holds the Bomber, stands, and launches the second one HitSpeed / 50 ticks after the first;
-//!   2. drops_knocked: on that crossing the Bowler lets the Bomber go (today's engine);
+//!   2. drops_knocked: on that crossing the Bowler lets the Bomber go (the old arm);
 //!   3. both values: the Hog Rider, never pushed, is let go on the tick it crosses the Knight's limit;
-//!   4. the shipped value is drops_knocked.
+//!   4. the shipped value is client_holds_knocked.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test chase_drop_knocked`):
 //!   * `chase_drop_knocked_dropped` -- client_holds_knocked still lets a sliding target go: (1) goes red.
@@ -148,6 +148,6 @@ fn a_runner_that_is_not_sliding_is_let_go_on_the_edge() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().chase_drop_knocked, OLD);
+fn the_shipped_value_is_the_new_one() {
+    assert_eq!(Calib::shipped().chase_drop_knocked, NEW);
 }
