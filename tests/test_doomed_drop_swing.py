@@ -5,13 +5,13 @@ has not fired at it, drops it on the next tick (targeting.DOOMED_TARGET_DROP). W
 its reach its attack progress runs on and it fires on the old cycle: 57 of 57 corpus switches, 31 of 31 on client
 15.535.29. In 20260920-072148, on tick 1035, a Minion at progress 1050 of 1200 switched from a Skeleton doomed by a
 Musketeer's shot to another Skeleton in reach and fired on 1037. When the new target is out of reach the attacker walks
-with progress 0 (44 of 44). Today's engine cancels the swing in both cases.
+with progress 0 (44 of 44). The old arm cancels the swing in both cases.
 
 THE SCENE. A blue Minion at (9000, 8800), a red Knight X at (9000, 13000), a second red Knight Y at (9800, 13100) with
 3000 hp and a blue Musketeer at (9000, 6000). The Minion takes X, starts its swing, and the Musketeer's shot at X is in
 flight before the Minion fires. With X at 60 hp that shot dooms X and the Minion switches to Y, which then stands in
 its reach. The control gives X 2000 hp, so nothing dooms it and the Minion fires at it: that launch is the old cycle.
-On RoyaleSim 126992a (today's engine): the switch on tick 15, the control's launch on 17, the doomed run's launch at Y
+On RoyaleSim 126992a (the old arm): the switch on tick 15, the control's launch on 17, the doomed run's launch at Y
 on 31. The out-of-reach scene moves the Minion to (9000, 9000) and Y to (10600, 13000).
 
 PLANTS. Each is a cfg in the engine source, aimed at the tests named. Prove one on a plant build of the module in a
@@ -141,7 +141,7 @@ def test_a_doomed_drop_to_an_enemy_out_of_reach_cancels_the_swing(arm):
         f"{arm}: the Minion kept its swing on {s} for Y out of reach")
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["DOOMED_DROP_SWING"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]

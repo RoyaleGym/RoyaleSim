@@ -21,7 +21,7 @@
 //!      launch tick;
 //!   2. cancel: the same switch restarts the swing, so the launch at Y comes later than the control's;
 //!   3. both arms: a switch to an enemy out of reach cancels the swing (the Minion walks, progress 0);
-//!   4. the shipped value is the old arm.
+//!   4. the shipped value is the new arm.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test doomed_drop_swing`):
 //!   * `doomed_drop_cancels_swing` -- the new arm still cancels the swing of a doomed drop: (1) goes red.
@@ -159,9 +159,9 @@ fn a_doomed_drop_to_an_enemy_out_of_reach_cancels_the_swing_under_both_arms() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm_and_the_laws_it_leans_on_ship() {
+fn the_shipped_value_is_the_new_arm_and_the_laws_it_leans_on_ship() {
     let c = Calib::shipped();
-    assert_eq!(c.doomed_drop_swing, DoomedDropSwing::Cancel);
+    assert_eq!(c.doomed_drop_swing, DoomedDropSwing::ClientKeepInReach);
     // The new arm is read through these two; the scenes above assume both.
     assert_eq!(c.doomed_target_drop, DoomedTargetDrop::ProjectileAttackersWalkDrop);
     assert_eq!(c.retarget_progress, RetargetProgress::KeepWhenDeadOrInReach);
