@@ -45,9 +45,9 @@
 //!   * `death_ring_facing` -- the listed units keep the facing ring: (9) goes red.
 //!   * `hash_skips_tunnel` -- the destination is not hashed: (11) goes red.
 //!
-//! OPEN, not pinned: the first step's geometry (the engine's first frame is not the measured one; ledger
-//! movement.SPAWN_PATHFIND_START), which of the Drill's two Goblins takes -x, the Drill's periodic Goblin timing, and
-//! the push GoblinDrillDamage gives.
+//! OPEN, not pinned: the first step's geometry under the shipped movement.SPAWN_PATHFIND_STEP = one_step (its first
+//! frame is not the measured one; the client arm's is, tests/spawn_pathfind_step.rs), which of the Drill's two Goblins
+//! takes -x, the Drill's periodic Goblin timing, and the push GoblinDrillDamage gives.
 #![allow(unexpected_cfgs)]
 mod common;
 

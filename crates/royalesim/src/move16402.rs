@@ -464,6 +464,11 @@ pub fn move_towards_extra(
     Moved { x: nx, y: ny, dir: new_dir, reached: proj <= 1000, push, push_count }
 }
 
+/// THE SUB-STEP OF THE UNDERGROUND WALK under movement.SPAWN_PATHFIND_STEP = client_250_substeps (state.rs
+/// `tunnel_step`), native: a tick's SpawnPathfindSpeed is taken in pieces of at most this, each re-aimed at the route's
+/// next node. The same 250 that caps a walker's step (`move_towards`): a constant of the measured law, not a column.
+pub const TUNNEL_SUBSTEP: i32 = 250;
+
 /// ONE STEP OF THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `tunnel_step`), native units: at most
 /// `speed` straight toward `aim`, each axis through the 1/256 direction and the truncation the walk's step uses
 /// (`move_towards`), with no 250 cap, no contact and no water edge (the unit is under ground). Returns the new point

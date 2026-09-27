@@ -977,6 +977,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is `KingCentreNoCreationStep`.
     #[serde(default = "spawn_pathfind_start_default")]
     pub spawn_pathfind_start: SpawnPathfindStart,
+    /// movement.SPAWN_PATHFIND_STEP: how one tick's tunnel step is taken (`tunnel_step`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `OneStep`, which is what a battle saved before this key ran.
+    #[serde(default = "spawn_pathfind_step_default")]
+    pub spawn_pathfind_step: SpawnPathfindStep,
     /// movement.SPAWN_PATHFIND_BODY: what a unit under ground is to the board (entity.rs `underground`).
     /// Added after SNAPSHOT_FORMAT 20; the `default` is `OrdinaryTroop`.
     #[serde(default = "spawn_pathfind_body_default")]
@@ -1392,6 +1396,10 @@ fn spawn_pathfind_default() -> SpawnPathfind {
 
 fn spawn_pathfind_start_default() -> SpawnPathfindStart {
     SpawnPathfindStart::KingCentreNoCreationStep
+}
+
+fn spawn_pathfind_step_default() -> SpawnPathfindStep {
+    SpawnPathfindStep::OneStep
 }
 
 fn spawn_pathfind_body_default() -> SpawnPathfindBody {
@@ -4327,6 +4335,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.SPAWN_PATHFIND_STEP -- see `BattleState::tunnel_step`: how one tick's SpawnPathfindSpeed step of a unit
+    /// under ground is taken, the step at its creation included.
+    SpawnPathfindStep {
+        /// The engine before this key: one step of the whole speed straight at the route's next node, shortened to
+        /// the node when it is nearer, then every node within the reach dropped.
+        OneStep = "one_step",
+        /// Measured on client 16.402 and client 15.535.29: the step is taken in sub-steps of at most 250
+        /// (`move16402::TUNNEL_SUBSTEP`), each straight at the route's next node and shortened to it when it is
+        /// nearer, and after each sub-step that node is dropped when it is within the reach + 1. So a Miner (650) turns
+        /// a corner inside one tick and a first node within the speed stops nothing.
+        Client250Substeps = "client_250_substeps",
+    }
+);
+calib_enum!(
     /// movement.SPAWN_PATHFIND_BODY -- see entity.rs `underground`: what a unit under ground is to the rest of
     /// the board.
     SpawnPathfindBody {
@@ -5044,6 +5066,7 @@ impl Calib {
             spawn_pathfind: pick(&v, &["movement", "SPAWN_PATHFIND_STATES", "value"], SpawnPathfind::from_calibration_name)?,
             spawn_pathfind_reach_from_speed: boolean(&v, &["pathfinding", "LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED", "value"])?,
             spawn_pathfind_start: pick(&v, &["movement", "SPAWN_PATHFIND_START", "value"], SpawnPathfindStart::from_calibration_name)?,
+            spawn_pathfind_step: pick(&v, &["movement", "SPAWN_PATHFIND_STEP", "value"], SpawnPathfindStep::from_calibration_name)?,
             spawn_pathfind_body: pick(&v, &["movement", "SPAWN_PATHFIND_BODY", "value"], SpawnPathfindBody::from_calibration_name)?,
             morph_birth_drain: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_BIRTH", "value"], MorphBirthDrain::from_calibration_name)?,
             spawn_pathfind_destination: pick(&v, &["placement", "SPAWN_PATHFIND_DESTINATION", "value"], SpawnPathfindDestination::from_calibration_name)?,
@@ -9185,11 +9208,13 @@ impl BattleState {
     /// searches, whose seat symmetry the rotation gates hold. It is kept goal first in `route` (cell centres),
     /// its goal cell in `route_goal`, as a 16.402 walker's route is.
     ///
-    /// THE STEP is SpawnPathfindSpeed straight at the route's next node, less when the node is nearer, through
-    /// the 1/256 direction the walk uses and with no 250 cap (move16402.rs `tunnel_step`): 300 on the Drill's
-    /// axis steps and 297-299 on its diagonals, measured. THE REACHED RADIUS IS THE SPEED
-    /// (pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED, measured; WAYPOINT_ARRIVE_RADIUS when false):
-    /// after the step every node within it is dropped, several on one tick if the step reaches them.
+    /// THE STEP (movement.SPAWN_PATHFIND_STEP). one_step, the engine before that key: SpawnPathfindSpeed straight
+    /// at the route's next node, less when the node is nearer, through the 1/256 direction the walk uses and with
+    /// no 250 cap (move16402.rs `tunnel_step`): 300 on the Drill's axis steps and 297-299 on its diagonals. THE
+    /// REACHED RADIUS IS THE SPEED (pathfinding.LOGIC_SPAWN_PATHFIND_REACHED_RADIUS_FROM_SPEED, measured;
+    /// WAYPOINT_ARRIVE_RADIUS when false): after the step every node within it is dropped, several on one tick if
+    /// the step reaches them. client_250_substeps, the client's: the same speed in sub-steps of at most 250, each
+    /// re-aimed at the next node, the node aimed at dropped after a sub-step that ends within the reach + 1.
     fn tunnel_step(&mut self, i: usize) -> bool {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let Some(sp) = self.cfg.cards.get(self.ents.card[i]).spawn_pathfind else { return true };
@@ -9234,13 +9259,40 @@ impl BattleState {
             let _ = sp;
             self.ents.speed[i] / K // PLANT: the card's walking speed.
         };
+        let reach = if self.cfg.calib.spawn_pathfind_reach_from_speed { speed } else { self.cfg.calib.waypoint_arrive_radius / K };
+        if self.cfg.calib.spawn_pathfind_step == SpawnPathfindStep::Client250Substeps {
+            // movement.SPAWN_PATHFIND_STEP = client_250_substeps: the step is taken in sub-steps of at most 250, each
+            // straight at the route's next node (shortened to it when it is nearer), and after each sub-step that one
+            // node is dropped when it is within the reach + 1. Measured on client 16.402 and client 15.535.29: every
+            // recorded tunnel position (1955 of 1955 frames), both creation offsets of the Miner by heading (611.7 west
+            // and south, 646.2 north and east) and of the dig (289.4, 299.2), and every surfacing tick (37 of 37).
+            let (mut x, mut y) = (ax, ay);
+            let mut left = speed;
+            while left > 0 {
+                let Some(&next) = self.ents.route[i].last() else { break };
+                #[cfg(not(clash_plant = "tunnel_substep_whole_speed"))]
+                let sub = left.min(move16402::TUNNEL_SUBSTEP);
+                #[cfg(clash_plant = "tunnel_substep_whole_speed")]
+                let sub = left; // PLANT: the whole step in one piece, as the old arm takes it.
+                let ((nx, ny), dir) = move16402::tunnel_step((x, y), (next.x / K, next.y / K), sub);
+                (x, y) = (nx, ny);
+                if let Some(d) = dir {
+                    self.ents.facing[i] = Vec2::new(d.0, d.1);
+                }
+                left -= sub;
+                if move16402::distance(x, y, next.x / K, next.y / K) <= reach + 1 {
+                    self.ents.route[i].pop();
+                }
+            }
+            self.ents.pos[i] = Vec2::new(x * K, y * K);
+            return self.ents.route[i].is_empty();
+        }
         let Some(&next) = self.ents.route[i].last() else { return true };
         let ((nx, ny), dir) = move16402::tunnel_step((ax, ay), (next.x / K, next.y / K), speed);
         self.ents.pos[i] = Vec2::new(nx * K, ny * K);
         if let Some(d) = dir {
             self.ents.facing[i] = Vec2::new(d.0, d.1);
         }
-        let reach = if self.cfg.calib.spawn_pathfind_reach_from_speed { speed } else { self.cfg.calib.waypoint_arrive_radius / K };
         while let Some(&n) = self.ents.route[i].last() {
             if move16402::distance(nx, ny, n.x / K, n.y / K) > reach {
                 break;
@@ -16639,6 +16691,9 @@ impl BattleState {
 /// 20, unchanged, combat.HOOK_DRAG_ROUTE: Calib gained hook_drag_route (serde default the old arm, kept), no new state
 ///    (the route, goal and segment are the saved columns it clears), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.SPAWN_PATHFIND_STEP: Calib gained spawn_pathfind_step (serde default the old arm,
+///    one_step), no new state (the sub-steps are taken inside one tick's `tunnel_step`), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -17061,6 +17116,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_pathfind".into(), serde_json::to_value(SpawnPathfind::NotModelled).map_err(|e| e.to_string())?);
     sh.insert("spawn_pathfind_reach_from_speed".into(), Value::Bool(false));
     sh.insert("spawn_pathfind_start".into(), serde_json::to_value(SpawnPathfindStart::KingCentreNoCreationStep).map_err(|e| e.to_string())?);
+    sh.insert("spawn_pathfind_step".into(), serde_json::to_value(SpawnPathfindStep::OneStep).map_err(|e| e.to_string())?);
     sh.insert("spawn_pathfind_body".into(), serde_json::to_value(SpawnPathfindBody::OrdinaryTroop).map_err(|e| e.to_string())?);
     sh.insert("morph_birth_drain".into(), serde_json::to_value(MorphBirthDrain::None).map_err(|e| e.to_string())?);
     sh.insert("spawn_pathfind_destination".into(), serde_json::to_value(SpawnPathfindDestination::OrdinaryGroundDeployPoint).map_err(|e| e.to_string())?);
