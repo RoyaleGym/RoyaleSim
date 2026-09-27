@@ -1560,6 +1560,26 @@
       "promotion_rules": "The projectile arm: a live Ice Spirit or Wall Breakers capture with the per-frame projectile stream says whether the unit dies at the launch or at the landing; a delayed KamikazeTime needs a card that ships one in a loadable 16.402 row.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs CardDef::kamikaze from cards.json `kamikaze`, FALSE when kamikaze_time_ms > 0 (the gap above); state.rs phase_attack pushes the self-hit after combat::fire. tests/charge.rs (11) pins the Battle Ram's one hit and the gap."
     },
+    "ATTACK_SELECT_MOMENT": {
+      "value": "at_swing_start",
+      "status": "measured",
+      "confidence": "MEDIUM: four swings at one walking Giant on client 15.535.29, one retarget; a target leaving the reach during a melee swing is not staged.",
+      "provenance": "The 15.535.29 tables run the Three Musketeers' selector as the OnStartingAttackAction (ActionFilter 'target_in_range(ThreeMusketeer_Rework_melee_range) && target_is_ground', branches ActionSetAttackSequenceIndex 1 and 0). Measured on client 15.535.29 with a Giant walking at a musketeer: three swings that began with the Giant beyond the melee reach ended as shots although it stood 2175, 2264 and 1789 away at the hit, and a swing that began with it at 2175 ended as the melee hit. After a crown tower fell, a musketeer that took a Cannon 1386-2591 away hit it 12 ticks later with the melee hit, which a fresh cycle on the new target explains (one case).",
+      "candidates": ["at_swing_start", "at_fire"],
+      "meaning": "at_swing_start: the entry is chosen when a swing starts -- a fresh attack cycle's first tick, and the hit that ends a swing, for the next one -- against the target on the start-of-tick positions, and kept to the hit; a melee choice whose target is in the air at the hit fires the projectile. at_fire: chosen at the hit.",
+      "promotion_rules": "The 15.535.29 three-musketeers-bayonet scenario: a ground troop walking out of the reach during a melee swing, and a retarget while the old target lives.",
+      "engine": "state.rs phase_attack_for and select_attack; entity.rs attack_seq"
+    },
+    "ATTACK_SELECT_RANGE": {
+      "value": "range_plus_both_radii",
+      "status": "measured",
+      "confidence": "MEDIUM: one target radius (a Giant, 750) on client 15.535.29; the target-radius term is not separated from a constant.",
+      "provenance": "The 15.535.29 tables: target_in_range(V) with the VARIABLE ThreeMusketeer_Rework_melee_range 1600. Measured on client 15.535.29 on a standing Giant (radius 750) at the start of the first swing: the melee hit at centre distances 1547.5, 1624.4, 2073.8, 2400.1 and 2469.5, shots at 3036.5 and beyond, and a shot for a walking Giant whose swing began at 2915 (2864 a tick later). Of four readings only 1600 + the musketeer's radius 500 + the Giant's 750 = 2850 falls in (2469.5, 2864]. The melee hit is 314 = 123 x 256 % at level 11 (the table's BaseDamageAmount 123 on the Common ladder), with no projectile, landing on the frame a ranged member of the same LoadTime would shoot; a ground building takes it too (a Cannon, 668 -> 353). Every swing at a Lava Hound and its Pups was a shot (24 of 24), one with the Hound overhead at 1248.",
+      "candidates": ["range_plus_both_radii", "centre_distance"],
+      "meaning": "range_plus_both_radii: the target's centre within V + the attacker's collision radius + the target's. centre_distance: within V of the attacker's centre.",
+      "promotion_rules": "The 15.535.29 three-musketeers-bayonet scenario with a target of another radius (a Knight, 500) at the bracket's edge.",
+      "engine": "state.rs select_attack; combat.rs fire (the melee hit), melee_target_ok"
+    },
     "HIT_SPEED_BUFF": {
       "value": "progress_scaled",
       "status": "measured",
@@ -1844,6 +1864,76 @@
           "overturned_by": "status only, the value stands: the replay corpus's elixir column doubles its step between tick 2400 and 2401"
         }
       ]
+    },
+    "MIRROR_COST_RULE": {
+      "value": "copied_elixir_plus_own_elixir",
+      "status": "measured",
+      "confidence": "HIGH: every Mirror play measured, on both clients.",
+      "provenance": "Measured on client 16.402 (capture 20260920-090204): a Mirror of the Elixir Golem (3) debited 4. Measured on client 15.535.29: a Mirror debited the copied card's cost plus its own 1 in every run -- a Knight 4, a Fireball 5, the Heal Spirit 2, the Three Musketeers 10 (from a full bar, which it emptied), the Spirit Empress's forms 7 and 4. No card costs more than 9, so no copy costs more than 10.",
+      "candidates": ["copied_elixir_plus_own_elixir"],
+      "promotion_rules": "Stays measured.",
+      "engine": "state.rs resolve_play (the Mirror arm; one arm, read with only())"
+    },
+    "MIRROR_PLACEMENT": {
+      "value": "copied_card_rule",
+      "status": "measured",
+      "confidence": "HIGH for troops and a building on client 15.535.29; a spell copy is cast where its own rule puts it (a Fireball copy flew the original's path in the original's time).",
+      "provenance": "Measured on client 15.535.29: a Mirror copy lands where the copied card's own play would. A troop copy tapped on the enemy half at (9500, 20500) stood at (9500, 14500), where a Valkyrie tapped there stands; a river tap was refused for the Mirror as for the Valkyrie; a tap on the own princess tower's footprint at (3500, 7500) put the copy on (3499, 8500), as on client 16.402 (capture 20260920-090204); a Cannon copy followed the Cannon's building placement (an enemy tap to (9500, 13500), a tap on the original Cannon to (8500, 7500)). The Mirror's own row (CanDeployOnEnemySide TRUE) is not what judges the tap.",
+      "candidates": ["copied_card_rule"],
+      "meaning": "copied_card_rule: the tap is judged and resolved (the snap, the relocation, a building's footprint) by the placement of the card the Mirror copies. The Mirror's own row's rule, which would let a troop copy go down on the enemy half, is refuted by the enemy-half and river taps and not implemented.",
+      "promotion_rules": "Stays measured.",
+      "engine": "state.rs check_deploy_slot and deploy_slot (the play's card judges the tap; one arm, read with only())"
+    },
+    "MIRROR_RECORD": {
+      "value": "last_non_mirror_play",
+      "status": "hypothesis",
+      "confidence": "MEDIUM for what the rule copies (the side's own last card, not a refused play: one run each on client 15.535.29); LOW for a Mirror after a Mirror, which is not measured.",
+      "provenance": "Measured on client 15.535.29: after a Knight from side 0 and a Musketeer from side 1, side 0's Mirror copied the Knight (a level-12 Knight, 1938 hp); a Giant refused for elixir between a Knight and a Mirror was not copied (the Mirror copied the Knight). Measured on client 16.402 (capture 20260920-090204): a Mirror right after a cycled play copied it.",
+      "candidates": ["last_non_mirror_play"],
+      "meaning": "last_non_mirror_play: the side's last ACCEPTED play that was not a Mirror, as the card it put down (a variant card's form, match.MIRROR_OF_VARIANT). A Mirror play leaves it as it was, so a second Mirror copies the same card again; in this engine the copy's level is the Mirror's own plus MIRROR_LEVEL_OFFSET either way, so a Mirror recorded as its copy would copy the same card at the same level too.",
+      "promotion_rules": "A 15.535.29 scenario playing two Mirrors in a row.",
+      "engine": "state.rs deploy_slot (PlayerState last_played; one arm, read with only())"
+    },
+    "MIRROR_LEVEL_BEYOND_MAX": {
+      "value": "refuse_play",
+      "status": "measured",
+      "confidence": "REFUTED on client 15.535.29: a level-16 Mirror of a level-16 Knight put a level-17 Knight down. The engine's ladders stop at each rarity's LevelCount, so it refuses that play rather than run it at a number the loaded tables do not carry. Every copy below the last level is exact.",
+      "refuted_for": "*",
+      "provenance": "Measured on client 15.535.29: the level raised is the MIRROR's own, by the table's globals MIRROR_LEVEL_OFFSET 1 (cards.json `globals`): a Knight 11 copied by a Mirror 9 stood at level 10 (1607 hp); 15 with 15 gave 16; 16 with 16 gave 17 (3105 hp = 690 x 450 %, the Common row's PowerLevelMultiplier one row past its LevelCount 16), so there is no cap (globals MIRROR_CAP_TO_MAX_LEVEL is FALSE in the 15.535.29 tables). Measured on client 16.402 (capture 20260920-090204): a level-11 Elixir Golem's copy stood at 12 (1722 = 613 x 281 %).",
+      "candidates": ["refuse_play"],
+      "meaning": "refuse_play: a Mirror whose copy's level has no multiplier in the loaded ladder is refused InvalidLevel, never clamped. The measured behaviour, the rarity's multiplier continued past its LevelCount, needs the ladders carried past LevelCount (tools/extract_cards.py rarity_table) and is not implemented. In this engine every card of a side has one level, so the Mirror's own level and the copied card's are the same number.",
+      "promotion_rules": "Carry the rarities' PowerLevelMultiplier past LevelCount, let a Mirror copy's level use it, and ship the new arm.",
+      "engine": "state.rs resolve_play (the Mirror arm's check_levels; one arm, read with only())"
+    },
+    "VARIANT_TRIGGER_COMPARE": {
+      "value": "at_least",
+      "status": "guess",
+      "confidence": "LOW: no play at exactly 3.000 or 6.000 elixir has been recorded; the nearest were 30,114 and 60,114 raw, above both triggers.",
+      "provenance": "The 15.535.29 tables give the Spirit Empress (MergeMaiden) two options in order: AvailableManaTrigger 6000 -> MergeMaiden_Mounted (ManaCost 6), 3000 -> MergeMaiden_Normal (ManaCost 3). Each trigger equals its form's cost in thousandths, so at_least is the ordinary affordability rule. Measured on client 15.535.29: 30,114 to 59,936 raw played the Normal form, 60,114 and 100,000 the Mounted.",
+      "candidates": ["at_least", "greater_than"],
+      "meaning": "Compared in exact internal units: the elixir held x 1000 against the trigger x mana_unit. at_least: the first option whose trigger the elixir meets or passes; greater_than: passes. The last option is played when none is met, and a play below it is refused for elixir.",
+      "promotion_rules": "The 15.535.29 spirit-empress-cost scenario at exactly 6.000 and at 5.999 elixir: a Normal form at 6.000 refutes at_least.",
+      "engine": "state.rs resolve_play (the variant arm)"
+    },
+    "VARIANT_ELIXIR_MOMENT": {
+      "value": "command",
+      "status": "measured",
+      "confidence": "HIGH: 8 plays on client 15.535.29 inside the bands where a precast wait would choose the other form, and none waited.",
+      "provenance": "The 15.535.29 tables set PrecastPendingTime 1200 on both options and UseProjectedTimeSummon TRUE on the card. Measured on client 15.535.29: plays at 5.7, 5.9 and 5.999 elixir (single elixir) and at 5.3 (double elixir) put the Normal form down and debited 3; 6.0 and 10 the Mounted form for 6; the debit and the unit came on the frame after the tap, and every one of 14 units across both forms appeared on that frame, in its deploy state for 19 frames.",
+      "candidates": ["command"],
+      "meaning": "command: the form is chosen by the elixir held when the play is applied, as every card's affordability is. Reading PrecastPendingTime as a window in which a play waits for the next form is refuted by the plays above and is not implemented; PrecastPendingTime is carried on the card and read by nothing.",
+      "promotion_rules": "Stays measured; a play at 2.7 elixir (not yet recorded) completes the low band.",
+      "engine": "state.rs resolve_play (one arm, read with only())"
+    },
+    "MIRROR_OF_VARIANT": {
+      "value": "played_form",
+      "status": "measured",
+      "confidence": "MEDIUM: three runs on client 15.535.29; a Mirror at 7 or more after a Normal play, which would separate the readings, was not run.",
+      "provenance": "The 15.535.29 tables set MirrorUsesRootSpell FALSE on the Spirit Empress. Measured on client 15.535.29: a Mounted play and then a Mirror at 72,980 raw put a Mounted copy down (1230 hp at level 12) and debited 70,000; a Normal play and then a Mirror at 40,050 put a Normal copy down for 40,000; a Mirror at 50,018 after a Mounted play was refused for elixir, with no debit and the Mirror kept in hand.",
+      "candidates": ["played_form"],
+      "meaning": "played_form: a Mirror copies the FORM that was played, at the form's cost plus its own, one level up; it does not choose again. A table row with MirrorUsesRootSpell TRUE is refused at load.",
+      "promotion_rules": "A 15.535.29 scenario: a Normal play and then a Mirror at 7 or more elixir.",
+      "engine": "state.rs deploy_slot (the play's card is recorded) and resolve_play (one arm, read with only())"
     }
   },
   "rng": {
@@ -3398,13 +3488,13 @@
       "value": "client16402",
       "status": "measured",
       "confidence": "HIGH",
-      "provenance": "MEASURED on the live 16.402 corpus through tools/replay_formations.py; tests/formations.rs pins every clean multi-unit deploy group from tests/fixtures/formations/measured.json (79 groups, 16 cards, both seats, both lanes, both ends of every column the corpus taps, the towers down per tick): 78 groups member by member, 197 members exact (within 3 native), one native unit off only where the placement log's tap tile and the formation's centre differ. THE MODEL (formation.rs `member_offset` / `nearest_lane` / `sin1024`, state.rs `formation_members`): the members are the SummonNumber primaries followed by the SummonCharacterSecondCount second summons. THE RADIUS: SummonRadius, or when 0 the primary character's CollisionRadius replaced by its SpawnRadius when that is set (Minions 500, SkeletonWarrior 800). THE LANE: the lane bits of the nearest lane-marked half-tile cell to the tap (first minimum in column-outer scan order); on the shipped map, left of the centre column is 1 and the rest 2. THE OFFSET: the ring count T is SummonNumber, or 2 x max(SummonNumber, SecondCount) with a second summon; T sets the base angle and the mirrored lane -- T = 1: the tap; T = 2: base SpawnAngleShift + 90, mirror on lane 1; T = 3: 180, lane 1; T = 4: 45, lane 2; T = 5: 180, lane 2; T = 6: 0, lane 2; T = 7: member 0 on the tap and the rest a hexagon nobody mirrors; T >= 8: 0, lane 2 -- the mirror only under globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE = TRUE (both vintages). With no SummonWidth and T >= 3 the radius becomes radius x 577 / trunc(1000 x sin(90 / SummonNumber) / 1024) (sin from a 91-entry round(sin x 1024) table, integer degrees: 700 -> 807 for three, 700 -> 1077 for four (sin 22, not 22.5), 700 -> 1311 for five, 600 -> 1341 for six, 1000 -> 1154 for the Gang's 3 + 3), then SpawnAngleShift is added to the base and a swarm of eight or more puts member k at radius x ((3k) mod 7) / 6 (the Skeleton Army's spiral). Member k's angles (no second summon): ay = 360k / T + base + 90, ax = ay + 90, x = trunc(sin(ax) x r / 1024), y = trunc(sin(ay) x r / 1024); with a second summon the primaries start half a step in and the seconds interleave 180 degrees on, the y sign flipped. SummonWidth makes a LINE: x = W k / (T - 1) - W / 2, y = (k mod 2) x r - r / 2, the mirror then 'lane 1' without the global (RoyalHogs 3500). Side 0 negates y and the mirror negates x. The point is then y-clamped for a ground unit (GROUND_Y_CLAMP) and clamped into [250, W - 250] x [250, H - 250] native. THE CORPUS: Skeletons (0, 807) / (+-699, -403) on both lanes and both sides, Goblins (+-761, +-761), Minions (0, 577) / (+-499, -288), Skeleton Warriors (0, 923) / (+-799, -461), Spear Goblins, Barbarians (0, 1311) / (+-1246, 404) / (+-770, -1060), Minion Horde (0, +-1341) / (+-1161, +-670), Bats with their SpawnAngleShift 45 (1404-ring), Wall Breakers (+-750, 0), Skeleton Dragons (+-1500, 0), Archers (+-500, 0), Goblin Gang's hexagon (+-999, +-577) / (0, +-1154), the Rascals' Boy at (0, 1731) with the Girls at (+-1223, -1223), the Royal Hogs' line and the Skeleton Army's spiral -- exact on every member the contact law had not yet moved. THE ENGINE computes in the OWNER's frame (the owner's-frame lane, side 0's y sign) and rotates the point for Red; the corpus' Red formations are the rotations of its Blue ones (a rotation swaps the lanes and the y sign together; formation.rs `member_offset`). NOT MODELLED: a card whose units come from SummonCharactersList carries an explicit SummonCharactersOffsetsX/Y table with CharactersOffsetsXMirrored (the Three Musketeers, one corpus group at (0, 1000) / (+-1000, -1000)); such a card stays on its `count` alone (card.rs `convert`) and tests/formations.rs asserts its ring does NOT match the corpus.",
+      "provenance": "MEASURED on the live 16.402 corpus through tools/replay_formations.py; tests/formations.rs pins every clean multi-unit deploy group from tests/fixtures/formations/measured.json (79 groups, 16 cards, both seats, both lanes, both ends of every column the corpus taps, the towers down per tick): 78 groups member by member, 197 members exact (within 3 native), one native unit off only where the placement log's tap tile and the formation's centre differ. THE MODEL (formation.rs `member_offset` / `nearest_lane` / `sin1024`, state.rs `formation_members`): the members are the SummonNumber primaries followed by the SummonCharacterSecondCount second summons. THE RADIUS: SummonRadius, or when 0 the primary character's CollisionRadius replaced by its SpawnRadius when that is set (Minions 500, SkeletonWarrior 800). THE LANE: the lane bits of the nearest lane-marked half-tile cell to the tap (first minimum in column-outer scan order); on the shipped map, left of the centre column is 1 and the rest 2. THE OFFSET: the ring count T is SummonNumber, or 2 x max(SummonNumber, SecondCount) with a second summon; T sets the base angle and the mirrored lane -- T = 1: the tap; T = 2: base SpawnAngleShift + 90, mirror on lane 1; T = 3: 180, lane 1; T = 4: 45, lane 2; T = 5: 180, lane 2; T = 6: 0, lane 2; T = 7: member 0 on the tap and the rest a hexagon nobody mirrors; T >= 8: 0, lane 2 -- the mirror only under globals.csv LOGIC_LANE_ID_BASED_DEPLOY_SEQUENCE = TRUE (both vintages). With no SummonWidth and T >= 3 the radius becomes radius x 577 / trunc(1000 x sin(90 / SummonNumber) / 1024) (sin from a 91-entry round(sin x 1024) table, integer degrees: 700 -> 807 for three, 700 -> 1077 for four (sin 22, not 22.5), 700 -> 1311 for five, 600 -> 1341 for six, 1000 -> 1154 for the Gang's 3 + 3), then SpawnAngleShift is added to the base and a swarm of eight or more puts member k at radius x ((3k) mod 7) / 6 (the Skeleton Army's spiral). Member k's angles (no second summon): ay = 360k / T + base + 90, ax = ay + 90, x = trunc(sin(ax) x r / 1024), y = trunc(sin(ay) x r / 1024); with a second summon the primaries start half a step in and the seconds interleave 180 degrees on, the y sign flipped. SummonWidth makes a LINE: x = W k / (T - 1) - W / 2, y = (k mod 2) x r - r / 2, the mirror then 'lane 1' without the global (RoyalHogs 3500). Side 0 negates y and the mirror negates x. The point is then y-clamped for a ground unit (GROUND_Y_CLAMP) and clamped into [250, W - 250] x [250, H - 250] native. THE CORPUS: Skeletons (0, 807) / (+-699, -403) on both lanes and both sides, Goblins (+-761, +-761), Minions (0, 577) / (+-499, -288), Skeleton Warriors (0, 923) / (+-799, -461), Spear Goblins, Barbarians (0, 1311) / (+-1246, 404) / (+-770, -1060), Minion Horde (0, +-1341) / (+-1161, +-670), Bats with their SpawnAngleShift 45 (1404-ring), Wall Breakers (+-750, 0), Skeleton Dragons (+-1500, 0), Archers (+-500, 0), Goblin Gang's hexagon (+-999, +-577) / (0, +-1154), the Rascals' Boy at (0, 1731) with the Girls at (+-1223, -1223), the Royal Hogs' line and the Skeleton Army's spiral -- exact on every member the contact law had not yet moved. THE ENGINE computes in the OWNER's frame (the owner's-frame lane, side 0's y sign) and rotates the point for Red; the corpus' Red formations are the rotations of its Blue ones (a rotation swaps the lanes and the y sign together; formation.rs `member_offset`). A card whose units come from SummonCharactersList with an explicit SummonCharactersOffsetsX/Y table (the Three Musketeers, one corpus group at (0, 1000) / (+-1000, -1000)) is laid at those offsets instead of on a ring (card.rs `summon_members`, formation.EXPLICIT_OFFSETS_FRAME), and tests/formations.rs reproduces that group.",
       "candidates": [
         "client16402",
         "engine_grid"
       ],
       "meaning": "client16402: the ring / line / spiral above (formation.rs), every member on a native point. engine_grid: the earlier engine, a centred square grid of one collision diameter around the tap in the owner's frame (state.rs formation_grid, the second summon on the same grid), kept runnable as the refuted arm: 500-1500 native off on every swarm, 3.6 % / 15.5 % of the Skeletons' / Goblins' unit-ticks within 250 native on the corpus against 39.2 % / 36.5 % under the ring.",
-      "promotion_rules": "Stays measured; the open part is the offsets-table layout of a SummonCharactersList card: a Three Musketeers corpus group on each seat and lane, with every tower standing, decides it once the loader accepts the card.",
+      "promotion_rules": "Stays measured; the offsets-table layout of a SummonCharactersList card is formation.EXPLICIT_OFFSETS_FRAME's.",
       "engine": "state.rs Calib::from_json (pick), BattleState::formation_members; formation.rs; tests/formations.rs (plant formation_grid_legacy)",
       "globals_role": "context"
     },
@@ -3447,6 +3537,17 @@
       "meaning": "client16402_one_unit: the two offsets above, on a GROUND member only. none: the ring is laid on the tap itself for every member, which is what a flying summon measures and what the engine did before -- one native unit off on every Red ground member and on every ground member of a left-half tap, its clamped members excepted. tests/common symmetric_config selects `none`, because the y offset is a seat asymmetry and the x offset is an absolute-frame one, and a rotation gate must not have either answering for the systems it measures.",
       "promotion_rules": "To HIGH on the KEYS as well as the offsets, each wanting a designed capture with every tower standing: (1) the X key -- the corpus taps only columns 3, 9 and 14 for a ground summon, and on the shipped map the arena's left half and the LANE_LEFT bit change at the same column, so 'the absolute left half' and 'the lane bit' are not separable here; a column whose lane bit and half disagree, or a map where they do, decides it. (2) The Y key rests on ONE group (20260918-122757.b1 t1676) for 'the owner' over 'the arena's top half'; a side-0 ground deploy in the top half, which needs an enemy princess tower down, decides it and the corpus holds none. (3) Whether the x test is on the DEPLOY POINT or on each member: every corpus ring is small enough to sit wholly on one side of the centre column, so a wide ring straddling it -- a Goblin Gang or a Skeleton Army tapped on the centre column -- would separate them; the engine tests the deploy point. (4) Whether a card with both ground and flying members takes the offset per member: no such card is in the slice, and the engine applies it per member.",
       "engine": "state.rs Calib::from_json (pick), BattleState::formation_members; tests/formations.rs"
+    },
+    "EXPLICIT_OFFSETS_FRAME": {
+      "value": "owner_frame_negated",
+      "status": "measured",
+      "confidence": "REFUTED for side 1 on its own left lane by its one deploy there, where the second and third members stand on each other's side; HIGH for side 0 (every tap column from x 3500 to 14500, 10 or more deploys on client 15.535.29, and the corpus deploy on client 16.402) and for side 1 on its own right half (one deploy). Both arms put the three members on the same three points; they part only on which back member is the one whose LoadTime is 650.",
+      "refuted_for": ["side 1 on its own left lane"],
+      "provenance": "The 15.535.29 tables give the Three Musketeers SummonCharactersList [Character_1, _2, _3] with SummonCharactersOffsetsX [0, -1000, 1000], SummonCharactersOffsetsY [-1000, 1000, 1000] and CharactersOffsetsXMirrored TRUE. Measured on client 16.402 (capture 20260920-092922, seat B): tapped at (9500, 8500) by side 0, the three stand at (0, +1000), (+1000, -1000) and (-1000, -1000) from the tap, the member with LoadTime 650 at (+1000, -1000): the table's offsets with both axes negated. Measured on client 15.535.29: the same three offsets for side 0 at x 3500, 4500, 5500, 8500, 9500 and 14500, so no lane mirrors x for side 0; side 1 at x 3500 stands at (0, -1000), (-1000, +1000), (+1000, +1000), the rotation of side 0's, and at x 14500 at (0, -1000), (+1000, +1000), (-1000, +1000), x mirrored. The first member is in front for both sides.",
+      "candidates": ["owner_frame_negated", "owner_frame_negated_side1_left_lane_x_mirror"],
+      "meaning": "owner_frame_negated: member k stands at (-X[k], -Y[k]) from the tap in its owner's frame, laid and clamped like a ring member (the ground point, the column's y range, the arena's bounds, the water). owner_frame_negated_side1_left_lane_x_mirror: the same, and side 1 mirrors x on its own left lane (formation.rs nearest_lane in its frame), which fits all 12 deploys but is not seat-symmetric. The reading that mirrors x on the left lane for both sides is refuted by side 0's left-lane deploys and is not implemented.",
+      "promotion_rules": "The 15.535.29 three-musketeers-lane scenario with a second seed of a side-1 deploy on each half. If side 1's own-left mirror repeats, ship the side-1 arm, and name the key in py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS with its Battle selector and in tests/common symmetric_config, which a seat-asymmetric arm needs.",
+      "engine": "state.rs formation_members (the explicit branch before the ring)"
     },
     "GROUND_Y_CLAMP": {
       "value": "client16402_deploy_column_range",

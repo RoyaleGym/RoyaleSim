@@ -149,17 +149,29 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(at) = &c.attach {
         out.push((UnitRef::Attach, at.unit, None));
     }
+    // a deploy at explicit offsets: every member, member 0 the card itself (the Three Musketeers)
+    if let Some(ms) = &c.summon_members {
+        for (k, m) in ms.iter().enumerate() {
+            out.push((UnitRef::SummonMember(k as u8), m.unit, None));
+        }
+    }
+    // a variant card's forms, each a card of its own (the Spirit Empress)
+    if let Some(opts) = c.variant() {
+        for (k, o) in opts.iter().enumerate() {
+            out.push((UnitRef::VariantForm(k as u8), o.card, None));
+        }
+    }
     out
 }
 
 /// The unit indices a record carries, counted off its Debug text: every `unit: <n>`
 /// field of any block, whether or not a list names the block (today SpawnDef,
-/// SpawnerDef, DeathSpawnDef and SecondSummonDef), and the underground walk's
-/// `morph: Some(<n>)` (SpawnPathfindDef, the Goblin Drill's building). `unit_name:` does not
-/// match.
+/// SpawnerDef, DeathSpawnDef, SecondSummonDef, LifeStateDef, SummonMemberDef and AttachDef), the
+/// underground walk's `morph: Some(<n>)` (SpawnPathfindDef, the Goblin Drill's building), and
+/// every `card: <n>` (a VariantOption's form, a card index). `unit_name:` does not match.
 fn unit_fields_in_debug(c: &CardDef) -> usize {
     let text = format!("{c:?}");
-    ["{ unit: ", ", unit: ", "morph: Some("]
+    ["{ unit: ", ", unit: ", "morph: Some(", ", card: "]
         .into_iter()
         .map(|sep| text.match_indices(sep).filter(|&(at, _)| text[at + sep.len()..].starts_with(|ch: char| ch.is_ascii_digit())).count())
         .sum()

@@ -511,6 +511,18 @@ pub struct Calib {
     pub rider_targetable: RiderTargetable,
     #[serde(default = "deprioritized_target_buff_default")]
     pub deprioritized_target_buff: DeprioritizedTargetBuff,
+    /// formation.EXPLICIT_OFFSETS_FRAME (a deploy at explicit offsets, the Three Musketeers: `formation_members`),
+    /// combat.ATTACK_SELECT_MOMENT and combat.ATTACK_SELECT_RANGE (the attack selector: `select_attack`), and
+    /// match.VARIANT_TRIGGER_COMPARE (a variant card's form: `resolve_play`). Added after SNAPSHOT_FORMAT 20; no battle
+    /// saved before them held a card that reads them, so each default is the shipped arm.
+    #[serde(default = "explicit_offsets_frame_default")]
+    pub explicit_offsets_frame: ExplicitOffsetsFrame,
+    #[serde(default = "attack_select_moment_default")]
+    pub attack_select_moment: AttackSelectMoment,
+    #[serde(default = "attack_select_range_default")]
+    pub attack_select_range: AttackSelectRange,
+    #[serde(default = "variant_trigger_compare_default")]
+    pub variant_trigger_compare: VariantTriggerCompare,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -1200,6 +1212,22 @@ fn rider_targetable_default() -> RiderTargetable {
 
 fn deprioritized_target_buff_default() -> DeprioritizedTargetBuff {
     DeprioritizedTargetBuff::RescanOnLandingKeepProgress
+}
+
+fn explicit_offsets_frame_default() -> ExplicitOffsetsFrame {
+    ExplicitOffsetsFrame::OwnerFrameNegated
+}
+
+fn attack_select_moment_default() -> AttackSelectMoment {
+    AttackSelectMoment::AtSwingStart
+}
+
+fn attack_select_range_default() -> AttackSelectRange {
+    AttackSelectRange::RangePlusBothRadii
+}
+
+fn variant_trigger_compare_default() -> VariantTriggerCompare {
+    VariantTriggerCompare::AtLeast
 }
 
 macro_rules! calib_enum {
@@ -2453,6 +2481,50 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.EXPLICIT_OFFSETS_FRAME -- how a deploy at explicit offsets (card.rs `SummonMemberDef`; the Three
+    /// Musketeers' SummonCharactersOffsetsX / Y, CharactersOffsetsXMirrored) is laid around the tap (`formation_members`).
+    ExplicitOffsetsFrame {
+        /// Both axes negated in the OWNER's frame: side 0 stands the members at (-X, -Y) from the tap and side 1 at the
+        /// rotation of that. Measured on client 15.535.29: side 0 on every tap column (x 3500 to 14500), and side 1 on its
+        /// own right half. Seat-symmetric.
+        OwnerFrameNegated = "owner_frame_negated",
+        /// The same, and side 1 mirrors x when the tap is on its own LEFT lane (formation.rs `nearest_lane` in its
+        /// frame): the reading of CharactersOffsetsXMirrored that fits side 1's one own-left tap on client 15.535.29. Not
+        /// seat-symmetric.
+        OwnerFrameNegatedSide1LeftLaneXMirror = "owner_frame_negated_side1_left_lane_x_mirror",
+    }
+);
+calib_enum!(
+    /// combat.ATTACK_SELECT_MOMENT -- when the attack selector (card.rs `AttackSelectDef`) picks its entry.
+    AttackSelectMoment {
+        /// At the swing's start: a fresh attack cycle's first tick, and the hit that ends a swing for the next one
+        /// (measured on client 15.535.29: a Giant walking into range mid-cycle took the shot the cycle began with).
+        AtSwingStart = "at_swing_start",
+        /// At the hit itself.
+        AtFire = "at_fire",
+    }
+);
+calib_enum!(
+    /// combat.ATTACK_SELECT_RANGE -- the reach of the selector's `target_in_range(V)` (`select_attack`).
+    AttackSelectRange {
+        /// Centre distance at most V + the attacker's radius + the target's (measured on client 15.535.29: 1600 + 500 +
+        /// 750 = 2850 on a Giant, the only one of four readings the bracket (2469.5, 2864] admits).
+        RangePlusBothRadii = "range_plus_both_radii",
+        /// Centre distance at most V.
+        CentreDistance = "centre_distance",
+    }
+);
+calib_enum!(
+    /// match.VARIANT_TRIGGER_COMPARE -- how a variant card's AvailableManaTrigger meets the owner's elixir
+    /// (`resolve_play`), compared in exact internal units: `mana x 1000` against `trigger x mana_unit`.
+    VariantTriggerCompare {
+        /// The elixir held is at least the trigger.
+        AtLeast = "at_least",
+        /// The elixir held is more than the trigger.
+        GreaterThan = "greater_than",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3460,6 +3532,10 @@ impl Calib {
             rider_deploy: pick(&v, &["rider", "DEPLOY", "value"], RiderDeploy::from_calibration_name)?,
             rider_targetable: pick(&v, &["rider", "TARGETABLE_WHILE_ATTACHED", "value"], RiderTargetable::from_calibration_name)?,
             deprioritized_target_buff: pick(&v, &["targeting", "DEPRIORITIZED_TARGET_BUFF", "value"], DeprioritizedTargetBuff::from_calibration_name)?,
+            explicit_offsets_frame: pick(&v, &["formation", "EXPLICIT_OFFSETS_FRAME", "value"], ExplicitOffsetsFrame::from_calibration_name)?,
+            attack_select_moment: pick(&v, &["combat", "ATTACK_SELECT_MOMENT", "value"], AttackSelectMoment::from_calibration_name)?,
+            attack_select_range: pick(&v, &["combat", "ATTACK_SELECT_RANGE", "value"], AttackSelectRange::from_calibration_name)?,
+            variant_trigger_compare: pick(&v, &["match", "VARIANT_TRIGGER_COMPARE", "value"], VariantTriggerCompare::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -3637,6 +3713,13 @@ impl Calib {
         // rider(t) = mount(t - 1) copy at the top of the Move phase; `riders_die_with_their_mounts`).
         only(&v, &["rider", "POSITION", "value"], "mount_previous_tick_position")?;
         only(&v, &["rider", "DIES_WITH_MOUNT", "value"], "same_tick_full_hp")?;
+        // THE MIRROR AND THE VARIANT CARD (`resolve_play`): one implemented arm each.
+        only(&v, &["match", "MIRROR_COST_RULE", "value"], "copied_elixir_plus_own_elixir")?;
+        only(&v, &["match", "MIRROR_PLACEMENT", "value"], "copied_card_rule")?;
+        only(&v, &["match", "MIRROR_RECORD", "value"], "last_non_mirror_play")?;
+        only(&v, &["match", "MIRROR_LEVEL_BEYOND_MAX", "value"], "refuse_play")?;
+        only(&v, &["match", "MIRROR_OF_VARIANT", "value"], "played_form")?;
+        only(&v, &["match", "VARIANT_ELIXIR_MOMENT", "value"], "command")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -3821,6 +3904,8 @@ pub enum DeployError {
     /// On (or touching) a building's footprint.
     Occupied,
     InvalidLevel(String),
+    /// A MIRROR played before its side has played anything it could copy (match.MIRROR_RECORD).
+    NothingToMirror,
 }
 
 impl From<crate::arena::ZoneError> for DeployError {
@@ -3846,6 +3931,28 @@ pub struct PlayerState {
     pub mana: i64,
     pub hand: Vec<u16>,
     pub queue: VecDeque<u16>,
+    /// THE CARD THIS SIDE LAST PUT DOWN, for a Mirror (match.MIRROR_RECORD = last_non_mirror_play): the card a
+    /// play deployed -- a variant card's FORM, the card a Mirror copied -- written by every accepted play except a
+    /// Mirror's, never by a refused one. None before any play. Added after SNAPSHOT_FORMAT 20; `default` None, so a
+    /// battle restored from a snapshot saved before it cannot Mirror until its next play. Hashed only for a side whose
+    /// deck holds a Mirror (`hash_state`), so a battle without one hashes as it did before the field.
+    #[serde(default)]
+    pub last_played: Option<u16>,
+}
+
+/// WHAT PLAYING ONE HAND SLOT PUTS DOWN (`BattleState::resolve_play`): the card in the slot, the card the play
+/// deploys, at which unified level, for how many elixir. The same card at the team's level for its own cost on
+/// every card but two: a variant card deploys its chosen FORM for that form's cost, and a Mirror its side's last
+/// play one level up for that card's cost plus its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Play {
+    /// The hand card: the one that cycles to the back of the queue.
+    pub in_slot: u16,
+    /// The card deployed: its placement judges the tap, its units or its cast go down.
+    pub card: u16,
+    pub level: i32,
+    /// Elixir, whole units.
+    pub cost: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -4686,7 +4793,7 @@ impl BattleState {
             }
             let hand: Vec<u16> = deck.iter().take(HAND_SIZE).copied().collect();
             let queue: VecDeque<u16> = deck.iter().skip(HAND_SIZE).copied().collect();
-            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue });
+            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None });
         }
         let players: [PlayerState; 2] = [players.remove(0), players.remove(0)];
 
@@ -9173,6 +9280,30 @@ impl BattleState {
         out
     }
 
+    /// THE ATTACK SELECTOR'S CHOICE for unit `i`'s swing (card.rs `AttackSelectDef`; the Three Musketeers'
+    /// OnStartingAttackAction): 1, the melee entry, when its live target is on the ground (combat.rs
+    /// `melee_target_ok`) and within the melee reach under combat.ATTACK_SELECT_RANGE; else 0, its projectile.
+    /// Start-of-tick positions: Attack runs before Move. Measured on client 15.535.29 on a standing Giant (radius 750):
+    /// the melee entry at centre distances up to 2469.5 and shots from 2864 out, which 1600 + the musketeer's 500 + the
+    /// Giant's 750 = 2850 alone of four readings fits.
+    fn select_attack(&self, i: usize) -> u8 {
+        let Some(sel) = self.cfg.cards.get(self.ents.card[i]).attack_select else { return 0 };
+        let e = &self.ents;
+        let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return 0 };
+        let ti = t.index as usize;
+        let near = match self.cfg.calib.attack_select_range {
+            AttackSelectRange::RangePlusBothRadii => crate::fixed::in_range_edge(e.pos[i], e.pos[ti], sel.melee_range + e.radius[i], e.radius[ti]),
+            AttackSelectRange::CentreDistance => crate::fixed::in_range_edge(e.pos[i], e.pos[ti], sel.melee_range, 0),
+        };
+        #[cfg(clash_plant = "bayonet_never")]
+        {
+            let _ = near;
+            return 0; // PLANT: the melee entry is never chosen.
+        }
+        #[allow(unreachable_code)]
+        u8::from(near && combat::melee_target_ok(e, ti, sel))
+    }
+
     /// The Attack phase, for every unit or for a first update's fresh units alone.
     fn phase_attack_for(&mut self, only: Option<&[usize]>) {
         // combat.RANGE_PROJECTILE = straight_to_range: the units whose pingpong throw is still out
@@ -9225,6 +9356,21 @@ impl BattleState {
                 continue;
             }
             let step = combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act);
+            // combat.ATTACK_SELECT_MOMENT (card.rs `AttackSelectDef`; the Three Musketeers): the selector picks the
+            // swing's entry when the swing starts -- a fresh cycle's first tick here, and the hit that ends a swing for
+            // the next one (below, after `fire`) -- or, under at_fire, at the hit itself. Written only for a card that
+            // carries a selector.
+            let select = self.cfg.cards.get(self.ents.card[i]).attack_select;
+            if select.is_some() {
+                let fresh = self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle;
+                let now = match self.cfg.calib.attack_select_moment {
+                    AttackSelectMoment::AtSwingStart => fresh,
+                    AttackSelectMoment::AtFire => step.fired_at.is_some(),
+                };
+                if now {
+                    self.ents.attack_seq[i] = self.select_attack(i);
+                }
+            }
             self.ents.attack_phase[i] = step.phase;
             // movement.ATTACK_FACING = toward_target: a unit in its attack state faces its target on
             // every tick, the move law's integer normalize (length 256) of target - self in native units.
@@ -9277,6 +9423,10 @@ impl BattleState {
                 let bolts = if self.cfg.calib.multiple_targets == MultipleTargets::ClientBoltsPerTarget { self.extra_bolts(i, t) } else { Vec::new() };
                 #[cfg(clash_plant = "multiple_targets_one_bolt")]
                 let bolts: Vec<EntityId> = Vec::new(); // PLANT (regression): the new arm delivers one bolt an attack, as not_read.
+                // THE SELECTOR'S MELEE ENTRY lands as a direct strike with no projectile (combat.rs `fire`), so the
+                // projectile bookkeeping below leaves it alone. False on every card without a selector.
+                let melee = select.is_some_and(|sel| combat::melee_chosen(&self.ents, i, t.index as usize, sel));
+                let shot = self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee;
                 let strike_from = self.dmg.hits.len();
                 combat::fire(
                     &self.ents,
@@ -9298,7 +9448,7 @@ impl BattleState {
                 // reads its victim's hp and death (`phase_target_attack_sequential`). A projectile
                 // launch keeps its flight; the buff the strike hangs and a kamikaze's own death
                 // below keep the buffers.
-                if self.tick_order() == TickOrder::ClientSequentialStrike && self.cfg.cards.get(self.ents.card[i]).projectile.is_none() {
+                if self.tick_order() == TickOrder::ClientSequentialStrike && !shot {
                     #[cfg(not(clash_plant = "sequential_strike_buffered"))]
                     self.land_strike(strike_from);
                     // PLANT (regression): the pass runs in creation order but its strikes land at Resolve.
@@ -9307,7 +9457,7 @@ impl BattleState {
                 }
                 // targeting.DOOMED_TARGET_DROP = projectile_attackers: a projectile attacker has now
                 // launched at its target, so it keeps that target even once it is doomed.
-                if self.cfg.calib.doomed_target_drop.drops() && self.cfg.cards.get(self.ents.card[i]).projectile.is_some() {
+                if self.cfg.calib.doomed_target_drop.drops() && shot {
                     self.ents.fired_at[i] = Some(t);
                 }
                 // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only": a projectile
@@ -9315,7 +9465,7 @@ impl BattleState {
                 // (measured on client 15.535.29: three let-go frames right after such a launch). Start-of-tick
                 // positions: Attack runs before Move.
                 let card = self.cfg.cards.get(self.ents.card[i]);
-                if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly && card.projectile.is_some() {
+                if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly && shot {
                     let ti = t.index as usize;
                     #[cfg(not(clash_plant = "launch_beyond_ignored"))]
                     let beyond = self.ents.is_alive(t)
@@ -9361,6 +9511,11 @@ impl BattleState {
                 // whose row sets AttackPushBack (`attack_recoil`).
                 if self.cfg.calib.attack_pushback == AttackPushback::LadderAwayFromTarget {
                     self.attack_recoil(i, t);
+                }
+                // combat.ATTACK_SELECT_MOMENT = at_swing_start: the hit ends this swing and starts the next, whose entry is
+                // chosen now, on the start-of-tick positions.
+                if select.is_some() && self.cfg.calib.attack_select_moment == AttackSelectMoment::AtSwingStart {
+                    self.ents.attack_seq[i] = self.select_attack(i);
                 }
                 #[cfg(clash_plant = "inline_damage")]
                 for h in self.dmg.hits.drain(..) {
@@ -10776,12 +10931,27 @@ impl BattleState {
         let second = fd.second_summon.filter(|d| d.unit != u16::MAX);
         let s = second.map_or(0, |d| d.count.max(0));
         let total = n + s;
-        let unit_of = |k: i32| if k < n { idx } else { second.expect("k >= n only with a second summon").unit };
+        // A DEPLOY AT EXPLICIT OFFSETS (card.rs `SummonMemberDef`; the Three Musketeers) gives each member its own unit:
+        // member 0 the card itself, the others their own records (the second's LoadTime 650 is its own row's).
+        let members = card.summon_members.as_deref();
+        let unit_of = |k: i32| match members {
+            #[cfg(not(clash_plant = "members_share_first_unit"))]
+            Some(ms) => ms[k as usize].unit,
+            #[cfg(clash_plant = "members_share_first_unit")]
+            Some(_) => idx, // PLANT: every member is the card's own unit.
+            None => {
+                if k < n {
+                    idx
+                } else {
+                    second.expect("k >= n only with a second summon").unit
+                }
+            }
+        };
         let level_of = |k: i32| {
-            if k < n {
+            if k < n && (members.is_none() || unit_of(k) == idx) {
                 level
             } else {
-                cards.unit_level(idx, unit_of(k), None, level).expect("second summon level validated at check_levels")
+                cards.unit_level(idx, unit_of(k), None, level).expect("member levels validated at check_levels")
             }
         };
         let calib = &self.cfg.calib;
@@ -10893,6 +11063,35 @@ impl BattleState {
                 // The arena-bounds clamp, native: half a cell inside every edge.
                 let (w, h) = (arena.width / K, arena.height / K);
                 let margin = arena.cell / K / 2;
+                // THE EXPLICIT OFFSETS (card.rs `SummonMemberDef`; the Three Musketeers' SummonCharactersOffsetsX / Y),
+                // in place of the ring, under formation.EXPLICIT_OFFSETS_FRAME: in the owner's frame, both axes negated,
+                // and under the side-1 arm x mirrored for side 1 on its own left lane. Measured on client 15.535.29 for
+                // side 0 on taps from x 3500 to 14500: (0, +1000), (+1000, -1000), (-1000, -1000) from the tap, the table's
+                // [0, -1000, 1000] / [-1000, 1000, 1000] negated. Then the ring's own clamps: the ground point, the column's
+                // y range, the arena's bounds, the water.
+                #[cfg(not(clash_plant = "explicit_offsets_as_ring"))]
+                if let Some(ms) = members {
+                    let mirror_x = team == Team::Red
+                        && card.summon_offsets_x_mirrored
+                        && calib.explicit_offsets_frame == ExplicitOffsetsFrame::OwnerFrameNegatedSide1LeftLaneXMirror
+                        && crate::formation::nearest_lane(arena, own) == crate::formation::LANE_LEFT;
+                    return ms
+                        .iter()
+                        .enumerate()
+                        .map(|(k, m)| {
+                            let unit = cards.get(unit_of(k as i32));
+                            let off = Vec2::new(if mirror_x { m.offset_x } else { -m.offset_x }, -m.offset_y);
+                            let mut p = if unit.is_flying() { tap } else { ground_tap }.add(off);
+                            if let (Some((lo, hi)), false) = (y_range, unit.is_flying()) {
+                                p.y = if p.y <= lo { lo } else { p.y.min(hi) };
+                            }
+                            p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
+                            let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
+                            let abs = if unit.is_flying() || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
+                            member(k as i32, abs)
+                        })
+                        .collect();
+                }
                 (0..total)
                     .map(|k| {
                         let unit = cards.get(unit_of(k));
@@ -10974,6 +11173,7 @@ impl BattleState {
     /// deploy timer the entity starts with in ms), in creation order.
     pub fn formation_preview(&self, team: Team, card_name: &str, pos: Vec2) -> Result<Vec<(String, Vec2, i32)>, DeployError> {
         let idx = self.simulable(card_name)?;
+        self.refuse_unplaced_play(idx)?;
         let level = self.cfg.card_level[team as usize];
         self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
         // A spell summon previews its unit's members (the same expansion as `enqueue`).
@@ -10988,6 +11188,22 @@ impl BattleState {
             .into_iter()
             .map(|m| (self.cfg.cards.get(m.card).name.clone(), m.pos, m.deploy_ms.unwrap_or(self.cfg.cards.get(m.card).deploy_time_ms)))
             .collect())
+    }
+
+    /// A card only a PLAY can put down (`resolve_play`): a Mirror, which needs its side's last play, and a variant
+    /// card, whose form needs the elixir at the play. A scenario spawn or a preview has neither, so each is refused
+    /// naming what to place instead; they are never cast (spell.rs `cast`).
+    fn refuse_unplaced_play(&self, idx: u16) -> Result<(), DeployError> {
+        let cards = &self.cfg.cards;
+        let c = cards.get(idx);
+        if c.is_mirror() {
+            return Err(DeployError::UnsupportedCard(c.name.clone(), "a Mirror replays its side's last play; play it from a hand, or place the copied card by name".into()));
+        }
+        if let Some(opts) = c.variant() {
+            let forms: Vec<&str> = opts.iter().map(|o| cards.get(o.card).name.as_str()).collect();
+            return Err(DeployError::UnsupportedCard(c.name.clone(), format!("its form is chosen by the elixir at play; place a form by name ({})", forms.join(", "))));
+        }
+        Ok(())
     }
 
     fn simulable(&self, name: &str) -> Result<u16, DeployError> {
@@ -11315,18 +11531,107 @@ impl BattleState {
         })
     }
 
-    /// Elixir half of the verdict.
-    fn check_elixir(&self, team: Team, idx: u16) -> Result<(), DeployError> {
+    /// Elixir half of the verdict: can `team` pay `cost` whole elixir (a `Play`'s cost)?
+    fn check_elixir(&self, team: Team, cost: i32) -> Result<(), DeployError> {
         let t = team as usize;
-        let card = self.cfg.cards.get(idx);
-        let need = (card.elixir as i64) * self.mana_unit;
+        let need = (cost as i64) * self.mana_unit;
         if self.players[t].mana < need {
             return Err(DeployError::NotEnoughElixir {
                 have: (self.players[t].mana / self.mana_unit) as i32,
-                need: card.elixir,
+                need: cost,
             });
         }
         Ok(())
+    }
+
+    /// WHAT PLAYING HAND SLOT `slot` PUTS DOWN NOW (`Play`), or why nothing can be: ONE RESOLUTION, which the verdict
+    /// (`check_deploy_slot`), the play itself (`deploy_slot`) and the hand's costs (`hand_costs`) all read, so none of
+    /// them can answer differently. Pure.
+    ///
+    /// Every card but two plays itself at its team's level for its own cost.
+    ///
+    /// A VARIANT CARD (card.rs `SpellShape::Variant`; the Spirit Empress) plays the first form whose trigger the
+    /// owner's elixir meets -- compared exactly, `mana x 1000` against `trigger x mana_unit`, under
+    /// match.VARIANT_TRIGGER_COMPARE -- and the last form when none is, as that form, for the form's own cost (so a
+    /// play below the last trigger is refused NotEnoughElixir, the ordinary way). Measured on client 15.535.29: taps at
+    /// 30,114 to 59,936 (single and double elixir) played the Normal form for 30,000, taps at 60,114 and 100,000 the
+    /// Mounted form for 60,000, with no wait (match.VARIANT_ELIXIR_MOMENT = command: the elixir held when the play
+    /// is applied). Checked before the Mirror, so a Mirror never meets a variant card: it copies the FORM.
+    ///
+    /// A MIRROR (card.rs `SpellShape::Mirror`) plays its side's last play (`PlayerState::last_played`) again, at the
+    /// Mirror's own level plus the table's MIRROR_LEVEL_OFFSET (card.rs `CardGlobals`), for that card's cost plus the
+    /// Mirror's own (match.MIRROR_COST_RULE). Measured on client 15.535.29: a Knight 11 copied by a Mirror 9 stood at
+    /// level 10, so the level raised is the Mirror's (in this engine every card of a side has one level, so the two
+    /// readings part nowhere); a copy past the rarity's last level is refused (match.MIRROR_LEVEL_BEYOND_MAX); a
+    /// Mirror with nothing to copy is refused NothingToMirror.
+    pub fn resolve_play(&self, team: Team, slot: usize) -> Result<Play, DeployError> {
+        let idx = self.hand_card(team, slot)?;
+        let t = team as usize;
+        let cards = &self.cfg.cards;
+        let c = cards.get(idx);
+        let level = self.cfg.card_level[t];
+        if let Some(opts) = c.variant() {
+            let have = (self.players[t].mana as i128) * 1000;
+            #[cfg(not(clash_plant = "variant_trigger_strict"))]
+            let cmp = self.cfg.calib.variant_trigger_compare;
+            #[cfg(clash_plant = "variant_trigger_strict")]
+            let cmp = VariantTriggerCompare::GreaterThan; // PLANT: the key is never read.
+            let met = |o: &crate::card::VariantOption| {
+                let need = (o.trigger_milli as i128) * (self.mana_unit as i128);
+                match cmp {
+                    VariantTriggerCompare::AtLeast => have >= need,
+                    VariantTriggerCompare::GreaterThan => have > need,
+                }
+            };
+            #[cfg(not(clash_plant = "variant_first_option_always"))]
+            let o: crate::card::VariantOption = opts.iter().copied().find(|o| met(o)).or_else(|| opts.last().copied()).expect("the loader refuses a variant card with no option");
+            #[cfg(clash_plant = "variant_first_option_always")]
+            let o: crate::card::VariantOption = {
+                let _ = met;
+                opts[0] // PLANT: the elixir is never consulted.
+            };
+            #[cfg(not(clash_plant = "variant_debits_card_cost"))]
+            let cost = cards.get(o.card).elixir;
+            #[cfg(clash_plant = "variant_debits_card_cost")]
+            let cost = c.elixir; // PLANT: the card's cost whatever the form.
+            return Ok(Play { in_slot: idx, card: o.card, level, cost });
+        }
+        if c.is_mirror() {
+            let last = self.players[t].last_played.ok_or(DeployError::NothingToMirror)?;
+            let offset = cards.globals.mirror_level_offset.expect("the loader refuses a Mirror without MIRROR_LEVEL_OFFSET");
+            #[cfg(not(clash_plant = "mirror_same_level"))]
+            let lvl = level + offset;
+            #[cfg(clash_plant = "mirror_same_level")]
+            let lvl = {
+                let _ = offset;
+                level // PLANT: the copy at the Mirror's own level.
+            };
+            cards.check_levels(last, lvl).map_err(DeployError::InvalidLevel)?;
+            #[cfg(not(clash_plant = "mirror_flat_cost"))]
+            let cost = cards.get(last).elixir + c.elixir;
+            #[cfg(clash_plant = "mirror_flat_cost")]
+            let cost = c.elixir; // PLANT: the Mirror's own cost alone.
+            return Ok(Play { in_slot: idx, card: last, level: lvl, cost });
+        }
+        Ok(Play { in_slot: idx, card: idx, level, cost: c.elixir })
+    }
+
+    /// THE ELIXIR EACH HAND SLOT'S PLAY COSTS NOW (`resolve_play`'s cost), -1 where no play resolves from the slot
+    /// at any elixir (an empty slot, a Mirror with nothing to copy or a copy past the last level). A variant card's
+    /// slot reads its form's cost at the elixir held, so it moves as the elixir crosses a trigger.
+    pub fn hand_costs(&self, team: Team) -> [i32; HAND_SIZE] {
+        let mut out = [-1; HAND_SIZE];
+        for (slot, o) in out.iter_mut().enumerate() {
+            if let Ok(p) = self.resolve_play(team, slot) {
+                *o = p.cost;
+            }
+        }
+        out
+    }
+
+    /// The card a Mirror played by `team` now would copy (`PlayerState::last_played`), or None.
+    pub fn mirror_target(&self, team: Team) -> Option<u16> {
+        self.players[team as usize].last_played
     }
 
     /// PURE query: exactly the verdict `deploy` would give this play right now,
@@ -11366,9 +11671,19 @@ impl BattleState {
         if self.outcome.is_some() {
             return Err(DeployError::GameOver);
         }
-        let idx = self.hand_card(team, slot)?;
-        self.check_elixir(team, idx)?;
-        self.check_position(team, idx, pos)
+        // The PLAY is judged, not the hand card (`resolve_play`): its cost, and the tap by the placement of the card it
+        // deploys -- a Mirror's copy by the copied card's rule (match.MIRROR_PLACEMENT, measured on client 15.535.29:
+        // an enemy-half tap is moved back as the copied troop's is, a river tap refused), a variant card's by its form's.
+        let play = self.resolve_play(team, slot)?;
+        #[cfg(not(clash_plant = "variant_check_act_split"))]
+        self.check_elixir(team, play.cost)?;
+        #[cfg(clash_plant = "variant_check_act_split")]
+        self.check_elixir(team, self.cfg.cards.get(play.in_slot).elixir)?; // PLANT: the verdict reads the hand card's cost.
+        #[cfg(not(clash_plant = "variant_placement_of_hand_card"))]
+        let at = play.card;
+        #[cfg(clash_plant = "variant_placement_of_hand_card")]
+        let at = play.in_slot; // PLANT: the hand card's (a spell's) placement judges the tap.
+        self.check_position(team, at, pos)
     }
 
     /// Play a card from hand by name (the first slot holding it). Validation is
@@ -11389,24 +11704,39 @@ impl BattleState {
     /// answer that can disagree with the one the engine acted on.
     pub fn deploy_slot(&mut self, team: Team, slot: usize, pos: Vec2) -> Result<Vec2, DeployError> {
         self.check_deploy_slot(team, slot, pos)?;
-        let idx = self.hand_card(team, slot)?;
+        // The same resolution the verdict just read, against the same state (`resolve_play`).
+        let play = self.resolve_play(team, slot)?;
+        #[cfg(not(clash_plant = "variant_placement_of_hand_card"))]
+        let at = play.card;
+        #[cfg(clash_plant = "variant_placement_of_hand_card")]
+        let at = play.in_slot; // PLANT: the hand card's placement resolves the point too.
         // A BUILDING STANDS WHERE ITS FOOTPRINT FITS, not on the tap. The same
         // pure query decided the verdict above, so the two cannot disagree: if it
         // said yes it returns a point here.
-        let pos = self.resolve_point(team, idx, pos);
+        let pos = self.resolve_point(team, at, pos);
         let t = team as usize;
-        let need = (self.cfg.cards.get(idx).elixir as i64) * self.mana_unit;
-        let level = self.cfg.card_level[t];
+        let need = (play.cost as i64) * self.mana_unit;
+        let mirror = self.cfg.cards.get(play.in_slot).is_mirror();
         let p = &mut self.players[t];
         p.mana -= need;
-        p.queue.push_back(idx);
+        // THE HAND CARD cycles (a Mirror, a variant card), not the card it put down.
+        p.queue.push_back(play.in_slot);
         match p.queue.pop_front() {
             Some(next) => p.hand[slot] = next,
             None => {
                 p.hand.remove(slot);
             }
         }
-        self.enqueue(team, idx, level, pos);
+        // match.MIRROR_RECORD = last_non_mirror_play: every accepted play but a Mirror's records the card it put
+        // down -- a variant card's form (match.MIRROR_OF_VARIANT = played_form), not the variant card.
+        if !mirror {
+            #[cfg(not(clash_plant = "mirror_copies_root_variant"))]
+            let record = play.card;
+            #[cfg(clash_plant = "mirror_copies_root_variant")]
+            let record = play.in_slot; // PLANT: the hand card is recorded, so a Mirror replays the variant card itself.
+            p.last_played = Some(record);
+        }
+        self.enqueue(team, play.card, play.level, pos);
         Ok(pos)
     }
 
@@ -11418,6 +11748,7 @@ impl BattleState {
             return Err(DeployError::GameOver);
         }
         let idx = self.simulable(card_name)?;
+        self.refuse_unplaced_play(idx)?;
         let level = level.unwrap_or(self.cfg.card_level[team as usize]);
         self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
         let card = self.cfg.cards.get(idx);
@@ -11817,6 +12148,13 @@ impl BattleState {
         true
     }
 
+    /// DEBUG / TEST: the attack selector's entry for entity `id`'s swing under way (card.rs `AttackSelectDef`: 0 the
+    /// projectile, 1 the melee entry), or None when the entity is gone or its card carries no selector.
+    pub fn attack_entry(&self, id: EntityId) -> Option<u8> {
+        let i = id.index as usize;
+        (self.ents.is_alive(id) && self.cfg.cards.get(self.ents.card[i]).attack_select.is_some()).then(|| self.ents.attack_seq[i])
+    }
+
     // -----------------------------------------------------------------------
     // hashing
 
@@ -11874,6 +12212,18 @@ impl BattleState {
             h.u32(p.queue.len() as u32);
             for c in &p.queue {
                 h.u32(*c as u32);
+            }
+            // THE LAST PLAY a Mirror copies (`PlayerState::last_played`): state only for a side whose deck holds a
+            // Mirror, so it is hashed only there, and a battle without one hashes as it did before the field.
+            #[cfg(not(clash_plant = "hash_skips_last_play"))]
+            if !legacy_v3 && p.hand.iter().chain(p.queue.iter()).any(|c| self.cfg.cards.get(*c).is_mirror()) {
+                match p.last_played {
+                    None => h.u32(0),
+                    Some(c) => {
+                        h.u32(1);
+                        h.u32(c as u32);
+                    }
+                }
             }
         }
         let e = &self.ents;
@@ -11974,6 +12324,10 @@ impl BattleState {
                 if let Some(m) = e.attached_to[i] {
                     h.id(m);
                     h.vec(e.attach_offset[i]);
+                }
+                // The attack selector's entry for the swing under way, only on a card that carries one.
+                if self.cfg.cards.get(e.card[i]).attack_select.is_some() {
+                    h.u32(e.attack_seq[i] as u32);
                 }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
@@ -12551,6 +12905,19 @@ impl BattleState {
 ///    refused as saved against other card data. migrate_v3 strips the three with the rest of the
 ///    post-format-3 tail. The Ram Rider loads, so every card after it, both crown towers and every
 ///    summon-only unit move up one index.
+/// 20, unchanged, the Three Musketeers, the Mirror and the Spirit Empress (formation.EXPLICIT_OFFSETS_FRAME,
+///    combat.ATTACK_SELECT_MOMENT, combat.ATTACK_SELECT_RANGE, match.VARIANT_TRIGGER_COMPARE; match.MIRROR_* and
+///    VARIANT_ELIXIR_MOMENT with one arm each): Calib gained four fields (serde default the shipped arm; no battle
+///    saved before them held a card that reads them), PlayerState gained last_played (serde default None, hashed
+///    only for a side whose deck holds a Mirror) and Entities gained attack_seq (serde default, sized on load, hashed
+///    only for a card with an attack selector), so a format-20 blob saved before them deserializes and hashes as it
+///    did. CardDef gained `summon_members`, `summon_offsets_x_mirrored` and `attack_select`, SpellShape gained Mirror
+///    and Variant, and the card fingerprint now covers the table's globals (card.rs `CardGlobals`), so the fingerprint
+///    moves: a snapshot saved by an earlier build is refused as saved against other card data. The three cards were
+///    refused while converting their rows, so each takes a CardDb slot: the crown towers and every summon-only unit
+///    move up (tests/hash_continuity.rs LOADED_SINCE_PARENT names the three). migrate_v3 strips the three fields with
+///    the rest of the post-format-3 tail. `load_with` refuses a snapshot naming a Mirror or a variant card as an
+///    entity, a cast, a pending spawn or a last play.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -12642,18 +13009,25 @@ struct Snapshot {
     state_hash: u64,
 }
 
+/// A card only a play resolves (`BattleState::resolve_play`): the Mirror, a variant card. Never an entity, a cast, a
+/// pending spawn or a recorded last play (`load_with`).
+fn played_only(c: &CardDef) -> bool {
+    c.is_mirror() || c.variant().is_some()
+}
+
 fn fingerprint_debug<T: std::fmt::Debug>(v: &T) -> u64 {
     let mut h = Fnv::new();
     h.bytes(format!("{v:?}").as_bytes());
     h.finish()
 }
 
-/// The card fingerprint a snapshot carries: the cards AND the buff table they index.
+/// The card fingerprint a snapshot carries: the cards, the buff table they index, and the
+/// table's own globals the loader reads (card.rs `CardGlobals`; the Mirror's level offset).
 /// Without the table a snapshot saved against a Freeze of 4000 ms and
 /// one saved against a Freeze of 400 ms would agree, because a `BuffApply` prints an
 /// index, not the row.
 fn cards_fingerprint(cards: &CardDb) -> u64 {
-    fingerprint_debug(&(&cards.cards, &cards.buffs))
+    fingerprint_debug(&(&cards.cards, &cards.buffs, &cards.globals))
 }
 
 /// MIGRATE A FORMAT-3 SNAPSHOT TO FORMAT 4, in place, as JSON. Returns the format-3
@@ -12740,12 +13114,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `mana` and `omit_from_starting_hand` after it.
                 // ~~... omit_from_starting_hand~~ -- the attached riders (still format 20) added
                 // `attach`, `target_only_troops` and `deprioritize_buff` after it.
+                // ~~... deprioritize_buff~~ -- the explicit offsets and the attack selector (still format 20)
+                // added `summon_members`, `summon_offsets_x_mirrored` and `attack_select` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -12789,7 +13165,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.omit_from_starting_hand,
                     c.attach,
                     c.target_only_troops,
-                    c.deprioritize_buff
+                    c.deprioritize_buff,
+                    c.summon_members,
+                    c.summon_offsets_x_mirrored,
+                    c.attack_select
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -13124,6 +13503,20 @@ impl BattleState {
             snap.ents.attached_to.iter_mut().for_each(|m| *m = None);
             snap
         };
+        #[cfg(clash_plant = "save_drops_last_play")]
+        let snap = {
+            // PLANT: the play a Mirror would copy is lost across a save.
+            let mut snap = snap;
+            snap.players.iter_mut().for_each(|p| p.last_played = None);
+            snap
+        };
+        #[cfg(clash_plant = "save_drops_attack_seq")]
+        let snap = {
+            // PLANT: the attack selector's entry for a swing under way is lost across a save.
+            let mut snap = snap;
+            snap.ents.attack_seq.iter_mut().for_each(|s| *s = 0);
+            snap
+        };
         serde_json::to_vec(&snap).expect("snapshot serializes")
     }
 
@@ -13182,6 +13575,7 @@ impl BattleState {
         snap.ents.mana_ms.resize(n, 0);
         snap.ents.attached_to.resize(n, None);
         snap.ents.attach_offset.resize(n, Vec2::default());
+        snap.ents.attack_seq.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);
@@ -13212,6 +13606,12 @@ impl BattleState {
                 cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).and_then(|d| crate::spell::shape_at(&d.shape, s.depth)).is_none())
             })
             || snap.spawn_queue.iter().any(|p| (p.card as usize) >= cards.cards.len())
+            // A Mirror and a variant card are never put down themselves (`resolve_play`), so no saved entity, cast,
+            // pending spawn or last play may name one, and a last play must name a card of this data.
+            || snap.ents.card.iter().any(|c| cards.cards.get(*c as usize).is_some_and(played_only))
+            || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).is_some_and(played_only))
+            || snap.spawn_queue.iter().any(|p| cards.cards.get(p.card as usize).is_some_and(played_only))
+            || snap.players.iter().filter_map(|p| p.last_played).any(|c| cards.cards.get(c as usize).map_or(true, played_only))
         {
             return Err("snapshot entity tables are inconsistent".into());
         }

@@ -196,6 +196,30 @@ pub struct Deploy {
     /// first stands. Absent on every other deploy, and on a tunnel whose surfacing the frames do not hold.
     #[serde(default)]
     pub destination: Option<[i32; 2]>,
+    /// A MIRROR play (`kind` "mirror", card Mirror): the card it copied, which is what the capture shows and what this
+    /// harness plays (`mirror_play`). Absent on every other deploy.
+    #[serde(default)]
+    pub mirrored: Option<Mirrored>,
+}
+
+/// The card a Mirror play copied, as the fixture maker names it (tools/make_replay_fixture.py `mirror_plays`).
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct Mirrored {
+    pub card: Option<String>,
+    #[serde(default)]
+    pub card_id: i64,
+}
+
+/// WHAT A DEPLOY ROW PLAYS through `spawn_unit`, which has no hand, no elixir and no play history: its own card, or
+/// for a MIRROR play (`kind` "mirror") the card it copied, at the row's level -- the copy's, one above the copied
+/// card's, as the capture shows it. The engine refuses the Mirror card itself there (state.rs
+/// `refuse_unplaced_play`); its hand play (`resolve_play`) is what the unit tests measure. A mirror row whose copy is
+/// not named is played as its card and refused, never guessed.
+pub fn mirror_play(d: &Deploy) -> String {
+    match (d.kind.as_str(), d.mirrored.as_ref().and_then(|m| m.card.clone())) {
+        ("mirror", Some(copied)) => copied,
+        _ => d.card.clone().unwrap_or_default(),
+    }
 }
 
 /// THE POINT A DEPLOY IS PLAYED AT, native.
@@ -928,6 +952,11 @@ impl Roots {
                     UnitRef::LifeState => continue,
                     // an attached rider is rooted through the mount it rides (`attached_to`), not by card
                     UnitRef::Attach => continue,
+                    // a deploy's members at explicit offsets (the Three Musketeers' second and third) exist from the
+                    // Spawn phase of the deploy the harness issued, as a second summon's do
+                    UnitRef::SummonMember(_) => &mut second_summon_of,
+                    // a variant card's form is a card of its own, deployed as itself: rooted as "deployed"
+                    UnitRef::VariantForm(_) => continue,
                 };
                 of.entry(unit).or_default().push(i);
             }
@@ -1225,7 +1254,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         if let Some(list) = deploys_by_tick.get(&due) {
             for d in list {
                 let team = team_of(d.side);
-                let name = d.card.clone().unwrap_or_default();
+                let name = mirror_play(d);
                 let p = play_point(d);
                 let pos = from_native(p[0], p[1]);
                 let r = s.spawn_unit(team, &name, pos, d.level);

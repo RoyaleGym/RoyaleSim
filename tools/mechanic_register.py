@@ -71,7 +71,7 @@ COSMETIC = re.compile(
     r"UnlockArena|UnlockLevel|^Name$|^Base$|ClassType|StatsTags|ContainerName|^Stats$|^stats$|^Icon|Shader|^Scale|"
     r"^UseAnimator|^use360Frames|HasRotationOnTimeline|AttachToSprite|PositionToSprite|MustBeOnTopOf|^Filter$|^FilterFile|"
     r"^FilterExportName|CardEffect|Crowd|Deploy(BaseAnim|edClip|AnimationOverride|TimeChangesDeployAnim)|"
-    r"SpawnDeployBaseAnim|HideHealthbar|NotVisible|^Visible$|^Options$|MatchName|PartType|RelativeX|RelativeY|OffsetY$|OffsetX$|"
+    r"SpawnDeployBaseAnim|HideHealthbar|NotVisible|^Visible$|MatchName|PartType|RelativeX|RelativeY|OffsetY$|OffsetX$|"
     r"OffsetYBlue|OffsetYRed|OffsetXBlue|OffsetXRed|ExtraSpellTarget|TargetEffect|TargetingEffect|TargetedEffect|Crosshair|"
     r"Snipe(Side|Target)Clip|LoadAttack|Flame|Tetherv|^Kind$|IngamePathfind(Visible|Effect|Start|Stop)|RequestShowBadge|"
     r"^Delays$|^ShowCardEffect|Underlay|Overlay|PingpongVisual|DontStopMoveAnim|AlwaysResetAnimation|TryToFinishAttackAnimation|"
@@ -148,6 +148,9 @@ FAMILIES: list[tuple[str, str]] = [
     ("multi_attack", r"MultipleTargets|MultipleProjectiles|^Projectiles$|^Projectile[23]$|AmmoCount|^Scatter$|HitBiggestTargets|AllTargetsHit|GroupProjectiles|AttackSequence|AttackIndex|AttackStateCount|AttackAmount|OncePerTarget|OneHitPerTarget|CustomFirstProjectile|AttackCooldown|AttackDelay|VisualHitSpeed|NumMatchesNeeded"),
     ("pushback", r"PushFilter|PushRadiusDirectionalOffset|PushToSide|Pushback|PushBack|PushMassFactor|PushSpeedFactor|LateralPushPercentage|DistanceProportinalPush|MeleePushback|IgnorePushBack"),
     ("ability_champion", r"^Ability|IsChampion|UseAbility|MaxCharges|^Cooldown$|InitialCooldown|ActivationTime|^CastTime$|TriggerDelay|OnActivat|GameTagsWhileAbilityActive|KeepIconEvenWhenOutOfCharges|HideChargesTextField|ChampionCharacterData|GameTagsToSetOnReadyToActivate|Elixir(Gain|Full|Cost)|DeployActivate|DeployElixir|IgnoreDeployEffectCards|ActionOnCooldownReady|PendingBuff"),
+    # The Spirit Empress's form choice (spells_other MergeMaiden Options; tools/extract_cards.py
+    # `variant_block`): ahead of summoner_hero and core_stats, which filed these as ordinary stats.
+    ("variant_select", r"^Options$|^AvailableManaTrigger$|^PrecastPendingTime$|^SpellData$|^UseProjectedTimeSummon$"),
     ("summoner_hero", r"IsSummoner|^Summon|UseDeployForSummons|InstantHitForSummons|LeftSummon|RightSummon|ManaCostFromSummonerMana|UseProjectedTimeSummon"),
     ("balloon", r"Balloon|^Bomb(Projectile|HorizontalOffsets|AbsoluteHorizontalOffsets|VerticalOffsets|AreaEffectObjects|SpellTarget)|TotalBalloons|DropBalloonAtHpList|OverrideKamikazeDoubleContainer|ContainerAeoList|OffsetXList|OffsetYList"),
     ("clone_mirror", r"^Clone|ClonedVersion|NotCloned|IgnoreClone|CustomCloneFilter|OnClonedAction|MirrorUsesRootSpell|CloneTriggersLandingActions"),

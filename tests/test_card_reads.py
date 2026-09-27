@@ -379,15 +379,16 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # unread columns and stays). None joined. Measured against the pre-flip set with each build.
     # NOT MOVED by flip wave 2 (eight keys): measured on the 126992a module's catalogue with the ledger before and
     # after, 78 both, the same cards.
-    # 78 -> 84 on 2026-09-26, the b2+b3 loader batch. Six cards load and join the report, none of them in the thin
-    # slice: THE MINER AND THE GOBLIN DRILL (the underground walk; the Miner for WalkingSpeedTweakPercentage and
+    # 78 -> 86 on 2026-09-26, the b2+b3 loader batch. Nine cards load; eight join the report, none of them in the
+    # thin slice: THE MINER AND THE GOBLIN DRILL (the underground walk; the Miner for WalkingSpeedTweakPercentage and
     # touchdown_limited_deploy, the Drill for IgnoreClone and touchdown_limited_deploy), THE ELIXIR COLLECTOR
     # (IsBuilding), THE FURNACE (its OnStartingAction), THE ELIXIR GOLEM (IgnoreBuff, IgnoreResurrect; its spawn
-    # chain and its elixir on death) and THE RAM RIDER (its attached rider: SpawnAttachMaxRotation, IgnoreBuff,
-    # IgnoreResurrect, the bola's splash flags). The WHOLE delta, measured with a stand-in catalogue (the 126992a
-    # module's catalogue plus the six rows, register present): 78 without the six rows, 84 with them, the six added
-    # cards exactly these and none removed.
-    outside_by_vintage = {"2018": 40, "15.535": 84}
+    # chain and its elixir on death), THE RAM RIDER (its attached rider: SpawnAttachMaxRotation, IgnoreBuff,
+    # IgnoreResurrect, the bola's splash flags), THE THREE MUSKETEERS (DeployDelay, the projectile's only_enemies)
+    # and THE SPIRIT EMPRESS (named by the register pass alone). The Mirror loads and carries nothing unread. The
+    # WHOLE delta, measured with a stand-in catalogue (the 126992a module's catalogue plus the nine rows, register
+    # present): 78 without them, 86 with them, the eight added cards exactly these and none removed.
+    outside_by_vintage = {"2018": 40, "15.535": 86}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

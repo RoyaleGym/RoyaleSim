@@ -246,6 +246,12 @@ pub struct Entities {
     pub attached_to: Vec<Option<EntityId>>,
     #[serde(default)]
     pub attach_offset: Vec<Vec2>,
+    /// THE ATTACK SELECTOR (card.rs `AttackSelectDef`; the Three Musketeers): the AttackSequenceList entry chosen for
+    /// the swing under way, 0 the row's projectile and 1 its melee entry (state.rs `select_attack`, combat.rs `fire`).
+    /// 0 on every other entity, hashed only for a card that carries a selector. `default` and sized on load like
+    /// `launched_beyond`.
+    #[serde(default)]
+    pub attack_seq: Vec<u8>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -688,6 +694,7 @@ impl Entities {
             self.mana_ms[i] = 0;
             self.attached_to[i] = None;
             self.attach_offset[i] = Vec2::default();
+            self.attack_seq[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -774,6 +781,7 @@ impl Entities {
             self.mana_ms.push(0);
             self.attached_to.push(None);
             self.attach_offset.push(Vec2::default());
+            self.attack_seq.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);

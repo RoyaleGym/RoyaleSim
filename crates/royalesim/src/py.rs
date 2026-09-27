@@ -48,6 +48,10 @@
 //!         buildings)  4 SPELL_NOT_ON_WATER (anywhere except water: Goblin Barrel).
 //!     Code 4 has NO protocol.py Placement yet -- the Python mask must add one or
 //!     it will offer the river to a Goblin Barrel that the engine refuses as WATER.
+//!     Code 6 is the MIRROR: its tap follows the placement of the card it copies
+//!     (`mirror_target`). A VARIANT card (the Spirit Empress) reports its first form's
+//!     code and row, and its forms in the catalogue's 10th element; what each hand slot
+//!     costs right now is each player's `hand_costs` in `state_json`.
 //!     Spell rows report count 0, radius 0, flying false, hitpoints 0 (protocol.py
 //!     CardInfo: "0 for spells").
 //!     A unit a spell RELEASES (the Goblin of a Goblin Barrel) is not a card: it is
@@ -131,7 +135,7 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
-pub const DEPLOY_REASONS: [&str; 14] = [
+pub const DEPLOY_REASONS: [&str; 15] = [
     "OK",
     "BAD_TEAM",
     "BAD_SLOT",
@@ -151,6 +155,9 @@ pub const DEPLOY_REASONS: [&str; 14] = [
     // it, correctly -- raised IndexError. The exhaustive match caught the Rust half and
     // nothing caught this half, because a `[&str; N]` grows by editing two places.
     "TOO_EARLY",
+    // NOTHING_TO_MIRROR, index 14: a Mirror played before its side has played anything it could copy
+    // (state.rs `resolve_play`, match.MIRROR_RECORD).
+    "NOTHING_TO_MIRROR",
 ];
 
 /// THE ENTITY ROW'S FIELDS, in exactly the order `state_json` writes them, named as
@@ -210,9 +217,10 @@ const MOTION_STRIKES: u8 = 6;
 
 /// THE CATALOGUE ROW'S FIELDS, in `catalogue_json`'s order, named as protocol.py `CardInfo`
 /// names them where it has the field (`placement` is the kind code, the card's deploy rule;
-/// `card_kind` is a name from CARD_KINDS). A catalogue row may grow at its end; a decoder takes
-/// the columns it knows by position.
-pub const CATALOGUE_FIELDS: [&str; 9] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind"];
+/// `card_kind` is a name from CARD_KINDS; `variants` a variant card's forms, null on every other
+/// card). A variant card (the Spirit Empress) shows its first form's row with its own elixir. A
+/// catalogue row may grow at its end; a decoder takes the columns it knows by position.
+pub const CATALOGUE_FIELDS: [&str; 10] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants"];
 
 /// WHAT A CARD IS, by name (card.rs `CardKind`), the catalogue's `card_kind` column. The
 /// `placement` code says where a card may be played; it does not say what the card is, and
@@ -271,6 +279,8 @@ fn reason_of(r: &Result<(), DeployError>) -> u8 {
             // not. This arm exists because the match above is exhaustive on purpose and
             // refused to compile without it, which is the comment above doing its job.
             DeployError::TooEarly { .. } => 13,
+            // 14: a Mirror with nothing to copy is refused until its side plays, a reason a caller acts on.
+            DeployError::NothingToMirror => 14,
             DeployError::UnknownCard(_)
             | DeployError::UnsupportedCard(..)
             | DeployError::NotInHand
@@ -448,6 +458,15 @@ fn check_command(s: &BattleState, team: i64, slot: i64, x: i32, y: i32) -> u8 {
 /// deploys by.
 pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
     let c = cards.get(idx);
+    // THE MIRROR (6): its tap is judged by the placement of the card it copies (match.MIRROR_PLACEMENT), which the
+    // mask learns from `mirror_target`. A VARIANT card (the Spirit Empress): its first form's code; the loader holds
+    // every form to one CardKind.
+    if c.is_mirror() {
+        return KIND_MIRROR;
+    }
+    if let Some(opts) = c.variant() {
+        return kind_code(cards, calib, opts[0].card);
+    }
     match (c.kind, deploy_rule(calib, c)) {
         (CardKind::Troop, _) => 0,
         (CardKind::Building, _) => 1,
@@ -456,6 +475,9 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
         (CardKind::Spell, _) => 2,
     }
 }
+
+/// The catalogue kind code of the Mirror (module doc, SPELLS).
+pub const KIND_MIRROR: u8 = 6;
 
 /// Catalogue id per CardDb index: the catalogue position, or for a unit a catalogue
 /// card puts on the board the id of the FIRST such card, or -1.
@@ -517,9 +539,14 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
     for (k, idx) in catalogue.iter().enumerate() {
         let c = cards.get(*idx);
         let kind = kind_code(cards, calib, *idx);
-        let (count, radius, flying, hp) = match c.kind {
+        // A VARIANT card (the Spirit Empress) describes its FIRST form (the table's display row, and the form a full
+        // bar plays): its count, radius, flight, hitpoints and kind. Its `elixir` stays its own, which the loader holds
+        // to the first form's.
+        let shown = c.variant().map_or(*idx, |opts| opts[0].card);
+        let s = cards.get(shown);
+        let (count, radius, flying, hp) = match s.kind {
             CardKind::Spell => (0, 0, false, 0),
-            _ => (c.count, c.collision_radius, c.is_flying(), cards.scaled(*idx, level, c.hitpoints)?),
+            _ => (s.count, s.collision_radius, s.is_flying(), cards.scaled(shown, level, s.hitpoints)?),
         };
         if k > 0 {
             out.push(',');
@@ -528,13 +555,27 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
         // The 8th element: the side of the card's placement footprint in TILES, or
         // null for a card that is not a building. A mask can then test a tap
         // before the building exists (calibration placement.FOOTPRINT_TILES).
-        let footprint = match c.kind {
-            CardKind::Building => crate::arena::placement_tiles(c.collision_radius).to_string(),
+        let footprint = match s.kind {
+            CardKind::Building => crate::arena::placement_tiles(s.collision_radius).to_string(),
             _ => "null".to_string(),
         };
-        // The 9th element: what the card IS (CARD_KINDS), which the kind code above does not say.
-        let card_kind = card_kind_name(c.kind);
-        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\"]", c.elixir);
+        // The 9th element: what the card IS (CARD_KINDS), which the kind code above does not say; a variant card's is
+        // its forms'.
+        let card_kind = card_kind_name(s.kind);
+        // The 10th element: a variant card's forms, [[trigger_milli, form catalogue id or -1, form elixir], ...] in
+        // the table's order (descending triggers), so a consumer without an engine can price the play from the elixir
+        // it counts (match.VARIANT_TRIGGER_COMPARE); null on every other card.
+        let variants = match c.variant() {
+            None => "null".to_string(),
+            Some(opts) => {
+                let rows: Vec<String> = opts
+                    .iter()
+                    .map(|o| format!("[{},{},{}]", o.trigger_milli, catalogue.iter().position(|i| *i == o.card).map_or(-1, |p| p as i64), cards.get(o.card).elixir))
+                    .collect();
+                format!("[{}]", rows.join(","))
+            }
+        };
+        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants}]", c.elixir);
     }
     out.push(']');
     Ok(out)
@@ -610,9 +651,15 @@ pub fn state_json_text(
                 }
             };
         }
+        // THE HAND'S COSTS (state.rs `hand_costs`: what each slot's play debits now, -1 where no play resolves) and the
+        // card a Mirror would copy (`mirror_target`, its catalogue id or -1): keyed, so a decoder that does not know
+        // them drops them (the module doc's msgspec rule).
+        let hc = s.hand_costs(team);
+        let mirror_target = s.mirror_target(team).map_or(-1, |i| id_of_idx.get(i as usize).copied().unwrap_or(-1));
+        let _ = write!(o, "],\"hand_costs\":[{},{},{},{}],\"mirror_target\":{mirror_target}", hc[0], hc[1], hc[2], hc[3]);
         let _ = write!(
             o,
-            "],\"next_card\":{next},\"crowns\":{},\"tower_hp\":[{},{},{}],\"tower_max_hp\":[{},{},{}],\"king_active\":{}}}",
+            ",\"next_card\":{next},\"crowns\":{},\"tower_hp\":[{},{},{}],\"tower_max_hp\":[{},{},{}],\"king_active\":{}}}",
             crowns[ti],
             by_slot[0],
             by_slot[1],
@@ -1230,6 +1277,22 @@ impl Battle {
         Ok(self.s()?.state_hash())
     }
 
+    /// What each of `team`'s four hand slots would debit if played now, whole elixir (state.rs `hand_costs`: the one
+    /// resolution the play itself uses), -1 where no play resolves from the slot. A Mirror's slot reads the copy's
+    /// cost plus its own; a variant card's the form its elixir chooses. The same list is each player's `hand_costs`
+    /// in `state_json`.
+    fn hand_costs(&self, team: i64) -> PyResult<Vec<i32>> {
+        let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("team {team} is not 0 or 1")))?;
+        Ok(self.s()?.hand_costs(t).to_vec())
+    }
+
+    /// The catalogue id of the card a Mirror played by `team` now would copy (state.rs `mirror_target`), -1 when
+    /// there is none. The same id is each player's `mirror_target` in `state_json`.
+    fn mirror_target(&self, team: i64) -> PyResult<i32> {
+        let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("team {team} is not 0 or 1")))?;
+        Ok(self.s()?.mirror_target(t).map_or(-1, |i| self.id_of_idx.get(i as usize).copied().unwrap_or(-1)))
+    }
+
     /// HIDE (Tesla): the protocol uids of every live entity that is
     /// under ground right now (entity.rs `HideState::Hidden`: untargetable and, under
     /// calibration hide.HIDDEN_IMMUNE_TO_DAMAGE, immune). The same state is bit 2 of each
@@ -1835,7 +1898,8 @@ mod tests {
             assert_eq!(SPELL_MOTIONS[code as usize], name);
         }
         // Every catalogue row is CATALOGUE_FIELDS long, and its card_kind is the card's own
-        // kind, named from CARD_KINDS; today the kind code bands agree with it.
+        // kind, named from CARD_KINDS -- a variant card's is its first form's, whose row it
+        // shows; today the kind code bands agree with it.
         let db = cards();
         let calib = crate::state::Calib::shipped();
         let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
@@ -1846,7 +1910,8 @@ mod tests {
             let r = r.as_array().unwrap();
             assert_eq!(r.len(), CATALOGUE_FIELDS.len(), "a catalogue row is not CATALOGUE_FIELDS long: {r:?}");
             let kind = r[kind_col].as_str().unwrap();
-            assert_eq!(kind, card_kind_name(db.get(*idx).kind), "{r:?}");
+            let shown = db.get(*idx).variant().map_or(*idx, |opts| opts[0].card);
+            assert_eq!(kind, card_kind_name(db.get(shown).kind), "{r:?}");
             let band = match r[1].as_u64().unwrap() {
                 0 => "TROOP",
                 1 => "BUILDING",
@@ -1856,5 +1921,54 @@ mod tests {
             seen.insert(kind);
         }
         assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec!["BUILDING", "SPELL", "TROOP"], "the catalogue should carry every kind");
+    }
+
+    #[test]
+    fn the_mirror_and_the_variant_card_carry_their_rules_in_the_catalogue_and_their_prices_in_state_json() {
+        // The Mirror's kind code is its own (6). A variant card shows its first form's row with its own elixir, and its
+        // forms in the 10th element. Each player in state_json carries what each hand slot costs now and the card a
+        // Mirror would copy, both read from the one resolution the play uses (state.rs `resolve_play`).
+        let db = cards();
+        let calib = crate::state::Calib::shipped();
+        let catalogue: Vec<u16> = (0..db.cards.len() as u16)
+            .filter(|i| {
+                let c = db.get(*i);
+                c.name != KING_TOWER && c.name != PRINCESS_TOWER && !c.summon_only && db.index(&c.name) == Some(*i)
+            })
+            .collect();
+        let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &catalogue, db.lowest_level_valid_for_every_rarity()).unwrap()).unwrap();
+        let row = |n: &str| rows.as_array().unwrap().iter().find(|r| r[0] == n).unwrap_or_else(|| panic!("{n} not in the catalogue")).clone();
+        let id = |n: &str| catalogue.iter().position(|i| db.get(*i).name == n).unwrap_or_else(|| panic!("{n} not in the catalogue")) as i64;
+        let variants = CATALOGUE_FIELDS.iter().position(|f| *f == "variants").unwrap();
+        assert_eq!(row("Mirror")[1], KIND_MIRROR);
+        assert!(row("Mirror")[variants].is_null() && row("Knight")[variants].is_null(), "only a variant card carries forms");
+        let (mm, mounted) = (row("MergeMaiden"), row("MergeMaiden_Mounted"));
+        assert_eq!(mm[variants], serde_json::json!([[6000, id("MergeMaiden_Mounted"), 6], [3000, id("MergeMaiden_Normal"), 3]]));
+        assert_eq!(mm[2], 6, "the variant card's own elixir");
+        for col in [1, 3, 4, 5, 6, 7, 8] {
+            assert_eq!(mm[col], mounted[col], "the variant card shows its first form's {}", CATALOGUE_FIELDS[col]);
+        }
+        // state_json: the prices move with the elixir and with the plays.
+        let ids = ids_of_indices(&db, &catalogue);
+        let slots = [[0, 1, 2], [0, 2, 1]];
+        let player = |s: &BattleState| -> serde_json::Value {
+            let v: serde_json::Value = serde_json::from_str(&state_json_text(s, &db, &ids, &slots, &BTreeMap::new()).unwrap()).unwrap();
+            v["players"][0].clone()
+        };
+        let mut s = battle(&db, &["Knight", "MergeMaiden", "Archer", "Giant", "Mirror", "Fireball", "Valkyrie", "HogRider"]);
+        while s.tick_count() < calib.deploy_lockout_ticks.max(0) as u32 {
+            s.tick();
+        }
+        s.scenario_set_elixir_milli(Team::Blue, 5000);
+        let p = player(&s);
+        assert_eq!(p["hand_costs"], serde_json::json!([3, 3, 3, 5]), "the Knight, the Empress at 5 elixir (her Normal form), the Archer, the Giant: {p}");
+        assert_eq!(p["mirror_target"], -1, "nothing played yet");
+        s.scenario_set_elixir_milli(Team::Blue, 10000);
+        assert_eq!(player(&s)["hand_costs"][1], 6, "at 10 elixir the Empress plays her Mounted form");
+        s.deploy_slot(Team::Blue, 0, Vec2::new(crate::fixed::tiles(9), crate::fixed::tiles(8))).unwrap();
+        let p = player(&s);
+        assert_eq!(p["hand"][0], id("Mirror"), "the Mirror came up from the queue: {p}");
+        assert_eq!(p["mirror_target"], id("Knight"));
+        assert_eq!(p["hand_costs"][0], 4, "a Mirror of the Knight costs 3 + 1");
     }
 }

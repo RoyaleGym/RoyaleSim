@@ -739,6 +739,10 @@ class Tables(dict):
         self.vintage = vintage
         self.columns_absent: list[str] = []
         self.level_base = LEVEL_BASE_READING
+        # 15.535: the csv_logic/characters/*.toml [VARIABLE.*] and [DAMAGE_TYPE.*] sections, by name
+        # (not joined into any table; read by the named-block builders, `attack_select`). Empty for 2018.
+        self.variables: dict[str, dict] = {}
+        self.damage_types: dict[str, dict] = {}
 
 
 def load_tables(vintage: str | Vintage | None = None) -> Tables:
@@ -783,6 +787,12 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
                 if key is None:
                     if section not in SKIP_SECTIONS:
                         raise SystemExit(f"{p.name}: unknown section [{section}]")
+                    # A VARIABLE's DefaultValue and a DAMAGE_TYPE's class are read by name by a
+                    # named-block builder (`attack_select`); every other skipped section is dropped.
+                    if section == "VARIABLE" and isinstance(body, dict):
+                        t.variables.update({n: f for n, f in body.items() if isinstance(f, dict)})
+                    elif section == "DAMAGE_TYPE" and isinstance(body, dict):
+                        t.damage_types.update({n: f for n, f in body.items() if isinstance(f, dict)})
                     continue
                 # A [CHARACTER.X] that says IsBuilding is a building row (none does
                 # in 15.535, every building overlay is a [BUILDING.] section; kept
@@ -860,12 +870,20 @@ COSMETIC_ACTION_CLASSES = {
 }
 
 
-def action_graph(t: dict, rec: dict) -> dict | None:
+def action_graph(t: dict, rec: dict, sequence: list | None = None) -> dict | None:
     """The actions a row's *Action columns reach (15.535), or None when the table
-    has no such column or the row sets none: {roots, class_types, spawns, mechanic}."""
+    has no such column or the row sets none: {roots, class_types, spawns, mechanic}.
+
+    `sequence` is a unit row's AttackSequenceList (a list of inline tables): an entry's
+    DoAttackAction is a root too (`AttackSequenceList[k].DoAttackAction`), so the attack an
+    entry runs shows among the classes (the Three Musketeers' bayonet: ActionRunOnInstigator,
+    ActionDealDamage). No loaded card's row carries one."""
     if "actions" not in t or not isinstance(rec, Row):
         return None
     roots = {c: rec[c] for c in sorted(rec.columns) if ACTION_COLUMN.search(c) and isinstance(rec[c], str) and rec[c]}
+    for k, entry in enumerate(sequence or []):
+        if isinstance(entry, dict) and isinstance(entry.get("DoAttackAction"), str) and entry["DoAttackAction"]:
+            roots[f"AttackSequenceList[{k}].DoAttackAction"] = entry["DoAttackAction"]
     if not roots:
         return None
     acts = t["actions"]
@@ -989,6 +1007,105 @@ def interval_spawner(t: dict, rec: dict) -> dict | None:
         "mirrored_x": sp["MirroredX"],
         "mirrored_y": sp["MirroredY"],
     }
+
+
+# THE ATTACK SELECTOR's one accepted shape (15.535; the Three Musketeers): the row's
+# OnStartingAttackAction is an ActionFilter "target_in_range(<VARIABLE>) && target_is_ground" whose two
+# branches are ActionSetAttackSequenceIndex, and the row's AttackSequenceList holds the row's own
+# Projectile and one DoAttackAction: ActionRunOnInstigator -> ActionDealDamage (BaseDamageAmount, a
+# DamageTypeBasic damage type) with an ActionPlayEffect after it.
+ATTACK_SELECT_CONDITION = re.compile(r"^target_in_range\((\w+)\) && target_is_ground$")
+
+
+def attack_select(t: dict, table: str, name: str, rec: dict) -> dict | None:
+    """THE ATTACK SELECTOR as a named block (15.535): the melee branch's reach and damage, and which
+    AttackSequenceList entry each branch picks. None for every other row. Fail-closed: a key this
+    builder does not know on any action it walks, another condition, another sequence, or a damage
+    type other than a plain one gives None, and the loader then refuses the graph as before."""
+    if not isinstance(rec, Row) or "actions" not in t:
+        return None
+    acts = t["actions"]
+
+    def action(n, cls: str, keys: set[str], required: set[str]):
+        a = acts.get(n) if isinstance(n, str) else None
+        if a is None or a["ClassType"] != cls:
+            return None
+        got = acts.set_fields.get(n, set())
+        return a if required <= got <= keys else None
+
+    filter_keys = {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"}
+    f = action(rec["OnStartingAttackAction"], "ActionFilter", filter_keys, filter_keys)
+    if f is None:
+        return None
+    m = ATTACK_SELECT_CONDITION.match(f["Condition"] or "")
+    reach = (t.variables.get(m.group(1)) or {}).get("DefaultValue") if m else None
+    if not isinstance(reach, int) or isinstance(reach, bool) or reach <= 0:
+        return None
+    idx = {"ClassType", "AttackIndex"}
+    on_true = action(f["OnTrueAction"], "ActionSetAttackSequenceIndex", idx, idx)
+    on_false = action(f["OnFalseAction"], "ActionSetAttackSequenceIndex", idx, idx)
+    if on_true is None or on_false is None:
+        return None
+    melee, ranged = on_true["AttackIndex"], on_false["AttackIndex"]
+    seq = t[table].arrays.get(name, {}).get("AttackSequenceList")
+    # AttackSequenceMode "None" with AttackSequence [0, 1]: the sequence does not advance by itself; the selector
+    # alone sets the entry.
+    order = t[table].arrays.get(name, {}).get("AttackSequence")
+    if rec.get("AttackSequenceMode") != "None" or order != [0, 1]:
+        return None
+    if not isinstance(seq, list) or len(seq) != 2 or {melee, ranged} != {0, 1}:
+        return None
+    if seq[ranged] != {"Projectile": rec["Projectile"]} or set(seq[melee]) != {"DoAttackAction"}:
+        return None
+    run_keys = {"ClassType", "ActionToExecute", "NextAction"}
+    run = action(seq[melee]["DoAttackAction"], "ActionRunOnInstigator", run_keys, {"ClassType", "ActionToExecute"})
+    if run is None:
+        return None
+    deal_needs = {"ClassType", "BaseDamageAmount", "BaseDamageType"}
+    deal = action(run["ActionToExecute"], "ActionDealDamage", deal_needs | {"StatsTags"}, deal_needs)
+    if deal is None:
+        return None
+    effect = run["NextAction"]
+    if effect is not None and action(effect, "ActionPlayEffect", {"ClassType", "Effect"}, {"ClassType"}) is None:
+        return None
+    dt = t.damage_types.get(deal["BaseDamageType"]) or {}
+    damage = deal["BaseDamageAmount"]
+    if dt.get("ClassType") != "DamageTypeBasic" or not set(dt) <= {"ClassType", "DamageEffect"}:
+        return None
+    if not isinstance(damage, int) or isinstance(damage, bool) or damage <= 0:
+        return None
+    return {
+        "melee_range_milli": reach,
+        "melee_ground_only": True,
+        "melee_damage": damage,
+        "melee_index": melee,
+        "ranged_index": ranged,
+    }
+
+
+def summon_members(t: dict, key: str, s: dict, res: dict) -> list[dict] | None:
+    """THE EXPLICIT SUMMON OFFSETS (15.535; the Three Musketeers): a SummonCharactersList card whose row
+    ships SummonCharactersOffsetsX / Y, one member per list entry, in list order, with its offset in
+    millitiles as the table gives it (the loader turns it into the owner's frame; calibration
+    formation.EXPLICIT_OFFSETS_FRAME). None for a card resolved any other way or shipping no offsets.
+    A list and an offsets table of different lengths is a data error the build refuses."""
+    name = s["Name"]
+    arr = t[key].arrays.get(name, {})
+
+    def column(col: str) -> list | None:
+        v = arr.get(col)
+        if v is None and s.get(col) is not None:
+            v = [s[col]]
+        return v
+
+    lst, xs, ys = column("SummonCharactersList"), column("SummonCharactersOffsetsX"), column("SummonCharactersOffsetsY")
+    if not lst or (xs is None and ys is None) or ".SummonCharactersList (overlay;" not in res["source"]:
+        return None
+    if xs is None or ys is None or not (len(lst) == len(xs) == len(ys)):
+        raise SystemExit(f"{key}.{name}: SummonCharactersList has {len(lst)} entries and the offsets {xs!r} / {ys!r}")
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in [*xs, *ys]):
+        raise SystemExit(f"{key}.{name}: SummonCharactersOffsetsX / Y are not integers: {xs!r} / {ys!r}")
+    return [{"character": c, "offset_x_milli": x, "offset_y_milli": y} for c, x, y in zip(lst, xs, ys, strict=True)]
 
 
 def raw_logic(rec: dict) -> dict:
@@ -1488,8 +1605,9 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         for k in UNIT_FIELDS_15535:
             del u[k]
     if isinstance(c, Row):
-        # 15.535: the scripted actions the row reaches (None when it names none).
-        u["action_graph"] = action_graph(t, c)
+        # 15.535: the scripted actions the row reaches (None when it names none), with the
+        # DoAttackAction roots of its AttackSequenceList (the Three Musketeers' bayonet).
+        u["action_graph"] = action_graph(t, c, t[table].arrays.get(name, {}).get("AttackSequenceList"))
         # The Goblin Hut's controller, when the row's graph is one (`life_state_spawner`);
         # written only there, so every other row is unchanged.
         ls = life_state_spawner(t, c)
@@ -1500,6 +1618,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         iv = interval_spawner(t, c)
         if iv is not None:
             u["interval_spawner"] = iv
+        # The Three Musketeers' attack selector (`attack_select`); written only there.
+        sel = attack_select(t, table, name, c)
+        if sel is not None:
+            u["attack_select"] = sel
         # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
         # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
         # every other row are unchanged.
@@ -1870,6 +1992,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # Only on a row that sets a Mana column (norm_unit), so every other card row is unchanged.
     if "mana" in u:
         card["mana"] = u["mana"]
+    if "attack_select" in u:
+        card["attack_select"] = u["attack_select"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only and only where set (norm_unit): a card row whose own unit is a rider row carries
@@ -1914,6 +2038,14 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["second_summon"] = {"character": second, "count": res["others"].count(second)}
     if not res["source"].endswith(".SummonCharacter"):
         card["summon_resolution"] = {"source": res["source"], "characters": [res["character"], *res["others"]]}
+    if not t.vintage.is_2018:
+        # 15.535 only, so the 2018 file stays byte-identical: a SummonCharactersList card's members at
+        # their explicit offsets (`summon_members`; the Three Musketeers alone), and whether the
+        # table marks their x as mirrored. Written only on such a card, so every other row is unchanged.
+        members = summon_members(t, key, s, res)
+        if members is not None:
+            card["summon_members"] = members
+            card["summon_offsets_x_mirrored"] = flag(s, "CharactersOffsetsXMirrored")
     if not t.vintage.is_2018:
         # 15.535 only, so the 2018 file stays byte-identical: the card row's own AreaEffectObject
         # column when that area IS the deploy of the card's unit (`deploy_area_effect`).
@@ -1971,6 +2103,46 @@ def summon_carrier(t: dict[str, Table], unit: str) -> list[tuple[str, dict]]:
         if p:
             out.append(("projectiles", p))
     return out
+
+
+VARIANT_OPTION_READ = {"AvailableManaTrigger", "PrecastPendingTime", "SpellData"}
+VARIANT_OPTION_COSMETIC = {"VariantSwitchClipName", "VariantFrameClipName"}
+
+
+def variant_block(t: dict, s: dict) -> dict | None:
+    """A LogicBattleSpellVariantData row (15.535.29: the Spirit Empress alone): one card whose FORM is
+    chosen by the elixir available at play. Its Options in table order, each {trigger_milli (the
+    AvailableManaTrigger, thousandths of an elixir), precast_pending_ms, card (the form: a card row,
+    SpellData)}, and the card's UseProjectedTimeSummon and MirrorUsesRootSpell. None on every other
+    row. Fail closed: Options on a row without the class, an option key this builder does not know
+    (the two *ClipName keys are the card frame's art and are not exported), or a form that is no card
+    row stops the build."""
+    name = s["Name"]
+    opts = t["spells_other"].arrays.get(name, {}).get("Options")
+    if opts is None and isinstance(s["Options"], dict):
+        opts = [s["Options"]]  # a one-option list lands in the record only
+    if s["CustomClassType"] != "LogicBattleSpellVariantData":
+        if opts:
+            raise SystemExit(f"spells_other.{name}: Options without LogicBattleSpellVariantData")
+        return None
+    out = []
+    for k, o in enumerate(opts or []):
+        if not isinstance(o, dict):
+            raise SystemExit(f"spells_other.{name}.Options[{k}] is not a table: {o!r}")
+        extra = set(o) - VARIANT_OPTION_READ - VARIANT_OPTION_COSMETIC
+        if extra:
+            raise SystemExit(f"spells_other.{name}.Options[{k}]: unknown keys {sorted(extra)}")
+        form = o.get("SpellData")
+        if form not in t["spells_characters"].records and form not in t["spells_buildings"].records:
+            raise SystemExit(f"spells_other.{name}.Options[{k}].SpellData {form!r} is no card row")
+        trigger, precast = o.get("AvailableManaTrigger"), o.get("PrecastPendingTime")
+        out.append({"trigger_milli": trigger, "precast_pending_ms": precast, "card": form})
+    return {
+        "options": out,
+        "use_projected_time_summon": s["UseProjectedTimeSummon"],
+        "mirror_uses_root_spell": s["MirrorUsesRootSpell"],
+        "source": f"spells_other.{name}.Options ({len(out)} entries)",
+    }
 
 
 def spell_card(t, rarities, s) -> dict:
@@ -2089,6 +2261,16 @@ def spell_card(t, rarities, s) -> dict:
     # and only where it is set.
     if isinstance(s, Row) and flag(s, "OmitFromStartingHand"):
         card["omit_from_starting_hand"] = True
+    if not t.vintage.is_2018:
+        # 15.535 only, so the 2018 file stays byte-identical (its Mirror row stays refused), and
+        # written only on a row that sets it: the MIRROR (spells_other Mirror, the Mirror card alone),
+        # which replays its side's last play (calibration match.MIRROR_*), and the VARIANT card
+        # (`variant_block`; the Spirit Empress alone), whose form the elixir at play chooses.
+        if flag(s, "Mirror"):
+            card["spell"]["mirror"] = True
+        vb = variant_block(t, s)
+        if vb is not None:
+            card["spell"]["variant"] = vb
     # The ladder is the DAMAGE CARRIER's Rarity when its table carries the column
     # (15.535 projectiles / area effects: Common on every base spell -- Fireball 269
     # -> 688 at level 11 on the Common ladder, not 570 on the Rare one); a spell with
@@ -2106,6 +2288,37 @@ def spell_card(t, rarities, s) -> dict:
 
 def sha256_of(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+# THE 15.535 GLOBALS THE LOADER READS (card.rs `CardDb::globals`): named rows of the vintage's own
+# globals.csv, typed -- NumberValue as an integer, BooleanValue as a boolean. Only the rows a loaded
+# mechanic reads are carried: the Mirror's MIRROR_LEVEL_OFFSET (read), with its two neighbours
+# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing). The
+# engine's other globals still come from the embedded 2018 globals.csv (state.rs `globals_number`).
+# A named row the file lacks, or one whose value is neither a number nor a boolean, stops the build.
+GLOBALS_READ = ("MIRROR_LEVEL_OFFSET", "MIRROR_CAP_TO_MAX_LEVEL", "MIRROR_IGNORE_CHAMPIONS")
+
+
+def globals_block(v: Vintage) -> dict:
+    path = v.raw / "globals.csv"
+    with path.open(encoding="utf-8", newline="") as fh:
+        rd = csv.reader(fh)
+        header = next(rd)
+        next(rd, None)  # the types row
+        rows = {r[0]: dict(zip(header, r, strict=False)) for r in rd if r and r[0]}
+    out: dict[str, int | bool] = {}
+    for n in GLOBALS_READ:
+        r = rows.get(n)
+        if r is None:
+            raise SystemExit(f"{path.name}: no row {n}")
+        num, boo = (r.get("NumberValue") or "").strip(), (r.get("BooleanValue") or "").strip().upper()
+        if num and not boo:
+            out[n] = int(num)
+        elif boo in ("TRUE", "FALSE") and not num:
+            out[n] = boo == "TRUE"
+        else:
+            raise SystemExit(f"{path.name}: {n} has NumberValue {num!r} and BooleanValue {boo!r}; not one typed value")
+    return out
 
 
 def build(t: Tables) -> dict:
@@ -2214,6 +2427,9 @@ def build(t: Tables) -> dict:
             entry = files.setdefault(rel, {"sha256": sha256_of(p)})
             if p == tb.path:
                 entry["continuation_rows"] = tb.continuation_rows
+    if not v.is_2018:
+        # the file the `globals` block comes from (`globals_block`)
+        files["globals.csv"] = {"sha256": sha256_of(v.raw / "globals.csv")}
     provenance = {
         "source": v.source,
         "vintage": v.vintage,
@@ -2288,6 +2504,10 @@ def build(t: Tables) -> dict:
         # nothing the vintage split added is emitted for it.
         for r in doc["rarities"].values():
             del r["tournament_level_index"]
+    else:
+        # The globals the loader reads, by name (`globals_block`). 15.535 only: the 2018 Mirror row
+        # carries no `spell.mirror` and stays refused, so that file needs none.
+        doc["globals"] = globals_block(v)
     return doc
 
 

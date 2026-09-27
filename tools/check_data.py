@@ -788,6 +788,11 @@ def gate(
     fail += fail_t
     info += info_t
 
+    # 11. variant cards ----------------------------------------------------------------------
+    fail_v, info_v = variant_cards(doc)
+    fail += fail_v
+    info += info_v
+
     # 9. the file on disk is what the extractor produces now ----------------------------
     if file_doc is None:
         fail.append("derived cards.json fresh: file missing -- run tools/extract_cards.py")
@@ -811,6 +816,51 @@ def gate(
                 "-- run tools/extract_globals.py"
             )
     return fail, warn, info
+
+
+def variant_cards(doc: dict) -> tuple[list[str], list[str]]:
+    """Gate 11. A VARIANT card (cards.json `spell.variant`; the 15.535.29 Spirit Empress) is a hand card whose play
+    puts one of its forms down, chosen by the elixir held (crates/royalesim state.rs `resolve_play`). The loader
+    refuses a variant card whose table breaks the reading below (card.rs `convert_variant` and the form post-pass);
+    this gate holds the TABLE to it, so a data change that would make the card refused says why here first. Every
+    option names a card row; the triggers strictly descend; each trigger is its form's cost in thousandths of an
+    elixir; the card's own cost is its first form's. A table with no variant card passes with a note, which says so."""
+    fail: list[str] = []
+    cards = {c["name"]: c for c in doc["cards"]}
+    seen = 0
+    for c in doc["cards"]:
+        v = (c.get("spell") or {}).get("variant")
+        if not isinstance(v, dict):
+            continue
+        seen += 1
+        name = c["name"]
+        opts = v.get("options") or []
+        if not opts:
+            fail.append(f"variant card: {name} lists no option")
+            continue
+        prev = None
+        for k, o in enumerate(opts):
+            form = cards.get(o.get("card"))
+            trig = o.get("trigger_milli")
+            if form is None:
+                fail.append(f"variant card: {name} option {k} names {o.get('card')!r}, which is no card row")
+                continue
+            if not isinstance(trig, int) or (prev is not None and trig >= prev):
+                fail.append(
+                    f"variant card: {name} option {k} trigger {trig!r} does not strictly descend from {prev!r}"
+                )
+            prev = trig if isinstance(trig, int) else prev
+            if isinstance(trig, int) and trig != 1000 * (form.get("elixir") or 0):
+                fail.append(
+                    f"variant card: {name} option {k} trigger {trig} is not its form {form['name']}'s cost"
+                    f" {form.get('elixir')} x 1000"
+                )
+        first = cards.get(opts[0].get("card"))
+        if first is not None and c.get("elixir") != first.get("elixir"):
+            fail.append(
+                f"variant card: {name} costs {c.get('elixir')} and its first form {first['name']} {first.get('elixir')}"
+            )
+    return fail, [f"variant cards: {seen} checked" + ("" if seen else " (this table has none)")]
 
 
 def princess_y_tiles() -> Fraction | None:
@@ -1038,6 +1088,15 @@ PLANTS = {
         "live levels: HogRider",
         "tables",
         lambda t: setattr(t, "level_base", ec.LEVEL_BASE_READINGS[1]),
+        {"15.535.29"},
+    ),
+    # The Spirit Empress's first trigger no longer its form's cost: the loader would refuse the card.
+    "variant_trigger_mismatch": (
+        "variant card: MergeMaiden option 0 trigger 5000",
+        "doc",
+        lambda d: next(c for c in d["cards"] if c["name"] == "MergeMaiden")["spell"]["variant"]["options"][
+            0
+        ].__setitem__("trigger_milli", 5000),
         {"15.535.29"},
     ),
     # One card's base level moved: its live rows go red on their own.

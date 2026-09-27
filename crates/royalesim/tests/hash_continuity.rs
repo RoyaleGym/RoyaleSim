@@ -126,6 +126,10 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     // the Ram Rider: its parent refused the Ram's row while converting it (its Spawn* block had no
     // SpawnPauseTime), and it now loads with its attached rider
     ("cards.json", "RamRider"),
+    // the explicit offsets, the Mirror and the variant card: all three refused in `convert` at the parent
+    ("cards.json", "ThreeMusketeers"),
+    ("cards.json", "Mirror"),
+    ("cards.json", "MergeMaiden"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

@@ -211,6 +211,11 @@ PROLOGUE = {
     "DeprioritizeTargetsWithBuff": "deprioritize_targets_with_buff",
     "SpawnAttachMaxRotation": "attach_max_rotation_deg",
     "SpawnMaxAngle": "spawn_max_angle_deg",
+    # The attack selector (the Three Musketeers), written after the literal on the 15.535 rows by `attack_select`,
+    # which reads these three columns of the row (and the actions and AttackSequenceList they name).
+    "OnStartingAttackAction": "attack_select",
+    "AttackSequenceMode": "attack_select",
+    "AttackSequence": "attack_select",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was
@@ -404,9 +409,15 @@ REGISTER_FAMILIES_READ = {
         "SummonCharacter, SummonNumber, SummonRadius, SummonWidth, SummonDeployDelay, "
         "SummonDeployDelaySecond, SummonCharacterSecond and SummonCharacterSecondCount are CARD-row "
         "columns; the extractor resolves them into `summon_character`, `count`, the summon_* fields "
-        "and `second_summon`, and card.rs reads all of those (formation.rs lays the summon out). "
-        "Still unread inside this family: SummonCharactersOffsetsX / OffsetsY, SummonNumberListOnly, "
-        "SummonCharacterLevelIndex, UseProjectedTimeSummon"
+        "and `second_summon`, and card.rs reads all of those (formation.rs lays the summon out); "
+        "SummonCharactersOffsetsX / OffsetsY are read as `summon_members`. "
+        "Still unread inside this family: SummonNumberListOnly, SummonCharacterLevelIndex"
+    ),
+    "variant_select": (
+        "The Spirit Empress's Options: AvailableManaTrigger, SpellData and UseProjectedTimeSummon are SPELL-row "
+        "fields the extractor carries as `spell.variant`, and card.rs `convert_variant` reads all of them. Still "
+        "unread inside this family, a KNOWN GAP: PrecastPendingTime, carried as `precast_pending_ms` and read by no "
+        "arm of calibration match.VARIANT_ELIXIR_MOMENT (the shipped `command` chooses at the play, measured)"
     ),
 }
 
@@ -465,6 +476,7 @@ BLOCKS = {
     "spawn_pathfind": "RawSpawnPathfind",
     "buff_on_damage": "RawBuffOnDamage",
     "reflected_attack": "RawReflectedAttack",
+    "attack_select": "RawAttackSelect",
     "variable_damage": "RawVariableDamage",
     "special": "RawSpecial",
     "action_graph": "RawActionGraph",
@@ -706,6 +718,10 @@ def reached_units(card: dict, units: dict) -> list[str]:
             b = rec.get(blk)
             if isinstance(b, dict):
                 add(b.get("character"))
+        # a deploy's members at explicit offsets (the Three Musketeers), each its own row
+        for m in rec.get("summon_members") or []:
+            if isinstance(m, dict):
+                add(m.get("character"))
         sp = rec.get("spell")
         if isinstance(sp, dict):
             for key in ("first_projectile", "spawn"):

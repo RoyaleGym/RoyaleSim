@@ -75,11 +75,11 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // mechanic is a buff and loads. TORNADO WAS THE EXAMPLE HERE until its attract
     // was measured and implemented -- it now loads, and it has moved to the
     // NotInHand list below, which is where a simulable card belongs.
-    // RAGE WAS THE EXAMPLE until it loaded as a spell summon; Mirror carries no mechanic in the
-    // data at all (it replays the last card) and is refused for that, until its own mechanic lands.
-    match s.check_deploy(Team::Blue, "Mirror", t(900, 1000)) {
-        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "Mirror"),
-        other => panic!("expected UnsupportedCard for Mirror, got {other:?}"),
+    // RAGE WAS THE EXAMPLE until it loaded as a spell summon, and then MIRROR until it loaded as the
+    // replay of the side's last play; Clone runs an area action graph the loader does not read yet.
+    match s.check_deploy(Team::Blue, "Clone", t(900, 1000)) {
+        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "Clone"),
+        other => panic!("expected UnsupportedCard for Clone, got {other:?}"),
     }
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never

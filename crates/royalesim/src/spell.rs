@@ -434,6 +434,12 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         }
         // Never cast: state.rs `enqueue` puts the unit down as a troop deploy.
         SpellShape::Summon { .. } => {}
+        // Never cast either, and an Err rather than no objects: state.rs `resolve_play` plays the card the Mirror
+        // copies or the form the variant card chooses, and a cast that made nothing would be the silent "debited,
+        // nothing put down" play. Every path that could enqueue one refuses it first (`spawn_unit`,
+        // `formation_preview`, `load_with`).
+        SpellShape::Mirror => return Err(format!("{} replays its side's last play; it is never cast", cards.get(card).name)),
+        SpellShape::Variant { .. } => return Err(format!("{} chooses a form at the play; it is never cast", cards.get(card).name)),
         // A striking area: its damage is the strike's, scaled once here; nothing happens on the cast tick.
         SpellShape::Strikes(d) => {
             let motion = SpellMotion::Strikes { pos: tap, life_ms: d.life_ms, next_ms: d.gaps_ms[0], k: 0, struck: Vec::new() };

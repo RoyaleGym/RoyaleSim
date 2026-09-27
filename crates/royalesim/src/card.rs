@@ -291,6 +291,59 @@ pub enum SpellShape {
     /// its unit down the way a troop card does -- the troop formation, the troop deploy timer, one
     /// tick of latency -- so state.rs `enqueue` expands it and it is never cast.
     Summon { unit: u16, count: i32 },
+    /// THE MIRROR (spells_other Mirror; the Mirror card alone). It has no object of its own: playing it
+    /// puts its side's last play down again, one level up, for that card's cost plus its own (state.rs
+    /// `resolve_play`; calibration match.MIRROR_*). Never cast: spell.rs `cast` refuses it.
+    Mirror,
+    /// A CARD WITH FORMS (the 15.535.29 tables' LogicBattleSpellVariantData row: the Spirit Empress). It
+    /// has no object of its own either: playing it plays the first option whose trigger the owner's
+    /// elixir meets (the last when none is), as that FORM, a card of its own (state.rs `resolve_play`;
+    /// calibration match.VARIANT_*). Never cast: spell.rs `cast` refuses it.
+    Variant { options: Vec<VariantOption> },
+}
+
+/// ONE FORM OF A VARIANT CARD (`SpellShape::Variant`): cards.json `spell.variant.options[k]`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct VariantOption {
+    /// AvailableManaTrigger, thousandths of an elixir: the form is played when the owner holds at least this
+    /// (calibration match.VARIANT_TRIGGER_COMPARE).
+    pub trigger_milli: i32,
+    /// PrecastPendingTime, ms. Carried; the shipped arm of match.VARIANT_ELIXIR_MOMENT reads the elixir at
+    /// the play and never this.
+    pub precast_pending_ms: i32,
+    /// The form: a registered troop or building CARD, resolved by its internal name (never a `units`
+    /// record); u16::MAX until resolved.
+    pub card: u16,
+}
+
+/// ONE MEMBER OF A DEPLOY LAID AT EXPLICIT OFFSETS (spells_characters SummonCharactersList with
+/// SummonCharactersOffsetsX / Y; the Three Musketeers): cards.json `summon_members[k]`. Member 0 is the
+/// card's own row (`unit` = the card's index); every other member is its own record (a `summon_only`
+/// card, `UnitRef::SummonMember`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SummonMemberDef {
+    /// The member's CardDb index; u16::MAX until resolved.
+    pub unit: u16,
+    /// SummonCharactersOffsetsX / Y, native units (millitiles), as the table gives them: laid in the
+    /// owner's frame by state.rs `formation_members` under calibration formation.EXPLICIT_OFFSETS_FRAME.
+    pub offset_x: i32,
+    pub offset_y: i32,
+}
+
+/// THE ATTACK SELECTOR (the 15.535.29 tables' OnStartingAttackAction ActionFilter "target_in_range(V) &&
+/// target_is_ground" over a two-entry AttackSequenceList; the Three Musketeers): at an attack's start
+/// the unit picks its melee entry -- an instant hit on its target, no projectile -- when the target is
+/// on the ground and within `melee_range`, else its ordinary projectile (state.rs `select_attack`,
+/// combat.rs `fire`; calibration combat.ATTACK_SELECT_MOMENT, combat.ATTACK_SELECT_RANGE).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AttackSelectDef {
+    /// The VARIABLE the condition names (ThreeMusketeer_Rework_melee_range 1600), SUBTILES.
+    pub melee_range: i32,
+    /// `target_is_ground`: an air target always takes the projectile.
+    pub ground_only: bool,
+    /// ActionDealDamage BaseDamageAmount: the melee hit's level-1 damage, scaled like Damage (123; 314 at
+    /// level 11).
+    pub melee_damage: i32,
 }
 
 /// A STRIKING AREA (`SpellShape::Strikes`; Lightning). Every number is the area row's or its Projectile row's.
@@ -1062,13 +1115,22 @@ pub struct CardDef {
     /// (calibration targeting.DEPRIORITIZED_TARGET_BUFF; target.rs `scan`, state.rs
     /// `apply_effects`). None on every other card.
     pub deprioritize_buff: Option<u16>,
+    /// THE DEPLOY'S MEMBERS AT EXPLICIT OFFSETS (`SummonMemberDef`; the Three Musketeers), one per member in list
+    /// order, `count` of them. state.rs `formation_members` lays them at their offsets, each with its own unit, in
+    /// place of the ring. None on every other card.
+    pub summon_members: Option<Vec<SummonMemberDef>>,
+    /// spells_characters CharactersOffsetsXMirrored, beside `summon_members`: read under
+    /// formation.EXPLICIT_OFFSETS_FRAME's arm that mirrors x on a lane. False on every other card.
+    pub summon_offsets_x_mirrored: bool,
+    /// THE ATTACK SELECTOR (`AttackSelectDef`; the Three Musketeers). None on every other card.
+    pub attack_select: Option<AttackSelectDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `deprioritize_buff`, and onto the end of that tail
+    // field goes HERE, after `attack_select`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1079,6 +1141,20 @@ impl CardDef {
     #[inline]
     pub fn is_flying(&self) -> bool {
         self.flying_height > 0
+    }
+
+    /// The forms of a VARIANT card (`SpellShape::Variant`, the Spirit Empress), None on every other card.
+    pub fn variant(&self) -> Option<&[VariantOption]> {
+        match self.spell.as_ref().map(|s| &s.shape) {
+            Some(SpellShape::Variant { options }) => Some(options),
+            _ => None,
+        }
+    }
+
+    /// Is this the MIRROR (`SpellShape::Mirror`)?
+    #[inline]
+    pub fn is_mirror(&self) -> bool {
+        matches!(self.spell.as_ref().map(|s| &s.shape), Some(SpellShape::Mirror))
     }
 
     /// THE FUSE OF A DEATH BOMB, ms, or None on every other card.
@@ -1363,6 +1439,59 @@ struct RawCard {
     /// BattleHealerSpawnHeal). `from_json_str` resolves it into `CardDef::spawn_area_effect`.
     /// Absent reads as none.
     spawn_area_object: Option<String>,
+    /// cards.json `summon_members` (15.535 only; the Three Musketeers): `CardDef::summon_members`.
+    summon_members: Option<Vec<RawSummonMember>>,
+    /// cards.json `summon_offsets_x_mirrored` (CharactersOffsetsXMirrored, beside `summon_members`).
+    summon_offsets_x_mirrored: Option<bool>,
+    /// cards.json `attack_select` (15.535 only; the Three Musketeers' selector): `CardDef::attack_select`.
+    attack_select: Option<RawAttackSelect>,
+}
+
+/// cards.json `summon_members[k]`, every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawSummonMember {
+    character: Option<String>,
+    offset_x_milli: Option<i32>,
+    offset_y_milli: Option<i32>,
+}
+
+/// cards.json `attack_select`, every field nullable (tools/extract_cards.py `attack_select`).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawAttackSelect {
+    melee_range_milli: Option<i32>,
+    melee_ground_only: Option<bool>,
+    melee_damage: Option<i32>,
+    melee_index: Option<i32>,
+    ranged_index: Option<i32>,
+}
+
+/// THE ACTION CLASSES the attack selector's graph may reach (tools/extract_cards.py `attack_select`): the four it
+/// runs and its one cosmetic hook. Its graph must reach the four and nothing outside the five.
+const ATTACK_SELECT_CLASSES: [&str; 5] = ["ActionFilter", "ActionSetAttackSequenceIndex", "ActionRunOnInstigator", "ActionDealDamage", "ActionPlayEffect"];
+
+/// The selector an `attack_select` block names, or the reason it is refused. The block must be the one shape the
+/// extractor writes -- melee entry 1, the row's own projectile entry 0, a ground-only condition -- and the row's
+/// graph exactly the selector: every class in ATTACK_SELECT_CLASSES but the effect, none outside them, no spawn.
+fn attack_select_of(raw: &RawAttackSelect, graph: &Option<RawActionGraph>) -> Result<AttackSelectDef, String> {
+    let refuse = |why: &str| Err(format!("the unit's attack selector: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it") };
+    if !g.spawns.is_empty() || g.class_types.iter().any(|c| !ATTACK_SELECT_CLASSES.contains(&c.as_str())) {
+        return refuse(&format!("the graph runs more than the selector ({})", g.class_types.join(", ")));
+    }
+    if let Some(missing) = ATTACK_SELECT_CLASSES[..4].iter().find(|c| !g.class_types.iter().any(|x| x == *c)) {
+        return refuse(&format!("the graph does not reach {missing}"));
+    }
+    if (raw.melee_index, raw.ranged_index) != (Some(1), Some(0)) {
+        return refuse(&format!("sequence entries melee {:?} / ranged {:?}", raw.melee_index, raw.ranged_index));
+    }
+    if raw.melee_ground_only != Some(true) {
+        return refuse("a melee branch that also takes air targets");
+    }
+    let melee_range = raw.melee_range_milli.filter(|v| *v > 0).ok_or("the unit's attack selector has no melee range")?;
+    let melee_damage = raw.melee_damage.filter(|v| *v > 0).ok_or("the unit's attack selector has no melee damage")?;
+    Ok(AttackSelectDef { melee_range: milli(melee_range), ground_only: true, melee_damage })
 }
 
 /// cards.json `buff_on_damage`.
@@ -1789,6 +1918,12 @@ enum UnitUse {
     /// An attached rider (`AttachDef::unit`, the Ram Rider's rider), whose row must be a shape the
     /// rider law covers (`rider_shape`).
     Attach,
+    /// Member k >= 1 of a deploy at explicit offsets (`CardDef::summon_members`; the Three Musketeers' second and
+    /// third): a unit, loaded like a spawner's. Member 0 is the card itself and needs nothing.
+    SummonMember(u8),
+    /// Form k of a variant card (`SpellShape::Variant`; the Spirit Empress). Not a unit: a CARD, resolved by its
+    /// internal name after the unit loop (`CardDb::from_json_str`), never through `units`.
+    VariantForm(u8),
 }
 
 impl UnitUse {
@@ -1856,6 +1991,11 @@ pub enum UnitRef {
     Morph,
     /// An attached rider (`CardDef::attach`, the Ram Rider's rider).
     Attach,
+    /// Member k of a deploy at explicit offsets (`CardDef::summon_members`): member 0 is the card's own index, the
+    /// others their own records.
+    SummonMember(u8),
+    /// Form k of a variant card (`SpellShape::Variant`): a registered card, which the play deploys as itself.
+    VariantForm(u8),
 }
 
 impl UnitRef {
@@ -1871,6 +2011,8 @@ impl UnitRef {
             UnitRef::LifeState => "a life-state controller",
             UnitRef::Morph => "an underground morph",
             UnitRef::Attach => "an attached rider",
+            UnitRef::SummonMember(_) => "a summon member",
+            UnitRef::VariantForm(_) => "a variant form",
         }
     }
 }
@@ -1908,6 +2050,34 @@ struct RawCardsFile {
     /// names a row it cannot find refuses the card by name.
     #[serde(default)]
     projectiles: BTreeMap<String, serde_json::Value>,
+    /// cards.json `globals` (15.535 only; tools/extract_cards.py `globals_block`): the named globals.csv rows of
+    /// the file's own vintage the loader reads, by name (`CardGlobals`). Absent in the 2018 file and the
+    /// fallback set, which then load no card that needs one.
+    #[serde(default)]
+    globals: BTreeMap<String, serde_json::Value>,
+}
+
+/// THE TABLE'S OWN GLOBALS THE LOADER READS (cards.json `globals`), typed. Part of the card fingerprint
+/// (state.rs `cards_fingerprint`): a snapshot saved against other globals is stale.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CardGlobals {
+    /// MIRROR_LEVEL_OFFSET: how many levels above the Mirror its copy is played (1 in 15.535.29). None when
+    /// the file carries no such row: the Mirror card is then refused.
+    pub mirror_level_offset: Option<i32>,
+}
+
+impl CardGlobals {
+    /// The typed globals of a cards.json `globals` map. A named row whose value is not the type the loader
+    /// reads refuses the whole file: a global is never guessed.
+    fn from_map(m: &BTreeMap<String, serde_json::Value>) -> Result<CardGlobals, String> {
+        let int = |name: &str| -> Result<Option<i32>, String> {
+            match m.get(name) {
+                None => Ok(None),
+                Some(v) => v.as_i64().and_then(|x| i32::try_from(x).ok()).map(Some).ok_or_else(|| format!("cards.json globals.{name} = {v} is not an integer")),
+            }
+        };
+        Ok(CardGlobals { mirror_level_offset: int("MIRROR_LEVEL_OFFSET")? })
+    }
 }
 
 /// WHAT A CONVERTER MAY READ BEYOND ITS OWN ROW: the file's shared tables, by
@@ -1924,6 +2094,8 @@ struct LoadCtx<'a> {
     units: &'a BTreeMap<String, serde_json::Value>,
     /// cards.json `projectiles`, by name (`RawCardsFile::projectiles`).
     projectiles: &'a BTreeMap<String, serde_json::Value>,
+    /// cards.json `globals`, typed (`CardGlobals`).
+    globals: &'a CardGlobals,
 }
 
 /// One cards.json `rarities` entry (tools/extract_cards.py `rarity_table`).
@@ -2158,6 +2330,11 @@ struct RawSpell {
     /// spells_other SummonCharacter / SummonNumber, on a spell with no projectile and no area of its
     /// own (Rage's bottle, the Heal Spirit; 15.535 only).
     summon: Option<RawSummon>,
+    /// spells_other Mirror (15.535 only; written only on the Mirror's row): `SpellShape::Mirror`.
+    mirror: Option<bool>,
+    /// spells_other Options on a LogicBattleSpellVariantData row (15.535 only; the Spirit Empress):
+    /// `SpellShape::Variant`.
+    variant: Option<RawVariant>,
 }
 
 /// cards.json `spell.summon`.
@@ -2166,6 +2343,58 @@ struct RawSpell {
 struct RawSummon {
     character: Option<String>,
     count: Option<i32>,
+}
+
+/// cards.json `spell.variant` (tools/extract_cards.py `variant_block`).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawVariant {
+    options: Vec<RawVariantOption>,
+    use_projected_time_summon: Option<bool>,
+    mirror_uses_root_spell: Option<bool>,
+}
+
+/// cards.json `spell.variant.options[k]`, every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawVariantOption {
+    trigger_milli: Option<i32>,
+    precast_pending_ms: Option<i32>,
+    card: Option<String>,
+}
+
+/// The most options a variant card may carry (the Spirit Empress ships 2).
+const MAX_VARIANT_OPTIONS: usize = 4;
+
+/// THE VARIANT CARD (`SpellShape::Variant`) a `spell.variant` block describes, and its forms as unit needs
+/// (`UnitUse::VariantForm`), or the reason it is refused. Accepted: the form chosen at the play (UseProjectedTimeSummon
+/// TRUE), a Mirror copying the played form (MirrorUsesRootSpell FALSE), 1 to MAX_VARIANT_OPTIONS options whose
+/// triggers strictly descend, each with a trigger, a PrecastPendingTime and a form. Strictly descending makes "the first
+/// option whose trigger is met" and "the highest trigger met" one rule.
+fn convert_variant(mut def: CardDef, v: RawVariant) -> Result<(CardDef, UnitNeeds), String> {
+    if v.use_projected_time_summon != Some(true) {
+        return Err("a variant card whose form is not chosen at the play (UseProjectedTimeSummon not TRUE) is not simulated".into());
+    }
+    if v.mirror_uses_root_spell != Some(false) {
+        return Err("a variant card a Mirror replays as the root card (MirrorUsesRootSpell not FALSE) is not simulated".into());
+    }
+    if v.options.is_empty() || v.options.len() > MAX_VARIANT_OPTIONS {
+        return Err(format!("a variant card with {} options is not simulated", v.options.len()));
+    }
+    let (mut options, mut needs, mut prev) = (Vec::new(), Vec::new(), i32::MAX);
+    for (k, o) in v.options.into_iter().enumerate() {
+        let t = o.trigger_milli.filter(|t| *t > 0).ok_or_else(|| format!("variant option {k} without AvailableManaTrigger"))?;
+        if t >= prev {
+            return Err(format!("variant option {k}: triggers not strictly descending ({prev}, {t})"));
+        }
+        prev = t;
+        let pre = o.precast_pending_ms.filter(|p| *p >= 0).ok_or_else(|| format!("variant option {k} without PrecastPendingTime"))?;
+        let name = o.card.filter(|n| !n.is_empty()).ok_or_else(|| format!("variant option {k} without SpellData"))?;
+        options.push(VariantOption { trigger_milli: t, precast_pending_ms: pre, card: u16::MAX });
+        needs.push((UnitUse::VariantForm(k as u8), name));
+    }
+    def.spell = Some(SpellDef { shape: SpellShape::Variant { options }, placement: SpellPlacement::Anywhere });
+    Ok((def, needs))
 }
 
 /// One row group of rarities.csv.
@@ -2270,6 +2499,8 @@ pub struct CardDb {
     /// checks it before it applies (calibration cards.CLIENT16402_VALUES value.table; state.rs
     /// `with_card_values`). Not part of the card fingerprint: the values are.
     pub version: String,
+    /// The file's own globals the loader reads (`CardGlobals`; cards.json `globals`).
+    pub globals: CardGlobals,
 }
 
 pub const KING_TOWER: &str = "KingTower";
@@ -2354,6 +2585,9 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         attach: None,
         target_only_troops: false,
         deprioritize_buff: None,
+        summon_members: None,
+        summon_offsets_x_mirrored: false,
+        attack_select: None,
     }
 }
 
@@ -2528,14 +2762,16 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
 /// Zap, Freeze (AreaEffect); The Log (Rolling). REJECTED, with why: Rage, Poison,
 /// Heal, Tornado (pulsing area effects), Lightning (an area effect firing targeted
 /// projectiles), Graveyard (spawning area effect), Clone (own-troop buff), Mirror
-/// (no mechanic in the data). Freeze and Rocket are not in the thin slice; they run
+/// (no mechanic in the 2018 data). Freeze and Rocket are not in the thin slice; they run
 /// because their data has exactly the implemented shape, and Freeze's 4 s life is
 /// where calibration spells.ONE_SHOT_AREA_EFFECT_APPLICATION is LOW confidence.
+/// The 15.535 table's Mirror (`spell.mirror`) and Spirit Empress (`spell.variant`) load
+/// as `SpellShape::Mirror` and `SpellShape::Variant`, which are never cast.
 ///
 /// Returns the card, and the units it needs loaded: which mechanic, unit name
 /// (resolved to an index by `CardDb::from_json_str`, which loads each unit).
 fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(CardDef, UnitNeeds), String> {
-    let spell = raw.spell.unwrap_or_default();
+    let mut spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
     (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
     // OmitFromStartingHand (Mirror, which is refused on its shape until its window): the deal rule reads the card.
@@ -2547,6 +2783,30 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
         None | Some(serde_json::Value::Null) => None,
         Some(v) => Some(serde_json::from_value(v).map_err(|e| format!("projectile: {e}"))?),
     };
+    // THE VARIANT CARD AND THE MIRROR carry no object of their own: state.rs `resolve_play` turns playing one into
+    // playing another card. A row that carries one of them beside a projectile, an area or a summon is a shape this
+    // loader does not read, and is refused.
+    let own_object = proj.is_some() || spell.first_projectile.is_some() || spell.area_effect_object.is_some() || spell.summon.is_some();
+    if let Some(v) = spell.variant.take() {
+        if own_object || spell.mirror == Some(true) {
+            return Err("a variant card that also carries a mechanic of its own is not simulated".into());
+        }
+        return convert_variant(def, v);
+    }
+    if spell.mirror == Some(true) {
+        if own_object {
+            return Err("a Mirror that also carries a mechanic of its own is not simulated".into());
+        }
+        // The copy's level is the Mirror's own plus the table's MIRROR_LEVEL_OFFSET (`CardGlobals`): a file that does
+        // not carry the row cannot say it, and the card is refused rather than given a number.
+        match ctx.globals.mirror_level_offset {
+            Some(n) if n >= 1 => {}
+            Some(n) => return Err(format!("a Mirror whose MIRROR_LEVEL_OFFSET is {n} is not simulated")),
+            None => return Err("a Mirror needs the table's MIRROR_LEVEL_OFFSET (cards.json `globals`), which this file does not carry".into()),
+        }
+        def.spell = Some(SpellDef { shape: SpellShape::Mirror, placement: SpellPlacement::Anywhere });
+        return Ok((def, Vec::new()));
+    }
     let as_deploy = spell.spell_as_deploy.unwrap_or(false);
     let placement_for = |spawns: bool| {
         if as_deploy && !spell.can_deploy_on_enemy_side.unwrap_or(false) {
@@ -3284,21 +3544,25 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         };
         return Ok((c, raw.display_name.clone(), Vec::new()));
     }
-    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) and THE FURNACE'S INTERVAL SPAWNER (an
-    // `interval_spawner` block) are the action graphs a unit may run, each when the graph is exactly that block and
-    // its cosmetic hooks (`life_state_of`, `interval_spawner_of`). Every other graph is refused as before.
+    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block), THE FURNACE'S INTERVAL SPAWNER (an
+    // `interval_spawner` block) and THE THREE MUSKETEERS' ATTACK SELECTOR (an `attack_select` block) are the action
+    // graphs a unit may run, each when the graph is exactly that block and its cosmetic hooks (`life_state_of`,
+    // `interval_spawner_of`, `attack_select_of`), and one of them at most. Every other graph is refused as before.
     let interval = match &raw.interval_spawner {
         None => None,
         Some(iv) => Some(interval_spawner_of(iv, &raw.action_graph)?),
     };
-    let life_state = match (&raw.life_state_spawner, &interval) {
-        (Some(_), Some(_)) => return Err("the unit carries a life-state controller and an interval spawner; not simulated".into()),
-        (None, None) => {
+    let (life_state, attack_select) = match (&raw.life_state_spawner, &interval, &raw.attack_select) {
+        (None, None, None) => {
             refuse_action_mechanic(&raw.action_graph, "the unit")?;
-            None
+            (None, None)
         }
-        (Some(ls), None) => Some(life_state_of(ls, &raw.action_graph)?),
-        (None, Some(_)) => None,
+        (Some(ls), None, None) => (Some(life_state_of(ls, &raw.action_graph)?), None),
+        (None, Some(_), None) => (None, None),
+        (None, None, Some(sel)) => (None, Some(attack_select_of(sel, &raw.action_graph)?)),
+        (Some(_), Some(_), _) => return Err("the unit carries a life-state controller and an interval spawner; not simulated".into()),
+        (Some(_), None, Some(_)) => return Err("a unit carrying both a life-state controller and an attack selector is not simulated".into()),
+        (None, Some(_), Some(_)) => return Err("a unit carrying both an interval spawner and an attack selector is not simulated".into()),
     };
     // THE UNDERGROUND SPAWN WALK: read, or refused with the shape it has (`spawn_pathfind_of`). The
     // morph target is a need of the card, loaded from `units` by the unit loop.
@@ -3507,6 +3771,44 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         }
         (Some(b), false) => return Err(format!("second_summon block half blank: {:?} / {:?}", b.character, b.count)),
     };
+    // THE ATTACK SELECTOR'S ranged entry is the row's own Projectile: a selector on a row with none is a shape the
+    // extractor does not write.
+    if attack_select.is_some() && projectile.is_none() {
+        return Err("the unit's attack selector: no projectile for its ranged entry; not simulated".into());
+    }
+    // THE DEPLOY AT EXPLICIT OFFSETS (`summon_members`; the Three Musketeers): all-or-nothing like the other blocks.
+    // One member per summon (`count`), member 0 the card's own row, every member with its character and both offsets;
+    // members 1.. are unit needs (`UnitUse::SummonMember`), member 0 is filled with the card's own index at its push.
+    // A line layout or a second summon beside the members is a layout nobody measured, refused.
+    let summon_members = match &raw.summon_members {
+        None => None,
+        Some(ms) => {
+            let n = raw.count.unwrap_or(1);
+            // One member at an offset is a shape no row ships (a single summon stands on its tap).
+            if ms.len() < 2 || ms.len() > u8::MAX as usize || ms.len() as i32 != n {
+                return Err(format!("summon_members: {} members for a card of {n}", ms.len()));
+            }
+            if raw.summon_width_milli.is_some_and(|w| w != 0) || second_summon.is_some() {
+                return Err("summon_members beside a SummonWidth line or a second summon is not simulated".into());
+            }
+            let mut out = Vec::with_capacity(ms.len());
+            for (k, m) in ms.iter().enumerate() {
+                let c = m.character.clone().filter(|c| !c.is_empty()).ok_or_else(|| format!("summon_members[{k}]: no character"))?;
+                let (Some(offset_x), Some(offset_y)) = (m.offset_x_milli, m.offset_y_milli) else {
+                    return Err(format!("summon_members[{k}] {c}: an offset is blank"));
+                };
+                if k == 0 {
+                    if raw.summon_character.as_deref() != Some(c.as_str()) {
+                        return Err(format!("summon_members[0] {c} is not the card's own unit {:?}", raw.summon_character));
+                    }
+                } else {
+                    units.push((UnitUse::SummonMember(k as u8), c));
+                }
+                out.push(SummonMemberDef { unit: u16::MAX, offset_x, offset_y });
+            }
+            Some(out)
+        }
+    };
     // The death projectile, the deploy area and the spawn area: each a NAME resolved against the
     // file's own tables by `from_json_str`, after every unit need above (`death_area_effect`'s way).
     if let Some(p) = &raw.death_spawn_projectile {
@@ -3694,6 +3996,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         attach: attach.map(|(d, _)| d),
         target_only_troops,
         deprioritize_buff,
+        // Member 0's unit is the card's own index, filled at its push (`CardDb::from_json_str`); the others resolve
+        // with the unit needs pushed above.
+        summon_members,
+        summon_offsets_x_mirrored: raw.summon_offsets_x_mirrored.unwrap_or(false),
+        attack_select,
     }, display, units))
 }
 
@@ -3853,6 +4160,7 @@ impl CardDb {
                 .collect::<Result<Vec<_>, String>>()?
         };
         let mut buffs = BuffTable::default();
+        let globals = CardGlobals::from_map(&file.globals)?;
         let mut db = CardDb {
             cards: Vec::new(),
             buffs: Vec::new(),
@@ -3863,10 +4171,11 @@ impl CardDb {
             towers_from_fallback: false,
             rarities,
             version: file.version.clone(),
+            globals: globals.clone(),
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
-        let ctx = LoadCtx { aeos: &file.area_effect_objects, units: &file.units, projectiles: &file.projectiles };
+        let ctx = LoadCtx { aeos: &file.area_effect_objects, units: &file.units, projectiles: &file.projectiles, globals: &globals };
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
         // Cards refused AFTER their push, each with its reason (filled from here on; see below).
         let mut unloadable: Vec<(u16, String)> = Vec::new();
@@ -3880,6 +4189,10 @@ impl CardDb {
                     }
                     db.push(c, display)?;
                     let idx = (db.cards.len() - 1) as u16;
+                    // A deploy at explicit offsets: member 0 is the card's own row.
+                    if let Some(m) = db.cards[idx as usize].summon_members.as_mut().and_then(|ms| ms.first_mut()) {
+                        m.unit = idx;
+                    }
                     for (which, unit) in table_needs_first(units) {
                         spawns.push((idx, which, unit));
                     }
@@ -3919,6 +4232,9 @@ impl CardDb {
         // not load, at any depth, is refused too (the fixpoint below), so no playable card
         // keeps a block whose unit lost its own.
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
+        // A VARIANT CARD'S FORMS ARE CARDS, NOT UNITS: they never enter the worklist, and are resolved by card name
+        // after it and its cleanup (below), so no summon-only record is ever made for one.
+        let (variant_needs, spawns): (Vec<_>, Vec<_>) = spawns.into_iter().partition(|(_, w, _)| matches!(w, UnitUse::VariantForm(_)));
         let mut work: VecDeque<(u16, UnitUse, String, u8)> = spawns.into_iter().map(|(owner, which, unit)| (owner, which, unit, 0)).collect();
         while let Some((spell_idx, which, unit, depth)) = work.pop_front() {
             // A RECORD ALREADY REFUSED loads nothing more: it keeps the one reason it has, and it
@@ -4227,9 +4543,13 @@ impl CardDb {
                         UnitUse::LifeState => card.life_state.as_mut().expect("life_state present").unit = u,
                         UnitUse::Morph => card.spawn_pathfind.as_mut().expect("spawn_pathfind present").morph = Some(u),
                         UnitUse::Attach => card.attach.as_mut().expect("attach block present").unit = u,
+                        UnitUse::SummonMember(k) => {
+                            card.summon_members.as_mut().expect("summon_members present")[k as usize].unit = u;
+                        }
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
+                        UnitUse::VariantForm(_) => unreachable!("a variant form never enters the worklist"),
                     }
                 }
                 Err(e) => unloadable.push((spell_idx, e)),
@@ -4259,7 +4579,10 @@ impl CardDb {
         // is refused here too, until nothing more changes (a fixpoint, so the order the roots
         // were loaded in does not decide which of them is refused). Two cards that share a unit
         // whose own unit fails are both refused, not only the one that loaded it first. The
-        // reason names the unit reached, in the `units.<row>` form of a direct refusal.
+        // reason names the unit reached, in the `units.<row>` form of a direct refusal. A variant
+        // card's forms are not links of a chain: they are cards, still unresolved here (u16::MAX)
+        // and resolved by name after this cleanup, which refuses the variant card itself when a
+        // form does not load.
         {
             let mut broken: std::collections::BTreeSet<u16> = unloadable.iter().map(|(i, _)| *i).collect();
             #[allow(unused_mut)]
@@ -4270,7 +4593,11 @@ impl CardDb {
                     if broken.contains(&idx) {
                         continue;
                     }
-                    let reached = db.unit_refs(idx).into_iter().find(|(_, u, _)| *u == u16::MAX || broken.contains(u));
+                    let reached = db
+                        .unit_refs(idx)
+                        .into_iter()
+                        .filter(|(path, _, _)| !matches!(path, UnitRef::VariantForm(_)))
+                        .find(|(_, u, _)| *u == u16::MAX || broken.contains(u));
                     if let Some((path, u, _)) = reached {
                         let why = match db.cards.get(u as usize) {
                             None => format!("{} names a unit that never resolved", path.block_name()),
@@ -4330,9 +4657,66 @@ impl CardDb {
             db.by_name.retain(|_, i| *i != spell_idx);
             db.rejected.push((name, why));
         }
+        // A VARIANT CARD'S FORMS (`UnitUse::VariantForm`), after the unit loop and its cleanup, so a form the loop
+        // rejected is already unregistered. A FORM IS A CARD: SpellData names a spells_characters / spells_buildings
+        // row, so it resolves by the card's INTERNAL name alone -- never a `units` record, never a display alias -- and
+        // it must be a troop or building card, not a spell, not a summon-only record, not another variant. Then the
+        // forms of one card must share one CardKind, each trigger must be its form's cost in thousandths, and the card's
+        // own elixir its first form's (so the catalogue's `elixir` is the first option's cost). Any failure rejects the
+        // card with its reason; the table's own consistency is also gated by tools/check_data.py.
+        let mut variant_rejects: Vec<(u16, String)> = Vec::new();
+        for (vidx, which, name) in variant_needs {
+            let UnitUse::VariantForm(k) = which else { unreachable!("partitioned on VariantForm") };
+            if variant_rejects.iter().any(|(i, _)| *i == vidx) || db.index(&db.cards[vidx as usize].name) != Some(vidx) {
+                continue;
+            }
+            #[cfg(not(clash_plant = "variant_form_via_units"))]
+            let form = db.index(&name).filter(|&f| db.get(f).name == name);
+            // PLANT (regression): a summon-only record of the name's unit serves ahead of the card.
+            #[cfg(clash_plant = "variant_form_via_units")]
+            let form = db.cards.iter().position(|c| c.summon_only && c.unit_name == name).map(|i| i as u16).or_else(|| db.index(&name));
+            match form {
+                None => variant_rejects.push((vidx, format!("variant option {k} {name} is not a loadable card"))),
+                Some(f) if db.get(f).spell.is_some() || (db.get(f).summon_only && cfg!(not(clash_plant = "variant_form_via_units"))) => {
+                    variant_rejects.push((vidx, format!("variant option {k} {name} is not a troop or building card")))
+                }
+                Some(f) => {
+                    if let Some(SpellDef { shape: SpellShape::Variant { options }, .. }) = db.cards[vidx as usize].spell.as_mut() {
+                        options[k as usize].card = f;
+                    }
+                }
+            }
+        }
+        for vidx in 0..db.cards.len() as u16 {
+            let Some(opts) = db.get(vidx).variant() else { continue };
+            if variant_rejects.iter().any(|(i, _)| *i == vidx) || opts.iter().any(|o| o.card == u16::MAX) {
+                continue;
+            }
+            let c = db.get(vidx);
+            let first = db.get(opts[0].card);
+            let why = if opts.iter().any(|o| db.get(o.card).kind != first.kind) {
+                Some("variant forms of different kinds are not simulated".to_string())
+            } else if let Some(o) = opts.iter().find(|o| o.trigger_milli != db.get(o.card).elixir * 1000) {
+                Some(format!("a variant trigger {} that is not its form {}'s cost is not simulated", o.trigger_milli, db.get(o.card).name))
+            } else if c.elixir != first.elixir {
+                Some(format!("a variant card of {} elixir whose first form costs {} is not simulated", c.elixir, first.elixir))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                variant_rejects.push((vidx, why));
+            }
+        }
+        for (vidx, why) in variant_rejects {
+            db.clear_unit_refs(vidx);
+            let name = db.cards[vidx as usize].name.clone();
+            db.by_name.retain(|_, i| *i != vidx);
+            db.rejected.push((name, why));
+        }
         if db.index(KING_TOWER).is_none() || db.index(PRINCESS_TOWER).is_none() {
             let fb: RawCardsFile = serde_json::from_str(FALLBACK_TOWERS_JSON).expect("fallback towers parse");
-            let fb_ctx = LoadCtx { aeos: &fb.area_effect_objects, units: &fb.units, projectiles: &fb.projectiles };
+            let fb_globals = CardGlobals::default();
+            let fb_ctx = LoadCtx { aeos: &fb.area_effect_objects, units: &fb.units, projectiles: &fb.projectiles, globals: &fb_globals };
             for raw in fb.cards {
                 if db.index(&raw.name).is_none() {
                     let (c, d, _) = convert(raw, &mut buffs, &fb_ctx)?;
@@ -4446,8 +4830,23 @@ impl CardDb {
         for (path, unit, level_index) in self.unit_refs(idx) {
             let at = match path {
                 UnitRef::SpellRelease => self.spawn_level(idx, level)?,
-                UnitRef::Spawner | UnitRef::DeathSpawn | UnitRef::SecondSummon | UnitRef::DeathProjectile | UnitRef::SpellSummon | UnitRef::LifeState | UnitRef::Morph | UnitRef::Attach => {
-                    self.unit_level(idx, unit, level_index, level)?
+                UnitRef::Spawner
+                | UnitRef::DeathSpawn
+                | UnitRef::SecondSummon
+                | UnitRef::DeathProjectile
+                | UnitRef::SpellSummon
+                | UnitRef::LifeState
+                | UnitRef::Morph
+                | UnitRef::Attach
+                | UnitRef::SummonMember(_) => self.unit_level(idx, unit, level_index, level)?,
+                // A variant's form is a card of its own, played at the same unified level: checked whole (its own
+                // units included) by the walk below, at that level. A form is never itself a variant (the loader
+                // refuses one).
+                UnitRef::VariantForm(_) => {
+                    if unit == u16::MAX {
+                        return Err(format!("{}: variant form unresolved (the card was rejected after its push)", self.get(idx).name));
+                    }
+                    level
                 }
             };
             // PLANT check_levels_one_deep (tests/spawn_chain.rs): the earlier body, which
@@ -4515,6 +4914,18 @@ impl CardDb {
         if let Some(at) = c.attach {
             out.push((UnitRef::Attach, at.unit, None));
         }
+        if let Some(ms) = &c.summon_members {
+            for (k, m) in ms.iter().enumerate() {
+                out.push((UnitRef::SummonMember(k as u8), m.unit, None));
+            }
+        }
+        // PLANT unit_refs_skips_new_paths drops the variant forms too.
+        #[cfg(not(clash_plant = "unit_refs_skips_new_paths"))]
+        if let Some(opts) = c.variant() {
+            for (k, o) in opts.iter().enumerate() {
+                out.push((UnitRef::VariantForm(k as u8), o.card, None));
+            }
+        }
         out
     }
 
@@ -4549,6 +4960,9 @@ impl CardDb {
                 // A tunneller whose building never resolved does not tunnel: the walk goes with it.
                 UnitRef::Morph => card.spawn_pathfind = None,
                 UnitRef::Attach => card.attach = None,
+                UnitRef::SummonMember(_) => card.summon_members = None,
+                // A variant with no forms plays nothing: the spell goes with it, as a summon's does.
+                UnitRef::VariantForm(_) => card.spell = None,
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -4730,7 +5144,7 @@ impl CardDb {
                         | Some(SpellShape::Rolling { hit: h, .. }) => h.crown_pct = pct,
                         Some(SpellShape::Projectile { hit: None, .. }) => return Err(format!("{what}: the spell deals no damage")),
                         Some(SpellShape::Strikes(d)) => d.hit.crown_pct = pct,
-                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. }) => {
+                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. }) => {
                             return Err(format!("{what}: the spell's own object carries no crown-tower share"))
                         }
                         None => c.crown_tower_damage_percent = pct,
@@ -4930,6 +5344,13 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 // `convert_attach`), and on a rider row "target_only_troops" and "ignore_targets_with_buff" (a buff
 // row) with "deprioritize_targets_with_buff" (`CardDef::deprioritize_buff`; the buff alone refuses
 // the row); each is absent unless the 15.535 row sets it.
+// Also, on the 15.535 rows only: "summon_members" [{character, offset_x_milli, offset_y_milli}] with
+// "summon_offsets_x_mirrored" (a SummonCharactersList card's explicit offsets; all-or-nothing), the
+// "attack_select" block {melee_range_milli, melee_ground_only, melee_damage, melee_index, ranged_index}
+// (`attack_select_of`; the one shape or the card is refused), a spell's "mirror" (true on the Mirror
+// alone) and "variant" block {options: [{trigger_milli, precast_pending_ms, card}],
+// use_projected_time_summon, mirror_uses_root_spell} (`convert_variant`), and a top-level "globals"
+// map of the table's own globals.csv rows the loader reads (`CardGlobals`).
 // Unknown fields are ignored.
 
 #[cfg(test)]
@@ -5226,10 +5647,14 @@ mod tests {
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
         // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
         // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes).
-        for n in ["Graveyard", "Clone", "Mirror"] {
+        for n in ["Graveyard", "Clone"] {
             assert!(db.index(n).is_none(), "{n} must not be simulable");
             assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         }
+        // The Mirror and the Spirit Empress load as the two shapes that are never cast
+        // (tests/mirror_card.rs and tests/variant_card.rs pin what playing them does).
+        assert_eq!(spell("Mirror").shape, SpellShape::Mirror);
+        assert!(matches!(spell("MergeMaiden").shape, SpellShape::Variant { .. }), "MergeMaiden: {:?}", spell("MergeMaiden"));
         // THE PULSING AREA EFFECTS, and the buff that IS their mechanic.
         for n in ["Poison", "Earthquake"] {
             match spell(n) {

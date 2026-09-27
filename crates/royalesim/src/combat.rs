@@ -668,6 +668,29 @@ fn attack_step_windup(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, 
     out(phase, ms, None)
 }
 
+/// Does attacker `a`'s swing at entity `ti` land as its attack selector's MELEE entry (card.rs `AttackSelectDef`)?
+/// The entry chosen at the swing's start (entities `attack_seq`, state.rs `select_attack`), unless the target is now
+/// in the air and the melee branch takes ground targets only. The one test `fire` and state.rs `phase_attack_for`
+/// share, so the hit and the bookkeeping around it never disagree about which entry fired.
+#[inline]
+pub fn melee_chosen(ents: &Entities, a: usize, ti: usize, sel: crate::card::AttackSelectDef) -> bool {
+    ents.attack_seq[a] == 1 && melee_target_ok(ents, ti, sel)
+}
+
+/// THE SELECTOR'S GROUND CLAUSE (`target_is_ground`; card.rs `AttackSelectDef::ground_only`): an air target never
+/// takes the melee entry. Measured on client 15.535.29: 24 of 24 swings at a Lava Hound and its Pups were shots,
+/// one of them with the Hound overhead at 1248. Read by state.rs `select_attack` and by `melee_chosen`.
+#[inline]
+pub fn melee_target_ok(ents: &Entities, ti: usize, sel: crate::card::AttackSelectDef) -> bool {
+    #[cfg(clash_plant = "bayonet_on_air")]
+    {
+        let _ = (ents, ti, sel);
+        return true; // PLANT: the ground clause dropped.
+    }
+    #[allow(unreachable_code)]
+    !(sel.ground_only && ents.flying[ti])
+}
+
 /// Turn a completed windup into damage: a projectile, or an instant hit.
 ///
 /// `rng` is drawn only for the release delays of a fan (combat.MULTIPLE_PROJECTILES =
@@ -739,6 +762,22 @@ pub fn fire(
     } else {
         card.projectile.map(|p| p.radius).unwrap_or(0)
     };
+    // THE ATTACK SELECTOR'S MELEE ENTRY (card.rs `AttackSelectDef`; the Three Musketeers' bayonet), chosen for this
+    // swing by state.rs `select_attack`: an instant hit of its own damage on the target and no projectile. Measured on
+    // client 15.535.29: 314 = 123 x 256 % at level 11 on a Giant, landing on the frame a ranged member of the same
+    // LoadTime would shoot. Its crown-tower share is the card's own (100); a bayonet on a crown tower is unmeasured. A
+    // melee choice whose target is now flying (a retarget within the swing) fires the projectile: the filter's ground
+    // clause cannot hold for it.
+    if let Some(sel) = card.attack_select {
+        if melee_chosen(ents, a, ti, sel) {
+            let amount = cards.scaled(ents.card[a], ents.level[a], sel.melee_damage).expect("level validated at spawn");
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
+            if let Some(b) = atk_buff {
+                fx.buffs.push(BuffHit { target, buff: b.buff, time_ms: b.time_ms, pulse_amount: atk_pulse, first_pulse_ms: None, source: None });
+            }
+            return;
+        }
+    }
     if let Some(p) = card.projectile {
         // combat.CUSTOM_FIRST_PROJECTILE = client_first_of_volley: the attack's projectile is
         // the card's CustomFirstProjectile row when that is a row of its own (the Princess's

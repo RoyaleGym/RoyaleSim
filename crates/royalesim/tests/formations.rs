@@ -19,9 +19,10 @@
 //!      (or one frame later: a capture's skipped frame); a group the game centred
 //!      away from the placement log's tap (a deploy snapped off a footprint, a touch
 //!      off the tile centre) is matched up to that one shift, re-previewed through
-//!      the engine, and counted; the one card on the unmodelled offsets-table
-//!      layout (ThreeMusketeers, which the loader refuses anyway) is asserted NOT to
-//!      match, so modelling it moves it out of the exception list;
+//!      the engine, and counted; the Three Musketeers' offsets-table layout
+//!      (formation.EXPLICIT_OFFSETS_FRAME, tests/three_musketeers.rs) is one of the
+//!      layouts reproduced: its side-0 group left NOT_MODELLED when it loaded, and a
+//!      card listed there is asserted NOT to match, so the list cannot go stale;
 //!   3. the engine's members leave `deploying` on spawn + (DeployTime + k x
 //!      SummonDeployDelay) / TICK_MS, member by member (Goblins: 200 ms steps),
 //!      and a second summon's members on the second delay (Rascals);
@@ -63,10 +64,11 @@ use std::collections::BTreeMap;
 
 const K: i32 = SUBTILE_PER_MILLITILE;
 const FIXTURE: &str = include_str!("fixtures/formations/measured.json");
-/// Cards whose corpus formation the engine is KNOWN not to reproduce: the
-/// SummonCharactersList offsets-table layout formation.rs does not model (the Three
-/// Musketeers, which the loader refuses on its action graph anyway).
-const NOT_MODELLED: &[&str] = &["ThreeMusketeers"];
+/// Cards whose corpus formation the engine is KNOWN not to reproduce. Empty: the Three
+/// Musketeers, the one card that was here, lay their explicit offsets now (state.rs
+/// `formation_members`, formation.EXPLICIT_OFFSETS_FRAME) and their corpus group is
+/// checked like every other.
+const NOT_MODELLED: &[&str] = &[];
 /// A member of a `tap_tile` group that overlaps no sibling at spawn must land
 /// EXACTLY where the game put it. The tap is the tile the player touched, and every
 /// step from there -- the deploy point (formation.GROUND_DEPLOY_POINT), the ring, the
@@ -252,8 +254,8 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
     for g in &f.groups {
         let label = format!("{} side {} {} at {:?} ({}, {} t{})", g.card, g.side, g.source, g.tap, g.fixture, g.source, g.tick);
         if NOT_MODELLED.contains(&g.card.as_str()) {
-            // The unmodelled offsets-table layout: the card is refused by the loader,
-            // or its ring must NOT match the corpus -- else this exception is stale.
+            // A layout the engine does not model: the card is refused by the loader,
+            // or its members must NOT match the corpus -- else this exception is stale.
             if let Ok(got) = try_preview(g, (0, 0)) {
                 let worst = got.iter().zip(&g.members).map(|((_, p, _), m)| dist(native(*p), (g.tap[0] as i64 + m.offset[0] as i64, g.tap[1] as i64 + m.offset[1] as i64))).max().unwrap_or(0);
                 assert!(worst > CENTROID_NATIVE, "{label}: matches the corpus ({worst} native): move it out of NOT_MODELLED");

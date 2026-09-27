@@ -397,3 +397,31 @@ fn a_tunnelling_deploy_is_played_at_its_destination() {
     assert_eq!(play_point(&deploy(r#", "destination": [3500, 1500]"#)), [3500, 1500], "a tunnel is played where it came up");
     assert_eq!(play_point(&deploy("")), [9235, 1777], "a corpus deploy with no destination is played at pos");
 }
+
+/// A MIRROR play, as tools/make_replay_fixture.py `mirror_plays` publishes it (card Mirror, kind "mirror", the copy
+/// under `mirrored`), is played as the copied card at the row's level; every other row as its own card; a mirror row
+/// that names no copy as the Mirror itself, which the engine then refuses by name.
+#[test]
+fn a_mirror_row_plays_the_card_it_copied() {
+    let deploy = |extra: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 805, "side": 1, "card_id": 26000000, "level": 12, "count": 1, "pos": [9500, 20500], "source": "tap_tile"{extra}}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let copy = deploy(
+        r#", "card": "Mirror", "kind": "mirror", "mirrored": {"card": "ElixirGolem", "card_id": 26000067},
+            "mirror_evidence": "ElixirGolem at level 12, one above the side's ElixirGolem level 11""#,
+    );
+    assert_eq!(mirror_play(&copy), "ElixirGolem");
+    assert_eq!(copy.level, Some(12), "the copy's own level is kept");
+    let plain = deploy(r#", "card": "Knight", "kind": "troop""#);
+    assert_eq!(mirror_play(&plain), "Knight");
+    let unnamed = deploy(r#", "card": "Mirror", "kind": "mirror""#);
+    assert_eq!(mirror_play(&unnamed), "Mirror");
+    let mut s = royalesim::state::BattleState::new(0, common::config());
+    assert!(
+        matches!(s.spawn_unit(royalesim::Team::Red, &mirror_play(&unnamed), Vec2::new(9500 * royalesim::fixed::SUBTILE_PER_MILLITILE, 20500 * royalesim::fixed::SUBTILE_PER_MILLITILE), Some(12)), Err(royalesim::state::DeployError::UnsupportedCard(..))),
+        "a mirror row with no copy is refused, never guessed"
+    );
+}
