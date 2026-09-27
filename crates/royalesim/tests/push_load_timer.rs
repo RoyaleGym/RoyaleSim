@@ -5,7 +5,7 @@
 //! it was; it runs down through the ladder (23 of 23 push landings where that differs from a reset, 25 records: 15
 //! Knights on client 15.535.29, 16 records, and 8 landings on the 16.402 corpus, 9 records), and the re-entry takes
 //! the ordinary progress credit off what is left (24 of 24 re-entries after a push). A Bomber pushed at load 0
-//! re-enters and launches 3 ticks later (20260920-081051, 963 and 966), as on its first entry. Today's engine
+//! re-enters and launches 3 ticks later (20260920-081051, 963 and 966), as on its first entry. The old arm
 //! (reset_to_load_time) sets the timer back to LoadTime on the landing tick.
 //!
 //! THE SCENES.
@@ -19,13 +19,13 @@
 //! WHAT IS PINNED, each with its precondition:
 //!   1. client_runs_on: the Bomber re-enters more than LoadTime after its first launch and launches as many ticks after
 //!      the re-entry as it did after its first entry;
-//!   2. reset_to_load_time: the same launch comes later than that (today's engine);
+//!   2. reset_to_load_time: the same launch comes later than that (the old arm);
 //!   3. both values: the Knight, back in its attack more than LoadTime after the push, hits HitSpeed / 50 - LoadTime /
 //!      50 - 1 ticks after the re-entry, as a unit on its first entry does;
 //!   4. client_runs_on: on every Fireball landing where the control Musketeer is mid-swing, the pushed Musketeer's
 //!      load timer equals the control's, and on at least 3 of them the control's is not LoadTime (so the arms part);
 //!   5. reset_to_load_time: the pushed Musketeer's load timer is LoadTime on every such landing;
-//!   6. the shipped value is reset_to_load_time.
+//!   6. the shipped value is client_runs_on.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test push_load_timer`):
 //!   * `push_load_timer_reset` -- client_runs_on still sets the load timer to LoadTime on the landing tick: (1) and
@@ -205,6 +205,6 @@ fn the_old_value_reloads_the_pushed_musketeers_timer() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().push_load_timer, OLD);
+fn the_shipped_value_is_the_new_one() {
+    assert_eq!(Calib::shipped().push_load_timer, NEW);
 }

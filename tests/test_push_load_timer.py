@@ -5,7 +5,7 @@ swing and keeps its target. On client 15.535.29 and the 16.402 corpus the push d
 its value before minus 50 (or 0) on the first ladder frame and runs down through the ladder, 23 of 23 push landings
 where that differs from a reset (25 records: 15 Knights on client 15.535.29, 16 records, and 8 landings on the 16.402
 corpus, 9 records). The re-entry after the ladder then takes the ordinary progress credit off what is left
-(combat.ATTACK_CYCLE = progress_credit), 24 of 24 re-entries after a push. Today's engine sets the timer to LoadTime
+(combat.ATTACK_CYCLE = progress_credit), 24 of 24 re-entries after a push. The old arm sets the timer to LoadTime
 on the landing tick, so a unit that re-enters within LoadTime of the push swings late.
 
 THE SCENES.
@@ -18,7 +18,7 @@ THE SCENES.
     Knight at (14600, 13489) beside a red Knight at (14189, 13535). The Knight attacks it at once, the deploy blow lands
     6 ticks after the Mega Knight's first frame with 400 of the Knight's 700 left and pushes it down the ladder; the
     timer runs out during the ladder, the Knight re-enters with progress 750 (LoadTime + 50) and hits 9 ticks later
-    (the client: 276 and 285). Today's engine hits 12 ticks after the re-entry, 3 ticks late.
+    (the client: 276 and 285). The old arm hits 12 ticks after the re-entry, 3 ticks late.
 
 WHY THE CONTROLS ARE HERE. A red Knight in melee reach of a Bowler is pushed before its first hit and walks back in
 more than LoadTime after the push, so its timer has run out under both values and its first hit after the re-entry
@@ -127,7 +127,7 @@ def test_a_pushed_unit_reenters_with_its_load_timer_run_down():
     assert_first_launch_after_the_push(NEW_ARM, NEW_GAP)
 
 
-def test_old_arm_is_todays_engine():
+def test_old_arm_is_the_pre_flip_engine():
     assert_first_launch_after_the_push(OLD_ARM, OLD_GAP)
 
 
