@@ -129,6 +129,11 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "flyer_goal_water_default")]
     pub flyer_goal_water: FlyerGoalWater,
+    /// pathfinding.FLYER_GOAL_BUILDINGS: whether a FLYING chaser's goal choice ranks a cell inside a
+    /// building's box below the free ones, as a ground chaser's does (path16402.rs `choose_goal_cell`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "flyer_goal_buildings_default")]
+    pub flyer_goal_buildings: FlyerGoalBuildings,
 
     // --- the 2026 pathfinder and locomotion law. Every key here is measured
     // against the offline trace corpus; see path2026.rs and calibration.json.
@@ -1288,6 +1293,10 @@ fn goal_target_position_default() -> GoalTargetPosition {
 
 fn flyer_goal_water_default() -> FlyerGoalWater {
     FlyerGoalWater::Demoted
+}
+
+fn flyer_goal_buildings_default() -> FlyerGoalBuildings {
+    FlyerGoalBuildings::Demoted
 }
 
 fn reflect_attack_default() -> ReflectAttack {
@@ -3835,7 +3844,22 @@ calib_enum!(
         /// Below dry ground, as for a ground chaser: the flyer heads for the nearest DRY cell in reach.
         Demoted = "demoted",
         /// Measured on client 15.535.29: like dry ground, so the flyer heads for the nearest cell in
-        /// reach, over the river or not. A cell a building boxes stays below both.
+        /// reach, over the river or not. A cell a building boxes stays below both, unless
+        /// pathfinding.FLYER_GOAL_BUILDINGS says otherwise.
+        NotDemoted = "not_demoted",
+    }
+);
+calib_enum!(
+    /// pathfinding.FLYER_GOAL_BUILDINGS -- how a FLYING chaser's goal choice ranks a cell inside a building's
+    /// box (every building and tower of both sides, path16402.rs `occlusion_box`). A ground chaser ranks it below
+    /// the free cells under either value (KS_POS_TO_TARGET_GROUND_AVOID_BUILDINGS), unless its target flies.
+    FlyerGoalBuildings {
+        /// Today's engine: below the free cells, as for a ground chaser, so the flyer heads for the nearest cell in
+        /// reach outside every box.
+        Demoted = "demoted",
+        /// Measured on the 16.402 corpus: like a free cell, so the flyer heads for the nearest cell in reach, over a
+        /// tower or a building or not. An Inferno Dragon placed behind its own king chased a Giant to a cell inside
+        /// the king's box; a Lava Pup chased a Goblin to cells inside a princess tower's box.
         NotDemoted = "not_demoted",
     }
 );
@@ -4618,6 +4642,7 @@ impl Calib {
             path_model,
             goal_target_position: pick(&v, &["pathfinding", "GOAL_TARGET_POSITION", "value"], GoalTargetPosition::from_calibration_name)?,
             flyer_goal_water: pick(&v, &["pathfinding", "FLYER_GOAL_WATER", "value"], FlyerGoalWater::from_calibration_name)?,
+            flyer_goal_buildings: pick(&v, &["pathfinding", "FLYER_GOAL_BUILDINGS", "value"], FlyerGoalBuildings::from_calibration_name)?,
             repath_interval_ticks: match at(&v, &["pathfinding", "REPATH_INTERVAL_TICKS", "value"])? {
                 Value::Null => None,
                 x => Some(
@@ -10567,13 +10592,20 @@ impl BattleState {
                         let water_demoted = !(flying && calib.flyer_goal_water == FlyerGoalWater::NotDemoted);
                         #[cfg(clash_plant = "flyer_water_demoted")]
                         let water_demoted = true; // PLANT (regression): the new arm demotes water for a flyer too.
+                        // pathfinding.FLYER_GOAL_BUILDINGS: whether this chaser's goal choice ranks a cell inside a
+                        // building's box below the free ones. A ground chaser does unless its target flies
+                        // (path2026.rs avoid_buildings16402); a flyer does only under the old arm.
+                        #[cfg(not(clash_plant = "flyer_goal_boxes_demoted"))]
+                        let boxes_demoted = !(flying && calib.flyer_goal_buildings == FlyerGoalBuildings::NotDemoted);
+                        #[cfg(clash_plant = "flyer_goal_boxes_demoted")]
+                        let boxes_demoted = true; // PLANT (regression): the new arm demotes boxed cells for a flyer too.
                         let goal_cell = path16402::choose_goal_cell(
                             &g.terrain,
                             &g.occ_cur,
                             actor,
                             target,
                             reach,
-                            path2026::avoid_buildings16402(e.flying[gi]),
+                            path2026::avoid_buildings16402(e.flying[gi]) && boxes_demoted,
                             g.costs.building,
                             water_demoted,
                         );
@@ -16379,6 +16411,9 @@ impl BattleState {
 /// 20, unchanged, pathfinding.AVOIDANCE_DROP_SEGMENT: Calib gained avoidance_drop_segment (serde default the old arm,
 ///    refrozen), no new state (the segment direction is the saved `seg_dir` column), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, pathfinding.FLYER_GOAL_BUILDINGS: Calib gained flyer_goal_buildings (serde default the old arm,
+///    demoted), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16804,6 +16839,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pathfinding.AVOIDANCE_DROP_SEGMENT: a format-3 battle refroze the segment after a drop; it keeps that whatever
     // the ledger ships (the same rule).
     sh.insert("avoidance_drop_segment".into(), serde_json::to_value(AvoidanceDropSegment::Refrozen).map_err(|e| e.to_string())?);
+    // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
+    // keeps that whatever the ledger ships (the same rule).
+    sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
