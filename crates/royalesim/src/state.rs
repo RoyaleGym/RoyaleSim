@@ -2602,7 +2602,7 @@ calib_enum!(
 /// fingerprint is compared), so an override of the key reaches the Python binding, the replay
 /// harness and a restored battle alike. Measured on the 16.402 corpus, every value the unique
 /// integer base that reproduces every observation at every level seen: IceSpirits Hitpoints 84
-/// (the tables 85), IceGolemite 480 (514), GoblinBrawler 438 (422), the Bomber's projectile
+/// (the tables 85), IceGolemite 480 (514), GoblinBrawler 438 (422), HealSpirit 84 (85), the Bomber's projectile
 /// Damage 83 (88), the Fireball's CrownTowerDamagePercent -77 (-75).
 ///
 /// ONE TABLE. The values correct the 15.535.29 extraction, the table every battle outside a test
