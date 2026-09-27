@@ -6185,10 +6185,13 @@ impl BattleState {
             // starting hand (OmitFromStartingHand: the Elixir Collector, Mirror) that the deal would put in the first
             // four swaps places with the first card behind them that is not one. No random draw is added, so a deck
             // without such a card deals exactly as before, shuffled or not.
-            #[cfg(not(clash_plant = "omit_ignored"))]
+            #[cfg(not(any(clash_plant = "omit_ignored", clash_plant = "omit_first_seat_only")))]
             let omits = c.omit_from_starting_hand == OmitRule::SwapWithFirstEligibleInQueue;
             #[cfg(clash_plant = "omit_ignored")]
             let omits = false; // PLANT (regression): the column is not read and the shuffle alone deals.
+            // PLANT (regression, tests/elixir_collector.rs): the rule reaches Blue's deal alone.
+            #[cfg(clash_plant = "omit_first_seat_only")]
+            let omits = c.omit_from_starting_hand == OmitRule::SwapWithFirstEligibleInQueue && t == 0;
             if omits {
                 for k in 0..HAND_SIZE.min(deck.len()) {
                     if cards.get(deck[k]).omit_from_starting_hand {

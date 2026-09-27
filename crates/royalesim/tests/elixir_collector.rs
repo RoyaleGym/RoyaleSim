@@ -29,7 +29,8 @@
 //!  10. the blank-hit-speed exemption needs a `mana` block on an inert building, and a payout on a troop or a half
 //!      block is refused;
 //!  11. the payout timer is state: two saves differing only in it hash differently;
-//!  12. THE DEAL: an OmitFromStartingHand card is never in a starting hand (1000 seeds, shuffled);
+//!  12. THE DEAL: an OmitFromStartingHand card is never in a starting hand (1000 seeds, shuffled), Blue's or Red's,
+//!      the Collector's (a building row) or the Mirror's (a spell row);
 //!  13. a deck without one deals exactly as under not_modelled (the rule reaches no other deck);
 //!  14. unshuffled, the omitted card swaps with the first card behind the hand.
 //!
@@ -39,6 +40,9 @@
 //!     since a regular payout falls due on exactly 0.
 //!   * `hash_skips_mana_timer` -- the timer is not hashed: (11) red.
 //!   * `omit_ignored` -- the deal does not read the column: (12) and (14) red, (13) green.
+//!   * `omit_first_seat_only` -- the rule reaches Blue's deal alone: (12) red (Red's hands), (13) and (14) green.
+//!   * `omit_spell_flag_dropped` -- the loader drops the column on a spell row: (12) red (the Mirror), (13) and (14)
+//!     green.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -322,6 +326,9 @@ fn the_payout_timer_is_state() {
 
 const DECK: [&str; 8] = [COLLECTOR, "Knight", "Archer", "Giant", "Musketeer", "Fireball", "Zap", "Valkyrie"];
 const PLAIN: [&str; 8] = ["Knight", "Archer", "Giant", "Musketeer", "Fireball", "Zap", "Valkyrie", "MiniPekka"];
+/// The other card the 15.535.29 table sets OmitFromStartingHand on: a spell row, where the Collector is a building's.
+const MIRROR: &str = "Mirror";
+const MIRROR_DECK: [&str; 8] = [MIRROR, "Knight", "Archer", "Giant", "Musketeer", "Fireball", "Zap", "Valkyrie"];
 
 fn deal(deck: &[&str; 8], seed: u64, shuffle: bool, rule: OmitRule) -> (Vec<String>, Vec<u16>) {
     let mut c = cfg();
@@ -332,7 +339,17 @@ fn deal(deck: &[&str; 8], seed: u64, shuffle: bool, rule: OmitRule) -> (Vec<Stri
     (s.hand(Team::Blue).iter().map(|n| n.to_string()).collect(), s.queue_cards(Team::Blue))
 }
 
-/// 12. Plant: omit_ignored.
+/// Both seats' starting hands, Blue dealt `decks[0]` and Red `decks[1]`, shuffled.
+fn hands(decks: [&[&str; 8]; 2], seed: u64, rule: OmitRule) -> [Vec<String>; 2] {
+    let mut c = cfg();
+    c.decks = decks.map(|d| d.iter().map(|s| s.to_string()).collect());
+    c.shuffle_decks = true;
+    c.calib.omit_from_starting_hand = rule;
+    let s = BattleState::new(seed, c);
+    [Team::Blue, Team::Red].map(|t| s.hand(t).iter().map(|n| n.to_string()).collect())
+}
+
+/// 12. Plants: omit_ignored, omit_first_seat_only, omit_spell_flag_dropped.
 #[test]
 fn an_omitted_card_is_never_dealt_into_the_starting_hand() {
     let mut would = 0;
@@ -344,6 +361,34 @@ fn an_omitted_card_is_never_dealt_into_the_starting_hand() {
     }
     // A shuffle puts it in the first four about half the time; the test is empty if it never does.
     assert!(would > 300, "the shuffle alone dealt the Collector into only {would} of 1000 hands");
+
+    // Both seats, and both cards that carry the column: the Collector (a building) and the Mirror (a spell), each dealt
+    // to Blue against the other dealt to Red, and the other way round. Red's deck is shuffled on the draws after
+    // Blue's, so its hands are not Blue's. Every seat and card is counted before the verdict, so a failure names each
+    // one that was dealt.
+    let omitted = [COLLECTOR, MIRROR];
+    let mut dealt: Vec<String> = Vec::new();
+    for decks in [[&DECK, &MIRROR_DECK], [&MIRROR_DECK, &DECK]] {
+        let (mut got_in, mut would) = ([0usize; 2], [0usize; 2]);
+        for seed in 0..1000u64 {
+            let got = hands(decks, seed, OmitRule::SwapWithFirstEligibleInQueue);
+            let old = hands(decks, seed, OmitRule::NotModelled);
+            for seat in 0..2 {
+                let card = omitted.into_iter().find(|c| decks[seat].contains(c)).expect("each deck holds one omitted card");
+                got_in[seat] += usize::from(got[seat].iter().any(|n| n == card));
+                would[seat] += usize::from(old[seat].iter().any(|n| n == card));
+            }
+        }
+        for seat in 0..2 {
+            let card = omitted.into_iter().find(|c| decks[seat].contains(c)).expect("each deck holds one omitted card");
+            let who = ["Blue", "Red"][seat];
+            assert!(would[seat] > 300, "{who}'s {card}: the shuffle alone dealt it into only {} of 1000 hands", would[seat]);
+            if got_in[seat] > 0 {
+                dealt.push(format!("{who}'s {card} in {} of 1000 starting hands", got_in[seat]));
+            }
+        }
+    }
+    assert!(dealt.is_empty(), "an omitted card was dealt: {dealt:?}");
 }
 
 /// 13. The rule reaches no deck without such a card.
