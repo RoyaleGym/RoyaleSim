@@ -86,16 +86,20 @@ DEPLOYS VERSUS SPAWNS
     id in every capture). Each entity is classed by its
     `max_hp` at its `level` against the hitpoints of every object its card can put on
     the board (cards.json: the card's own summon, its second summon, its spawner /
-    death-spawn / spell-released units, on the ladder cards.json gives each one --
-    the same resolution tools/make_live_levels_fixture.py uses): an entity whose hp is
+    death-spawn / spell-released units, the building a tunnel leaves (`spawn_pathfind`
+    `morph`: the Goblin Drill's) and an interval spawner's unit (`interval_spawner`: the
+    Furnace's Fire Spirits), each unit's own spawners and death spawn below it, on the
+    ladder cards.json gives each one -- the same resolution
+    tools/make_live_levels_fixture.py uses): an entity whose hp is
     the card's OWN unit's (or its second summon's) is a deploy summon; any other is a
     SPAWNED unit and is truth only, never a deploy. An hp that matches no object (a
     16.402 balance delta) takes the nearest object within NEAREST_MAX_ERROR_PERCENT
     and is flagged `hp_match: nearest`; beyond that it is an UNKNOWN OBJECT (role
     `unknown_object`, truth only, never a deploy and never paired: the game put
     something on the board under the card's id that cards.json does not derive from
-    the card -- the Goblin Drill's surfaced building and its Goblins, the Furnace's
-    Fire Spirits, whose spawners are action graphs the extractor does not decode). An
+    the card). Until 2026-09-27 the Goblin Drill's building and its Goblins and the
+    Furnace's Fire Spirits were unknown objects: the resolution did not follow a
+    tunnel's morph or an interval spawner, so they were never paired. An
     unknown-object group that coincides with a deploy TAP of its card makes the fixture
     unplayable from that tick (the engine cannot reproduce the deploy). A cross-check
     is recorded per group: a deploy group of a card with a spawner or death_spawn block
@@ -132,6 +136,14 @@ DEPLOY POSITION AND TICK
     of 20260920-010218, shown on 572 by seat B and on 577 by seat A, whose deploy ends
     give a spawn on 569 in both seats; and side 0's Knight of 20260919-181741, which
     seat B shows on 1192 and seat A on 1193 (spawn 1192).
+
+    A card that travels UNDER GROUND (`spawn_pathfind`: the Miner, the Goblin Drill) is
+    timed by its tunnel instead (`tunnel_spawn_ticks`): its first frame stands two
+    SpawnPathfindSpeed steps from its King's centre and each tick after it one step
+    more, so a tunnel first seen n steps out had its first frame n - 2 ticks before (a
+    Miner first seen already surfaced shows its last tunnel point as x2, y2). Its deploy
+    timer starts when it SURFACES, so the deploy-end rule would time the surfacing. On
+    20260920-083112-A this moves three rows by one tick, onto the ticks seat B saw.
 
     The position is the TAP when the placements log recorded beside the capture (the
     taps a scripted player made: side, card, tick, requested tile) has one for that
@@ -604,6 +616,7 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         if depth < 2:
             add((u.get("death_spawn") or {}).get("character"), depth + 1)
             add((u.get("spawner") or {}).get("character"), depth + 1)
+            add((u.get("interval_spawner") or {}).get("character"), depth + 1)
 
     spell = card.get("spell") or {}
     proj = card.get("projectile") or {}
@@ -615,6 +628,8 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         (spell.get("spawn") or {}).get("character"),
         proj.get("spawn_character"),
         (proj.get("spawn_projectile") or {}).get("spawn_character"),
+        # the building a tunnel leaves (the Goblin Drill's), with its own spawner and death spawn below it
+        (card.get("spawn_pathfind") or {}).get("morph"),
     ):
         add(ref)
     return out
@@ -1354,6 +1369,55 @@ def tunnel_destinations(deploys: list[dict], ents: dict, per_tick_rows: list, ca
         )
 
 
+def tunnel_spawn_ticks(
+    deploys: list[dict], ents: dict, ticks: list[int], towers: list[dict], cards_by_name: dict
+) -> None:
+    """Give every deploy of a card that travels underground the tick of its tunnel's FIRST frame, counted in tunnel
+    steps from its owner's King. Measured on the client 16.402 corpus (083112, the seat that saw each first frame):
+    a tunnel's first frame stands two SpawnPathfindSpeed steps out from its King's centre (the Goblin Drill 565 and
+    596 for 600, the Miner 1245 for 1300), each tick after it one step more, so a first frame seen n steps out
+    was the tunnel's first frame n - 2 ticks earlier. A Miner first seen already surfaced (state 4) shows its last
+    tunnel point as its x2, y2, one tick before. The deploy-end and frame-gap rules do not reach this: a Miner's
+    deploy timer starts when it SURFACES, and a frame gap leaves a range the latest end of which is a step late
+    (083112-A: the Drills of 250 and 1487 are 249 and 1486 on the seat that saw them; the Miner of 1204 is 1203).
+    The count is used only when the distance is within a quarter step of a whole number of steps (a straight
+    start), and only when it moves the tick; `tick_evidence` then says so."""
+    kings = {}
+    for t in towers:
+        if t.get("slot") == 0:
+            kings[t["side"]] = (t["x"], t["y"])
+    by_key = {e["key"]: e for e in ents.values()}
+    for d in deploys:
+        sp = (cards_by_name.get(d.get("card")) or {}).get("spawn_pathfind")
+        if not sp or not d.get("keys") or not sp.get("speed"):
+            continue
+        e = by_key.get(d["keys"][0])
+        king = kings.get(d.get("side"))
+        if e is None or king is None or not e.get("states"):
+            continue
+        speed = sp["speed"]
+        first_state = e["states"][0][1]
+        t_first = ticks[e["first_index"]]
+        if first_state == 6:
+            p, t_p, seen = (e["x0"], e["y0"]), t_first, "first seen under ground"
+        elif first_state == 4 and e.get("c0") is not None and tuple(e["c0"]) != (e["x0"], e["y0"]):
+            p, t_p, seen = tuple(e["c0"]), t_first - 1, "first seen surfaced, its last tunnel point one tick before"
+        else:
+            continue
+        dist = math.dist(p, king)
+        n = round(dist / speed)
+        if n < 2 or abs(dist - n * speed) > speed / 4:
+            continue
+        tick = t_p - (n - 2)
+        if tick == d["tick"]:
+            continue
+        d["tick_evidence"] = (
+            f"tunnel count: {seen} at tick {t_p}, {round(dist)} from its King = {n} steps of {speed},"
+            f" so its first frame (two steps out) is {tick} (was {d['tick']}: {d['tick_evidence']})"
+        )
+        d["tick"] = tick
+
+
 def mirror_plays(deploys: list[dict], decks: dict, id_table: dict) -> None:
     """Publish a MIRROR play as a Mirror. The Mirror card replays its side's last card one level up (for that card's
     cost + 1), and the capture shows only the copy. Measured on the client 16.402 corpus, 090204 t805: an ElixirGolem
@@ -2051,6 +2115,7 @@ def build(
         )
 
     tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
+    tunnel_spawn_ticks(deploys, ents, ticks, towers, cards_by_name)
 
     # -- truth: RLE per entity column over its contiguous frame run
     sel = list(range(0, len(frames), max(stride, 1)))

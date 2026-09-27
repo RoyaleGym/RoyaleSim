@@ -218,11 +218,9 @@ def test_classification_tells_a_deploy_summon_from_a_spawned_unit(m):
     # an hp no object has takes the nearest within NEAREST_MAX_ERROR_PERCENT and says so
     unit, is_own, how = m.classify_unit(doc, tomb, 11, skel + 3)
     assert (unit, is_own, how) == ("Skeleton", False, "nearest")
-    # beyond it the entity is an unknown object: truth only, never a deploy. The Goblin
-    # Drill's Goblins (202 hp at level 11) against its only object, the 2560-hp dig
-    # troop, were 22 building deploys before this rule
+    # beyond it the entity is an unknown object: truth only, never a deploy
     drill = cards["GoblinDrill"]
-    unit, is_own, how = m.classify_unit(doc, drill, 11, 202)
+    unit, is_own, how = m.classify_unit(doc, drill, 11, 20000)
     assert (unit, is_own) == (None, False)
     assert how.startswith("unknown_object (nearest GoblinDrillDig 2560")
     assert m.classify_unit(doc, drill, 11, 2560) == ("GoblinDrillDig", True, "exact")
@@ -233,6 +231,64 @@ def test_classification_tells_a_deploy_summon_from_a_spawned_unit(m):
     assert (unit, is_own, how) == ("IceSpirits", True, "nearest")
     # a card the file does not know is a deploy summon by default
     assert m.classify_unit(doc, None, 11, 100) == (None, True, "no_card")
+
+
+@needs_modern_cards
+def test_a_tunnels_building_and_an_interval_spawners_unit_are_the_cards_spawned_units(m):
+    """The Goblin Drill's dig leaves a building (`spawn_pathfind` `morph`) that spawns Goblins and leaves two at its
+    death, and the Furnace (FirespiritHut) puts down Fire Spirits on an interval (`interval_spawner`). On the client
+    16.402 corpus (20260920-083112, 071744, 071056) those are the building's 1313, the Goblins' 202 and the spirits'
+    215 at level 11. Until this rule they matched no object of their card and were unknown objects, never paired: the
+    Goblin Drill's 3,105 unit-ticks of 083112-A and the Furnace's 1,260 over its four fixtures scored as missing."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    drill = cards["GoblinDrill"]
+    assert m.classify_unit(doc, drill, 11, 1313) == ("GoblinDrill", False, "exact")
+    assert m.classify_unit(doc, drill, 11, 202) == ("Goblin", False, "exact")
+    furnace = cards["FirespiritHut"]
+    assert m.classify_unit(doc, furnace, 11, 727) == ("Furnace_rework", True, "exact")
+    # the tables' FireSpirits base is 85 (217 at level 11); client 16.402 shows 215 (base 84), within the nearest rule
+    assert m.classify_unit(doc, furnace, 11, 217) == ("FireSpirits", False, "exact")
+    assert m.classify_unit(doc, furnace, 11, 215) == ("FireSpirits", False, "nearest")
+    # the reachable set grows by exactly these objects
+    assert set(m.reachable_units(doc, drill)) == {"GoblinDrillDig", "GoblinDrill", "Goblin"}
+    assert set(m.reachable_units(doc, furnace)) == {"Furnace_rework", "FireSpirits"}
+
+
+def test_a_tunnel_is_timed_by_its_steps_from_its_king(m):
+    """`tunnel_spawn_ticks`, measured on the client 16.402 corpus (20260920-083112, both seats): a tunnel's first
+    frame stands two SpawnPathfindSpeed steps from its King's centre, so one first seen n steps out had its first
+    frame n - 2 ticks before. Seat A missed tick 249: it first shows the Goblin Drill of 249 on 250, three steps out
+    (854 from its King), and the frame-gap rule kept the latest tick of [249, 250]; it first shows the Miner of 1203
+    already surfaced on 1204, and the deploy-end rule timed the surfacing. Seat B saw both first frames. Controls: a
+    first frame two steps out, a start that is not whole steps, and a card that does not tunnel stay as they were."""
+    cards = {"Miner": {"spawn_pathfind": {"speed": 650, "morph": None}},
+             "GoblinDrill": {"spawn_pathfind": {"speed": 300, "morph": "GoblinDrill"}}, "Knight": {}}
+    ticks = [247, 248, 250, 251, 1202, 1204, 1205]
+    towers = [{"side": 0, "slot": 0, "x": 9000, "y": 3000}, {"side": 1, "slot": 0, "x": 9000, "y": 29000}]
+
+    def ent(key, fi, x0, y0, state, c0=None):
+        return {"key": key, "first_index": fi, "x0": x0, "y0": y0, "c0": c0, "states": [(fi, state)]}
+
+    ents = {
+        12: ent(12, 2, 8177, 3228, 6, c0=(8477, 3215)),  # 083112-A: 3 steps out on 250
+        38: ent(38, 5, 8500, 500, 4, c0=(9235, 1777)),  # 083112-A: surfaced on 1204, last tunnel point 2 steps out
+        50: ent(50, 3, 8477, 3215, 6, c0=(8775, 3182)),  # two steps out: a first frame
+        51: ent(51, 3, 8330, 3215, 6, c0=(8600, 3200)),  # 684 from the King: not whole steps of 300
+        52: ent(52, 2, 8177, 3228, 1, c0=(8200, 3228)),  # a Knight: not a tunnel
+    }
+
+    def dep(card, key, tick, why="range [249, 250] (frame gap, no transition seen), latest used"):
+        return {"card": card, "keys": [key], "side": 0, "tick": tick, "tick_evidence": why}
+
+    deploys = [dep("GoblinDrill", 12, 250), dep("Miner", 38, 1204, "exact (deploy-end transition)"),
+               dep("GoblinDrill", 50, 251, "exact"), dep("GoblinDrill", 51, 251, "exact"), dep("Knight", 52, 250)]
+    m.tunnel_spawn_ticks(deploys, ents, ticks, towers, cards)
+    assert [d["tick"] for d in deploys] == [249, 1203, 251, 251, 250], deploys
+    assert deploys[0]["tick_evidence"].startswith("tunnel count: first seen under ground at tick 250, 854 from")
+    assert "first seen surfaced" in deploys[1]["tick_evidence"]
+    assert deploys[2]["tick_evidence"] == "exact"
 
 
 def _eff(side, cid, oid, tx, ty):
