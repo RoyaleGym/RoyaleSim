@@ -616,6 +616,20 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; only a counter's group reads it, and no battle saved before it held a counter.
     #[serde(default = "sub_actions_delay_default")]
     pub sub_actions_delay: SubActionsDelay,
+    /// The Clone, the Vines and the Void: spells.CLONE_LEVEL, CLONE_COPY_BUFFS, CLONE_DEATH_SPAWNS and CLONE_HITPOINTS
+    /// (`materialise_clones`, `phase_reap`), spells.AIR_TO_GROUND_WINDOW (spell.rs `catch`). Added after
+    /// SNAPSHOT_FORMAT 20; no battle saved before them held a copy or a catch, so each default is the shipped arm.
+    #[serde(default = "clone_level_default")]
+    pub clone_level: CloneLevel,
+    #[serde(default = "clone_copy_buffs_default")]
+    pub clone_copy_buffs: CloneCopyBuffs,
+    #[serde(default = "clone_death_spawns_default")]
+    pub clone_death_spawns: CloneDeathSpawns,
+    /// spells.CLONE_HITPOINTS: a copy's (hitpoints, shield), the shield only on a copy of a unit that has one.
+    #[serde(default = "clone_hitpoints_default")]
+    pub clone_hitpoints: (i32, i32),
+    #[serde(default = "air_to_ground_window_default")]
+    pub air_to_ground_window: AirToGroundWindow,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -1449,6 +1463,26 @@ fn parry_cooldown_start_default() -> ParryCooldownStart {
 
 fn parry_ready_at_default() -> ParryReadyAt {
     ParryReadyAt::Spawn
+}
+
+fn clone_level_default() -> CloneLevel {
+    CloneLevel::SpellLevel
+}
+
+fn clone_copy_buffs_default() -> CloneCopyBuffs {
+    CloneCopyBuffs::CopiedExceptNotCloned
+}
+
+fn clone_death_spawns_default() -> CloneDeathSpawns {
+    CloneDeathSpawns::ClonedAtCloneHitpoints
+}
+
+fn clone_hitpoints_default() -> (i32, i32) {
+    (1, 1)
+}
+
+fn air_to_ground_window_default() -> AirToGroundWindow {
+    AirToGroundWindow::TotalPlusBothTransitions
 }
 
 fn sub_actions_delay_default() -> SubActionsDelay {
@@ -3137,6 +3171,46 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.CLONE_LEVEL -- the unified level a copy the Clone makes takes (`materialise_clones`).
+    CloneLevel {
+        /// The Clone's own. Measured on client 15.535.29: a level-11 Clone on a level-12 Knight made a level-11 copy,
+        /// a level-12 Clone on a level-11 Knight a level-12 one.
+        SpellLevel = "spell_level",
+        /// The original's.
+        OriginalLevel = "original_level",
+    }
+);
+calib_enum!(
+    /// spells.CLONE_COPY_BUFFS -- which of its original's buffs a copy takes (`materialise_clones`).
+    CloneCopyBuffs {
+        /// Every buff whose row does not set NotCloned (the Clone's own hold among them).
+        CopiedExceptNotCloned = "copied_except_not_cloned",
+        /// None but the Clone's hold.
+        None = "none",
+    }
+);
+calib_enum!(
+    /// spells.CLONE_DEATH_SPAWNS -- what a copy's death spawn is (`phase_reap`, `make_copy`).
+    CloneDeathSpawns {
+        /// A copy too, at spells.CLONE_HITPOINTS, when the table's CLONE_DEATH_SPAWN_UNITS says so. Measured on client
+        /// 15.535.29: a copied Battle Ram released two Barbarians of 1 hitpoint each.
+        ClonedAtCloneHitpoints = "cloned_at_clone_hitpoints",
+        /// An ordinary death spawn.
+        Ordinary = "ordinary",
+    }
+);
+calib_enum!(
+    /// spells.AIR_TO_GROUND_WINDOW -- how long a Vines catch holds a flier to the ground (spell.rs `catch`), from the
+    /// catch's TotalDuration and TransitionDuration.
+    AirToGroundWindow {
+        /// TotalDuration plus the transition twice (2100 ms). Measured on client 15.535.29 (2 runs): a Knight, which
+        /// attacks ground only, let a caught Balloon go on the 43rd tick after the catch.
+        TotalPlusBothTransitions = "total_plus_both_transitions",
+        /// TotalDuration (2000 ms): let go on the 41st tick.
+        TotalDuration = "total_duration",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3985,6 +4059,16 @@ impl Calib {
         // spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS: an area that hits neither ground nor air lands no Damage of its own (the
         // Goblin Curse's parent; card.rs `area_spawns_area` does not read the column).
         only(&v, &["spells", "AREA_DAMAGE_WITHOUT_HIT_FLAGS", "value"], "inert")?;
+        // THE CLONE, THE VINES AND THE VOID'S ONE-ARM KEYS: each names the one law the engine runs, and its other
+        // candidates are listed as refuted (spell.rs `step_spells`, `selector_candidates`, `catch`, `laser`; state.rs
+        // `apply_effects`, `materialise_clones`).
+        only(&v, &["spells", "CLONE_OFFSET", "value"], "owner_axis_slide_over_hold")?;
+        only(&v, &["spells", "CLONE_HOLD_TARGETS", "value"], "both")?;
+        only(&v, &["spells", "CLONE_COPY_STATE", "value"], "fresh")?;
+        only(&v, &["spells", "MULTI_CATCH_RANKING", "value"], "repick_each_catch")?;
+        only(&v, &["spells", "COUNT_TIER_RULE", "value"], "by_count")?;
+        only(&v, &["spells", "SELECTOR_REACH", "value"], "radius_plus_target_radius")?;
+        only(&v, &["spells", "TARGET_FILTER_ABSENT_FLAG", "value"], "absent_means_not_filtered")?;
         only(&v, &["movement", "CONTACT_DOMAIN", "value"], "isolated_unit_only")?;
         {
             // REPLAN_TRIGGERS is a SET, and the engine implements exactly this set.
@@ -4190,6 +4274,18 @@ impl Calib {
             parry_cooldown_start: pick(&v, &["parry", "COOLDOWN_START", "value"], ParryCooldownStart::from_calibration_name)?,
             parry_ready_at: pick(&v, &["parry", "READY_AT", "value"], ParryReadyAt::from_calibration_name)?,
             sub_actions_delay: pick(&v, &["actions", "SUB_ACTIONS_DELAY", "value"], SubActionsDelay::from_calibration_name)?,
+            clone_level: pick(&v, &["spells", "CLONE_LEVEL", "value"], CloneLevel::from_calibration_name)?,
+            clone_copy_buffs: pick(&v, &["spells", "CLONE_COPY_BUFFS", "value"], CloneCopyBuffs::from_calibration_name)?,
+            clone_death_spawns: pick(&v, &["spells", "CLONE_DEATH_SPAWNS", "value"], CloneDeathSpawns::from_calibration_name)?,
+            clone_hitpoints: {
+                let hp = int(&v, &["spells", "CLONE_HITPOINTS", "value", "hitpoints"])?;
+                let shield = int(&v, &["spells", "CLONE_HITPOINTS", "value", "shield"])?;
+                if hp < 1 || shield < 0 {
+                    return Err(format!("calibration.json: spells.CLONE_HITPOINTS {{hitpoints {hp}, shield {shield}}} is not a copy's hitpoints"));
+                }
+                (hp, shield)
+            },
+            air_to_ground_window: pick(&v, &["spells", "AIR_TO_GROUND_WINDOW", "value"], AirToGroundWindow::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -4678,6 +4774,11 @@ struct PendingSpawn {
     /// so it is not in a snapshot's queue and not hashed. Added after SNAPSHOT_FORMAT 20; `default`.
     #[serde(default)]
     morph_birth: bool,
+    /// A DEATH SPAWN OF A COPY THE CLONE MADE (calibration spells.CLONE_DEATH_SPAWNS = cloned_at_clone_hitpoints,
+    /// `phase_reap`): the unit is created a copy too (`make_copy`). False on every other spawn, and hashed only when
+    /// set. Added after SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
+    #[serde(default)]
+    cloned: bool,
 }
 
 /// AN ACTION A MECHANIC SCHEDULED FOR A LATER TICK (`BattleState::scheduled`): `ms` counts down by TICK_MS at the top
@@ -4923,6 +5024,11 @@ pub struct EntityView<'a> {
     /// looking, 3 launching, and the ms its clock has left.
     pub enchant_state: u8,
     pub enchant_ms: i32,
+    /// A Vines catch's air-to-ground window (entity.rs `grounded_ms`): ms a caught flier is still a ground unit; 0 on
+    /// every other entity.
+    pub grounded_ms: i32,
+    /// A copy the Clone made, or a copy's death spawn (entity.rs `cloned`).
+    pub cloned: bool,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -4978,6 +5084,9 @@ struct Scratch {
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
     parry: Vec<ParryCand>,
+    /// THE CLONE'S ORDERS (spell.rs `CloneOrder`): written in the Projectile phase (`phase_projectile`) and carried out in
+    /// the Reap of the same tick (`materialise_clones`), so it is empty between ticks: not saved, not hashed.
+    clone_orders: Vec<spell::CloneOrder>,
 }
 
 /// THE UNDERGROUND WALK'S SEARCH (movement.SPAWN_PATHFIND_STATES): the 16.402 terrain and path finder, priced
@@ -5406,10 +5515,11 @@ fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::s
                 slots[k].src_level = h.src_level;
                 slots[k].crown_amount = h.crown_amount;
             }
+            slots[k].reach_hidden = h.reach_hidden;
         }
         None => {
             if let Some(k) = slots.iter().position(|s| s.is_empty()) {
-                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount, source, src_level: h.src_level, crown_amount: h.crown_amount };
+                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount, source, src_level: h.src_level, crown_amount: h.crown_amount, reach_hidden: h.reach_hidden };
             }
         }
     }
@@ -5643,6 +5753,13 @@ impl BattleState {
     }
 
     fn spawn_now(&mut self, team: Team, card: u16, level: i32, pos: Vec2, kind: EntityKind) -> Result<EntityId, String> {
+        self.spawn_with(team, card, level, pos, kind, true)
+    }
+
+    /// `spawn_now`, with `appearance` false for a unit that does not appear the way a deploy does (a copy the Clone
+    /// makes, `materialise_clones`): no deploy projectile and no spawn area object (not measured on a copy; an engine
+    /// choice). Everything else a creation does, its lane and its riders included, it does.
+    fn spawn_with(&mut self, team: Team, card: u16, level: i32, pos: Vec2, kind: EntityKind, appearance: bool) -> Result<EntityId, String> {
         let cards = self.cfg.cards.clone();
         let c = cards.get(card);
         let scaled = |b: i32| cards.scaled(card, level, b);
@@ -5718,7 +5835,7 @@ impl BattleState {
         let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
         #[cfg(clash_plant = "deploy_projectile_unfired")]
         let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
-        if blows {
+        if blows && appearance {
             if let Some(SpellShape::Projectile { hit: Some(h), .. }) = c.deploy_projectile.as_ref().map(|d| &d.shape) {
                 let damage = scaled(h.damage)?;
                 self.spells.push(Spell {
@@ -5747,7 +5864,7 @@ impl BattleState {
         let puts_area = self.cfg.calib.spawn_area_object_scope == SpawnAreaObjectScope::EveryRow;
         #[cfg(clash_plant = "spawn_area_effect_unread")]
         let puts_area = false; // PLANT (regression): the Battle Healer heals nobody on deploy under every_row too.
-        if puts_area && c.spawn_area_effect.is_some() && !cards.is_morph_target(card) {
+        if puts_area && appearance && c.spawn_area_effect.is_some() && !cards.is_morph_target(card) {
             let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos)?;
             self.spells.extend(area);
         }
@@ -5968,6 +6085,10 @@ impl BattleState {
             if p.acquire_delay {
                 self.delay_acquisition(id.index as usize);
             }
+            // A copy's death spawn (spells.CLONE_DEATH_SPAWNS): a copy too.
+            if p.cloned {
+                self.make_copy(id.index as usize);
+            }
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -5989,6 +6110,115 @@ impl BattleState {
         let apart = false; // PLANT (regression): the members push each other on the first step.
         let blockers = std::mem::take(&mut self.scratch.dying_blockers);
         self.first_update(&fresh, apart, &blockers);
+    }
+
+    /// A COPY'S HITPOINTS (calibration spells.CLONE_HITPOINTS): entity `i`, just created as a copy the Clone made or as a
+    /// copy's death spawn, takes hp = max hp = the key's hitpoints and, when its row has a shield and the table's
+    /// CLONE_PRESERVE_SHIELD says so, the key's shield (else none), and is marked a copy (`Entities::cloned`), which the
+    /// Clone never copies again. Measured on client 15.535.29: every copy has 1 hitpoint of 1; a copied Guard survived
+    /// exactly one 109 tower shot and died to the second, so its shield is between 1 and 109 (the card's stat rows say 1).
+    fn make_copy(&mut self, i: usize) {
+        let (hp, shield) = self.cfg.calib.clone_hitpoints;
+        let keeps_shield = self.ents.shield[i] > 0 && self.cfg.cards.globals.clone_flag("CLONE_PRESERVE_SHIELD") == Some(true);
+        #[cfg(not(clash_plant = "clone_full_hp"))]
+        {
+            self.ents.hp[i] = hp;
+            self.ents.max_hp[i] = hp;
+            self.ents.shield[i] = if keeps_shield { shield } else { 0 };
+        }
+        #[cfg(clash_plant = "clone_full_hp")]
+        let _ = (hp, shield, keeps_shield); // PLANT: a copy keeps its row's hitpoints and shield.
+        self.ents.cloned[i] = true;
+    }
+
+    /// THE CLONE'S COPIES (spell.rs `CloneOrder`, written in this tick's Projectile phase), made in this Reap after the
+    /// dead are gone and before the released units, in the orders' (team_seq) order. Measured on client 15.535.29 (32
+    /// runs, 25 copies, level 11, C the cast tick):
+    /// - the copy exists from C, on the original's position after the move, for its side, of its card, at the Clone's
+    ///   level (spells.CLONE_LEVEL = spell_level; a level the unit's ladder lacks falls back to the original's, not
+    ///   measured), at the Clone's hitpoints (`make_copy`), already deployed and facing as the original does;
+    /// - it starts fresh (spells.CLONE_COPY_STATE = fresh): no target until the hold ends (C + 11), its attack timers
+    ///   empty and uncharged, a copy of a charged Prince walking a whole run-up again;
+    /// - it takes its original's buffs but those whose row sets NotCloned (spells.CLONE_COPY_BUFFS, not measured), and
+    ///   the Clone's hold, so the pair is held C + 1 to C + 10 (spells.CLONE_HOLD_TARGETS = both);
+    /// - over those ten ticks the pair slides apart along its owner's y axis, the original toward the enemy and the
+    ///   copy away, CLONE_DISTANCE_Y / 2 a tick each (125 native, 2500 apart on C + 10), whatever the unit's speed or
+    ///   buffs (spells.CLONE_OFFSET = owner_axis_slide_over_hold): the knockback slide (`step_knock_slides`), through
+    ///   `spell::settle` against water and buildings (not measured);
+    /// - it does not appear as a deploy does: no deploy projectile, no spawn area object (`spawn_with`; not measured).
+    ///
+    /// An original the tick's damage killed is gone by now and is not copied.
+    fn materialise_clones(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let orders = std::mem::take(&mut self.scratch.clone_orders);
+        let dt = self.cfg.calib.tick_ms.max(1);
+        for o in orders {
+            if !self.ents.is_alive(o.src) {
+                continue;
+            }
+            let i = o.src.index as usize;
+            let Some(SpellShape::Clone { hold, rules, .. }) = self.cfg.cards.get(o.card).spell.as_ref().map(|d| d.shape.clone()) else { continue };
+            let (team, card, kind, pos, facing, own_level) = (self.ents.team[i], self.ents.card[i], self.ents.kind[i], self.ents.pos[i], self.ents.facing[i], self.ents.level[i]);
+            #[cfg(not(clash_plant = "clone_level_from_original"))]
+            let level = match self.cfg.calib.clone_level {
+                CloneLevel::SpellLevel => o.level,
+                CloneLevel::OriginalLevel => own_level,
+            };
+            #[cfg(clash_plant = "clone_level_from_original")]
+            let level = own_level; // PLANT: the copy takes the original's level.
+            let level = if self.cfg.cards.level_multiplier(card, level).is_ok() { level } else { own_level };
+            let Ok(id) = self.spawn_with(team, card, level, pos, kind, false) else { continue };
+            let j = id.index as usize;
+            self.make_copy(j);
+            self.ents.facing[j] = facing;
+            self.ents.deploy_ms[j] = 0;
+            self.on_deployed(j);
+            // A rider the copy carries (the loader's attached riders) is a copy too.
+            for r in 0..self.ents.capacity() {
+                if self.ents.alive[r] && self.ents.attached_to[r] == Some(id) {
+                    self.make_copy(r);
+                }
+            }
+            // spells.CLONE_COPY_STATE = fresh: `spawn_with` gave it no target and empty timers.
+            #[cfg(clash_plant = "clone_copy_inherits_target")]
+            {
+                self.ents.target[j] = self.ents.target[i]; // PLANT: the copy takes its original's target.
+            }
+            // spells.CLONE_COPY_BUFFS: the original's slots but those whose row sets NotCloned (the Clone's hold, landed
+            // on the original in this tick's Resolve, among them), and the enchant it carries.
+            #[cfg(not(clash_plant = "clone_buffs_not_copied"))]
+            let copies_buffs = self.cfg.calib.clone_copy_buffs == CloneCopyBuffs::CopiedExceptNotCloned;
+            #[cfg(clash_plant = "clone_buffs_not_copied")]
+            let copies_buffs = false; // PLANT: the copy takes none of its original's buffs, whatever the key says.
+            if copies_buffs {
+                let m = crate::status::MAX_BUFFS_PER_ENTITY;
+                for k in 0..m {
+                    let slot = self.ents.buffs[i * m + k];
+                    if slot.is_empty() || self.cfg.cards.buffs.get(slot.id as usize - 1).is_some_and(|d| d.not_cloned) {
+                        continue;
+                    }
+                    self.ents.buffs[j * m + k] = slot;
+                }
+                self.ents.enchant[j] = self.ents.enchant[i];
+            }
+            // THE HOLD ON THE COPY: its slot and the hold timer, as the original took them in this tick's Resolve.
+            let c = self.cfg.calib.clone();
+            land_buff(&mut self.ents, &self.cfg.cards, &c, j, &crate::status::BuffHit::plain(id, hold.buff, hold.time_ms, 0));
+            self.ents.stun_ms[j] = self.ents.stun_ms[j].max(hold.time_ms);
+            // THE SLIDE: CLONE_DISTANCE_Y shared by the two, CLONE_DISTANCE_Y / 2 a tick each over the hold, the original
+            // toward the enemy along its owner's y axis and the copy the other way.
+            #[cfg(not(clash_plant = "clone_no_separation"))]
+            {
+                let d = rules.distance_y / 2 * (hold.time_ms / dt);
+                let push = Vec2::new(0, spell::forward_dy(team) * d * K);
+                self.ents.knock_rem[i] = self.ents.knock_rem[i].add(push);
+                self.ents.knock_ms[i] = self.ents.knock_ms[i].max(hold.time_ms);
+                self.ents.knock_rem[j] = self.ents.knock_rem[j].sub(push);
+                self.ents.knock_ms[j] = self.ents.knock_ms[j].max(hold.time_ms);
+            }
+            #[cfg(clash_plant = "clone_no_separation")]
+            let _ = (rules, dt, K); // PLANT: the pair stands on one spot.
+        }
     }
 
     /// THE ONE SETTER of targeting.SPAWNED_UNIT_ACQUIRE_DELAY: entity `i`, created this tick
@@ -6366,7 +6596,7 @@ impl BattleState {
                     #[cfg(clash_plant = "action_spawn_unit_deploy")]
                     let action_deploy: Option<i32> = None; // PLANT (regression): the unit's own DeployTime (1000).
                     let deploy_ms = if action { action_deploy } else { deploy_ms };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false }));
                     k += 1;
                 }
                 left -= 1;
@@ -6607,6 +6837,7 @@ impl BattleState {
             facing: None,
             summon_x: None,
             morph_birth: false,
+            cloned: false,
         };
         Some((team, self.ents.team_seq[i], 0, p))
     }
@@ -7358,6 +7589,10 @@ impl BattleState {
             // THE COUNTER'S COOLDOWN (`parry_pass`) runs on the same clock: set in the Attack phase of the counter
             // tick C, it is 0 again by the Attack phase of C + cooldown / TICK_MS under either alignment.
             self.ents.parry_ms[i] = (self.ents.parry_ms[i] - dt).max(0);
+            // A VINES CATCH'S AIR-TO-GROUND WINDOW (entity.rs `grounded_ms`) on the same clock: set in the Resolve of the
+            // catch tick C', it is positive through the Target phase of C' + window / TICK_MS (C' + 42 for 2100 ms under
+            // ceil_from_next_tick), which is the last tick a ground-only attacker may keep a caught Balloon.
+            self.ents.grounded_ms[i] = (self.ents.grounded_ms[i] - dt).max(0);
             for slot in self.ents.buff_slots_mut(i) {
                 if slot.is_empty() {
                     continue;
@@ -7479,8 +7714,10 @@ impl BattleState {
                     } else {
                         amount
                     };
+                    // A slot that reaches a building hidden under ground (the Vines' snare on an idle Tesla) hits it
+                    // there too (`BuffSlot::reach_hidden`); every other pulse is dropped on a hidden building.
                     if dealt > 0 {
-                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: false });
+                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: slot.reach_hidden });
                     }
                 } else {
                     // A HEAL, capped at the missing hitpoints. It is applied here rather
@@ -7902,6 +8139,10 @@ impl BattleState {
             if p.acquire_delay {
                 self.delay_acquisition(id.index as usize);
             }
+            // A copy's death spawn (spells.CLONE_DEATH_SPAWNS): a copy too.
+            if p.cloned {
+                self.make_copy(id.index as usize);
+            }
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[id.index as usize] = d;
                 if d == 0 {
@@ -8109,6 +8350,7 @@ impl BattleState {
                     facing: None,
                     summon_x: None,
                     morph_birth: true,
+                    cloned: false,
                 });
                 if self.cfg.cards.get(m).spawn_area_effect.is_some() {
                     let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest).expect("the spawn area's level is validated at the play");
@@ -8768,7 +9010,7 @@ impl BattleState {
                 if s_native <= 0 {
                     continue;
                 }
-                let flying = self.ents.flying[i];
+                let flying = self.ents.in_air(i);
                 let building = self.ents.kind[i] != EntityKind::Troop;
                 let mut acc = (0i32, 0i32);
                 for a in &sources {
@@ -11395,7 +11637,7 @@ impl BattleState {
         self.launch_due_enchants();
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick);
         {
-            let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas };
+            let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas, tick: self.tick };
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
         }
         // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the
@@ -11411,7 +11653,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -11426,11 +11668,13 @@ impl BattleState {
         // Projectiles fired by spell objects: this tick's `step_projectiles` has run, so
         // they first step next tick.
         self.projectiles.append(&mut launched);
-        // Nothing writes these two yet, and the engine has no law yet for where a
-        // container's units stand or what a copy inherits. An order reaching here would
-        // be lost in silence, so it stops the battle instead.
+        // THE CLONE'S ORDERS (spell.rs `step_spells`): the copies appear in this tick's Reap (`materialise_clones`),
+        // after its deaths, so an original the tick's damage killed is not copied.
+        self.scratch.clone_orders.extend(clones);
+        // Nothing writes this one yet, and the engine has no law yet for where a
+        // container's units stand. An order reaching here would be lost in silence, so it
+        // stops the battle instead.
         assert!(fuse_ends.is_empty(), "a fuse end reached phase_projectile, which cannot release its death spawn yet");
-        assert!(clones.is_empty(), "a clone order reached phase_projectile, which cannot hand it to Reap yet");
     }
 
     /// THE KNOCKBACK LADDER UNDER THE FRAME-PLANNED PATH ARMS (knockback.DISPLACEMENT_LAW
@@ -11525,7 +11769,7 @@ impl BattleState {
     /// -- buffer order is spell order, which is cast order.
     fn apply_effects(&mut self) {
         let fx = std::mem::take(&mut self.effects);
-        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() && fx.enchants.is_empty() {
+        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() && fx.enchants.is_empty() && fx.grounds.is_empty() {
             self.effects = fx;
             return;
         }
@@ -11556,6 +11800,9 @@ impl BattleState {
         // A unit already carrying MAX_BUFFS_PER_ENTITY distinct rows drops the new one;
         // no shipped combination of buffs reaches four on one unit, so the cap is never met.
         let mut stun_new = vec![0i32; cap];
+        // THE CLONE'S HOLD (a buff whose row sets Clone; calibration spells.CLONE_HOLD_TARGETS = both): merged apart from
+        // the stuns, because it holds the unit without a stun's resets (below).
+        let mut hold_new = vec![0i32; cap];
         // targeting.DEPRIORITIZED_TARGET_BUFF: every (victim, buff) this Resolve applies.
         let mut landed: Vec<(EntityId, u16)> = Vec::new();
         for b in &fx.buffs {
@@ -11574,15 +11821,63 @@ impl BattleState {
                 let _ = lands_before;
                 false // PLANT: a unit the hit kills takes no buff, whatever the key says.
             };
-            if !survivor(&self.ents, b.target) && !lands_before {
+            // A buff that reaches a building hidden under ground (the Vines' snare on an idle Tesla; `BuffHit::reach_hidden`)
+            // lands on one too; everything else keeps the survivor test.
+            let hidden_reached = b.reach_hidden
+                && self.ents.is_alive(b.target)
+                && self.ents.hp[i] > 0
+                && self.ents.hide[i] == HideState::Hidden
+                && !(untouchable && self.ents.underground(i))
+                && !target::rider_untouchable(&c, &self.ents, i);
+            if !survivor(&self.ents, b.target) && !lands_before && !hidden_reached {
                 continue;
             }
             // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
             // stun (`reflect_melee_hit`), which lands the same way in the attack pass.
             if land_buff(&mut self.ents, &self.cfg.cards, &c, i, b) {
-                stun_new[i] = stun_new[i].max(b.time_ms);
+                #[cfg(not(clash_plant = "clone_hold_resets"))]
+                let hold = self.cfg.cards.buffs.get(b.buff as usize).is_some_and(|d| d.clone_hold);
+                #[cfg(clash_plant = "clone_hold_resets")]
+                let hold = false; // PLANT: the Clone's hold lands as a stun, with the stun's resets.
+                if hold {
+                    hold_new[i] = hold_new[i].max(b.time_ms);
+                } else {
+                    stun_new[i] = stun_new[i].max(b.time_ms);
+                }
             }
             landed.push((b.target, b.buff));
+        }
+        // THE CLONE'S HOLD LANDS: the hold timer by status.SAME_BUFF_REAPPLY, as a stun's, so the unit neither walks
+        // nor attacks and its attack clock pauses; but it keeps its target (no resume rescan), its charge and its damage
+        // ramp. Measured on client 15.535.29 (25 pairs): the original's hits come 10 ticks late, it keeps its target and
+        // a charged Prince keeps its charge. The table's CLONE_RESET_TARGET and CLONE_RESET_CHARGE (both FALSE; card.rs
+        // `CloneRules`) would release the lock and clear the charge.
+        let (reset_target, reset_charge) = (self.cfg.cards.globals.clone_flag("CLONE_RESET_TARGET") == Some(true), self.cfg.cards.globals.clone_flag("CLONE_RESET_CHARGE") == Some(true));
+        for (i, &ms) in hold_new.iter().enumerate() {
+            if ms <= 0 {
+                continue;
+            }
+            let e = &mut self.ents;
+            e.stun_ms[i] = match c.same_buff_reapply {
+                BuffReapply::RefreshMax => e.stun_ms[i].max(ms),
+                BuffReapply::Replace => ms,
+            };
+            if reset_target {
+                e.target_locked[i] = false;
+                e.retarget_on_resume[i] = true;
+            }
+            if reset_charge {
+                e.charged[i] = false;
+                e.charge_progress[i] = 0;
+            }
+        }
+        // A VINES CATCH HOLDS A FLIER TO THE GROUND (`EffectBuffer::grounds`, spell.rs `catch`): the window on a survivor,
+        // merged by max.
+        for &(id, ms) in &fx.grounds {
+            if survivor(&self.ents, id) {
+                let i = id.index as usize;
+                self.ents.grounded_ms[i] = self.ents.grounded_ms[i].max(ms);
+            }
         }
         self.drop_deprioritized_targets(&landed);
         // Stuns: max per target. Replace vs refresh decides only what the EXISTING timer
@@ -11761,6 +12056,7 @@ impl BattleState {
         fx.buffs.clear();
         fx.hooks.clear();
         fx.enchants.clear();
+        fx.grounds.clear();
         self.effects = fx;
     }
 
@@ -11993,6 +12289,17 @@ impl BattleState {
                 });
                 continue;
             }
+            // A COPY'S DEATH SPAWNS ARE COPIES (calibration spells.CLONE_DEATH_SPAWNS = cloned_at_clone_hitpoints, under
+            // the table's CLONE_DEATH_SPAWN_UNITS or _BUILDINGS for the spawned unit's kind): created at the Clone's
+            // hitpoints and never copied again (`make_copy`). Measured on client 15.535.29: a copied Battle Ram killed by
+            // a Zap or a tower arrow released two Barbarians of 1 hitpoint each, where the original's had 716. A death
+            // bomb above is unchanged (not measured).
+            #[cfg(not(clash_plant = "clone_death_spawns_ordinary"))]
+            let copy_spawns = self.ents.cloned[i]
+                && self.cfg.calib.clone_death_spawns == CloneDeathSpawns::ClonedAtCloneHitpoints
+                && self.cfg.cards.globals.clone_flag(if unit.kind == CardKind::Building { "CLONE_DEATH_SPAWN_BUILDINGS" } else { "CLONE_DEATH_SPAWN_UNITS" }) == Some(true);
+            #[cfg(clash_plant = "clone_death_spawns_ordinary")]
+            let copy_spawns = false; // PLANT: a copy's death spawns are ordinary units.
             let radius = ds.radius.unwrap_or(match self.cfg.calib.death_spawn_radius_default {
                 DeathSpawnRadius::OwnCollisionRadius => self.ents.radius[i],
                 DeathSpawnRadius::Zero => 0,
@@ -12110,7 +12417,7 @@ impl BattleState {
                 None
             };
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns }));
             }
         }
         // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
@@ -12175,7 +12482,7 @@ impl BattleState {
                     team,
                     self.ents.team_seq[i],
                     256 + k as u32,
-                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false },
+                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false },
                 ));
             }
         }
@@ -12295,6 +12602,10 @@ impl BattleState {
         for id in deaths {
             self.ents.despawn(id);
         }
+        // THE CLONE'S COPIES (spell.rs `CloneOrder`, from this tick's Projectile phase): after the dead are despawned, so
+        // an original this tick killed is not copied, and before the released units, so a copy's creation order follows
+        // its original's cast and not the tick's deaths.
+        self.materialise_clones();
         // RELEASED UNITS (spawner.RELEASE_TIMING = end_of_event_phase): after the dead
         // are despawned, so a freed slot can be reused without any later read of it, and
         // before the rebuild, so the hash holds them.
@@ -12525,7 +12836,7 @@ impl BattleState {
                 return;
             }
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
             return;
         }
         // A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): ONE entry, its count 1 (card.rs `convert` refuses any
@@ -12540,7 +12851,7 @@ impl BattleState {
                 SpawnPathfindDestination::ClientTileCentreMorphFootprint => pos,
                 SpawnPathfindDestination::OrdinaryGroundDeployPoint => self.formation_members(team, idx, level, pos).first().map_or(pos, |m| m.pos),
             };
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
             return;
         }
         for m in self.formation_members(team, idx, level, pos) {
@@ -12615,7 +12926,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false, cloned: false }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -13751,6 +14062,8 @@ impl BattleState {
             enchant: e.enchant[i],
             enchant_state: e.enchant_state[i],
             enchant_ms: e.enchant_ms[i],
+            grounded_ms: e.grounded_ms[i],
+            cloned: e.cloned[i],
         }
     }
     /// Live entities in slot order.
@@ -13951,6 +14264,11 @@ impl BattleState {
                     if slot.crown_amount > 0 {
                         h.i32(slot.crown_amount);
                     }
+                    // A slot that reaches a hidden building (the Vines' snare), only when set.
+                    #[cfg(not(clash_plant = "hash_skips_reach_hidden"))]
+                    if slot.reach_hidden {
+                        h.u32(0x5248_4944);
+                    }
                 }
                 h.i32(e.stomp_clock[i]);
                 h.bool(e.retarget_on_resume[i]);
@@ -14083,6 +14401,17 @@ impl BattleState {
                 if let Some(d) = e.tunnel_dest.get(i).copied().flatten() {
                     h.u32(0x5455_4e4c);
                     h.vec(d);
+                }
+                // A Vines catch's air-to-ground window, only while it runs, and a copy the Clone made, only on one: a
+                // battle with neither hashes as it did before the columns.
+                #[cfg(not(clash_plant = "hash_skips_grounded"))]
+                if e.grounded_ms.get(i).is_some_and(|&g| g > 0) {
+                    h.u32(0x4752_4e44);
+                    h.i32(e.grounded_ms[i]);
+                }
+                #[cfg(not(clash_plant = "clone_hash_skips_flag"))]
+                if e.cloned.get(i).copied().unwrap_or(false) {
+                    h.u32(0xC1);
                 }
                 h.vec(e.knock_rem[i]);
                 h.i32(e.knock_ms[i]);
@@ -14329,6 +14658,15 @@ impl BattleState {
                     h.i32(en.level);
                 }
             }
+            // A Vines catch's pending grounds, only when one is pending.
+            if !self.effects.grounds.is_empty() {
+                h.u32(0x4752_4e42);
+                h.u32(self.effects.grounds.len() as u32);
+                for (t, ms) in &self.effects.grounds {
+                    h.id(*t);
+                    h.i32(*ms);
+                }
+            }
         }
         h.u32(self.spawn_queue.len() as u32);
         for s in &self.spawn_queue {
@@ -14368,6 +14706,11 @@ impl BattleState {
                 if self.cfg.calib.first_tower_pick.spawn_lane() {
                     h.bool(s.summon_x.is_some());
                     h.i32(s.summon_x.unwrap_or(0));
+                }
+                // A copy's queued death spawn (spells.CLONE_DEATH_SPAWNS), only when set.
+                #[cfg(not(clash_plant = "clone_hash_skips_flag"))]
+                if s.cloned {
+                    h.u32(0xC1);
                 }
             }
         }
@@ -14708,6 +15051,16 @@ impl BattleState {
 ///    `parry`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other
 ///    card data. migrate_v3 strips it with the rest of the post-format-3 tail. The Ronin's stun row is a new buff
 ///    interned at the Ronin's place in load order, so every buff first interned by a later card moves up one index.
+/// 20, unchanged, the Clone, the Vines and the Void (spells.CLONE_*, MULTI_CATCH_RANKING, COUNT_TIER_RULE,
+///    SELECTOR_REACH, TARGET_FILTER_ABSENT_FLAG, AIR_TO_GROUND_WINDOW): Calib gained five fields (serde default the
+///    shipped arm), Entities gained `grounded_ms` and `cloned`, BuffSlot and BuffHit `reach_hidden`, PendingSpawn
+///    `cloned` and EffectBuffer `grounds` (serde default neutral, the columns sized on load, each hashed only when set),
+///    so a format-20 blob saved before them deserializes and hashes as it did. The Clone's orders live between the
+///    Projectile and the Reap phase of one tick (`Scratch::clone_orders`) and are not saved. SpellShape gained `Clone`,
+///    StrikeDef `selector`, StrikePick `RankedCatches` and `CountTiers`, BuffDef `clone_hold` and `not_cloned`, CardDef
+///    `ignore_clone`, and cards.json `globals` the CLONE_* rows, so the card fingerprint moves: a snapshot saved by an
+///    earlier build is refused as saved against other card data. migrate_v3 strips `ignore_clone` with the rest of the
+///    post-format-3 tail. No new spell motion: the Clone is an `Area`, the Vines and the Void `Strikes`.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -14916,12 +15269,13 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // after it.
                 // ~~... enchant~~ -- the transformation and the counter (still format 20) added
                 // `transform_at_hp` and `parry` after it.
+                // ~~... parry~~ -- the Clone (still format 20) added `ignore_clone` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, ignore_clone: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -14973,7 +15327,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.attack_buff_first,
                     c.enchant,
                     c.transform_at_hp,
-                    c.parry
+                    c.parry,
+                    c.ignore_clone
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -15415,6 +15770,8 @@ impl BattleState {
         snap.ents.special_on.resize(n, None);
         snap.ents.hooked_by.resize(n, None);
         snap.ents.tunnel_dest.resize(n, None);
+        snap.ents.grounded_ms.resize(n, 0);
+        snap.ents.cloned.resize(n, false);
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())

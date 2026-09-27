@@ -119,6 +119,17 @@ pub struct BuffDef {
     /// Curse's damage buff, 4). Read on a pulsing buff only; the loader refuses it on any other.
     #[serde(default)]
     pub crown_hit: i32,
+    /// character_buffs Clone: the buff is the Clone spell's hold. Landing, it holds the unit (the stun timer) without
+    /// the stun's resets: the unit keeps its target, its charge and its damage ramp (state.rs `apply_effects`;
+    /// calibration spells.CLONE_HOLD_TARGETS). True on the Clone's row alone, so no other buff lands otherwise than
+    /// before, and it keeps the row apart from an otherwise equal full stop (ZapFreeze) when the loader interns it.
+    #[serde(default)]
+    pub clone_hold: bool,
+    /// character_buffs NotCloned: a copy the Clone makes does not take this buff from its original (state.rs
+    /// `materialise_clones`, calibration spells.CLONE_COPY_BUFFS). True on a handful of rows, none of which a loaded
+    /// card hangs.
+    #[serde(default)]
+    pub not_cloned: bool,
 }
 
 /// A UNIT THAT DIES WITH THIS BUFF LIVE RELEASES `count` of `unit` (character_buffs DeathSpawn,
@@ -300,6 +311,10 @@ pub struct BuffSlot {
     /// loads.
     #[serde(default)]
     pub crown_amount: i32,
+    /// The slot lands on and pulses on a building hidden under ground (`BuffHit::reach_hidden`: the Vines' snare on an
+    /// idle Tesla). Hashed only when set. `default` so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub reach_hidden: bool,
 }
 
 impl BuffSlot {
@@ -352,6 +367,12 @@ pub struct BuffHit {
     /// The scaled crown-tower pulse (`BuffSlot::crown_amount`); 0 for the percent route.
     #[serde(default)]
     pub crown_amount: i32,
+    /// THE BUFF REACHES A BUILDING HIDDEN UNDER GROUND (an action's selector whose filter does not leave one out: the
+    /// Vines hold an idle Tesla, measured on client 15.535.29 -- caught, held, both pulses, and it stayed hidden). It
+    /// lands on one (state.rs `apply_effects`), and its pulses hit it (`buff_pulse_pass`), where every other effect
+    /// passes a hidden building by. False on every other application.
+    #[serde(default)]
+    pub reach_hidden: bool,
 }
 
 impl BuffHit {
@@ -359,7 +380,7 @@ impl BuffHit {
     /// source level, no crown-tower pulse and no before-damage flag. What every hit that is not an area's,
     /// a curse's or the Mother Witch's hangs.
     pub fn plain(target: crate::EntityId, buff: u16, time_ms: i32, pulse_amount: i32) -> BuffHit {
-        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0 }
+        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0, reach_hidden: false }
     }
 }
 

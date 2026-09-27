@@ -31,9 +31,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 126
-//!      loadable rows (124 cards, then PrincessTower and KingTower) and
-//!      20 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 129
+//!      loadable rows (127 cards, then PrincessTower and KingTower) and
+//!      17 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -102,14 +102,15 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 23b032626fe91432 (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
+/// 0c58ae16e86bb477 (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
 /// Elixir Collector, the Furnace, the Elixir Golem, the Ram Rider, the Three Musketeers, the Mirror and the Spirit
 /// Empress; the curses' and the Royal Delivery's columns: a buff's death spawn, an area's action schedule, IgnoreBuff,
 /// SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the Goblin Demolisher's `transform_at_hp`
-/// and the Ronin's `parry`). The lists are what the loader gives for that file.
-/// data/derived/replay/card_census.json (`cargo run --example replay_parity --
-/// --census`), written from the same file, holds the same 126 loadable rows in the
-/// same order and the same 20 refusals, word for word.
+/// and the Ronin's `parry`; the Clone's, the Vines' and the Void's: an area's `strike_area` and `clone_action`, the
+/// inline walk of an area's action graph, IgnoreClone, and the CLONE_* globals). The lists are what the loader gives
+/// for that file. data/derived/replay/card_census.json (`cargo run --example replay_parity -- --census`) is written
+/// from the file by a built example; it held the same lists, word for word, for the table before this one (126
+/// loadable rows, 20 refusals), and holds these once the example runs on this table.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[
@@ -229,21 +230,22 @@ const LOADABLE_15535: &[&str] = &[
     "Poison",
     "Log",
     "Tornado",
+    "Clone",
     "Earthquake",
     "BarbLog",
     "Heal",
     "Snowball",
     "RoyalDelivery",
     "WarmSpell",
+    "DarkMagic",
     "GoblinCurse",
     "MergeMaiden",
+    "Vines",
     "PrincessTower",
     "KingTower",
 ];
 const REJECTED_15535: &[(&str, &str)] = &[
     ("BossBandit", "the unit runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionRunIfGameObjectExists, ActionRunIfInstigatorMatches)"),
-    ("Clone", "area effect Clone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
-    ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
     ("GoblinGiant", "attached rider SpearGoblinGiant"),
@@ -260,7 +262,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
     ("SuperWitch", "spawner SpawnCharacter2 Bat"),
     ("SuspiciousBush", "an invisibility with no BuffWhenNotAttackingTime"),
-    ("Vines", "area effect Vines_AeO runs an action graph this loader does not read (ActionAirToGround, ActionGroup, ActionRunActionListOnObjectsInShapeWithPrio, ActionSelect, ActionSpawn; spawns BuffType:Vines_Trap_Snare_XXLarge, BuffType:Vines_Trap_Snare_XLarge, BuffType:Vines_Trap_Snare_Large, BuffType:Vines_Trap_Snare_Medium, BuffType:Vines_Trap_Snare_Small)"),
 ];
 
 /// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a

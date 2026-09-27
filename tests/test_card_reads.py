@@ -411,7 +411,13 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Miner, the Goblin Drill) are scored too. The stand-in figures above left the Miner and the Goblin Drill out.
     # 90 -> 92 with that widening: the Miner and the Goblin Drill, scored again. Measured on the merged next build's
     # module (not a stand-in).
-    outside_by_vintage = {"2018": 40, "15.535": 92}
+    # 92 -> 91 when the Clone, the Vines and the Void load. The loader now reads IgnoreClone, and the buff columns
+    # Clone and NotCloned, so the register pass calls the whole clone_mirror family read (it names families, not
+    # columns): the Merge Maiden leaves, its one gap having been that family (MirrorUsesRootSpell); the Goblin Drill
+    # and the chess Recruits lose IgnoreClone and stay for their other keys. The three new cards join with nothing
+    # unread. Measured with the stand-in catalogue (loadable_census.rs's LOADABLE_15535 at the parent, without the
+    # towers): 92 on the parent's tree and table, 91 on this change's with the three rows added; no module built.
+    outside_by_vintage = {"2018": 40, "15.535": 91}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

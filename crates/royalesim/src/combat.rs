@@ -619,7 +619,7 @@ pub fn splash(
         if ents.acquirable_from[v] > 0 {
             continue; // PLANT: a unit under targeting.SPAWNED_UNIT_ACQUIRE_DELAY is spared by a splash.
         }
-        if if ents.flying[v] { !hits_air } else { !hits_ground } {
+        if if ents.in_air(v) { !hits_air } else { !hits_ground } {
             continue;
         }
         if in_range_edge(center, ents.pos[v], radius, ents.radius[v]) {
@@ -859,7 +859,7 @@ pub fn melee_target_ok(ents: &Entities, ti: usize, sel: crate::card::AttackSelec
         return true; // PLANT: the ground clause dropped.
     }
     #[allow(unreachable_code)]
-    !(sel.ground_only && ents.flying[ti])
+    !(sel.ground_only && ents.in_air(ti))
 }
 
 /// Turn a completed windup into damage: a projectile, or an instant hit.
@@ -1380,7 +1380,7 @@ fn straight_hits(
     // The enchant bonus the shot was fired with (`enchant_bonus`), on each unit it hits.
     let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
     let Some(s) = p.straight.as_mut() else { return false };
-    let ctx = SpellCtx { ents, hash, cards, calib, steps: &[] };
+    let ctx = SpellCtx { ents, hash, cards, calib, steps: &[], tick };
     hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
     let mut any = false;
     for &v in nb.iter() {
@@ -1388,7 +1388,7 @@ fn straight_hits(
         if !ents.alive[v] || ents.hp[v] <= 0 || (s.only_enemies && ents.team[v] == team) {
             continue;
         }
-        if if ents.flying[v] { !hits_air } else { !hits_ground } {
+        if if ents.in_air(v) { !hits_air } else { !hits_ground } {
             continue;
         }
         // rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: a straight shot passes an attached rider.
