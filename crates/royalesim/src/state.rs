@@ -940,6 +940,11 @@ pub struct Calib {
     /// `None`, what a battle saved before it actually ran.
     #[serde(default = "spawned_first_step_default")]
     pub spawned_first_step: SpawnedFirstStep,
+    /// spawner.FIRST_STEP_DYING_BODIES: whether that first update meets the units dying on its tick (`first_update`,
+    /// `phase_reap`'s dying bodies, `phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the `default` is the old
+    /// arm, what a battle saved before it actually ran.
+    #[serde(default = "first_step_dying_default")]
+    pub first_step_dying: FirstStepDying,
     /// spawner.DEATH_SPAWN_RING (value.arm): whether a LISTED dying unit whose row leaves SpawnAngleShift
     /// blank lays its death spawn on the fixed ring at DeathSpawnRadius (`phase_reap`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
@@ -1354,6 +1359,10 @@ fn projectile_hold_scope_default() -> ProjectileHoldScope {
 
 fn spawned_first_step_default() -> SpawnedFirstStep {
     SpawnedFirstStep::None
+}
+
+fn first_step_dying_default() -> FirstStepDying {
+    FirstStepDying::Hidden
 }
 
 fn death_ring_default() -> DeathRingArm {
@@ -4352,6 +4361,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.FIRST_STEP_DYING_BODIES -- whether a unit's creation-tick first update (`BattleState::first_update`,
+    /// under spawner.SPAWNED_FIRST_STEP = client16402_same_tick) meets the units dying on that tick.
+    FirstStepDying {
+        /// Today's engine: the doomed mask (movement.DYING_UNIT_VISIBILITY) hides a unit an Attack-phase hit kills
+        /// from a periodic emission's first update at the end of Move, and Reap despawns the tick's dead before a
+        /// death spawn takes its first update, so neither meets a unit dying on its creation tick.
+        Hidden = "hidden",
+        /// Measured on client 16.402: every unit dying on that tick, except the one whose death released the new
+        /// unit, stands in its first update's avoidance and separation scans as a body at its current position. A
+        /// Tombstone's four death Skeletons were pushed 150 off one of its Skeletons that the same bomb killed, and a
+        /// Tombstone's periodic Skeleton was turned and pushed off another that a Knight's hit killed on its creation
+        /// tick, each to the native unit.
+        Seen = "client16402_seen",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -4961,6 +4986,7 @@ impl Calib {
             death_pushback: pick(&v, &["knockback", "DEATH_PUSHBACK", "value"], DeathPushbackScope::from_calibration_name)?,
             spawned_unit_acquire_delay: pick(&v, &["targeting", "SPAWNED_UNIT_ACQUIRE_DELAY", "value"], SpawnedUnitAcquireDelay::from_calibration_name)?,
             spawned_first_step: pick(&v, &["spawner", "SPAWNED_FIRST_STEP", "value"], SpawnedFirstStep::from_calibration_name)?,
+            first_step_dying: pick(&v, &["spawner", "FIRST_STEP_DYING_BODIES", "value"], FirstStepDying::from_calibration_name)?,
             death_ring: pick(&v, &["spawner", "DEATH_SPAWN_RING", "value", "arm"], DeathRingArm::from_calibration_name)?,
             death_ring_units: v
                 .pointer("/spawner/DEATH_SPAWN_RING/value/units")
@@ -5740,6 +5766,10 @@ struct Scratch {
     /// first update, native (x, y, radius, side): `first_update`'s avoidance-only blockers. Filled and drained
     /// inside one `phase_reap`, so it never outlives the phase.
     dying_blockers: Vec<(i32, i32, i32, u8)>,
+    /// spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the units that died in this Reap without releasing a unit,
+    /// as bodies of the contact law (`dying_body`), taken before they are despawned: the death spawns' first update
+    /// meets them. Filled and drained inside one `phase_reap`, so it never outlives the phase: not saved, not hashed.
+    dying_bodies: Vec<move16402::Body>,
     /// movement.SPAWN_PATHFIND_STATES: the tunnellers that came up this tick as the building they leave
     /// (`surface`), removed in this tick's Reap without a death (`phase_reap`). Filled in the Path phase and
     /// drained in the Reap of the same tick, so it is empty between ticks: not saved, not hashed.
@@ -6769,7 +6799,45 @@ impl BattleState {
         #[cfg(clash_plant = "first_step_siblings_push")]
         let apart = false; // PLANT (regression): the members push each other on the first step.
         let blockers = std::mem::take(&mut self.scratch.dying_blockers);
-        self.first_update(&fresh, apart, &blockers);
+        // spawner.FIRST_STEP_DYING_BODIES: the tick's other dead, as `phase_reap` took them before the despawn (empty
+        // under hidden).
+        let dying = std::mem::take(&mut self.scratch.dying_bodies);
+        self.first_update(&fresh, apart, &blockers, &dying);
+    }
+
+    /// spawner.FIRST_STEP_DYING_BODIES = client16402_seen: entity `i`, dying in this Reap, as the contact law of a first
+    /// update meets it (`phase_path16402_for`): the body the move pass builds for a live unit, at its position now (a
+    /// walker after its move on this tick, a unit the doomed mask dropped where it started the tick), its avoidance
+    /// offset, heading and heading rule, collidable unless something would hide it from the pass (a knockback, a
+    /// hook's drag, a jump, a dash, a rider, under ground, or a hold under collision.HELD_UNIT_CONTACT =
+    /// out_of_the_pass). Read-only.
+    fn dying_body(&self, i: usize) -> move16402::Body {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let e = &self.ents;
+        let calib = &self.cfg.calib;
+        let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
+        let held_hidden = e.held(&self.cfg.cards.buffs, i, calib.full_stop_buff_is_stun) && calib.held_unit_contact == HeldUnitContact::OutOfThePass;
+        let buried = calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable && e.underground(i);
+        let held = held_hidden || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried;
+        move16402::Body {
+            x,
+            y,
+            start_x: x,
+            start_y: y,
+            side: e.team[i] as u8,
+            r: e.radius[i] / K,
+            mass: move16402::loaded_mass(e.mass[i].unwrap_or(0), e.radius[i] / K),
+            air: e.flying[i],
+            mover: e.kind[i] == EntityKind::Troop,
+            alive: true,
+            collidable: !held && !e.jumping[i] && e.dash_state[i] != DashState::Dashing && !e.attached(i),
+            offset: e.avoid_offset[i],
+            dir: (e.facing[i].x, e.facing[i].y),
+            heading_counts: e.attack_phase[i] == AttackPhase::Idle
+                && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
+                && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
+            avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0,
+        }
     }
 
     /// A COPY'S HITPOINTS (calibration spells.CLONE_HITPOINTS): entity `i`, just created as a copy the Clone made or as a
@@ -7836,7 +7904,7 @@ impl BattleState {
         self.hash.rebuild(&self.ents);
         // spawner.SPAWNED_FIRST_STEP: the units this pass emitted take their first update now.
         if first_update {
-            self.first_update(&fresh, true, &[]);
+            self.first_update(&fresh, true, &[], &[]);
         }
     }
 
@@ -7875,11 +7943,18 @@ impl BattleState {
     /// blocker (42 of 48) and the Battle Ram's Barbarians read 0 (24 of 25). A DeathSpawnPushback row's
     /// members take no first update at all.
     ///
+    /// THE OTHER UNITS DYING ON THE TICK (spawner.FIRST_STEP_DYING_BODIES): under hidden, today's engine,
+    /// the step meets none of them, because the doomed mask hides an emission's dying neighbour and Reap
+    /// despawns the tick's dead before a death spawn steps. Under client16402_seen the doomed mask hides
+    /// nothing from the step and `dying` (the bodies `phase_reap` took before its despawn, the parents left
+    /// out) joins the board: both scans meet them at their current positions. Measured on client 16.402 on
+    /// the two corpus births beside such a unit, each to the native unit.
+    ///
     /// ONLY UNDER THE 16.402 MODEL (PathSearch::Client16402 and match.TICK_ORDER = client16402,
     /// or client_sequential_strike, whose Target and Attack are one pass): the step is that
     /// model's move pass, and under the legacy tick order the Attack phase runs after Move
     /// anyway. Troops only: a building takes no step.
-    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8)]) {
+    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8)], dying: &[move16402::Body]) {
         #[cfg(not(clash_plant = "first_step_unread"))]
         let on = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick;
         #[cfg(clash_plant = "first_step_unread")]
@@ -7904,7 +7979,7 @@ impl BattleState {
             vec![(fresh.clone(), Vec::new())]
         };
         for (movers, unseen) in batches {
-            self.phase_path16402_for(Some(&movers), &unseen, blockers);
+            self.phase_path16402_for(Some(&movers), &unseen, blockers, dying);
             // the Move phase's position write under the 16.402 contact law: the delta IS the
             // position write, clamped to the arena
             let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
@@ -9717,7 +9792,7 @@ impl BattleState {
     fn phase_path16402(&mut self) {
         // The units under ground first, under every path arm (movement.SPAWN_PATHFIND_STATES).
         self.phase_tunnel();
-        self.phase_path16402_for(None, &[], &[]);
+        self.phase_path16402_for(None, &[], &[], &[]);
     }
 
     /// combat.DASH_ATTACK's blows, landed after the move pass that decided them (the pass holds
@@ -9806,11 +9881,14 @@ impl BattleState {
     /// The 16.402 movement update, for every troop (`only` None) or for a first update's fresh
     /// units alone (`first_update`). Those step against the board as the tick's pass left it: the
     /// obstacle set, the grid and the doomed mask are the pass's own and are not rebuilt, and a unit
-    /// the mask dooms, which the pass dropped at its own place, is hidden from their scans, as are
+    /// the mask dooms, which the pass dropped at its own place, is hidden from their scans (under
+    /// spawner.FIRST_STEP_DYING_BODIES = hidden; under client16402_seen it stays, where it stood), as are
     /// the `unseen` ones. `blockers` (native x, y, radius, side) join the board as bodies that are
     /// collidable but not alive: the avoidance scan sees them as static blockers, the separation scan
-    /// skips them. The per-tick diagnostics of every other unit stay as the pass wrote them.
-    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8)]) {
+    /// skips them. `dying` (client16402_seen only: the units that died in this Reap, `dying_body`) join it
+    /// as ordinary bodies, which both scans meet. The per-tick diagnostics of every other unit stay as the
+    /// pass wrote them.
+    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8)], dying: &[move16402::Body]) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         if only.is_none() {
             self.build_obstacles();
@@ -10074,10 +10152,20 @@ impl BattleState {
             let doomed = &self.scratch.doomed;
             if let Some(o) = only {
                 order.retain(|i| o.contains(i));
+                // spawner.FIRST_STEP_DYING_BODIES = client16402_seen: a first update meets the units dying on its
+                // tick. A doomed unit stays where the pass left it (its own update was skipped, so at its
+                // start-of-tick position), and the Reap's dead join below as `dying`.
+                #[cfg(not(clash_plant = "first_step_dying_hidden"))]
+                let sees_dying = calib.first_step_dying == FirstStepDying::Seen;
+                #[cfg(clash_plant = "first_step_dying_hidden")]
+                let sees_dying = false; // PLANT (regression): the new arm still hides the tick's dying units from a first update.
                 for (j, b) in bodies.iter_mut().enumerate() {
-                    if unseen.contains(&j) || doomed.get(j).copied().unwrap_or(false) {
+                    if unseen.contains(&j) || (!sees_dying && doomed.get(j).copied().unwrap_or(false)) {
                         b.collidable = false;
                     }
+                }
+                if sees_dying {
+                    bodies.extend_from_slice(dying);
                 }
                 for &(x, y, r, side) in blockers {
                     bodies.push(move16402::Body {
@@ -13446,6 +13534,9 @@ impl BattleState {
         // ships them with different radii, different damage and different crown
         // percents -- two columns, one death, neither one the other's carrier.
         let mut spawned: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        // The dying units that release a unit this tick (their own death spawn or a buff's): the parents, which
+        // spawner.FIRST_STEP_DYING_BODIES leaves out of the released units' first update.
+        let mut parents: Vec<usize> = Vec::new();
         self.scratch.dying_blockers.clear();
         #[cfg(not(clash_plant = "death_spawn_dropped"))]
         for id in &deaths {
@@ -13615,6 +13706,7 @@ impl BattleState {
             } else {
                 None
             };
+            parents.push(i);
             for (k, p) in points.into_iter().enumerate() {
                 spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks: 0, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns }));
             }
@@ -13677,6 +13769,7 @@ impl BattleState {
                 let acquire_delay = false;
                 #[cfg(clash_plant = "buff_death_spawn_acquire_delayed")]
                 let acquire_delay = true; // PLANT: the curse's unit waits out the death spawn's acquire delay.
+                parents.push(i);
                 spawned.push((
                     team,
                     self.ents.team_seq[i],
@@ -13810,6 +13903,19 @@ impl BattleState {
             for (t, gain) in owed.into_iter().enumerate() {
                 if gain > 0 {
                     self.players[t].mana = (self.players[t].mana + gain).min(cap);
+                }
+            }
+        }
+        // spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the tick's dead that released nothing, as the contact law
+        // meets them, taken before the despawn below for the released units' first update (`materialise_released`).
+        // Under hidden the list stays empty, so today's engine is untouched.
+        self.scratch.dying_bodies.clear();
+        if self.cfg.calib.first_step_dying == FirstStepDying::Seen {
+            for id in &deaths {
+                let i = id.index as usize;
+                if self.ents.alive[i] && !parents.contains(&i) {
+                    let b = self.dying_body(i);
+                    self.scratch.dying_bodies.push(b);
                 }
             }
         }
@@ -16448,6 +16554,9 @@ impl BattleState {
 /// 20, unchanged, combat.NON_HOMING_AIM: Calib gained non_homing_aim (serde default the old arm, follows_target) and
 ///    Projectile gained `fixed` (serde default false, hashed only when set, and set only under fixed_at_fire), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.FIRST_STEP_DYING_BODIES: Calib gained first_step_dying (serde default the old arm, hidden),
+///    no new state (the dying bodies are a scratch list filled and drained inside one Reap), so a blob saved before
+///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16879,6 +16988,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.NON_HOMING_AIM: a format-3 battle aimed every shot at its target each tick; it keeps that whatever the
     // ledger ships (the same rule).
     sh.insert("non_homing_aim".into(), serde_json::to_value(NonHomingAim::FollowsTarget).map_err(|e| e.to_string())?);
+    // spawner.FIRST_STEP_DYING_BODIES: a format-3 battle's first updates met no unit dying on their tick; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("first_step_dying".into(), serde_json::to_value(FirstStepDying::Hidden).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
