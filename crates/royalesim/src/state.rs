@@ -6274,8 +6274,9 @@ impl BattleState {
     }
 
     /// `spawn_now`, with `appearance` false for a unit that does not appear the way a deploy does (a copy the Clone
-    /// makes, `materialise_clones`): no deploy projectile and no spawn area object (not measured on a copy; an engine
-    /// choice). Everything else a creation does, its lane and its riders included, it does.
+    /// makes, `materialise_clones`): no spawn area object (not measured on a copy; an engine choice). Everything else
+    /// a creation does, its lane and its riders included, it does. A card's deploy projectile is never cast here, on
+    /// any creation: it is the play's (`deploy_blow`).
     fn spawn_with(&mut self, team: Team, card: u16, level: i32, pos: Vec2, kind: EntityKind, appearance: bool) -> Result<EntityId, String> {
         let cards = self.cfg.cards.clone();
         let c = cards.get(card);
@@ -6339,33 +6340,7 @@ impl BattleState {
         self.lifetime_acc[i] = 0;
         #[cfg(clash_plant = "acquire_delay_every_unit")]
         self.delay_acquisition(i); // PLANT: every new troop waits, hand-played and periodic included.
-        // combat.DEPLOY_PROJECTILE = client_on_landing: a unit whose card carries a deploy
-        // projectile (card.rs `deploy_projectile`, the Mega Knight's MegaKnightAppear) lands it
-        // at its own position on the 6th tick after its first frame (combat.rs
-        // DEPLOY_PROJECTILE_DELAY_TICKS), measured on client 15.535.29: a Knight 560 away
-        // loses 430 (168 at level 1, on this card's ladder) and slides 199, 174, 149, ... away;
-        // Goblins 5,300 out lose nothing. The blow is an ordinary `Spell` on a zero-length leg,
-        // as a death bomb is (`phase_reap`): its `delay_ms` counts down in the Projectile phase
-        // from this tick's, so a unit created in the Spawn phase is hit on the tick 6 later,
-        // through spell.rs `impact` (its radius, its ground/air filter, its knockback).
-        #[cfg(not(clash_plant = "deploy_projectile_unfired"))]
-        let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
-        #[cfg(clash_plant = "deploy_projectile_unfired")]
-        let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
-        if blows && appearance {
-            if let Some(SpellShape::Projectile { hit: Some(h), .. }) = c.deploy_projectile.as_ref().map(|d| &d.shape) {
-                let damage = scaled(h.damage)?;
-                self.spells.push(Spell {
-                    team,
-                    card,
-                    level,
-                    damage,
-                    pulse: 0,
-                    motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
-                    depth: 0,
-                });
-            }
-        }
+        // A card's deploy projectile is not cast here: it belongs to the PLAY (`deploy_blow`, from `phase_spawn`).
         // spawner.SPAWN_AREA_OBJECT_SCOPE = every_row: a unit whose row sets SpawnAreaObject (card.rs
         // `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal) puts that area effect down
         // on its own position as it appears, under its own card index and level -- the same `cast` a
@@ -8731,6 +8706,8 @@ impl BattleState {
                 }
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
+            // combat.DEPLOY_PROJECTILE: the play's blow, on the tick its unit is created (`deploy_blow`).
+            self.deploy_blow(p.team, p.card, p.level, p.pos);
             // targeting.FIRST_TOWER_PICK = client_spawn_lane: a summon member's lane, flipped against its deploy point.
             if let Some(ax) = p.summon_x {
                 self.summon_lane_flip(id.index as usize, ax);
@@ -8789,6 +8766,38 @@ impl BattleState {
         }
         // The Rune Giant's look, on the start-of-tick positions, the units created this tick included.
         self.enchant_pass();
+    }
+
+    /// combat.DEPLOY_PROJECTILE = client_on_landing: a card whose play carries a deploy projectile (card.rs
+    /// `deploy_projectile`, the Mega Knight's MegaKnightAppear) lands it at its unit's position on the 6th tick after
+    /// the unit's first frame (combat.rs DEPLOY_PROJECTILE_DELAY_TICKS), measured on client 15.535.29: a Knight 560
+    /// away loses 430 (168 at level 1, on this card's ladder) and slides 199, 174, 149, ... away; Goblins 5,300 out
+    /// lose nothing. The blow is an ordinary `Spell` on a zero-length leg, as a death bomb is (`phase_reap`): its
+    /// `delay_ms` counts down in the Projectile phase from this tick's, so a unit created in the Spawn phase is hit on
+    /// the tick 6 later, through spell.rs `impact` (its radius, its ground/air filter, its knockback).
+    ///
+    /// THE PLAY'S, as spells.DEPLOY_AREA_EFFECT is: `phase_spawn` casts it as a queued play's unit is created (a play
+    /// from the hand, a Mirror's copy, `spawn_unit`). A unit the scenario setup puts down (`setup_spawn_place`) stands
+    /// as if it had been played earlier and lands none, and neither does a Clone's copy.
+    fn deploy_blow(&mut self, team: Team, card: u16, level: i32, pos: Vec2) {
+        #[cfg(not(clash_plant = "deploy_projectile_unfired"))]
+        let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
+        #[cfg(clash_plant = "deploy_projectile_unfired")]
+        let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
+        if !blows {
+            return;
+        }
+        let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|d| &d.shape) else { return };
+        let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the deploy projectile's level is validated at the play");
+        self.spells.push(Spell {
+            team,
+            card,
+            level,
+            damage,
+            pulse: 0,
+            motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
+            depth: 0,
+        });
     }
 
     /// A PLAY OF A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`; movement.SPAWN_PATHFIND_STATES), queued by
@@ -14821,11 +14830,18 @@ impl BattleState {
         }
     }
 
-    /// Materialise one validated setup spawn (no hash rebuild).
+    /// Materialise one validated setup spawn (no hash rebuild). A CREATION, NOT A PLAY: the unit puts its spawn area
+    /// object down as every creation does (spawner.SPAWN_AREA_OBJECT_SCOPE, `spawn_now`), and its card's deploy effects,
+    /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`).
     fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
         let (idx, level) = self.setup_record(idx, self.cfg.card_level[team as usize]).map_err(DeployError::InvalidLevel)?;
         let kind = if self.cfg.cards.get(idx).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
+        #[cfg(not(clash_plant = "setup_spawn_skips_spawn_area"))]
         let id = self.spawn_now(team, idx, level, pos, kind).map_err(DeployError::InvalidLevel)?;
+        #[cfg(clash_plant = "setup_spawn_skips_spawn_area")]
+        let id = self.spawn_with(team, idx, level, pos, kind, false).map_err(DeployError::InvalidLevel)?; // PLANT: no spawn area either.
+        #[cfg(clash_plant = "setup_spawn_lands_deploy_blow")]
+        self.deploy_blow(team, idx, level, pos); // PLANT: the setup spawn lands its card's deploy projectile.
         let i = id.index as usize;
         self.ents.deploy_ms[i] = 0;
         self.on_deployed(i);
