@@ -478,16 +478,16 @@ fn a_tunnellers_destination_is_state() {
     }
     let m = snap(&s, Team::Blue, "Miner").expect("the Miner walks");
     assert!(m.dest.is_some(), "the scene drifted: the Miner is up already");
-    let bytes = s.save();
-    let mut v: serde_json::Value = serde_json::from_slice(&bytes).expect("a snapshot is JSON");
-    let col = v["ents"]["tunnel_dest"].as_array_mut().expect("the snapshot carries the destination");
-    let d = &mut col[m.id.index as usize];
-    let x = d["x"].as_i64().expect("the destination is a point");
-    d["x"] = serde_json::Value::from(x + 1000 * K as i64);
-    let edited = serde_json::to_vec(&v).unwrap();
-    let a = BattleState::load(&bytes).expect("the save loads");
-    let b = BattleState::load(&edited).expect("the edited save loads");
-    assert_ne!(a.state_hash(), b.state_hash(), "two states differing only in a tunneller's destination hash alike");
+    let i = m.id.index as usize;
+    // The destination is hashed: a save edited only in it fails the load's hash self-check (tests/common
+    // edit_is_hashed). Were it not hashed, the edited save would load under the old hash.
+    let hashed = edit_is_hashed(&s, |v| {
+        let col = v["ents"]["tunnel_dest"].as_array_mut().expect("the snapshot carries the destination");
+        let d = &mut col[i];
+        let x = d["x"].as_i64().expect("the destination is a point");
+        d["x"] = serde_json::Value::from(x + 1000 * K as i64);
+    });
+    assert!(hashed, "a save edited only in a tunneller's destination loads under the old hash: it is not hashed");
 }
 
 #[test]

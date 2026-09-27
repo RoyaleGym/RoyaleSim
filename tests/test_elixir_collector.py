@@ -88,7 +88,7 @@ def first_payout(rs, overrides: dict, start_tick: int) -> tuple[int, int, int]:
     Both battles start at `start_tick` with 0 elixir each, so no cap is reached in 300 ticks."""
     sub = rs.SUBTILE_PER_MILLITILE
     runs = []
-    for spawns in ([(0, 0, AT[0] * sub, AT[1] * sub, None)], []):
+    for spawns in ([(0, 0, AT[0] * sub, AT[1] * sub, -1)], []):  # hp -1: the card's own hitpoints
         b = rs.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
         b.reset(0, [IDS, IDS], 0, start_tick, [0, 0], None, spawns)
         seq = []

@@ -1078,12 +1078,18 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     // Every card of the file with a periodic-spawner block the loader took (the
     // 2018 Goblin Hut and Furnace; in 15.535 the Goblin Hut runs its life-state
     // controller and the Furnace its `interval_spawner`, and neither card row
-    // carries a `spawner` block).
+    // carries a `spawner` block). A block with `attach` is not a periodic spawner:
+    // the Ram Rider's rider rides its mount (CardDef::attach), so it is left out.
     let with_block: Vec<String> = doc["cards"]
         .as_array()
         .unwrap()
         .iter()
-        .filter(|c| c["spawner"]["character"].is_string() && c["spawner"]["number"].is_number() && db.index(c["name"].as_str().unwrap()).is_some())
+        .filter(|c| {
+            c["spawner"]["character"].is_string()
+                && c["spawner"]["number"].is_number()
+                && !c["spawner"]["attach"].as_bool().unwrap_or(false)
+                && db.index(c["name"].as_str().unwrap()).is_some()
+        })
         .map(|c| c["name"].as_str().unwrap().to_string())
         .collect();
     assert!(with_block.len() >= 4 && ["Tombstone", "Witch", "DarkWitch", "BarbarianHut"].iter().all(|n| with_block.iter().any(|w| w == n)), "vacuous: spawner rows {with_block:?}");
