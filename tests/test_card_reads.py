@@ -95,6 +95,7 @@ PLANT_AIM = {
     "blind_ledger": "ChargeRange",
     "null_block": "is not on this row",
     "loaded_not_run": "combat.REFLECT_ATTACK",
+    "range_row_everywhere": "KNOWN_SLICE_GAPS names projectile.aoe_to_air",
 }
 
 
@@ -411,6 +412,12 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Miner, the Goblin Drill) are scored too. The stand-in figures above left the Miner and the Goblin Drill out.
     # 90 -> 92 with that widening: the Miner and the Goblin Drill, scored again. Measured on the merged next build's
     # module (not a stand-in).
+    # NOT MOVED at the 2026-09-27 flip of combat.RANGE_PROJECTILE to straight_to_range: the range rows' range
+    # keys run now, so the Executioner (AxeMan), the Bowler, the Elite Archer, the Hunter and the Super Archer
+    # lose them and stay flagged for others; the gate's RANGE_ROW_ONLY keeps every other row's projectile keys
+    # unread, as the engine leaves them. Read per key, the flip took 92 to 87: the Mega Minion, the mounted Merge
+    # Maiden, the Skeleton Dragons, the Witch Mother and the Sparky left the report while nothing reads those keys
+    # for them. Measured with the installed module's catalogue, the ledger before and after the flip.
     outside_by_vintage = {"2018": 40, "15.535": 92}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"

@@ -2268,9 +2268,10 @@ calib_enum!(
     /// combat.RANGE_PROJECTILE -- what a troop projectile whose row has a ProjectileRange does
     /// (combat.rs `fire`, `step_straight`).
     RangeProjectile {
-        /// Aimed at the target and ended on it, like every other shot (ProjectileRange unread).
+        /// The old arm (shipped until the 2026-09-27 flip): aimed at the target and ended on it,
+        /// like every other shot (ProjectileRange unread).
         ToTarget = "to_target",
-        /// Measured on client 15.535.29 (the Bowler, the Hunter, the Elite Archer): it flies
+        /// Measured on client 15.535.29 (the Bowler, the Hunter, the Elite Archer; shipped): it flies
         /// straight along the launch line to the last point within ProjectileRange, hitting each
         /// enemy it passes once (ProjectileRadius plus the enemy's radius), pushing it radially
         /// from the projectile's centre on a Pushback. A PingpongVisualTime row flies out and back.

@@ -72,11 +72,12 @@ WHAT COULD MAKE THIS WRONG (read this before trusting a green run)
     - A raw-block read is found by its literal (link 1): a capitalised string passed
       alone to a call that happens to spell a `raw` column's name would count as a
       read of that column.  Section A lists every one it found, so a reader can check.
-    - LOADED_NOT_RUN is per column (or per cards.json key), never per row.  A troop
-      projectile's range columns are read for a RANGE projectile only (ProjectileRange
-      and ProjectileRadius set), so once combat.RANGE_PROJECTILE ships straight_to_range
-      the table calls them run on the Wizard's projectile too, which still never reads
-      them.  The per-card splash check below (AoeToAir / AoeToGround against the
+    - LOADED_NOT_RUN is per column (or per cards.json key), with ONE per-row rule,
+      RANGE_ROW_ONLY: a troop projectile's range keys are read for a RANGE projectile
+      only (ProjectileRange and ProjectileRadius set), so under the shipped
+      combat.RANGE_PROJECTILE = straight_to_range (since the 2026-09-27 flip) they are
+      called run on a range row and still unread on every other row (the Wizard's
+      projectile).  The per-card splash check below (AoeToAir / AoeToGround against the
       attacker's own flags) does not depend on it.
     - "Loaded" is every card the engine loads when the extension module imports:
       its default catalogue (royalesim.Battle(None, ...)) and every other card row
@@ -115,6 +116,9 @@ PLANTS
                       must turn red without anyone editing this file
       null_block      Prince's `charge` block is null while its columns stay in
                       `raw`: a field the loader reads elsewhere, absent here
+      range_row_everywhere  every non-spell projectile grows a ProjectileRange and a
+                      ProjectileRadius under straight_to_range, so RANGE_ROW_ONLY calls
+                      the slice's projectile gaps run and they must go stale
 
 SHOULD A LOADED CARD CARRYING AN UNREAD MECHANIC BE REFUSED, THE WAY RAGE AND HEAL ARE?
     Recommendation, 2026-09-22: NOT as a blanket rule, and YES for a graded list.
@@ -286,13 +290,14 @@ KNOWN_SLICE_GAPS = {
     # The next three are LOADED since 2026-09-26: card.rs `RawProjectileObj` reads them for a
     # range projectile's hit (a row with ProjectileRange and ProjectileRadius, run only under
     # combat.RANGE_PROJECTILE = straight_to_range). No slice card's projectile is such a row, so
-    # for the slice nothing runs them under any value; LOADED_NOT_RUN keeps them in view under
-    # the shipped value, and the flip turns these three entries stale ON PURPOSE, to be re-read.
+    # for the slice nothing runs them under any value. LOADED_NOT_RUN kept them in view while
+    # to_target shipped; since the 2026-09-27 flip to straight_to_range RANGE_ROW_ONLY does, so
+    # these three entries were re-read at the flip and stay.
     "projectile.only_enemies": (
         "both",
         "true on every slice projectile. The engine's projectile damages the team "
         "opposite its owner and no other, so a false here would have nothing to act "
-        "on; 6 of 166 rows ship false. Loaded for range projectiles only (LOADED_NOT_RUN)",
+        "on; 6 of 166 rows ship false. Loaded for range projectiles only (RANGE_ROW_ONLY)",
     ),
     "projectile.aoe_to_air": (
         "both",
@@ -300,7 +305,7 @@ KNOWN_SLICE_GAPS = {
         "AttacksAir / AttacksGround (`combat.rs` fire -> splash), never by these two "
         "columns. The gate checks the two agree on every row it scores, so the gap "
         "is inert where they do and named per card where they do not. Loaded for range "
-        "projectiles only (LOADED_NOT_RUN)",
+        "projectiles only (RANGE_ROW_ONLY)",
     ),
     "projectile.aoe_to_ground": (
         "both",
@@ -400,6 +405,30 @@ LOADED_NOT_RUN = {
     "deploy_projectile": ("combat.DEPLOY_PROJECTILE", ("client_on_landing",)),
     "deploy_area_effect": ("spells.DEPLOY_AREA_EFFECT", ("client_area_effect",)),
 }
+
+# THE ONE PER-ROW RULE. The LOADED_NOT_RUN keys of a troop's or a building's `projectile` block that
+# combat.RANGE_PROJECTILE gates are read only for a RANGE projectile: card.rs `range_shot_of` takes a
+# row whose ProjectileRange and ProjectileRadius are both above 0 (the Bowler's boulder, the Hunter's
+# pellets, the Elite Archer's arrow, the Executioner's axe). On any other row (the Wizard's, the Wall
+# Breakers' range 1 with no radius) nothing reads them under any value. straight_to_range ships since the
+# 2026-09-27 flip, and a per-key reading would call them run on every row.
+RANGE_ROW_ONLY = {
+    k for k, (key, _) in LOADED_NOT_RUN.items() if key == "combat.RANGE_PROJECTILE" and k.startswith("projectile.")
+}
+RANGE_ROW_WHY = (
+    "run only for a range projectile (ProjectileRange and ProjectileRadius both above 0, card.rs "
+    "range_shot_of), and this row's is not one"
+)
+
+
+def is_range_row(projectile) -> bool:
+    """card.rs `range_shot_of`'s test: ProjectileRange and ProjectileRadius both above 0."""
+    if not isinstance(projectile, dict):
+        return False
+    return all(
+        isinstance(projectile.get(k), int) and not isinstance(projectile.get(k), bool) and projectile[k] > 0
+        for k in ("projectile_range_milli", "projectile_radius_milli")
+    )
 
 
 def is_cards_json_path(name: str) -> bool:
@@ -898,7 +927,10 @@ def check(
             # read through another struct and run under every value (the table's note).
             if kind == "spell" and path.startswith("projectile."):
                 return None
-            return consumed.off.get(path)
+            why = consumed.off.get(path)
+            if why is None and path in RANGE_ROW_ONLY and not is_range_row(rec.get("projectile")):
+                return RANGE_ROW_WHY
+            return why
 
         for k, v in rec.items():
             if k in PROVENANCE:
@@ -1147,6 +1179,21 @@ def plant_loaded_not_run(doc, consumed, colmap):
     return doc, consumed, colmap
 
 
+def plant_range_row_everywhere(doc, consumed, colmap):
+    # RANGE_ROW_ONLY must be what keeps the slice's projectile gaps in view under straight_to_range: every
+    # non-spell projectile grows a ProjectileRange and a ProjectileRadius, so every row is a range row, with
+    # the arm forced on so the plant lands whatever calibration.json ships. The three projectile gaps of
+    # KNOWN_SLICE_GAPS must then go stale.
+    for rec in [*doc["cards"], *doc["units"].values()]:
+        p = rec.get("projectile")
+        if rec.get("kind") != "spell" and isinstance(p, dict):
+            p["projectile_range_milli"] = 5000
+            p["projectile_radius_milli"] = 500
+    calibration = json.loads(CALIBRATION.read_text(encoding="utf-8"))
+    consumed.off = switched_off(calibration, forced={"combat.RANGE_PROJECTILE": "straight_to_range"})
+    return doc, consumed, colmap
+
+
 PLANTS = {
     "slice_mechanic": plant_slice_mechanic,
     "unread_field": plant_unread_field,
@@ -1154,6 +1201,7 @@ PLANTS = {
     "blind_ledger": plant_blind_ledger,
     "null_block": plant_null_block,
     "loaded_not_run": plant_loaded_not_run,
+    "range_row_everywhere": plant_range_row_everywhere,
 }
 
 

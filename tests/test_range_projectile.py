@@ -26,8 +26,8 @@ pushback-1000 ladder, radially from the boulder's centre. Measured on the client
   walked on 377. The 16.402 corpus shows the same (one battle, two Executioners, 11 throws: 1403 and 1452, and 3477,
   3526, 3575 and 3624, are 49 apart; a target killed on 1366 while the axe of 1338 was out read none until 1370 =
   1338 + 32, and he walked on 1370).
-Today's engine aims these shots at the target and ends them on it: the boulder curves after the Knight, lands late,
-and pushes nothing; the Elite Archer's arrow stops on the first Knight.
+The old arm (to_target, shipped until the 2026-09-27 flip) aims these shots at the target and ends them on it: the
+boulder curves after the Knight, lands late, and pushes nothing; the Elite Archer's arrow stops on the first Knight.
 
 WHY THE CONTROL IS HERE. A projectile without a ProjectileRange (a Musketeer's bullet) ends on its target on both
 arms, so an implementation that sends every shot on to a range fails.
@@ -77,7 +77,7 @@ AXE_SCENE = ((12500, 18500), [(12500, 23500)])
 AXE_START, AXE_RANGE, AXE_PERIOD, AXE_REACH, AXE_HIT = 600, 7000, 30, 1000 + 500, 179
 #: he waits for his axe: the throw tick T and the 31 after it (client 15.535.29: 247-278, 296-327, 345-376; the 16.402
 #: corpus the same), so a throw comes 49 ticks after the one before (247, 296, 345; 1403, 1452), not HitSpeed 900 / 50
-#: = 18. Today's engine (the old arm, a homing axe) throws every 18.
+#: = 18. The old arm (to_target, a homing axe) throws every 18.
 AXE_WAIT, AXE_THROW_GAP, HIT_SPEED_TICKS = 32, 49, 18
 #: a Knight the axe's way out kills (179 > 100), so the Executioner loses his target while the axe is out
 WEAK_KNIGHT_HP = 100

@@ -86,7 +86,8 @@ pub struct ProjectileDef {
 /// (projectiles.csv ProjectileRange with ProjectileRadius: the Bowler's boulder, the
 /// Hunter's pellets, the Elite Archer's arrow, the Executioner's axe). Read by combat.rs
 /// `fire` under calibration combat.RANGE_PROJECTILE = straight_to_range and under
-/// combat.MULTIPLE_PROJECTILES = client_fan; inert under the shipped arms. On the card,
+/// combat.MULTIPLE_PROJECTILES = client_fan, both shipped; inert under their old arms
+/// (to_target, not_read). On the card,
 /// not on `ProjectileDef`, whose Debug is inside the format-3 card fingerprint. A row
 /// with a ProjectileRange and no ProjectileRadius (the Wall Breakers' 1) is not one: it
 /// could hit nothing on the way.
