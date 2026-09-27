@@ -45,7 +45,7 @@ use crate::card::CardDb;
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, DeprioritizedTargetBuff, FirstTowerPick, LeapingUnitTargetability, MinimumRange,
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, DeprioritizedTargetBuff, LeapingUnitTargetability, MinimumRange,
     PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
