@@ -69,6 +69,13 @@ fn resolved_rows(doc: &Value) -> Vec<(String, String, i32, i32)> {
 fn unit_index(db: &CardDb, card: &str, unit: &str) -> Option<u16> {
     let ci = db.index(card)?;
     let c = db.get(ci);
+    // An ATTACHED rider can share the card's name (the Ram Rider's rider is units.RamRider;
+    // the card's own unit is the Ram): the rider's row is the rider's record, not the card.
+    if let Some(a) = c.attach.as_ref() {
+        if db.get(a.unit).name == unit {
+            return Some(a.unit);
+        }
+    }
     if c.spell.is_none() && (unit == card || db.get(ci).name == unit) {
         return Some(ci);
     }
