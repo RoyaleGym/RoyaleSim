@@ -240,6 +240,10 @@ pub struct Calib {
     /// `ClosedBlock`, what a battle saved before it actually ran.
     #[serde(default = "troop_tower_taps_default")]
     pub placement_troop_tower_taps: TroopTowerTaps,
+    /// placement.TOWER_TAP_PUSH: where placement.TROOP_TOWER_TAPS moves a troop tap off an own crown
+    /// tower (`relocate_off_own_crown_tower`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "tower_tap_push_default")]
+    pub placement_tower_tap_push: TowerTapPush,
     /// spells.ILLEGAL_SPELL_TAP. Added after SNAPSHOT_FORMAT 20; the `default` is `Refuse`,
     /// what a battle saved before it actually ran.
     #[serde(default = "illegal_spell_tap_default")]
@@ -775,6 +779,10 @@ fn troop_tower_taps_default() -> TroopTowerTaps {
     TroopTowerTaps::ClosedBlock
 }
 
+fn tower_tap_push_default() -> TowerTapPush {
+    TowerTapPush::RingNearest
+}
+
 fn illegal_spell_tap_default() -> IllegalSpellTap {
     IllegalSpellTap::Refuse
 }
@@ -1218,6 +1226,22 @@ calib_enum!(
         /// coordinates; a troop tap whose tile overlaps an alive own crown tower relocated by
         /// the building ring search; side 1's ground clamp on a single unit too.
         HalfOpenRelocate = "client16402_half_open_relocate",
+    }
+);
+calib_enum!(
+    /// placement.TOWER_TAP_PUSH -- where a troop tap whose tile overlaps an alive own crown tower goes
+    /// under placement.TROOP_TOWER_TAPS = client16402_half_open_relocate. Nothing else reads it.
+    TowerTapPush {
+        /// Today's engine: `building_placement`'s ring search from the snapped tile, the fitting
+        /// tile centre nearest the tap, a tie going to the first in column-major order in the
+        /// placer's frame.
+        RingNearest = "ring_nearest",
+        /// Measured on client 15.535.29 (42 of 42 princess-box taps: every tile of all four own
+        /// boxes, both seats, and 6 controls; the king's three ties): push along the axis where the
+        /// RAW tap is farther from the tower's centre; on an exact tie take the first outward
+        /// direction in the fixed ARENA order -y, -x, +y, +x; land on the first tile centre beyond
+        /// the tower's box, on the tapped tile's row or column.
+        Client16402AxisPush = "client16402_axis_push",
     }
 );
 calib_enum!(
@@ -2972,6 +2996,7 @@ impl Calib {
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
             placement_tap_snap: pick(&v, &["placement", "TAP_SNAP", "value"], TapSnap::from_calibration_name)?,
             placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
+            placement_tower_tap_push: pick(&v, &["placement", "TOWER_TAP_PUSH", "value"], TowerTapPush::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
@@ -3816,6 +3841,48 @@ fn ring_offsets(r: i32) -> Vec<(i32, i32)> {
         out.push((r, dy));
     }
     out
+}
+
+/// placement.TOWER_TAP_PUSH = client16402_axis_push: where a troop tap on an own crown tower's
+/// placement box `tower` (centre `centre`) lands. `raw` is the tap before any snap and `snapped`
+/// the centre of the tapped tile, all in the ARENA frame.
+///
+/// Measured on client 15.535.29. The unit is pushed out along the axis where `raw` is farther from
+/// the tower's centre, and on an exact tie along the first OUTWARD direction in the fixed arena
+/// order -y, -x, +y, +x (the centre itself goes -y). It lands on the first tile centre beyond the
+/// box, on the tapped tile's row or column. 42 of 42 princess-box taps (every tile of all four own
+/// boxes, both seats, and 6 controls); pairs of taps on one tile on the two sides of its diagonal
+/// go opposite ways, 6 of 6 ((2600, 5400) -y and (2400, 5600) -x); the king's three ties, 3 of 3.
+/// The order is fixed in arena coordinates, so the two seats are NOT mirrors: side 0's princess
+/// centre goes away from the river and side 1's toward it.
+fn axis_push(raw: Vec2, centre: Vec2, tower: Rect, snapped: Vec2) -> Vec2 {
+    use std::cmp::Ordering;
+    let (dx, dy) = (raw.x - centre.x, raw.y - centre.y);
+    // (along x, toward +). On a tie both outward directions are the signs of dx and dy.
+    #[cfg(not(clash_plant = "tower_tap_push_x_first"))]
+    let (along_x, up) = match dx.abs().cmp(&dy.abs()) {
+        Ordering::Greater => (true, dx > 0),
+        Ordering::Less => (false, dy > 0),
+        Ordering::Equal if dy <= 0 => (false, false), // -y, the centre too
+        Ordering::Equal if dx < 0 => (true, false),   // -x
+        Ordering::Equal => (false, true),             // +y; +x is never first on a tie
+    };
+    // PLANT (regression): a tie takes x first (-x, -y, +x, +y).
+    #[cfg(clash_plant = "tower_tap_push_x_first")]
+    let (along_x, up) = match dx.abs().cmp(&dy.abs()) {
+        Ordering::Greater => (true, dx > 0),
+        Ordering::Less => (false, dy > 0),
+        Ordering::Equal if dx <= 0 => (true, false),
+        Ordering::Equal if dy < 0 => (false, false),
+        Ordering::Equal => (true, true),
+    };
+    let half = crate::fixed::tiles(1) / 2;
+    match (along_x, up) {
+        (false, false) => Vec2::new(snapped.x, tower.min.y - half),
+        (false, true) => Vec2::new(snapped.x, tower.max.y + half),
+        (true, false) => Vec2::new(tower.min.x - half, snapped.y),
+        (true, true) => Vec2::new(tower.max.x + half, snapped.y),
+    }
 }
 
 pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
@@ -9776,7 +9843,7 @@ impl BattleState {
             p = Vec2::new(p.x.div_euclid(t) * t + t / 2, p.y.div_euclid(t) * t + t / 2);
         }
         if card.kind == CardKind::Troop && calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
-            p = self.relocate_off_own_crown_tower(team, idx, p);
+            p = self.relocate_off_own_crown_tower(team, idx, p, pos);
         }
         p
     }
@@ -9801,24 +9868,30 @@ impl BattleState {
     /// from the raw tap instead sends a tap at own (8500, 1499) sideways, because its
     /// straight-back candidate (8500, 499) overhangs the arena's back edge; measured on
     /// client 15.535.29 it lands straight back, on (8499, 500).
-    fn relocate_off_own_crown_tower(&self, team: Team, idx: u16, tap: Vec2) -> Vec2 {
+    ///
+    /// Under placement.TOWER_TAP_PUSH = client16402_axis_push the tap goes where `axis_push` says,
+    /// from the RAW tap `raw` (before placement.TAP_SNAP): the same tile goes different ways on the
+    /// two sides of its diagonal. The ring search is left for a landing that does not fit, which no
+    /// measurement has reached.
+    fn relocate_off_own_crown_tower(&self, team: Team, idx: u16, tap: Vec2, raw: Vec2) -> Vec2 {
         let arena = &self.cfg.arena;
         let e = &self.ents;
-        let own: Vec<Rect> = self.towers[team as usize]
+        let own: Vec<(Vec2, Rect)> = self.towers[team as usize]
             .iter()
             .flatten()
             .filter(|id| e.is_alive(**id))
             .map(|id| {
                 let i = id.index as usize;
-                Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i]))
+                (e.pos[i], Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i])))
             })
             .collect();
         let snapped = match self.cfg.calib.placement_snap_even {
             PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, 1),
             PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, tap, 1),
         };
-        let on_own_tower = own.iter().any(|t| Arena::placement_box(snapped, 1).overlaps_open(t));
-        if !on_own_tower || self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
+        let on_own_tower = own.iter().find(|(_, t)| Arena::placement_box(snapped, 1).overlaps_open(t)).copied();
+        let Some((centre, tower)) = on_own_tower else { return tap };
+        if self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
             return tap;
         }
         let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
@@ -9826,13 +9899,27 @@ impl BattleState {
             let b = Arena::placement_box(c, 1);
             arena.box_zone(b, team, territory).is_ok() && !self.box_hits_a_building(b)
         };
-        // The candidates are `building_placement`'s ring, but a TIE between two equally near
-        // tiles goes to the first in COLUMN-MAJOR order in the placer's frame (columns from
-        // its low x, each from its low y). Measured on client 15.535.29, three ties fit it and
-        // no other simple order: side 0's own (10500, 1500) takes the tile behind over the one
-        // to its +x, side 1's own (7500, 1500) the tile to its -x over the one behind, side 1's
-        // own (10500, 1500) the tile behind over the one to its +x. The ring order the building
-        // search uses (`ring_offsets`) gets the second wrong.
+        if self.cfg.calib.placement_tower_tap_push == TowerTapPush::Client16402AxisPush {
+            #[cfg(not(clash_plant = "tower_tap_push_snapped_tile"))]
+            let from = raw;
+            #[cfg(clash_plant = "tower_tap_push_snapped_tile")]
+            let from = {
+                let _ = raw;
+                snapped // PLANT (regression): the push reads the snapped tile centre, not the raw tap.
+            };
+            let c = axis_push(from, centre, tower, snapped);
+            if fits(c) {
+                return c;
+            }
+        }
+        // placement.TOWER_TAP_PUSH = ring_nearest (today's engine): the candidates are
+        // `building_placement`'s ring, and a TIE between two equally near tiles goes to the first
+        // in COLUMN-MAJOR order in the placer's frame (columns from its low x, each from its low y).
+        // This order was fitted to three king-area ties whose side-1 rows were read in the
+        // 180-degree rotation; they were recorded in the y-reflection (x, 32000 - y). In arena
+        // coordinates side 0's (10500, 1500) went -y, side 1's (7500, 30500) -x and side 1's
+        // (10500, 30500) +y (client 15.535.29): this order fits 1 of the 3 and misses 12 of the 36
+        // princess-box taps. client16402_axis_push (`axis_push`, above) fits all of them.
         let tile = crate::fixed::tiles(1);
         let mut best: Option<(i64, Vec2)> = None;
         for r in 1..=PLACEMENT_SEARCH_RINGS {
@@ -11081,6 +11168,9 @@ impl BattleState {
 /// 20, unchanged, targeting.TARGET_RANK_DISTANCE: Calib gained target_rank_distance (serde default the old arm,
 ///    centre_minus_target_radius), no new state, so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, placement.TOWER_TAP_PUSH: Calib gained placement_tower_tap_push (serde default the
+///    old arm, ring_nearest), no new state, so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -11405,6 +11495,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.SPAWN_PROJECTILE: a format-3 battle released nothing where a shot landed; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("spawn_projectile".into(), serde_json::to_value(SpawnProjectile::NotRead).map_err(|e| e.to_string())?);
+    // placement.TOWER_TAP_PUSH: a format-3 battle moved no troop tap off a tower; it keeps the old arm
+    // whatever the ledger ships (the same rule).
+    sh.insert("placement_tower_tap_push".into(), serde_json::to_value(TowerTapPush::RingNearest).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
