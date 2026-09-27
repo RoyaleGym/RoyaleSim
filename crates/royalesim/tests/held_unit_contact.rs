@@ -25,15 +25,15 @@
 //!   1. client16402_speed_zero_update, the freeze: the held Knight moves while the rear Knight is at it, on every held
 //!      tick that begins with the two overlapping by 5 or more, and never with the rear Knight more than 200 past
 //!      touching;
-//!   2. out_of_the_pass, the freeze (today's engine): the held Knight never moves and the rear Knight gets within 800;
+//!   2. out_of_the_pass, the freeze (the old arm): the held Knight never moves and the rear Knight gets within 800;
 //!   3. both arms, the freeze: a held Knight with no neighbour stands still for the whole hold and walks on after it
 //!      (tests/status.rs `a_freeze_is_a_whole_unit_hold_of_its_bufftime` is the same law for the old arm);
 //!   4. client16402_speed_zero_update, the stun: the Knight moves on every held tick that begins with the Giant
 //!      overlapping it by 5 or more (at least 5 such ticks);
-//!   5. out_of_the_pass, the stun (today's engine): the Knight moves on no such tick, and a stun's end throws the Giant
+//!   5. out_of_the_pass, the stun (the old arm): the Knight moves on no such tick, and a stun's end throws the Giant
 //!      more than 100;
 //!   6. both arms, the stun: on held ticks that begin with the two apart the Knight does not move (at least 5);
-//!   7. the shipped value is out_of_the_pass.
+//!   7. the shipped value is client16402_speed_zero_update.
 //!
 //! PLANTS (regression):
 //!   * `held_contact_invisible` leaves a held unit out of its neighbours' scans under the new arm: (1) and (4) go red.
@@ -235,6 +235,6 @@ fn a_stunned_knight_with_nothing_overlapping_stands_under_both_arms() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm() {
-    assert_eq!(Calib::shipped().held_unit_contact, OLD);
+fn the_shipped_value_is_the_new_arm() {
+    assert_eq!(Calib::shipped().held_unit_contact, NEW);
 }

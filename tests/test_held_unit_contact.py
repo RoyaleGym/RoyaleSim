@@ -7,7 +7,7 @@ with none it stood still on 353 of 353, and its avoidance offset shrank by 10 on
 nonzero, walking or attacking. Its neighbours meet it too: in 20260919-184136 (ticks 351-358) a Skeleton walking past
 a Goblin frozen by an Ice Spirit is turned off it and the Goblin is pushed 11 to 60 a tick while it is held. On client
 15.535.29 a Knight stunned by an Electro Giant's reflect moved on 13 of 13 stunned ticks that began with the Giant
-overlapping it and on 0 of 5 that began apart. Today's engine takes a held unit out of the move pass and out of every
+overlapping it and on 0 of 5 that began apart. The old arm takes a held unit out of the move pass and out of every
 neighbour's scans, so a walker enters a held unit's circle unopposed and the held unit never moves. How far a held
 unit is pushed per tick is not pinned here: the cases assert that it moves, not by how much.
 
@@ -209,7 +209,7 @@ def test_a_stunned_knight_is_moved_by_the_giant_walking_through_it():
     assert still == [], f"{NEW_ARM}: the stunned Knight stood on overlapping ticks {still} (of {over})"
 
 
-def test_the_stun_scene_old_arm_is_todays_engine():
+def test_the_stun_scene_old_arm_is_the_pre_flip_engine():
     rows = stun_scene(OLD_ARM)
     over = [i for i, r in enumerate(rows) if r[0] and r[4] <= KNIGHT_GIANT_RADII - OVERLAP]
     assert len(over) >= 5, f"the scene drifted: only {len(over)} stunned ticks began with the Giant overlapping"
@@ -227,7 +227,7 @@ def test_a_stunned_knight_with_nothing_overlapping_stands(arm):
     assert moved == [], f"{arm}: the stunned Knight moved with nothing overlapping it: {moved}"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry_ = json.loads(LEDGER.read_text(encoding="utf-8"))["collision"]["HELD_UNIT_CONTACT"]
-    assert entry_["value"] == OLD_ARM
+    assert entry_["value"] == NEW_ARM
     assert entry_["candidates"] == [OLD_ARM, NEW_ARM]
