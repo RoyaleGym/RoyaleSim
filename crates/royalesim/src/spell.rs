@@ -223,6 +223,11 @@ pub struct EffectBuffer {
     /// not_read. `default` so a snapshot saved before it still loads.
     #[serde(default)]
     pub hooks: Vec<(EntityId, EntityId)>,
+    /// The Rune Giant's projectiles that landed on a live friend this tick, (friend, payload) (combat.rs
+    /// `step_projectiles`). Drained in Resolve by `state.rs apply_effects`, which puts the enchant on a friend that
+    /// survived it. Empty in every battle with no Rune Giant. `default` so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub enchants: Vec<(EntityId, crate::combat::EnchantPayload)>,
 }
 
 /// The caster's forward axis: +1 for Blue (toward high y), -1 for Red.
@@ -797,6 +802,9 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, damage: i32, def: &StrikeDef, p
         hook: None,
         carrier: None,
         release: None,
+        enchant: None,
+        bonus: 0,
+        bonus_crown: 0,
     });
 }
 

@@ -3210,6 +3210,195 @@
       "engine": "state.rs Calib::from_json (pick), BattleState::ground_y_range; tests/formations.rs"
     }
   },
+  "enchant": {
+    "COLLECT_DELAY_ORIGIN": {
+      "value": "from_creation",
+      "candidates": ["from_creation", "at_deploy_end"],
+      "status": "measured",
+      "confidence": "HIGH: on client 15.535.29 every first projectile came 27 ticks after the Rune Giant's first tick, in six runs, the level-9 run among them.",
+      "provenance": "Measured on client 15.535.29: ActionDelay 1000 counts from the tick the Rune Giant appears, his deploy (1000 ms) running beside it. His first look is on his first walking tick, 20 ticks after his first tick, and the first projectile appears 7 ticks after that (LAUNCH_DELAY): 27 ticks after his first tick in all six runs. at_deploy_end, the delay counted from the end of the deploy, would put the projectile 47 ticks after it, and is refuted.",
+      "meaning": "from_creation: the Rune Giant's first look for friends comes ActionDelay after the tick he is created, deploying or not. at_deploy_end: ActionDelay after his deploy ends.",
+      "open": "Whether a stun during the deploy moves the look: one run, a stun that ended inside the deploy, changed nothing (enchant.STUN_AT_PICK).",
+      "promotion_rules": "Settled for the Rune Giant. Another ActionDelay row would test the origin elsewhere.",
+      "engine": "state.rs enchant_pass"
+    },
+    "LAUNCH_DELAY": {
+      "value": "bolt_7_ticks_after_pick",
+      "candidates": ["bolt_7_ticks_after_pick", "buff_delay_ceil", "at_pick"],
+      "status": "measured",
+      "confidence": "HIGH for 7 ticks (eight runs, and a friend that came into reach late, on client 15.535.29). LOW for the formula that gives it, ceil(BuffDelay / 50) + 1: one BuffDelay cannot test it.",
+      "provenance": "Measured on client 15.535.29: the projectile appears 7 ticks after the pick, at the Rune Giant's position after his move on that tick, and moves 600 (the projectile row's Speed) a tick from the next tick. A friend whose first tick was 37 ticks after his was sent one 7 ticks later. 7 = ceil(BuffDelay 280 / 50) + 1 is an interim reading of that one value. buff_delay_ceil (6 ticks) and at_pick (0) are refuted.",
+      "meaning": "bolt_7_ticks_after_pick: a pick sends its projectiles ceil(BuffDelay / TICK_MS) + 1 ticks later, from where the Rune Giant stands after his move on that tick, their first step on the next tick. buff_delay_ceil: ceil(BuffDelay / TICK_MS) ticks later. at_pick: on the pick tick.",
+      "open": "Whether the delay follows BuffDelay at all.",
+      "promotion_rules": "A row with another BuffDelay, or a rounding rule for sub-tick delays measured elsewhere that gives 7 for 280.",
+      "engine": "state.rs enchant_launch_ms and launch_due_enchants"
+    },
+    "PICK_REACH": {
+      "value": "centre_start_of_tick_7550",
+      "candidates": ["centre_start_of_tick_7550", "giant_after_move_centre_below_7500", "centre_7000", "centre_7750"],
+      "status": "measured",
+      "confidence": "MEDIUM: five runs on client 15.535.29 bracket the bound to [7536.9, 7560); 7550 is an interim inside it. A second reading fits the same runs (see provenance), and only a friend of another radius or a Rune Giant standing still would tell them apart.",
+      "provenance": "Measured on client 15.535.29 (five runs), with both units on their start-of-tick positions: friends at centre distances 7536.9 and 7337.6 were picked, two friends that came to 7500.0 were picked on that tick, and one at 7560.0 was not. So a friend is in reach when its centre is within [7536.9, 7560) of his; 7550 is an interim inside it. The Rune Giant's position after his move against the friend's start-of-tick one, strictly within 7500 (DistanceToGetTargets plus the friend's CollisionRadius 500), fits the same five runs; it is not implemented. centre_7000 (DistanceToGetTargets alone) and centre_7750 are refuted.",
+      "meaning": "centre_start_of_tick_7550: a friend is in reach when the centre distance, on the positions both stand at before the tick's moves, is at most DistanceToGetTargets + 550. centre_7000: at most DistanceToGetTargets. centre_7750: at most DistanceToGetTargets + 750. giant_after_move_centre_below_7500 (not implemented): the Rune Giant after his move, strictly below DistanceToGetTargets plus the friend's CollisionRadius.",
+      "open": "Which of the two readings holds, and the constant inside the bracket. Centre against edge: every friend measured had radius 500.",
+      "promotion_rules": "A friend of another CollisionRadius near the bound, or a Rune Giant held still (a stun) while a friend comes near.",
+      "engine": "state.rs enchant_candidates (ENCHANT_PICK_REACH_EXTRA)"
+    },
+    "PICK_ORDER": {
+      "value": "nearest_then_team_seq",
+      "candidates": ["nearest_then_team_seq", "creation", "highest_hp", "lowest_hp"],
+      "status": "measured",
+      "confidence": "HIGH for the nearest first (two runs on client 15.535.29, the creation order and the hit points swapped between them). Ties are not measured; the tie rule is the engine's.",
+      "provenance": "Measured on client 15.535.29: a Knight and two Archers behind the Rune Giant, one kind 3000 away and the other 6000, with two places. He picked the two nearest in both runs, whichever were deployed first and whatever their hit points. creation, highest_hp and lowest_hp are each refuted by one of the two runs; creation is kept runnable.",
+      "meaning": "nearest_then_team_seq: friends in reach are picked nearest first by centre distance, ties to the earliest created. creation: earliest created first.",
+      "open": "The tie rule. Centre against edge distance (every friend measured had radius 500).",
+      "promotion_rules": "Two friends at one distance; a friend of another radius.",
+      "engine": "state.rs enchant_candidates"
+    },
+    "PICK_FILTER": {
+      "value": "own_troops_unenchanted",
+      "candidates": ["own_troops_unenchanted"],
+      "status": "measured",
+      "confidence": "HIGH for air in, buildings out, deploying in and an enchanted friend out (client 15.535.29). The tagged rows rest on the tables, and an invisible or underground friend is not measured.",
+      "provenance": "Measured on client 15.535.29: a Cannon 2407 away was skipped for Minions 4027 and 5089 away, so air troops qualify and buildings do not, even nearest. A friend still deploying was picked. An enchanted friend was never sent a second projectile (400 ticks with one friend; a later pick went past the enchanted Knight). The filter the row names, friendly_troops_for_rune_giant, is defined nowhere in the tables; its nearest relative filters buildings, hidden units and the tag NO_GIANTBUFFER_CHEF_ENCHANTMENT, which the PhoenixEgg sets. Tagged rows are never picked (the tables).",
+      "meaning": "own_troops_unenchanted: the Rune Giant picks his own troops, air and ground, deploying ones too; not buildings or crown towers, not himself, not a friend already holding an enchant, not a row tagged NO_GIANTBUFFER_CHEF_ENCHANTMENT, not an invisible or underground friend.",
+      "open": "An invisible friend (a Royal Ghost), an underground one and an attached rider are not measured; the engine leaves the first two out.",
+      "promotion_rules": "A friendly Royal Ghost in reach while it is invisible.",
+      "engine": "state.rs enchant_candidates and enchantable"
+    },
+    "SLOTS": {
+      "value": "max_targets_held_at_once",
+      "candidates": ["max_targets_held_at_once", "fresh_pick_of_max_targets"],
+      "status": "hypothesis",
+      "confidence": "MEDIUM: one run on client 15.535.29 shows it, and every other run agrees with it.",
+      "provenance": "Measured once on client 15.535.29: with the Knight enchanted, a later look sent one projectile, to the nearer of two Archers in reach (2378 and 2733 away), and none to the Knight. No rule that picks two fresh friends gives that. So at most MaxFriendlyTroops friends hold his enchant at once, and a look fills the free places. fresh_pick_of_max_targets is refuted by that run.",
+      "meaning": "max_targets_held_at_once: a look picks at most MaxFriendlyTroops less the live friends holding this Rune Giant's enchant and his projectiles still in flight. fresh_pick_of_max_targets: every look picks up to MaxFriendlyTroops.",
+      "open": "Whether a place frees when an enchanted friend dies (not measured).",
+      "promotion_rules": "Two friends enchanted, one of them killed, a third friend in reach.",
+      "engine": "state.rs enchant_pass and enchant_used"
+    },
+    "EMPTY_PICK": {
+      "value": "retry_each_tick",
+      "candidates": ["retry_each_tick", "restart_cooldown"],
+      "status": "measured",
+      "confidence": "HIGH: one run on client 15.535.29 separates the two by 60 ticks.",
+      "provenance": "Measured on client 15.535.29: the Rune Giant walked alone past his first look; a Knight that appeared 37 ticks after his first tick was sent a projectile 7 ticks later. So a look that finds nobody is tried again on the next tick. restart_cooldown would have put it more than 60 ticks later, and is refuted.",
+      "meaning": "retry_each_tick: a look with nobody in reach is tried again on the next tick. restart_cooldown: it waits a whole Cooldown.",
+      "open": "None for the Rune Giant.",
+      "promotion_rules": "Settled.",
+      "engine": "state.rs enchant_pass"
+    },
+    "COOLDOWN_ORIGIN": {
+      "value": "from_launch",
+      "candidates": ["from_launch", "from_pick", "from_landing"],
+      "status": "hypothesis",
+      "confidence": "LOW: one second launch on client 15.535.29.",
+      "provenance": "Measured once on client 15.535.29: the second launch came 68 ticks after the first, which is the Cooldown (3000 ms, 60 ticks) counted from the launch, one tick to look, and the 7 ticks of LAUNCH_DELAY. Counted from the pick it would come 61 ticks after the first launch, and from the landing later than 68; both are refuted by that one sample. from_landing is not implemented.",
+      "meaning": "from_launch: the next look comes Cooldown after the launch, the first tick after the clock runs out. from_pick: Cooldown after the pick. from_landing (not implemented): Cooldown after the projectile lands.",
+      "open": "A second sample, and whether the look after an empty place waits for the whole Cooldown.",
+      "promotion_rules": "A lone friend arriving at several delays after the first launch.",
+      "engine": "state.rs launch_due_enchants"
+    },
+    "STUN_AT_PICK": {
+      "value": "pick_waits_for_stun_end",
+      "candidates": ["pick_waits_for_stun_end", "timer_pauses", "ignored"],
+      "status": "hypothesis",
+      "confidence": "LOW: two runs on client 15.535.29; the rule leaves a gap of 2 ticks on one of them.",
+      "provenance": "Measured on client 15.535.29: a stun that ended inside the Rune Giant's deploy changed nothing (the projectile on his first tick + 27). A Zap on his first walking tick, the tick his look was due, delayed his walk by 10 ticks and the projectile by 8. The shipped rule keeps his clocks running and makes the look wait for the first tick he is not held, which gives 10 there; the 2-tick gap is open. ignored (the look runs while he is held) and timer_pauses (the clocks stop while he is held) are refuted by the second run.",
+      "meaning": "pick_waits_for_stun_end: a stun or a freeze does not stop his clocks; a look that falls while he is held waits for the first tick he is not. timer_pauses: his clocks stop while he is held. ignored: a stun changes nothing.",
+      "open": "The 2-tick gap on the stun at the due tick. A stun during the launch clock or the Cooldown.",
+      "promotion_rules": "A stun that ends at several ticks around the due look.",
+      "engine": "state.rs enchant_pass"
+    },
+    "BONUS_ATTACKS": {
+      "value": "every_third_attack_from_enchant",
+      "candidates": ["every_third_attack_from_enchant", "first_three_attacks"],
+      "status": "measured",
+      "confidence": "HIGH: five carriers, an Electro Wizard and a Hunter on client 15.535.29. One carrier missed the bonus on its 12th attack; that is open.",
+      "provenance": "Measured on client 15.535.29: the bonus lands on the carrier's 3rd, 6th and 9th attacks, not on attacks 1 to 3, on a Knight, a mirrored Knight, a second Knight, a Valkyrie and a Musketeer in two runs; the Electro Wizard's attacks 3, 6 and 9 and the Hunter's volleys 3 and 6 too. A shot that hits nothing counts: a Musketeer's spit whose target died in flight. So does a swing that only hits a bystander. One carrier was paid on attacks 3, 6, 9 and 15 and not on 12, so the bonus goes on past the 9th; the 12th is unexplained. first_three_attacks (the bonus on the next AttackAmount attacks, then none) is refuted.",
+      "meaning": "every_third_attack_from_enchant: every attack of an enchanted unit counts from the enchant, a shot that hits nothing included, and every AttackAmount-th one carries the bonus, for as long as the enchant lasts. first_three_attacks: the first AttackAmount attacks carry it, and the enchant then ends.",
+      "open": "Why one carrier's 12th attack was not paid. Whether the count starts at the enchant or at the carrier's deploy: no measured carrier attacked before its enchant. Whether a dash blow counts (the engine counts none).",
+      "promotion_rules": "A carrier that attacks before its enchant lands; a longer run on one carrier.",
+      "engine": "state.rs, the attack pass (the count before combat::fire); combat.rs enchant_bonus"
+    },
+    "BONUS_LEVEL_SCALING": {
+      "value": "instigator_level",
+      "candidates": ["instigator_level", "carrier_level", "flat"],
+      "status": "measured",
+      "confidence": "HIGH: one run on client 15.535.29 separates all three.",
+      "provenance": "Measured on client 15.535.29: a level-9 Rune Giant added 182 = AddedDamage 86 scaled at level 9 to carriers at levels 11 and 12. carrier_level would give 220 and 241, flat 86; both are refuted. At level 11 the bonus is 220 on troops and on a crown tower alike.",
+      "meaning": "instigator_level: the bonus is AddedDamage (and AddedCrownTowerDamage) scaled on the Rune Giant's ladder at his level. carrier_level: at the carrier's level. flat: the level-1 figure.",
+      "open": "None.",
+      "promotion_rules": "Settled.",
+      "engine": "combat.rs enchant_bonus"
+    },
+    "MULTIPLIER": {
+      "value": "per_mille_of_level1_then_scaled",
+      "candidates": ["per_mille_of_level1_then_scaled", "per_mille_of_scaled", "percent"],
+      "status": "measured",
+      "confidence": "HIGH for the Electro Wizard and the Hunter (client 15.535.29). The Firecracker's 200 is read from the tables only.",
+      "provenance": "Measured on client 15.535.29: an enchanted Electro Wizard's bonus attack dealt 227 a bolt against 117 (+110 = 86 x 500 / 1000 = 43, scaled at level 11), and an enchanted Hunter's bonus volley 104 a pellet against 84 (+20 = 86 x 100 / 1000 = 8, scaled). Taking the per mille of the scaled bonus gives the Hunter 22 and is refuted; reading the values as percents is refuted too. The names in DamageMultiplierPerUnitNames are the rows that deliver the damage: character rows (ElectroWizard) and projectile rows (HunterProjectile, FirecrackerExplosion). An unlisted attacker takes the whole bonus.",
+      "meaning": "per_mille_of_level1_then_scaled: an attacker whose unit row, Projectile row or CustomFirstProjectile row is listed takes per mille / 1000 of the level-1 bonus, truncated, then scaled, on each of its hits; its sparks take their own row's per mille. per_mille_of_scaled: the per mille taken of the scaled bonus. percent (not implemented): the values read as percents.",
+      "open": "An enchanted Firecracker's sparks (the table's 200). The rows listed at 0 whose cards do not load yet (RamRiderBola, SpearGoblinGiantProjectile).",
+      "promotion_rules": "An enchanted Firecracker.",
+      "engine": "card.rs CardDb::resolve_enchants (the per mille of each loaded card, by the rows its unit fires); combat.rs enchant_bonus"
+    },
+    "SPLASH_BONUS": {
+      "value": "every_victim",
+      "candidates": ["every_victim", "primary_target_only"],
+      "status": "measured",
+      "confidence": "HIGH: one run on client 15.535.29 with two victims.",
+      "provenance": "Measured on client 15.535.29: an enchanted Valkyrie's 3rd swing gave the bonus to both victims, a Giant and an Ice Golem, +220 each. primary_target_only is refuted.",
+      "meaning": "every_victim: a splash attack's bonus lands on every unit it hits, one hit each. primary_target_only: on the attack's target alone.",
+      "open": "A projectile's splash (the engine reads the same rule).",
+      "promotion_rules": "An enchanted Wizard or Baby Dragon.",
+      "engine": "combat.rs add_splash_bonus"
+    },
+    "CROWN_TOWER_BONUS": {
+      "value": "crown_column_no_percent",
+      "candidates": ["crown_column_no_percent", "added_damage_with_attacker_percent"],
+      "status": "hypothesis",
+      "confidence": "LOW: measured only where the two readings agree.",
+      "provenance": "Measured on client 15.535.29: an enchanted Knight's hits on a princess tower were 202, 202 and 422, +220 as on a troop. The Rune Giant's AddedCrownTowerDamage equals its AddedDamage (86) and the Knight's crown percent is 100, so the run cannot tell the two readings apart. The shipped one reads the crown column and does not apply the attacker's percent.",
+      "meaning": "crown_column_no_percent: a crown tower takes AddedCrownTowerDamage, scaled like AddedDamage, the attacker's crown percent not applied. added_damage_with_attacker_percent: it takes the AddedDamage bonus through the attacker's crown percent.",
+      "open": "Both readings.",
+      "promotion_rules": "An enchanted attacker whose crown percent is not 100 hitting a crown tower.",
+      "engine": "combat.rs enchant_bonus"
+    },
+    "INSTIGATOR_DEATH": {
+      "value": "finish_after_5000_ms",
+      "candidates": ["finish_after_5000_ms", "ends_at_death"],
+      "status": "measured",
+      "confidence": "MEDIUM: a bracket, (80, 120] ticks, on client 15.535.29; FinishIfInstigatorDies 5000 ms fits it.",
+      "provenance": "Measured on client 15.535.29: the bonus was paid 3, 75 and 80 ticks after the Rune Giant died, and not 120, 152 or 192 ticks after. So the enchant outlives him by more than 80 and at most 120 ticks; FinishIfInstigatorDies 5000 ms (100 ticks) fits. ends_at_death is refuted.",
+      "meaning": "finish_after_5000_ms: when the Rune Giant dies, each enchant he gave ends FinishIfInstigatorDies later; a bonus attack up to 100 ticks after his death still pays. ends_at_death: it ends with him.",
+      "open": "The exact end inside the bracket.",
+      "promotion_rules": "Deaths timed 90 to 110 ticks before a bonus attack.",
+      "engine": "state.rs tick_enchant_finish (in tick_status_timers)"
+    },
+    "BUFF_RANGE_CHECK": {
+      "value": "at_arrival",
+      "candidates": ["at_arrival", "not_checked"],
+      "status": "guess",
+      "confidence": "LOW: not measured; it rarely binds.",
+      "provenance": "Not measured. DistanceToBuff is 8500 against a pick reach of about 7550, so a friend leaves it only by moving away fast during the flight. The shipped reading checks it when the projectile lands.",
+      "meaning": "at_arrival: a projectile landing on a friend more than DistanceToBuff from a living Rune Giant enchants nobody. not_checked: it always enchants.",
+      "open": "Whether the client checks DistanceToBuff at all, and when.",
+      "promotion_rules": "A friend running away from the Rune Giant during the flight.",
+      "engine": "state.rs apply_effects"
+    },
+    "ON_BUFF_PAUSE": {
+      "value": "none",
+      "candidates": ["none", "client16402_no_attack_no_move", "client16402_conditional_no_move", "ability_cast_time"],
+      "status": "measured",
+      "confidence": "HIGH for client 15.535.29. The 16.402 client is not measured: the corpus has no Rune Giant.",
+      "provenance": "Measured on client 15.535.29: the Rune Giant's step stays 59 on every tick around the launch, so he does not stop walking when he enchants; the ability's CastTime 933 does not stop him either, and ability_cast_time is refuted. The 16.402 client's tables add, on each enchant, a 600 ms NO_ATTACK and a NO_MOVE that runs only under a condition on a value the tables use nowhere else. Those two candidates are not implemented; they wait for a 16.402 measurement.",
+      "meaning": "none: the Rune Giant walks and attacks on through his enchants. client16402_no_attack_no_move: each enchant stops his attack and his walk for 600 ms. client16402_conditional_no_move: it stops his attack for 600 ms and his walk only under that condition. ability_cast_time: he stands for his ability's CastTime.",
+      "open": "The 16.402 client.",
+      "promotion_rules": "A Rune Giant recorded on the 16.402 client.",
+      "engine": "state.rs Calib::from_json (only); launch_due_enchants runs no pause"
+    }
+  },
   "cards": {
     "CLIENT16402_VALUES": {
       "value": {

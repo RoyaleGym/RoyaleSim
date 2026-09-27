@@ -1247,6 +1247,33 @@ impl Battle {
             .collect())
     }
 
+    /// ENCHANTS (the Rune Giant's): `(uid, source_uid, count, finish_ms)` for every live entity that carries an
+    /// enchant -- the Rune Giant that gave it (-1 once he is gone), the attacks it has made since (its bonus lands on
+    /// every AttackAmount-th, calibration enchant.BONUS_ATTACKS), and the ms it has left after his death (-1 while he
+    /// lives). `state_json` is unchanged; a viewer reads this beside it.
+    fn enchant_states(&self) -> PyResult<Vec<(i64, i64, u32, i32)>> {
+        let s = self.s()?;
+        Ok(s.entities()
+            .filter_map(|e| {
+                let sl = e.enchant?;
+                let source = s.entity(sl.source).map_or(-1, |g| (g.team_seq as i64) * 2 + g.team as i64);
+                Some(((e.team_seq as i64) * 2 + e.team as i64, source, sl.count, sl.finish_ms))
+            })
+            .collect())
+    }
+
+    /// RUNE GIANTS: `(uid, state, ms, picks)` for every live entity whose card carries the enchant -- state 0 not
+    /// started, 1 waiting out ActionDelay or Cooldown, 2 looking, 3 launching; `ms` its clock; `picks` the friends its
+    /// pending launch goes to. `state_json` is unchanged; a viewer reads this beside it.
+    fn enchant_timers(&self) -> PyResult<Vec<(i64, u8, i32, u32)>> {
+        let s = self.s()?;
+        let cards = s.cards();
+        Ok(s.entities()
+            .filter(|e| cards.get(e.card_idx).enchant.is_some())
+            .map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.enchant_state, e.enchant_ms, s.enchant_picks(e.id).len() as u32))
+            .collect())
+    }
+
     /// CHARGE (Prince, DarkPrince, BattleRam): `(uid, charged, progress)`
     /// for every live entity whose card charges -- `charged` 1 once the run-up is
     /// complete (the unit walks at ChargeSpeedMultiplier and its next landed hit is

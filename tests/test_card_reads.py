@@ -377,7 +377,13 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # 79 -> 78 at the loader2 flip: the Inferno Dragon leaves, its ramp columns now run under
     # combat.VARIABLE_DAMAGE = client16402_attack_progress_stages (the Inferno Tower keeps other
     # unread columns and stays). None joined. Measured against the pre-flip set with each build.
-    outside_by_vintage = {"2018": 40, "15.535": 78}
+    # 78 -> 79 when GiantBuffer loads (the Rune Giant's enchant): it joins with Ability (its ability, whose CastTime
+    # does not stop him on client 15.535.29, calibration enchant.ON_BUFF_PAUSE) and OnStartingAction, which the loader
+    # reads through the extractor's `enchant_friends` block, a link the chain does not follow (the Goblin Hut's
+    # controller is the same case). The WHOLE delta: the outside sets with and without GiantBuffer in the catalogue
+    # (the census list standing in for the engine's) differ by GiantBuffer alone. Measured without a module built from
+    # this change, so the build that carries it is the first to read 79 here.
+    outside_by_vintage = {"2018": 40, "15.535": 79}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

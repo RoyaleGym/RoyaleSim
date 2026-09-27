@@ -68,7 +68,7 @@ it on 2026-09-25, and the ruling is kept in that entry's `supersedes`.
 The status vocabulary is one claim and the provenance prose is another, and they are not
 equally well checked.
 
-A re-read on 2026-09-22 went through 24 of the 220 entries against the corpus. It moved no
+A re-read on 2026-09-22 went through 24 of the 237 entries against the corpus. It moved no
 status and no value. What it turned up was in the evidence the statuses rest on: 42 places
 where a cited number, recording name or piece of arithmetic does not hold. Take that as a
 reason to re-derive, not as 42 established defects. Only a handful of the 42 have since been
@@ -82,21 +82,21 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-196 entries have not been re-read. So, concretely (every count on this page comes from
+213 entries have not been re-read. So, concretely (every count on this page comes from
 `python tools/ledger_census.py`, and `tests/test_ledger_census.py` fails when the page and the
 ledger disagree, because these figures went stale twice in one afternoon before that gate existed):
 
 - **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 220 carry a status. That 220 counts TOP-LEVEL
+  universal, so check rather than assume.** All 237 carry a status. That 237 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
-  another and carries its own `measured` status, so counting every status in the file gives 221
-  and 118 measured. The tools agree on 220 by convention, and the convention undercounts by one. 166 name the rivals the
-  value was chosen against and 174 state what would move it, and 158 do both. The gap is mostly
+  another and carries its own `measured` status, so counting every status in the file gives 238
+  and 130 measured. The tools agree on 237 by convention, and the convention undercounts by one. 183 name the rivals the
+  value was chosen against and 191 state what would move it, and 175 do both. The gap is mostly
   the 31 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 21 of
-  the 117 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 129 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -151,7 +151,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 220 top-level keys with a status, 117 are `measured`; a 221th entry nested inside another is measured too.
+disagree. Of the 237 top-level keys with a status, 129 are `measured`; a 238th entry nested inside another is measured too.
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
@@ -170,6 +170,7 @@ disagree. Of the 220 top-level keys with a status, 117 are `measured`; a 221th e
 | `spells.*` (8 keys) | see `spell-spec.md` | guess / hypothesis, LOW | each key in `spell-spec.md` carries its own deciding observation |
 | `status.*` (stun and buff timing) | see `spell-spec.md` | community / hypothesis | likewise |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
+| `enchant` (5 of 17 keys) | the Rune Giant's places, cooldown origin, stun at the pick, crown-tower bonus and arrival reach | hypothesis / guess, LOW-MEDIUM | each key's `promotion_rules` names the run it needs; the other 12 are measured on client 15.535.29 |
 
 The keys that carry the measured 2026 movement and pathfinding model are all at `measured`/HIGH.
 They are `time.TICK_MS`, `time.SPEED_TO_SUBTILES_PER_TICK`,

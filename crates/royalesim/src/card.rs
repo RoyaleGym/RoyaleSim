@@ -49,7 +49,7 @@
 use crate::fixed::{milli, tiles, Vec2};
 use crate::status::{BuffApply, BuffDef};
 use serde::Deserialize;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::OnceLock;
 
 const RARITIES_CSV: &str = include_str!("../../../data/raw/retroroyale-2018/csv_logic/rarities.csv");
@@ -946,13 +946,16 @@ pub struct CardDef {
     /// BuffWhenNotAttacking is an invisibility, None on every other card. Read by target.rs `can_target` through
     /// the entity's `reveal_from`.
     pub invisible_when_idle: Option<i32>,
+    /// THE ENCHANT (the Rune Giant; `EnchantDef`, state.rs `enchant_pass`, combat.rs `enchant_bonus`). None on every
+    /// other card.
+    pub enchant: Option<EnchantDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `invisible_when_idle`, and onto the end of that tail
+    // field goes HERE, after `enchant`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1132,6 +1135,8 @@ struct RawCard {
     life_state_spawner: Option<RawLifeState>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
+    /// The Rune Giant's enchant (`EnchantDef`), 15.535 only.
+    enchant_friends: Option<RawEnchantFriends>,
     /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
     /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
     /// Barbarian's bottle dummy). A NAME, and nothing more: FreezeIceGolemite is a
@@ -1417,6 +1422,164 @@ fn life_state_of(raw: &RawLifeState, graph: &Option<RawActionGraph>) -> Result<(
     let offset_angle_deg = raw.offset_angle_deg.ok_or("the unit's life-state controller has no SingleDeployOffsetAngle")?;
     let unit = raw.character.clone().filter(|c| !c.is_empty()).ok_or("the unit's life-state controller spawns no character")?;
     Ok((LifeStateDef { unit: u16::MAX, number, action_delay_ms, interval_ms, offset, offset_angle_deg }, unit))
+}
+
+/// THE RUNE GIANT'S ENCHANT (the 15.535.29 tables' ActionGiantBufferCollectFriends and ActionGiantBufferBuff; state.rs
+/// `enchant_pass` and `launch_due_enchants`, combat.rs `enchant_bonus`; calibration enchant.*). The unit looks for
+/// friends after `first_ms`, sends each friend it picks a homing projectile, and the friend it lands on deals a bonus on
+/// every `period`-th attack while the enchant lasts. Distances SUBTILES, times ms, amounts level-1 figures, multipliers
+/// per mille.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnchantDef {
+    /// ActionDelay: from the unit's creation to its first look.
+    pub first_ms: i32,
+    /// Cooldown: from a launch to the next look.
+    pub cooldown_ms: i32,
+    /// MaxFriendlyTroops: how many friends may hold this unit's enchant at once.
+    pub max_targets: u8,
+    /// DistanceToGetTargets: the pick's centre reach, before calibration enchant.PICK_REACH's extra.
+    pub pick_radius: i32,
+    /// DistanceToBuff: the reach checked when the projectile lands (enchant.BUFF_RANGE_CHECK).
+    pub buff_radius: i32,
+    /// BuffDelay: read by enchant.LAUNCH_DELAY.
+    pub buff_delay_ms: i32,
+    /// The projectile's Speed, raw (the unit of every projectile Speed column).
+    pub bolt_speed: i32,
+    /// AttackAmount: the bonus lands on every `period`-th attack (enchant.BONUS_ATTACKS).
+    pub period: u8,
+    /// AddedDamage and AddedCrownTowerDamage: the bonus, level-1 figures.
+    pub added: i32,
+    pub added_crown: i32,
+    /// FinishIfInstigatorDies: how long the enchant outlives the unit that gave it (enchant.INSTIGATOR_DEATH).
+    pub finish_ms: i32,
+    /// DamageMultiplierPerUnitNames and Values, in table order: a row name and its per mille.
+    pub multipliers: Vec<(String, i32)>,
+    /// The multipliers resolved against the loaded cards (`CardDb::from_json_str`): (CardDb index, direct per mille,
+    /// spark per mille), sorted by index. An index not listed takes 1000 for both.
+    pub per_attacker: Vec<(u16, i32, i32)>,
+    /// The rows the tables tag NO_GIANTBUFFER_CHEF_ENCHANTMENT, by name, and the loaded cards they are (sorted
+    /// CardDb indices): never picked.
+    pub excluded_units: Vec<String>,
+    pub excluded: Vec<u16>,
+}
+
+impl EnchantDef {
+    /// The (direct, spark) per mille of attacker card `idx`: its entry in `per_attacker`, or 1000 for both.
+    pub fn per_mille(&self, idx: u16) -> (i32, i32) {
+        match self.per_attacker.binary_search_by_key(&idx, |e| e.0) {
+            Ok(k) => (self.per_attacker[k].1, self.per_attacker[k].2),
+            Err(_) => (PER_MILLE, PER_MILLE),
+        }
+    }
+}
+
+/// A whole bonus: a multiplier of 1000 per mille.
+pub const PER_MILLE: i32 = 1000;
+
+/// The three mechanic classes an `enchant_friends` block stands for, sorted.
+const ENCHANT_CLASSES: [&str; 3] = ["ActionGiantBufferBuff", "ActionGiantBufferBuffVisual", "ActionGiantBufferCollectFriends"];
+
+/// cards.json `enchant_friends`, every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawEnchantFriends {
+    collect: RawEnchantCollect,
+    projectile: RawEnchantBolt,
+    enchant: RawEnchantBuff,
+    excluded_units: Vec<String>,
+    classes: Vec<String>,
+}
+
+/// cards.json `enchant_friends.collect`: the ActionGiantBufferCollectFriends row.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawEnchantCollect {
+    action_delay_ms: Option<i32>,
+    cooldown_ms: Option<i32>,
+    max_targets: Option<i32>,
+    pick_radius_milli: Option<i32>,
+    buff_radius_milli: Option<i32>,
+    buff_delay_ms: Option<i32>,
+}
+
+/// cards.json `enchant_friends.projectile`: the row the enchant travels on.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawEnchantBolt {
+    speed: Option<i32>,
+}
+
+/// cards.json `enchant_friends.enchant`: the ActionGiantBufferBuff row.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawEnchantBuff {
+    attack_amount: Option<i32>,
+    added_damage: Option<i32>,
+    added_crown_tower_damage: Option<i32>,
+    finish_if_instigator_dies_ms: Option<i32>,
+    multipliers: Vec<(String, i32)>,
+}
+
+/// The enchant an `enchant_friends` block names, or the reason it is refused. The graph must be exactly the enchant
+/// and its cosmetic hooks (ActionGroup, ActionPlayEffect) and spawn nothing; the block must stand for exactly the three
+/// mechanic classes; every parameter must be present and in range.
+fn enchant_of(raw: &RawEnchantFriends, graph: &Option<RawActionGraph>) -> Result<EnchantDef, String> {
+    let refuse = |why: String| Err(format!("the unit's enchant: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it".into()) };
+    let read = |c: &str| ENCHANT_CLASSES.contains(&c) || matches!(c, "ActionGroup" | "ActionPlayEffect");
+    if !g.spawns.is_empty() || g.class_types.iter().any(|c| !read(c)) {
+        return refuse(format!("the graph runs more than the enchant ({})", g.class_types.join(", ")));
+    }
+    let mut classes = raw.classes.clone();
+    classes.sort();
+    if classes != ENCHANT_CLASSES {
+        return refuse(format!("the block stands for {}", raw.classes.join(", ")));
+    }
+    let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("the unit's enchant has no {what}; not simulated"));
+    let (c, e) = (&raw.collect, &raw.enchant);
+    let max_targets = need(c.max_targets, "MaxFriendlyTroops")?;
+    let first_ms = need(c.action_delay_ms, "ActionDelay")?;
+    let cooldown_ms = need(c.cooldown_ms, "Cooldown")?;
+    let pick = need(c.pick_radius_milli, "DistanceToGetTargets")?;
+    let buff = need(c.buff_radius_milli, "DistanceToBuff")?;
+    let buff_delay_ms = need(c.buff_delay_ms, "BuffDelay")?;
+    let bolt_speed = need(raw.projectile.speed, "projectile Speed")?;
+    let period = need(e.attack_amount, "AttackAmount")?;
+    let added = need(e.added_damage, "AddedDamage")?;
+    let added_crown = need(e.added_crown_tower_damage, "AddedCrownTowerDamage")?;
+    let finish_ms = need(e.finish_if_instigator_dies_ms, "FinishIfInstigatorDies")?;
+    if !(1..=4).contains(&max_targets) {
+        return refuse(format!("{max_targets} friends at once"));
+    }
+    if first_ms < 0 || cooldown_ms <= 0 || buff_delay_ms < 0 || finish_ms < 0 {
+        return refuse(format!("times {first_ms} / {cooldown_ms} / {buff_delay_ms} / {finish_ms} ms"));
+    }
+    if pick <= 0 || buff < pick {
+        return refuse(format!("pick reach {pick} and buff reach {buff}"));
+    }
+    if bolt_speed <= 0 || !(1..=255).contains(&period) || added < 0 || added_crown < 0 {
+        return refuse(format!("speed {bolt_speed}, every {period} attacks, bonus {added} / {added_crown}"));
+    }
+    if let Some((n, m)) = e.multipliers.iter().find(|(_, m)| !(0..=PER_MILLE).contains(m)) {
+        return refuse(format!("multiplier {m} for {n}"));
+    }
+    Ok(EnchantDef {
+        first_ms,
+        cooldown_ms,
+        max_targets: max_targets as u8,
+        pick_radius: milli(pick),
+        buff_radius: milli(buff),
+        buff_delay_ms,
+        bolt_speed,
+        period: period as u8,
+        added,
+        added_crown,
+        finish_ms,
+        multipliers: e.multipliers.clone(),
+        per_attacker: Vec::new(),
+        excluded_units: raw.excluded_units.clone(),
+        excluded: Vec::new(),
+    })
 }
 
 /// Err when `graph` scripts a mechanic this loader does not read.
@@ -2052,6 +2215,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_area: None,
         life_state: None,
         invisible_when_idle: None,
+        enchant: None,
     }
 }
 
@@ -2925,14 +3089,17 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         };
         return Ok((c, raw.display_name.clone(), Vec::new()));
     }
-    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) is the one action graph a unit may run, when the graph
-    // is exactly that controller and its cosmetic hooks (`life_state_of`). Every other graph is refused as before.
-    let life_state = match &raw.life_state_spawner {
-        None => {
+    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) and THE RUNE GIANT'S ENCHANT (an `enchant_friends`
+    // block) are the action graphs a unit may run, each when the graph is exactly that mechanic and its cosmetic hooks
+    // (`life_state_of`, `enchant_of`). Every other graph is refused as before, and so is a row carrying both.
+    let (life_state, enchant) = match (&raw.life_state_spawner, &raw.enchant_friends) {
+        (None, None) => {
             refuse_action_mechanic(&raw.action_graph, "the unit")?;
-            None
+            (None, None)
         }
-        Some(ls) => Some(life_state_of(ls, &raw.action_graph)?),
+        (Some(ls), None) => (Some(life_state_of(ls, &raw.action_graph)?), None),
+        (None, Some(ef)) => (None, Some(enchant_of(ef, &raw.action_graph)?)),
+        (Some(_), Some(_)) => return Err("the unit carries both a life-state controller and an enchant; not simulated".into()),
     };
     refuse_spawn_pathfind(&raw.spawn_pathfind, "the unit")?;
     // INVISIBLE WHEN IDLE: the idle time, with area damage still landing (AllowAreaDmgWhenInvisible) -- the one
@@ -3253,6 +3420,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         projectile_area: None,
         life_state: life_state.map(|(d, _)| d),
         invisible_when_idle,
+        // Its multipliers and exclusions are resolved against the loaded cards by `CardDb::from_json_str`.
+        enchant,
     }, display, units))
 }
 
@@ -3798,10 +3967,59 @@ impl CardDb {
             }
             db.towers_from_fallback = true;
         }
+        db.resolve_enchants(&ctx);
         let (defs, names) = buffs.into_parts();
         db.buffs = defs;
         db.buff_names = names;
         Ok(db)
+    }
+
+    /// THE ENCHANT'S MULTIPLIERS AND EXCLUSIONS, resolved against the loaded cards (`EnchantDef::per_attacker`,
+    /// `EnchantDef::excluded`), for every card that carries an enchant. A multiplier names the row that DELIVERS the
+    /// damage: a character row (the Electro Wizard) or a projectile row (the Hunter's pellet, the Firecracker's spark).
+    /// So an attacker card is matched through the unit it puts on the board (`CardDef::unit_name`), never through its
+    /// own name: its direct hits by the unit row's CustomFirstProjectile (when it differs from its Projectile), its
+    /// Projectile, then the unit row itself, the first listed name giving the per mille; its sparks by the Projectile
+    /// row's SpawnProjectile. The TriWizards card (unit ElectroWizard) takes the Electro Wizard's 500. Only registered
+    /// cards and summon-only units are resolved; spells deal no attack.
+    fn resolve_enchants(&mut self, ctx: &LoadCtx) {
+        let live: BTreeSet<u16> = self.by_name.values().copied().collect();
+        let str_of = |v: Option<&serde_json::Value>| v.and_then(serde_json::Value::as_str).map(str::to_string);
+        for owner in 0..self.cards.len() {
+            let Some(def) = self.cards[owner].enchant.as_ref() else { continue };
+            let table: BTreeMap<&str, i32> = def.multipliers.iter().map(|(n, m)| (n.as_str(), *m)).collect();
+            let mut per_attacker: Vec<(u16, i32, i32)> = Vec::new();
+            let mut excluded: Vec<u16> = Vec::new();
+            for &k in &live {
+                let c = &self.cards[k as usize];
+                if c.spell.is_some() {
+                    continue;
+                }
+                if def.excluded_units.contains(&c.unit_name) {
+                    excluded.push(k);
+                }
+                let raw = ctx.units.get(&c.unit_name).and_then(|u| u.get("raw"));
+                let projectile = str_of(raw.and_then(|r| r.get("Projectile")));
+                let custom = str_of(raw.and_then(|r| r.get("CustomFirstProjectile"))).filter(|n| Some(n) != projectile.as_ref());
+                #[cfg(not(clash_plant = "enchant_multiplier_by_card_name"))]
+                let direct_names: Vec<String> = custom.into_iter().chain(projectile.clone()).chain(std::iter::once(c.unit_name.clone())).collect();
+                #[cfg(clash_plant = "enchant_multiplier_by_card_name")]
+                let direct_names: Vec<String> = {
+                    let _ = custom;
+                    vec![c.name.clone()] // PLANT: the card's own name, which names no row.
+                };
+                let spark_name = projectile.as_deref().and_then(|p| ctx.projectiles.get(p)).and_then(|p| str_of(p.get("spawn_projectile").and_then(|s| s.get("name"))));
+                let direct = direct_names.iter().find_map(|n| table.get(n.as_str()).copied());
+                let spark = spark_name.as_deref().and_then(|n| table.get(n).copied());
+                if direct.is_some() || spark.is_some() {
+                    per_attacker.push((k, direct.unwrap_or(PER_MILLE), spark.unwrap_or(PER_MILLE)));
+                }
+            }
+            drop(table);
+            let def = self.cards[owner].enchant.as_mut().expect("the enchant read above");
+            def.per_attacker = per_attacker;
+            def.excluded = excluded;
+        }
     }
 
     /// The unified level a unit released by spell `spell_idx` at unified `level` has.

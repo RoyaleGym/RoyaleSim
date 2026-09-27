@@ -13054,6 +13054,91 @@
     "spawns": [],
     "mechanic": true
    },
+   "enchant_friends": {
+    "collect": {
+     "action": "giantbuffer_collect_friend_troops",
+     "action_delay_ms": 1000,
+     "cooldown_ms": 3000,
+     "max_targets": 2,
+     "pick_radius_milli": 7000,
+     "buff_radius_milli": 8500,
+     "buff_delay_ms": 280,
+     "target_filter": "friendly_troops_for_rune_giant"
+    },
+    "projectile": {
+     "name": "GiantBuffProjectile",
+     "speed": 600
+    },
+    "enchant": {
+     "action": "giantbuffer_enchanting_buff",
+     "attack_amount": 3,
+     "added_damage": 86,
+     "added_crown_tower_damage": 86,
+     "finish_if_instigator_dies_ms": 5000,
+     "multipliers": [
+      [
+       "ElectroWizard",
+       500
+      ],
+      [
+       "FirecrackerExplosion",
+       200
+      ],
+      [
+       "FirecrackerExplosion_EV1",
+       200
+      ],
+      [
+       "HunterProjectile",
+       100
+      ],
+      [
+       "Hunter_EV1_shotgun_projectile",
+       100
+      ],
+      [
+       "RamRiderBola",
+       0
+      ],
+      [
+       "SpearGoblinGiantProjectile",
+       0
+      ],
+      [
+       "GoblinMachineRocketProjectile",
+       0
+      ],
+      [
+       "PhoenixFireball",
+       0
+      ],
+      [
+       "GoblinDemolisherDeathProjectile",
+       0
+      ],
+      [
+       "BarbLogHeroProjectileReRolling",
+       0
+      ],
+      [
+       "EliteArcherHero_Ability_Triple_Shot_Projectile",
+       340
+      ],
+      [
+       "EliteArcherHero_Ability_Power_Shot_Projectile_Middle",
+       340
+      ]
+     ]
+    },
+    "excluded_units": [
+     "PhoenixEgg"
+    ],
+    "classes": [
+     "ActionGiantBufferBuff",
+     "ActionGiantBufferBuffVisual",
+     "ActionGiantBufferCollectFriends"
+    ]
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -37315,6 +37400,91 @@
     ],
     "spawns": [],
     "mechanic": true
+   },
+   "enchant_friends": {
+    "collect": {
+     "action": "giantbuffer_collect_friend_troops",
+     "action_delay_ms": 1000,
+     "cooldown_ms": 3000,
+     "max_targets": 2,
+     "pick_radius_milli": 7000,
+     "buff_radius_milli": 8500,
+     "buff_delay_ms": 280,
+     "target_filter": "friendly_troops_for_rune_giant"
+    },
+    "projectile": {
+     "name": "GiantBuffProjectile",
+     "speed": 600
+    },
+    "enchant": {
+     "action": "giantbuffer_enchanting_buff",
+     "attack_amount": 3,
+     "added_damage": 86,
+     "added_crown_tower_damage": 86,
+     "finish_if_instigator_dies_ms": 5000,
+     "multipliers": [
+      [
+       "ElectroWizard",
+       500
+      ],
+      [
+       "FirecrackerExplosion",
+       200
+      ],
+      [
+       "FirecrackerExplosion_EV1",
+       200
+      ],
+      [
+       "HunterProjectile",
+       100
+      ],
+      [
+       "Hunter_EV1_shotgun_projectile",
+       100
+      ],
+      [
+       "RamRiderBola",
+       0
+      ],
+      [
+       "SpearGoblinGiantProjectile",
+       0
+      ],
+      [
+       "GoblinMachineRocketProjectile",
+       0
+      ],
+      [
+       "PhoenixFireball",
+       0
+      ],
+      [
+       "GoblinDemolisherDeathProjectile",
+       0
+      ],
+      [
+       "BarbLogHeroProjectileReRolling",
+       0
+      ],
+      [
+       "EliteArcherHero_Ability_Triple_Shot_Projectile",
+       340
+      ],
+      [
+       "EliteArcherHero_Ability_Power_Shot_Projectile_Middle",
+       340
+      ]
+     ]
+    },
+    "excluded_units": [
+     "PhoenixEgg"
+    ],
+    "classes": [
+     "ActionGiantBufferBuff",
+     "ActionGiantBufferBuffVisual",
+     "ActionGiantBufferCollectFriends"
+    ]
    },
    "death_spawn_pushback": false,
    "raw": {

@@ -95,6 +95,19 @@ pub enum DashState {
     Dashing = 2,
 }
 
+/// AN ENCHANT ON A UNIT (card.rs `EnchantDef`; `Entities::enchant`): who gave it, from which card and at which level
+/// (the bonus is scaled on that card's ladder at that level, calibration enchant.BONUS_LEVEL_SCALING), the attacks the
+/// unit has made since it took it (enchant.BONUS_ATTACKS reads it), and the ms it has left once the giver is gone (-1
+/// while the giver lives; enchant.INSTIGATOR_DEATH).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EnchantSlot {
+    pub source: EntityId,
+    pub card: u16,
+    pub level: i32,
+    pub count: u32,
+    pub finish_ms: i32,
+}
+
 /// Everything needed to materialise one entity.
 #[derive(Clone, Copy, Debug)]
 pub struct SpawnInit {
@@ -231,6 +244,21 @@ pub struct Entities {
     /// load like `launched_beyond`.
     #[serde(default)]
     pub reveal_from: Vec<u32>,
+    /// THE RUNE GIANT'S LOOK (card.rs `EnchantDef`; state.rs `enchant_pass`, `launch_due_enchants`): where it is (0 not
+    /// started, 1 waiting out its ActionDelay or Cooldown, 2 looking, 3 launching), the ms its clock has left, and the
+    /// friends its pending launch goes to. 0 / empty on every other entity, hashed only for a card that carries the
+    /// enchant. `default` and sized on load like `reveal_from`.
+    #[serde(default)]
+    pub enchant_state: Vec<u8>,
+    #[serde(default)]
+    pub enchant_ms: Vec<i32>,
+    #[serde(default)]
+    pub enchant_picks: Vec<Vec<EntityId>>,
+    /// THE ENCHANT THIS UNIT CARRIES (state.rs `apply_effects` puts it on when the projectile lands; combat.rs
+    /// `enchant_bonus` reads it on every attack). None on every entity without one, which is every entity of a battle
+    /// with no Rune Giant, and hashed only when Some. `default` and sized on load like `reveal_from`.
+    #[serde(default)]
+    pub enchant: Vec<Option<EnchantSlot>>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -652,6 +680,10 @@ impl Entities {
             self.life_target[i] = None;
             self.life_n[i] = 0;
             self.reveal_from[i] = 0;
+            self.enchant_state[i] = 0;
+            self.enchant_ms[i] = 0;
+            self.enchant_picks[i].clear();
+            self.enchant[i] = None;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -734,6 +766,10 @@ impl Entities {
             self.life_target.push(None);
             self.life_n.push(0);
             self.reveal_from.push(0);
+            self.enchant_state.push(0);
+            self.enchant_ms.push(0);
+            self.enchant_picks.push(Vec::new());
+            self.enchant.push(None);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);

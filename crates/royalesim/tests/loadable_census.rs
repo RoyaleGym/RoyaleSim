@@ -27,9 +27,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 103
-//!      loadable rows (the 101 catalogue cards, then PrincessTower and KingTower) and
-//!      43 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 111
+//!      loadable rows (the 109 catalogue cards, then PrincessTower and KingTower) and
+//!      35 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      69 loadable rows (the catalogue, then the towers) and 11 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -96,7 +96,7 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// 51c67a4b9e79d10e (the rows gained `death_spawn_pushback` with no row loading or refusing differently). The lists are what the loader gives for that file.
+/// 2c1b804b736a66dd (GiantBuffer's row and unit gained `enchant_friends`, and GiantBuffer loads). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
 /// --census`), written from the same file, holds the same 103 loadable rows in the
 /// same order and the same 43 refusals, word for word.
@@ -180,6 +180,7 @@ const LOADABLE_15535: &[&str] = &[
     "GoblinMachine",
     "SuperKnight",
     "SkeletonWarriors_SpookyChess",
+    "GiantBuffer",
     "Berserker",
     "MergeMaiden_Normal",
     "MergeMaiden_Mounted",
@@ -221,7 +222,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("Elixir Collector", "missing hit_speed_ms"),
     ("ElixirGolem", "units.ElixirGolem2 itself spawns units (ElixirGolem4)"),
     ("FirespiritHut", "the unit runs an action graph this loader does not read (ActionInterval, ActionPlayEffect, ActionSpawnToLocation; spawns CharacterType:FireSpirits)"),
-    ("GiantBuffer", "the unit runs an action graph this loader does not read (ActionGiantBufferBuff, ActionGiantBufferBuffVisual, ActionGiantBufferCollectFriends, ActionPlayEffect)"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
     ("GoblinCurse", "area effect GoblinCurse runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionSpawn; spawns AreaEffectType:GoblinCurseBase)"),
