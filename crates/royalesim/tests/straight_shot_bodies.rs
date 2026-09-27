@@ -17,6 +17,7 @@
 //!      and lands on the Cannon, as it does with no Tesla. Before, the Tesla stopped it. The Tesla can stand only near
 //!      the end of a pellet's range and stay hidden (its wake range is 6,600 from the Hunter, a pellet's range 6,500),
 //!      so the scene places it from the pellet's own path and asserts each distance it needs.
+//!
 //! The pellets' damage and reach and every radius are read from the data. No client recording has a pellet crossing
 //! a Miner under ground or an idle Tesla; the rule is the one every other reader of the two keys follows.
 //!
