@@ -1,4 +1,4 @@
-"""Six card values where the 16.402 client differs from the 15.535.29 tables (cards.CLIENT16402_VALUES).
+"""Eight card values where the 16.402 client differs from the 15.535.29 tables (cards.CLIENT16402_VALUES).
 
 WHAT THIS PINS. Read off the 16.402 corpus (every recorded unit's spawn hp and every attacker's hit damage, the mode per
 unit and level, each inverted to the one integer base value that reproduces it at every level seen):
@@ -6,9 +6,11 @@ unit and level, each inverted to the one integer base value that reproduces it a
   IceGolemite Hitpoints 480 (514): 1228 at level 11, 9 of 9;
   GoblinBrawler Hitpoints 438 (422): 1121 at level 11, 6 of 6 (the GoblinCage's death spawn);
   HealSpirit Hitpoints 84 (85): 215 at level 11, 2 of 2 spawns (one battle, both seats);
+  FireSpirits Hitpoints 84 (85) and projectile Damage 84 (81), the Furnace's spirits: 215 at level 11 on 9 of 9 spawns
+    (two battles, both seats) and 215 on the 5 spirit hits on a crown tower that stand alone on their frame;
   Bomber projectile Damage 83 (88): 212 at level 11 in the mode, and 132 / 100 at levels 6 / 3;
   Fireball CrownTowerDamagePercent -77 (-75): 3 of 3 crown hits at levels 3, 5 and 11.
-Every other basic unit's hp and hit damage agrees with the tables. The key overrides the six at load; cards.json stays
+Every other basic unit's hp and hit damage agrees with the tables. The key overrides the eight at load; cards.json stays
 the 15.535.29 extraction.
 
 THE CHECKS. Each value is read through the engine at level 11, the corpus's level: a spawn's hp, the Bomber's first
@@ -35,6 +37,8 @@ IDS = list(range(len(DECK)))
 FB, IG, GC, BO, IS, KN = 0, 1, 2, 3, 4, 5
 #: the Heal Spirit is played, not set up (its card is a spell that puts the spirit down): a deck with it in the hand
 HEAL_DECK = ["Heal", "Knight", "Giant", "Fireball", "Bomber", "IceSpirits", "IceGolemite", "Tesla"]
+#: a Fire Spirit is set up as its own card (the Furnace puts the same unit down), with a Knight to hit
+FIRE_DECK = ["FireSpirits", "Knight", "Giant", "Fireball", "Bomber", "IceSpirits", "IceGolemite", "Tesla"]
 KEY = "cards.CLIENT16402_VALUES"
 # ENTITY_FIELDS: 1 team, 2 kind, 3 card_id, 4 tower_slot, 5 x, 6 y, 7 hp
 TEAM, KIND, CARD, SLOT, X, Y, HP = 1, 2, 3, 4, 5, 6, 7
@@ -77,6 +81,34 @@ def heal_spirit_hp(overrides: dict) -> int:
             return units[0][HP]
         b.step([], 1)
     raise AssertionError("no Heal Spirit within 60 ticks")
+
+
+def fire_battle(overrides: dict, spawns: list) -> object:
+    b = royalesim.Battle(card_names=FIRE_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
+    ids = list(range(len(FIRE_DECK)))
+    b.reset(0, [ids, ids], 0, 200, [10_000, 10_000], None, [(t, c, x * SUB, y * SUB, hp) for t, c, x, y, hp in spawns])
+    return b
+
+
+def fire_spirit_hp(overrides: dict) -> int:
+    b = fire_battle(overrides, [(0, 0, 9000, 8000, -1)])
+    b.step([], 1)
+    return next(e[HP] for e in rows(b) if e[TEAM] == 0)
+
+
+def fire_spirit_hit(overrides: dict) -> int:
+    """A blue Fire Spirit and a red Knight 3000 up the arena: the Knight's first hp drop is the spirit's hit."""
+    b = fire_battle(overrides, [(0, 0, 9000, 10000, -1), (1, 1, 9000, 13000, -1)])
+    prev = None
+    for _ in range(120):
+        b.step([], 1)
+        kn = next((e for e in rows(b) if e[TEAM] == 1), None)
+        if kn is None:
+            break
+        if prev is not None and kn[HP] < prev:
+            return prev - kn[HP]
+        prev = kn[HP]
+    raise AssertionError("the Fire Spirit never hit the Knight")
 
 
 def brawler_hp(overrides: dict) -> int:
@@ -127,6 +159,8 @@ CASES = [
     ("IceGolemite hp", lambda o: spawn_hp(o, IG), 1228, 1315),
     ("GoblinBrawler hp", brawler_hp, 1121, 1080),
     ("HealSpirit hp", heal_spirit_hp, 215, 217),
+    ("FireSpirits hp", fire_spirit_hp, 215, 217),
+    ("FireSpirits hit", fire_spirit_hit, 215, 207),
     ("Bomber hit", bomber_first_hit, 212, 225),
     ("Fireball on a princess tower", fireball_on_tower, 159, 172),
 ]

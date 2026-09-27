@@ -13,7 +13,7 @@ Three things are worth stating up front, because they bound everything below:
   has been checked on. The catalogue is much larger and loads, but see "Cards outside the slice".
 - **Card stats are the 15.535.29 client's own card data** (`tools/extract_cards.py`; the 2018
   table stays beside it as `cards-2018.json`, which the format-3 snapshot fixture reads), except
-  six values measured on the 16.402 corpus that the ledger overlays on this table only
+  eight values measured on the 16.402 corpus that the ledger overlays on this table only
   (`cards.CLIENT16402_VALUES`).
   Movement, pathfinding, level scaling and the crown-tower ladder are all measured against
   2026 recordings (`combat.STAT_BASE_LEVEL`, `combat.TOWER_HITPOINT_LADDER`).
