@@ -136,6 +136,19 @@ pub fn ring_offset_native(radius: i32, deg: i32) -> crate::fixed::Vec2 {
     crate::fixed::Vec2::new(x, y)
 }
 
+/// AN ATTACHED RIDER'S OFFSET FROM ITS MOUNT on an arc behind it (calibration rider.OFFSET_LAW = arc_behind_mount),
+/// in subtiles: rider k of `number` stands `radius` (subtiles; the mount's SpawnRadius) from the mount's centre, at the
+/// mount's heading `facing` rounded to a whole degree (`rounded_degree`) plus A_k = 180 + shift + (number - 1 - k) x
+/// max_angle / number, in whole native units (`ring_offset_native`). `shift` and `max_angle` are the rider row's
+/// SpawnAngleShift and SpawnMaxAngle. Measured on client 15.535.29 on the Goblin Giant (SpawnRadius 900, two Spear
+/// Goblins with SpawnAngleShift -22 and SpawnMaxAngle 90, so A_0 = 203 and A_1 = 158): exact to the native unit at six
+/// headings in five runs. The formula for another SpawnNumber is inferred: no other row carries such a block.
+pub fn rider_arc_offset(radius: i32, facing: crate::fixed::Vec2, number: i32, k: i32, shift_deg: i32, max_angle_deg: i32) -> crate::fixed::Vec2 {
+    let n = number.max(1);
+    let a = 180 + shift_deg + (n - 1 - k) * max_angle_deg / n;
+    ring_offset_native(radius, rounded_degree(facing) + a)
+}
+
 /// `trunc(v / 1024)`, toward zero for a negative product too.
 #[inline]
 fn shr10_trunc(v: i32) -> i32 {

@@ -616,6 +616,26 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; only a counter's group reads it, and no battle saved before it held a counter.
     #[serde(default = "sub_actions_delay_default")]
     pub sub_actions_delay: SubActionsDelay,
+    /// The scheduled areas, the bottle a death puts down and the riders off their mount's centre (the Graveyard, the
+    /// Suspicious Bush, the Lumberjack, the Goblin Giant): actions.SUB_TICK_DELAY_ROUNDING (spell.rs `delay_ticks`),
+    /// actions.TEAM_Y_DIRECTION, spells.SCHEDULED_SPAWN_INVALID_POINT and spawner.RELATIVE_SPAWN_OFFSET
+    /// (`scheduled_point`), spells.DEATH_FUSE_START (`phase_reap`), rider.OFFSET_LAW and rider.DISMOUNT_POINT
+    /// (`rider_arc_offset`, `dismount_point`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one of
+    /// those cards, so each default is the shipped arm.
+    #[serde(default = "sub_tick_delay_rounding_default")]
+    pub sub_tick_delay_rounding: SubTickDelayRounding,
+    #[serde(default = "team_y_direction_default")]
+    pub team_y_direction: TeamYDirection,
+    #[serde(default = "scheduled_spawn_invalid_point_default")]
+    pub scheduled_spawn_invalid_point: ScheduledSpawnInvalidPoint,
+    #[serde(default = "relative_spawn_offset_default")]
+    pub relative_spawn_offset: RelativeSpawnOffset,
+    #[serde(default = "death_fuse_start_default")]
+    pub death_fuse_start: DeathFuseStart,
+    #[serde(default = "rider_offset_law_default")]
+    pub rider_offset_law: RiderOffsetLaw,
+    #[serde(default = "rider_dismount_point_default")]
+    pub rider_dismount_point: RiderDismountPoint,
 
     // --- spells (docs/spell-spec.md). Each is one calibration.json key; a value
     // with no implementation is refused in from_json.
@@ -1474,6 +1494,34 @@ fn parry_ready_at_default() -> ParryReadyAt {
 
 fn sub_actions_delay_default() -> SubActionsDelay {
     SubActionsDelay::FromGroupStart
+}
+
+fn sub_tick_delay_rounding_default() -> SubTickDelayRounding {
+    SubTickDelayRounding::FloorFromCreation
+}
+
+fn team_y_direction_default() -> TeamYDirection {
+    TeamYDirection::AgainstForward
+}
+
+fn scheduled_spawn_invalid_point_default() -> ScheduledSpawnInvalidPoint {
+    ScheduledSpawnInvalidPoint::ClampKeepWater
+}
+
+fn relative_spawn_offset_default() -> RelativeSpawnOffset {
+    RelativeSpawnOffset::HalfTileOwnerLeft
+}
+
+fn death_fuse_start_default() -> DeathFuseStart {
+    DeathFuseStart::OneTickHop
+}
+
+fn rider_offset_law_default() -> RiderOffsetLaw {
+    RiderOffsetLaw::ArcBehindMount
+}
+
+fn rider_dismount_point_default() -> RiderDismountPoint {
+    RiderDismountPoint::MountPositionPlusOffset
 }
 
 /// THE DELAY OF THE ACTION AT PLACE `at` IN A GROUP whose SubActionsDelay is `d`, ms from the group's start
@@ -3158,6 +3206,87 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// actions.SUB_TICK_DELAY_ROUNDING -- the whole ticks after its object's creation tick on which an action due a
+    /// number of ms after that creation acts (spell.rs `delay_ticks`; a scheduled area's entries).
+    SubTickDelayRounding {
+        /// floor(ms / TICK_MS). Measured on client 15.535.29: the Suspicious Bush's goblins at 625 and 675 ms act 12
+        /// and 13 ticks after the death (12 of 12).
+        FloorFromCreation = "floor_from_creation",
+        /// ceil(ms / TICK_MS).
+        CeilToTick = "ceil_to_tick",
+    }
+);
+calib_enum!(
+    /// actions.TEAM_Y_DIRECTION -- the sign of team_y_direction(team) in a position expression (the Graveyard's
+    /// `y - dy x team_y_direction`; `scheduled_point`).
+    TeamYDirection {
+        /// Against the side's forward: -1 for side 0, whose forward is +y. Measured on client 15.535.29: six
+        /// Graveyard casts, 72 Skeletons, side 1 the rotation of side 0.
+        AgainstForward = "against_forward",
+        /// Along the side's forward.
+        Forward = "forward",
+    }
+);
+calib_enum!(
+    /// spells.SCHEDULED_SPAWN_INVALID_POINT -- what a scheduled area does with a point off the arena or on the river
+    /// (`scheduled_point`).
+    ScheduledSpawnInvalidPoint {
+        /// Clamped into the arena, 250 native inside each edge, and kept where it lands, water included. Measured on
+        /// client 15.535.29: 7 Graveyard slots off the arena came down at x 250 with their y kept, and 4 slots on the
+        /// river came down and deployed there.
+        ClampKeepWater = "clamp_keep_water",
+        /// Clamped the same way, then a ground unit's point on water is put on the nearest land (the rule a spell's
+        /// release follows).
+        ClampThenEjectToLand = "clamp_then_eject_to_land",
+    }
+);
+calib_enum!(
+    /// spawner.RELATIVE_SPAWN_OFFSET -- the unit and the frame of an action's RelativeX / RelativeY (the Suspicious
+    /// Bush's goblins; `scheduled_point`).
+    RelativeSpawnOffset {
+        /// 500 native a unit: RelativeX toward the owner's LEFT, RelativeY toward its forward, turned with the owner.
+        /// Measured on client 15.535.29: the goblins stand 500 either side of the death point, turned with the
+        /// owner (12 bushes, 24 goblins).
+        HalfTileOwnerLeft = "half_tile_owner_left",
+        /// 1000 native a unit, RelativeX toward the owner's right.
+        TilesOwnerFrame = "tiles_owner_frame",
+    }
+);
+calib_enum!(
+    /// spells.DEATH_FUSE_START -- when the fuse of a bottle a death puts down starts (the Lumberjack's rage bottle;
+    /// `phase_reap`).
+    DeathFuseStart {
+        /// One tick later than a fuse born in Reap otherwise runs: the rage's damage lands on the death tick + 13.
+        /// Measured on client 15.535.29: 5 of 5 Lumberjack deaths.
+        OneTickHop = "one_tick_hop",
+        /// The fuse counts from the tick after the death like any object Reap makes: the damage on the death tick + 12.
+        NextTick = "next_tick",
+    }
+);
+calib_enum!(
+    /// rider.OFFSET_LAW -- where riders stand whose mount's attach block has a SpawnRadius (the Goblin Giant's Spear
+    /// Goblins; formation.rs `rider_arc_offset`).
+    RiderOffsetLaw {
+        /// On an arc behind the mount, SpawnRadius from its centre, at its heading (a whole degree) plus 180 +
+        /// SpawnAngleShift + (SpawnNumber - 1 - k) x SpawnMaxAngle / SpawnNumber for rider k. Measured on client
+        /// 15.535.29: exact to the native unit at six headings, five runs.
+        ArcBehindMount = "arc_behind_mount",
+        /// On the mount's centre, as a rider with no SpawnRadius.
+        MountCentre = "mount_centre",
+    }
+);
+calib_enum!(
+    /// rider.DISMOUNT_POINT -- where an attached rider's death spawn comes down (the Goblin Giant's Spear Goblins;
+    /// `dismount_point`).
+    RiderDismountPoint {
+        /// The mount's position as its death leaves it, plus the rider's offset under the mount's facing then.
+        /// Measured on client 15.535.29: three scenes.
+        MountPositionPlusOffset = "mount_position_plus_offset",
+        /// The ordinary death spawn at the rider's own position.
+        RiderPosition = "rider_position",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -4045,7 +4174,7 @@ impl Calib {
         // its identity, which no entity column carries.
         only(&v, &["status", "BUFF_STACKING", "value"], "one_slot_per_buff_row")?;
         // spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS: an area that hits neither ground nor air lands no Damage of its own (the
-        // Goblin Curse's parent; card.rs `area_spawns_area` does not read the column).
+        // Goblin Curse's parent, the Suspicious Bush's death area; card.rs `inert_own_damage`).
         only(&v, &["spells", "AREA_DAMAGE_WITHOUT_HIT_FLAGS", "value"], "inert")?;
         only(&v, &["movement", "CONTACT_DOMAIN", "value"], "isolated_unit_only")?;
         {
@@ -4252,6 +4381,13 @@ impl Calib {
             parry_cooldown_start: pick(&v, &["parry", "COOLDOWN_START", "value"], ParryCooldownStart::from_calibration_name)?,
             parry_ready_at: pick(&v, &["parry", "READY_AT", "value"], ParryReadyAt::from_calibration_name)?,
             sub_actions_delay: pick(&v, &["actions", "SUB_ACTIONS_DELAY", "value"], SubActionsDelay::from_calibration_name)?,
+            sub_tick_delay_rounding: pick(&v, &["actions", "SUB_TICK_DELAY_ROUNDING", "value"], SubTickDelayRounding::from_calibration_name)?,
+            team_y_direction: pick(&v, &["actions", "TEAM_Y_DIRECTION", "value"], TeamYDirection::from_calibration_name)?,
+            scheduled_spawn_invalid_point: pick(&v, &["spells", "SCHEDULED_SPAWN_INVALID_POINT", "value"], ScheduledSpawnInvalidPoint::from_calibration_name)?,
+            relative_spawn_offset: pick(&v, &["spawner", "RELATIVE_SPAWN_OFFSET", "value"], RelativeSpawnOffset::from_calibration_name)?,
+            death_fuse_start: pick(&v, &["spells", "DEATH_FUSE_START", "value"], DeathFuseStart::from_calibration_name)?,
+            rider_offset_law: pick(&v, &["rider", "OFFSET_LAW", "value"], RiderOffsetLaw::from_calibration_name)?,
+            rider_dismount_point: pick(&v, &["rider", "DISMOUNT_POINT", "value"], RiderDismountPoint::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
@@ -5063,6 +5199,10 @@ pub struct EntityView<'a> {
     pub enchant_ms: i32,
 }
 
+/// spells.SCHEDULED_SPAWN_INVALID_POINT: how far inside each arena edge a scheduled area's point is clamped, native.
+/// Measured on client 15.535.29: 7 Graveyard slots off the arena came down at x 250.
+pub const SCHEDULED_EDGE_MARGIN: i32 = 250;
+
 #[derive(Default, Clone, Debug)]
 struct Scratch {
     nb: Vec<u32>,
@@ -5116,6 +5256,10 @@ struct Scratch {
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
     parry: Vec<ParryCand>,
+    /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
+    /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
+    /// saved, not hashed.
+    mount_facings: Vec<(EntityId, Vec2)>,
 }
 
 /// THE UNDERGROUND WALK'S SEARCH (movement.SPAWN_PATHFIND_STATES): the 16.402 terrain and path finder, priced
@@ -5361,8 +5505,9 @@ fn axis_push(raw: Vec2, centre: Vec2, tower: Rect, snapped: Vec2) -> Vec2 {
 
 /// A RIDER'S OFFSET (entity.rs `attach_offset`: subtiles in its mount's facing frame, +y along the
 /// facing) turned into the world by the mount's length-256 `facing`, each axis truncated toward
-/// zero. Zero in, zero out: every rider the loader takes today stands on its mount's centre, so
-/// the frame is calibration rider.OFFSET_LAW's to settle when a SpawnRadius is taken.
+/// zero. Zero in, zero out: a rider with no SpawnRadius stands on its mount's centre (the Ram
+/// Rider's). A rider whose mount has a SpawnRadius stands where calibration rider.OFFSET_LAW says
+/// instead (`BattleState::rider_arc_offset`).
 fn offset_on_mount(facing: Vec2, v: Vec2) -> Vec2 {
     if v == Vec2::default() {
         return v;
@@ -5886,7 +6031,7 @@ impl BattleState {
         #[cfg(clash_plant = "spawn_area_effect_unread")]
         let puts_area = false; // PLANT (regression): the Battle Healer heals nobody on deploy under every_row too.
         if puts_area && c.spawn_area_effect.is_some() && !cards.is_morph_target(card) {
-            let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos)?;
+            let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos, self.tick)?;
             self.spells.extend(area);
         }
         // targeting.FIRST_TOWER_PICK = client_spawn_lane: a troop takes its lane at its creation point, before any
@@ -5912,8 +6057,9 @@ impl BattleState {
 
     /// THE RIDERS OF MOUNT `mount` (card.rs `AttachDef`; calibration rider.*), just created at
     /// `pos` for `team` at unified `level`: `number` riders of the rider row at its own level
-    /// (`CardDb::unit_level`, as a spawner's unit), each on the mount's centre plus its offset
-    /// (zero: the loader takes no SpawnRadius, calibration rider.OFFSET_LAW), linked to the mount
+    /// (`CardDb::unit_level`, as a spawner's unit), one after another right after the mount, each
+    /// on the mount's centre plus its offset (rider k on the arc of rider.OFFSET_LAW at the mount's
+    /// facing when its mount has a SpawnRadius, `arc_offset`; else zero), linked to the mount
     /// (`attached_to`). Measured on client 16.402 on one Ram Rider: the rider exists from the
     /// Ram's first frame, at its position, for its side and at its level (593 hp at level 11,
     /// floor(232 x 2.56)). Under rider.DEPLOY = mirror_mount its deploy timer is the mount's
@@ -5921,12 +6067,12 @@ impl BattleState {
     fn spawn_riders(&mut self, mount: EntityId, at: crate::card::AttachDef, team: Team, level: i32, pos: Vec2) -> Result<(), String> {
         let mi = mount.index as usize;
         let lvl = self.cfg.cards.unit_level(self.ents.card[mi], at.unit, None, level)?;
-        for _ in 0..at.number {
-            let offset = Vec2::default();
-            let r = self.spawn_now(team, at.unit, lvl, pos.add(offset), EntityKind::Troop)?;
+        for k in 0..at.number {
+            let arc = self.arc_offset(mi, at.unit, k, self.ents.facing[mi]);
+            let r = self.spawn_now(team, at.unit, lvl, pos.add(arc.unwrap_or_default()), EntityKind::Troop)?;
             let ri = r.index as usize;
             self.ents.attached_to[ri] = Some(mount);
-            self.ents.attach_offset[ri] = offset;
+            self.ents.attach_offset[ri] = Vec2::default();
         }
         if self.cfg.calib.rider_deploy == RiderDeploy::MirrorMount {
             self.rider_deploy_lockstep();
@@ -7373,6 +7519,8 @@ impl BattleState {
         if self.outcome.is_some() {
             return;
         }
+        // rider.OFFSET_LAW: the mounts' facings as the last tick left them, before anything turns one.
+        self.note_mount_facings();
         let phases: &[Phase] = match self.tick_order() {
             TickOrder::Client16402 => &TICK_PHASES,
             TickOrder::LegacyMoveBeforeAttack => &LEGACY_TICK_PHASES,
@@ -8105,7 +8253,7 @@ impl BattleState {
                 CardKind::Spell => {
                     // An accepted cast becomes its spell objects now, in queue order --
                     // which is the canonical (team, slot) deploy order.
-                    let cast = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, p.pos)
+                    let cast = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, p.pos, self.tick)
                         .expect("spell level validated at enqueue");
                     self.spells.extend(cast);
                     continue;
@@ -8152,7 +8300,7 @@ impl BattleState {
             let zaps = false; // PLANT (regression): the new arm deploys the character alone, as the old one does.
             if zaps && self.cfg.cards.get(p.card).deploy_area_effect.is_some() {
                 let at = self.ents.pos[id.index as usize];
-                let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, at).expect("deploy area level validated at enqueue");
+                let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, at, self.tick).expect("deploy area level validated at enqueue");
                 self.spells.extend(area);
             }
         }
@@ -8340,7 +8488,7 @@ impl BattleState {
                     morph_birth: true,
                 });
                 if self.cfg.cards.get(m).spawn_area_effect.is_some() {
-                    let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest).expect("the spawn area's level is validated at the play");
+                    let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest, self.tick).expect("the spawn area's level is validated at the play");
                     self.spells.extend(area);
                 }
             }
@@ -10660,8 +10808,10 @@ impl BattleState {
     /// client 16.402 on one Ram Rider: rider(t) = mount(t - 1) on 53 of 53 tick pairs in one seat
     /// and 12 of 12 in the other, through its 120-per-tick charge and an avoidance swerve). Run at
     /// the top of the Move phase, before anything moves a mount this tick: every rider stands where
-    /// its mount stood at the end of the last tick, plus its offset turned by the mount's facing
-    /// (`offset_on_mount`; zero today). So a rider's Target and Attack phases, which run before
+    /// its mount stood at the end of the last tick, plus its offset under the mount's facing as the
+    /// last tick left it (`rider_arc_offset` for a mount with a SpawnRadius, read at the facing
+    /// `note_mount_facings` kept, since this tick's Attack and Path phases may have turned the mount
+    /// already; `offset_on_mount`, zero, for the Ram Rider's). So a rider's Target and Attack phases, which run before
     /// the Move phase, read its mount's position of two ticks before, which the corpus shows too
     /// (the rider acquired a Musketeer from 6511, not 6631; 5 of 5 bola launch points within 1). A
     /// rider not in its attack faces as its mount does; in its attack it keeps the facing the
@@ -10683,12 +10833,91 @@ impl BattleState {
             }
             let Some(m) = self.ents.attached_to[r] else { continue };
             let mi = m.index as usize;
-            let off = offset_on_mount(self.ents.facing[mi], self.ents.attach_offset[r]);
+            let off = match self.rider_arc_offset(r, mi, self.mount_facing_before(m)) {
+                Some(o) => o,
+                None => offset_on_mount(self.ents.facing[mi], self.ents.attach_offset[r]),
+            };
             self.ents.pos[r] = self.ents.pos[mi].add(off);
             if self.ents.attack_phase[r] == AttackPhase::Idle {
                 self.ents.facing[r] = self.ents.facing[mi];
             }
         }
+    }
+
+    /// rider.OFFSET_LAW: the offset of rider k of `number` from mount `mi` whose heading is `facing`, SUBTILES, when
+    /// the mount's attach block has a SpawnRadius and the arm is arc_behind_mount (formation.rs `rider_arc_offset`,
+    /// with the rider row's SpawnAngleShift and SpawnMaxAngle). None otherwise: the Ram Rider's rider, and every
+    /// rider under mount_centre, stands on its mount's centre.
+    fn arc_offset(&self, mi: usize, rider: u16, k: i32, facing: Vec2) -> Option<Vec2> {
+        #[cfg(not(clash_plant = "rider_offset_ignored"))]
+        let on = self.cfg.calib.rider_offset_law == RiderOffsetLaw::ArcBehindMount;
+        #[cfg(clash_plant = "rider_offset_ignored")]
+        let on = false; // PLANT: every rider on its mount's centre, whatever the key says.
+        if !on {
+            return None;
+        }
+        let at = self.cfg.cards.get(self.ents.card[mi]).attach?;
+        let radius = at.radius?;
+        let f = self.cfg.cards.get(rider).formation;
+        Some(crate::formation::rider_arc_offset(radius, facing, at.number, k, f.spawn_angle_shift_deg, f.spawn_max_angle_deg))
+    }
+
+    /// `arc_offset` for the live rider `r` of mount `mi`: its rank k among its mount's riders is its creation order,
+    /// read off `team_seq` (`spawn_riders` creates rider k right after its mount and the riders before it, so its
+    /// team_seq is the mount's + 1 + k).
+    fn rider_arc_offset(&self, r: usize, mi: usize, facing: Vec2) -> Option<Vec2> {
+        let number = self.cfg.cards.get(self.ents.card[mi]).attach?.number.max(1);
+        let k = self.ents.team_seq[r].wrapping_sub(self.ents.team_seq[mi]).wrapping_sub(1).min((number - 1) as u32) as i32;
+        self.arc_offset(mi, self.ents.card[r], k, facing)
+    }
+
+    /// rider.OFFSET_LAW: every mount whose riders stand off its centre, with its facing as the last tick left it, kept
+    /// at the top of each tick for `carry_riders`, which runs after this tick's Attack and Path phases may have turned
+    /// the mount. Scratch: filled at the top of every tick from the facings a snapshot saves, so a resumed battle
+    /// fills it the same way. Empty in a battle with no such mount.
+    fn note_mount_facings(&mut self) {
+        self.scratch.mount_facings.clear();
+        for r in 0..self.ents.capacity() {
+            if !self.ents.alive[r] || !self.ents.attached(r) {
+                continue;
+            }
+            let Some(m) = self.ents.attached_to[r] else { continue };
+            if self.cfg.cards.get(self.ents.card[m.index as usize]).attach.and_then(|a| a.radius).is_none() {
+                continue;
+            }
+            if !self.scratch.mount_facings.iter().any(|(id, _)| *id == m) {
+                self.scratch.mount_facings.push((m, self.ents.facing[m.index as usize]));
+            }
+        }
+    }
+
+    /// Mount `m`'s facing as the last tick left it (`note_mount_facings`), or its facing now for a mount created this
+    /// tick (it has not turned: a new mount deploys).
+    fn mount_facing_before(&self, m: EntityId) -> Vec2 {
+        self.scratch.mount_facings.iter().find(|(id, _)| *id == m).map_or(self.ents.facing[m.index as usize], |(_, f)| *f)
+    }
+
+    /// rider.DISMOUNT_POINT = mount_position_plus_offset: where the death spawn of attached rider `i` comes down, when
+    /// its mount stands (the mount dies with it in the same Resolve, and Reap despawns both after the death spawns): the
+    /// mount's position plus the rider's offset under the mount's facing, both as the mount's death leaves them. A
+    /// ground unit's point on water is put on the nearest land, as every death spawn layout's is. Measured on client
+    /// 15.535.29 on the Goblin Giant (three scenes): each rider's Spear Goblin at the Giant's last position plus the
+    /// arc offset, 69 from the rider's own position, which lags its mount by a tick. None under rider_position, and for
+    /// a unit that rides nothing: the ordinary death spawn layout then.
+    fn dismount_point(&self, i: usize, flying: bool) -> Option<Vec2> {
+        #[cfg(not(clash_plant = "dismount_at_rider_position"))]
+        let on = self.cfg.calib.rider_dismount_point == RiderDismountPoint::MountPositionPlusOffset;
+        #[cfg(clash_plant = "dismount_at_rider_position")]
+        let on = false; // PLANT: the dismount at the rider's own position, the ordinary death spawn.
+        if !on {
+            return None;
+        }
+        let m = self.ents.attached_to[i].filter(|m| self.ents.is_alive(*m))?;
+        let mi = m.index as usize;
+        let off = self.rider_arc_offset(i, mi, self.ents.facing[mi]).unwrap_or_else(|| offset_on_mount(self.ents.facing[mi], self.ents.attach_offset[i]));
+        let p = self.ents.pos[mi].add(off);
+        let arena = &self.cfg.arena;
+        Some(if flying || arena.is_passable_ground(p) { p } else { arena.nearest_passable_ground(p, self.ents.team[i]).unwrap_or(p) })
     }
 
     fn phase_move(&mut self) {
@@ -11638,13 +11867,13 @@ impl BattleState {
         self.launch_due_enchants();
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick);
         {
-            let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas };
+            let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas, tick: self.tick };
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
         }
         // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the
         // phase. Destructured without `..`, so a field added to the bundle does not
         // compile until it has a consumer below.
-        let spell::SpellOut { released, mut born, mut launched, areas, clones, fuse_ends } = out;
+        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends } = out;
         for r in released {
             // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
             // Spawn phase under the earlier convention.
@@ -11657,13 +11886,30 @@ impl BattleState {
                 self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false });
             }
         }
+        // A SCHEDULED AREA'S UNITS (the Graveyard's Skeletons, the Suspicious Bush's goblins), each at its own point
+        // (`scheduled_point`), deploying the action's DeployTime or its own, and released like a death spawn: measured
+        // on client 15.535.29, an enemy first targets one on its 8th frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), and
+        // a Graveyard Skeleton deploys 10 ticks and takes its first step on the 12th.
+        for r in scheduled {
+            let flying = self.cfg.cards.get(r.unit).is_flying();
+            let pos = self.scheduled_point(r.team, r.centre, r.offset, flying);
+            #[cfg(not(clash_plant = "scheduled_spawn_unit_deploy_time"))]
+            let deploy_ms = r.deploy_ms;
+            #[cfg(clash_plant = "scheduled_spawn_unit_deploy_time")]
+            let deploy_ms: Option<i32> = None; // PLANT: the unit's own DeployTime.
+            #[cfg(not(clash_plant = "scheduled_acquire_delay_dropped"))]
+            let acquire_delay = true;
+            #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
+            let acquire_delay = false; // PLANT: a target from its first frame.
+            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false });
+        }
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
         self.spells.append(&mut born);
         // A landing object's area effect: cast at its point and appended after them, so
         // it too first applies next tick (as a death's area effect does, `phase_reap`).
         for a in areas {
-            let v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, a.team, a.card, a.level, a.pos).expect("released area level validated at deploy");
+            let v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, a.team, a.card, a.level, a.pos, self.tick).expect("released area level validated at deploy");
             self.spells.extend(v);
         }
         // Projectiles fired by spell objects: this tick's `step_projectiles` has run, so
@@ -12386,10 +12632,12 @@ impl BattleState {
                 && self.cfg.calib.death_ring_units.contains(&card.unit_name);
             #[cfg(clash_plant = "death_ring_facing")]
             let listed = false; // PLANT: the listed units keep DEATH_SPAWN_LAYOUT (the facing ring).
-            let points = match emission {
-                Some(p) => vec![p; ds.count.max(1) as usize],
-                None if listed => self.fixed_death_ring(team, self.ents.pos[i], ds.count, radius, unit.is_flying()),
-                None => self.death_spawn_points(team, self.ents.pos[i], ring),
+            // rider.DISMOUNT_POINT: an attached rider's death spawn at its mount's position plus its offset
+            // (`dismount_point`; the Goblin Giant's Spear Goblins), ahead of every other layout.
+            let points = match (self.dismount_point(i, unit.is_flying()), emission) {
+                (Some(p), _) | (None, Some(p)) => vec![p; ds.count.max(1) as usize],
+                (None, None) if listed => self.fixed_death_ring(team, self.ents.pos[i], ds.count, radius, unit.is_flying()),
+                (None, None) => self.death_spawn_points(team, self.ents.pos[i], ring),
             };
             // The slide each member of the fixed ring carries: from the death point out to
             // DeathSpawnRadius, subtiles. None when the radius is at or inside the ring's own
@@ -12523,10 +12771,25 @@ impl BattleState {
             if self.cfg.cards.get(idx).death_area_effect.is_none() {
                 continue;
             }
-            released.extend(
-                spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
-                    .expect("death area effect level validated at deploy"),
-            );
+            let mut objects = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i], self.tick)
+                .expect("death area effect level validated at deploy");
+            // spells.DEATH_FUSE_START = one_tick_hop: the bottle a death puts down (card.rs `area_spawns_bottle`, the
+            // Lumberjack's) runs its fuse one tick later than an object Reap makes otherwise would. Measured on client
+            // 15.535.29: the rage's damage lands on the death tick + 13, 5 of 5 deaths; next_tick gives + 12. A zero fuse
+            // (an area that makes an area) is not a bottle and does not read the key.
+            #[cfg(not(clash_plant = "death_fuse_hop_shifted"))]
+            let hop = self.cfg.calib.death_fuse_start == DeathFuseStart::OneTickHop
+                && matches!(self.cfg.cards.get(idx).death_area_effect.as_ref().map(|d| &d.shape), Some(SpellShape::Fuse { fuse_ms, .. }) if *fuse_ms > 0);
+            #[cfg(clash_plant = "death_fuse_hop_shifted")]
+            let hop = false; // PLANT: the bottle's fuse counts from the tick after the death.
+            if hop {
+                for o in objects.iter_mut().filter(|o| o.depth == 0) {
+                    if let spell::SpellMotion::Fuse { ms, .. } = &mut o.motion {
+                        *ms += self.cfg.calib.tick_ms;
+                    }
+                }
+            }
+            released.extend(objects);
         }
         // spawner.DEATH_SPAWN_PROJECTILE = client_projectile: a death whose row carries a
         // DeathSpawnProjectile (card.rs `death_projectile`, the Phoenix's PhoenixFireball) leaves
@@ -12750,6 +13013,67 @@ impl BattleState {
             .into_iter()
             .map(|p| if flying || arena.is_passable_ground(p) { p } else { arena.nearest_passable_ground(p, team).unwrap_or(p) })
             .collect()
+    }
+
+    /// WHERE A SCHEDULED AREA PUTS ONE ENTRY'S UNIT (card.rs `SpawnOffset`; spell.rs `ScheduledRelease`), world
+    /// subtiles, from the area's `centre`, for the area's `team`:
+    ///   - `MirroredToWall { dx, dy }` (the Graveyard's two expressions): X = x + dx s, with s = -1 when the centre's
+    ///     native x is past the arena's centre line (the table's strict `x > map_width / 2`) and +1 otherwise, so the
+    ///     same slot points toward the nearer side wall on either half; Y = y - dy t, with t = team_y_direction
+    ///     (actions.TEAM_Y_DIRECTION: against_forward, -1 for side 0). A cast exactly on the centre line is not
+    ///     seat-symmetric, as the table's expression is not.
+    ///   - `Relative { x, y }` (the Suspicious Bush's goblins): spawner.RELATIVE_SPAWN_OFFSET. half_tile_owner_left
+    ///     takes 500 native a unit, RelativeX toward the owner's left and RelativeY toward its forward, in the owner's
+    ///     frame, so Red's offset is Blue's turned 180 degrees; tiles_owner_frame 1000 a unit, RelativeX toward the
+    ///     owner's right.
+    ///
+    /// Then spells.SCHEDULED_SPAWN_INVALID_POINT: the point is clamped into the arena, SCHEDULED_EDGE_MARGIN native
+    /// inside each edge (measured on the x edge; the y edge is read the same way), and kept on water
+    /// (clamp_keep_water), or a ground unit's point on water is put on the nearest land (clamp_then_eject_to_land).
+    fn scheduled_point(&self, team: Team, centre: Vec2, off: crate::card::SpawnOffset, flying: bool) -> Vec2 {
+        use crate::card::SpawnOffset;
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let p = match off {
+            SpawnOffset::MirroredToWall { dx, dy } => {
+                #[cfg(not(clash_plant = "nearer_wall_unmirrored"))]
+                let s = if centre.x / K > arena.width / K / 2 { -1 } else { 1 };
+                #[cfg(clash_plant = "nearer_wall_unmirrored")]
+                let s = 1; // PLANT: the x offset never mirrored.
+                let t = match self.cfg.calib.team_y_direction {
+                    TeamYDirection::AgainstForward => -spell::forward_dy(team),
+                    TeamYDirection::Forward => spell::forward_dy(team),
+                };
+                Vec2::new(centre.x + dx * s, centre.y - dy * t)
+            }
+            SpawnOffset::Relative { x, y } => {
+                // native, in the owner's frame: +x the owner's right, +y its forward
+                #[cfg(not(clash_plant = "relative_offset_native"))]
+                let (ox, oy) = match self.cfg.calib.relative_spawn_offset {
+                    RelativeSpawnOffset::HalfTileOwnerLeft => (-500 * x, 500 * y),
+                    RelativeSpawnOffset::TilesOwnerFrame => (1000 * x, 1000 * y),
+                };
+                #[cfg(clash_plant = "relative_offset_native")]
+                let (ox, oy) = (x, y); // PLANT: one native unit a unit.
+                let (wx, wy) = match team {
+                    Team::Blue => (ox, oy),
+                    Team::Red => (-ox, -oy),
+                };
+                Vec2::new(centre.x + wx * K, centre.y + wy * K)
+            }
+        };
+        let m = SCHEDULED_EDGE_MARGIN * K;
+        let q = Vec2::new(p.x.clamp(m, arena.width - m), p.y.clamp(m, arena.height - m));
+        match self.cfg.calib.scheduled_spawn_invalid_point {
+            ScheduledSpawnInvalidPoint::ClampKeepWater => q,
+            ScheduledSpawnInvalidPoint::ClampThenEjectToLand => {
+                if flying || arena.is_passable_ground(q) {
+                    q
+                } else {
+                    arena.nearest_passable_ground(q, team).unwrap_or(q)
+                }
+            }
+        }
     }
 
     /// A spell RELEASE laid by the formation ring (spells.PROJECTILE_SPAWN_FORMATION =
@@ -14628,6 +14952,19 @@ impl BattleState {
                     }
                     #[cfg(clash_plant = "hash_skips_strikes")]
                     spell::SpellMotion::Strikes { .. } => {} // PLANT: a striking area's state is not hashed.
+                    #[cfg(not(clash_plant = "hash_skips_schedule_clock"))]
+                    spell::SpellMotion::Scheduled { pos, born, fired } => {
+                        h.u32(7);
+                        h.vec(*pos);
+                        h.u32(*born);
+                        h.u32(*fired);
+                    }
+                    #[cfg(clash_plant = "hash_skips_schedule_clock")]
+                    spell::SpellMotion::Scheduled { pos, .. } => {
+                        // PLANT: a scheduled area's clock is not hashed.
+                        h.u32(7);
+                        h.vec(*pos);
+                    }
                 }
             }
         }
@@ -15061,6 +15398,17 @@ impl BattleState {
 ///    units_at_fuse_end arm) carries spell.rs `FUSE_RELEASED` as its delay. CardDef gained `kamikaze_time_ms` and
 ///    `death_pushback`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against
 ///    other card data. migrate_v3 strips them with the rest of the post-format-3 tail.
+/// 20, unchanged, the scheduled areas, the Lumberjack's bottle and the riders off their mount's centre
+///    (actions.SUB_TICK_DELAY_ROUNDING, TEAM_Y_DIRECTION; spells.SCHEDULED_SPAWN_INVALID_POINT, DEATH_FUSE_START;
+///    spawner.RELATIVE_SPAWN_OFFSET; rider.OFFSET_LAW, DISMOUNT_POINT): Calib gained seven fields (serde default the
+///    shipped arm; no battle saved before them held one of those cards) and SpellMotion gained Scheduled (its creation
+///    tick and the entries it has released, hashed on that motion alone), so a format-20 blob saved before them still
+///    deserializes and hashes as it did. No Entities column: a rider's rank is its creation order (`team_seq`). SpellShape
+///    gained ScheduledArea and FormationDef gained spawn_max_angle_deg (inside the migrate_v3 tail's `formation`), so the
+///    card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data. The
+///    Graveyard, the Suspicious Bush and the Goblin Giant were refused while converting their rows, so each takes a
+///    CardDb slot (tests/hash_continuity.rs LOADED_SINCE_PARENT); the Lumberjack kept its slot and loads no record of
+///    its own. Its rage buff is now interned at its place in load order, ahead of the Rage card's.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

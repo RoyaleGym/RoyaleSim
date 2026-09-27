@@ -207,8 +207,9 @@ PROLOGUE = {
     "Invisible": "idle_invisibility",
     # The attached rider (the Ram Rider's rider, the Goblin Giant's Spear Goblins), written after
     # the literal on the 15.535 rows that set each column: the spawner block's SpawnAttach, and the
-    # rider row's targeting columns and facing clamps (the two clamps are carried and read by
-    # nothing, so they stay unread here).
+    # rider row's targeting columns, its SpawnMaxAngle (the arc its mount's riders spread over,
+    # calibration rider.OFFSET_LAW) and the facing clamp SpawnAttachMaxRotation (carried and read by
+    # nothing, so it stays unread here).
     "SpawnAttach": "spawner.attach",
     "TargetOnlyTroops": "target_only_troops",
     "IgnoreTargetsWithBuff": "ignore_targets_with_buff",

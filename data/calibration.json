@@ -2256,11 +2256,11 @@
       "value": "inert",
       "candidates": ["inert", "lands_as_disc"],
       "status": "measured",
-      "confidence": "HIGH for the Goblin Curse's parent area: its Damage never landed in 20 runs on client 15.535.29.",
-      "provenance": "The Goblin Curse's parent area sets Damage 100 with HitsGround and HitsAir both false. Measured on client 15.535.29: a unit at the centre of the cast loses only the curse circle's pulses, in 20 runs; the parent's 100, scaled, never lands. lands_as_disc (the Damage as a one-shot disc on both air and ground) is refuted by those runs and has no engine arm.",
+      "confidence": "HIGH for the Goblin Curse's parent area: its Damage never landed in 20 runs on client 15.535.29. HIGH for the Suspicious Bush's death area: 9 runs.",
+      "provenance": "The Goblin Curse's parent area sets Damage 100 with HitsGround and HitsAir both false. Measured on client 15.535.29: a unit at the centre of the cast loses only the curse circle's pulses, in 20 runs; the parent's 100, scaled, never lands. The Suspicious Bush's death area sets Damage 100 with neither hit flag and no Radius. Measured on client 15.535.29 (9 runs): it hurt nothing, an enemy 1067 from the death point and a tower 3075 away. lands_as_disc (the Damage as a one-shot disc on both air and ground) is refuted by those runs and has no engine arm.",
       "meaning": "Whether an area that hits neither ground nor air deals its own Damage column.",
-      "promotion_rules": "Settled for the Goblin Curse. Another row with Damage and neither hit flag, if one becomes loadable.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs area_spawns_area does not read the parent's Damage"
+      "promotion_rules": "Settled for the Goblin Curse and the Suspicious Bush. Another row with Damage and neither hit flag, if one becomes loadable.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs inert_own_damage (a scheduled area or a bottle's area with a Damage column loads only when the column is inert); card.rs area_spawns_area does not read the parent's Damage"
     },
     "AREA_PROJECTILE_IGNORE_BUILDINGS": {
       "value": "projectile_row",
@@ -2283,6 +2283,28 @@
       "open": "Whether one law holds for both picks. The Lightning's 500 was read from its two strike ticks with the below-zero clock. With the at-or-below-zero clock the same two ticks need a row in (500, 525], or a cast whose area first updates one tick after the elixir drop. The Royal Delivery's one strike is due at exactly its LifeDuration and falls on the update its life reaches 0. Under that clock the 500 row's third strike (due at 1500 of 1500) would fall on D + 29, where neither spells.STRIKE_AREA_END arm puts it today (at_life_end loses it, with_last_strike makes it on D + 30).",
       "promotion_rules": "Settled for the Royal Delivery (HitSpeed 2000). One law for both picks needs a client 16.402 Lightning cast whose area's first update is read directly, not from the elixir drop, or a striking area that picks the highest hp with another whole-tick HitSpeed.",
       "engine": "spell.rs step_spells (the Strikes arm, for a StrikePick::AreaCentre strike only)"
+    },
+    "SCHEDULED_SPAWN_INVALID_POINT": {
+      "value": "clamp_keep_water",
+      "candidates": ["clamp_keep_water", "clamp_then_eject_to_land"],
+      "status": "measured",
+      "confidence": "MEDIUM: the x edge and the river measured on client 15.535.29; the y edge is read the same way.",
+      "provenance": "Measured on client 15.535.29 on Graveyard casts near the side wall and over the river: 7 slots whose offset puts them off the arena came down at x 250 with their y kept, and 4 slots on the river came down there and deployed on the water. clamp_then_eject_to_land, the rule a landing spell's release follows, would have moved those four to the nearest land.",
+      "meaning": "What a scheduled area does with a point off the arena or on the river. clamp_keep_water: x and y clamped into [250, width - 250] x [250, height - 250] native, and the point kept, water included. clamp_then_eject_to_land: the same clamp, then a ground unit's point on water put on the nearest land.",
+      "open": "Only the x edge was measured; the y edge is clamped the same way by inference. A slot inside a building's footprint (a side-0 Graveyard's tenth slot on a princess tower) is created on the slot; the client shows it 150 out on its first frame, which the engine does not do on that frame.",
+      "promotion_rules": "A Graveyard cast whose slots leave the arena at the back edge.",
+      "engine": "state.rs scheduled_point (SCHEDULED_EDGE_MARGIN)"
+    },
+    "DEATH_FUSE_START": {
+      "value": "one_tick_hop",
+      "candidates": ["one_tick_hop", "next_tick"],
+      "status": "measured",
+      "confidence": "HIGH for the Lumberjack: 5 of 5 deaths on client 15.535.29.",
+      "provenance": "The Lumberjack's death area puts down one bottle (RageBarbarianBottle: DeployTime 500, death area BarbarianRage), which the loader reads as a fuse over the rage area. Measured on client 15.535.29 (5 deaths): with X the first tick the Lumberjack is absent, the rage's damage (BarbarianRageDamage: 179 on a troop at level 11, 54 on a princess tower) lands on X + 13, and a unit inside to the end takes its last raged step on X + 127. A fuse born in the death's Reap and counted like the Rage's bottle (spells.SUMMON_FUSE_START) releases the rage on X + 10, the rage acts from X + 11 and its damage lands on X + 12. The bottle itself is never visible.",
+      "meaning": "When the fuse of a bottle a death puts down starts. next_tick: it counts from the tick after the death, as every object Reap makes does (the damage on X + 12). one_tick_hop: one tick later (X + 13).",
+      "open": "Why the fuse starts a tick late is not known; the client may create the bottle on the tick after the death. Only the Lumberjack's death area puts a bottle down.",
+      "promotion_rules": "Settled for the Lumberjack.",
+      "engine": "state.rs phase_reap (the death area's Fuse); card.rs area_spawns_bottle"
     }
   },
   "knockback": {
@@ -3148,6 +3170,17 @@
       "open": "The 2 Fire Spirits born inside a crown tower's footprint are pushed 150 out on their first frame; a unit created at the end of Move is not pushed on that frame here.",
       "promotion_rules": "The 15.535.29 furnace-side-rule scenario (a side-1 Furnace) settles the rotation.",
       "engine": "state.rs to_location_point, read by spawner_pass (only() rule in Calib::from_json)"
+    },
+    "RELATIVE_SPAWN_OFFSET": {
+      "value": "half_tile_owner_left",
+      "candidates": ["half_tile_owner_left", "tiles_owner_frame"],
+      "status": "measured",
+      "confidence": "HIGH: 12 Suspicious Bushes, 24 goblins, on client 15.535.29.",
+      "provenance": "The Suspicious Bush's death area puts two BushGoblins down with RelativeX -1 (at 675 ms) and +1 (at 625 ms), RelativeY blank. Measured on client 15.535.29 (12 bushes, 24 goblins): the goblins stand 500 native either side of the death point on the x axis and turn with the owner. For side 0 the goblin that comes first stands at -500 x and the other at +500 x; for side 1 the other way round. Which goblin is which entry follows from the floor rounding (actions.SUB_TICK_DELAY_ROUNDING), which is inferred: the first is the 625 ms entry, RelativeX +1, so +1 is 500 toward the owner's left. The second goblin's first x is 1 further out (pushed 1 on creation), which the engine does not do. tiles_owner_frame puts them 1000 out on the other sides.",
+      "meaning": "The unit and the frame of an action's RelativeX / RelativeY. half_tile_owner_left: 500 native a unit, RelativeX toward the owner's left and RelativeY toward its forward, turned with the owner. tiles_owner_frame: 1000 native a unit, RelativeX toward the owner's right.",
+      "open": "RelativeY is set on no row: its direction (the owner's forward) is inferred, and the loader refuses a row that sets it.",
+      "promotion_rules": "Settled for the Suspicious Bush.",
+      "engine": "state.rs scheduled_point"
     }
   },
   "economy": {
@@ -3431,7 +3464,8 @@
   "actions": {
     "$comment": [
       "HOW AN ACTION GROUP TIMES ITS PARTS (the 15.535.29 tables' ActionGroup: SubActions, each with a",
-      "SubActionsDelay). Engine: state.rs `sub_action_delay_ms`, read by the counter (`parry_pass`). card.rs",
+      "SubActionsDelay). Engine: state.rs `sub_action_delay_ms`, read by the counter (`parry_pass`) and by a",
+      "scheduled area (spell.rs `step_spells`: the Graveyard, the Suspicious Bush's death area). card.rs",
       "`transform_of` reads a transformation's group only when both readings agree, so it does not read this key."
     ],
     "SUB_ACTIONS_DELAY": {
@@ -3439,10 +3473,30 @@
       "candidates": ["from_group_start", "cumulative"],
       "status": "measured",
       "confidence": "HIGH on the Ronin's counter group: 5 of 5 counters.",
-      "provenance": "An ActionGroup gives each SubAction a SubActionsDelay. Measured on client 15.535.29 on the Ronin's counter group (SubActionsDelay [50, 300, 150]: the stun, the damage, an effect): the damage landed 6 ticks after the counter on 5 of 5 counters, 300 ms from the group's start; read as gaps it would land on the 7th. The stun, first in the group, reads 50 either way, and the attacker was slowed from the tick after the counter.",
+      "provenance": "An ActionGroup gives each SubAction a SubActionsDelay. Measured on client 15.535.29 on the Ronin's counter group (SubActionsDelay [50, 300, 150]: the stun, the damage, an effect): the damage landed 6 ticks after the counter on 5 of 5 counters, 300 ms from the group's start; read as gaps it would land on the 7th. The stun, first in the group, reads 50 either way, and the attacker was slowed from the tick after the counter. Measured on client 15.535.29 on the Graveyard's group too (twelve entries, 2200 to 8200): 120 of 120 Skeletons came on the cast tick + delay / 50. Read as gaps, every entry after the third falls past the area's 9000 ms life. The Suspicious Bush's two goblins (675 and 625) come one tick apart, the later entry first, 12 of 12.",
       "meaning": "from_group_start: each entry is its action's offset from the group's start. cumulative: each entry is the gap after the action before it, so an action's offset is the sum of the entries up to and including its own.",
       "promotion_rules": "Settled on the counter's group.",
-      "engine": "state.rs sub_action_delay_ms, read by parry_pass; tests/parry.rs a_ready_counter_takes_nothing_and_the_attacker_takes_twice_its_hit_six_ticks_later"
+      "engine": "state.rs sub_action_delay_ms, read by parry_pass and spell.rs step_spells (the Scheduled arm); tests/parry.rs a_ready_counter_takes_nothing_and_the_attacker_takes_twice_its_hit_six_ticks_later, tests/scheduled_area.rs"
+    },
+    "SUB_TICK_DELAY_ROUNDING": {
+      "value": "floor_from_creation",
+      "candidates": ["floor_from_creation", "ceil_to_tick"],
+      "status": "measured",
+      "confidence": "HIGH on the Suspicious Bush's two goblins: 12 of 12 deaths on client 15.535.29.",
+      "provenance": "A scheduled area's entry is due its delay after the area's creation. Measured on client 15.535.29: the Suspicious Bush's death area (entries at 675 and 625 ms) puts its goblins down 13 and 12 ticks after the death tick, 12 of 12, which are floor(675 / 50) and floor(625 / 50). Rounded up they would come 14 and 13 ticks after. The Graveyard's delays (2200 to 8200) are whole ticks, so its 120 of 120 Skeletons on the cast tick + delay / 50 agree with both arms.",
+      "meaning": "When an action due ms after its object's creation acts, counted from the creation tick: the tick whose Spawn phase casts the object, or whose Reap leaves it after a death (a death's object first steps on the next tick). floor_from_creation: the creation tick + floor(ms / 50). ceil_to_tick: the creation tick + ceil(ms / 50).",
+      "promotion_rules": "Settled for the Suspicious Bush. A scheduled area with another delay that is not a whole number of ticks would test it again.",
+      "engine": "spell.rs delay_ticks, read by step_spells (the Scheduled arm)"
+    },
+    "TEAM_Y_DIRECTION": {
+      "value": "against_forward",
+      "candidates": ["against_forward", "forward"],
+      "status": "measured",
+      "confidence": "HIGH: six Graveyard casts, 72 Skeletons, on client 15.535.29.",
+      "provenance": "The Graveyard's spawn actions place each Skeleton at Y = y - dy x team_y_direction(team_index) from the cast's centre, dy the table's offset. Measured on client 15.535.29 (six casts, 72 Skeletons): a side-0 cast puts a positive dy toward high y, which is side 0's forward, so team_y_direction is -1 for side 0; a side-1 cast is the 180 degree rotation of a side-0 cast, 12 of 12. forward (+1 for side 0) puts every Skeleton with a y offset on the other side of the centre.",
+      "meaning": "The sign of team_y_direction(team) in a position expression. against_forward: -1 for a side whose forward is +y (side 0), +1 for the other. forward: the side's forward.",
+      "promotion_rules": "Settled for the Graveyard.",
+      "engine": "state.rs scheduled_point"
     }
   },
   "charge": {
@@ -3892,21 +3946,21 @@
       "Ram carries its rider; the Goblin Giant carries two Spear Goblins). A rider never walks, is",
       "never pushed and pushes nothing (state.rs `carry_riders`, the three Path arms, collide.rs",
       "`is_mobile_unit`, spell.rs `pushable`); it takes its own targets and attacks on its own",
-      "cycle. The loader refuses an attach block with a SpawnRadius, and a rider row that flies,",
-      "moves on its own or leaves anything where it dies (card.rs `convert_attach`, `rider_shape`):",
-      "where an offset rider stands and where a rider comes down when its mount dies are not",
-      "implemented, so the Goblin Giant stays refused. Measured on client 16.402 on the one Ram",
-      "Rider of capture 20260920-003751; no Goblin Giant is in any recording. Every key here is the",
-      "same on a battle without a rider."
+      "cycle. A mount's SpawnRadius puts its riders on an arc behind it (OFFSET_LAW), and a rider",
+      "row may leave one unit where it dies, its dismount (DISMOUNT_POINT); the loader refuses a rider",
+      "row that moves on its own or leaves anything else (card.rs `convert_attach`, `rider_shape`).",
+      "Measured on client 16.402 on the one Ram Rider of capture 20260920-003751, and on client",
+      "15.535.29 on the Goblin Giant's scenarios. Every key here is the same on a battle without a",
+      "rider."
     ],
     "POSITION": {
       "value": "mount_previous_tick_position",
       "status": "measured",
       "confidence": "HIGH on one Ram Rider: 53 of 53 tick pairs in one seat and 12 of 12 in the other, through the Ram's 120-per-tick charge and an avoidance swerve.",
       "provenance": "Measured on client 16.402 (capture 20260920-003751): the rider stands exactly where the Ram stood on the previous tick. Its target acquisition and its bola launch point are then its start-of-tick position, the Ram's position two ticks earlier, which the capture shows too: it acquired a Musketeer from 6511 and not from 6631 (reach 5500 + 600 + 500 = 6600), and 5 of 5 bola launch points lie within 1 of that position plus ProjectileStartRadius 800 toward the target.",
-      "meaning": "Where an attached rider stands on each tick. mount_previous_tick_position: at the top of the Move phase, before anything moves the mount, the rider takes the mount's position plus its offset turned by the mount's facing (zero while the loader takes no SpawnRadius). mount_current_position: the same copy after the mount has moved; not implemented, and refused at load.",
+      "meaning": "Where an attached rider stands on each tick. mount_previous_tick_position: at the top of the Move phase, before anything moves the mount, the rider takes the mount's position plus its offset (zero for a mount with no SpawnRadius; rider.OFFSET_LAW for one with a SpawnRadius). mount_current_position: the same copy after the mount has moved; not implemented, and refused at load.",
       "candidates": ["mount_previous_tick_position", "mount_current_position"],
-      "promotion_rules": "Settled for the Ram Rider. A mount with a SpawnRadius (the Goblin Giant) adds the frame the offset turns in, which is not implemented and keeps that card refused.",
+      "promotion_rules": "Settled for the Ram Rider. The Goblin Giant's riders stand where it stood a tick before too, plus their arc offset (rider.OFFSET_LAW).",
       "engine": "state.rs carry_riders, offset_on_mount (only() rule in Calib::from_json)"
     },
     "DEPLOY": {
@@ -3936,9 +3990,31 @@
       "provenance": "Measured on client 16.402 (capture 20260920-003751): the rider is last present with the Ram, at full hp, and gone with it on t1629.",
       "meaning": "What becomes of an attached rider when its mount dies. same_tick_full_hp: the riders join the mount's death in that Resolve whatever their hp, and go through the ordinary death path in Reap on the mount's tick.",
       "candidates": ["same_tick_full_hp"],
-      "open": "A rider that dies first (possible only under rider.TARGETABLE_WHILE_ATTACHED = targetable_damageable) leaves its mount riderless; nothing measured it. A rider row that leaves something where it dies (the Goblin Giant's Spear Goblins) is refused by the loader until its dismount is implemented.",
+      "open": "A rider that dies first (possible only under rider.TARGETABLE_WHILE_ATTACHED = targetable_damageable) leaves its mount riderless; nothing measured it. A rider row that leaves a unit where it dies (the Goblin Giant's Spear Goblins) leaves it where rider.DISMOUNT_POINT says.",
       "promotion_rules": "Settled for the Ram Rider; a second recorded death would raise the confidence.",
       "engine": "state.rs riders_die_with_their_mounts (only() rule in Calib::from_json)"
+    },
+    "OFFSET_LAW": {
+      "value": "arc_behind_mount",
+      "candidates": ["arc_behind_mount", "mount_centre"],
+      "status": "measured",
+      "confidence": "HIGH for the Goblin Giant: exact to the native unit at six headings in five runs on client 15.535.29.",
+      "provenance": "The Goblin Giant's attach block carries two SpearGoblinGiant riders with SpawnRadius 900, and the rider row sets SpawnAngleShift -22 and SpawnMaxAngle 90. Measured on client 15.535.29 (five runs): rider k stands where the Giant stood a tick before, plus a ring offset of 900 in whole native units at the Giant's heading of that tick, rounded to a whole degree, plus A_k, with A_0 = 203 and A_1 = 158 (k the creation order). Exact at six headings: facing (0, 256) gives (351, -828) and (-337, -834); (181, 181) gives (-337, -834) and (-828, -351); (220, 129) gives (-541, -718) and (-891, -125); (5, 256) gives (337, -834) and (-351, -828); (12, 255) gives (307, -845) and (-380, -815); (164, 196) gives (-262, -860) and (-794, -422). A_k = 180 + SpawnAngleShift + (SpawnNumber - 1 - k) x SpawnMaxAngle / SpawnNumber fits both riders. mount_centre, both riders on the Giant's centre, is refuted by every frame.",
+      "meaning": "Where the riders of a mount whose attach block has a SpawnRadius stand. arc_behind_mount: as measured, the heading being the mount's facing as the last tick left it. mount_centre: on the mount's centre, like a rider with no SpawnRadius (the Ram Rider's), which reads the same under both arms.",
+      "open": "The arc formula for another SpawnNumber is inferred: only the Goblin Giant carries such a block. The client creates the Giant's riders before the Giant; the engine creates them right after it, in the same order, which gives the same rank k.",
+      "promotion_rules": "Settled for the Goblin Giant. A mount with another SpawnNumber would test the formula.",
+      "engine": "formation.rs rider_arc_offset; state.rs arc_offset, rider_arc_offset, note_mount_facings, spawn_riders, carry_riders"
+    },
+    "DISMOUNT_POINT": {
+      "value": "mount_position_plus_offset",
+      "candidates": ["mount_position_plus_offset", "rider_position"],
+      "status": "measured",
+      "confidence": "MEDIUM: three scenes on client 15.535.29.",
+      "provenance": "Each of the Goblin Giant's Spear Goblins leaves one SpearGoblin where it dies (DeathSpawnCharacter, DeathSpawnDeployTime 700), and the riders die with the Giant (rider.DIES_WITH_MOUNT). Measured on client 15.535.29 (three scenes): on the first tick the Giant is absent, each dismount Spear Goblin stands at the Giant's last position plus that rider's offset under the Giant's last facing (rider.OFFSET_LAW), 69 from the rider's own position, which lags the Giant by a tick; each has its full hp (133 at level 11) and deploys 14 ticks. rider_position, the ordinary death spawn at the rider's own position, misses by that lag. The Giant row's own DeathSpawnRadius 500 is not used.",
+      "meaning": "Where an attached rider's death spawn comes down. mount_position_plus_offset: at the mount's position as its death leaves it, plus the rider's offset under the mount's facing then. rider_position: the ordinary death spawn layout around the rider's own position.",
+      "open": "A Giant that walks on its death tick: the engine takes its position after that tick's step, where the client's last frame shows the one before; the scenes stood the Giant still or killed it with a spell. A dismount point on water is put on the nearest land, as every death spawn's is; no scene had one.",
+      "promotion_rules": "A walking Goblin Giant killed by a spell: whether the dismount stands at the last frame's position or one step on.",
+      "engine": "state.rs dismount_point, phase_reap"
     }
   },
   "enchant": {

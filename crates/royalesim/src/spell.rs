@@ -56,7 +56,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Rect, Shape};
-use crate::card::{CardDb, KnockbackDef, SpawnDef, SpellHit, SpellShape, StrikeDef, StrikePick};
+use crate::card::{CardDb, KnockbackDef, SpawnDef, SpawnOffset, SpellHit, SpellShape, StrikeDef, StrikePick};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
@@ -64,7 +64,8 @@ use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
     AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling, DeathBombSpawnTiming, DeathPushbackScope, KnockLaw,
-    KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart,
+    KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding,
+    SummonFuseStart,
     TargetBuffScope,
 };
 use crate::{EntityId, Team};
@@ -91,6 +92,10 @@ pub enum SpellMotion {
     /// spells.STRIKE_TIMER_LEFTOVER names, `k` strikes done, `struck` every enemy it has struck, sorted (each at
     /// most once).
     Strikes { pos: Vec2, life_ms: i32, next_ms: i32, k: u8, struck: Vec<EntityId> },
+    /// A SCHEDULED AREA at `pos` (`SpellShape::ScheduledArea`; the Graveyard, the Suspicious Bush's death area): `born`
+    /// the tick it was created on, which its entries' delays count from, and `fired` one bit per entry already
+    /// released (bit k for entry k).
+    Scheduled { pos: Vec2, born: u32, fired: u32 },
 }
 
 /// One live spell object.
@@ -114,6 +119,19 @@ pub struct Spell {
     /// depth 1, the damage area depth 2.
     #[serde(default)]
     pub depth: u8,
+}
+
+/// A unit a scheduled area releases (`SpellMotion::Scheduled`): unit `unit` at unified `level` for `team`, at the
+/// point `offset` gives from the area's `centre` (state.rs `scheduled_point`), deploying `deploy_ms` (None: its own
+/// DeployTime).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScheduledRelease {
+    pub team: Team,
+    pub unit: u16,
+    pub level: i32,
+    pub centre: Vec2,
+    pub offset: SpawnOffset,
+    pub deploy_ms: Option<i32>,
 }
 
 /// A unit a landing spell releases, for the deferred spawn queue.
@@ -190,13 +208,14 @@ pub struct CloneOrder {
 /// a new kind of output is one field and not one more parameter on `step_spells`.
 /// Nothing in it outlives the tick, so none of it is in a snapshot or in the state
 /// hash. state.rs `phase_projectile` drains five of them before the phase ends, in
-/// this order, and every object appended in steps 2-4 first acts on the next tick,
+/// this order, and every object appended in steps 3-5 first acts on the next tick,
 /// because this tick's steps have already run:
 ///   1. `released`: units a landing spell releases (laid out, then `release`);
-///   2. `born`: spell objects a spell object makes (appended to the spell list);
-///   3. `areas`: area effects a landing object leaves (cast, appended after 2's);
-///   4. `launched`: projectiles a spell object fires (appended to the projectile list);
-///   5. `fuse_ends`: containers whose fuse ended (`release_fuse_end`: their death spawn
+///   2. `scheduled`: units a scheduled area puts down (each at its own point, then `release`);
+///   3. `born`: spell objects a spell object makes (appended to the spell list);
+///   4. `areas`: area effects a landing object leaves (cast, appended after 3's);
+///   5. `launched`: projectiles a spell object fires (appended to the projectile list);
+///   6. `fuse_ends`: containers whose fuse ended (`release_fuse_end`: their death spawn
 ///      laid out, then `release`, as step 1's units are).
 ///
 /// `clones` has no consumer yet: `phase_projectile` stops the battle if it is
@@ -204,6 +223,7 @@ pub struct CloneOrder {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpellOut {
     pub released: Vec<Release>,
+    pub scheduled: Vec<ScheduledRelease>,
     pub born: Vec<Spell>,
     pub launched: Vec<Projectile>,
     pub areas: Vec<AreaRelease>,
@@ -337,18 +357,20 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
 }
 
 /// Turn one accepted cast -- or one death that releases an area effect -- into its
-/// spell objects. Pure; `level` already validated.
-pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16, level: i32, tap: Vec2) -> Result<Vec<Spell>, String> {
+/// spell objects, created on tick `now`. Pure; `level` already validated.
+#[allow(clippy::too_many_arguments)]
+pub fn cast(cards: &CardDb, calib: &Calib, arena: &Arena, team: Team, card: u16, level: i32, tap: Vec2, now: u32) -> Result<Vec<Spell>, String> {
     let def = cards.get(card);
     let spell = shape_of(def).ok_or_else(|| format!("{} is not a spell", def.name))?;
-    objects_for(cards, calib, Some(arena), team, card, level, 0, &spell.shape, tap)
+    objects_for(cards, calib, Some(arena), team, card, level, 0, &spell.shape, tap, now)
 }
 
-/// The objects one shape of card `card`'s chain makes at `tap`, at chain depth `depth`: `cast` for
+/// The objects one shape of card `card`'s chain makes at `tap`, at chain depth `depth`, on tick `now`: `cast` for
 /// depth 0, and the Projectile phase for what a fuse releases or a pulsing area makes. `arena` is
-/// needed only by a Projectile (its king-tower launch point); an object down a chain is never one.
+/// needed only by a Projectile (its king-tower launch point); an object down a chain is never one. `now` is read only
+/// by a scheduled area, whose delays count from its creation tick.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, team: Team, card: u16, level: i32, depth: u8, shape: &SpellShape, tap: Vec2) -> Result<Vec<Spell>, String> {
+pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, team: Team, card: u16, level: i32, depth: u8, shape: &SpellShape, tap: Vec2, now: u32) -> Result<Vec<Spell>, String> {
     #[cfg(not(clash_plant = "spell_damage_unscaled"))]
     let scaled = |h: &SpellHit| cards.scaled(card, level, h.damage);
     #[cfg(clash_plant = "spell_damage_unscaled")]
@@ -433,7 +455,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             #[cfg(clash_plant = "child_area_with_parent")]
             let with_parent = true; // PLANT: the child is born with its parent whatever the key says.
             if let (true, Some(c)) = (with_parent, child) {
-                out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, c, tap)?);
+                out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, c, tap, now)?);
             }
         }
         SpellShape::Rolling { airborne_min_distance, range, hit, .. } => {
@@ -479,7 +501,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             #[cfg(clash_plant = "curse_child_with_parent")]
             let with_parent = true; // PLANT: the child is made with its parent whatever the key says.
             if *fuse_ms == 0 && with_parent {
-                out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, then, tap)?);
+                out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, then, tap, now)?);
             } else {
                 out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Fuse { pos: tap, ms: *fuse_ms }, depth });
             }
@@ -497,6 +519,10 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             let motion = SpellMotion::Strikes { pos: tap, life_ms: d.life_ms, next_ms: d.gaps_ms[0], k: 0, struck: Vec::new() };
             out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion, depth });
         }
+        // A scheduled area: it deals nothing; its clock is its creation tick (`step_spells`).
+        SpellShape::ScheduledArea { .. } => {
+            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Scheduled { pos: tap, born: now, fired: 0 }, depth });
+        }
     }
     Ok(out)
 }
@@ -510,6 +536,9 @@ pub struct SpellCtx<'a> {
     /// This tick's locomotion step of each entity, by index (state.rs `scratch.deltas`; empty where no Move phase
     /// ran). Read by `strike` for a candidate's predicted next position; an index past the end steps nothing.
     pub steps: &'a [Vec2],
+    /// The tick being stepped: what a scheduled area's age is counted against, and the creation tick of what a
+    /// fuse or a pulsing area makes.
+    pub tick: u32,
 }
 
 /// Is victim `v` a legal target of `hit` cast by `team`? Alive, hp > 0, team and
@@ -1109,6 +1138,22 @@ fn release_units(ctx: &SpellCtx, team: Team, card: u16, level: i32, sp: &SpawnDe
     }
 }
 
+/// actions.SUB_TICK_DELAY_ROUNDING: the whole ticks, counted from its object's creation tick, after which an action
+/// due `ms` after that creation acts. floor_from_creation: floor(ms / TICK_MS), measured on client 15.535.29 (the
+/// Suspicious Bush's goblins at 625 and 675 ms act 12 and 13 ticks after the death, 12 of 12); ceil_to_tick rounds up.
+pub fn delay_ticks(calib: &Calib, ms: i32) -> u32 {
+    let t = calib.tick_ms.max(1);
+    let ms = ms.max(0);
+    #[cfg(not(clash_plant = "sub_tick_delay_ceil"))]
+    let rule = calib.sub_tick_delay_rounding;
+    #[cfg(clash_plant = "sub_tick_delay_ceil")]
+    let rule = SubTickDelayRounding::CeilToTick; // PLANT: every delay rounded up to a whole tick.
+    (match rule {
+        SubTickDelayRounding::FloorFromCreation => ms / t,
+        SubTickDelayRounding::CeilToTick => (ms + t - 1) / t,
+    }) as u32
+}
+
 /// Advance every spell by one tick. What the step hands on comes back in `out`
 /// (`SpellOut`, drained by the caller): units released by landing spells in
 /// `out.released`, in `spells` order (deterministic; team_seq is per team, and a
@@ -1237,7 +1282,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 #[cfg(clash_plant = "child_area_with_parent")]
                 let on_update = false; // PLANT: born with the parent instead (`objects_for`).
                 if let (true, Some(c), true) = (on_update, child, p.life_ms == *total_ms) {
-                    if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, c, p.pos) {
+                    if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, c, p.pos, ctx.tick) {
                         out.born.extend(v);
                     }
                 }
@@ -1376,10 +1421,36 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     }
                 }
                 // Level validated when the cast was accepted.
-                if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, then, *pos) {
+                if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, then, *pos, ctx.tick) {
                     out.born.extend(v);
                 }
                 false
+            }
+            // A SCHEDULED AREA (the Graveyard; the Suspicious Bush's death area). Measured on client 15.535.29: entry k
+            // acts on the area's creation tick + floor(delay_k / 50), the delay read from the group's start
+            // (actions.SUB_ACTIONS_DELAY, actions.SUB_TICK_DELAY_ROUNDING). A cast's area is created in the Spawn phase
+            // of its cast tick C and steps that same tick, so its Skeletons come on C + 44 ... C + 164 (120 of 120); a
+            // death's area is created in the Reap of the death tick D and first steps on D + 1, so the Bush's goblins
+            // come on D + 12 (625 ms) and D + 13 (675 ms) (12 of 12). `born` carries that difference. The area ends
+            // once its LifeDuration, counted the same way, has run; an entry not yet due then never acts.
+            (SpellMotion::Scheduled { pos, born, fired }, SpellShape::ScheduledArea { life_ms, schedule }) => {
+                let age = ctx.tick.saturating_sub(*born);
+                let delays: Vec<i32> = schedule.iter().map(|e| e.delay_ms).collect();
+                for (k, e) in schedule.iter().enumerate() {
+                    #[cfg(not(clash_plant = "schedule_cumulative"))]
+                    let delay = crate::state::sub_action_delay_ms(ctx.calib, &delays, k);
+                    #[cfg(clash_plant = "schedule_cumulative")]
+                    let delay: i32 = delays[..=k].iter().sum(); // PLANT: the delays read as gaps.
+                    if *fired & (1 << k) != 0 || delay_ticks(ctx.calib, delay) > age {
+                        continue;
+                    }
+                    *fired |= 1 << k;
+                    // The entry's unit at the area's level (the owner's unified level; levels validated at deploy).
+                    if let Ok(level) = ctx.cards.unit_level(s.card, e.unit, None, s.level) {
+                        out.scheduled.push(ScheduledRelease { team: s.team, unit: e.unit, level, centre: *pos, offset: e.offset, deploy_ms: e.deploy_time_ms });
+                    }
+                }
+                age + 1 < delay_ticks(ctx.calib, *life_ms).max(1)
             }
             _ => false,
         }

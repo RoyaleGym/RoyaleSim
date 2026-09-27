@@ -305,6 +305,37 @@ pub enum SpellShape {
     /// elixir meets (the last when none is), as that FORM, a card of its own (state.rs `resolve_play`;
     /// calibration match.VARIANT_*). Never cast: spell.rs `cast` refuses it.
     Variant { options: Vec<VariantOption> },
+    /// AN AREA WHOSE MECHANIC IS ITS SPAWN SCHEDULE (the Graveyard; the Suspicious Bush's death area). It hits
+    /// nothing. Entry k puts its unit down on the area's creation tick plus the entry's delay (spell.rs `step_spells`;
+    /// calibration actions.SUB_ACTIONS_DELAY and actions.SUB_TICK_DELAY_ROUNDING), at the point its offset gives
+    /// (state.rs `scheduled_point`). The area lasts `life_ms`; an entry due after that never acts.
+    ScheduledArea { life_ms: i32, schedule: Vec<ScheduledSpawn> },
+}
+
+/// ONE ENTRY OF A SCHEDULED AREA (`SpellShape::ScheduledArea`): an ActionSpawnToLocation of a unit, in the order the
+/// area's action group lists it (repeats kept).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ScheduledSpawn {
+    /// The entry's SubActionsDelay, ms, as the table writes it (read under actions.SUB_ACTIONS_DELAY).
+    pub delay_ms: i32,
+    /// The unit's CardDb index (a `summon_only` card, loaded through `UnitUse::Scheduled`); u16::MAX until resolved.
+    pub unit: u16,
+    /// The action's DeployTime, ms: the unit deploys this long instead of its own DeployTime. None: its own.
+    pub deploy_time_ms: Option<i32>,
+    /// Where the unit stands, from the area's centre.
+    pub offset: SpawnOffset,
+}
+
+/// WHERE ONE SCHEDULED SPAWN STANDS, from its area's centre (`ScheduledSpawn::offset`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpawnOffset {
+    /// The Graveyard's two expressions, SUBTILES: X = x + dx s, where s is -1 when the centre is past the arena's
+    /// centre line (x > map_width / 2) and +1 otherwise; Y = y - dy t, where t is team_y_direction
+    /// (calibration actions.TEAM_Y_DIRECTION).
+    MirroredToWall { dx: i32, dy: i32 },
+    /// RelativeX / RelativeY as the table writes them (the Suspicious Bush's goblins: -1 and +1). Their unit and frame
+    /// are calibration spawner.RELATIVE_SPAWN_OFFSET's.
+    Relative { x: i32, y: i32 },
 }
 
 /// ONE FORM OF A VARIANT CARD (`SpellShape::Variant`): cards.json `spell.variant.options[k]`.
@@ -629,6 +660,26 @@ impl SpellShape {
         }
     }
 
+    /// THE ENTRIES OF THE SCHEDULED AREA down this shape's chain (`SpellShape::ScheduledArea`), or None. Every reader of
+    /// a scheduled area's units goes through this (`CardDb::unit_refs`, the loader's resolution).
+    pub fn schedule(&self) -> Option<&[ScheduledSpawn]> {
+        match self {
+            SpellShape::ScheduledArea { schedule, .. } => Some(schedule),
+            _ => self.child().and_then(SpellShape::schedule),
+        }
+    }
+
+    /// `schedule`, to fill.
+    fn schedule_mut(&mut self) -> Option<&mut Vec<ScheduledSpawn>> {
+        match self {
+            SpellShape::ScheduledArea { schedule, .. } => Some(schedule),
+            SpellShape::Fuse { then, .. } => then.schedule_mut(),
+            SpellShape::PulsingAreaEffect { child: Some(c), .. } => c.schedule_mut(),
+            SpellShape::Strikes(d) => d.delivery.as_deref_mut().and_then(SpellShape::schedule_mut),
+            _ => None,
+        }
+    }
+
     /// EVERY BUFF THIS SHAPE'S CHAIN CAN HANG, into `out` (each index once, in chain order: `buff`, then `buff2`,
     /// then the next object's). Read by `card_buffs`.
     fn buffs_into(&self, out: &mut Vec<u16>) {
@@ -636,7 +687,7 @@ impl SpellShape {
             SpellShape::Projectile { hit, .. } => hit.as_ref(),
             SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. } | SpellShape::Rolling { hit, .. } => Some(hit),
             SpellShape::Strikes(d) => Some(&d.hit),
-            SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } => None,
+            SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => None,
         };
         if let Some(h) = hit {
             for b in [h.buff, h.buff2].into_iter().flatten() {
@@ -730,17 +781,17 @@ pub enum SpawnerSource {
 /// SpawnNumber and a blank SpawnPauseTime; the Ram Rider's Ram carries its rider so, the Goblin
 /// Giant its two Spear Goblins). Not a periodic spawner: the riders exist from the mount's first
 /// tick, stand where the mount stood a tick before and fight on their own (state.rs
-/// `spawn_riders`, `carry_riders`; calibration rider.*). Taken on a troop only, and only with one
-/// rider and a blank SpawnRadius (`convert_attach`): where an offset rider stands and turns is not
-/// simulated yet, so every rider the engine runs stands on its mount's centre.
+/// `spawn_riders`, `carry_riders`; calibration rider.*). Taken on a troop only (`convert_attach`):
+/// one rider with a blank SpawnRadius stands on its mount's centre (the Ram Rider's), and riders
+/// with a SpawnRadius stand on an arc behind the mount (the Goblin Giant's; rider.OFFSET_LAW).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttachDef {
     /// The rider's CardDb index (a `summon_only` card, loaded through `UnitUse::Attach`).
     pub unit: u16,
-    /// SpawnNumber: riders per mount. 1 on every block the loader takes: `convert_attach` refuses more.
+    /// SpawnNumber: riders per mount. More than 1 only with a SpawnRadius (`convert_attach`).
     pub number: i32,
-    /// SpawnRadius, SUBTILES. None on every block the loader takes today: a set one is refused
-    /// until calibration rider.OFFSET_LAW is implemented.
+    /// SpawnRadius, SUBTILES: how far behind the mount its riders stand (calibration rider.OFFSET_LAW; the Goblin
+    /// Giant's 900). None on the Ram Rider's block: its rider stands on the mount's centre.
     pub radius: Option<i32>,
 }
 
@@ -954,6 +1005,10 @@ pub struct FormationDef {
     /// SummonCharacterSecond + count; None on every card without one (and on a card
     /// whose unit list came through the overlay: `RawCard::summon_resolution`).
     pub second_summon: Option<SecondSummonDef>,
+    /// The unit's SpawnMaxAngle, degrees (0 = blank): the arc its mount's riders spread over (the Goblin Giant's Spear
+    /// Goblins, 90; calibration rider.OFFSET_LAW, formation.rs `rider_arc_offset`). Read on a rider row alone.
+    #[serde(default)]
+    pub spawn_max_angle_deg: i32,
 }
 
 /// THE DAMAGE RAMP (characters / buildings VariableDamage2, VariableDamage3,
@@ -1276,9 +1331,10 @@ pub struct CardDef {
     /// THE LIFE-STATE CONTROLLER (the Goblin Hut; `LifeStateDef`, state.rs `life_state_pass`). None on every other
     /// card.
     pub life_state: Option<LifeStateDef>,
-    /// INVISIBLE WHEN IDLE (the Royal Ghost; targeting.INVISIBILITY): `Some(idle ms)` when the row's
-    /// BuffWhenNotAttacking is an invisibility, None on every other card. Read by target.rs `can_target` through
-    /// the entity's `reveal_from`.
+    /// INVISIBLE WHEN IDLE (the Royal Ghost, the Suspicious Bush; targeting.INVISIBILITY): `Some(idle ms)` when the
+    /// row's BuffWhenNotAttacking is an invisibility, None on every other card. Read by target.rs `can_target` through
+    /// the entity's `reveal_from`. `Some(0)` on a kamikaze whose row leaves the time blank (the Bush): its first hit is
+    /// its death, so it is invisible for its whole life.
     pub invisible_when_idle: Option<i32>,
     /// THE UNDERGROUND SPAWN WALK (`SpawnPathfindDef`; state.rs `phase_tunnel`): a played card
     /// whose unit is born at its owner's King and travels under ground to the destination the
@@ -1648,6 +1704,9 @@ struct RawCard {
     spawn_radius_milli: Option<i32>,
     /// characters.csv SpawnAngleShift, degrees (Bat 45).
     spawn_angle_shift_deg: Option<i32>,
+    /// characters.csv SpawnMaxAngle, degrees (15.535 only, written where set: the Goblin Giant's Spear Goblins, 90):
+    /// `FormationDef::spawn_max_angle_deg`.
+    spawn_max_angle_deg: Option<i32>,
     /// characters.csv ProjectileStartRadius, millitiles (the tower arrows 300).
     projectile_start_radius_milli: Option<i32>,
     /// characters.csv Kamikaze / KamikazeTime.
@@ -2569,6 +2628,9 @@ enum UnitUse {
     /// The row a transformation turns the unit into (`TransformDef::unit`: the Cannon Cart's BrokenCannon, the
     /// Goblin Demolisher's kamikaze form). The one use under which a troop row may carry a LifeTime.
     Transform,
+    /// The unit of entry k of a scheduled area (`SpellShape::ScheduledArea`: the Graveyard's Skeletons, the Suspicious
+    /// Bush's goblins), resolved onto the first of the card's spell objects whose entry k is still unresolved.
+    Scheduled(u8),
 }
 
 impl UnitUse {
@@ -2648,6 +2710,9 @@ pub enum UnitRef {
     /// The row a transformation turns the unit into (`TransformDef::unit`). The entity stays the same one, so what
     /// this block puts on the board is the row, not a new unit.
     Transform,
+    /// Entry k of a scheduled area (`SpellShape::ScheduledArea`) in the card's spell, death area or projectile area:
+    /// the Graveyard's Skeletons, the Suspicious Bush's goblins.
+    Scheduled(u8),
 }
 
 impl UnitRef {
@@ -2667,6 +2732,7 @@ impl UnitRef {
             UnitRef::VariantForm(_) => "a variant form",
             UnitRef::BuffDeathSpawn => "a buff's death spawn",
             UnitRef::Transform => "a transformation",
+            UnitRef::Scheduled(_) => "a scheduled spawn",
         }
     }
 }
@@ -3122,12 +3188,39 @@ struct RawScheduleEntry {
     buff: Option<RawBuff>,
     /// Every class and column the extractor's reader does not understand.
     unread: Vec<String>,
+    /// The action's own name (None for an inline table): named in a scheduled area's refusals.
+    action: Option<String>,
+    /// UseDeploy: the unit a scheduled area puts down deploys (`scheduled_area` takes no entry without it).
+    use_deploy: Option<bool>,
+    /// DeployTime, ms: how long that unit deploys, in place of its own DeployTime (the Graveyard's 500).
+    deploy_time_ms: Option<i32>,
+    /// XPositionExpression / YPositionExpression, each read into one form (tools/extract_cards.py `X_EXPR`, `Y_EXPR`).
+    x: Option<RawPosExpr>,
+    y: Option<RawPosExpr>,
+    /// RelativeX / RelativeY (the Suspicious Bush's goblins).
+    relative: Option<RawRelative>,
 }
 
 impl RawScheduleEntry {
     fn is_cosmetic(&self) -> bool {
         self.cosmetic.unwrap_or(false)
     }
+}
+
+/// One position expression of a schedule entry (`RawScheduleEntry::x`, `y`): its form and its offset, millitiles.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawPosExpr {
+    form: Option<String>,
+    offset_milli: Option<i32>,
+}
+
+/// A schedule entry's RelativeX / RelativeY, raw.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawRelative {
+    x: Option<i32>,
+    y: Option<i32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -3447,9 +3540,214 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx
     if let Some(got) = area_spawns_area(aeo, buffs, ctx) {
         return got;
     }
+    // AN AREA WHOSE ONE ACTION PUTS DOWN A BOTTLE (the Lumberjack's death area) is that bottle's fuse.
+    if let Some(got) = area_spawns_bottle(aeo, buffs, ctx) {
+        return got;
+    }
+    // AN AREA WHOSE ACTIONS PUT UNITS DOWN ON A SCHEDULE (the Graveyard, the Suspicious Bush's death area).
+    if let Some(got) = scheduled_area(aeo) {
+        return got;
+    }
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic_but_on_hit(aeo, &format!("area effect {what}"))?;
     area_effect_shape(aeo, buffs, ctx)
+}
+
+/// AN AREA THAT LANDS NOTHING OF ITS OWN: it hits neither ground nor air, and it carries no Buff, Pushback,
+/// Projectile, SpawnCharacter, MaximumTargets, child area, positive HitSpeed or HitBiggestTargets. Its own Damage is
+/// not read here (`inert_own_damage`). The clause every area whose action is its mechanic must meet
+/// (`area_spawns_area`, `area_spawns_bottle`, `scheduled_area`).
+fn area_lands_nothing(aeo: &RawAreaEffect) -> bool {
+    !aeo.hits_ground.unwrap_or(false)
+        && !aeo.hits_air.unwrap_or(false)
+        && aeo.buff.is_none()
+        && aeo.pushback_milli.is_none()
+        && aeo.projectile.as_ref().map_or(true, serde_json::Value::is_null)
+        && aeo.spawn_character.is_none()
+        && aeo.maximum_targets.is_none()
+        && aeo.spawn_area_effect_object.is_none()
+        && aeo.hit_speed_ms.map_or(true, |h| h <= 0)
+        && aeo.hit_biggest_targets != Some(true)
+}
+
+/// spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS = inert: an area that hits neither ground nor air deals no Damage of its own.
+/// True for an area with a Damage column and neither hit flag (the Suspicious Bush's death area, Damage 100). Measured
+/// on client 15.535.29: that area hurt nothing, an enemy 1067 from the death point and a tower 3075 away, in 9 runs.
+fn inert_own_damage(aeo: &RawAreaEffect) -> bool {
+    #[cfg(not(clash_plant = "bush_dummy_damage_loaded"))]
+    let inert = aeo.damage.is_some() && !aeo.hits_ground.unwrap_or(false) && !aeo.hits_air.unwrap_or(false);
+    #[cfg(clash_plant = "bush_dummy_damage_loaded")]
+    let inert = {
+        let _ = aeo;
+        false // PLANT: the Damage column is read as damage the area deals, and the area is refused.
+    };
+    inert
+}
+
+/// Is the area's action graph exactly what its schedule reads: rooted only at the schedule's OnStartingAction, of
+/// the classes the schedule's entries carry (and ActionGroup), spawning only what those entries spawn? A graph with
+/// anything more (an OnHitAction, a class the schedule does not list) is not the schedule, and the area is refused.
+fn graph_is_its_schedule(aeo: &RawAreaEffect, sched: &RawSchedule) -> bool {
+    let Some(g) = &aeo.action_graph else { return true };
+    let root_ok = g.roots.iter().all(|(k, v)| k == "OnStartingAction" && sched.root.as_deref() == Some(v.as_str()));
+    let classes: Vec<&str> = sched.entries.iter().filter_map(|e| e.class.as_deref()).collect();
+    let class_ok = g.class_types.iter().all(|c| c == "ActionGroup" || classes.contains(&c.as_str()));
+    let spawns: Vec<String> = sched
+        .entries
+        .iter()
+        .filter(|e| !e.is_cosmetic())
+        .filter_map(|e| Some(format!("{}:{}", e.spawn_type.as_deref()?, e.spawn.as_deref()?)))
+        .collect();
+    let spawn_ok = g.spawns.iter().all(|s| spawns.contains(s));
+    root_ok && class_ok && spawn_ok
+}
+
+/// THE BOTTLE a `units` row is (`Hitpointless::Bottle`: Rage's RageBottle, the Lumberjack's RageBarbarianBottle): its
+/// fuse (the row's DeployTime) and the name of the area its death leaves. None for any other row. The one classifier
+/// both paths that turn a bottle into a `SpellShape::Fuse` read (a spell's summon, `CardDb::from_json_str`; an area's
+/// spawn, `area_spawns_bottle`), so the two cannot drift.
+fn bottle_of(units: &BTreeMap<String, serde_json::Value>, name: &str) -> Option<(i32, String)> {
+    let mut v = units.get(name)?.clone();
+    let kind = match v.get("source_table").and_then(|t| t.as_str()) {
+        Some("buildings") => "building",
+        _ => "troop",
+    };
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("kind".into(), serde_json::Value::String(kind.into()));
+        obj.entry("count").or_insert(serde_json::Value::from(1));
+    }
+    match hitpointless_building(&serde_json::from_value::<RawCard>(v).ok()?)? {
+        Hitpointless::Bottle { fuse_ms, area } => Some((fuse_ms, area)),
+        Hitpointless::DeathBomb { .. } => None,
+    }
+}
+
+/// AN AREA WHOSE ONE ACTION PUTS DOWN A BOTTLE (the Lumberjack's death area RageBarbarianDummyForSpawn: LifeDuration
+/// 50, no hit, one ActionSpawn of the bottle row RageBarbarianBottle, which is a DeployTime of 500 and the death area
+/// BarbarianRage). The area is COLLAPSED into the bottle's fuse over the bottle's area (`SpellShape::Fuse { fuse_ms,
+/// then }`), the shape the Rage's bottle already is: no RageBarbarianBottle record is loaded. When a death leaves it,
+/// the fuse starts under calibration spells.DEATH_FUSE_START (state.rs `phase_reap`).
+///
+/// None, and the caller's refusal stands, unless ALL hold:
+///   1. the area's schedule has exactly one entry that is not cosmetic: an ActionSpawn of a CharacterType at delay 0,
+///      with no position and nothing unread;
+///   2. the area lands nothing (`area_lands_nothing`; a Damage column must be inert, `inert_own_damage`) and names no
+///      OnHitAction, and its action graph is its schedule (`graph_is_its_schedule`);
+///   3. the spawned row is a bottle (`bottle_of`).
+///
+/// Then the bottle's area is read by the non-collapsing path and must be one the engine runs.
+fn area_spawns_bottle(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Option<Result<(SpellShape, UnitNeeds), String>> {
+    // PLANT death_bottle_unread (tests/lumberjack.rs): the area stays an action graph the loader does not read.
+    #[cfg(clash_plant = "death_bottle_unread")]
+    if aeo.schedule.is_some() {
+        return None;
+    }
+    let sched = aeo.schedule.as_ref()?;
+    let live: Vec<&RawScheduleEntry> = sched.entries.iter().filter(|e| !e.is_cosmetic()).collect();
+    let [e] = live.as_slice() else { return None };
+    let positioned = e.x.is_some() || e.y.is_some() || e.relative.is_some();
+    if e.class.as_deref() != Some("ActionSpawn") || e.spawn_type.as_deref() != Some("CharacterType") || e.delay_ms.unwrap_or(0) != 0 || !e.unread.is_empty() || positioned {
+        return None;
+    }
+    if !area_lands_nothing(aeo) || (aeo.damage.is_some() && !inert_own_damage(aeo)) || aeo.on_hit.is_some() || !graph_is_its_schedule(aeo, sched) {
+        return None;
+    }
+    let unit = e.spawn.clone()?;
+    let (fuse_ms, area) = bottle_of(ctx.units, &unit)?;
+    let what = aeo.name.clone().unwrap_or_default();
+    let got = (|| {
+        let c = ctx.aeos.get(&area).ok_or_else(|| format!("area effect {what} puts down {unit}, whose area {area} has no area_effect_objects record"))?;
+        refuse_action_mechanic_but_on_hit(c, &format!("area effect {area}")).map_err(|e| format!("area effect {what} puts down {unit}: {e}"))?;
+        let (then, needs) = area_effect_shape(c, buffs, ctx).map_err(|e| format!("area effect {what} puts down {unit}: {e}"))?;
+        Ok((SpellShape::Fuse { fuse_ms, then: Box::new(then) }, needs))
+    })();
+    Some(got)
+}
+
+/// THE MOST ENTRIES A SCHEDULED AREA TAKES: its released entries are one bit each of the spell object's `fired` mask
+/// (spell.rs `SpellMotion::Scheduled`). The Graveyard's twelve are the most any row ships.
+pub const MAX_SCHEDULED_SPAWNS: usize = 32;
+
+/// AN AREA WHOSE ACTIONS PUT UNITS DOWN ON A SCHEDULE (`SpellShape::ScheduledArea`): the Graveyard's
+/// Graveyard_rework (LifeDuration 9000; twelve ActionSpawnToLocation entries of Graveyard_rework_Skeleton, delays 2200
+/// to 8200, each at an offset its two position expressions give, DeployTime 500) and the Suspicious Bush's death area
+/// SuspiciousBush_DummyAEO (LifeDuration 1000; two BushGoblins at 675 and 625, RelativeX -1 and +1). Measured on client
+/// 15.535.29: 120 of 120 Graveyard Skeletons on the cast tick plus floor(delay / 50), 12 of 12 Bush pairs one tick
+/// apart.
+///
+/// None, and the caller's refusal stands, unless the area's schedule has at least one entry that is not cosmetic and
+/// every such entry is an ActionSpawnToLocation of a CharacterType. Then the area is refused, naming it, unless:
+///   1. it lands nothing (`area_lands_nothing`; a Damage column must be inert, `inert_own_damage`), names no
+///      OnHitAction, and its action graph is its schedule (`graph_is_its_schedule`);
+///   2. it has a LifeDuration, and every entry is due inside it (delay below the life);
+///   3. every entry reads whole: nothing unread, UseDeploy set, and either both position expressions or a RelativeX
+///      with no RelativeY (RelativeY is set on no row; not simulated);
+///   4. it has at most MAX_SCHEDULED_SPAWNS entries.
+///
+/// Returns the shape and one need per entry (`UnitUse::Scheduled(k)`), in schedule order.
+fn scheduled_area(aeo: &RawAreaEffect) -> Option<Result<(SpellShape, UnitNeeds), String>> {
+    let sched = aeo.schedule.as_ref()?;
+    #[allow(unused_mut)]
+    let mut live: Vec<&RawScheduleEntry> = sched.entries.iter().filter(|e| !e.is_cosmetic()).collect();
+    if live.is_empty() || !live.iter().all(|e| e.class.as_deref() == Some("ActionSpawnToLocation") && e.spawn_type.as_deref() == Some("CharacterType")) {
+        return None;
+    }
+    // PLANT schedule_entries_dedup: one entry per distinct action, the way the action graph lists its classes.
+    #[cfg(clash_plant = "schedule_entries_dedup")]
+    {
+        let mut seen: Vec<Option<String>> = Vec::new();
+        live.retain(|e| {
+            let fresh = !seen.contains(&e.action);
+            seen.push(e.action.clone());
+            fresh
+        });
+    }
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: String| -> Option<Result<(SpellShape, UnitNeeds), String>> { Some(Err(format!("area effect {what}: {why}; not simulated"))) };
+    if !area_lands_nothing(aeo) || (aeo.damage.is_some() && !inert_own_damage(aeo)) {
+        return refuse("an area whose actions put units down also lands something of its own".into());
+    }
+    if aeo.on_hit.is_some() || !graph_is_its_schedule(aeo, sched) {
+        return refuse("its action graph runs more than its spawn schedule".into());
+    }
+    let Some(life_ms) = aeo.life_duration_ms.filter(|l| *l > 0) else {
+        return refuse("a spawn schedule with no LifeDuration".into());
+    };
+    if live.len() > MAX_SCHEDULED_SPAWNS {
+        return refuse(format!("a spawn schedule of {} entries (at most {MAX_SCHEDULED_SPAWNS})", live.len()));
+    }
+    let mut schedule = Vec::with_capacity(live.len());
+    let mut needs: UnitNeeds = Vec::with_capacity(live.len());
+    for (k, e) in live.iter().enumerate() {
+        let name = e.action.clone().unwrap_or_else(|| format!("entry {k}"));
+        if !e.unread.is_empty() {
+            return refuse(format!("its action {name} carries {}", e.unread.join(", ")));
+        }
+        let Some(unit) = e.spawn.clone() else { return refuse(format!("its action {name} names no unit")) };
+        if e.use_deploy != Some(true) {
+            return refuse(format!("its action {name} puts {unit} down without UseDeploy"));
+        }
+        let delay_ms = e.delay_ms.unwrap_or(0);
+        if delay_ms < 0 || delay_ms >= life_ms {
+            return refuse(format!("its action {name} is due at {delay_ms} ms, outside the area's life of {life_ms}"));
+        }
+        if e.deploy_time_ms.is_some_and(|d| d < 0) {
+            return refuse(format!("its action {name} has a negative DeployTime"));
+        }
+        let form = |p: &Option<RawPosExpr>, want: &str| p.as_ref().filter(|p| p.form.as_deref() == Some(want)).and_then(|p| p.offset_milli);
+        let offset = match (&e.x, &e.y, &e.relative) {
+            (Some(_), Some(_), None) => match (form(&e.x, "nearer_wall_mirror"), form(&e.y, "team_y_direction")) {
+                (Some(dx), Some(dy)) => SpawnOffset::MirroredToWall { dx: milli(dx), dy: milli(dy) },
+                _ => return refuse(format!("its action {name} has a position expression of a form this loader does not read")),
+            },
+            (None, None, Some(r)) if r.y.unwrap_or(0) == 0 => SpawnOffset::Relative { x: r.x.unwrap_or(0), y: 0 },
+            (None, None, Some(_)) => return refuse(format!("its action {name} sets a RelativeY")),
+            _ => return refuse(format!("its action {name} places {unit} by neither both position expressions nor a RelativeX")),
+        };
+        schedule.push(ScheduledSpawn { delay_ms, unit: u16::MAX, deploy_time_ms: e.deploy_time_ms, offset });
+        needs.push((UnitUse::Scheduled(k as u8), unit));
+    }
+    Some(Ok((SpellShape::ScheduledArea { life_ms, schedule }, needs)))
 }
 
 /// `refuse_action_mechanic` for an area, except a graph that is exactly the area's readable OnHitAction: an
@@ -3496,17 +3794,7 @@ fn area_spawns_area(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -
     if e.class.as_deref() != Some("ActionSpawn") || e.spawn_type.as_deref() != Some("AreaEffectType") || e.delay_ms.unwrap_or(0) != 0 || !e.unread.is_empty() {
         return None;
     }
-    let lands_nothing = !aeo.hits_ground.unwrap_or(false)
-        && !aeo.hits_air.unwrap_or(false)
-        && aeo.buff.is_none()
-        && aeo.pushback_milli.is_none()
-        && aeo.projectile.as_ref().map_or(true, serde_json::Value::is_null)
-        && aeo.spawn_character.is_none()
-        && aeo.maximum_targets.is_none()
-        && aeo.spawn_area_effect_object.is_none()
-        && aeo.hit_speed_ms.map_or(true, |h| h <= 0)
-        && aeo.hit_biggest_targets != Some(true);
-    if !lands_nothing {
+    if !area_lands_nothing(aeo) {
         return None;
     }
     let root = sched.root.clone().unwrap_or_default();
@@ -4056,11 +4344,10 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
 /// THE ATTACHED-RIDER HALF of the Spawn* block (SpawnAttach set; `AttachDef`): the riders a
 /// mount carries, or the reason the block is refused. SpawnNumber is needed. A periodic cadence
 /// beside SpawnAttach (SpawnPauseTime, SpawnInterval, SpawnStartTime, SpawnLimit) is a shape no
-/// row ships, and a SpawnRadius (the Goblin Giant's 900) puts the riders off the mount's centre,
-/// which calibration rider.OFFSET_LAW is to settle and nothing implements yet: both are refused.
-/// So is a SpawnNumber above 1 with no SpawnRadius: the rider law is measured on the Ram Rider's
-/// one rider (rider.POSITION), and several riders would all stand on the mount's centre, a layout
-/// no row ships and nothing measured.
+/// row ships, and is refused. A SpawnRadius (the Goblin Giant's 900) puts the riders on an arc
+/// behind the mount (calibration rider.OFFSET_LAW; formation.rs `rider_arc_offset`). A SpawnNumber
+/// above 1 with no SpawnRadius is refused: the riders would all stand on the mount's centre, a
+/// layout no row ships and nothing measured.
 /// Returns the def with `unit` unresolved (u16::MAX) and the rider's name.
 fn convert_attach(b: RawSpawner) -> Result<(AttachDef, String), String> {
     let unit = b.character.ok_or("an attached-rider block with no SpawnCharacter")?;
@@ -4068,31 +4355,39 @@ fn convert_attach(b: RawSpawner) -> Result<(AttachDef, String), String> {
         return Err(format!("attached rider {unit}: a periodic cadence (SpawnPauseTime, SpawnInterval, SpawnStartTime or SpawnLimit) is not simulated"));
     }
     let number = b.number.filter(|n| *n >= 1).ok_or_else(|| format!("attached rider {unit}: no SpawnNumber"))?;
-    if let Some(r) = b.radius_milli {
-        return Err(format!("attached rider {unit}: an offset from its mount (SpawnRadius {r}) is not simulated"));
+    let radius = match b.radius_milli {
+        None => None,
+        Some(r) if r > 0 => Some(milli(r)),
+        Some(r) => return Err(format!("attached rider {unit}: SpawnRadius {r} out of range")),
+    };
+    if number != 1 && radius.is_none() {
+        return Err(format!("attached rider {unit}: {number} riders on one mount (SpawnNumber {number}) with no SpawnRadius is not simulated"));
     }
-    if number != 1 {
-        return Err(format!("attached rider {unit}: {number} riders on one mount (SpawnNumber {number}) is not simulated"));
+    if number > 8 {
+        return Err(format!("attached rider {unit}: SpawnNumber {number} out of range"));
     }
-    Ok((AttachDef { unit: u16::MAX, number, radius: None }, unit))
+    Ok((AttachDef { unit: u16::MAX, number, radius }, unit))
 }
 
-/// THE RIDER ROWS THE RIDER LAW COVERS (`UnitUse::Attach`): a ground troop with no movement of its
-/// own to run and nothing it leaves on the board. `leaves` says the record puts a unit, an area or
-/// a projectile down of its own (its needs, when it loads; its resolved blocks, when another path
-/// loaded it first). A rider row outside this is refused with the reason: the Goblin Giant's Spear
-/// Goblins fly (FlyingHeight 4000) and leave a Spear Goblin where they die, their dismount, which
-/// calibration rider.DISMOUNT_POINT is to settle.
+/// THE RIDER ROWS THE RIDER LAW COVERS (`UnitUse::Attach`): a troop with no movement of its own to
+/// run, which leaves nothing on the board but one unit where it dies, its dismount. `leaves` says
+/// the record puts down a unit, an area or a projectile of its own besides its death spawn (its
+/// needs, when it loads; its resolved blocks, when another path loaded it first). The dismount
+/// comes down where calibration rider.DISMOUNT_POINT says (state.rs `phase_reap`): the Goblin
+/// Giant's Spear Goblins each leave one Spear Goblin. A rider that flies (the Spear Goblins'
+/// FlyingHeight 4000) is taken: it is carried and never walks, so its height decides only who may
+/// target it, and under rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune nothing does. A rider
+/// row outside this is refused with the reason.
 fn rider_shape(c: &CardDef, leaves: bool, unit: &str) -> Result<(), String> {
     let refuse = |why: String| Err(format!("units.{unit}: an attached rider that {why} is not simulated"));
     if c.kind != CardKind::Troop {
         return refuse("is a building".into());
     }
-    if c.is_flying() {
-        return refuse(format!("flies (FlyingHeight {})", c.flying_height));
-    }
     if leaves || c.death_damage > 0 {
-        return refuse("leaves something on the board of its own (a dismount, a spawn or a death blow)".into());
+        return refuse("leaves something on the board of its own besides its dismount (a spawn, an area, a projectile or a death blow)".into());
+    }
+    if let Some(ds) = c.death_spawn.filter(|ds| ds.count != 1) {
+        return refuse(format!("leaves {} units where it dies", ds.count));
     }
     if c.charge.is_some() || c.jump.is_some() || c.dash.is_some() || c.special.is_some() {
         return refuse("moves on its own (a charge, a leap, a dash or a hook)".into());
@@ -4613,14 +4908,23 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let spawn_pathfind = spawn_pathfind_of(&raw.spawn_pathfind, can_deploy_on_enemy_side, "the unit")?;
     let tunnels = spawn_pathfind.is_some();
     // INVISIBLE WHEN IDLE: the idle time, with area damage still landing (AllowAreaDmgWhenInvisible) -- the one
-    // reading the engine runs (target.rs `can_target`); a row that would keep area damage off is refused.
+    // reading the engine runs (target.rs `can_target`); a row that would keep area damage off is refused. A BLANK idle
+    // time is read on a kamikaze with no KamikazeTime alone (the Suspicious Bush), as 0: its first hit is its death, so
+    // it is never revealed and the time is never read. Measured on client 15.535.29: nothing targeted a Bush from its
+    // first frame, and each died on its hit. Any other blank time is refused: that unit would be revealed by its hit
+    // and would need the time.
+    let dies_on_its_hit = raw.kamikaze.unwrap_or(false) && raw.kamikaze_time_ms.is_none();
     let invisible_when_idle = match &raw.idle_invisibility {
         None => None,
         Some(iv) => {
             if !iv.area_damage_when_invisible.unwrap_or(false) {
                 return Err("an invisibility that keeps area damage off is not simulated".into());
             }
-            Some(iv.time_ms.filter(|t| *t > 0).ok_or("an invisibility with no BuffWhenNotAttackingTime")?)
+            match iv.time_ms {
+                Some(t) if t > 0 => Some(t),
+                _ if dies_on_its_hit => Some(0),
+                _ => return Err("an invisibility with no BuffWhenNotAttackingTime on a unit that survives its hit".into()),
+            }
         }
     };
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
@@ -4916,6 +5220,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         spawn_radius: milli(nonneg(raw.spawn_radius_milli, "spawn_radius_milli")?),
         spawn_angle_shift_deg: raw.spawn_angle_shift_deg.unwrap_or(0),
         second_summon,
+        spawn_max_angle_deg: nonneg(raw.spawn_max_angle_deg, "spawn_max_angle_deg")?,
     };
     // KAMIKAZE (combat.KAMIKAZE_DEATH = at_fire): the death ON the fire. A DELAYED one
     // (KamikazeTime, the Skeleton Barrel's 500 ms) is not that death: `kamikaze` stays
@@ -5467,35 +5772,20 @@ impl CardDb {
                 // A BOTTLE IS NOT A UNIT (`hitpointless_building`): its row becomes the spell's own
                 // `Fuse`, and the area its death leaves becomes what the fuse releases. Anything else
                 // is a real unit and goes the ordinary way below, then `Summon.unit` is filled.
-                if let Some(v) = file.units.get(&unit) {
-                    let mut v = v.clone();
-                    let kind = match v.get("source_table").and_then(|t| t.as_str()) {
-                        Some("buildings") => "building",
-                        _ => "troop",
+                if let Some((fuse_ms, area)) = bottle_of(&file.units, &unit) {
+                    let got = match ctx.aeos.get(&area) {
+                        Some(a) => convert_area_effect(a, &mut buffs, &ctx).map(|(sh, _)| sh),
+                        None => Err(format!("{area} has no area_effect_objects record")),
                     };
-                    if let Some(obj) = v.as_object_mut() {
-                        obj.insert("kind".into(), serde_json::Value::String(kind.into()));
-                        obj.entry("count").or_insert(serde_json::Value::from(1));
-                    }
-                    let bottle = serde_json::from_value::<RawCard>(v).ok().and_then(|r| match hitpointless_building(&r) {
-                        Some(Hitpointless::Bottle { fuse_ms, area }) => Some((fuse_ms, area)),
-                        _ => None,
-                    });
-                    if let Some((fuse_ms, area)) = bottle {
-                        let got = match ctx.aeos.get(&area) {
-                            Some(a) => convert_area_effect(a, &mut buffs, &ctx).map(|(sh, _)| sh),
-                            None => Err(format!("{area} has no area_effect_objects record")),
-                        };
-                        match got {
-                            Ok(then) => {
-                                if let Some(sd) = db.cards[spell_idx as usize].spell.as_mut() {
-                                    sd.shape = SpellShape::Fuse { fuse_ms, then: Box::new(then) };
-                                }
+                    match got {
+                        Ok(then) => {
+                            if let Some(sd) = db.cards[spell_idx as usize].spell.as_mut() {
+                                sd.shape = SpellShape::Fuse { fuse_ms, then: Box::new(then) };
                             }
-                            Err(e) => unloadable.push((spell_idx, format!("summon {unit}: {e}"))),
                         }
-                        continue;
+                        Err(e) => unloadable.push((spell_idx, format!("summon {unit}: {e}"))),
                     }
+                    continue;
                 }
             }
             let got = unit_idx
@@ -5605,7 +5895,7 @@ impl CardDb {
                     // why before any unit of its own loads (a dismount's death spawn would otherwise
                     // load as a chain below).
                     if which == UnitUse::Attach {
-                        rider_shape(&c, !nested.is_empty(), &unit)?;
+                        rider_shape(&c, nested.iter().any(|(w, _)| *w != UnitUse::DeathSpawn), &unit)?;
                     }
                     // A TRANSFORMATION TARGET CARRIES NO STATE ITS SPAWN OR DEPLOY WOULD START: the entity
                     // keeps its own and is not deployed again (state.rs `rebind_unit`), so a row whose block
@@ -5698,7 +5988,7 @@ impl CardDb {
             let got = match got {
                 Ok(u) if which == UnitUse::Attach => {
                     let r = db.get(u);
-                    let leaves = !db.unit_refs(u).is_empty() || r.death_area_effect.is_some() || r.death_projectile.is_some() || r.spawn_area_effect.is_some();
+                    let leaves = db.unit_refs(u).iter().any(|(p, _, _)| *p != UnitRef::DeathSpawn) || r.death_area_effect.is_some() || r.death_projectile.is_some() || r.spawn_area_effect.is_some();
                     rider_shape(r, leaves, &unit).map(|()| u)
                 }
                 other => other,
@@ -5745,6 +6035,19 @@ impl CardDb {
                         // The buff's row, which every card that hangs it shares, not the card.
                         UnitUse::BuffDeathSpawn(b) => buffs.set_death_unit(b, u),
                         UnitUse::Transform => card.transform_at_hp.as_mut().expect("transform present").unit = u,
+                        // Onto the first of the card's spell objects whose entry k is still unresolved: the spell, the
+                        // death area, the projectile area, the order their needs are queued in.
+                        UnitUse::Scheduled(k) => {
+                            let slot = [card.spell.as_mut(), card.death_area_effect.as_mut(), card.projectile_area.as_mut()]
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|d| d.shape.schedule_mut())
+                                .filter_map(|s| s.get_mut(k as usize))
+                                .find(|e| e.unit == u16::MAX);
+                            if let Some(e) = slot {
+                                e.unit = u;
+                            }
+                        }
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
@@ -6128,7 +6431,8 @@ impl CardDb {
                 | UnitRef::Attach
                 | UnitRef::SummonMember(_)
                 | UnitRef::BuffDeathSpawn
-                | UnitRef::Transform => self.unit_level(idx, unit, level_index, level)?,
+                | UnitRef::Transform
+                | UnitRef::Scheduled(_) => self.unit_level(idx, unit, level_index, level)?,
                 // A variant's form is a card of its own, played at the same unified level: checked whole (its own
                 // units included) by the walk below, at that level. A form is never itself a variant (the loader
                 // refuses one).
@@ -6236,6 +6540,17 @@ impl CardDb {
         if let Some(t) = c.transform_at_hp {
             out.push((UnitRef::Transform, t.unit, None));
         }
+        // After it, so no earlier block's place moves: every entry of a scheduled area in the card's spell, death area or
+        // projectile area (the Graveyard's Skeletons, the Suspicious Bush's goblins). PLANT unit_refs_skips_scheduled
+        // (tests/scheduled_area.rs, tests/unit_refs.rs) drops them.
+        #[cfg(not(clash_plant = "unit_refs_skips_scheduled"))]
+        for d in [&c.spell, &c.death_area_effect, &c.projectile_area].into_iter().flatten() {
+            if let Some(entries) = d.shape.schedule() {
+                for (k, e) in entries.iter().enumerate() {
+                    out.push((UnitRef::Scheduled(k as u8), e.unit, None));
+                }
+            }
+        }
         out
     }
 
@@ -6276,6 +6591,8 @@ impl CardDb {
                 // The unit is on the buff's row, which other cards share: the card holds nothing to drop.
                 UnitRef::BuffDeathSpawn => {}
                 UnitRef::Transform => card.transform_at_hp = None,
+                // A spell whose schedule lost a unit goes whole (a death or projectile area goes below).
+                UnitRef::Scheduled(_) => card.spell = None,
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -6463,7 +6780,7 @@ impl CardDb {
                                 h.crown_pct = pct;
                             }
                         }
-                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. }) => {
+                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. }) => {
                             return Err(format!("{what}: the spell's own object carries no crown-tower share"))
                         }
                         None => c.crown_tower_damage_percent = pct,
@@ -6973,11 +7290,12 @@ mod tests {
         assert_eq!(db.get(db.index("Giant").unwrap()).ignore_pushback, doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Giant").unwrap()["ignore_pushback"].as_bool().unwrap());
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
         // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
-        // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes).
-        for n in ["Graveyard", "Clone"] {
-            assert!(db.index(n).is_none(), "{n} must not be simulable");
-            assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
-        }
+        // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes), and
+        // the Graveyard as a scheduled area (tests/scheduled_area.rs).
+        let n = "Clone";
+        assert!(db.index(n).is_none(), "{n} must not be simulable");
+        assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
+        assert!(matches!(spell("Graveyard").shape, SpellShape::ScheduledArea { .. }), "Graveyard: {:?}", spell("Graveyard"));
         // The Mirror and the Spirit Empress load as the two shapes that are never cast
         // (tests/mirror_card.rs and tests/variant_card.rs pin what playing them does).
         assert_eq!(spell("Mirror").shape, SpellShape::Mirror);

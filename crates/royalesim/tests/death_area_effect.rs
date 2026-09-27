@@ -20,10 +20,12 @@
 //!
 //! WHAT IS PINNED
 //!   1. the loader turns `DeathAreaEffect` into the card's own `SpellDef`, with the
-//!      radius, the buff row and the BuffTime cards.json carries -- and REFUSES the
-//!      card, by name and with the area's reason, when the area's mechanic is one it
-//!      does not read (the Rage Barbarian's and the Suspicious Bush's are spawn
-//!      scripts) or when the named row is not in the file at all;
+//!      radius, the buff row and the BuffTime cards.json carries (the Lumberjack's bottle
+//!      and the Suspicious Bush's spawn schedule load as actions, pinned by
+//!      tests/lumberjack.rs and tests/suspicious_bush.rs) -- and REFUSES the card, by
+//!      name and with the area's reason, when the area's mechanic is one it does not
+//!      read (the Bush's schedule with an action made unreadable) or when the named row
+//!      is not in the file at all;
 //!   2. the death releases the area as the engine's OWN area-effect object: after the
 //!      death tick `spells()` holds one `Area` motion at the death point under the
 //!      dying card's index, and it is consumed on its first update, exactly as a Zap
@@ -124,15 +126,9 @@ fn the_loader_reads_the_named_area_effect_row_onto_the_card_and_refuses_the_rest
         named += 1;
         let name = row["name"].as_str().expect("a card row has a name");
         let Some(idx) = db.index(name) else {
-            // REFUSED: out loud, naming the area it could not read. The one exception is a row the loader refuses
-            // earlier for another mechanic: the Suspicious Bush's invisibility has no time, and that reason comes first
-            // (tests/loadable_census.rs lists it). Its area is checked below, on the file without that invisibility.
+            // REFUSED: out loud, naming the area it could not read.
             refused += 1;
             let (_, why) = db.rejected.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("{name} neither loaded nor rejected"));
-            if name == "SuspiciousBush" && !row["idle_invisibility"].is_null() {
-                assert!(why.starts_with("an invisibility with no BuffWhenNotAttackingTime"), "{name}: {why}");
-                continue;
-            }
             assert!(why.contains(area), "{name} was refused without naming its area {area}: {why}");
             continue;
         };
@@ -151,6 +147,9 @@ fn the_loader_reads_the_named_area_effect_row_onto_the_card_and_refuses_the_rest
                 assert_eq!(*hit_speed_ms, int(&a["hit_speed_ms"]), "{name}: the area's HitSpeed");
                 hit
             }
+            // An area whose action is its mechanic: a bottle's fuse (the Lumberjack's) or a spawn schedule (the
+            // Suspicious Bush's). Neither hits anything itself; tests/lumberjack.rs and tests/suspicious_bush.rs pin them.
+            SpellShape::Fuse { .. } | SpellShape::ScheduledArea { .. } => continue,
             other => panic!("{name}: a death area loaded as {other:?}"),
         };
         assert_eq!(hit.radius, milli(int(&a["radius_milli"])), "{name}: the area's Radius");
@@ -172,33 +171,32 @@ fn the_loader_reads_the_named_area_effect_row_onto_the_card_and_refuses_the_rest
     }
     assert!(named >= 2, "only {named} cards in cards.json carry a DeathAreaEffect; the scan proves nothing");
     assert!(loaded >= 1, "not one DeathAreaEffect card loaded (of {named})");
-    assert!(refused >= 1, "every DeathAreaEffect card loaded, so the refusal arm is untested");
+    assert_eq!(loaded + refused, named, "a DeathAreaEffect card neither loaded nor refused");
+    // Every shipped DeathAreaEffect card may load (the Lumberjack's and the Suspicious Bush's do), so the refusal arm
+    // is exercised on a doctored file below, which must refuse the card it doctors.
 
     // The Ice Golem is the card this file works on, and it loads.
     let ice = db.index("IceGolemite").unwrap_or_else(|| panic!("IceGolemite: {:?}", db.rejected.iter().find(|(n, _)| n == "IceGolemite")));
     assert!(db.get(ice).death_area_effect.is_some());
-    // An area whose mechanic is a spawn script stays refused, card and all.
-    for card in ["RageBarbarian", "SuspiciousBush"] {
-        assert!(db.index(card).is_none(), "{card} must not be simulable: its area is a spawn script");
-    }
-    // The Suspicious Bush's area, reached: the same file with the Bush's invisibility taken out still refuses the
-    // Bush, and now by its area.
+    // An area whose mechanic is an action the loader cannot read stays refused, card and all, naming the area: the
+    // Suspicious Bush's death area with its first spawn carrying a column the schedule reader lists as unread (the
+    // global Lightning's ActionDelay is one). The same file unchanged loads the Bush (the positive control).
+    assert!(db.index("SuspiciousBush").is_some(), "the shipped Suspicious Bush is refused: {:?}", db.rejected.iter().find(|(n, _)| n == "SuspiciousBush"));
     let mut doc = doc.clone();
-    let mut bush_area = None;
-    for row in doc["cards"].as_array_mut().expect("a cards array") {
-        if row["name"] == "SuspiciousBush" {
-            row["idle_invisibility"] = serde_json::Value::Null;
-            bush_area = row["death_area_effect"].as_str().map(str::to_string);
-        }
-    }
-    if let Some(unit) = doc["units"].get_mut("SuspiciousBush") {
-        unit["idle_invisibility"] = serde_json::Value::Null;
-    }
-    let area = bush_area.expect("cards.json carries the Suspicious Bush with a death area effect");
+    let area = doc["cards"]
+        .as_array()
+        .expect("a cards array")
+        .iter()
+        .find(|r| r["name"] == "SuspiciousBush")
+        .and_then(|r| r["death_area_effect"].as_str().map(str::to_string))
+        .expect("cards.json carries the Suspicious Bush with a death area effect");
+    let entry = &mut doc["area_effect_objects"][area.as_str()]["schedule"]["entries"][0];
+    assert!(entry.is_object(), "{area} carries no schedule to doctor");
+    entry["unread"] = serde_json::json!(["columns ActionDelay"]);
     let db = CardDb::from_json_str(&doc.to_string(), CardSource::DerivedJson).expect("the doctored file still parses");
-    assert!(db.index("SuspiciousBush").is_none(), "the Suspicious Bush loads once its invisibility is taken out");
+    assert!(db.index("SuspiciousBush").is_none(), "the Suspicious Bush loads with an action its area cannot read");
     let (_, why) = db.rejected.iter().find(|(n, _)| n == "SuspiciousBush").expect("the Suspicious Bush is not even listed as rejected");
-    assert!(why.contains(&area), "the Suspicious Bush without its invisibility was refused without naming its area {area}: {why}");
+    assert!(why.contains(&area), "the doctored Suspicious Bush was refused without naming its area {area}: {why}");
 }
 
 #[test]

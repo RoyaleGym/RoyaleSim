@@ -22,8 +22,9 @@
 //! offered in that battle: those tests pin the engine's rule (the column, and the keys' hypotheses).
 //!
 //! WHAT IS PINNED:
-//!   1. the loader takes the Ram's attached-rider block and the rider row, and refuses the shapes the rider law does
-//!      not cover, the Goblin Giant's among them;
+//!   1. the loader takes the Ram's attached-rider block and the rider row, and the offset riders, a flying rider and
+//!      a rider that leaves one unit where it dies (the Goblin Giant's shapes; tests/goblin_giant.rs pins that card),
+//!      and refuses the shapes the rider law does not cover;
 //!   2. the rider is born one creation after the Ram, at its point and level, and deploys with it; under
 //!      rider.DEPLOY = own_deploy_time it counts its own DeployTime instead;
 //!   3. the rider stands where the Ram stood a tick before, on every tick of a walk, a charge and a river leap;
@@ -113,9 +114,10 @@ fn the_loader_takes_the_ram_riders_rider_and_refuses_the_shapes_it_does_not_simu
     assert_eq!(bola.time_ms, 2000, "BuffTime");
     assert_eq!(db.buffs[bola.buff as usize].speed_pct, -70, "BolaSnare's SpeedMultiplier");
     assert_eq!(r.deprioritize_buff, Some(bola.buff), "the deprioritized buff is the bola's own BolaSnare");
-    // The Goblin Giant carries two riders 900 from its centre: refused until rider.OFFSET_LAW is implemented.
-    let why = db.rejected.iter().find(|(n, _)| n == "GoblinGiant").map(|(_, w)| w.as_str());
-    assert_eq!(why, Some("attached rider SpearGoblinGiant: an offset from its mount (SpawnRadius 900) is not simulated"));
+    // The Goblin Giant carries two riders 900 from its centre, on an arc (rider.OFFSET_LAW; tests/goblin_giant.rs).
+    let gg = db.index("GoblinGiant").unwrap_or_else(|| panic!("GoblinGiant refused: {:?}", db.rejected.iter().find(|(n, _)| n == "GoblinGiant")));
+    let at = db.get(gg).attach.expect("the Goblin Giant's attached-rider block");
+    assert_eq!((at.number, at.radius), (2, Some(900 * K)), "SpawnNumber 2, SpawnRadius 900");
 
     // The shapes, on a synthetic file: one card per shape, all on the same rider row where they can be.
     let db = CardDb::from_json_str(
@@ -134,6 +136,10 @@ fn the_loader_takes_the_ram_riders_rider_and_refuses_the_shapes_it_does_not_simu
          "collision_radius_milli":600,"spawner":{"character":"Bird","number":1,"attach":true}},
         {"name":"Hut","kind":"building","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,
          "collision_radius_milli":1000,"spawner":{"character":"Rider","number":1,"attach":true}},
+        {"name":"Pair","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
+         "collision_radius_milli":600,"spawner":{"character":"Splitter","number":1,"attach":true}},
+        {"name":"Nest","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
+         "collision_radius_milli":600,"spawner":{"character":"Hatcher","number":1,"attach":true}},
         {"name":"NoPause","kind":"troop","elixir":5,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
          "collision_radius_milli":600,"spawner":{"character":"Rider","number":1}},
         {"name":"Ignorer","kind":"troop","elixir":3,"rarity":"Common","hitpoints":700,"hit_speed_ms":1700,"range_milli":800,
@@ -145,7 +151,11 @@ fn the_loader_takes_the_ram_riders_rider_and_refuses_the_shapes_it_does_not_simu
         "Dropper":{"name":"Dropper","rarity":"Common","hitpoints":52,"hit_speed_ms":1600,"range_milli":5000,"collision_radius_milli":500,
          "death_spawn":{"character":"Rider","count":1}},
         "Bird":{"name":"Bird","rarity":"Common","hitpoints":52,"hit_speed_ms":1600,"range_milli":5000,"collision_radius_milli":500,
-         "flying_height":4000}}}"#,
+         "flying_height":4000},
+        "Splitter":{"name":"Splitter","rarity":"Common","hitpoints":52,"hit_speed_ms":1600,"range_milli":5000,"collision_radius_milli":500,
+         "death_spawn":{"character":"Rider","count":2}},
+        "Hatcher":{"name":"Hatcher","rarity":"Common","hitpoints":52,"hit_speed_ms":1600,"range_milli":5000,"collision_radius_milli":500,
+         "spawner":{"character":"Rider","number":1,"pause_time_ms":5000}}}}"#,
         CardSource::DerivedJson,
     )
     .expect("the synthetic file loads");
@@ -153,12 +163,20 @@ fn the_loader_takes_the_ram_riders_rider_and_refuses_the_shapes_it_does_not_simu
     let rider = db.get(db.get(mount).attach.expect("Mount's rider").unit);
     assert!(rider.summon_only && rider.target_only_troops && rider.deprioritize_buff.is_some(), "the rider row's columns");
     let why = |n: &str| db.rejected.iter().find(|(r, _)| r == n).map(|(_, w)| w.clone()).unwrap_or_else(|| panic!("{n} was not refused: {:?}", db.rejected));
+    // Riders on an arc (a SpawnRadius), a rider that leaves one unit where it dies (its dismount) and a rider that flies
+    // load: the Goblin Giant's three shapes.
+    let offset = db.index("Offset").unwrap_or_else(|| panic!("Offset refused: {:?}", db.rejected));
+    assert_eq!(db.get(offset).attach.map(|a| (a.number, a.radius)), Some((2, Some(900 * K))), "Offset's two riders 900 out");
+    let dismount = db.index("Dismount").unwrap_or_else(|| panic!("Dismount refused: {:?}", db.rejected));
+    let dropper = db.get(db.get(dismount).attach.expect("Dismount's rider").unit);
+    assert_eq!(dropper.death_spawn.map(|d| (db.get(d.unit).unit_name.as_str(), d.count)), Some(("Rider", 1)), "the rider's dismount");
+    let flyer = db.index("Flyer").unwrap_or_else(|| panic!("Flyer refused: {:?}", db.rejected));
+    assert!(db.get(db.get(flyer).attach.expect("Flyer's rider").unit).is_flying(), "the flying rider");
     for (card, says) in [
         ("Cadence", "attached rider Rider: a periodic cadence"),
-        ("Offset", "attached rider Rider: an offset from its mount (SpawnRadius 900)"),
         ("Twins", "attached rider Rider: 2 riders on one mount"),
-        ("Dismount", "units.Dropper: an attached rider that leaves something on the board of its own"),
-        ("Flyer", "units.Bird: an attached rider that flies (FlyingHeight 4000)"),
+        ("Pair", "units.Splitter: an attached rider that leaves 2 units where it dies"),
+        ("Nest", "units.Hatcher: an attached rider that leaves something on the board of its own besides its dismount"),
         ("Hut", "an attached rider on a building"),
         ("NoPause", "spawner Rider: no SpawnPauseTime"),
         ("Ignorer", "a unit that ignores every target carrying a buff"),

@@ -1145,23 +1145,25 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     let tomb = db.get(db.index("Tombstone").unwrap());
     assert_eq!((tomb.range, tomb.sight_range, tomb.damage), (0, 0, 0));
     // Units the loader cannot run are REJECTED, naming the unit AND the reason: the
-    // bottles are hitpoint-less objects, the 15.535 Lumberjack's rage a death area
-    // effect. ~~MovingCannon~~ -- the 15.535 Cannon Cart loads (its BrokenCannon is a
-    // transformation target); the 2018 one stays refused, pinned by tests/lifetime.rs.
-    // ~~SkeletonBalloon~~ -- the 15.535 Skeleton Barrel loads (its container is a death
-    // bomb that carries a death spawn: tests/skeleton_barrel.rs); the 2018 one stays
-    // refused there, its SkeletonContainer having no DeathDamage, and its
-    // `SpawnCharacter = Skeleton` with blank SpawnNumber / SpawnPauseTime read as NO
-    // periodic spawner (the game's own blank), not as a partial block. Each card lists
-    // the reasons either vintage's row earns.
+    // bottles/containers are hitpoint-less objects. ~~RageBarbarian~~ -- the 15.535 Lumberjack
+    // loads (its death area's bottle is a fuse, tests/lumberjack.rs). ~~MovingCannon~~ -- the
+    // 15.535 Cannon Cart loads (its BrokenCannon is a transformation target); the 2018 one
+    // stays refused, pinned by tests/lifetime.rs. ~~SkeletonBalloon~~ -- the 15.535 Skeleton
+    // Barrel loads (its container is a death bomb that carries a death spawn:
+    // tests/skeleton_barrel.rs). The 2018 one stays refused, its SkeletonContainer having no
+    // DeathDamage, and its `SpawnCharacter = Skeleton` with blank SpawnNumber / SpawnPauseTime
+    // is read as NO periodic spawner (the game's own blank), not as a partial block: checked on
+    // the 2018 table, the one that still refuses it. Each card lists the reasons either
+    // vintage's row earns.
     // ~~Balloon, GiantSkeleton~~ -- a DEATH BOMB is no longer refused: a hitpoint-less
     // row with DeployTime + DeathDamage + DeathDamageRadius is a timed impact, not a
     // unit (card.rs `convert_death_bomb`; tests/death_bomb.rs).
     {
-        let (card, reasons) = ("RageBarbarian", &["RageBarbarianBottle: missing hitpoints", "death area effect RageBarbarianDummyForSpawn"][..]);
-        assert!(db.index(card).is_none(), "{card} must not be simulable");
-        let (_, why) = db.rejected.iter().find(|(n, _)| n == card).unwrap_or_else(|| panic!("{card} not listed as rejected"));
-        assert!(reasons.iter().any(|r| why.contains(r)), "{card}: {why} (expected one of {reasons:?})");
+        let db18 = CardDb::load_repo_file("cards-2018.json").expect("cards-2018.json (tools/extract_cards.py --vintage 2018)");
+        let card = "SkeletonBalloon";
+        assert!(db18.index(card).is_none(), "{card} must not be simulable on the 2018 table");
+        let (_, why) = db18.rejected.iter().find(|(n, _)| n == card).unwrap_or_else(|| panic!("{card} not listed as rejected on the 2018 table"));
+        assert!(why.contains("SkeletonContainer"), "{card}: {why} (expected its container named)");
         assert!(!why.contains("SpawnNumber"), "{card}: the pair-blank spawner block was read as a partial block: {why}");
     }
     // (16) Nothing points at the unresolved unit: a rejected card's blocks are dropped
@@ -1173,13 +1175,14 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
             assert!((unit as usize) < db.cards.len(), "{}: {} unit unresolved", c.name, path.block_name());
         }
     }
+    // Rejected after the push (an unloadable unit, a death area effect): in the list,
+    // unregistered, its blocks dropped. Rejected in `convert` (an action graph): never
+    // pushed at all. Checked on every row rejected after its push, and there must be one.
     {
-        let card = "RageBarbarian";
-        // Rejected after the push (an unloadable unit, a death area effect): in the
-        // list, unregistered, its blocks dropped. Rejected in `convert` (an action
-        // graph): never pushed at all.
-        if let Some(c) = db.cards.iter().find(|c| c.name == card) {
-            assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{card}: a rejected card kept a unit block");
+        let pushed: Vec<_> = db.cards.iter().filter(|c| db.rejected.iter().any(|(n, _)| *n == c.name)).collect();
+        assert!(!pushed.is_empty(), "vacuous: no row of this table is rejected after its push");
+        for c in pushed {
+            assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{}: a rejected card kept a unit block", c.name);
         }
     }
     // A partial block is refused with its column named.

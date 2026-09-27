@@ -2151,8 +2151,9 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # rider; the Fisherbarrel also sets TargetOnlyTroops and three event rows
         # IgnoreTargetsWithBuff): TargetOnlyTroops, and the buff whose carriers the unit ranks last
         # (IgnoreTargetsWithBuff, read with DeprioritizeTargetsWithBuff; calibration
-        # targeting.DEPRIORITIZED_TARGET_BUFF). The facing clamps (SpawnAttachMaxRotation on the Ram
-        # Rider's rider, SpawnMaxAngle on the Spear Goblins) are carried and read by nothing.
+        # targeting.DEPRIORITIZED_TARGET_BUFF). SpawnMaxAngle on the Spear Goblins is the arc the Goblin
+        # Giant's riders spread over (card.rs FormationDef, calibration rider.OFFSET_LAW); the facing
+        # clamp SpawnAttachMaxRotation on the Ram Rider's rider is carried and read by nothing.
         if flag(c, "TargetOnlyTroops"):
             u["target_only_troops"] = True
         if c.get("IgnoreTargetsWithBuff") is not None:

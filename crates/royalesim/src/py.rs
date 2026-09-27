@@ -220,7 +220,7 @@ pub const SPELL_FIELDS: [&str; 11] = ["team", "card_id", "motion", "x", "y", "ai
 /// protocol.py `SpellMotion` names them, so a decoder refuses a code it has no name for at
 /// construction instead of drawing it as something else. A new motion is APPENDED here with
 /// its code; codes are never renumbered.
-pub const SPELL_MOTIONS: [&str; 7] = ["FLIGHT", "AIRBORNE", "ROLLING", "AREA", "PULSING", "FUSE", "STRIKES"];
+pub const SPELL_MOTIONS: [&str; 8] = ["FLIGHT", "AIRBORNE", "ROLLING", "AREA", "PULSING", "FUSE", "STRIKES", "SCHEDULED"];
 const MOTION_FLIGHT: u8 = 0;
 const MOTION_AIRBORNE: u8 = 1;
 const MOTION_ROLLING: u8 = 2;
@@ -228,6 +228,7 @@ const MOTION_AREA: u8 = 3;
 const MOTION_PULSING: u8 = 4;
 const MOTION_FUSE: u8 = 5;
 const MOTION_STRIKES: u8 = 6;
+const MOTION_SCHEDULED: u8 = 7;
 
 /// THE CATALOGUE ROW'S FIELDS, in `catalogue_json`'s order, named as protocol.py `CardInfo`
 /// names them where it has the field (`placement` is the kind code, the card's deploy rule;
@@ -782,6 +783,8 @@ pub fn state_json_text(
             SpellMotion::Fuse { pos, ms } => (MOTION_FUSE, *pos, *pos, *ms, 0, 0, 0),
             // a striking area: its delay is the time to its next strike, its hits the enemies struck
             SpellMotion::Strikes { pos, next_ms, k, struck, .. } => (MOTION_STRIKES, *pos, *pos, *next_ms, *k as i32, 0, struck.len()),
+            // a scheduled area (the Graveyard): its travelled is the number of entries it has put down
+            SpellMotion::Scheduled { pos, fired, .. } => (MOTION_SCHEDULED, *pos, *pos, 0, fired.count_ones() as i32, 0, 0),
         };
         let _ = write!(
             o,
@@ -1970,7 +1973,7 @@ mod tests {
     #[test]
     fn the_protocol_name_lists_match_what_the_rows_carry() {
         // SPELL_MOTIONS by code: each code the serializer writes indexes its own name.
-        for (code, name) in [(MOTION_FLIGHT, "FLIGHT"), (MOTION_AIRBORNE, "AIRBORNE"), (MOTION_ROLLING, "ROLLING"), (MOTION_AREA, "AREA"), (MOTION_PULSING, "PULSING"), (MOTION_FUSE, "FUSE"), (MOTION_STRIKES, "STRIKES")] {
+        for (code, name) in [(MOTION_FLIGHT, "FLIGHT"), (MOTION_AIRBORNE, "AIRBORNE"), (MOTION_ROLLING, "ROLLING"), (MOTION_AREA, "AREA"), (MOTION_PULSING, "PULSING"), (MOTION_FUSE, "FUSE"), (MOTION_STRIKES, "STRIKES"), (MOTION_SCHEDULED, "SCHEDULED")] {
             assert_eq!(SPELL_MOTIONS[code as usize], name);
         }
         // Every catalogue row is CATALOGUE_FIELDS long, and its card_kind is the card's own
