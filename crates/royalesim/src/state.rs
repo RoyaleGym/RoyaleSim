@@ -475,6 +475,13 @@ pub struct Calib {
     pub life_state_wake_targets: LifeWakeTargets,
     #[serde(default = "action_spawner_spawn_speed_default")]
     pub action_spawner_spawn_speed: ActionSpawnSpeed,
+    /// spawner.LIFE_STATE_FIRST_UPDATE (`life_state_pass`) and spawner.LIFE_STATE_WAVE_POINT (`life_wave`): whether a
+    /// Goblin Hut's wave takes an update on the tick it is created, and the arithmetic of its point. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before them ran.
+    #[serde(default = "life_state_first_update_default")]
+    pub life_state_first_update: LifeStateFirstUpdate,
+    #[serde(default = "life_state_wave_point_default")]
+    pub life_state_wave_point: LifeStateWavePoint,
     /// targeting.INVISIBILITY (target.rs `invisible`). Added after SNAPSHOT_FORMAT 20; no battle saved before it held
     /// an invisible unit.
     #[serde(default = "invisibility_default")]
@@ -1058,6 +1065,14 @@ fn life_state_wake_targets_default() -> LifeWakeTargets {
 
 fn action_spawner_spawn_speed_default() -> ActionSpawnSpeed {
     ActionSpawnSpeed::Buffed
+}
+
+fn life_state_first_update_default() -> LifeStateFirstUpdate {
+    LifeStateFirstUpdate::CreationTick
+}
+
+fn life_state_wave_point_default() -> LifeStateWavePoint {
+    LifeStateWavePoint::OneDivision
 }
 
 fn invisibility_default() -> Invisibility {
@@ -2261,6 +2276,39 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.LIFE_STATE_FIRST_UPDATE -- whether a Goblin Hut's wave takes an update on the tick it is created
+    /// (`life_state_pass`; `first_update` under spawner.SPAWNED_FIRST_STEP = client16402_same_tick). A periodic
+    /// emission and a death spawn are not this key's.
+    LifeStateFirstUpdate {
+        /// Today's engine: the wave takes its first update on its creation tick, as a periodic emission does, so the
+        /// contact law pushes it out of the hut's circle and its avoidance scan runs there.
+        CreationTick = "creation_tick",
+        /// It does not: on its first frame the wave stands on its creation point with avoidance offset 0, and its
+        /// first contact push and avoidance scan come in the next tick's Move. Measured on client 15.535.29: 169 of
+        /// 169 waves (55 battery runs) stand on their creation point on their first frame with offset 0, and carry
+        /// +-190 from the next frame. On the 16.402 corpus, counted in rows (both seats' recordings, so one wave can
+        /// be two rows): all 79 rows whose creation tick is recorded, about 66 distinct waves in 10 battles, stand
+        /// 1,198 to 1,201 from the hut (SpawnOffset 1200) on their first frame; the 8 whose creation tick is missing
+        /// stand one push out.
+        NextTick = "client16402_next_tick",
+    }
+);
+calib_enum!(
+    /// spawner.LIFE_STATE_WAVE_POINT -- the arithmetic of a Goblin Hut wave's point, SpawnOffset from the hut's centre
+    /// and SingleDeployOffsetAngle to one side of the line to its aim (`life_wave`). Which enemy is the aim, and where
+    /// it is read, are not this key's.
+    LifeStateWavePoint {
+        /// Today's engine: the line to the aim rotated by the 1024 sine table and scaled by SpawnOffset over its
+        /// length, in one truncating division per axis.
+        OneDivision = "one_division",
+        /// The line to the aim scaled to SpawnOffset first (each axis truncated toward zero), then rotated by the
+        /// 1024 sine table (each axis truncated toward zero). Measured on client 15.535.29: 169 of 169 battery waves
+        /// on their creation point, against 43 of 169 for one_division. On the 16.402 corpus: 76 of 79 rows (both
+        /// seats' recordings, about 66 distinct waves), against 20 of 79.
+        NormaliseThenRotate = "client16402_normalise_then_rotate",
+    }
+);
+calib_enum!(
     /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
     RollFirstStep {
         /// On the tick the airborne projectile lands: today's engine.
@@ -3089,6 +3137,8 @@ impl Calib {
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
+            life_state_first_update: pick(&v, &["spawner", "LIFE_STATE_FIRST_UPDATE", "value"], LifeStateFirstUpdate::from_calibration_name)?,
+            life_state_wave_point: pick(&v, &["spawner", "LIFE_STATE_WAVE_POINT", "value"], LifeStateWavePoint::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
@@ -4852,7 +4902,7 @@ impl BattleState {
             self.ents.spawn_ms[i] = ms;
             self.ents.spawn_wave_left[i] = left;
         }
-        self.create_emissions(emissions);
+        self.create_emissions(emissions, true);
     }
 
     /// THE GOBLIN HUT'S CONTROLLER (the 15.535.29 tables' ActionGoblinHutLifeState; card.rs `LifeStateDef`), one step per
@@ -4930,7 +4980,18 @@ impl BattleState {
                 }
             }
         }
-        self.create_emissions(emissions);
+        // spawner.LIFE_STATE_FIRST_UPDATE = client16402_next_tick: the wave takes no update on its creation tick. On
+        // its first frame it stands on its creation point with avoidance offset 0; the next tick's Move pushes it out
+        // of the hut's circle and runs its first avoidance scan. Measured on client 15.535.29 (169 of 169 waves) and
+        // on the 16.402 corpus (79 of 79 rows from both seats whose creation tick is recorded, about 66 distinct waves).
+        // The deploy timer is not the reason: a Goblin Cage's Brawler and a Goblin Drill's goblins are born deploying
+        // and still carry their creation-tick scan's offset on their first frame (3 of 3 and 13 of 13), so only the
+        // controller's waves go here.
+        #[cfg(not(clash_plant = "life_wave_first_update"))]
+        let first_update = self.cfg.calib.life_state_first_update == LifeStateFirstUpdate::CreationTick;
+        #[cfg(clash_plant = "life_wave_first_update")]
+        let first_update = true; // PLANT (regression): the new arm still gives the wave its creation-tick update.
+        self.create_emissions(emissions, first_update);
     }
 
     /// THE ENEMIES THAT WAKE hut `i` (spawner.LIFE_STATE_WAKE_TARGETS / LIFE_STATE_WAKE_REACH), as (edge, team_seq,
@@ -4971,7 +5032,8 @@ impl BattleState {
 
     /// ONE WAVE of hut `i`, or None when no enemy is in reach. The aim is the enemy the last wave aimed at while it still
     /// wakes the hut, else the nearest by edge (ties to the earliest created). The wave stands SpawnOffset from the hut's
-    /// centre, SingleDeployOffsetAngle to one side of the line to the aim, in the arena's frame. Measured on client
+    /// centre, SingleDeployOffsetAngle to one side of the line to the aim, in the arena's frame, by the arithmetic
+    /// spawner.LIFE_STATE_WAVE_POINT names. Measured on client
     /// 15.535.29 (161 of 161 waves): of the two candidate points, the hut's even waves (counted over its whole life,
     /// a sleep included) take the one with the lower y -- or, when the two y values differ by less than the tie cut, the
     /// one with the larger x -- and its odd waves the other. The unit is created with its own DeployTime
@@ -4989,10 +5051,23 @@ impl BattleState {
         let n = isqrt(dx * dx + dy * dy).max(1);
         let (c, s) = (crate::formation::sin1024(ls.offset_angle_deg + 90) as i64, crate::formation::sin1024(ls.offset_angle_deg) as i64);
         let off = (ls.offset / K) as i64;
-        let den = n * 1024;
-        // the two candidate points: the line to the aim turned by +angle and by -angle
-        let plus = (hx + off * (dx * c - dy * s) / den, hy + off * (dx * s + dy * c) / den);
-        let minus = (hx + off * (dx * c + dy * s) / den, hy + off * (dy * c - dx * s) / den);
+        // the two candidate points: the line to the aim turned by +angle and by -angle (spawner.LIFE_STATE_WAVE_POINT)
+        #[cfg(not(clash_plant = "life_point_one_division"))]
+        let normalise_first = self.cfg.calib.life_state_wave_point == LifeStateWavePoint::NormaliseThenRotate;
+        #[cfg(clash_plant = "life_point_one_division")]
+        let normalise_first = false; // PLANT (regression): the new arm keeps the one-division arithmetic.
+        let (plus, minus) = if normalise_first {
+            // client16402_normalise_then_rotate: the line scaled to SpawnOffset first, each axis truncated toward zero,
+            // then turned by the 1024 table, each axis truncated toward zero. Measured on client 15.535.29 (169 of 169
+            // battery waves) and on the 16.402 corpus (76 of 79 rows from both seats); the one-division arithmetic below
+            // fits 43 and 20. Example, client 15.535.29: an aim at (6189, -4231) from the hut gives (698, -974) here and (699, -974)
+            // below, and the wave stood on the first.
+            let (ux, uy) = (off * dx / n, off * dy / n);
+            ((hx + (ux * c - uy * s) / 1024, hy + (ux * s + uy * c) / 1024), (hx + (ux * c + uy * s) / 1024, hy + (uy * c - ux * s) / 1024))
+        } else {
+            let den = n * 1024;
+            ((hx + off * (dx * c - dy * s) / den, hy + off * (dx * s + dy * c) / den), (hx + off * (dx * c + dy * s) / den, hy + off * (dy * c - dx * s) / den))
+        };
         let first = if (plus.1 - minus.1).abs() < LIFE_SIDE_TIE_CUT {
             if plus.0 >= minus.0 {
                 plus
@@ -5040,8 +5115,10 @@ impl BattleState {
     /// spawner.EMISSION_TIMING = spawn_phase_next_tick they are queued for the next
     /// Spawn phase; under move_phase_immediate they are created now, each with its
     /// owner, its stagger and the deploy override (activated at once on a zero one),
-    /// and the spatial hash is rebuilt once if anything was emitted.
-    fn create_emissions(&mut self, mut emissions: Vec<(Team, u32, u32, PendingSpawn)>) {
+    /// and the spatial hash is rebuilt once if anything was emitted. `first_update`: whether
+    /// the units take their first update now (`first_update`; the spawner pass always, the
+    /// Goblin Hut's controller per spawner.LIFE_STATE_FIRST_UPDATE).
+    fn create_emissions(&mut self, mut emissions: Vec<(Team, u32, u32, PendingSpawn)>, first_update: bool) {
         emissions.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
         if self.emission_timing() == SpawnerEmission::SpawnPhaseNextTick {
             self.spawn_queue.extend(emissions.into_iter().map(|(_, _, _, p)| p));
@@ -5088,7 +5165,9 @@ impl BattleState {
         }
         self.hash.rebuild(&self.ents);
         // spawner.SPAWNED_FIRST_STEP: the units this pass emitted take their first update now.
-        self.first_update(&fresh, true, &[]);
+        if first_update {
+            self.first_update(&fresh, true, &[]);
+        }
     }
 
     /// THE FIRST UPDATE OF A UNIT CREATED AFTER THE TICK'S PASSES (spawner.SPAWNED_FIRST_STEP =
@@ -11199,6 +11278,10 @@ impl BattleState {
 /// 20, unchanged, placement.TOWER_TAP_PUSH: Calib gained placement_tower_tap_push (serde default the
 ///    old arm, ring_nearest), no new state, so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.LIFE_STATE_FIRST_UPDATE and LIFE_STATE_WAVE_POINT: Calib gained
+///    life_state_first_update and life_state_wave_point (serde default the old arms, creation_tick
+///    and one_division), no new state, so a blob saved before them deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -11526,6 +11609,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // placement.TOWER_TAP_PUSH: a format-3 battle moved no troop tap off a tower; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("placement_tower_tap_push".into(), serde_json::to_value(TowerTapPush::RingNearest).map_err(|e| e.to_string())?);
+    // spawner.LIFE_STATE_FIRST_UPDATE and LIFE_STATE_WAVE_POINT: a format-3 battle held no Goblin Hut; it keeps the
+    // old arms whatever the ledger ships (the same rule).
+    sh.insert("life_state_first_update".into(), serde_json::to_value(LifeStateFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
+    sh.insert("life_state_wave_point".into(), serde_json::to_value(LifeStateWavePoint::OneDivision).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
