@@ -31,8 +31,8 @@
 //! DETERMINISM AND SYMMETRY
 //!     Candidates come out of the spatial hash sorted by slot index, but the
 //!     choice never depends on that order: the winner is the minimum of a total
-//!     key (edge distance, candidate x, candidate y in the ATTACKER's frame,
-//!     candidate team_seq). The frame is the 180-degree rotation for Red, so
+//!     key (the distance targeting.TARGET_RANK_DISTANCE names, candidate x,
+//!     candidate y in the ATTACKER's frame, candidate team_seq). The frame is the 180-degree rotation for Red, so
 //!     "lower x" is the attacker's own-left. For a Blue attacker and its rotated
 //!     Red twin, every component of every key is identical, so the twins pick
 //!     rotated targets.
@@ -449,11 +449,23 @@ fn sight_toward(ctx: &TargetCtx, a: usize, c: usize) -> i32 {
 }
 
 /// The mirror-symmetric preference key. Smaller is better.
+///
+/// Its first component is the distance targeting.TARGET_RANK_DISTANCE names. client16402_centre: the centre distance,
+/// crown towers included. Measured on the 16.402 corpus: a troop walking to its crown tower takes the nearest enemy in
+/// sight on the first tick that enemy's start-of-tick centre distance is below the tower's (577 of 578 walking
+/// switches), and where centre and centre-minus-radius name different enemies the client took the centre-nearest (21
+/// of 21 acquisitions). centre_minus_target_radius (today's engine): the centre distance less the candidate's radius,
+/// which counts a princess tower 1000 nearer than it stands, so a walker keeps its tower against a nearer troop or
+/// building (20260918-124946 tick 941: a Goblin 6,578.4 from a Cannon and 6,840.8 from its tower keeps the tower).
 #[inline]
 fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i32, i32, i32, u32) {
     let e = ctx.ents;
     let centre = isqrt(e.pos[a].dist2(e.pos[c])) as i32;
-    let edge = if ctx.calib.add_character_range_to_radius { centre - e.radius[c] } else { centre };
+    #[cfg(not(clash_plant = "rank_centre_minus_radius"))]
+    let by_centre = ctx.calib.target_rank_distance == crate::state::TargetRankDistance::Client16402Centre;
+    #[cfg(clash_plant = "rank_centre_minus_radius")]
+    let by_centre = false; // PLANT (regression): client16402_centre still ranks by centre minus the candidate's radius.
+    let edge = if !by_centre && ctx.calib.add_character_range_to_radius { centre - e.radius[c] } else { centre };
     let f = ctx.arena.to_frame(e.team[a], e.pos[c]);
     #[cfg(clash_plant = "id_tiebreak")]
     {

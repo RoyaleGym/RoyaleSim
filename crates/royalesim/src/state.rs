@@ -338,6 +338,10 @@ pub struct Calib {
     /// `inside_minimum_range`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "minimum_range_default")]
     pub minimum_range: MinimumRange,
+    /// targeting.TARGET_RANK_DISTANCE: the distance a scan ranks its candidates by (target.rs `key`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "target_rank_distance_default")]
+    pub target_rank_distance: TargetRankDistance,
     /// targeting.FIRST_TOWER_PICK: where a troop's first default tower comes from (target.rs `default_tower`,
     /// `spawn_now`, `summon_lane_flip`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "first_tower_pick_default")]
@@ -845,6 +849,10 @@ fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
 
 fn minimum_range_default() -> MinimumRange {
     MinimumRange::NotRead
+}
+
+fn target_rank_distance_default() -> TargetRankDistance {
+    TargetRankDistance::CentreMinusTargetRadius
 }
 
 fn first_tower_pick_default() -> FirstTowerPick {
@@ -1511,6 +1519,23 @@ calib_enum!(
         /// collision radii) is below it, on the start-of-tick positions. A target that falls inside is dropped on
         /// that tick with its swing cancelled, as a lost target and not a kill, so no post-kill wait follows.
         Client16402EdgeDistance = "client16402_edge_distance",
+    }
+);
+calib_enum!(
+    /// targeting.TARGET_RANK_DISTANCE -- the distance a scan ranks the enemies in sight by (target.rs `key`, read by
+    /// `scan` and by `default_tower`'s nearest-tower fallback). Which enemies are in sight is not this key's.
+    TargetRankDistance {
+        /// Today's engine: the centre distance less the candidate's collision radius (the centre distance alone when
+        /// targeting.ADD_CHARACTER_RANGE_TO_RADIUS is false). A crown tower's radius (1000, the king's 1400) counts as
+        /// that much nearer, so a troop walking to its tower keeps it against a nearer troop or building.
+        CentreMinusTargetRadius = "centre_minus_target_radius",
+        /// Measured on the 16.402 corpus: the centre distance, crown towers included. A troop walking to its crown
+        /// tower takes the nearest enemy in sight on the first tick that enemy's start-of-tick centre distance is
+        /// below the tower's (577 of 578 walking switches; 20260918-124946 tick 941: a Goblin 6,578.4 from a Cannon and
+        /// 6,840.8 from its princess tower takes the Cannon), and where the two rankings name different enemies the
+        /// client took the centre-nearest (21 of 21 acquisitions; 92 of 95 walking ticks, and on the other 3 it took
+        /// neither).
+        Client16402Centre = "client16402_centre",
     }
 );
 calib_enum!(
@@ -2968,6 +2993,7 @@ impl Calib {
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
+            target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
             tower_cancel_range: tower_cancel_value(&v)?,
             hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
@@ -11052,6 +11078,9 @@ impl BattleState {
 ///    `spark`, so the card fingerprint moves: a snapshot saved by an earlier build is refused
 ///    as saved against other card data. migrate_v3 strips it with the rest of the
 ///    post-format-3 tail and runs a migrated battle at not_read; no card's index moves.
+/// 20, unchanged, targeting.TARGET_RANK_DISTANCE: Calib gained target_rank_distance (serde default the old arm,
+///    centre_minus_target_radius), no new state, so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -11364,6 +11393,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
     sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
     sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
+    // targeting.TARGET_RANK_DISTANCE: a format-3 battle ranked by centre minus the candidate's radius; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
     sh.insert("first_tower_pick".into(), serde_json::to_value(FirstTowerPick::CurrentX).map_err(|e| e.to_string())?);
     sh.insert("tower_cancel_range".into(), serde_json::to_value(TowerCancelRange::Global).map_err(|e| e.to_string())?);
     sh.insert("hit_beyond_cancel_range".into(), serde_json::to_value(HitBeyondCancelRange::Damage).map_err(|e| e.to_string())?);
