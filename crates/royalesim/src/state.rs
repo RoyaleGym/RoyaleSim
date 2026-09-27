@@ -4849,9 +4849,6 @@ impl Calib {
                 return Err(format!("globals.csv: {name} = {got} parts from the one AT/AFTER_TOURNAMENTCAP rate {want} the tower ladder reads (combat.TOWER_HITPOINT_LADDER)"));
             }
         }
-        if c.tower_ladder_cap_level < 1 {
-            return Err(format!("combat.TOWER_HITPOINT_LADDER.value.cap_level = {} is not a tower level", c.tower_ladder_cap_level));
-        }
         // hide.HIDDEN_OCCLUDES_PATH: the one implemented candidate is `true` (a hidden
         // footprint still occludes the path grid and blocks deploys -- the grid never
         // looks at the hide state). `false` needs the pathfinder's code and is refused,
@@ -4863,14 +4860,6 @@ impl Calib {
         only(&v, &["spells", "LAUNCH_POINT", "value"], "caster_king_tower_centre")?;
         only(&v, &["spells", "WAVE_AREA_MODEL", "value"], "single_disc_one_hit_per_wave")?;
         only(&v, &["spells", "ONE_SHOT_AREA_EFFECT_APPLICATION", "value"], "first_update_only")?;
-        // knockback.STACKING is implemented PER LAW: the ladder's gate refuses a push
-        // while a ladder runs and never sums, and the fixed-distance slide sums and
-        // never refuses. The other two pairings have no code and are refused here
-        // rather than run as the nearest thing.
-        match (c.knock_law, c.knock_stacking) {
-            (KnockLaw::Client16402, KnockStacking::FirstWinsWhileActive) | (KnockLaw::FixedDistance, KnockStacking::VectorSum) => {}
-            (law, st) => return Err(format!("knockback.STACKING = {st:?} has no engine implementation under knockback.DISPLACEMENT_LAW = {law:?}")),
-        }
         only(&v, &["knockback", "WATER_RESOLUTION", "value"], "eject_to_nearest_land")?;
         // spawner.LIMIT_RULE: one implemented arm (the `only()` rule); the other
         // candidate is refused, never mapped. (DEATH_SPAWN_LAYOUT has two arms:
@@ -4915,6 +4904,33 @@ impl Calib {
         only(&v, &["transform", "ENTITY_CONTINUITY", "value"], "same_entity_keep_hp")?;
         only(&v, &["transform", "ACT_DURING_DELAY", "value"], "acts_normally")?;
         only(&v, &["lifetime", "DRAIN_BASE_AFTER_TRANSFORM", "value"], "max_hp")?;
+        c.validate()?;
+        Ok(c)
+    }
+
+    /// THE CHECKS ON A CALIBRATION'S OWN FIELDS: the pairings of arms that have code together, and the numbers that
+    /// must be positive. `from_json` runs them on every ledger it reads, and a battle runs them on its calibration
+    /// (`BattleState::try_new`), so a calibration edited after it was read (tests/common `symmetric_config()`, the
+    /// Python constructor's `path_search`) is held to the same rules as one read from the file. The pairings:
+    ///   - knockback.STACKING with knockback.DISPLACEMENT_LAW: first_wins_while_active with client16402, vector_sum
+    ///     with fixed_distance;
+    ///   - combat.VARIABLE_DAMAGE = client16402_attack_progress_stages, combat.LOAD_FIRST_HIT =
+    ///     load_time_from_deploy_end and knockback.ATTACK_PUSHBACK = ladder_away_from_target each need combat.ATTACK_CYCLE
+    ///     = progress_credit;
+    ///   - knockback.ATTACK_PUSHBACK = ladder_away_from_target needs knockback.DISPLACEMENT_LAW = client16402.
+    pub fn validate(&self) -> Result<(), String> {
+        let c = self;
+        if c.tower_ladder_cap_level < 1 {
+            return Err(format!("combat.TOWER_HITPOINT_LADDER.value.cap_level = {} is not a tower level", c.tower_ladder_cap_level));
+        }
+        // knockback.STACKING is implemented PER LAW: the ladder's gate refuses a push
+        // while a ladder runs and never sums, and the fixed-distance slide sums and
+        // never refuses. The other two pairings have no code and are refused here
+        // rather than run as the nearest thing.
+        match (c.knock_law, c.knock_stacking) {
+            (KnockLaw::Client16402, KnockStacking::FirstWinsWhileActive) | (KnockLaw::FixedDistance, KnockStacking::VectorSum) => {}
+            (law, st) => return Err(format!("knockback.STACKING = {st:?} has no engine implementation under knockback.DISPLACEMENT_LAW = {law:?}")),
+        }
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -4945,7 +4961,7 @@ impl Calib {
         if c.diag_den <= 0 || c.diag_num <= 0 || c.path_cost_road <= 0 || c.path_cost_default <= 0 || c.path_cost_water <= 0 {
             return Err("calibration.json: non-positive pathfinding cost or diagonal ratio".into());
         }
-        Ok(c)
+        Ok(())
     }
 
     /// The shipped calibration.json, parsed once per process.
@@ -6143,6 +6159,10 @@ impl BattleState {
     }
 
     pub fn try_new(seed: u64, config: BattleConfig) -> Result<BattleState, String> {
+        // A CALIBRATION THE LOADER WOULD REFUSE IS REFUSED HERE TOO: one edited after it was read (a test's config, the
+        // Python constructor's keywords) is held to the rules `Calib::from_json` holds a ledger to.
+        #[cfg(not(clash_plant = "battle_calib_unchecked"))]
+        config.calib.validate()?;
         // cards.CLIENT16402_VALUES: the card data this battle runs (`with_card_values`).
         let mut config = config;
         config.cards = with_card_values(&config.calib, config.cards.clone())?;

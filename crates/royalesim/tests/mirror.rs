@@ -41,6 +41,9 @@
 //!   tunnel_cells_arena_frame        a tunnel route's cells floored in the arena's frame, then turned for Red:
 //!                                   mirror_miner_to_the_enemy_side, mirror_miner_to_its_own_side,
 //!                                   mirror_goblin_drill_to_the_enemy_side, mirror_hand_played_mirror_empress_...
+//!   symmetric_config_keeps_attack_recoil  `symmetric_config()` keeps the shipped recoil ladder, a pairing its own
+//!                                   check refuses: every test here that builds it goes red, and
+//!                                   the_symmetric_config_is_a_calibration_the_loader_accepts with them
 //!
 //! WHAT IT CANNOT CATCH: an asymmetry that only arises in a configuration no
 //! scenario here reaches, and any bias that is symmetric (both seats equally
@@ -825,6 +828,41 @@ fn every_asymmetric_calib_key_is_selectable_from_python() {
          SYMMETRY_SELECTABLE_CALIB_FIELDS."
     );
 }
+
+/// THE SYMMETRIC ARMS ARE A CALIBRATION THE LOADER ACCEPTS. `symmetric_config()` puts the knockback on
+/// fixed_distance after the ledger is read, and knockback.ATTACK_PUSHBACK = ladder_away_from_target (shipped) has no
+/// code there: `Calib::from_json` refuses that pairing. The helper used to write its arms past that check, so every
+/// gate here ran a Sparky on the 16.402 recoil ladder. It now selects ATTACK_PUSHBACK's old arm, none, and checks its
+/// result as the loader checks a ledger (`Calib::validate`). A Sparky firing at a Giant recoils under the shipped
+/// arms and never under the symmetric ones. Plant: symmetric_config_keeps_attack_recoil.
+#[test]
+fn the_symmetric_config_is_a_calibration_the_loader_accepts() {
+    symmetric_config().calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
+    // A Red Giant walking down Blue's own-left lane past a Blue Sparky: (ticks the Sparky spent on a ladder, whether
+    // it hit the Giant).
+    let run = |cfg: BattleConfig| -> (u32, bool) {
+        let mut s = BattleState::new(1, cfg);
+        let sparky = s.scenario_spawn_now(Team::Blue, "ZapMachine", t(600, 900), None).unwrap();
+        let giant = s.scenario_spawn_now(Team::Red, "Giant", t(350, 1300), None).unwrap();
+        let full = s.entity(giant).unwrap().hp;
+        let mut ladder = 0;
+        let mut hit = false;
+        for _ in 0..400 {
+            s.tick();
+            if s.entity(sparky).is_some_and(|e| e.push_active) {
+                ladder += 1;
+            }
+            hit |= s.entity(giant).map_or(true, |e| e.hp < full);
+        }
+        (ladder, hit)
+    };
+    let (shipped, hit) = run(config());
+    assert!(hit && shipped > 0, "vacuous: under the shipped arms the Sparky hit the Giant: {hit}, recoiled for {shipped} ticks");
+    let (symmetric, hit) = run(symmetric_config());
+    assert!(hit, "vacuous: under the symmetric arms the Sparky never hit the Giant");
+    assert_eq!(symmetric, 0, "the Sparky ran a recoil ladder for {symmetric} ticks under the symmetric arms");
+}
+
 // ---------------------------------------------------------------------------
 // THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `tunnel_step`). A tunneller is born on its King's
 // centre and walks to its destination under ground. Under the frame-planned search both cells of its route problem,
