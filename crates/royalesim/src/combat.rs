@@ -1858,8 +1858,8 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
 /// A BODY NO HIT LANDS ON, now: unit `v` is under ground under movement.SPAWN_PATHFIND_BODY =
 /// untouchable (`underground_immune`; entity.rs `underground`), or it is a building hidden by its own
 /// hide under hide.HIDDEN_IMMUNE_TO_DAMAGE (`hidden_immune`; `HideState::Hidden`) and the hit does not
-/// ignore the hide (`ignores_hide`: the lifetime expiry). The one test `resolve` drops a hit by, and
-/// the one a straight shot passes a unit by (`straight_hits`).
+/// ignore the hide (`ignores_hide`: the lifetime expiry). The one test `resolve` and `land_at_once`
+/// drop a hit by, and the one a straight shot passes a unit by (`straight_hits`).
 #[inline]
 pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, underground_immune: bool, ignores_hide: bool) -> bool {
     (underground_immune && ents.underground(v)) || (hidden_immune && !ignores_hide && ents.hide[v] == HideState::Hidden)
@@ -1868,7 +1868,8 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
 /// LAND ONE DIRECT STRIKE AT ONCE (calibration match.TICK_ORDER = client_sequential_strike;
 /// state.rs `land_strike`): `hits` are the hits one `fire` of a unit with no projectile buffered,
 /// applied as `resolve` applies a tick's hits -- a dead target and a non-positive amount skipped,
-/// hide immunity and a dash's immunity (combat.DASH_ATTACK, entity.rs `dash_immune`, at `tick`)
+/// the under-ground and hide immunities (`untouchable_now`, `underground_immune` read as `resolve`'s
+/// caller reads it) and a dash's immunity (combat.DASH_ATTACK, entity.rs `dash_immune`, at `tick`)
 /// respected, a shield absorbing the hit with no overflow into hitpoints -- but now,
 /// so the units after the striker in the pass read the result. Returns which teams' king tower
 /// was struck, for its wake. A victim at 0 hp is not despawned here: `resolve` queues every live
@@ -1876,14 +1877,16 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
 ///
 /// ONE STRIKE AT A TIME, where `resolve` sums a tick's hits on one target before the shield: a
 /// shield broken by this strike lets a later hit of the same tick through. Unmeasured.
-pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
+pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
     let mut king_hit = [false; 2];
     for h in hits {
         if !ents.is_alive(h.target) || h.amount <= 0 {
             continue;
         }
         let t = h.target.index as usize;
-        if hidden_immune && !h.ignores_hide && ents.hide[t] == HideState::Hidden {
+        // `resolve`'s under-ground and hide immunities. The under-ground one was missing, so under this
+        // order alone a melee strike or a spin took hp off a Miner still under ground.
+        if untouchable_now(ents, t, hidden_immune, underground_immune, h.ignores_hide) {
             continue;
         }
         // `resolve`'s dash immunity (combat.DASH_ATTACK = client_dash), the same plant with it.

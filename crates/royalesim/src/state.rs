@@ -12425,7 +12425,12 @@ impl BattleState {
     /// Resolve and Reap: a victim at 0 hp is queued with the tick's other deaths.
     fn land_strike(&mut self, from: usize) {
         let hits: Vec<Hit> = self.dmg.hits.drain(from..).collect();
-        let king_hit = combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, target::riders_immune(&self.cfg.calib), self.tick);
+        #[cfg(not(clash_plant = "strike_lands_under_ground"))]
+        let underground_immune = self.underground_immune();
+        #[cfg(clash_plant = "strike_lands_under_ground")]
+        let underground_immune = false; // PLANT (regression): the strike lands on a unit under ground.
+        let king_hit =
+            combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
         for (t, hit) in king_hit.into_iter().enumerate() {
             if hit && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -13052,12 +13057,19 @@ impl BattleState {
         }
     }
 
-    fn phase_resolve(&mut self) {
-        // movement.SPAWN_PATHFIND_BODY = untouchable: no hit lands on a unit under ground.
+    /// movement.SPAWN_PATHFIND_BODY = untouchable: no hit lands on a unit under ground (combat.rs
+    /// `untouchable_now`). The one reading for the hits Resolve lands (`phase_resolve`) and for a strike
+    /// that lands at once (`land_strike`).
+    fn underground_immune(&self) -> bool {
         #[cfg(not(clash_plant = "tunnel_targetable"))]
-        let underground_immune = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
+        let on = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
         #[cfg(clash_plant = "tunnel_targetable")]
-        let underground_immune = false; // PLANT: a unit under ground is an ordinary body.
+        let on = false; // PLANT: a unit under ground is an ordinary body.
+        on
+    }
+
+    fn phase_resolve(&mut self) {
+        let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
         let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
         for t in 0..2 {
