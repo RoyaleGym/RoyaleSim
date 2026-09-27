@@ -773,6 +773,24 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
             let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
             return live(ctx.towers[enemy][1 + lane as usize]).or_else(|| live(ctx.towers[enemy][0]));
         }
+        // targeting.FALLEN_LANE_TOWER_PICK = client16402_spawn_lane_king: after the window, a troop whose SPAWN lane's
+        // enemy princess tower is down walks to the king, wherever it stands; one whose spawn-lane tower stands takes
+        // the tower of its current x below, as today. Read under both of FIRST_TOWER_PICK's spawn-lane arms, the ones
+        // that keep `spawn_lane`. Measured on the 16.402 corpus (one seat per battle): 5 default picks, by 5 troops in
+        // 3 battles, made with one enemy princess tower down while the troop stood on the other side of the centre
+        // from its spawn lane, took the king, 0 the princess tower of their x (20260920-082459 tick 2635: an Inferno
+        // Dragon created at x 8500, at x 9460 after a chase, flew to the king past a standing right princess tower).
+        // No client 15.535.29 run separates the rules (10 default picks with one tower down, all where they agree).
+        #[cfg(not(clash_plant = "fallen_lane_by_x"))]
+        let fallen_lane_king = ctx.calib.fallen_lane_tower_pick == crate::state::FallenLaneTowerPick::Client16402SpawnLaneKing;
+        #[cfg(clash_plant = "fallen_lane_by_x")]
+        let fallen_lane_king = false; // PLANT (regression): the new arm still takes the tower of the current x.
+        if fallen_lane_king && ctx.calib.first_tower_pick.spawn_lane() && e.spawn_lane[a] != 0 {
+            let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
+            if live(ctx.towers[enemy][1 + lane as usize]).is_none() && live(ctx.towers[enemy][0]).is_some() {
+                return live(ctx.towers[enemy][0]);
+            }
+        }
         // THE LANE IS DECIDED IN THE ATTACKER'S OWN FRAME, with the centre line going
         // own-left. targeting.CENTRE_LANE_FRAME, and the ledger entry carries the history.
         //

@@ -359,6 +359,11 @@ pub struct Calib {
     /// `spawn_now`, `summon_lane_flip`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "first_tower_pick_default")]
     pub first_tower_pick: FirstTowerPick,
+    /// targeting.FALLEN_LANE_TOWER_PICK: the default tower of a troop whose spawn lane's enemy princess tower is down,
+    /// after FIRST_TOWER_PICK's window (target.rs `default_tower`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// the old arm.
+    #[serde(default = "fallen_lane_tower_pick_default")]
+    pub fallen_lane_tower_pick: FallenLaneTowerPick,
     /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE: how far past its reach a crown tower holds a started
     /// shot (target.rs `locked_hold_beyond`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "tower_cancel_range_default")]
@@ -1078,6 +1083,10 @@ fn target_rank_distance_default() -> TargetRankDistance {
 
 fn first_tower_pick_default() -> FirstTowerPick {
     FirstTowerPick::CurrentX
+}
+
+fn fallen_lane_tower_pick_default() -> FallenLaneTowerPick {
+    FallenLaneTowerPick::CurrentX
 }
 
 /// targeting.FIRST_TOWER_PICK = client_spawn_lane: the ENGINE lane bits of a troop created at `pos`, the tilemap read
@@ -2111,6 +2120,21 @@ impl FirstTowerPick {
         matches!(self, Self::ClientSpawnLane | Self::ClientSpawnLaneOwnFrame)
     }
 }
+calib_enum!(
+    /// targeting.FALLEN_LANE_TOWER_PICK -- the enemy crown tower a troop with no target walks to once its SPAWN lane's
+    /// enemy princess tower is down, after targeting.FIRST_TOWER_PICK's window (target.rs `default_tower`). Read only
+    /// under FIRST_TOWER_PICK's spawn-lane arms (client_spawn_lane, client_spawn_lane_own_frame), which keep the spawn
+    /// lane.
+    FallenLaneTowerPick {
+        /// Today's engine: the princess tower of the troop's current x, the king once that one is down.
+        CurrentX = "current_x",
+        /// Measured on the 16.402 corpus (5 of 5 default picks that separate the arms, 5 troops in 3 battles, 3
+        /// independent events: 3 of the 5 are Skeletons of one Tombstone): a troop whose spawn lane's enemy princess
+        /// tower is down walks to the king, wherever it stands, even when the other princess tower stands on its side
+        /// of the centre. A troop whose spawn-lane tower stands takes the tower of its current x, as today.
+        Client16402SpawnLaneKing = "client16402_spawn_lane_king",
+    }
+);
 calib_enum!(
     /// combat.HIT_BEYOND_CANCEL_RANGE -- what a direct hit deals when its target stands far past the attacker's
     /// reach (combat.rs `fire`).
@@ -4222,6 +4246,7 @@ impl Calib {
             held_unit_contact: pick(&v, &["collision", "HELD_UNIT_CONTACT", "value"], HeldUnitContact::from_calibration_name)?,
             target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
+            fallen_lane_tower_pick: pick(&v, &["targeting", "FALLEN_LANE_TOWER_PICK", "value"], FallenLaneTowerPick::from_calibration_name)?,
             tower_cancel_range: tower_cancel_value(&v)?,
             hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
@@ -14946,6 +14971,9 @@ impl BattleState {
 /// 20, unchanged, targeting.VARIABLE_DAMAGE_WALK_REACH: Calib gained variable_damage_walk_reach (serde default the
 ///    old arm, range_plus_both_radii), no new state (the walking test reads entity.rs `route_goal`, already saved),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.FALLEN_LANE_TOWER_PICK: Calib gained fallen_lane_tower_pick (serde default the old arm,
+///    current_x), no new state (the rule reads entity.rs `spawn_lane`, already saved), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15318,6 +15346,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // whatever the ledger ships (the same rule).
     sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
     sh.insert("first_tower_pick".into(), serde_json::to_value(FirstTowerPick::CurrentX).map_err(|e| e.to_string())?);
+    // targeting.FALLEN_LANE_TOWER_PICK: a format-3 battle took the tower of the current x; it keeps that whatever the
+    // ledger ships (the same rule).
+    sh.insert("fallen_lane_tower_pick".into(), serde_json::to_value(FallenLaneTowerPick::CurrentX).map_err(|e| e.to_string())?);
     sh.insert("tower_cancel_range".into(), serde_json::to_value(TowerCancelRange::Global).map_err(|e| e.to_string())?);
     sh.insert("hit_beyond_cancel_range".into(), serde_json::to_value(HitBeyondCancelRange::Damage).map_err(|e| e.to_string())?);
     // combat.PROJECTILE_COLLISIONS: a format-3 battle read none of a straight shot's three columns
