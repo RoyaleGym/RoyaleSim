@@ -851,7 +851,8 @@ pub struct DashDef {
     pub cooldown_ms: i32,
     /// DashRadius: the landing blow's radius. None: the blow is on the target alone.
     pub radius: Option<i32>,
-    /// DashPushBack, raw (not modelled: calibration combat.DASH_ATTACK's open list).
+    /// DashPushBack, raw millitiles: the push each victim of a radius blow takes (calibration combat.DASH_PUSHBACK,
+    /// state.rs `land_dash_blows`; read under client_ladder_from_landing only).
     pub pushback_raw: Option<i32>,
     /// DashImmuneToDamageTime, ms. None: the dash gives no immunity.
     pub immune_ms: Option<i32>,

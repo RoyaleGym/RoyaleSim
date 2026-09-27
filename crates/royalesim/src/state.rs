@@ -444,6 +444,10 @@ pub struct Calib {
     /// 20; the `default` is the old arm.
     #[serde(default = "dash_first_sight_trigger_default")]
     pub dash_first_sight_trigger: DashFirstSightTrigger,
+    /// combat.DASH_PUSHBACK: whether a dash blow pushes its victims DashPushBack (`land_dash_blows`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "dash_pushback_default")]
+    pub dash_pushback: DashPushback,
     /// spells.SUMMON_FUSE_START (the bottle; spell.rs `step_spells`). Added after SNAPSHOT_FORMAT 20;
     /// a battle saved before it held no bottle, so the default is the shipped arm.
     #[serde(default = "summon_fuse_start_default")]
@@ -1222,6 +1226,10 @@ fn dash_attack_default() -> DashAttack {
 
 fn dash_first_sight_trigger_default() -> DashFirstSightTrigger {
     DashFirstSightTrigger::NextTick
+}
+
+fn dash_pushback_default() -> DashPushback {
+    DashPushback::NotRead
 }
 
 fn summon_fuse_start_default() -> SummonFuseStart {
@@ -3316,6 +3324,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_PUSHBACK -- what a dash blow with a DashRadius (the Mega Knight's jump) does to the enemies it hits
+    /// besides DashDamage (`land_dash_blows`).
+    DashPushback {
+        /// Today's engine: DashPushBack is loaded and never applied; the victims stay where the blow found them.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 and the 16.402 corpus: every enemy troop the blow hits is pushed DashPushBack
+        /// through the knockback ladder, radially from the dasher's position on the blow tick, under the eligibility
+        /// of a spell's push (IgnorePushback refuses it unless PushbackAll; buildings and towers are never moved). 4 of
+        /// 4 Knights hit by a jump slid 199, 174, 149, ... 24, 0 and 25 back from the next tick, away from the landing
+        /// point within 0.1 degree; 2 of 2 Giants (IgnorePushback) and a princess tower did not move.
+        ClientLadderFromLanding = "client_ladder_from_landing",
+    }
+);
+calib_enum!(
     /// pathfinding.GOAL_TARGET_POSITION -- the target centre a chaser's goal cell is chosen around
     /// (the cells within its Range + own CollisionRadius of that centre, the nearest one to the
     /// chaser winning; path16402.rs `choose_goal_cell`).
@@ -4151,6 +4173,7 @@ impl Calib {
                 .collect::<Result<Vec<_>, _>>()?,
             dash_attack: pick(&v, &["combat", "DASH_ATTACK", "value"], DashAttack::from_calibration_name)?,
             dash_first_sight_trigger: pick(&v, &["combat", "DASH_FIRST_SIGHT_TRIGGER", "value"], DashFirstSightTrigger::from_calibration_name)?,
+            dash_pushback: pick(&v, &["combat", "DASH_PUSHBACK", "value"], DashPushback::from_calibration_name)?,
             summon_fuse_start: pick(&v, &["spells", "SUMMON_FUSE_START", "value"], SummonFuseStart::from_calibration_name)?,
             child_area_birth: pick(&v, &["spells", "CHILD_AREA_BIRTH", "value"], ChildAreaBirth::from_calibration_name)?,
             own_side_area_scope: pick(&v, &["spells", "OWN_SIDE_AREA_SCOPE", "value"], OwnSideScope::from_calibration_name)?,
@@ -8661,6 +8684,13 @@ impl BattleState {
     /// the entity table borrowed): a dash with no DashRadius hits its dash target alone, one with
     /// a radius every enemy it reaches from `centre`, both at DashDamage at the unit's level and
     /// through the crown-tower percent of its ordinary hit. Resolved with the tick's other hits.
+    ///
+    /// combat.DASH_PUSHBACK = client_ladder_from_landing: each enemy a radius blow hits is also pushed DashPushBack
+    /// radially from `centre` (spell.rs `push_from`: the ladder under knockback.DISPLACEMENT_LAW = client16402, the
+    /// eligibility of a spell's push). The push rides the tick's knockback buffer, which Resolve drains, so the victim
+    /// takes its first ladder step on the next tick, as it does under a spell. Measured on client 15.535.29 and the
+    /// 16.402 corpus: 4 of 4 Knights hit by the Mega Knight's jump slid 199, 174, 149, ... from the blow's next tick,
+    /// away from its landing point; Giants (IgnorePushback) and a princess tower did not move.
     fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
         for (a, target, centre) in blows {
             let card = self.cfg.cards.get(self.ents.card[a]);
@@ -8675,20 +8705,38 @@ impl BattleState {
                         self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false });
                     }
                 }
-                Some(r) => combat::splash(
-                    &self.ents,
-                    &self.hash,
-                    self.ents.team[a],
-                    centre,
-                    r,
-                    card.attacks_air,
-                    card.attacks_ground,
-                    amount,
-                    pct,
-                    self.cfg.calib.crown_rounding,
-                    &mut self.dmg,
-                    &mut self.scratch.nb,
-                ),
+                Some(r) => {
+                    combat::splash(
+                        &self.ents,
+                        &self.hash,
+                        self.ents.team[a],
+                        centre,
+                        r,
+                        card.attacks_air,
+                        card.attacks_ground,
+                        amount,
+                        pct,
+                        self.cfg.calib.crown_rounding,
+                        &mut self.dmg,
+                        &mut self.scratch.nb,
+                    );
+                    // `splash` leaves the victims it hit in the scratch list.
+                    #[cfg(not(clash_plant = "dash_pushback_unapplied"))]
+                    let pushes = self.cfg.calib.dash_pushback == DashPushback::ClientLadderFromLanding;
+                    #[cfg(clash_plant = "dash_pushback_unapplied")]
+                    let pushes = false; // PLANT (regression): the new arm leaves the victims where the blow found them.
+                    if let (true, Some(pb)) = (pushes, d.pushback_raw) {
+                        let k = crate::card::KnockbackDef { distance: crate::fixed::milli(pb), all: false };
+                        let team = self.ents.team[a];
+                        let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[] };
+                        for &v in self.scratch.nb.iter() {
+                            let v = v as usize;
+                            if self.ents.team[v] != team && self.ents.hp[v] > 0 {
+                                spell::push_from(&ctx, team, v, centre, &k, &mut self.effects);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -9320,8 +9368,9 @@ impl BattleState {
                         //
                         // A DashConstantTime (the Mega Knight): JumpSpeed a tick to the goal (about 250,
                         // resting on the goal's centre), the blow DashConstantTime / 50 ticks after the entry
-                        // over DashRadius (537 on the Giant at level 11 in both jumps; the radius and the
-                        // DashPushBack are open), and the end DASH_BLOW_TO_END_TICKS after the blow.
+                        // over DashRadius (537 on the Giant at level 11 in both jumps; the radius is open, and the
+                        // DashPushBack is combat.DASH_PUSHBACK's, `land_dash_blows`), and the end
+                        // DASH_BLOW_TO_END_TICKS after the blow.
                         let goal = (dash_goal[i].x / K, dash_goal[i].y / K);
                         let step = |p: (i32, i32), len: i32| {
                             let mut v = (goal.0 - p.0, goal.1 - p.1);
@@ -14750,6 +14799,9 @@ impl BattleState {
 /// 20, unchanged, combat.DASH_FIRST_SIGHT_TRIGGER: Calib gained dash_first_sight_trigger (serde default the old arm,
 ///    next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_PUSHBACK: Calib gained dash_pushback (serde default the old arm, not_read), no new
+///    state (the push rides the tick's knockback buffer, drained in Resolve), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15083,6 +15135,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.DASH_FIRST_SIGHT_TRIGGER: a format-3 battle ran no dash; it keeps the old arm whatever the ledger ships
     // (the same rule).
     sh.insert("dash_first_sight_trigger".into(), serde_json::to_value(DashFirstSightTrigger::NextTick).map_err(|e| e.to_string())?);
+    // combat.DASH_PUSHBACK: the same rule.
+    sh.insert("dash_pushback".into(), serde_json::to_value(DashPushback::NotRead).map_err(|e| e.to_string())?);
     // The special attacks: a format-3 battle ran no damage ramp, no first-hit load, no recoil
     // and no hook; it keeps that whatever the ledger ships (the same rule).
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
