@@ -882,7 +882,7 @@ pub struct CardDef {
     /// an ordinary `Spell` running spell.rs `impact` (its damage scaled on this card's
     /// ladder, its radius, its air/ground filter, its knockback) through spell.rs
     /// `shape_of`, as a death bomb is. Fired by state.rs `spawn_now` under calibration
-    /// combat.DEPLOY_PROJECTILE = client_on_landing; inert under the shipped not_read. A
+    /// combat.DEPLOY_PROJECTILE = client_on_landing (shipped); inert under the old not_read. A
     /// card with both this and a death area effect is refused (`shape_of` could name only
     /// one of them).
     pub deploy_projectile: Option<SpellDef>,
@@ -3051,7 +3051,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let dash = convert_dash(raw.dash, kind)?;
     let reflect = convert_reflect(raw.reflected_attack, buffs)?;
     // The two blocks and the one column the special attacks read (combat.VARIABLE_DAMAGE,
-    // combat.SPECIAL_HOOK, knockback.ATTACK_PUSHBACK). Each is inert under its key's shipped
+    // combat.SPECIAL_HOOK, knockback.ATTACK_PUSHBACK). Each is inert under its key's old
     // arm; a half-blank block refuses the card like any other.
     let variable_damage = convert_variable_damage(raw.variable_damage)?;
     let special = convert_special(raw.special, kind)?;

@@ -1558,7 +1558,7 @@ calib_enum!(
     /// targeting.LEAPING_UNIT_TARGETABILITY -- who may target a troop in its river leap (entity.rs `jumping`;
     /// target.rs `can_target`).
     LeapingUnitTargetability {
-        /// Today's engine: a leaping troop stays a ground target for every attacker.
+        /// The old arm (shipped until flip wave 2): a leaping troop stays a ground target for every attacker.
         Ground = "ground",
         /// Measured on client 15.535.29 (10 of 10 ground-only witnesses of a Hog Rider's leap, 2 of 2 air-and-ground
         /// ones): a leaping troop is a target only for an attacker that attacks air. Read in the Target phase from the

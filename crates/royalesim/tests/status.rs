@@ -49,8 +49,9 @@
 //!      counting down (combat.ATTACK_CYCLE's boundary note);
 //!  12. under status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency a pulse
 //!      is the HitFrequency share of the level-scaled per-second figure: the Battle
-//!      Healer's spawn heal pulses 50 at a 256% multiplier, where the shipped order
-//!      gives 48, and a once-a-second Poison is the same under both.
+//!      Healer's spawn heal pulses 50 at a 256% multiplier, where the old order
+//!      (per_second_times_frequency, shipped until flip wave 2) gives 48, and a
+//!      once-a-second Poison is the same under both, so (5) and (10) hold under either.
 //!
 //! PLANTS (regression):
 //!   * `buff_speed_unfloored` rounds the composition instead of truncating it: (1)
@@ -96,7 +97,7 @@ fn assert_shipped_arms() {
     assert_eq!(c.hit_speed_buff, HitSpeedBuff::ProgressScaled, "the shipped arm this file pins");
     assert_eq!(c.full_stop_buff_is_stun, FullStopBuff::StunTimer, "the shipped arm this file pins");
     assert_eq!(c.stomp_schedule, StompSchedule::MsClock, "the shipped arm this file pins");
-    assert_eq!(c.buff_pulse_amount, PulseAmount::PerSecondTimesFrequency, "the shipped arm this file pins");
+    assert_eq!(c.buff_pulse_amount, PulseAmount::ScaledPerSecondTimesFrequency, "the shipped arm this file pins");
     assert_eq!(c.buff_pulse_timing, PulseTiming::AfterFirstPeriod, "the shipped arm this file pins");
     assert_eq!(c.target_buff_on_splash, TargetBuffScope::WholeSplash, "the shipped arm this file pins");
     assert_eq!(c.pulsing_area_effect, PulsingArea::FromLanding, "the shipped arm this file pins");
@@ -437,8 +438,9 @@ fn a_pulse_is_the_share_of_the_level_scaled_per_second_figure() {
     // (12) status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency, measured on
     // client 15.535.29: the Battle Healer's spawn heal (BattleHealerSpawnBuff,
     // HealPerSecond 79, a pulse every 250 ms) heals 50 a pulse at level 11, a 256%
-    // multiplier: 202 a second, and a quarter of it. The shipped order takes the
-    // quarter first (19) and scales that (48). A heal is negative.
+    // multiplier: 202 a second, and a quarter of it. The old order,
+    // per_second_times_frequency, takes the quarter first (19) and scales that (48).
+    // A heal is negative.
     let at_256 = |m: i32| Ok::<i32, ()>(royalesim::card::CardDb::scale(m, 256));
     let heal = BuffDef { heal_per_second: 79, hit_frequency_ms: 250, ..Default::default() };
     assert_eq!(heal.pulse_amount(PulseAmount::ScaledPerSecondTimesFrequency, at_256), Ok(-50));
@@ -492,8 +494,8 @@ fn a_poison_pulses_its_per_second_damage_once_a_second() {
     }
     assert!(drops > 0, "the Poison never damaged the Knight");
     let total = last;
-    // EVERY DROP IS ONE WHOLE PULSE, level-scaled by the caster
-    // (status.BUFF_PULSE_AMOUNT = per_second_times_frequency).
+    // EVERY DROP IS ONE WHOLE PULSE, level-scaled by the caster. The Poison pulses once a
+    // second, so both status.BUFF_PULSE_AMOUNT orders give this figure (test 12).
     let scaled = s.cards().scaled(s.cards().index("Poison").expect("Poison loads"), config().card_level[Team::Red as usize], want_pulse).expect("level validated");
     assert_eq!(total, drops * scaled, "{drops} drops totalling {total}, one pulse is {scaled}");
     // status.BUFF_STACKING = one_slot_per_buff_row: ONE Poison on the unit however

@@ -86,7 +86,7 @@ def test_the_spawn_heal_pulse_is_the_scaled_share():
 
 
 def test_the_old_arm_scales_the_share():
-    """Today's engine: 79 x 250 / 1000 = 19, then 19 x 256% = 48."""
+    """The old arm, shipped until flip wave 2: 79 x 250 / 1000 = 19, then 19 x 256% = 48."""
     assert spawn_heal_pulses(OLD_ARM) == [48, 48, 48, 48]
 
 
