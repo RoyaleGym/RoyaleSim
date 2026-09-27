@@ -8864,15 +8864,28 @@ impl BattleState {
         let cell = path16402::CELL;
         let (cols, rows) = (self.cfg.arena.cols, self.cfg.arena.rows);
         let on_grid = |v: i32, n: i32| v.clamp(0, n - 1);
-        let goal = (on_grid((dest.x / K).div_euclid(cell), cols), on_grid((dest.y / K).div_euclid(cell), rows));
+        let grid = move |p: Vec2| (on_grid((p.x / K).div_euclid(cell), cols), on_grid((p.y / K).div_euclid(cell), rows));
+        // THE ROUTE PROBLEM'S FRAME: the arena's under the 16.402 search (measured on both seats), the owner's under the
+        // frame-planned searches. There BOTH cells, the start and the goal, are read from the owner's-frame point, so a
+        // point on a cell boundary (the King's centre x 9000, a tile-centre tap, a Drill footprint) lands in the rotation
+        // of its twin's cell. `turn` takes a planning cell to the arena's cell (the rotation, for Red).
+        let team = self.ents.team[i];
+        let framed = self.cfg.calib.path_search != PathSearch::Client16402;
+        let rotate = framed && team == Team::Red;
+        let turn = move |c: (i32, i32)| if rotate { (cols - 1 - c.0, rows - 1 - c.1) } else { c };
+        let arena = &self.cfg.arena;
+        #[cfg(not(clash_plant = "tunnel_cells_arena_frame"))]
+        let plan_cell = |p: Vec2| grid(if framed { arena.to_frame(team, p) } else { p });
+        #[cfg(clash_plant = "tunnel_cells_arena_frame")]
+        let plan_cell = |p: Vec2| turn(grid(p)); // PLANT: floored in the arena's frame, then turned.
+        let goal_plan = plan_cell(dest);
+        let goal = turn(goal_plan);
         let goal_v = Vec2::new(goal.0, goal.1);
         let (ax, ay) = (self.ents.pos[i].x / K, self.ents.pos[i].y / K);
         if self.ents.route_goal[i] != Some(goal_v) {
-            let start = (on_grid(ax.div_euclid(cell), cols), on_grid(ay.div_euclid(cell), rows));
-            let rotate = self.cfg.calib.path_search != PathSearch::Client16402 && self.ents.team[i] == Team::Red;
-            let turn = move |c: (i32, i32)| if rotate { (cols - 1 - c.0, rows - 1 - c.1) } else { c };
-            let (arena, calib) = (&self.cfg.arena, &self.cfg.calib);
-            let chain = self.scratch.tunnel_grid.get_or_insert_with(|| TunnelGrid::new(arena, calib)).route(turn(start), turn(goal));
+            let start_plan = plan_cell(self.ents.pos[i]);
+            let calib = &self.cfg.calib;
+            let chain = self.scratch.tunnel_grid.get_or_insert_with(|| TunnelGrid::new(arena, calib)).route(start_plan, goal_plan);
             let mut route: Vec<Vec2> = chain.iter().map(|&n| turn((n % cols, n / cols))).map(|(c, r)| arena.half_to_subtile_center(c, r)).collect();
             if route.is_empty() {
                 // The start cell is the goal cell, or the search found nothing: the goal's own centre.

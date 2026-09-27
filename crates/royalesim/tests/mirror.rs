@@ -37,6 +37,10 @@
 //!   eject_tie_engine_frame          a unit pushed exactly mid-river is ejected by Blue's
 //!                                   side preference for both seats
 //!   reflection_formation            (above) -- also the Goblin Barrel's released units
+//! THE UNDERGROUND WALK AND THE CARDS OF THE LAST TWO BUILDS (the scenes near the end of the file):
+//!   tunnel_cells_arena_frame        a tunnel route's cells floored in the arena's frame, then turned for Red:
+//!                                   mirror_miner_to_the_enemy_side, mirror_miner_to_its_own_side,
+//!                                   mirror_goblin_drill_to_the_enemy_side, mirror_hand_played_mirror_empress_...
 //!
 //! WHAT IT CANNOT CATCH: an asymmetry that only arises in a configuration no
 //! scenario here reaches, and any bias that is symmetric (both seats equally
@@ -81,6 +85,9 @@ struct Engagement {
     building_damaged: bool,
     /// Some crown tower ended a tick below max hp.
     tower_damaged: bool,
+    /// Every card name that stood on the board on some tick, either team, and every spell object's as
+    /// "spell:NAME": what the scene's cards actually put down (a release, a transformation, a death area).
+    seen: std::collections::BTreeSet<String>,
 }
 
 /// Run a mirror scenario, checking the rotation mirror at every tick.
@@ -122,6 +129,14 @@ fn run_mirror(name: &str, units: &[Unit], red_reversed: bool, cfg: BattleConfig,
                 EntityKind::Building => eng.building_damaged = true,
                 _ => eng.tower_damaged = true,
             }
+        }
+        for e in s.entities() {
+            if !eng.seen.contains(e.card) {
+                eng.seen.insert(e.card.to_string());
+            }
+        }
+        for sp in s.spells() {
+            eng.seen.insert(format!("spell:{}", s.cards().get(sp.card).name));
         }
     }
     // Vacuity guards: the scenario must have run past its spawns with units in it.
@@ -810,3 +825,47 @@ fn every_asymmetric_calib_key_is_selectable_from_python() {
          SYMMETRY_SELECTABLE_CALIB_FIELDS."
     );
 }
+// ---------------------------------------------------------------------------
+// THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `tunnel_step`). A tunneller is born on its King's
+// centre and walks to its destination under ground. Under the frame-planned search both cells of its route problem,
+// the start and the goal, are read in its owner's frame. Floored in the ARENA's frame and then turned, a point on a
+// 500 boundary (the King's centre x 9000, every tile-centre tap, every Drill footprint) fell one cell over for Red,
+// and a Red walk was not the rotation of a Blue one from its first step. The shipped 16.402 search plans in the
+// arena's frame for both seats, as measured, and is not what these scenes measure. Plant: tunnel_cells_arena_frame.
+
+/// The card names a scene must have put down, so a scene whose card did nothing is not mistaken for evidence.
+fn assert_seen(name: &str, eng: &Engagement, cards: &[&str]) {
+    for c in cards {
+        assert!(eng.seen.contains(*c), "{name}: no {c} was ever on the board: saw {:?}", eng.seen);
+    }
+}
+
+#[test]
+fn mirror_miner_to_the_enemy_side() {
+    // Onto a point on a 500 boundary beside the enemy's own-left princess tower.
+    let units = [Unit { card: "Miner", at: (350, 2350), tick: 0 }];
+    let (s, eng) = run_mirror("miner_enemy_side", &units, false, symmetric_config(), Some(700));
+    assert!(eng.tower_damaged, "miner_enemy_side: the Miners never hit a tower: {eng:?}");
+    assert_draw("miner_enemy_side", &s);
+}
+
+#[test]
+fn mirror_miner_to_its_own_side() {
+    // Onto its own half, off every boundary but the start's (the King's centre), and then the walk up its lane.
+    let units = [Unit { card: "Miner", at: (1430, 1070), tick: 0 }];
+    let (s, eng) = run_mirror("miner_own_side", &units, false, symmetric_config(), Some(900));
+    assert!(eng.tower_damaged, "miner_own_side: the Miners never reached a tower: {eng:?}");
+    assert_draw("miner_own_side", &s);
+}
+
+#[test]
+fn mirror_goblin_drill_to_the_enemy_side() {
+    // The Drill's building is placed on a tile corner (its 2x2 box), so its destination is on a 500 boundary. The dig is
+    // the card's row, GoblinDrill; the building it leaves is its own row, units.GoblinDrill.
+    let units = [Unit { card: "GoblinDrill", at: (400, 2300), tick: 0 }];
+    let (s, eng) = run_mirror("drill_enemy_side", &units, false, symmetric_config(), Some(700));
+    assert!(eng.tower_damaged, "drill_enemy_side: the Drills' Goblins never hit a tower: {eng:?}");
+    assert_seen("drill_enemy_side", &eng, &["GoblinDrill", "units.GoblinDrill", "Goblin"]);
+    assert_draw("drill_enemy_side", &s);
+}
+
