@@ -124,6 +124,9 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     "knock_zero_vector",
     "formation_ground_y_clamp",
     "formation_ground_deploy_point",
+    // No kwarg: `calibration_overrides` reaches it, {"targeting.FIRST_TOWER_PICK": "client_spawn_lane_own_frame"}
+    // (RoyaleGym rust_engine.py SYMMETRIC_ARMS selects its arms that way).
+    "first_tower_pick",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

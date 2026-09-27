@@ -76,6 +76,11 @@ pub fn symmetric_config() -> BattleConfig {
     // flips, the name joins py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS (mirror.rs
     // `every_asymmetric_calib_key_is_selectable_from_python` asks for it).
     c.calib.death_spawn_pushback = royalesim::state::DeathSpawnPushback::NotRead;
+    // A summon member's first tower (targeting.FIRST_TOWER_PICK): client_spawn_lane flips a member's lane
+    // against its deploy point in ABSOLUTE coordinates, as measured, so a member between x 9005 and 9495 of a
+    // deploy at 9500 flips and its rotated twin does not. client_spawn_lane_own_frame runs the same rule in the
+    // owner's frame. mirror.rs `a_summon_on_the_flip_band_is_symmetric_only_in_its_own_frame` deploys there.
+    c.calib.first_tower_pick = royalesim::state::FirstTowerPick::ClientSpawnLaneOwnFrame;
     c
 }
 

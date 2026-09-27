@@ -2001,8 +2001,20 @@ calib_enum!(
         /// it deploys and for target::FIRST_PICK_LANE_WINDOW_MS after, its default tower is that lane's enemy
         /// princess tower, the king once it is down; after that the tower of its current x, as today.
         ClientSpawnLane = "client_spawn_lane",
+        /// Not a measured rule: the seat rotation of `ClientSpawnLane`, for seat-symmetry gates. The same lane
+        /// at creation and the same window, but a summon member's flip is computed in its owner's frame
+        /// (`BattleState::summon_lane_flip`), so a Red deploy is the Blue one turned 180 degrees. The two arms
+        /// agree on every Blue unit, and on every Red unit outside the flip band (a member between x 8505 and
+        /// 9495 of a deploy at 8500 or 9500).
+        ClientSpawnLaneOwnFrame = "client_spawn_lane_own_frame",
     }
 );
+impl FirstTowerPick {
+    /// Whether a troop takes its lane at creation and walks to that lane's tower first: both spawn-lane arms.
+    pub fn spawn_lane(self) -> bool {
+        matches!(self, Self::ClientSpawnLane | Self::ClientSpawnLaneOwnFrame)
+    }
+}
 calib_enum!(
     /// combat.HIT_BEYOND_CANCEL_RANGE -- what a direct hit deals when its target stands far past the attacker's
     /// reach (combat.rs `fire`).
@@ -5744,7 +5756,7 @@ impl BattleState {
         // (`creation_lane`). A summon member's flip against its deploy point follows in
         // `summon_lane_flip`. Its default tower comes from that lane while it deploys and for
         // target::FIRST_PICK_LANE_WINDOW_MS after (`on_deployed` sets the end). Not written under the old arm.
-        if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && kind == EntityKind::Troop {
+        if self.cfg.calib.first_tower_pick.spawn_lane() && kind == EntityKind::Troop {
             self.ents.spawn_lane[i] = creation_lane(&self.cfg.arena, team, pos);
             self.ents.lane_window_end[i] = u32::MAX;
         }
@@ -5875,17 +5887,30 @@ impl BattleState {
     /// side 1, so the rule is not the seat rotation of itself, and not only on the centre line. A member created
     /// between x 9005 and 9495 of a deploy at 9500 flips; its rotated twin, between 8505 and 8995 of a deploy at
     /// 8500, does not. A Skeleton Army deploy at x 8500 or 9500 puts two members there, so its rotated twin sends
-    /// them to the other tower. No scenario in tests/mirror.rs deploys a multi-unit card there.
+    /// them to the other tower. tests/mirror.rs `a_summon_on_the_flip_band_is_symmetric_only_in_its_own_frame`
+    /// deploys one there under both arms.
+    ///
+    /// Under client_spawn_lane_own_frame the same rule runs on the member and its deploy point turned into the
+    /// owner's frame, against the lane read in that frame (`creation_lane` before its swap for Red), so a Red
+    /// member flips exactly when its rotated Blue twin does.
     fn summon_lane_flip(&mut self, i: usize, ax: i32) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        let own = self.ents.spawn_lane[i];
-        if own == 0 {
+        let lane = self.ents.spawn_lane[i];
+        if lane == 0 {
             return;
         }
         let arena = &self.cfg.arena;
         let cell = (arena.cell / K).max(1);
         let half = arena.cols / 2;
-        let p = self.ents.pos[i];
+        let (p, ax, own) = match (self.cfg.calib.first_tower_pick, self.ents.team[i]) {
+            (FirstTowerPick::ClientSpawnLaneOwnFrame, Team::Red) => {
+                let (l, r) = (arena.bit_lane_left, arena.bit_lane_right);
+                let swapped = (if lane & l != 0 { r } else { 0 }) | (if lane & r != 0 { l } else { 0 });
+                let p = self.ents.pos[i];
+                (arena.to_frame(Team::Red, p), arena.to_frame(Team::Red, Vec2::new(ax, p.y)).x, swapped)
+            }
+            _ => (self.ents.pos[i], ax, lane),
+        };
         let (x, a) = (p.x / K, ax / K);
         let (c, ac) = ((x + 5) / cell, a / cell);
         let due = (a < x && ac < half && c >= half) || (a > x && ac > half && c <= half);
@@ -5894,7 +5919,7 @@ impl BattleState {
         #[cfg(clash_plant = "spawn_lane_no_flip")]
         let flip = { let _ = due; false }; // PLANT (regression): the member keeps the lane of its own point, as a single troop does.
         if flip {
-            self.ents.spawn_lane[i] = (arena.bit_lane_left | arena.bit_lane_right) & !own;
+            self.ents.spawn_lane[i] = (arena.bit_lane_left | arena.bit_lane_right) & !lane;
         }
     }
 
@@ -8056,7 +8081,7 @@ impl BattleState {
                 self.ents.tunnel_dest[i] = None;
                 self.ents.pos[i] = dest;
                 self.ents.deploy_ms[i] = deploy_ms;
-                if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && self.ents.kind[i] == EntityKind::Troop {
+                if self.cfg.calib.first_tower_pick.spawn_lane() && self.ents.kind[i] == EntityKind::Troop {
                     let team = self.ents.team[i];
                     self.ents.spawn_lane[i] = creation_lane(&self.cfg.arena, team, dest);
                     self.ents.lane_window_end[i] = u32::MAX;
@@ -12582,7 +12607,7 @@ impl BattleState {
         // targeting.FIRST_TOWER_PICK = client_spawn_lane: a member of a troop card that deploys two or more units
         // carries the deploy point's x, which its lane is flipped against when it is created (`summon_lane_flip`).
         // Not written under the old arm.
-        let summon_x = (calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && total >= 2 && card.kind == CardKind::Troop).then_some(pos.x);
+        let summon_x = (calib.first_tower_pick.spawn_lane() && total >= 2 && card.kind == CardKind::Troop).then_some(pos.x);
         let member = |k: i32, p: Vec2| {
             let unit = unit_of(k);
             let delay = stagger(k);
@@ -14008,7 +14033,7 @@ impl BattleState {
                 }
                 // targeting.FIRST_TOWER_PICK = client_spawn_lane: the spawn lane and its window, written under that arm
                 // only.
-                if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane {
+                if self.cfg.calib.first_tower_pick.spawn_lane() {
                     h.u32(e.spawn_lane[i] as u32);
                     h.u32(e.lane_window_end[i]);
                 }
@@ -14340,7 +14365,7 @@ impl BattleState {
                     }
                 }
                 // targeting.FIRST_TOWER_PICK = client_spawn_lane's deploy x, set under that arm only.
-                if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane {
+                if self.cfg.calib.first_tower_pick.spawn_lane() {
                     h.bool(s.summon_x.is_some());
                     h.i32(s.summon_x.unwrap_or(0));
                 }

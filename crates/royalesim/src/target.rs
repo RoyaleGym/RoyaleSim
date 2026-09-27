@@ -731,7 +731,7 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         // lane: the tilemap names lanes in engine x), the king once that tower is down. After the window, the pick
         // below by its current x, as today. `spawn_lane` is 0 on every unit under the old arm.
         #[cfg(not(clash_plant = "first_pick_by_x"))]
-        let lane_pick = ctx.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && e.spawn_lane[a] != 0 && ctx.tick <= e.lane_window_end[a];
+        let lane_pick = ctx.calib.first_tower_pick.spawn_lane() && e.spawn_lane[a] != 0 && ctx.tick <= e.lane_window_end[a];
         #[cfg(clash_plant = "first_pick_by_x")]
         let lane_pick = false; // PLANT (regression): the first pick by the unit's current x, as today.
         if lane_pick {

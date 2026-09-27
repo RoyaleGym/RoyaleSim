@@ -754,6 +754,28 @@ fn the_shipped_search_is_absolute_grid_not_seat_symmetric() {
 // ---------------------------------------------------------------------------
 // the plumbing that keeps not coming with the asymmetry
 
+/// A SUMMON MEMBER ON THE FLIP BAND (targeting.FIRST_TOWER_PICK). A Skeleton Army on x 9500 puts members between
+/// x 9005 and 9495. Under the shipped client_spawn_lane each of them flips to the other lane (measured on client
+/// 15.535.29, absolute coordinates), and its rotated twin, of Red's deploy on x 8500, does not, so the two seats
+/// send it to different towers. `symmetric_config()` runs client_spawn_lane_own_frame, the same rule in the
+/// owner's frame: the scene must be symmetric on every tick there, and must break under the shipped arm, or it
+/// has stopped reaching the band.
+#[test]
+fn a_summon_on_the_flip_band_is_symmetric_only_in_its_own_frame() {
+    let units = [Unit { card: "SkeletonArmy", at: (950, 1000), tick: 0 }];
+    let (s, _) = run_mirror("flip_band_own_frame", &units, true, symmetric_config(), Some(400));
+    assert_draw("flip_band_own_frame", &s);
+    let mut shipped = symmetric_config();
+    shipped.calib.first_tower_pick = royalesim::state::FirstTowerPick::ClientSpawnLane;
+    // The expected panic's message is captured with this test's output, as any passing test's is.
+    let broke = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_mirror("flip_band_shipped", &units, true, shipped, Some(400))));
+    let why = match broke {
+        Ok(_) => panic!("the shipped client_spawn_lane stayed symmetric: this scene no longer puts a member on the flip band"),
+        Err(e) => e.downcast_ref::<String>().cloned().unwrap_or_default(),
+    };
+    assert!(why.contains("census:"), "the shipped arm's run failed, but not on the mirror check: {why}");
+}
+
 /// EVERY DELIBERATELY ASYMMETRIC KEY MUST BE SELECTABLE FROM PYTHON.
 ///
 /// The engine reproduces the game's seat asymmetries on purpose, so a rotation gate
