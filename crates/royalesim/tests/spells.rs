@@ -555,8 +555,9 @@ fn knockback_resets_a_windup() {
     // A Red Musketeer (already deployed) shooting a Blue Cannon is hit by a Blue
     // Fireball on a tick where the CONTROL Musketeer is still mid-windup: the pushed
     // one is Idle with its timer at zero (registry knockback.ATTACK_RESET: the
-    // attack resets, MEASURED on the Knight of capture 20260920-081819-B,
-    // load 300 -> 700 on the hit tick 3535).
+    // attack resets, MEASURED on the Bomber and the Knight of capture
+    // 20260920-081819-B). Its load timer is knockback.PUSH_LOAD_TIMER's
+    // (tests/push_load_timer.rs pins both values).
     // Plant: knockback_keeps_windup.
     assert_registry("knockback.ATTACK_RESET", format!("{:?}", calib().knock_attack_reset), "ResetAttackKeepTarget");
     let tap = stage();
@@ -596,10 +597,18 @@ fn knockback_resets_a_windup() {
         found += 1;
         let v = s.entity(m).unwrap();
         assert_eq!((v.attack_phase, v.attack_ms), (AttackPhase::Idle, 0), "delay {delay}: control is mid-swing at {} ms, the pushed Musketeer is not reset", cv.attack_ms);
-        // and its LOAD TIMER is back to a full LoadTime (the Knight's 300 ->
-        // 700 on the hit tick; the windup arm does not carry the column)
+        // and its LOAD TIMER (knockback.PUSH_LOAD_TIMER; the windup arm does not carry the
+        // column): back to a full LoadTime under reset_to_load_time, where the unpushed
+        // control's is under client_runs_on (tests/push_load_timer.rs pins the re-entry)
         if calib().attack_cycle == royalesim::state::AttackCycle::ProgressCredit {
-            assert_eq!(v.attack_load_ms, load, "delay {delay}: the push did not reload the timer");
+            match calib().push_load_timer {
+                royalesim::state::PushLoadTimer::ResetToLoadTime => {
+                    assert_eq!(v.attack_load_ms, load, "delay {delay}: the push did not reload the timer")
+                }
+                royalesim::state::PushLoadTimer::ClientRunsOn => {
+                    assert_eq!(v.attack_load_ms, cv.attack_load_ms, "delay {delay}: the push moved the load timer")
+                }
+            }
         }
         assert_eq!(v.target, cv.target, "delay {delay}: the target is kept (reset_windup_keep_target)");
         assert!(v.push_active || v.pos != cv.pos, "delay {delay}: it was not pushed");
@@ -610,9 +619,11 @@ fn knockback_resets_a_windup() {
 #[test]
 fn knockback_interrupts_a_unit_between_shots_and_the_old_arm_freezes_its_cooldown() {
     // THE MEASURED HALF the community reading missed (the Bomber of capture
-    // 20260920-081819-B, between hits with its swing counter at 3500
-    // when the Bandit hit it at tick 2020: counter 0 from 2021, state 1 through the
-    // ladder, a FRESH LoadTime windup on re-entering range at 2037): a Fireball on a
+    // 20260920-081819-B, between hits with its swing counter at 3500 when the
+    // boulder of the Bowler it was attacking hit it at tick 2020: counter 0 from
+    // 2021, state 1 through the ladder, back in its attack at 2037 with the
+    // progress credit off the load timer the push left running,
+    // knockback.PUSH_LOAD_TIMER): a Fireball on a
     // Musketeer BETWEEN SHOTS (Cooldown) under the shipped reset_attack_keep_target
     // leaves it Idle at 0 -- its next shot is a LoadTime windup once the ladder ends
     // and the target is in range again -- where the superseded

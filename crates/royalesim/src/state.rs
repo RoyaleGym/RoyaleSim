@@ -658,6 +658,10 @@ pub struct Calib {
     pub knock_zero_vector: KnockZeroVector,
     /// knockback.ATTACK_RESET.
     pub knock_attack_reset: KnockAttackReset,
+    /// knockback.PUSH_LOAD_TIMER: what the ATTACK_RESET reset does to the victim's load timer (`apply_effects`). Read
+    /// only under reset_attack_keep_target. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "push_load_timer_default")]
+    pub push_load_timer: PushLoadTimer,
     /// knockback.AFFECTS_DEPLOYING_UNITS.
     pub knock_affects_deploying: bool,
     /// knockback.DIRECTION_ROLLING.
@@ -1037,6 +1041,10 @@ fn doomed_target_drop_default() -> DoomedTargetDrop {
 
 fn chase_drop_range_default() -> ChaseDropRange {
     ChaseDropRange::SightPlusRadii
+}
+
+fn push_load_timer_default() -> PushLoadTimer {
+    PushLoadTimer::ResetToLoadTime
 }
 
 fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
@@ -1731,11 +1739,12 @@ calib_enum!(
     /// target.rs through `Entities::knocked`).
     KnockAttackReset {
         /// MEASURED on the live 16.402 captures (capture 20260920-081819-B: a Bomber
-        /// between hits at tick 2020, a Knight mid-windup at 3535): the push
+        /// between hits at tick 2020, a Knight pushed on the tick of its own hit, 3535): the push
         /// interrupts the attack whatever its phase -- state 1 through the ladder, the
-        /// swing counter zeroed, the load timer back to LoadTime on the hit tick, and a
-        /// FRESH LoadTime windup on re-entering range after the ladder; the target kept.
-        /// Windup or Cooldown -> Idle here.
+        /// swing counter zeroed, and a fresh entry on re-entering range after the
+        /// ladder; the target kept. Windup or Cooldown -> Idle here. What the push does
+        /// to the load timer is knockback.PUSH_LOAD_TIMER's (the Knight's 700 on 3535
+        /// was its own hit's reset: it hit on that tick).
         ResetAttackKeepTarget = "reset_attack_keep_target",
         /// The community reading this file shipped before the captures: a windup in
         /// progress returns to Idle, a cooldown is untouched (it freezes through the
@@ -1743,6 +1752,22 @@ calib_enum!(
         ResetWindupKeepTarget = "reset_windup_keep_target",
         /// The windup reset with the target dropped as well.
         ResetWindupClearTarget = "reset_windup_clear_target",
+    }
+);
+calib_enum!(
+    /// knockback.PUSH_LOAD_TIMER -- what the knockback.ATTACK_RESET = reset_attack_keep_target reset does to the
+    /// victim's load timer (state.rs `apply_effects`). The re-entry after the ladder takes the ordinary progress credit
+    /// off what is left of it (combat.ATTACK_CYCLE = progress_credit).
+    PushLoadTimer {
+        /// Today's engine: the landing tick sets the load timer to LoadTime, so a unit back in range within LoadTime of
+        /// the push swings late.
+        ResetToLoadTime = "reset_to_load_time",
+        /// Measured on client 15.535.29 and the 16.402 corpus: the push leaves the load timer as it was and it runs
+        /// down through the ladder (23 of 23 push landings where that differs from a reset, 25 records: 15 Knights
+        /// on client 15.535.29, 16 records, and 8 landings on the 16.402 corpus, 9 records); the re-entry reads
+        /// progress LoadTime + 100 minus the timer of the frame before (24 of 24 re-entries after a push). A Bomber
+        /// pushed at load 0 re-enters at 1650 and launches 3 ticks later (20260920-081051, 963 and 966).
+        ClientRunsOn = "client_runs_on",
     }
 );
 calib_enum!(
@@ -4249,6 +4274,7 @@ impl Calib {
             knock_duration_ms: int(&v, &["knockback", "DURATION_MS", "value"])?,
             knock_zero_vector: pick(&v, &["knockback", "ZERO_VECTOR_DIRECTION", "value"], KnockZeroVector::from_calibration_name)?,
             knock_attack_reset: pick(&v, &["knockback", "ATTACK_RESET", "value"], KnockAttackReset::from_calibration_name)?,
+            push_load_timer: pick(&v, &["knockback", "PUSH_LOAD_TIMER", "value"], PushLoadTimer::from_calibration_name)?,
             knock_affects_deploying: boolean(&v, &["knockback", "AFFECTS_DEPLOYING_UNITS", "value"])?,
             knock_direction_rolling: pick(&v, &["knockback", "DIRECTION_ROLLING", "value"], RollDirection::from_calibration_name)?,
             projectile_spawn_formation: pick(&v, &["spells", "PROJECTILE_SPAWN_FORMATION", "value"], ProjectileSpawnFormation::from_calibration_name)?,
@@ -11724,10 +11750,11 @@ impl BattleState {
             // ATTACK (calibration knockback.ATTACK_RESET): MEASURED on two ladders
             // landing on attacking units (capture 20260920-081819-B:
             // a Bomber between hits, swing counter 3500 -> 0 at tick 2021; a
-            // Knight mid-windup, load 300 -> 700 on the hit tick 3535): the push
-            // interrupts the attack whatever its phase, the unit is state 1 through the
-            // ladder and starts a FRESH LoadTime windup on re-entering range after it,
-            // the target kept. reset_attack_keep_target: Windup or Cooldown -> Idle;
+            // Knight that hit on 3535 and was pushed that tick): the push interrupts
+            // the attack whatever its phase, the unit is state 1 through the ladder and
+            // enters afresh on re-entering range after it (the progress credit of
+            // combat.ATTACK_CYCLE, off what knockback.PUSH_LOAD_TIMER leaves of the load
+            // timer), the target kept. reset_attack_keep_target: Windup or Cooldown -> Idle;
             // the two reset_windup_* foils leave a cooldown running (frozen by
             // `Entities::knocked` while the ladder runs, resumed after).
             #[cfg(not(clash_plant = "knockback_keeps_windup"))]
@@ -11741,13 +11768,22 @@ impl BattleState {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
-                // THE LOAD TIMER with it (the same measurement): the Knight's load
-                // reads 700 = LoadTime on the hit tick itself, not the 300 it had
-                // left. Under combat.ATTACK_CYCLE = progress_credit the timer is what
-                // a re-entry's credit is taken off, so a reset that left it running
-                // would give the pushed unit a shorter windup than the capture shows.
-                // The windup arm never reads the column.
-                e.attack_load_ms[i] = self.cfg.cards.get(e.card[i]).load_time_ms.max(0);
+                // THE LOAD TIMER (knockback.PUSH_LOAD_TIMER). reset_to_load_time (today's
+                // engine) sets it to LoadTime, read off the Knight of 081819-B whose load
+                // reads 700 on 3535; that Knight hit on 3535 (progress 1200 = HitSpeed),
+                // so the 700 is its own hit's reset. client_runs_on leaves the timer as it
+                // was: on client 15.535.29 and the 16.402 corpus it reads its value before
+                // minus 50 (or 0) on the first ladder frame and runs down through the
+                // ladder, 23 of 23 push landings where that differs from a reset, and the
+                // re-entry credit (combat.ATTACK_CYCLE = progress_credit) takes off what is
+                // left, 24 of 24 re-entries. The windup arm never reads the column.
+                #[cfg(not(clash_plant = "push_load_timer_reset"))]
+                let runs_on = c.push_load_timer == PushLoadTimer::ClientRunsOn;
+                #[cfg(clash_plant = "push_load_timer_reset")]
+                let runs_on = false; // PLANT (regression): client_runs_on still resets the timer to LoadTime.
+                if !runs_on {
+                    e.attack_load_ms[i] = self.cfg.cards.get(e.card[i]).load_time_ms.max(0);
+                }
             }
             // CHARGE (calibration charge.RESET_ON_KNOCKBACK): a push that LANDS clears
             // the charge and the run-up. A sum exists here only for a victim spell.rs
@@ -14802,6 +14838,9 @@ impl BattleState {
 /// 20, unchanged, combat.DASH_PUSHBACK: Calib gained dash_pushback (serde default the old arm, not_read), no new
 ///    state (the push rides the tick's knockback buffer, drained in Resolve), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.PUSH_LOAD_TIMER: Calib gained push_load_timer (serde default the old arm,
+///    reset_to_load_time), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15100,6 +15139,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // windup only on a landed push; it keeps both (the same rule).
     sh.insert("tower_ladder".into(), serde_json::to_value(TowerLadder::CommonCardLadder).map_err(|e| e.to_string())?);
     sh.insert("knock_attack_reset".into(), serde_json::to_value(KnockAttackReset::ResetWindupKeepTarget).map_err(|e| e.to_string())?);
+    // knockback.PUSH_LOAD_TIMER: read only under reset_attack_keep_target, which a format-3 battle never ran; it keeps
+    // the old arm whatever the ledger ships (the same rule).
+    sh.insert("push_load_timer".into(), serde_json::to_value(PushLoadTimer::ResetToLoadTime).map_err(|e| e.to_string())?);
     // FORMAT 15: a format-3 battle laid every deploy on the engine grid, on one tick,
     // with no column clamp; it keeps all three (the same rule).
     sh.insert("formation_layout".into(), serde_json::to_value(FormationLayout::EngineGrid).map_err(|e| e.to_string())?);
