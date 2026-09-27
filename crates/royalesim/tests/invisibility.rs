@@ -24,6 +24,7 @@
 //!   * `reveal_never` -- a hit reveals nothing: (2), (3) and (6) go red.
 //!   * `rehide_never` -- once revealed, visible for good: (3) and (6) go red.
 //!   * `hash_skips_reveal` -- the reveal is not hashed: (5) goes red.
+//!   * `invisible_area_immune` -- spell.rs `impact` skips a unit invisible when idle: (4) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 

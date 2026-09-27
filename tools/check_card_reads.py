@@ -356,6 +356,12 @@ LOADED_NOT_RUN = {
     # The Sparky's first hit timed from its deploy end, and the recoil of its launches.
     "LoadFirstHit": ("combat.LOAD_FIRST_HIT", ("load_time_from_deploy_end",)),
     "AttackPushBack": ("knockback.ATTACK_PUSHBACK", ("ladder_away_from_target",)),
+    # The Skeleton Barrel's delayed death (card.rs `CardDef::kamikaze_time_ms`), run by either drain arm.
+    "KamikazeTime": ("combat.KAMIKAZE_TIME", ("flat_drain_to_zero", "flat_drain_then_expire")),
+    # A death bomb's push (card.rs `CardDef::death_pushback`). Per column, so conservative: under the shipped
+    # containers_ladder the gate calls it unread on every row, which is true for the Golem, the Golemite and the Giant
+    # Skeleton's bomb, and false only for the Skeleton Barrel's container, which is a unit row and not a card row.
+    "DeathPushBack": ("knockback.DEATH_PUSHBACK", ("every_death_bomb_ladder",)),
     # The Fisherman's hook (card.rs `SpecialDef`, the `special` block).
     "SpecialRange": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),
     "SpecialMinRange": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),

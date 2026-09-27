@@ -47,7 +47,16 @@
 //!      unified 1 is Err and names the unit, and passes at 9, where Legendary starts.
 //!      (b) A death bomb named by a spawner, a spell release, a second summon and a
 //!      transformation: each card is refused with the exact text; the card that
-//!      death-spawns it loads.
+//!      death-spawns it loads;
+//!   7. `a_containers_units_report_their_card_and_pass_level_checks`: a CONTAINER (a death
+//!      bomb that carries a death spawn: card.rs `Hitpointless::BombWithDeathSpawn`, the
+//!      Skeleton Barrel's) puts its units one level down the chain. In the catalogue
+//!      [SkeletonBalloon, Knight] the container's Skeleton reports the barrel's id; on a
+//!      synthetic file, `check_levels` errs through a container whose unit is a Legendary
+//!      row and passes at Legendary's first level, and that unit loads after the
+//!      container. PLANTS `ids_one_level` (the Skeleton reports -1), `check_levels_one_deep`
+//!      (the check passes at 1) and `container_not_a_bomb` (the container is refused) turn
+//!      it red.
 //!
 //! PLANT: `RUSTFLAGS='--cfg clash_plant="unit_refs_skips_new_paths"'
 //! CARGO_TARGET_DIR=target/plant cargo test --test unit_refs`: `unit_refs` drops the
@@ -525,4 +534,50 @@ fn a_unit_that_fails_a_check_is_caught_through_every_block() {
     }
     let bomb = db.get(idx("BombDropper")).death_spawn.expect("BombDropper's death spawn").unit;
     assert_eq!((db.get(bomb).name.as_str(), db.get(bomb).death_bomb_fuse_ms()), ("Bomb", Some(3000)), "the death spawn is not the bomb");
+}
+
+// ---------------------------------------------------------------------------
+// (7) a container's units
+
+/// A card whose death leaves a CONTAINER (Crate: DeployTime, DeathDamage, DeathDamageRadius and a death spawn),
+/// whose units are a Legendary row.
+const CONTAINER: &str = r#"{ "version": "test", "cards": [
+ { "name":"CrateDropper", "kind":"troop", "elixir":3, "rarity":"Common", "hitpoints":300, "hit_speed_ms":1000,
+   "range_milli":1000, "collision_radius_milli":500, "death_spawn":{"character":"Crate", "count":1} }
+ ],
+ "units": {
+  "Crate":   { "name":"Crate", "source_table":"buildings", "rarity":"Common", "deploy_time_ms":600, "death_damage":57,
+               "death_damage_radius_milli":2000,
+               "death_spawn":{"character":"Marquis", "count":3, "radius_milli":1480, "deploy_time_ms":500} },
+  "Marquis": { "name":"Marquis", "rarity":"Legendary", "hitpoints":80, "hit_speed_ms":1000, "range_milli":500, "collision_radius_milli":300 }
+ }
+}"#;
+
+#[test]
+fn a_containers_units_report_their_card_and_pass_level_checks() {
+    // The shipped table: the Skeleton Barrel's container, and its Skeletons one level down.
+    let db = cards();
+    let barrel = db.index("SkeletonBalloon").unwrap_or_else(|| panic!("the Skeleton Barrel refused: {:?}", db.rejected.iter().find(|(n, _)| n == "SkeletonBalloon")));
+    let knight = db.index("Knight").expect("the Knight loads");
+    let crate_idx = db.get(barrel).death_spawn.expect("the barrel's death spawn").unit;
+    assert!(db.get(crate_idx).death_bomb_fuse_ms().is_some(), "the barrel's death spawn is not a death bomb");
+    let skeleton = db.get(crate_idx).death_spawn.expect("the container's own death spawn").unit;
+    let ids = ids_of_indices(&db, &[barrel, knight]);
+    assert_eq!(ids[crate_idx as usize], 0, "the container reports the barrel's id");
+    assert_eq!(ids[skeleton as usize], 0, "the container's Skeleton reports the barrel's id, one level down");
+    // A synthetic container whose unit has no level 1: the check goes through the container to it.
+    let db = CardDb::from_json_str(CONTAINER, CardSource::DerivedJson).unwrap();
+    let dropper = db.index("CrateDropper").unwrap_or_else(|| panic!("CrateDropper refused: {:?}", db.rejected));
+    let crate_idx = db.get(dropper).death_spawn.expect("CrateDropper's death spawn").unit;
+    let c = db.get(crate_idx);
+    assert_eq!((c.name.as_str(), c.death_bomb_fuse_ms()), ("Crate", Some(600)), "the death spawn is not the container");
+    let marquis = c.death_spawn.expect("the container's own death spawn").unit;
+    assert_eq!(db.get(marquis).name, "Marquis");
+    assert!(marquis > crate_idx, "the container's unit loads after the container, one level down");
+    match db.check_levels(dropper, 1) {
+        Ok(()) => panic!("CrateDropper at level 1: check_levels passed, but the container's Marquis has no level 1"),
+        Err(e) => assert!(e.starts_with("Marquis (Legendary) has no level 1 "), "CrateDropper: {e}"),
+    }
+    let legendary_first = db.rarity("Legendary").expect("the table has Legendary").relative_level + 1;
+    db.check_levels(dropper, legendary_first).unwrap_or_else(|e| panic!("CrateDropper at level {legendary_first}: {e}"));
 }

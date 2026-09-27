@@ -995,6 +995,21 @@ impl Roots {
     }
 }
 
+/// The containers still holding their units (spell.rs `FuseEnd`): every live spell object of a death bomb that carries
+/// a death spawn, as (team, record, point), less one that has released its units ahead of its hit
+/// (`royalesim::spell::FUSE_RELEASED`). A container that leaves this list between two ticks released its units then.
+fn containers_waiting(s: &BattleState) -> Vec<(Team, u16, Vec2)> {
+    let db = s.cards();
+    s.spells()
+        .iter()
+        .filter(|sp| db.get(sp.card).death_bomb_fuse_ms().is_some() && db.get(sp.card).death_spawn.is_some())
+        .filter_map(|sp| match sp.motion {
+            royalesim::spell::SpellMotion::Flight { aim, delay_ms, .. } if delay_ms != royalesim::spell::FUSE_RELEASED => Some((sp.team, sp.card, aim)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Build the engine config a fixture asks for.
 pub fn config_for(f: &Fixture, db: CardDb) -> Result<(BattleConfig, Vec<String>), String> {
     config_for_with(f, db, None, &BTreeMap::new())
@@ -1277,6 +1292,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             }
         }
         let alive_before: Vec<(EntityId, Team, u16, Vec2)> = s.entities().map(|e| (e.id, e.team, e.card_idx, e.pos)).collect();
+        let containers_before = containers_waiting(&s);
         if s.is_done() {
             if report.engine_end_tick.is_none() {
                 report.engine_end_tick = Some(tick);
@@ -1294,6 +1310,15 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         for (id, team, cidx, pos) in alive_before {
             if s.entity(id).is_none() {
                 recent_deaths.push((tick, team, cidx, pos));
+            }
+        }
+        // A CONTAINER (a death bomb that carries a death spawn: the Skeleton Barrel's) releases its units when its fuse
+        // ends, ticks after the death that left it. Its release is recorded as a death of the container at its point,
+        // so its units root through it to the card at the top of the chain (`Roots::card`).
+        let waiting_now = containers_waiting(&s);
+        for c in containers_before {
+            if !waiting_now.contains(&c) {
+                recent_deaths.push((tick, c.0, c.1, c.2));
             }
         }
         recent_deaths.retain(|(t, ..)| tick - *t <= DEATH_SPAWN_LOOKBACK);

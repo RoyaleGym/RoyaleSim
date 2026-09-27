@@ -516,6 +516,14 @@ fn collision_mean(con: &mut Contact) -> ((i32, i32), i32) {
 pub const DEATH_SLIDE_START: i32 = 250;
 pub const DEATH_SLIDE_STEP: i32 = 250;
 
+/// The most ticks a CONTAINER's members slide (a building parent: the Skeleton Barrel's; state.rs
+/// `release_fuse_end`, entity.rs `death_slide_capped`). Measured on client 15.535.29 (6 clean
+/// container rings, bit-identical): the members move on the 4 ticks after the tick they appear and
+/// never after, those that reach DeathSpawnRadius stopping there and the last-created one at 1301
+/// of its 1480. A troop parent's slide (the Golem's, the Lava Hound's Pups, 8 ticks and more) has
+/// no cap.
+pub const CONTAINER_SLIDE_TICKS: u8 = 4;
+
 /// THE SLIDE'S RADIAL STEP: the point `step` further from `centre` than `p`, on the ray from
 /// `centre` through `p`, and never past `radius`, each axis truncated toward zero; and
 /// whether that point is AT `radius`, which is the slide's last tick. Unit-free: the 16.402

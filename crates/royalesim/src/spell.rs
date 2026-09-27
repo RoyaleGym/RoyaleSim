@@ -63,8 +63,9 @@ use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
-    AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea,
-    RollDirection, RollFirstStep, RollHitShape, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope,
+    AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling, DeathBombSpawnTiming, DeathPushbackScope, KnockLaw,
+    KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart,
+    TargetBuffScope,
 };
 use crate::{EntityId, Team};
 
@@ -137,14 +138,44 @@ pub struct AreaRelease {
     pub pos: Vec2,
 }
 
-/// A container whose fuse ran out at `pos`: an order for the death spawn of `card`
-/// (at unified `level`) to come out there. Nothing carries it out yet (`SpellOut`).
+/// A container whose fuse ran out at `pos` (a death bomb that carries a death spawn, the
+/// Skeleton Barrel's): an order for the death spawn of `card` (at the container's unified
+/// `level`) to come out there. Written by `step_spells` on the tick
+/// spawner.DEATH_BOMB_SPAWN_TIMING names, carried out by state.rs `release_fuse_end`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FuseEnd {
     pub team: Team,
     pub card: u16,
     pub level: i32,
     pub pos: Vec2,
+}
+
+/// THE DELAY OF A CONTAINER THAT HAS RELEASED ITS UNITS before its hit (spawner.DEATH_BOMB_SPAWN_TIMING =
+/// units_at_fuse_end): not above zero, so the object arrives on the next tick, and never reached by a fuse's own
+/// countdown, which stops within one tick below zero, so the arrival knows the units are out already.
+pub const FUSE_RELEASED: i32 = i32::MIN;
+
+/// knockback.DEATH_PUSHBACK: the push a death bomb's hit gives the units it lands on (card.rs
+/// `CardDef::death_pushback`, the row's DeathPushBack), or None. Measured on client 15.535.29 on the Skeleton
+/// Barrel's container (DeathPushBack 1000): a deploying Minion on the axis below the death point stepped 200, 175,
+/// 150, 125, 100, 75, 50, 25, 0 away from it from the tick after the hit, then 25 back, the knockback ladder's own
+/// steps (`Knock::Push`). Only a bomb's row: every other spell carries its own Pushback in its hit.
+fn death_bomb_push(ctx: &SpellCtx, def: &crate::card::CardDef) -> Option<KnockbackDef> {
+    if def.death_bomb_fuse_ms().is_none() || def.death_pushback <= 0 {
+        return None;
+    }
+    let reads = match ctx.calib.death_pushback {
+        DeathPushbackScope::ContainersLadder => def.death_spawn.is_some(),
+        DeathPushbackScope::EveryDeathBombLadder => true,
+        DeathPushbackScope::NotRead => false,
+    };
+    // PLANT death_pushback_unread (tests/skeleton_barrel.rs): no bomb pushes, whatever the key says.
+    #[cfg(clash_plant = "death_pushback_unread")]
+    let reads = {
+        let _ = reads;
+        false
+    };
+    reads.then_some(KnockbackDef { distance: def.death_pushback, all: false })
 }
 
 /// A unit a spell copies: an order to copy `src` at the spell's unified `level`.
@@ -158,17 +189,18 @@ pub struct CloneOrder {
 /// EVERYTHING ONE PROJECTILE PHASE HANDS ON to the rest of the tick, in one bundle so
 /// a new kind of output is one field and not one more parameter on `step_spells`.
 /// Nothing in it outlives the tick, so none of it is in a snapshot or in the state
-/// hash. Only `released` has a writer today (`step_spells`); the other fields stay
-/// empty. state.rs `phase_projectile` drains four of them before the phase ends, in
+/// hash. state.rs `phase_projectile` drains five of them before the phase ends, in
 /// this order, and every object appended in steps 2-4 first acts on the next tick,
 /// because this tick's steps have already run:
 ///   1. `released`: units a landing spell releases (laid out, then `release`);
 ///   2. `born`: spell objects a spell object makes (appended to the spell list);
 ///   3. `areas`: area effects a landing object leaves (cast, appended after 2's);
-///   4. `launched`: projectiles a spell object fires (appended to the projectile list).
+///   4. `launched`: projectiles a spell object fires (appended to the projectile list);
+///   5. `fuse_ends`: containers whose fuse ended (`release_fuse_end`: their death spawn
+///      laid out, then `release`, as step 1's units are).
 ///
-/// `fuse_ends` and `clones` have no consumer yet: `phase_projectile` stops the battle
-/// if either is non-empty, so an order can never be dropped in silence.
+/// `clones` has no consumer yet: `phase_projectile` stops the battle if it is
+/// non-empty, so an order can never be dropped in silence.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpellOut {
     pub released: Vec<Release>,
@@ -714,6 +746,12 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         if !eligible(e, v, team, hit, ctx.calib) {
             continue;
         }
+        // PLANT invisible_area_immune (tests/invisibility.rs): a unit invisible when idle (the Royal Ghost) is out of
+        // every area, where the client lands area damage on it (AllowAreaDmgWhenInvisible).
+        #[cfg(clash_plant = "invisible_area_immune")]
+        if ctx.cards.get(e.card[v]).invisible_when_idle.is_some() {
+            continue;
+        }
         let edge = match ctx.calib.aoe_hit_test {
             AoeHitTest::EdgeInclusive => e.radius[v],
             AoeHitTest::CentreInRadius => 0,
@@ -1083,9 +1121,39 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
         let Some(shape) = shape_of(def).and_then(|d| shape_at(&d.shape, s.depth)) else { return false };
         match (&mut s.motion, shape) {
             (SpellMotion::Flight { pos, aim, frac, delay_ms }, SpellShape::Projectile { speed, hit, spawn, .. }) => {
+                // A CONTAINER (a death bomb that carries a death spawn: card.rs `Hitpointless::BombWithDeathSpawn`, the
+                // Skeleton Barrel's) releases its units when its fuse ends (`FuseEnd`), and its hit and its units
+                // come on the ticks spawner.DEATH_BOMB_SPAWN_TIMING names. A plain bomb and every other flight keep
+                // the arrival on the tick after the delay runs out.
+                let container = def.death_bomb_fuse_ms().is_some() && def.death_spawn.is_some();
+                // PLANT bomb_timing_reaches_plain_bombs (tests/death_bomb.rs): the container's timing on every bomb.
+                #[cfg(not(clash_plant = "bomb_timing_reaches_plain_bombs"))]
+                let timed = container;
+                #[cfg(clash_plant = "bomb_timing_reaches_plain_bombs")]
+                let timed = def.death_bomb_fuse_ms().is_some();
+                #[cfg(not(clash_plant = "container_release_with_hit"))]
+                let timing = ctx.calib.death_bomb_spawn_timing;
+                // PLANT container_release_with_hit (tests/skeleton_barrel.rs): the old arm whatever the key says.
+                #[cfg(clash_plant = "container_release_with_hit")]
+                let timing = DeathBombSpawnTiming::WithTheHit;
                 if *delay_ms > 0 {
                     *delay_ms -= tick;
-                    return true;
+                    if !(timed && *delay_ms <= 0) {
+                        return true;
+                    }
+                    match timing {
+                        DeathBombSpawnTiming::WithTheHit => return true,
+                        // The units now, the hit on the next tick; the delay is marked so the arrival releases nothing.
+                        DeathBombSpawnTiming::UnitsAtFuseEnd => {
+                            if container {
+                                out.fuse_ends.push(FuseEnd { team: s.team, card: s.card, level: s.level, pos: *aim });
+                            }
+                            *delay_ms = FUSE_RELEASED;
+                            return true;
+                        }
+                        // Both now: the arrival below runs on this tick.
+                        DeathBombSpawnTiming::AtFuseEnd => {}
+                    }
                 }
                 // combat.PROJECTILE_STEP: exact steps with the remainder carried, or the
                 // client's truncated native step (combat.rs `projectile_advance`).
@@ -1111,7 +1179,16 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                         (Some(ignore), AreaProjectileIgnoreBuildings::AreaRow) => SpellHit { ignore_buildings: ignore, ..*h },
                         _ => *h,
                     };
+                    // knockback.DEATH_PUSHBACK: a death bomb's row's DeathPushBack, on the ladder from the bomb.
+                    let h = match death_bomb_push(ctx, def) {
+                        Some(k) => SpellHit { knockback: Some(k), ..h },
+                        None => h,
+                    };
                     impact(ctx, s.team, s.card, s.level, *aim, &h, s.damage, s.pulse, dmg, fx, nb, None);
+                }
+                // The container's units, after its hit, unless they came out on the fuse's last tick already.
+                if container && *delay_ms != FUSE_RELEASED {
+                    out.fuse_ends.push(FuseEnd { team: s.team, card: s.card, level: s.level, pos: *aim });
                 }
                 #[cfg(not(clash_plant = "delivery_release_dropped"))]
                 let released = spawn.as_ref();

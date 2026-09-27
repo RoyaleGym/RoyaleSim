@@ -21,9 +21,14 @@
 //!      all, the friendly unit's hitpoints are identical and the enemy's are short
 //!      by exactly the bomb's amount;
 //!   6. both seats get the same fuse and the same amount, on either princess;
-//!   7. a bomb still counting down survives a save and goes off on the same tick.
+//!   7. a bomb still counting down survives a save and goes off on the same tick;
+//!   8. the fuse holds under every arm of spawner.DEATH_BOMB_SPAWN_TIMING, which names
+//!      when a CONTAINER (a bomb that carries a death spawn, the Skeleton Barrel's) hits
+//!      and releases its units, and never reads a plain bomb. PLANT
+//!      `bomb_timing_reaches_plain_bombs` (spell.rs `step_spells`: the container's timing
+//!      on every bomb): 8 goes red under at_fuse_end, a tick early.
 //!
-//! HOW A REVIEWER PLANTS THE DEFECT EACH ONE CATCHES. This suite has no
+//! HOW A REVIEWER PLANTS THE DEFECT EACH OF 2-7 CATCHES. Those have no
 //! `clash_plant` arm; these are edits to make by hand, run, and undo.
 //!   (2) in state.rs `phase_reap`, pass `delay_ms: 0` -- which is what the MEASURED
 //!       death-spawn deploy default (spawner.DEATH_SPAWN_DEPLOY_TIME_DEFAULT = zero)
@@ -46,7 +51,7 @@ use common::*;
 use royalesim::card::{CardDb, CardDef, SpellDef, SpellHit, SpellShape, UnitRef};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE};
-use royalesim::state::{BattleConfig, BattleState, Calib};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeathBombSpawnTiming};
 use royalesim::{EntityId, Team};
 
 /// The cards whose death leaves a bomb, in the shipped data.
@@ -139,7 +144,12 @@ fn every_death_bomb_row_loads_as_a_timed_impact_and_only_a_death_releases_one() 
 /// Kill a `team` `card` standing on the enemy's tower `k`: (ticks from the death
 /// tick to the hit, hitpoints the tower lost).
 fn fuse_and_amount(card: &str, team: Team, k: usize) -> (u32, i32) {
-    let mut s = bare(config());
+    fuse_and_amount_in(config(), card, team, k)
+}
+
+/// `fuse_and_amount` under `cfg`.
+fn fuse_and_amount_in(cfg: BattleConfig, card: &str, team: Team, k: usize) -> (u32, i32) {
+    let mut s = bare(cfg);
     let (tower, p) = tower_at(&s, team.other(), k);
     let before = s.entity(tower).expect("a live tower").hp;
     let id = s
@@ -296,4 +306,25 @@ fn a_bomb_still_counting_down_survives_a_save_and_goes_off_on_the_same_tick() {
         assert_eq!(back.state_hash(), s.state_hash(), "the resumed battle diverged");
     }
     assert!(s.entity(tower).expect("a live tower").hp < before, "the bomb never landed");
+}
+
+// ---------------------------------------------------------------------------
+// (8) a container's timing does not reach a plain bomb
+
+#[test]
+fn the_plain_bombs_keep_their_fuse_under_every_container_timing() {
+    // Plant bomb_timing_reaches_plain_bombs: under at_fuse_end every bomb lands a tick early.
+    let db = cards();
+    let calib = Calib::shipped();
+    for arm in [DeathBombSpawnTiming::AtFuseEnd, DeathBombSpawnTiming::UnitsAtFuseEnd, DeathBombSpawnTiming::WithTheHit] {
+        for card in BOMB_CARDS {
+            let (_, bomb) = bomb_of(&db, card).unwrap_or_else(|| panic!("{card}: no bomb"));
+            assert!(bomb.death_spawn.is_none(), "{card}: its bomb carries a death spawn, so it is a container");
+            let mut cfg = config();
+            cfg.calib.death_bomb_spawn_timing = arm;
+            let (ticks, lost) = fuse_and_amount_in(cfg, card, Team::Blue, 1);
+            assert_eq!(ticks, (bomb.deploy_time_ms / calib.tick_ms) as u32 + 1, "{card} under {arm:?}: the bomb landed {ticks} ticks after the death");
+            assert!(lost > 0, "{card} under {arm:?}: vacuous, the bomb cost nothing");
+        }
+    }
 }
