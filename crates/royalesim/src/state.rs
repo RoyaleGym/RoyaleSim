@@ -99,6 +99,11 @@ pub struct Calib {
     /// saved before it actually ran.
     #[serde(default = "preserve_target_scope_default")]
     pub preserve_target_scope: PreserveTargetScope,
+    /// targeting.PROJECTILE_HOLD_SCOPE: whether a troop holds its target past its keep reach while it walks, under
+    /// `preserve_target_scope` = ProjectileAttackersOnly (target.rs `holds_past_reach`). Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm.
+    #[serde(default = "projectile_hold_scope_default")]
+    pub projectile_hold_scope: ProjectileHoldScope,
     pub xpos_based_tower_targeting: bool,
     pub melee_range_limit: i32,
     #[serde(with = "push_model_serde")]
@@ -1325,6 +1330,10 @@ fn preserve_target_scope_default() -> PreserveTargetScope {
     PreserveTargetScope::AllAttackers
 }
 
+fn projectile_hold_scope_default() -> ProjectileHoldScope {
+    ProjectileHoldScope::EveryTick
+}
+
 fn spawned_first_step_default() -> SpawnedFirstStep {
     SpawnedFirstStep::None
 }
@@ -2034,8 +2043,28 @@ calib_enum!(
         /// target, on every tick, while the target's start-of-tick centre distance is within Range + both radii
         /// + target::PROJECTILE_HOLD_BEYOND_REACH and it has not just launched at it from beyond its reach;
         /// otherwise it rescans, without cancelling its shot. A direct striker's swing does not lock: it keeps
-        /// a target within Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET and rescans past it.
+        /// a target within Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET and rescans past it. Whether a WALKING troop
+        /// holds is targeting.PROJECTILE_HOLD_SCOPE's.
         ProjectileAttackersOnly = "projectile_attackers_only",
+    }
+);
+calib_enum!(
+    /// targeting.PROJECTILE_HOLD_SCOPE -- when a projectile attacker holds its target past its keep reach, to Range +
+    /// both radii + target::PROJECTILE_HOLD_BEYOND_REACH (target.rs `holds_past_reach`, read by `decide` under
+    /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only"). The launch beyond reach still
+    /// ends the hold under both arms.
+    ProjectileHoldScope {
+        /// Today's engine: on every tick, whatever the attacker is doing, so a troop WALKING to a target inside the
+        /// hold keeps it against a nearer enemy in sight.
+        EveryTick = "every_tick",
+        /// Measured on the 16.402 corpus and on client 15.535.29: a building and a crown tower hold on every tick,
+        /// and a troop only while it is in its attack (its attack phase stands it). A walking troop keeps its target
+        /// within Range + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET and rescans past it: 8 of 8 corpus
+        /// samples of a projectile troop walking to a target inside the hold, with a valid enemy nearer by centre in
+        /// sight, took the nearer enemy on the tick (20260918-112751 tick 1590: an Archer walking to a Goblin Hut
+        /// 225.3 past its reach takes a wave member on its 8th frame, 5,304.3 from it); in its attack it kept the
+        /// target on 13 of 14 (the 14th had launched at it from beyond its reach).
+        ClientTroopInAttack = "client_troop_in_attack",
     }
 );
 
@@ -4580,6 +4609,7 @@ impl Calib {
             )?),
             preserve_target_if_hit_started: preserve_value(&v)?.0,
             preserve_target_scope: preserve_value(&v)?.1,
+            projectile_hold_scope: pick(&v, &["targeting", "PROJECTILE_HOLD_SCOPE", "value"], ProjectileHoldScope::from_calibration_name)?,
             xpos_based_tower_targeting: boolean(&v, &["targeting", "LOGIC_XPOS_BASED_TOWER_TARGETING", "value"])?,
             melee_range_limit: m(int(&v, &["targeting", "MELEE_RANGE_LIMIT", "value"])?),
             push_model,
@@ -16188,6 +16218,9 @@ impl BattleState {
 /// 20, unchanged, targeting.TARGET_RANK_DISTANCE: Calib gained target_rank_distance (serde default the old arm,
 ///    centre_minus_target_radius), no new state, so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.PROJECTILE_HOLD_SCOPE: Calib gained projectile_hold_scope (serde default the old arm,
+///    every_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, placement.TOWER_TAP_PUSH: Calib gained placement_tower_tap_push (serde default the
 ///    old arm, ring_nearest), no new state, so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
@@ -16733,6 +16766,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // targeting.TARGET_RANK_DISTANCE: a format-3 battle ranked by centre minus the candidate's radius; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
+    // targeting.PROJECTILE_HOLD_SCOPE: a format-3 battle held a projectile attacker's target on every tick; it keeps
+    // that whatever the ledger ships (the same rule).
+    sh.insert("projectile_hold_scope".into(), serde_json::to_value(ProjectileHoldScope::EveryTick).map_err(|e| e.to_string())?);
     sh.insert("first_tower_pick".into(), serde_json::to_value(FirstTowerPick::CurrentX).map_err(|e| e.to_string())?);
     // targeting.FALLEN_LANE_TOWER_PICK: a format-3 battle took the tower of the current x; it keeps that whatever the
     // ledger ships (the same rule).

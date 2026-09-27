@@ -673,6 +673,35 @@ pub fn enemy_in_wake_range(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) ->
     })
 }
 
+/// targeting.PROJECTILE_HOLD_SCOPE: does projectile attacker `a` hold its target past its keep reach on this tick, to
+/// Range + both radii + PROJECTILE_HOLD_BEYOND_REACH (`decide`, under targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED =
+/// "projectile_attackers_only")? Under every_tick (today's engine), always. Under client_troop_in_attack, a building
+/// and a crown tower always, and a TROOP only while it is in its attack: its attack phase, which the previous tick's
+/// Attack phase left, stands it (`Calib::attack_holds`). A walking troop then keeps its target only within Range + both
+/// radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET, as a direct striker does, and rescans past it.
+///
+/// Measured on the 16.402 corpus (one seat per battle, 40 battles): a projectile troop walking to a target that
+/// stands past its keep reach and inside the hold, with a valid enemy nearer by centre in sight, took the nearer
+/// enemy on the tick in 8 of 8 samples (7 events: an Archer or a Bomber walking to a Goblin Hut takes a wave member on
+/// its 8th frame, 4 times; 20260918-112751 tick 1590 is one); in its attack it kept the target on 13 of 14, and the
+/// 14th had launched at it from beyond its reach on the tick before. Client 15.535.29: a Mega Minion walking to a
+/// Goblin Hut 287.8 past its reach takes a wave member on the member's 8th frame; attackers in their attack kept the
+/// target on 118 of 120 ticks inside the hold with a nearer enemy in sight (Musketeers and Minions against a leaving
+/// Hog Rider and a nearer Cannon, most of them; 1 took the Cannon after a launch beyond reach, 1 Ram Rider dropped to
+/// no target).
+#[inline]
+fn holds_past_reach(ctx: &TargetCtx, a: usize) -> bool {
+    #[cfg(not(clash_plant = "projectile_hold_while_walking"))]
+    let scoped = ctx.calib.projectile_hold_scope == crate::state::ProjectileHoldScope::ClientTroopInAttack;
+    #[cfg(clash_plant = "projectile_hold_while_walking")]
+    let scoped = {
+        let _ = ctx.calib.projectile_hold_scope;
+        false // PLANT (regression): client_troop_in_attack still holds a walking troop's target past its keep reach.
+    };
+    let e = ctx.ents;
+    !scoped || e.kind[a] != EntityKind::Troop || ctx.calib.attack_holds(e.attack_phase[a])
+}
+
 /// Decide attacker a's target for this tick. Reads only; the caller applies.
 pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecision {
     let e = ctx.ents;
@@ -734,7 +763,14 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 // either, a rescan: the nearest enemy in sight, which may be the same target, and the shot is not
                 // cancelled (combat.RETARGET_PROGRESS decides what a switch does to it). A crown tower's rescan
                 // finds nothing past its range, so it drops the target.
-                let hold = card.range + PROJECTILE_HOLD_BEYOND_REACH * crate::fixed::SUBTILE_PER_MILLITILE;
+                // targeting.PROJECTILE_HOLD_SCOPE = client_troop_in_attack: a troop that is not in its attack (it
+                // walks) holds nothing past its keep reach (`holds_past_reach`) and falls to the rescan below.
+                let reach_past = if holds_past_reach(ctx, a) {
+                    PROJECTILE_HOLD_BEYOND_REACH * crate::fixed::SUBTILE_PER_MILLITILE
+                } else {
+                    ctx.calib.range_extension_to_keep_target
+                };
+                let hold = card.range + reach_past;
                 if !e.launched_beyond[a] && in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
