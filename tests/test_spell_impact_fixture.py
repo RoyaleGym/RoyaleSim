@@ -234,6 +234,14 @@ def test_the_shipped_rounding_is_the_one_that_survives(doc):
     " forgot. Nothing here has been checked against a real battle.",
 )
 def test_the_committed_fixture_is_what_the_captures_give(m):
+    missing = m.missing_id_files()
+    if missing:
+        pytest.skip(
+            "SKIPPED, NOT PASSED: the 15.535.29 pack is absent here (missing "
+            + ", ".join(missing)
+            + "), so spell ids cannot be resolved and the fixture was not rebuilt. It is not"
+            " committed: a worktree needs data/raw/cr-15.535.29 linked in."
+        )
     with open(FIXTURE, encoding="utf-8") as fh:
         committed = fh.read()
     assert m.text_of(m.build(LIVE)) == committed, (

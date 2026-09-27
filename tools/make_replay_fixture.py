@@ -367,14 +367,27 @@ TRUTH_COLUMNS = (
 # id table
 
 
+def missing_id_files() -> list[str]:
+    """The ID_CLASSES files absent from RAW. The 15.535.29 pack is not committed, so a checkout
+    or worktree without it has none of them."""
+    return [os.path.join(RAW, f) for f in ID_CLASSES.values() if not os.path.exists(os.path.join(RAW, f))]
+
+
 def load_id_table() -> dict[int, str]:
     """Supercell global id -> card name: class x 1_000_000 + the row index of the card in
-    its 15.535 spells_*.csv (ID_CLASSES); a hero-form row names its base card."""
+    its 15.535 spells_*.csv (ID_CLASSES); a hero-form row names its base card.
+
+    Refuses when a class file is absent. An absent file would read as a class with no ids, so
+    every tap of that class would go unresolved and the output would silently lose them."""
+    missing = missing_id_files()
+    if missing:
+        raise SystemExit(
+            "the 15.535.29 pack is absent or incomplete, so card ids cannot be resolved: missing "
+            + ", ".join(missing)
+        )
     table: dict[int, str] = {}
     for cls, f in ID_CLASSES.items():
         path = os.path.join(RAW, f)
-        if not os.path.exists(path):
-            continue
         with open(path, encoding="utf-8-sig") as fh:
             rows = [r[0].strip() for r in list(csv.reader(fh))[2:] if r and r[0].strip()]
         for ix, name in enumerate(rows):

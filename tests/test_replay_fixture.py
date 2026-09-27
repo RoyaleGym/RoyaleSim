@@ -459,6 +459,14 @@ def test_the_committed_sample_is_what_the_maker_builds_from_its_capture(m, tmp_p
             " somebody forgot. A green run of this suite has not checked that the sample"
             " still matches the capture it was made from."
         )
+    missing = m.missing_id_files()
+    if missing:
+        pytest.skip(
+            "SKIPPED, NOT PASSED: the 15.535.29 pack is absent here (missing "
+            + ", ".join(missing)
+            + "), so card ids cannot be resolved and the sample was not rebuilt. It is not"
+            " committed: a worktree needs data/raw/cr-15.535.29 linked in."
+        )
     if m.capture_named(SAMPLE_CAPTURE, reports) is None:
         pytest.skip(
             f"{reports} has no capture named {SAMPLE_CAPTURE}, so the committed sample was not"
@@ -950,7 +958,8 @@ def maker_inputs(m):
         raw = fh.read()
     doc = json.loads(raw.decode("utf-8"))
     doc["_fnv1a64"] = m.fnv1a64(raw)
-    id_table = m.load_id_table()
+    # load_id_table refuses without the pack; the tests that need it skip (_skip_without_the_id_table)
+    id_table = {} if m.missing_id_files() else m.load_id_table()
     card_names = {c["name"] for c in doc["cards"]}
     name_to_id = {n: c for c, n in sorted(id_table.items(), reverse=True) if n in card_names}
     return id_table, doc, name_to_id, card_names
@@ -959,18 +968,17 @@ def maker_inputs(m):
 def _skip_without_the_id_table(m) -> None:
     """The Supercell id -> card-name table, and a clean runner has none.
 
-    `make_replay_fixture.load_id_table()` walks `data/raw/cr-15.535.29/csv_logic/` and
-    CONTINUES past every file that is not there, so on a clone it returns an empty dict
-    rather than raising. Every recorded deploy then resolves to nothing, and a test keyed on
-    a card name fails with a KeyError that looks like the card is missing from the table.
-    It is not: the card is in the published table, and nothing could resolve to it.
-
-    A silent `continue` past a missing input is the same shape as a probe that cannot tell
-    absent from empty, which is why this says so out loud instead.
+    `make_replay_fixture.load_id_table()` reads `data/raw/cr-15.535.29/csv_logic/` and refuses
+    when a file is not there. It used to continue past a missing file and return an empty
+    dict, so every recorded deploy resolved to nothing and a test keyed on a card name failed
+    with a KeyError that looked like the card was missing from the table. It was not: the card
+    is in the published table, and nothing could resolve to it. So these tests ask
+    `missing_id_files()` first and skip out loud.
     """
-    if not m.load_id_table():
+    missing = m.missing_id_files()
+    if missing:
         pytest.skip(
-            "SKIPPED, NOT PASSED: the Supercell id table is empty, so no recorded deploy can "
+            f"SKIPPED, NOT PASSED: {len(missing)} of the id table's files are absent, so no recorded deploy can "
             "resolve to a card name. It is read from data/raw/cr-15.535.29/csv_logic/, the "
             "decoded asset pack, which is excluded on rights grounds and which a CLONE NEVER "
             "HAS -- permanently local coverage rather than a setup step somebody forgot. "

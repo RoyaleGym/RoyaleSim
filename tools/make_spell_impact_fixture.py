@@ -86,6 +86,7 @@ from make_replay_fixture import (  # noqa: E402
     TAP_MAX,
     TAP_MIN,
     load_id_table,
+    missing_id_files,
     placement_files_for,
     public_name,
     read_placements,
@@ -567,6 +568,11 @@ def main() -> int:
         return 2
     if not os.path.isdir(LIVE):
         print(f"no captures at {LIVE} (ROYALELIVE_REPORTS)", file=sys.stderr)
+        return 2
+    missing = missing_id_files()
+    if missing:
+        print("the 15.535.29 pack is absent or incomplete, so spell ids cannot be resolved: missing "
+              + ", ".join(missing), file=sys.stderr)
         return 2
     text = text_of(build(LIVE))
     if check:
