@@ -17,21 +17,19 @@
 //!   5. `a_card_refused_by_a_table_row_leaves_no_unit_behind`: a card whose death projectile does not load leaves no
 //!      summon-only record of its death spawn (synthetic, and the 15.535.29 SuperLavaHound);
 //!   6. `every_link_reports_the_card_at_the_top`: py.rs `ids_of_indices` gives a grandchild its card's id;
-//!   7. `the_elixir_golem_is_refused_for_its_grant_and_leaves_no_unit`: on cards.json the Elixir Golem is refused
-//!      for its elixir grant on death (not simulated by this window), before any of its units loads;
-//!   8. `the_elixir_golem_chain_loads_and_plays_without_its_grant`: the same rows with the grant columns blanked load
-//!      all three generations, and in play each death lays its pair on the x axis at +-750
-//!      (spawner.DEATH_SPAWN_RING, client 15.535.29).
+//!   7. `the_elixir_golem_chain_loads_and_plays`: on cards.json the Elixir Golem loads all three generations (its
+//!      elixir on death runs too, pinned by tests/mana_on_death.rs), and in play each death lays its pair on the x
+//!      axis at +-750 (spawner.DEATH_SPAWN_RING, client 15.535.29).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spawn_chain`):
-//!   * `chain_refused` -- every chain refused as before: 1, 6 and 8 go red.
+//!   * `chain_refused` -- every chain refused as before: 1, 6 and 7 go red.
 //!   * `check_levels_one_deep` -- `check_levels` stops one level down: 2 goes red.
 //!   * `chain_failure_first_root_only` -- only the first card reaching a broken link is refused: 3 and 4 go red.
 //!   * `unit_needs_first` -- a record's unit needs before its table needs: 1 and 5 go red.
 //!   * `ids_one_level` -- the catalogue ids stop at the first level: 6 goes red.
-//!   * `death_ring_facing` -- the listed units keep the facing ring: 8 goes red.
+//!   * `death_ring_facing` -- the listed units keep the facing ring: 7 goes red.
 //!
-//! OPEN, not pinned as a law: which member of a pair takes -x. 8 pins the lower `team_seq` on -x, which is what the
+//! OPEN, not pinned as a law: which member of a pair takes -x. 7 pins the lower `team_seq` on -x, which is what the
 //! client 15.535.29 records show for the Elixir Golem (23 of 23 pairs), in key order.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -232,33 +230,6 @@ fn every_link_reports_the_card_at_the_top() {
 // ---------------------------------------------------------------------------
 // (7)
 
-#[test]
-fn the_elixir_golem_is_refused_for_its_grant_and_leaves_no_unit() {
-    let db = cards();
-    assert_eq!(rejected(&db, "ElixirGolem"), Some("the unit's death grants elixir (ManaOnDeathForOpponent 1000), which is not simulated"));
-    assert!(
-        db.cards.iter().all(|c| !["ElixirGolem2", "ElixirGolem4", "units.ElixirGolem2", "units.ElixirGolem4"].contains(&c.name.as_str())),
-        "the refused Elixir Golem left a unit behind"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// (8)
-
-/// cards.json with the elixir grant blanked on the Elixir Golem's three rows: the chain alone.
-fn golem_without_grant() -> CardDb {
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
-    let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
-    for row in ["ElixirGolem1", "ElixirGolem2", "ElixirGolem4"] {
-        let raw = doc["units"][row]["raw"].as_object_mut().unwrap_or_else(|| panic!("units.{row} has no raw block"));
-        let had = ["ManaOnDeath", "ManaOnDeathForOpponent"].iter().filter(|c| raw.get(**c).is_some_and(|v| !v.is_null())).count();
-        assert!(had > 0, "vacuous: units.{row} grants nothing");
-        raw.remove("ManaOnDeath");
-        raw.remove("ManaOnDeathForOpponent");
-    }
-    CardDb::from_json_str(&doc.to_string(), CardSource::DerivedJson).unwrap()
-}
-
 /// The new `team` units of `name` on this frame, relative to `from`, native, in team_seq order.
 fn new_units(s: &BattleState, team: Team, name: &str, before: &[EntityId], from: Vec2) -> Vec<(EntityId, i32, i32)> {
     let mut v: Vec<(u32, EntityId, i32, i32)> =
@@ -279,9 +250,9 @@ fn kill(s: &mut BattleState, id: EntityId, child: &str) -> Vec<(EntityId, i32, i
 
 /// Plants: chain_refused, death_ring_facing.
 #[test]
-fn the_elixir_golem_chain_loads_and_plays_without_its_grant() {
-    let db = golem_without_grant();
-    let golem = db.index("ElixirGolem").unwrap_or_else(|| panic!("the Elixir Golem refused without its grant: {:?}", rejected(&db, "ElixirGolem")));
+fn the_elixir_golem_chain_loads_and_plays() {
+    let db = cards();
+    let golem = db.index("ElixirGolem").unwrap_or_else(|| panic!("the Elixir Golem is refused: {:?}", rejected(&db, "ElixirGolem")));
     assert_eq!(death_chain(&db, "ElixirGolem"), ["ElixirGolem2", "ElixirGolem4"], "three generations");
     db.check_levels(golem, 11).unwrap_or_else(|e| panic!("the Elixir Golem at level 11: {e}"));
     let catalogue = default_catalogue(&db);

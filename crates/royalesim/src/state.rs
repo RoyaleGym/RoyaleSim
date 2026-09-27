@@ -57,7 +57,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, FootprintModel, Lane, Rect, Shape, Territory, TerritoryModel};
-use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpellPlacement, SpellShape, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpawnerSource, SpellPlacement, SpellShape, KING_TOWER, PRINCESS_TOWER};
 use crate::collide::{self, CollideScratch};
 use crate::combat::{self, CrownRounding, DamageBuffer, Hit, Projectile};
 use crate::spell::{self, EffectBuffer, Spell};
@@ -486,6 +486,20 @@ pub struct Calib {
     /// an invisible unit.
     #[serde(default = "invisibility_default")]
     pub invisibility: Invisibility,
+    /// economy.PRODUCTION_RATE_IN_DOUBLE_ELIXIR, STUN_PAUSES_PRODUCTION and MANA_ON_DEATH_FOR_OPPONENT_UNIT (the
+    /// Elixir Collector's payout, `mana_pass`, and the elixir a death pays, `phase_reap`), economy.OMIT_FROM_STARTING_HAND
+    /// (the deal, `try_new`) and spawner.INTERVAL_START_ORIGIN (an interval spawner's first unit, `spawner_activate`).
+    /// Added after SNAPSHOT_FORMAT 20; no battle saved before them held a card that reads them.
+    #[serde(default = "production_rate_default")]
+    pub production_rate: ProductionRate,
+    #[serde(default = "stun_pauses_production_default")]
+    pub stun_pauses_production: bool,
+    #[serde(default = "mana_for_opponent_unit_default")]
+    pub mana_for_opponent_unit: ForOpponentUnit,
+    #[serde(default = "omit_from_starting_hand_default")]
+    pub omit_from_starting_hand: OmitRule,
+    #[serde(default = "interval_start_origin_default")]
+    pub interval_start_origin: IntervalStart,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -1143,6 +1157,26 @@ fn life_state_wave_point_default() -> LifeStateWavePoint {
 
 fn invisibility_default() -> Invisibility {
     Invisibility::ClientUntilHit
+}
+
+fn production_rate_default() -> ProductionRate {
+    ProductionRate::FixedInterval
+}
+
+fn stun_pauses_production_default() -> bool {
+    true
+}
+
+fn mana_for_opponent_unit_default() -> ForOpponentUnit {
+    ForOpponentUnit::MilliElixir
+}
+
+fn omit_from_starting_hand_default() -> OmitRule {
+    OmitRule::SwapWithFirstEligibleInQueue
+}
+
+fn interval_start_origin_default() -> IntervalStart {
+    IntervalStart::PlacementCounter
 }
 
 macro_rules! calib_enum {
@@ -2316,6 +2350,46 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// economy.PRODUCTION_RATE_IN_DOUBLE_ELIXIR -- how an elixir producer's payout timer steps while the regen runs
+    /// at its double rate (`mana_pass`).
+    ProductionRate {
+        /// TICK_MS a tick, whatever the regen rate: every measured payout is in single-elixir time.
+        FixedInterval = "fixed_interval",
+        /// TICK_MS times the regen rate over its single rate: twice as fast in double elixir.
+        ScaledWithElixirRate = "scaled_with_elixir_rate",
+    }
+);
+calib_enum!(
+    /// economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT -- what one unit of ManaOnDeathForOpponent is worth (`phase_reap`).
+    ForOpponentUnit {
+        /// A thousandth of an elixir: the Elixir Golem's 1000 / 500 / 500 is one elixir and two halves.
+        MilliElixir = "milli_elixir",
+        /// A whole elixir, the unit of ManaOnDeath and ManaCollectAmount.
+        Elixir = "elixir",
+    }
+);
+calib_enum!(
+    /// economy.OMIT_FROM_STARTING_HAND -- how the deal keeps an OmitFromStartingHand card out of the first four
+    /// (`try_new`).
+    OmitRule {
+        /// Such a card the deal would put in hand swaps places with the first card behind the hand that is not one,
+        /// with no new random draw, so a deck without one deals exactly as before.
+        SwapWithFirstEligibleInQueue = "swap_with_first_eligible_in_queue",
+        /// The column is not read: the deal is the shuffle alone.
+        NotModelled = "not_modelled",
+    }
+);
+calib_enum!(
+    /// spawner.INTERVAL_START_ORIGIN -- where an interval spawner's first-unit timer starts (`spawner_activate`).
+    IntervalStart {
+        /// StartCounterAt counts down from the tick the unit is created, that tick included, so at its deploy end
+        /// it has lost one TICK_MS for every tick already lived.
+        PlacementCounter = "placement_counter_first_frame_counts",
+        /// The timer is loaded with the unit's own DeployTime at its deploy end.
+        ActivationDeployTime = "activation_after_own_deploy_time",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3315,6 +3389,11 @@ impl Calib {
             life_state_first_update: pick(&v, &["spawner", "LIFE_STATE_FIRST_UPDATE", "value"], LifeStateFirstUpdate::from_calibration_name)?,
             life_state_wave_point: pick(&v, &["spawner", "LIFE_STATE_WAVE_POINT", "value"], LifeStateWavePoint::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
+            production_rate: pick(&v, &["economy", "PRODUCTION_RATE_IN_DOUBLE_ELIXIR", "value"], ProductionRate::from_calibration_name)?,
+            stun_pauses_production: boolean(&v, &["economy", "STUN_PAUSES_PRODUCTION", "value"])?,
+            mana_for_opponent_unit: pick(&v, &["economy", "MANA_ON_DEATH_FOR_OPPONENT_UNIT", "value"], ForOpponentUnit::from_calibration_name)?,
+            omit_from_starting_hand: pick(&v, &["economy", "OMIT_FROM_STARTING_HAND", "value"], OmitRule::from_calibration_name)?,
+            interval_start_origin: pick(&v, &["spawner", "INTERVAL_START_ORIGIN", "value"], IntervalStart::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -3480,6 +3559,14 @@ impl Calib {
         // tick the walk ends (`surface`), so the area lands on the building's first frame.
         only(&v, &["placement", "SPAWN_PATHFIND_TERRITORY", "value"], "anywhere_but_water")?;
         only(&v, &["spawner", "SPAWN_AREA_OBJECT_TIMING", "value"], "on_surfacing_tick")?;
+        // THE ELIXIR ECONOMY'S ONE-ARM KEYS (`mana_pass`, `phase_reap`): a payout due at the cap is held and paid on
+        // the first tick below it, the timer reloaded that tick; an overflowing payout fills to the cap and loses the
+        // rest; any death pays ManaOnDeath. And an interval spawner's point (`spawner_pass`): half tiles in the
+        // owner's frame, not turned by the facing. The other candidates are refused, never mapped.
+        only(&v, &["economy", "PRODUCTION_AT_CAP", "value"], "held_reload_on_release")?;
+        only(&v, &["economy", "PRODUCTION_OVERFLOW", "value"], "clamped_remainder_lost")?;
+        only(&v, &["economy", "MANA_ON_DEATH_TRIGGER", "value"], "any_death")?;
+        only(&v, &["spawner", "SPAWN_TO_LOCATION_OFFSET", "value"], "half_tiles_owner_forward_unrotated")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -4494,6 +4581,23 @@ impl BattleState {
                     deck.swap(i, j);
                 }
             }
+            // economy.OMIT_FROM_STARTING_HAND = swap_with_first_eligible_in_queue: a card the table keeps out of the
+            // starting hand (OmitFromStartingHand: the Elixir Collector, Mirror) that the deal would put in the first
+            // four swaps places with the first card behind them that is not one. No random draw is added, so a deck
+            // without such a card deals exactly as before, shuffled or not.
+            #[cfg(not(clash_plant = "omit_ignored"))]
+            let omits = c.omit_from_starting_hand == OmitRule::SwapWithFirstEligibleInQueue;
+            #[cfg(clash_plant = "omit_ignored")]
+            let omits = false; // PLANT (regression): the column is not read and the shuffle alone deals.
+            if omits {
+                for k in 0..HAND_SIZE.min(deck.len()) {
+                    if cards.get(deck[k]).omit_from_starting_hand {
+                        if let Some(j) = (HAND_SIZE..deck.len()).find(|&j| !cards.get(deck[j]).omit_from_starting_hand) {
+                            deck.swap(k, j);
+                        }
+                    }
+                }
+            }
             let hand: Vec<u16> = deck.iter().take(HAND_SIZE).copied().collect();
             let queue: VecDeque<u16> = deck.iter().skip(HAND_SIZE).copied().collect();
             players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue });
@@ -4700,6 +4804,13 @@ impl BattleState {
         self.hide_on_deployed(i);
         self.spawner_activate(i);
         self.load_first_hit_on_deployed(i);
+        // THE ELIXIR PAYOUT TIMER (economy.*, `mana_pass`): loaded with ManaGenerateTimeMs at the deploy end, and
+        // stepped in the same tick's pass, so the first payout comes ManaGenerateTimeMs / TICK_MS - 1 ticks later
+        // (259 for the Elixir Collector, measured on client 16.402).
+        let generate_ms = self.cfg.cards.get(self.ents.card[i]).mana.and_then(|m| m.collect).map(|(_, ms)| ms);
+        if let Some(ms) = generate_ms {
+            self.ents.mana_ms[i] = ms;
+        }
         // targeting.FIRST_TOWER_PICK = client_spawn_lane: the spawn lane decides the default tower for the
         // FIRST_PICK_LANE_WINDOW_MS after this tick, the first pick being the next tick's (measured on client
         // 15.535.29: 6 of 6 re-picks by x fall 10 ticks after the first pick). `spawn_lane` is 0 on every entity
@@ -4909,6 +5020,23 @@ impl BattleState {
         let Some(sp) = self.spawner_of(i) else { return };
         self.ents.spawn_wave_left[i] = 0;
         let c = &self.cfg.calib;
+        // AN INTERVAL SPAWNER (the Furnace's ActionInterval; spawner.INTERVAL_START_ORIGIN): under
+        // placement_counter_first_frame_counts, StartCounterAt counts down from the tick the unit was created, that
+        // tick included, so at its deploy end it has already lost one TICK_MS for each tick lived. The Furnace
+        // (StartCounterAt 1950, DeployTime 1000) is created on F, deployed on F + 19 with 1000 left, and emits its
+        // first Fire Spirit on F + 38, as measured on client 16.402 (2 of 2); activation_after_own_deploy_time loads
+        // DeployTime at the deploy end, the same tick for a DeployTime of 1000.
+        if sp.source == SpawnerSource::ActionInterval {
+            let start = sp.start_time_ms.unwrap_or(0);
+            self.ents.spawn_ms[i] = match c.interval_start_origin {
+                IntervalStart::PlacementCounter => {
+                    let lived = self.tick.saturating_sub(self.ents.spawn_tick[i]) as i32;
+                    (start - lived * c.tick_ms).max(0)
+                }
+                IntervalStart::ActivationDeployTime => self.cfg.cards.get(self.ents.card[i]).deploy_time_ms,
+            };
+            return;
+        }
         self.ents.spawn_ms[i] = match (sp.start_time_ms, c.spawner_first_wave) {
             (Some(t), _) => match c.spawner_start_time_origin {
                 StartTimeOrigin::FromActivation => t,
@@ -4976,6 +5104,30 @@ impl BattleState {
                 }
             }
         }
+    }
+
+    /// WHERE AN INTERVAL SPAWNER EMITS (spawner.SPAWN_TO_LOCATION_OFFSET = half_tiles_owner_forward_unrotated): its
+    /// centre plus the ActionSpawnToLocation's MirroredX / MirroredY read as half tiles in the OWNER's frame (+y the
+    /// owner's forward), not turned by the spawner's facing. Measured on client 16.402: 7 of 9 Furnace Fire Spirits
+    /// appear exactly (0, +1500) from the Furnace (MirroredY 3), its facing up to 25 degrees off the axis; the other
+    /// 2 inside a crown tower's footprint, pushed out on their first frame. Side 1 and the x half are the rotation,
+    /// unmeasured (MirroredX is 0 on the only row). The formation then ejects a ground unit from the water.
+    fn to_location_point(&self, i: usize, mx: i32, my: i32) -> Vec2 {
+        let cell = self.cfg.arena.cell;
+        let s = spell::forward_dy(self.ents.team[i]);
+        #[cfg(not(clash_plant = "to_location_by_facing"))]
+        let off = Vec2::new(s * mx * cell, s * my * cell);
+        #[cfg(clash_plant = "to_location_by_facing")]
+        let off = {
+            // PLANT (regression): the offset turned by the spawner's facing, the reading the Furnace refutes.
+            let _ = s;
+            let f = self.ents.facing[i];
+            let (fx, fy) = (f.x as i64, f.y as i64);
+            let n = isqrt(fx * fx + fy * fy).max(1);
+            let (ahead, side) = ((my * cell) as i64, (mx * cell) as i64);
+            Vec2::new(((fx * ahead + fy * side) / n) as i32, ((fy * ahead - fx * side) / n) as i32)
+        };
+        self.ents.pos[i].add(off)
     }
 
     /// The measured arm's SpawnRadius case: where each of a wave's `n` units stands,
@@ -5092,10 +5244,28 @@ impl BattleState {
                 continue;
             }
             let Some(sp) = self.spawner_of(i) else { continue };
-            if stun_pauses && e.stun_ms[i] > 0 {
-                continue;
+            // AN INTERVAL SPAWNER (the Furnace's ActionInterval running an ActionSpawnToLocation; card.rs
+            // `interval_spawner_of`): the same timer law, with its clock at the spawner's composed SpawnSpeed under
+            // spawner.ACTION_SPAWNER_SPAWN_SPEED = buffed (the row sets AffectedBySpawnSpeed; a stun is the -100 that
+            // stops it), its unit put SPAWN_TO_LOCATION_OFFSET from its centre, and that unit deploying for the
+            // action's own DeployTime. A Spawn* spawner keeps spawner.STUN_PAUSES_SPAWNER and TICK_MS.
+            let action = sp.source == SpawnerSource::ActionInterval;
+            #[cfg(clash_plant = "interval_spawner_never_fires")]
+            if action {
+                continue; // PLANT (regression): the loader reads the block and the engine never runs it.
             }
-            let mut ms = e.spawn_ms[i] - dt;
+            let step = if action {
+                match self.cfg.calib.action_spawner_spawn_speed {
+                    ActionSpawnSpeed::Buffed => dt * e.buffed(&cards.buffs, i, Sel::SpawnSpeed, 100) / 100,
+                    ActionSpawnSpeed::NotApplied => dt,
+                }
+            } else {
+                if stun_pauses && e.stun_ms[i] > 0 {
+                    continue;
+                }
+                dt
+            };
+            let mut ms = e.spawn_ms[i] - step;
             let mut left = e.spawn_wave_left[i];
             if ms > 0 {
                 timers.push((i, ms, left));
@@ -5103,7 +5273,10 @@ impl BattleState {
             }
             let unit = cards.get(sp.unit);
             let level = cards.spawner_level(e.card[i], e.level[i]).expect("spawner level validated at deploy");
-            let point = self.spawn_point(i, &sp);
+            let point = match sp.to_location {
+                Some((mx, my)) => self.to_location_point(i, mx, my),
+                None => self.spawn_point(i, &sp),
+            };
             // Under the measured arm a card that SETS SpawnRadius puts its wave on a
             // RING around the spawner rather than in a formation around one forward
             // point, so the ring replaces the layout instead of feeding it. A card
@@ -5141,6 +5314,15 @@ impl BattleState {
                         SpawnedDeploy::Zero => Some(0),
                         SpawnedDeploy::UnitOwnDeployTime => None,
                     };
+                    // AN INTERVAL SPAWNER'S UNIT deploys for its action's own DeployTime (the Furnace's Fire Spirit:
+                    // 500, where its own row says 1000 and a Spawn* spawner's unit is born walking): created at the
+                    // end of this Move, it counts down from the next tick and deploys on 10 frames, as measured on
+                    // client 16.402 (9 of 9). An action with no DeployTime leaves the unit's own.
+                    #[cfg(not(clash_plant = "action_spawn_unit_deploy"))]
+                    let action_deploy = sp.emit_deploy_ms;
+                    #[cfg(clash_plant = "action_spawn_unit_deploy")]
+                    let action_deploy: Option<i32> = None; // PLANT (regression): the unit's own DeployTime (1000).
+                    let deploy_ms = if action { action_deploy } else { deploy_ms };
                     emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false }));
                     k += 1;
                 }
@@ -5779,11 +5961,18 @@ impl BattleState {
         (ticks as i64) * (self.cfg.calib.tick_ms as i64)
     }
 
-    fn phase_upkeep(&mut self) {
+    /// Does the regen run at its double rate this tick (the last MANA_SPEED_UP_REMAINING of regulation, and overtime)?
+    /// The one answer `phase_upkeep` and `mana_pass` read.
+    fn double_elixir(&self) -> bool {
         let c = &self.cfg.calib;
         let elapsed = self.elapsed_ms(self.tick);
         let regular = (c.regular_time_s as i64) * 1000;
-        let double = self.overtime || regular - elapsed <= (c.mana_speed_up_remaining_s as i64) * 1000;
+        self.overtime || regular - elapsed <= (c.mana_speed_up_remaining_s as i64) * 1000
+    }
+
+    fn phase_upkeep(&mut self) {
+        let double = self.double_elixir();
+        let c = &self.cfg.calib;
         let rate = self.mana_rate[usize::from(double)];
         let cap = (c.max_mana as i64) * self.mana_unit;
         for p in self.players.iter_mut() {
@@ -8638,6 +8827,91 @@ impl BattleState {
             // The Goblin Hut's controller, on the same post-move positions.
             self.life_state_pass();
         }
+        // The elixir producers' payouts (economy.*), after the deploy countdown that activates them, under either
+        // emission timing: a payout is no unit and waits for no Spawn phase.
+        self.mana_pass();
+    }
+
+    /// THE ELIXIR PAYOUT of every producing building past its deploy time (card.rs `ManaDef::collect`, the Elixir
+    /// Collector; economy.*), at the end of Move. Measured on client 16.402 (two Collectors at level 11, 4 payouts,
+    /// one held, one capped):
+    /// - the timer is loaded with ManaGenerateTimeMs at the deploy end D and steps TICK_MS a tick from D itself, so
+    ///   the first payout (+1 elixir, ManaCollectAmount 1, to the owner alone) is on D + 259 and the next 260 ticks
+    ///   later (economy.PRODUCTION_RATE_IN_DOUBLE_ELIXIR = fixed_interval: the step ignores the regen rate);
+    /// - a payout that falls due while the owner holds the cap is HELD, its timer at 0, and paid on the first tick the
+    ///   owner is below the cap, after that tick's spend and regen; the timer reloads on that tick, so the next one is
+    ///   259 ticks after the release (economy.PRODUCTION_AT_CAP = held_reload_on_release: due 765, paid 779 beside a
+    ///   3-elixir play, next 1038);
+    /// - a payout that overflows fills to the cap and the rest is lost (economy.PRODUCTION_OVERFLOW; the fill measured,
+    ///   the loss not);
+    /// - a stunned producer holds its timer (economy.STUN_PAUSES_PRODUCTION, unmeasured).
+    /// Walked in (team, team_seq) order, since two producers of one side can meet the same cap on one tick.
+    fn mana_pass(&mut self) {
+        let dt = self.cfg.calib.tick_ms;
+        let cap = (self.cfg.calib.max_mana as i64) * self.mana_unit;
+        let step = match self.cfg.calib.production_rate {
+            ProductionRate::FixedInterval => dt,
+            ProductionRate::ScaledWithElixirRate => {
+                let r = self.mana_rate;
+                (dt as i64 * r[usize::from(self.double_elixir())] / r[0].max(1)) as i32
+            }
+        };
+        let mut order: Vec<usize> = (0..self.ents.capacity())
+            .filter(|&i| self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).mana.is_some_and(|m| m.collect.is_some()))
+            .collect();
+        if order.is_empty() {
+            return;
+        }
+        order.sort_by_key(|&i| (self.ents.team[i] as u8, self.ents.team_seq[i]));
+        for i in order {
+            if self.ents.deploy_ms[i] > 0 {
+                continue;
+            }
+            if self.cfg.calib.stun_pauses_production && self.ents.stun_ms[i] > 0 {
+                continue;
+            }
+            let Some((amount, period)) = self.cfg.cards.get(self.ents.card[i]).mana.and_then(|m| m.collect) else { continue };
+            #[allow(unused_mut)]
+            let mut ms = self.ents.mana_ms[i] - step;
+            if ms > 0 {
+                self.ents.mana_ms[i] = ms;
+                continue;
+            }
+            let t = self.ents.team[i] as usize;
+            #[cfg(not(clash_plant = "mana_wasted_at_cap"))]
+            if self.players[t].mana >= cap {
+                // HELD: the payout waits, its timer at 0, for the first tick the owner is below the cap.
+                self.ents.mana_ms[i] = 0;
+                continue;
+            }
+            self.players[t].mana = (self.players[t].mana + amount as i64 * self.mana_unit).min(cap);
+            #[cfg(clash_plant = "held_reload_next_tick")]
+            {
+                ms = 0; // PLANT (regression): a held payout's timer restarts whole, one tick later than measured.
+            }
+            // The overshoot carries (a held payout's -TICK_MS), as spawner.TIMER_LEFTOVER's does.
+            self.ents.mana_ms[i] = ms + period;
+        }
+    }
+
+    /// ManaOnDeathForOpponent `raw` in the engine's elixir units (economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT): thousandths
+    /// of an elixir under milli_elixir (the Elixir Golem's 1000 is one elixir; `mana_unit` is a multiple of 1000 on the
+    /// shipped regen periods, so 500 is an exact half), whole elixir under elixir.
+    fn mana_for_opponent(&self, raw: i32) -> i64 {
+        match self.cfg.calib.mana_for_opponent_unit {
+            ForOpponentUnit::MilliElixir => raw as i64 * self.mana_unit / 1000,
+            ForOpponentUnit::Elixir => raw as i64 * self.mana_unit,
+        }
+    }
+
+    /// THE ELIXIR PAYOUT TIMER of entity `id` (entity.rs `mana_ms`), ms: None when it is gone or its card produces
+    /// nothing. A debug accessor: the timer is not in the entity row.
+    pub fn mana_timer(&self, id: EntityId) -> Option<i32> {
+        if !self.ents.is_alive(id) {
+            return None;
+        }
+        let i = id.index as usize;
+        self.cfg.cards.get(self.ents.card[i]).mana.and_then(|m| m.collect).map(|_| self.ents.mana_ms[i])
     }
 
     fn phase_attack(&mut self) {
@@ -9909,6 +10183,36 @@ impl BattleState {
         // (`materialise_released`), on the same frame: the two never share one.
         for id in std::mem::take(&mut self.scratch.vanish) {
             self.ents.despawn(id);
+        }
+        // ELIXIR ON DEATH (card.rs `ManaDef`; economy.MANA_ON_DEATH_TRIGGER = any_death): a death through this queue --
+        // destroyed, or drained out at the end of its LifeTime -- pays ManaOnDeath (whole elixir) to the dying unit's
+        // side and ManaOnDeathForOpponent (economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT) to the other. Summed per side over
+        // the tick's deaths and capped once, so the order of the deaths cannot matter. Unmeasured on client 16.402
+        // (both Elixir Collectors lived; the opponent was at the cap at both Elixir Golem deaths). A side nothing is
+        // owed is not touched.
+        let mut owed = [0i64; 2];
+        for id in &deaths {
+            let i = id.index as usize;
+            let Some(m) = self.cfg.cards.get(self.ents.card[i]).mana else { continue };
+            let t = self.ents.team[i] as usize;
+            owed[t] += m.on_death as i64 * self.mana_unit;
+            let other = self.mana_for_opponent(m.on_death_for_opponent);
+            #[cfg(not(clash_plant = "mana_on_death_to_owner"))]
+            {
+                owed[1 - t] += other;
+            }
+            #[cfg(clash_plant = "mana_on_death_to_owner")]
+            {
+                owed[t] += other; // PLANT (regression): the opponent's elixir paid to the dying unit's own side.
+            }
+        }
+        if owed != [0, 0] {
+            let cap = (self.cfg.calib.max_mana as i64) * self.mana_unit;
+            for (t, gain) in owed.into_iter().enumerate() {
+                if gain > 0 {
+                    self.players[t].mana = (self.players[t].mana + gain).min(cap);
+                }
+            }
         }
         for id in deaths {
             self.ents.despawn(id);
@@ -11377,6 +11681,12 @@ impl BattleState {
                 if self.cfg.cards.get(e.card[i]).invisible_when_idle.is_some() {
                     h.u32(e.reveal_from[i]);
                 }
+                // An elixir producer's payout timer, only on a card that produces: a battle with none hashes as before
+                // the column.
+                #[cfg(not(clash_plant = "hash_skips_mana_timer"))]
+                if self.cfg.cards.get(e.card[i]).mana.is_some_and(|m| m.collect.is_some()) {
+                    h.i32(e.mana_ms[i]);
+                }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
                 // it did before the columns.
@@ -11932,6 +12242,17 @@ impl BattleState {
 ///    blob is refused already. migrate_v3 strips the two fields with the rest of the post-format-3 tail and runs a
 ///    migrated battle with no walk and the ring off. The underground walk's grid and the tick's vanishing digs
 ///    are scratch, rebuilt or empty between ticks.
+/// 20, unchanged, the elixir economy and the interval spawner (economy.*, spawner.INTERVAL_START_ORIGIN,
+///    SPAWN_TO_LOCATION_OFFSET): Calib gained five fields (serde default the shipped arms; no battle saved before them
+///    held a card that reads them), Entities gained mana_ms (serde default 0, sized on load, hashed only for a card
+///    that produces), so a format-20 blob saved before them still deserializes and hashes as it did. CardDef gained
+///    `mana` and `omit_from_starting_hand` and SpawnerDef gained `source`, `to_location` and `emit_deploy_ms`, so the
+///    card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
+///    migrate_v3 strips the two CardDef fields with the rest of the post-format-3 tail. The Elixir Collector and the
+///    Furnace now load: every card after the Collector takes a slot one higher, and every card after the Furnace,
+///    the towers and the summon-only units two. With the underground walk's spawn chains the Elixir Golem loads
+///    too: its card kept its slot (it was refused after its push), and ElixirGolem2 and ElixirGolem4 are new
+///    summon-only records.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -12113,14 +12434,18 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... hovering~~ -- targeting.MINIMUM_RANGE (still format 20) added
                 // `minimum_range` after it.
                 // ~~... minimum_range~~ -- the sparks (still format 20) added `spark` after it.
+                // ~~... spark~~ -- the loader windows (still format 20) added `projectile_area`,
+                // `life_state` and `invisible_when_idle` after it.
                 // ~~... invisible_when_idle~~ -- the underground walk (still format 20) added
                 // `spawn_pathfind` and `can_deploy_on_enemy_side` after it.
+                // ~~... can_deploy_on_enemy_side~~ -- the elixir economy (still format 20) added
+                // `mana` and `omit_from_starting_hand` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -12159,7 +12484,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.life_state,
                     c.invisible_when_idle,
                     c.spawn_pathfind,
-                    c.can_deploy_on_enemy_side
+                    c.can_deploy_on_enemy_side,
+                    c.mana,
+                    c.omit_from_starting_hand
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -12542,6 +12869,7 @@ impl BattleState {
         snap.ents.life_target.resize(n, None);
         snap.ents.life_n.resize(n, 0);
         snap.ents.reveal_from.resize(n, 0);
+        snap.ents.mana_ms.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);

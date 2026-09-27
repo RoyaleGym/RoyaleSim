@@ -231,6 +231,12 @@ pub struct Entities {
     /// load like `launched_beyond`.
     #[serde(default)]
     pub reveal_from: Vec<u32>,
+    /// THE ELIXIR PAYOUT TIMER (an Elixir Collector; state.rs `mana_pass`, economy.*): the ms left to the next
+    /// payout, loaded with ManaGenerateTimeMs at the deploy end and held at 0 while a payout waits for its owner
+    /// to fall below the cap. 0 on every other entity, hashed only for a card that produces. `default` and sized
+    /// on load like `reveal_from`.
+    #[serde(default)]
+    pub mana_ms: Vec<i32>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -659,6 +665,7 @@ impl Entities {
             self.life_target[i] = None;
             self.life_n[i] = 0;
             self.reveal_from[i] = 0;
+            self.mana_ms[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -742,6 +749,7 @@ impl Entities {
             self.life_target.push(None);
             self.life_n.push(0);
             self.reveal_from.push(0);
+            self.mana_ms.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);

@@ -923,6 +923,74 @@ def life_state_spawner(t: dict, rec: dict) -> dict | None:
     }
 
 
+# THE INTERVAL SPAWNER'S TWO ROWS (15.535: the Furnace), by the keys each may set. An
+# ActionInterval root that sets any other key, or runs anything but one ActionSpawnToLocation
+# of a character whose only hook is a cosmetic effect, gives no block, and the loader then
+# refuses the graph as before (fail closed). StatsTags is the card screen's label.
+INTERVAL_KEYS = {
+    "ClassType",
+    "StartCounterAt",
+    "Interval",
+    "ActionToExecute",
+    "AffectedBySpawnSpeed",
+    "PauseTag",
+    "StatsTags",
+}
+SPAWN_TO_LOCATION_KEYS = {
+    "ClassType",
+    "DeployTime",
+    "ActionToRunOnSpawned",
+    "SpawnType",
+    "SpawnData",
+    "MirroredX",
+    "MirroredY",
+}
+
+
+def set_keys(row: dict) -> set[str]:
+    """The keys an action row actually sets (a Row reads every column the table has, blank as None)."""
+    return {k for k, v in row.items() if v is not None}
+
+
+def interval_spawner(t: dict, rec: dict) -> dict | None:
+    """THE INTERVAL SPAWNER as a named block (15.535): the one root action of class ActionInterval
+    the row names, whose ActionToExecute is an ActionSpawnToLocation of a character. None for every
+    other row, and for any row of that shape that sets a key outside INTERVAL_KEYS /
+    SPAWN_TO_LOCATION_KEYS. The loader reads the block (card.rs `interval_spawner_of`)."""
+    g = action_graph(t, rec)
+    if not g:
+        return None
+    acts = t["actions"]
+    found = [acts.get(v) for v in g["roots"].values()]
+    found = [a for a in found if a is not None and a["ClassType"] == "ActionInterval"]
+    if len(found) != 1:
+        return None
+    iv = found[0]
+    if set_keys(iv) - INTERVAL_KEYS:
+        return None
+    sp = acts.get(iv["ActionToExecute"]) if isinstance(iv["ActionToExecute"], str) else None
+    if sp is None or sp["ClassType"] != "ActionSpawnToLocation" or set_keys(sp) - SPAWN_TO_LOCATION_KEYS:
+        return None
+    hook = sp["ActionToRunOnSpawned"]
+    if hook is not None:
+        h = acts.get(hook) if isinstance(hook, str) else None
+        if h is None or h["ClassType"] not in COSMETIC_ACTION_CLASSES:
+            return None
+    if sp["SpawnType"] != "CharacterType" or not isinstance(sp["SpawnData"], str) or not sp["SpawnData"]:
+        return None
+    tags = iv["PauseTag"]
+    return {
+        "start_counter_at_ms": iv["StartCounterAt"],
+        "interval_ms": iv["Interval"],
+        "affected_by_spawn_speed": iv["AffectedBySpawnSpeed"],
+        "pause_tags": [x.strip() for x in tags.split(",") if x.strip()] if isinstance(tags, str) else [],
+        "character": sp["SpawnData"],
+        "deploy_time_ms": sp["DeployTime"],
+        "mirrored_x": sp["MirroredX"],
+        "mirrored_y": sp["MirroredY"],
+    }
+
+
 def raw_logic(rec: dict) -> dict:
     out = {}
     for h, v in rec.items():
@@ -1392,11 +1460,28 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "buff": norm_buff(t, c.get("ReflectedAttackBuff")),
             "buff_duration_ms": c.get("ReflectedAttackBuffDuration"),
         },
+        # THE ELIXIR COLUMNS (ManaCollectAmount / ManaGenerateTimeMs / ManaOnDeath /
+        # ManaOnDeathForOpponent): the Elixir Collector's payout and its elixir on death, the Elixir
+        # Golem's elixir for the opponent (calibration economy.*). 15.535 only, and dropped below from
+        # every row that sets none of the four, so no other row and nothing in the 2018 file changes.
+        "mana": None
+        if c.get("ManaCollectAmount") is None
+        and c.get("ManaGenerateTimeMs") is None
+        and c.get("ManaOnDeath") is None
+        and c.get("ManaOnDeathForOpponent") is None
+        else {
+            "collect_amount": c.get("ManaCollectAmount"),
+            "generate_time_ms": c.get("ManaGenerateTimeMs"),
+            "on_death": c.get("ManaOnDeath"),
+            "on_death_for_opponent": c.get("ManaOnDeathForOpponent"),
+        },
         "attached_character": c["AttachedCharacter"],
         "defaults_applied": defaults,
     }
     if u["reflected_attack"] is None:
         del u["reflected_attack"]
+    if u["mana"] is None or not isinstance(c, Row):
+        del u["mana"]
     if not isinstance(c, Row):
         # The 2018 file stays byte-identical: it does not grow the keys written for the 15.535
         # rows alone (UNIT_FIELDS_15535).
@@ -1410,6 +1495,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         ls = life_state_spawner(t, c)
         if ls is not None:
             u["life_state_spawner"] = ls
+        # The Furnace's interval spawner, when the row's graph is one (`interval_spawner`);
+        # written only there, so every other row is unchanged.
+        iv = interval_spawner(t, c)
+        if iv is not None:
+            u["interval_spawner"] = iv
         # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
         # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
         # every other row are unchanged.
@@ -1742,6 +1832,11 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["action_graph"] = u["action_graph"]
     if "life_state_spawner" in u:
         card["life_state_spawner"] = u["life_state_spawner"]
+    if "interval_spawner" in u:
+        card["interval_spawner"] = u["interval_spawner"]
+    # Only on a row that sets a Mana column (norm_unit), so every other card row is unchanged.
+    if "mana" in u:
+        card["mana"] = u["mana"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
@@ -1795,6 +1890,23 @@ def summon_card(t, rarities, kind, key, s) -> dict:
             card["can_deploy_on_enemy_side"] = flag(s, "CanDeployOnEnemySide")
             card["touchdown_limited_deploy"] = flag(s, "TouchdownLimitedDeploy")
     card["deploy_projectile"] = norm_projectile(t, s["Projectile"])
+    if not t.vintage.is_2018:
+        # THE CARD'S KIND IS WHAT IT PUTS ON THE BOARD, not the table it is listed in. The
+        # Furnace is a spells_buildings card whose SummonCharacter, Furnace_rework, is a
+        # characters row that walks and shoots: a troop (measured on client 16.402: a troop on
+        # every frame of both Furnaces). A row that travels underground first (SpawnPathfindSpeed:
+        # the Goblin Drill, whose destination is its building's footprint) keeps its table's
+        # kind. Written only where the two differ, with the table's kind kept beside it, so no
+        # other row and nothing in the 2018 file changes.
+        unit_kind = "building" if u["source_table"] == "buildings" else "troop"
+        if unit_kind != kind and u.get("spawn_pathfind") is None:
+            card["kind"] = unit_kind
+            card["card_table_kind"] = kind
+        # OmitFromStartingHand (the Elixir Collector; Mirror, a spell): the deal keeps the card
+        # out of the first four (calibration economy.OMIT_FROM_STARTING_HAND). Written only where
+        # it is set.
+        if flag(s, "OmitFromStartingHand"):
+            card["omit_from_starting_hand"] = True
     # The ladder is the UNIT row's Rarity (15.535: Common on every base card, so a
     # Rare card scales on the Common ladder from unified level 1; module doc).
     card["level_scaling"] = level_scaling(t, rarities, s["Rarity"], u["rarity"])
@@ -1935,6 +2047,10 @@ def spell_card(t, rarities, s) -> dict:
             "count": s["SummonNumber"] if s["SummonNumber"] is not None else 1,
             "source": f"spells_other.{s['Name']}.SummonCharacter",
         }
+    # OmitFromStartingHand (Mirror): as on a troop or building card (`summon_card`), 15.535 only
+    # and only where it is set.
+    if isinstance(s, Row) and flag(s, "OmitFromStartingHand"):
+        card["omit_from_starting_hand"] = True
     # The ladder is the DAMAGE CARRIER's Rarity when its table carries the column
     # (15.535 projectiles / area effects: Common on every base spell -- Fireball 269
     # -> 688 at level 11 on the Common ladder, not 570 on the Rare one); a spell with

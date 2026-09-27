@@ -485,6 +485,28 @@ pub struct SpawnerDef {
     /// SpawnRadius, SUBTILES: how far from the spawner the units appear. Blank on
     /// every hut and the Witch: calibration spawner.SPAWN_POINT decides.
     pub radius: Option<i32>,
+    /// WHERE THE BLOCK CAME FROM: the Spawn* columns, or an ActionInterval running an
+    /// ActionSpawnToLocation (the Furnace; cards.json `interval_spawner`, `interval_spawner_of`).
+    /// An interval block's first unit is timed by spawner.INTERVAL_START_ORIGIN from
+    /// StartCounterAt (`start_time_ms`), its waves by Interval (`pause_time_ms`), and its clock
+    /// by spawner.ACTION_SPAWNER_SPAWN_SPEED (state.rs `spawner_pass`).
+    pub source: SpawnerSource,
+    /// ActionSpawnToLocation MirroredX / MirroredY, raw: half tiles in the owner's frame under
+    /// spawner.SPAWN_TO_LOCATION_OFFSET. None on a Spawn* block (spawner.SPAWN_POINT decides).
+    pub to_location: Option<(i32, i32)>,
+    /// The ActionSpawnToLocation's own DeployTime, ms: the emitted unit deploys for this long
+    /// instead of its own DeployTime (the Furnace's Fire Spirit 500 against its own 1000). None on
+    /// a Spawn* block (spawner.SPAWNED_DEPLOY_TIME decides) and on an action that sets none.
+    pub emit_deploy_ms: Option<i32>,
+}
+
+/// Which columns a `SpawnerDef` came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnerSource {
+    /// The Spawn* columns (Tombstone, the huts, the Witch).
+    Columns,
+    /// An ActionInterval running an ActionSpawnToLocation (the Furnace).
+    ActionInterval,
 }
 
 /// A DEATH SPAWN (DeathSpawnCharacter / DeathSpawnCount / DeathSpawnRadius /
@@ -700,6 +722,22 @@ pub struct SpecialDef {
     pub projectile_speed: i32,
     /// The special projectile's DragMargin, SUBTILES.
     pub drag_margin: i32,
+}
+
+/// THE ELIXIR COLUMNS (the 15.535.29 tables: ManaCollectAmount, ManaGenerateTimeMs, ManaOnDeath,
+/// ManaOnDeathForOpponent; cards.json `mana`), raw. What a unit of each is worth is calibration's:
+/// a payout of ManaCollectAmount 1 is one elixir (measured on client 16.402), ManaOnDeath is whole
+/// elixir, and ManaOnDeathForOpponent is read under economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT (the
+/// Elixir Golem's 1000 / 500 / 500 beside the Collector's 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ManaDef {
+    /// (ManaCollectAmount, ManaGenerateTimeMs): the payout and its period, both positive, on a
+    /// building only. None when the row produces nothing.
+    pub collect: Option<(i32, i32)>,
+    /// ManaOnDeath, to the owner (0 = blank).
+    pub on_death: i32,
+    /// ManaOnDeathForOpponent, to the other side (0 = blank).
+    pub on_death_for_opponent: i32,
 }
 
 /// One card, in engine units. Distances are SUBTILES; times are ms.
@@ -984,13 +1022,21 @@ pub struct CardDef {
     /// tunnelling card without it, so this is true on every card with `spawn_pathfind` and false
     /// on every other (a spell's own flag stays in its `SpellPlacement`).
     pub can_deploy_on_enemy_side: bool,
+    /// THE ELIXIR COLUMNS (`ManaDef`: the Elixir Collector's payout and its elixir on death, the
+    /// Elixir Golem's elixir for the opponent; calibration economy.*, state.rs `mana_pass` and
+    /// `phase_reap`). None on every card whose row sets none of them, and on every 2018 row (the
+    /// extractor writes the block on the 15.535 rows alone).
+    pub mana: Option<ManaDef>,
+    /// OmitFromStartingHand (the Elixir Collector, Mirror): the deal keeps the card out of the
+    /// starting hand under economy.OMIT_FROM_STARTING_HAND (state.rs `try_new`). False on a blank.
+    pub omit_from_starting_hand: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `can_deploy_on_enemy_side`, and onto the end of that tail
+    // field goes HERE, after `omit_from_starting_hand`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1170,6 +1216,17 @@ struct RawCard {
     life_state_spawner: Option<RawLifeState>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
+    /// cards.json `interval_spawner` (15.535 only): the Furnace's ActionInterval -> ActionSpawnToLocation
+    /// (`interval_spawner_of`).
+    interval_spawner: Option<RawIntervalSpawner>,
+    /// cards.json `mana` (15.535 only; the four Mana columns): `CardDef::mana` (`convert_mana`).
+    mana: Option<RawMana>,
+    /// cards.json `omit_from_starting_hand` (15.535 only, written where set): `CardDef::omit_from_starting_hand`.
+    omit_from_starting_hand: Option<bool>,
+    /// cards.json `card_table_kind` (15.535 only): the table a card is listed in, written beside `kind` where the
+    /// row it puts on the board is of the other kind (the Furnace: a spells_buildings card whose unit is a
+    /// troop). `kind` is what the engine runs; this one is checked, never run (`convert`).
+    card_table_kind: Option<CardKind>,
     /// cards.json `death_area_effect`: the NAME of the area_effect_objects row the
     /// death leaves on the ground (the Ice Golem's FreezeIceGolemite, the Rage
     /// Barbarian's bottle dummy). A NAME, and nothing more: FreezeIceGolemite is a
@@ -1466,6 +1523,106 @@ fn life_state_of(raw: &RawLifeState, graph: &Option<RawActionGraph>) -> Result<(
     Ok((LifeStateDef { unit: u16::MAX, number, action_delay_ms, interval_ms, offset, offset_angle_deg }, unit))
 }
 
+/// cards.json `interval_spawner` (tools/extract_cards.py `interval_spawner`), every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawIntervalSpawner {
+    start_counter_at_ms: Option<i32>,
+    interval_ms: Option<i32>,
+    affected_by_spawn_speed: Option<bool>,
+    pause_tags: Vec<String>,
+    character: Option<String>,
+    deploy_time_ms: Option<i32>,
+    mirrored_x: Option<i32>,
+    mirrored_y: Option<i32>,
+}
+
+/// The pause tags an interval spawner may name. Nothing a basic card runs sets either on a unit
+/// (the 15.535.29 game_tags table: NO_SUMMON is for evolution cards, UNIT_CUSTOM_TAG_1 for one
+/// evolution and one champion), so a tag from this list never pauses anything here; any other tag
+/// refuses the card.
+const INERT_PAUSE_TAGS: &[&str] = &["NO_SUMMON", "UNIT_CUSTOM_TAG_1"];
+
+/// The periodic spawner an `interval_spawner` block names (a `SpawnerDef` of source ActionInterval), and its
+/// unit's name; or the reason it is refused. The graph must be exactly the interval, its spawn and a cosmetic
+/// effect, and spawn exactly the block's character; the interval must run at the spawner's SpawnSpeed
+/// (AffectedBySpawnSpeed: the only reading spawner.ACTION_SPAWNER_SPAWN_SPEED has); every number the timer and
+/// the point need must be there. One unit per emission: the action has no count column.
+fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>) -> Result<(SpawnerDef, String), String> {
+    let refuse = |why: &str| Err(format!("the unit's interval spawner: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it") };
+    let unit = match raw.character.as_deref() {
+        Some(u) if !u.is_empty() => u.to_string(),
+        _ => return refuse("it spawns no character"),
+    };
+    if g.class_types.iter().any(|c| !matches!(c.as_str(), "ActionInterval" | "ActionSpawnToLocation" | "ActionPlayEffect")) {
+        return refuse(&format!("the graph runs more than the interval and its spawn ({})", g.class_types.join(", ")));
+    }
+    let want = format!("CharacterType:{unit}");
+    if g.spawns.len() != 1 || g.spawns[0] != want {
+        return refuse(&format!("the graph spawns {} rather than the block's one character", g.spawns.join(", ")));
+    }
+    if raw.affected_by_spawn_speed != Some(true) {
+        return refuse("an interval that does not run at the spawner's SpawnSpeed");
+    }
+    if let Some(tag) = raw.pause_tags.iter().find(|t| !INERT_PAUSE_TAGS.contains(&t.as_str())) {
+        return refuse(&format!("pause tag {tag}"));
+    }
+    let start = raw.start_counter_at_ms.filter(|v| *v >= 0).ok_or("the unit's interval spawner has no StartCounterAt")?;
+    let interval = raw.interval_ms.filter(|v| *v > 0).ok_or("the unit's interval spawner has no Interval")?;
+    let at = match (raw.mirrored_x, raw.mirrored_y) {
+        (Some(x), Some(y)) => (x, y),
+        _ => return refuse("its spawn has no MirroredX / MirroredY"),
+    };
+    let deploy = match raw.deploy_time_ms {
+        Some(d) if d < 0 => return refuse(&format!("DeployTime {d}")),
+        d => d,
+    };
+    Ok((
+        SpawnerDef {
+            unit: u16::MAX,
+            number: 1,
+            interval_ms: 0,
+            start_time_ms: Some(start),
+            pause_time_ms: interval,
+            limit: None,
+            radius: None,
+            source: SpawnerSource::ActionInterval,
+            to_location: Some(at),
+            emit_deploy_ms: deploy,
+        },
+        unit,
+    ))
+}
+
+/// cards.json `mana` (tools/extract_cards.py `norm_unit`), every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawMana {
+    collect_amount: Option<i32>,
+    generate_time_ms: Option<i32>,
+    on_death: Option<i32>,
+    on_death_for_opponent: Option<i32>,
+}
+
+/// The `mana` block as a `ManaDef`, or the reason the card is refused: a payout is both columns, positive, on a
+/// building (the engine's payout timer runs on the Elixir Collector's shape and nothing else); the two death
+/// columns are non-negative. None when the row carries no block.
+fn convert_mana(raw: Option<RawMana>, kind: CardKind) -> Result<Option<ManaDef>, String> {
+    let Some(m) = raw else { return Ok(None) };
+    let collect = match (m.collect_amount, m.generate_time_ms) {
+        (None, None) => None,
+        (Some(a), Some(t)) if a > 0 && t > 0 && kind == CardKind::Building => Some((a, t)),
+        (a, t) => return Err(format!("elixir production ManaCollectAmount {a:?} / ManaGenerateTimeMs {t:?} on a {kind:?} is not simulated")),
+    };
+    let nonneg = |v: Option<i32>, what: &str| match v {
+        Some(x) if x < 0 => Err(format!("{what} {x} < 0")),
+        Some(x) => Ok(x),
+        None => Ok(0),
+    };
+    Ok(Some(ManaDef { collect, on_death: nonneg(m.on_death, "ManaOnDeath")?, on_death_for_opponent: nonneg(m.on_death_for_opponent, "ManaOnDeathForOpponent")? }))
+}
+
 /// Err when `graph` scripts a mechanic this loader does not read.
 fn refuse_action_mechanic(graph: &Option<RawActionGraph>, what: &str) -> Result<(), String> {
     match graph {
@@ -1625,20 +1782,6 @@ type UnitNeeds = Vec<(UnitUse, String)>;
 /// ElixirGolem4; the Goblin Drill: its building -> Goblin), and four leaves room without
 /// letting a cycle of rows run away. `CardDb::check_levels` walks no deeper.
 pub const MAX_CHAIN_DEPTH: u8 = 4;
-
-/// An elixir grant on death (characters.csv ManaOnDeath / ManaOnDeathForOpponent) in a unit row's
-/// `raw` block, as "Column value", or None. The grant is not simulated in this loader: a card whose
-/// row carries one is refused, never played as a card whose death gives nothing (the Elixir Golem:
-/// 1000 / 500 / 500 to the opponent over its three generations). The rows that carry one and load
-/// otherwise are the Elixir Golem's three; the Elixir Collector is refused before this is asked.
-fn elixir_grant_of(unit_raw: Option<&serde_json::Value>) -> Option<String> {
-    let r = unit_raw?;
-    ["ManaOnDeath", "ManaOnDeathForOpponent"].into_iter().find_map(|col| match r.get(col) {
-        None | Some(serde_json::Value::Null) => None,
-        Some(v) if v.as_i64() == Some(0) => None,
-        Some(v) => Some(format!("{col} {v}")),
-    })
-}
 
 /// A BLOCK OF A CARD THAT PUTS ANOTHER RECORD ON THE BOARD, as `CardDb::unit_refs`
 /// names it. The death area effect is not one: it is an area, not a unit.
@@ -2157,6 +2300,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         invisible_when_idle: None,
         spawn_pathfind: None,
         can_deploy_on_enemy_side: false,
+        mana: None,
+        omit_from_starting_hand: false,
     }
 }
 
@@ -2341,6 +2486,8 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
     let spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
     (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
+    // OmitFromStartingHand (Mirror, which is refused on its shape until its window): the deal rule reads the card.
+    def.omit_from_starting_hand = raw.omit_from_starting_hand.unwrap_or(false);
     if spell.duration_seconds.is_some() {
         return Err("spell DurationSeconds is not simulated".into());
     }
@@ -2595,7 +2742,18 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
         ));
     }
     Ok(Some((
-        SpawnerDef { unit: u16::MAX, number, interval_ms, start_time_ms: b.start_time_ms, pause_time_ms, limit: b.limit, radius: b.radius_milli.map(milli) },
+        SpawnerDef {
+            unit: u16::MAX,
+            number,
+            interval_ms,
+            start_time_ms: b.start_time_ms,
+            pause_time_ms,
+            limit: b.limit,
+            radius: b.radius_milli.map(milli),
+            source: SpawnerSource::Columns,
+            to_location: None,
+            emit_deploy_ms: None,
+        },
         unit,
     )))
 }
@@ -3030,14 +3188,21 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         };
         return Ok((c, raw.display_name.clone(), Vec::new()));
     }
-    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) is the one action graph a unit may run, when the graph
-    // is exactly that controller and its cosmetic hooks (`life_state_of`). Every other graph is refused as before.
-    let life_state = match &raw.life_state_spawner {
-        None => {
+    // THE GOBLIN HUT'S CONTROLLER (a `life_state_spawner` block) and THE FURNACE'S INTERVAL SPAWNER (an
+    // `interval_spawner` block) are the action graphs a unit may run, each when the graph is exactly that block and
+    // its cosmetic hooks (`life_state_of`, `interval_spawner_of`). Every other graph is refused as before.
+    let interval = match &raw.interval_spawner {
+        None => None,
+        Some(iv) => Some(interval_spawner_of(iv, &raw.action_graph)?),
+    };
+    let life_state = match (&raw.life_state_spawner, &interval) {
+        (Some(_), Some(_)) => return Err("the unit carries a life-state controller and an interval spawner; not simulated".into()),
+        (None, None) => {
             refuse_action_mechanic(&raw.action_graph, "the unit")?;
             None
         }
-        Some(ls) => Some(life_state_of(ls, &raw.action_graph)?),
+        (Some(ls), None) => Some(life_state_of(ls, &raw.action_graph)?),
+        (None, Some(_)) => None,
     };
     // THE UNDERGROUND SPAWN WALK: read, or refused with the shape it has (`spawn_pathfind_of`). The
     // morph target is a need of the card, loaded from `units` by the unit loop.
@@ -3109,7 +3274,18 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         Some(other) => return Err(format!("projectile given as {other} carries no speed; need an object")),
     };
     let (level_table, level_base) = level_table_of(raw.level_scaling)?;
+    // THE CARD'S KIND IS THE ROW IT PUTS ON THE BOARD (cards.json `kind`), and the table it is listed in
+    // (`card_table_kind`, written only where the two differ) is a record. The one pair the extractor writes is a
+    // building card whose unit is a troop (the Furnace); any other pair is a shape nothing here was written for.
+    if let Some(t) = raw.card_table_kind {
+        if (t, raw.kind) != (CardKind::Building, CardKind::Troop) {
+            return Err(format!("a {t:?} card whose unit is a {:?} is not simulated", raw.kind));
+        }
+    }
+    #[cfg(not(clash_plant = "card_table_kind"))]
     let kind = raw.kind;
+    #[cfg(clash_plant = "card_table_kind")]
+    let kind = raw.card_table_kind.unwrap_or(raw.kind); // PLANT (regression): the kind of the table the card is listed in.
     // Spells do not reach here: `convert_spell` above handles them
     // (plant: spells_rejected).
     // A NON-ATTACKING BUILDING ships no Range at all: the 2018 huts (Tombstone,
@@ -3142,7 +3318,13 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         }
         attack_buff = Some(got);
     }
-    let spawner = convert_spawner(raw.spawner)?;
+    // THE PERIODIC SPAWNER: the Spawn* columns, or the interval spawner read above (a `SpawnerDef` of source
+    // ActionInterval, so the one spawner pass runs both). A row with both is a shape nothing here was written for.
+    let spawner = match (convert_spawner(raw.spawner)?, interval) {
+        (Some(_), Some(_)) => return Err("the unit carries a Spawn* block and an interval spawner; not simulated".into()),
+        (a, b) => a.or(b),
+    };
+    let mana = convert_mana(raw.mana, kind)?;
     let death_spawn = convert_death_spawn(raw.death_spawn)?;
     let charge = convert_charge(raw.charge, kind)?;
     let jump = convert_jump(raw.jump, kind)?;
@@ -3291,7 +3473,15 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         rarity: raw.rarity.ok_or("missing rarity")?,
         hitpoints: need(raw.hitpoints, "hitpoints")?,
         damage: damage.unwrap_or(0),
-        hit_speed_ms: need(raw.hit_speed_ms, "hit_speed_ms")?,
+        // THE INERT BUILDING THAT PRODUCES (the Elixir Collector): a building with no damage source and a `mana`
+        // block ships no HitSpeed and needs none (the Target and Attack passes skip a hit speed of 0), so it loads
+        // as 0. Every other row still needs the column: the 2018 Elixir Collector, whose file carries no `mana`,
+        // stays refused, and so does a building that produces nothing.
+        hit_speed_ms: match raw.hit_speed_ms {
+            Some(h) => h,
+            None if inert_building && mana.is_some() => 0,
+            None => return Err("missing hit_speed_ms".into()),
+        },
         load_time_ms: raw.load_time_ms.unwrap_or(0),
         speed: raw.speed.unwrap_or(0),
         range: milli(range),
@@ -3369,6 +3559,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
         // Read with `spawn_pathfind` alone: a card that does not tunnel keeps false.
         can_deploy_on_enemy_side: can_deploy_on_enemy_side && tunnels,
+        mana,
+        omit_from_starting_hand: raw.omit_from_starting_hand.unwrap_or(false),
     }, display, units))
 }
 
@@ -3547,8 +3739,6 @@ impl CardDb {
         let mut unloadable: Vec<(u16, String)> = Vec::new();
         for raw in file.cards.into_iter().chain(file.towers) {
             let name = raw.name.clone();
-            // The row the card puts on the board, for the elixir-grant refusal below.
-            let unit_row = raw.summon_character.clone().unwrap_or_else(|| raw.name.clone());
             match convert(raw, &mut buffs, &ctx) {
                 Ok((c, display, units)) => {
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
@@ -3557,13 +3747,6 @@ impl CardDb {
                     }
                     db.push(c, display)?;
                     let idx = (db.cards.len() - 1) as u16;
-                    // AN ELIXIR GRANT ON DEATH is not simulated (`elixir_grant_of`): the card is refused
-                    // AFTER its push, so it keeps its slot and every later index stays where it was, and
-                    // BEFORE any of its units loads, so it leaves no summon-only record behind.
-                    if let Some(grant) = elixir_grant_of(ctx.units.get(&unit_row).and_then(|u| u.get("raw"))) {
-                        unloadable.push((idx, format!("the unit's death grants elixir ({grant}), which is not simulated")));
-                        continue;
-                    }
                     for (which, unit) in table_needs_first(units) {
                         spawns.push((idx, which, unit));
                     }
@@ -3791,11 +3974,6 @@ impl CardDb {
                         }
                     };
                     let mut v = file.units.get(&unit).cloned().ok_or_else(|| format!("spawned unit {unit} has no units record"))?;
-                    // An elixir grant on death is not simulated (`elixir_grant_of`), whichever level of a
-                    // chain carries it.
-                    if let Some(grant) = elixir_grant_of(v.get("raw")) {
-                        return Err(format!("units.{unit}: its death grants elixir ({grant}), which is not simulated"));
-                    }
                     let kind = match v.get("source_table").and_then(|t| t.as_str()) {
                         Some("buildings") => "building",
                         _ => "troop",

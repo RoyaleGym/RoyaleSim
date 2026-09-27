@@ -49,8 +49,8 @@
 //! read from the loader before this file landed; 3, 4 and
 //! 5 are synthetic and stay green. The two rows are ones no other test pins in that
 //! table, which is the point: a row another test names is covered already. The
-//! 15.535.29 row was the ElixirGolem until the spawn chain loaded; its refusal (the
-//! elixir grant on death) is pinned by tests/spawn_chain.rs now, so it left the plant.
+//! 15.535.29 row was the ElixirGolem until it loaded (its spawn chain and its elixir on
+//! death), so it left the plant.
 
 use royalesim::card::{CardDb, CardSource, KING_TOWER, PRINCESS_TOWER};
 
@@ -163,6 +163,7 @@ const LOADABLE_15535: &[&str] = &[
     "ElectroDragon",
     "Firecracker",
     "MightyMiner",
+    "ElixirGolem",
     "BattleHealer",
     "SkeletonKing",
     "ArcherQueen",
@@ -191,8 +192,10 @@ const LOADABLE_15535: &[&str] = &[
     "BombTower",
     "BarbarianHut",
     "Tesla",
+    "Elixir Collector",
     "Xbow",
     "Tombstone",
+    "FirespiritHut",
     "BarbarianLauncher",
     "GoblinCage",
     "GoblinDrill",
@@ -220,9 +223,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("BossBandit", "the unit runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionRunIfGameObjectExists, ActionRunIfInstigatorMatches)"),
     ("Clone", "area effect Clone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),
-    ("Elixir Collector", "missing hit_speed_ms"),
-    ("ElixirGolem", "the unit's death grants elixir (ManaOnDeathForOpponent 1000), which is not simulated"),
-    ("FirespiritHut", "the unit runs an action graph this loader does not read (ActionInterval, ActionPlayEffect, ActionSpawnToLocation; spawns CharacterType:FireSpirits)"),
     ("GiantBuffer", "the unit runs an action graph this loader does not read (ActionGiantBufferBuff, ActionGiantBufferBuffVisual, ActionGiantBufferCollectFriends, ActionPlayEffect)"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),

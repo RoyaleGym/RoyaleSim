@@ -1076,8 +1076,9 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     let raw = |n: &str| doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == n).unwrap().clone();
     let int = |v: &serde_json::Value| v.as_i64().map(|x| x as i32);
     // Every card of the file with a periodic-spawner block the loader took (the
-    // 2018 Goblin Hut and Furnace; in 15.535 both are refused for their action
-    // graphs and their blocks are cleared rows).
+    // 2018 Goblin Hut and Furnace; in 15.535 the Goblin Hut runs its life-state
+    // controller and the Furnace its `interval_spawner`, and neither card row
+    // carries a `spawner` block).
     let with_block: Vec<String> = doc["cards"]
         .as_array()
         .unwrap()
@@ -1113,11 +1114,10 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     assert_eq!(db.get(db.index("Tombstone").unwrap()).death_spawn.unwrap().unit, skel);
     assert!(db.get(skel).summon_only && db.get(skel).kind == CardKind::Troop);
     assert_eq!(db.cards.iter().filter(|c| c.summon_only && c.name == "Skeleton").count(), 1, "the Skeleton record is loaded once");
-    // A unit that IS a card resolves to that card, not a duplicate: the 2018
-    // Furnace's FireSpirits (in 15.535 the reworked Furnace is refused for its
-    // action graph and no loaded spawner names a card -- the Goblins card summons
-    // Goblin_Stab -- so the rule is checked over every loaded block, every one
-    // `CardDb::unit_refs` names, and holds vacuously there).
+    // A unit that IS a card resolves to that card, not a duplicate: the Furnace's
+    // FireSpirits, in the 2018 file through its Spawn* block and in 15.535 through
+    // its interval spawner (the rule is checked over every loaded block, every one
+    // `CardDb::unit_refs` names).
     let mut shared = 0;
     for (i, c) in db.cards.iter().enumerate().filter(|(_, c)| !c.summon_only) {
         for (_, unit, _) in db.unit_refs(i as u16) {

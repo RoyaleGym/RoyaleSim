@@ -33,8 +33,8 @@
 //! WITHOUT those rows, so every other slot is where the parent had it, and the battles
 //! (which never play those cards) must hash as before. A row the parent refused AFTER
 //! pushing it (a refusal found after the row converted, such as the 15.535.29
-//! ElixirGolem's: first its unit chain, now its elixir grant) kept its slot at the
-//! parent, so it is never listed: listing
+//! ElixirGolem's unit chain before it loaded) kept its slot at the parent, so it is
+//! never listed: listing
 //! it takes a slot the parent had, and the SLOTS line of the failure names it. When such
 //! a row loads, its slot stays, but the units it needs are new summon-only slots and can
 //! renumber later ones: that shows as movement too, and is named in the change that
@@ -120,6 +120,9 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     // the underground walk (movement.SPAWN_PATHFIND_STATES): both refused in `convert` at the parent
     ("cards.json", "GoblinDrill"),
     ("cards.json", "Miner"),
+    // the elixir economy and the interval spawner: both refused in `convert` at the parent
+    ("cards.json", "Elixir Collector"),
+    ("cards.json", "FirespiritHut"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is
