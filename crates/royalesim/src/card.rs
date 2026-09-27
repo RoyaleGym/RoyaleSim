@@ -1582,6 +1582,10 @@ impl UnitRef {
 
 #[derive(Deserialize)]
 struct RawCardsFile {
+    /// cards.json `version` (tools/extract_cards.py): which table this is (`CardDb::version`).
+    /// Absent: empty.
+    #[serde(default)]
+    version: String,
     cards: Vec<RawCard>,
     #[serde(default)]
     towers: Vec<RawCard>,
@@ -1966,6 +1970,11 @@ pub struct CardDb {
     /// definitions were appended.
     pub towers_from_fallback: bool,
     rarities: Vec<RarityRow>,
+    /// The file's `version`: "cards-15535.1" (cards.json), "cards-2018.1" (cards-2018.json),
+    /// "fallback", or empty when the file names none. A ledger overlay that corrects one table
+    /// checks it before it applies (calibration cards.CLIENT16402_VALUES value.table; state.rs
+    /// `with_card_values`). Not part of the card fingerprint: the values are.
+    pub version: String,
 }
 
 pub const KING_TOWER: &str = "KingTower";
@@ -3412,6 +3421,7 @@ impl CardDb {
             rejected: Vec::new(),
             towers_from_fallback: false,
             rarities,
+            version: file.version.clone(),
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
@@ -4100,11 +4110,12 @@ impl CardDb {
     /// THIS CARD DATA WITH SOME VALUES REPLACED (calibration cards.CLIENT16402_VALUES =
     /// client16402; state.rs `with_card_values`): each named card's named column takes the
     /// value given, as a level-1 base, so level scaling applies to it as to the table's value.
-    /// cards.json is not touched. REFUSED, never skipped: a card this data does not load, and a
-    /// column the card does not carry (hitpoints on a spell, a projectile's damage on a card with
-    /// no projectile, a crown-tower percent on a card with no hit to carry it). Setting a value
-    /// twice gives the same data, so a battle built from data that already carries the values
-    /// is unchanged.
+    /// cards.json is not touched. Called only on the table the values correct (value.table, the
+    /// 15.535.29 extraction; `with_card_values` checks `version`), so on that table it is REFUSED,
+    /// never skipped: a card this data does not load, and a column the card does not carry
+    /// (hitpoints on a spell, a projectile's damage on a card with no projectile, a crown-tower
+    /// percent on a card with no hit to carry it). Setting a value twice gives the same data, so a
+    /// battle built from data that already carries the values is unchanged.
     pub fn with_values(&self, values: &[CardValue]) -> Result<CardDb, String> {
         let mut db = self.clone();
         for v in values {
@@ -4181,10 +4192,11 @@ impl CardColumn {
 }
 
 impl CardValue {
-    /// cards.CLIENT16402_VALUES value.values, `{card: {column: value}}`, as a list in the ledger
-    /// object's own key order. Refused at load: a missing or malformed block, a column name the
-    /// overlay does not know, a value that is not an i32. Card names are checked where the list
-    /// is applied (`CardDb::with_values`), against the card data the battle runs.
+    /// cards.CLIENT16402_VALUES value.values, `{card: {column: value}}`, as a list in card-name
+    /// order (serde_json's map is sorted, not the ledger's order; each entry names its own card
+    /// and column, so the order changes nothing). Refused at load: a missing or malformed block, a
+    /// column name the overlay does not know, a value that is not an i32. Card names are checked
+    /// where the list is applied (`CardDb::with_values`), against the table the values correct.
     pub fn list_from_ledger(v: &serde_json::Value) -> Result<Vec<CardValue>, String> {
         let key = "cards.CLIENT16402_VALUES.value.values";
         let cards = v
@@ -4204,6 +4216,17 @@ impl CardValue {
             }
         }
         Ok(out)
+    }
+
+    /// cards.CLIENT16402_VALUES value.table: the `version` of the one card table the values
+    /// correct (`CardDb::version`). Refused at load when missing or empty: the values would
+    /// then apply to no table, silently.
+    pub fn table_from_ledger(v: &serde_json::Value) -> Result<String, String> {
+        v.pointer("/cards/CLIENT16402_VALUES/value/table")
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| "cards.CLIENT16402_VALUES.value.table: the version of the card table the values correct is required".to_string())
     }
 }
 

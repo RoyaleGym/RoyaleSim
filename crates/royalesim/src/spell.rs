@@ -996,7 +996,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 }
                 // combat.PROJECTILE_STEP: exact steps with the remainder carried, or the
                 // client's truncated native step (combat.rs `projectile_advance`).
-                let np = crate::combat::projectile_advance(ctx.calib.projectile_step, *pos, *aim, speed * mult, frac);
+                let np = crate::combat::projectile_advance(ctx.calib.projectile_step, *pos, *aim, speed * mult, frac, s.team);
                 *pos = np;
                 if np != *aim {
                     return true;

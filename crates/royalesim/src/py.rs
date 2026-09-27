@@ -889,8 +889,12 @@ impl Battle {
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
     /// hitpoints at the card level battles run at]. Kind codes: module doc, SPELLS.
+    /// The hitpoints are the card data this object's battles run: cards.CLIENT16402_VALUES
+    /// under the calibration they run under (`reset`), so a row agrees with a spawn.
     fn catalogue_json(&self) -> PyResult<String> {
-        catalogue_rows(&self.cards, &crate::state::Calib::shipped(), &self.catalogue, self.level()).map_err(PyValueError::new_err)
+        let calib = self.calib.clone().unwrap_or_else(crate::state::Calib::shipped);
+        let cards = calib.card_data(self.cards.clone()).map_err(PyValueError::new_err)?;
+        catalogue_rows(&cards, &crate::state::Calib::shipped(), &self.catalogue, self.level()).map_err(PyValueError::new_err)
     }
 
     /// The unified card and tower level every battle from this object uses.

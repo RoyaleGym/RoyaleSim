@@ -123,3 +123,15 @@ def test_the_16402_value(what, measure, client16402, tables):
 def test_the_old_arm_is_the_tables(what, measure, client16402, tables):
     got = measure(arm("none"))
     assert got == tables, f"{what}: {got}; the 15.535.29 tables give {tables}"
+
+
+@pytest.mark.parametrize("name", ["client16402", "none"])
+def test_the_catalogue_reports_the_hp_a_spawn_takes(name):
+    """catalogue_json's hitpoints are the ones this object's battles run, under either arm."""
+    b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=arm(name))
+    listed = {row[0]: row[6] for row in json.loads(b.catalogue_json())}
+    for card in (IS, IG):
+        spawned = spawn_hp(arm(name), card)
+        assert listed[DECK[card]] == spawned, (
+            f"{name}: the catalogue lists {DECK[card]} at {listed[DECK[card]]}, a spawn takes {spawned}"
+        )

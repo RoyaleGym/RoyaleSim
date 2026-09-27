@@ -43,7 +43,7 @@
 use crate::card::{CardDb, CardDef, CustomShotDef, KnockbackDef};
 use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
-use crate::path::{advance, advance_client};
+use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, RangeProjectile, TargetBuffScope, VariableDamage,
@@ -261,20 +261,24 @@ pub const SPARK_STEP_DEG: i64 = 16;
 
 /// ONE TICK OF A FLYING PROJECTILE, a troop's, a building's or a crown tower's shot or a
 /// spell's flight, under calibration combat.PROJECTILE_STEP. Returns the new position, `aim`
-/// itself on the tick it arrives. `speed` is SUBTILES per tick.
+/// itself on the tick it arrives. `speed` is SUBTILES per tick. `team` is the projectile's
+/// owner: the native arm reads positions on the native grid in that team's frame.
 #[inline]
-pub fn projectile_advance(step: ProjectileStep, pos: Vec2, aim: Vec2, speed: i32, frac: &mut Vec2) -> Vec2 {
+pub fn projectile_advance(step: ProjectileStep, pos: Vec2, aim: Vec2, speed: i32, frac: &mut Vec2, team: Team) -> Vec2 {
     match step {
         ProjectileStep::FractionCarry => advance(pos, aim, speed, frac).0,
         // client_native_truncated: path.rs `advance_client`, in native units, nothing carried.
         #[cfg(not(clash_plant = "projectile_step_carries_fraction"))]
         ProjectileStep::ClientNativeTruncated => {
             *frac = Vec2::default();
-            advance_client(pos, aim, speed / K)
+            advance_client(pos, aim, speed / K, team)
         }
         // PLANT (regression): the new arm steps exactly Speed and carries the remainder.
         #[cfg(clash_plant = "projectile_step_carries_fraction")]
-        ProjectileStep::ClientNativeTruncated => advance(pos, aim, speed, frac).0,
+        ProjectileStep::ClientNativeTruncated => {
+            let _ = team;
+            advance(pos, aim, speed, frac).0
+        }
     }
 }
 
@@ -291,10 +295,11 @@ fn toward_native(src: Vec2, tgt: Vec2, amount: i32, team: Team) -> Vec2 {
 /// order is not mirrored), in NATIVE units: the aim point of a straight shot and of each
 /// pellet of a fan. The turn is the integer rotation of `v = tgt - src` by fixed.rs
 /// `cos_pi_frac` / `sin_pi_frac`; at 0 degrees it is exactly `src + trunc0(v * dist /
-/// isqrt(v.v))`.
+/// isqrt(v.v))`. `src` and `tgt` are read on the native grid in `team`'s frame (path.rs
+/// `native_in_frame`), so a Red shot starts at the rotation of a Blue one.
 fn fan_aim(src: Vec2, tgt: Vec2, dist: i32, deg: i64, team: Team) -> Vec2 {
-    let (sx, sy) = ((src.x / K) as i64, (src.y / K) as i64);
-    let (mut vx, mut vy) = ((tgt.x / K) as i64 - sx, (tgt.y / K) as i64 - sy);
+    let (sx, sy) = (native_in_frame(src.x, team), native_in_frame(src.y, team));
+    let (mut vx, mut vy) = (native_in_frame(tgt.x, team) - sx, native_in_frame(tgt.y, team) - sy);
     let mut n = isqrt(vx * vx + vy * vy);
     if n == 0 {
         (vx, vy, n) = (0, forward_dy(team) as i64, 1);
@@ -337,10 +342,11 @@ fn fan_count(calib: &Calib, card: &CardDef) -> i32 {
 /// on a PingpongVisualTime row), measured on client 15.535.29 on the Executioner's axe (within
 /// 5): `start + (range - start) x sin(pi t / period)` from `origin` toward `apex`, the point
 /// `range` out on the launch line, in NATIVE units. The apex tick (t = period / 2) is recorded
-/// on the client at the value one tick before it; that is open and not modelled.
-fn pingpong_pos(origin: Vec2, apex: Vec2, start: i32, t: i32, period: i32) -> Vec2 {
-    let (ox, oy) = ((origin.x / K) as i64, (origin.y / K) as i64);
-    let (ux, uy) = ((apex.x / K) as i64 - ox, (apex.y / K) as i64 - oy);
+/// on the client at the value one tick before it; that is open and not modelled. `origin` and `apex` are read on the
+/// native grid in the thrower's frame (path.rs `native_in_frame`), so a Red throw is the rotation of a Blue one.
+fn pingpong_pos(origin: Vec2, apex: Vec2, start: i32, t: i32, period: i32, team: Team) -> Vec2 {
+    let (ox, oy) = (native_in_frame(origin.x, team), native_in_frame(origin.y, team));
+    let (ux, uy) = (native_in_frame(apex.x, team) - ox, native_in_frame(apex.y, team) - oy);
     let range = isqrt(ux * ux + uy * uy).max(1);
     let start = (start / K) as i64;
     let d = start + (range - start) * sin_pi_frac(t as i64, period.max(1) as i64) / TRIG_ONE;
@@ -1204,7 +1210,7 @@ fn step_straight(
         let (origin, start, t, period) = (s.origin, s.start, s.t, s.period);
         let prev = p.pos;
         let hit = straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb, tick);
-        p.pos = pingpong_pos(origin, p.aim, start, t, period);
+        p.pos = pingpong_pos(origin, p.aim, start, t, period, p.team);
         return !(hit && stop);
     }
     if s.hold > 0 {
@@ -1213,7 +1219,7 @@ fn step_straight(
         let hit = straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb, tick);
         return !(hit && stop);
     }
-    let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac);
+    let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
     if np == p.aim {
         return false;
     }
@@ -1275,7 +1281,7 @@ pub fn step_projectiles(
             p.aim = ents.pos[p.target.index as usize];
         }
         // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
-        let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac);
+        let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
         p.pos = np;
         if np != p.aim {
             return true;
@@ -1389,7 +1395,7 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
     // bound only guards a zero speed, which no card ships.
     for _ in 0..100_000 {
         n += 1;
-        let np = projectile_advance(step, pos, aim, p.speed, &mut frac);
+        let np = projectile_advance(step, pos, aim, p.speed, &mut frac, p.team);
         if np == aim {
             break;
         }

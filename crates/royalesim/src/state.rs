@@ -274,6 +274,13 @@ pub struct Calib {
     /// either arm and applied under client16402 only.
     #[serde(default)]
     pub card_value_overrides: Vec<crate::card::CardValue>,
+    /// value.table: the `version` of the card table the values correct (card.rs `CardDb::version`;
+    /// the ledger names cards-15535.1, the 15.535.29 extraction). `with_card_values` applies them
+    /// to that table only. Added after SNAPSHOT_FORMAT 20; the `default` is empty, which names no
+    /// table: a blob saved under client16402 before the field existed rebuilds the tables' values,
+    /// and its card fingerprint then refuses it rather than running it on other data.
+    #[serde(default)]
+    pub card_values_table: String,
     /// movement.ATTACK_FACING: where a unit in its attack state faces (`phase_attack`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "attack_facing_default")]
@@ -842,6 +849,27 @@ fn minimum_range_default() -> MinimumRange {
 
 fn first_tower_pick_default() -> FirstTowerPick {
     FirstTowerPick::CurrentX
+}
+
+/// targeting.FIRST_TOWER_PICK = client_spawn_lane: the ENGINE lane bits of a troop created at `pos`, the tilemap read
+/// in `team`'s own frame (formation.rs `nearest_lane` on the rotated point, the bits swapped back for Red).
+///
+/// On the shipped tilemap every cell's lane is "left of the centre column", so this is the arena-frame reading at
+/// every point but one: a unit created exactly on x = W/2. Read in the arena's frame, that unit takes the
+/// engine-right lane on both seats, which is Blue's own right and Red's own left, and the rotated board is a
+/// different game for each seat (tests/mirror.rs, tests/spawner.rs: a Tombstone on x = 9 emits its Skeletons
+/// there, and a Minions or Skeleton Army deploy on x = 9 puts a member there). Nothing measured stands there: the
+/// ledger's `open` says no measured unit tests it. Read here, it takes its own right on both seats. Blue reads
+/// exactly as before, so every first pick measured on client 15.535.29 and in the 16.402 corpus is unchanged.
+fn creation_lane(arena: &Arena, team: Team, pos: Vec2) -> u8 {
+    let own = crate::formation::nearest_lane(arena, arena.to_frame(team, pos));
+    match team {
+        Team::Blue => own,
+        Team::Red => {
+            let (l, r) = (arena.bit_lane_left, arena.bit_lane_right);
+            (if own & l != 0 { r } else { 0 }) | (if own & r != 0 { l } else { 0 })
+        }
+    }
 }
 
 fn tower_cancel_range_default() -> TowerCancelRange {
@@ -1734,19 +1762,26 @@ calib_enum!(
 
 /// THE CARD DATA A BATTLE RUNS (calibration cards.CLIENT16402_VALUES): `cards` itself under the
 /// old arm `none`, and under client16402 a copy with value.values applied (card.rs
-/// `CardDb::with_values`). Applied where a battle is built (`BattleState::try_new`) and where a
+/// `CardDb::with_values`) when `cards` is the table the values correct (value.table, matched on
+/// `CardDb::version`). Applied where a battle is built (`BattleState::try_new`) and where a
 /// saved one is rebuilt (`load_with`, from the snapshot's own calibration, before its card
 /// fingerprint is compared), so an override of the key reaches the Python binding, the replay
 /// harness and a restored battle alike. Measured on the 16.402 corpus, every value the unique
 /// integer base that reproduces every observation at every level seen: IceSpirits Hitpoints 84
 /// (the tables 85), IceGolemite 480 (514), GoblinBrawler 438 (422), the Bomber's projectile
 /// Damage 83 (88), the Fireball's CrownTowerDamagePercent -77 (-75).
+///
+/// ONE TABLE. The values correct the 15.535.29 extraction, the table every battle outside a test
+/// loads. Every other table runs its own values: cards-2018.json carries the 2018 game (IceSpirits
+/// 90, IceGolemite 595, the Bomber's 128, a Fireball crown share of 40 %, and no GoblinBrawler), the
+/// fallback set and a test's own table carry none of the five. On the corrected table a name or a
+/// column that does not fit is refused, never skipped.
 fn with_card_values(calib: &Calib, cards: Arc<CardDb>) -> Result<Arc<CardDb>, String> {
     #[cfg(not(clash_plant = "card_values_unread"))]
     let on = calib.card_values == CardValuesArm::Client16402;
     #[cfg(clash_plant = "card_values_unread")]
     let on = false; // PLANT (regression): the new arm runs the tables' values.
-    if !on {
+    if !on || cards.version != calib.card_values_table {
         return Ok(cards);
     }
     Ok(Arc::new(cards.with_values(&calib.card_value_overrides)?))
@@ -2919,6 +2954,7 @@ impl Calib {
             area_buff_source_binding: pick(&v, &["status", "AREA_BUFF_SOURCE_BINDING", "value"], AreaBuffSourceBinding::from_calibration_name)?,
             card_values: pick(&v, &["cards", "CLIENT16402_VALUES", "value", "arm"], CardValuesArm::from_calibration_name)?,
             card_value_overrides: crate::card::CardValue::list_from_ledger(&v)?,
+            card_values_table: crate::card::CardValue::table_from_ledger(&v)?,
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
             projectile_step: pick(&v, &["combat", "PROJECTILE_STEP", "value"], ProjectileStep::from_calibration_name)?,
             range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
@@ -3186,6 +3222,13 @@ impl Calib {
         }
         let calib = Calib::from_json(&doc.to_string()).map_err(|e| format!("the overridden ledger does not load: {e}"))?;
         Ok((calib, parsed))
+    }
+
+    /// The card data a battle built from `cards` under this calibration runs
+    /// (cards.CLIENT16402_VALUES, `with_card_values`). For what reports card stats outside a
+    /// battle (py.rs `catalogue_json`), which must report the values a battle runs.
+    pub fn card_data(&self, cards: Arc<CardDb>) -> Result<Arc<CardDb>, String> {
+        with_card_values(self, cards)
     }
 }
 
@@ -4194,12 +4237,12 @@ impl BattleState {
             self.spells.extend(area);
         }
         // targeting.FIRST_TOWER_PICK = client_spawn_lane: a troop takes its lane at its creation point, before any
-        // contact push moves it: the lane of the nearest lane-marked cell of the tilemap, in absolute coordinates
-        // (formation.rs `nearest_lane`). A summon member's flip against its deploy point follows in
+        // contact push moves it: the lane of the nearest lane-marked cell of the tilemap, read in the owner's frame
+        // (`creation_lane`). A summon member's flip against its deploy point follows in
         // `summon_lane_flip`. Its default tower comes from that lane while it deploys and for
         // target::FIRST_PICK_LANE_WINDOW_MS after (`on_deployed` sets the end). Not written under the old arm.
         if self.cfg.calib.first_tower_pick == FirstTowerPick::ClientSpawnLane && kind == EntityKind::Troop {
-            self.ents.spawn_lane[i] = crate::formation::nearest_lane(&self.cfg.arena, pos);
+            self.ents.spawn_lane[i] = creation_lane(&self.cfg.arena, team, pos);
             self.ents.lane_window_end[i] = u32::MAX;
         }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
@@ -4263,7 +4306,10 @@ impl BattleState {
     /// a deploy at 9500 goes left, and one at 8999 of a deploy at 8500 goes right. Measured on client 15.535.29 (the
     /// lane-pick scenarios, 12 of 12 members on both sides) and on the 16.402 corpus (2,188 of 2,188 first picks
     /// read at creation points). Absolute coordinates, as measured: the "+ 5" and the tilemap are not turned for
-    /// side 1, so the rule is not the seat rotation of itself exactly on the centre line.
+    /// side 1, so the rule is not the seat rotation of itself, and not only on the centre line. A member created
+    /// between x 9005 and 9495 of a deploy at 9500 flips; its rotated twin, between 8505 and 8995 of a deploy at
+    /// 8500, does not. A Skeleton Army deploy at x 8500 or 9500 puts two members there, so its rotated twin sends
+    /// them to the other tower. No scenario in tests/mirror.rs deploys a multi-unit card there.
     fn summon_lane_flip(&mut self, i: usize, ax: i32) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let own = self.ents.spawn_lane[i];
@@ -10978,8 +11024,9 @@ impl BattleState {
 ///    at the old arms; no card's index moves.
 /// 20, unchanged, hovering water, the rise law, the area-bound buff, the card values and the
 ///    sequential strike: Calib gained hovering_water_rule, hide_rise_law,
-///    area_buff_source_binding, card_values and card_value_overrides (serde defaults: the old
-///    arms and an empty list), BuffSlot gained source and BuffHit first_pulse_ms and source
+///    area_buff_source_binding, card_values, card_value_overrides and card_values_table (serde
+///    defaults: the old arms, an empty list and no table), BuffSlot gained source and BuffHit
+///    first_pulse_ms and source
 ///    (serde default None; a slot's source hashed only when set), so a format-20 blob saved
 ///    before them still deserializes and hashes as it did. A blob saved by this build carries
 ///    the new fields, so its BYTES differ from an earlier build's even under the shipped arms;
@@ -11930,5 +11977,61 @@ mod tests {
         assert_eq!(s.elixir(Team::Blue), c.max_mana - 1);
         s.tick();
         assert_eq!(s.elixir(Team::Blue), c.max_mana);
+    }
+
+    #[test]
+    fn card_values_apply_to_the_table_they_correct_and_leave_every_other_table_alone() {
+        // cards.CLIENT16402_VALUES corrects the 15.535.29 extraction and no other table.
+        // Plant card_values_unread is aimed here (the values never apply and nothing is
+        // refused); not yet run on this test.
+        use crate::card::{CardColumn, CardValue};
+        let c = Calib::shipped();
+        assert_eq!(c.card_values, CardValuesArm::Client16402, "the shipped arm this test pins");
+        let shipped = Arc::new(CardDb::load_repo().expect("data/derived/cards.json"));
+        // The table the Python binding and the replay harness load is the one the values
+        // correct. A re-extraction that renames it fails here; it never drops the values silently.
+        assert_eq!(shipped.version, c.card_values_table, "cards.json is not the table cards.CLIENT16402_VALUES corrects");
+        let on = with_card_values(&c, shipped.clone()).unwrap();
+        assert_eq!(c.card_value_overrides.len(), 5, "{:?}", c.card_value_overrides);
+        for v in &c.card_value_overrides {
+            let idx = shipped.index(&v.card).unwrap_or_else(|| panic!("{} is not loaded", v.card));
+            let read = |db: &CardDb| -> i32 {
+                let d = db.get(idx);
+                match v.column {
+                    CardColumn::Hitpoints => d.hitpoints,
+                    CardColumn::ProjectileDamage => d.damage,
+                    CardColumn::CrownTowerDamagePercent => match d.spell.as_ref().map(|s| &s.shape) {
+                        Some(SpellShape::Projectile { hit: Some(h), .. }) => h.crown_pct - 100,
+                        other => panic!("{}: not a projectile spell with a hit: {other:?}", v.card),
+                    },
+                }
+            };
+            assert_ne!(read(&shipped), v.value, "{}.{:?}: the table already holds the value, so this row checks nothing", v.card, v.column);
+            assert_eq!(read(&on), v.value, "{}.{:?}", v.card, v.column);
+        }
+        // Every other table runs its own values, and a battle builds on it.
+        let old = Arc::new(CardDb::load_repo_file("cards-2018.json").expect("cards-2018.json (tools/extract_cards.py --vintage 2018)"));
+        for (what, db) in [("cards-2018.json", old), ("the fallback set", Arc::new(CardDb::fallback()))] {
+            assert_ne!(db.version, c.card_values_table, "{what}");
+            assert!(Arc::ptr_eq(&with_card_values(&c, db.clone()).unwrap(), &db), "{what}: the values reached a table they do not correct");
+            if let Err(e) = BattleState::try_new(1, BattleConfig::with_cards(CardDb::clone(&db))) {
+                panic!("{what}: {e}");
+            }
+        }
+        // On the table they correct, a name or a column that does not fit is refused, never skipped.
+        let mut typo = c.clone();
+        typo.card_value_overrides.push(CardValue { card: "IceSpirit".into(), column: CardColumn::Hitpoints, value: 84 });
+        let e = with_card_values(&typo, shipped.clone()).expect_err("a card name the table does not load was skipped");
+        assert!(e.contains("IceSpirit.Hitpoints: no card of that name"), "{e}");
+        let mut column = c.clone();
+        column.card_value_overrides.push(CardValue { card: "Knight".into(), column: CardColumn::ProjectileDamage, value: 1 });
+        let e = with_card_values(&column, shipped).expect_err("a column the card does not carry was skipped");
+        assert!(e.contains("Knight.ProjectileDamage: the card fires no projectile"), "{e}");
+        // And the ledger must name the table: without it the values would apply nowhere.
+        let json = CALIBRATION_JSON.replace("\r\n", "\n");
+        let edited = json.replacen("\"table\": \"cards-15535.1\",\n", "", 1);
+        assert_ne!(edited, json, "edit did not apply; the JSON layout changed");
+        let err = Calib::from_json(&edited).expect_err("a card-values block with no table loaded");
+        assert!(err.contains("CLIENT16402_VALUES.value.table"), "{err}");
     }
 }

@@ -201,11 +201,12 @@ pub fn advance(from: Vec2, to: Vec2, amount: i32, frac: &mut Vec2) -> (Vec2, i32
 /// Returns `to` itself on the landing tick, so a caller's arrival test (`np == aim`) is the
 /// one `advance` callers already use. Otherwise the result is a whole native position in
 /// subtiles (a multiple of SUBTILE_PER_MILLITILE); `from` and `to` are read on the native
-/// grid, truncating a stray sub-native remainder.
-pub fn advance_client(from: Vec2, to: Vec2, speed_native: i32) -> Vec2 {
+/// grid in the projectile OWNER's frame (`native_in_frame`), dropping a stray sub-native
+/// remainder the same way for both seats.
+pub fn advance_client(from: Vec2, to: Vec2, speed_native: i32, team: Team) -> Vec2 {
     use crate::fixed::SUBTILE_PER_MILLITILE as K;
-    let (fx, fy) = ((from.x / K) as i64, (from.y / K) as i64);
-    let (vx, vy) = ((to.x / K) as i64 - fx, (to.y / K) as i64 - fy);
+    let (fx, fy) = (native_in_frame(from.x, team), native_in_frame(from.y, team));
+    let (vx, vy) = (native_in_frame(to.x, team) - fx, native_in_frame(to.y, team) - fy);
     let n = isqrt(vx * vx + vy * vy);
     let s = speed_native as i64;
     if n <= s {
@@ -213,6 +214,27 @@ pub fn advance_client(from: Vec2, to: Vec2, speed_native: i32) -> Vec2 {
     }
     // i64 `/` truncates toward zero: trunc0, odd-symmetric under the seat rotation.
     Vec2::new(((fx + vx * s / n) as i32) * K, ((fy + vy * s / n) as i32) * K)
+}
+
+/// A subtile coordinate on the native grid, read in `team`'s own frame: the floor for Blue,
+/// the ceiling for Red. Red's frame is the rotation (W - x, H - y), and W and H are whole
+/// native units, so the floor in Red's frame is the ceiling in the arena's.
+///
+/// WHY. The client only has whole native positions, and its projectile step is trunc0 on
+/// the relative vector, which is odd-symmetric. The engine keeps sub-native positions, so a
+/// moving target's centre is rarely on the grid. Reading it with a plain `/` floors it in
+/// the ARENA's frame for both seats, which is the floor for Blue and the ceiling for Red in
+/// their own frames: a Red shot then stepped one native unit away from the rotation of the
+/// Blue one (tests/mirror.rs, "projectile mismatch"). Read here, a Red shot is the exact
+/// rotation of a Blue one. A whole native position reads the same either way, and Blue
+/// reads exactly as before, so every law measured on client 15.535.29 is unchanged.
+#[inline]
+pub fn native_in_frame(v: i32, team: Team) -> i64 {
+    let (v, k) = (v as i64, crate::fixed::SUBTILE_PER_MILLITILE as i64);
+    match team {
+        Team::Blue => v.div_euclid(k),
+        Team::Red => -((-v).div_euclid(k)),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +853,28 @@ mod tests {
         }
         let exact = Vec2::new(amount * ticks * 3 / 5, amount * ticks * 4 / 5);
         assert!((p.x - exact.x).abs() <= 2 && (p.y - exact.y).abs() <= 2, "p={p:?} exact={exact:?}");
+    }
+
+    #[test]
+    fn a_red_projectile_step_is_the_rotation_of_the_blue_one() {
+        // combat.PROJECTILE_STEP = client_native_truncated. A shot at a target standing OFF
+        // the native grid: the arena-frame floor read Red's aim one native unit away from the
+        // rotation of Blue's (tests/mirror.rs, "projectile mismatch"). Read in the owner's
+        // frame, Red's step is the exact rotation of Blue's, and Blue reads as a plain floor.
+        // The numbers are a Blue princess arrow at a Knight, from the mirror suite.
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let a = Arena::shipped();
+        let rot = |p: Vec2| Vec2::new(a.width - p.x, a.height - p.y);
+        let (from, aim) = (Vec2::new(259_506, 176_292), Vec2::new(257_287, 254_779));
+        assert_eq!((from.x % K, from.y % K), (0, 0), "the shot itself is on the grid");
+        assert_ne!(aim.x % K, 0, "the aim must be off the grid, or the test reads nothing");
+        let blue = advance_client(from, aim, 600, Team::Blue);
+        assert_eq!(blue, Vec2::new(259_200, 187_074), "Blue's step is the plain-floor step");
+        assert_eq!(advance_client(rot(from), rot(aim), 600, Team::Red), rot(blue));
+        // A whole native position reads the same on both seats.
+        for v in [0, K, 9_000 * K, a.width] {
+            assert_eq!(native_in_frame(v, Team::Blue), native_in_frame(v, Team::Red));
+        }
     }
 
     #[test]
