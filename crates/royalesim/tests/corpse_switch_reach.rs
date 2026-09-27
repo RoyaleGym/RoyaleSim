@@ -78,7 +78,9 @@ fn run(arm: CorpseSwitchReach) -> (Vec<EntityId>, Vec<Row>) {
         let before: Vec<(EntityId, Vec2)> = ids.iter().filter_map(|id| s.entity(*id).map(|v| (*id, v.pos))).collect();
         s.tick();
         let Some(b) = s.entity(bowler) else { break };
+        // A target killed inside the tick is still named after it (the kill tick): it has no reach to report.
         let target_gap = b.target.and_then(|t| {
+            s.entity(t)?;
             let (bp, tp) = (before.iter().find(|p| p.0 == bowler)?.1, before.iter().find(|p| p.0 == t)?.1);
             Some((isqrt(bp.dist2(tp)), reach(&s, bowler, t)))
         });

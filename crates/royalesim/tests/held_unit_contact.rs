@@ -179,8 +179,11 @@ fn at(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * SUBTILE_PER_MILLITILE, p.1 * SUBTILE_PER_MILLITILE)
 }
 
-/// Per tick: (held, the start-of-tick centre distance, the Knight's move, the Giant's move), native.
-fn stun_scene(arm: HeldUnitContact, ticks: u32) -> Vec<(bool, i64, i64, i64)> {
+/// Per tick: (held, the start-of-tick centre distance, the Knight's move, the Giant's move, the distance from the
+/// Knight's start to the Giant's END of the tick), native. In this scene the Giant takes its step before the Knight's
+/// contact update, so a tick's contact is judged against the moved Giant: a tick that begins 1,269 apart meets a Giant
+/// 40 nearer. The overlapping and the apart ticks are classified on the last field (with the start distance for apart).
+fn stun_scene(arm: HeldUnitContact, ticks: u32) -> Vec<(bool, i64, i64, i64, i64)> {
     let mut s = BattleState::new(0, with(arm));
     let ids = s
         .scenario_spawn_batch(&[(Team::Red, "Knight", at(KNIGHT_AT), None), (Team::Blue, "ElectroGiant", at(GIANT_AT), None)])
@@ -194,7 +197,7 @@ fn stun_scene(arm: HeldUnitContact, ticks: u32) -> Vec<(bool, i64, i64, i64)> {
         s.tick();
         let (Some(kv), Some(gv)) = (s.entity(k), s.entity(g)) else { break };
         let stunned = kv.stun_ms > 0;
-        rows.push((stunned || was_stunned, dist(k0, g0), dist(k0, native(kv.pos)), dist(g0, native(gv.pos))));
+        rows.push((stunned || was_stunned, dist(k0, g0), dist(k0, native(kv.pos)), dist(g0, native(gv.pos)), dist(k0, native(gv.pos))));
         was_stunned = stunned;
     }
     rows
@@ -204,7 +207,7 @@ fn stun_scene(arm: HeldUnitContact, ticks: u32) -> Vec<(bool, i64, i64, i64)> {
 #[test]
 fn a_stunned_knight_is_moved_by_the_giant_walking_through_it() {
     let rows = stun_scene(NEW, 170);
-    let over: Vec<(usize, i64)> = rows.iter().enumerate().filter(|(_, r)| r.0 && r.1 <= KNIGHT_GIANT_RADII - OVERLAP).map(|(i, r)| (i, r.2)).collect();
+    let over: Vec<(usize, i64)> = rows.iter().enumerate().filter(|(_, r)| r.0 && r.4 <= KNIGHT_GIANT_RADII - OVERLAP).map(|(i, r)| (i, r.2)).collect();
     assert!(over.len() >= 5, "the scene drifted: only {} stunned ticks began with the Giant overlapping", over.len());
     let still: Vec<usize> = over.iter().filter(|o| o.1 == 0).map(|o| o.0).collect();
     assert!(still.is_empty(), "new arm: the stunned Knight stood on overlapping ticks {still:?} (of {over:?})");
@@ -213,7 +216,7 @@ fn a_stunned_knight_is_moved_by_the_giant_walking_through_it() {
 #[test]
 fn the_old_arm_holds_the_stunned_knight_and_throws_the_giant() {
     let rows = stun_scene(OLD, 170);
-    let over: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| r.0 && r.1 <= KNIGHT_GIANT_RADII - OVERLAP).map(|(i, _)| i).collect();
+    let over: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| r.0 && r.4 <= KNIGHT_GIANT_RADII - OVERLAP).map(|(i, _)| i).collect();
     assert!(over.len() >= 5, "the scene drifted: only {} stunned ticks began with the Giant overlapping", over.len());
     let moved: Vec<usize> = over.iter().copied().filter(|&i| rows[i].2 > 0).collect();
     assert!(moved.is_empty(), "old arm: the stunned Knight moved on {moved:?}");
@@ -224,7 +227,7 @@ fn the_old_arm_holds_the_stunned_knight_and_throws_the_giant() {
 fn a_stunned_knight_with_nothing_overlapping_stands_under_both_arms() {
     for arm in [NEW, OLD] {
         let rows = stun_scene(arm, 170);
-        let apart: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| r.0 && r.1 >= KNIGHT_GIANT_RADII).map(|(i, _)| i).collect();
+        let apart: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| r.0 && r.1.min(r.4) >= KNIGHT_GIANT_RADII).map(|(i, _)| i).collect();
         assert!(apart.len() >= 5, "the scene drifted: only {} stunned ticks began apart", apart.len());
         let moved: Vec<usize> = apart.iter().copied().filter(|&i| rows[i].2 > 0).collect();
         assert!(moved.is_empty(), "{arm:?}: the stunned Knight moved with nothing overlapping it on {moved:?}");

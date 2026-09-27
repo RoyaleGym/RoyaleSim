@@ -163,8 +163,11 @@ def test_a_held_unit_with_nobody_near_stands_still(arm):
 
 
 def stun_scene(arm, ticks=170):
-    """Per tick: (held, start-of-tick centre distance, the Knight's move, the Giant's move). Held: the Knight's stun
-    counter is up after the tick or after the one before (the reflect stuns it inside the tick of its hit)."""
+    """Per tick: (held, start-of-tick centre distance, the Knight's move, the Giant's move, the distance from the
+    Knight's start to the Giant's END of the tick). Held: the Knight's stun counter is up after the tick or after the
+    one before (the reflect stuns it inside the tick of its hit). In this scene the Giant takes its step before the
+    Knight's contact update, so a tick's contact is judged against the moved Giant (a tick that begins 1,269 apart meets
+    a Giant 40 nearer): the overlapping and the apart ticks are classified on the last field."""
     b = royalesim.Battle(["ElectroGiant", "Knight"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
     b.reset(
         0,
@@ -190,6 +193,7 @@ def stun_scene(arm, ticks=170):
                     math.hypot(pk[F["x"]] - pe[F["x"]], pk[F["y"]] - pe[F["y"]]) / SUB,
                     math.hypot(kn[F["x"]] - pk[F["x"]], kn[F["y"]] - pk[F["y"]]) / SUB,
                     math.hypot(eg[F["x"]] - pe[F["x"]], eg[F["y"]] - pe[F["y"]]) / SUB,
+                    math.hypot(pk[F["x"]] - eg[F["x"]], pk[F["y"]] - eg[F["y"]]) / SUB,
                 )
             )
         prev = (eg, kn)
@@ -199,7 +203,7 @@ def stun_scene(arm, ticks=170):
 
 def test_a_stunned_knight_is_moved_by_the_giant_walking_through_it():
     rows = stun_scene(NEW_ARM)
-    over = [(i, round(r[2], 1)) for i, r in enumerate(rows) if r[0] and r[1] <= KNIGHT_GIANT_RADII - OVERLAP]
+    over = [(i, round(r[2], 1)) for i, r in enumerate(rows) if r[0] and r[4] <= KNIGHT_GIANT_RADII - OVERLAP]
     assert len(over) >= 5, f"the scene drifted: only {len(over)} stunned ticks began with the Giant overlapping"
     still = [(i, s) for i, s in over if s == 0]
     assert still == [], f"{NEW_ARM}: the stunned Knight stood on overlapping ticks {still} (of {over})"
@@ -207,7 +211,7 @@ def test_a_stunned_knight_is_moved_by_the_giant_walking_through_it():
 
 def test_the_stun_scene_old_arm_is_todays_engine():
     rows = stun_scene(OLD_ARM)
-    over = [i for i, r in enumerate(rows) if r[0] and r[1] <= KNIGHT_GIANT_RADII - OVERLAP]
+    over = [i for i, r in enumerate(rows) if r[0] and r[4] <= KNIGHT_GIANT_RADII - OVERLAP]
     assert len(over) >= 5, f"the scene drifted: only {len(over)} stunned ticks began with the Giant overlapping"
     moved = [i for i in over if rows[i][2] > 0]
     assert moved == [], f"{OLD_ARM}: the stunned Knight moved on {moved}"
@@ -217,7 +221,7 @@ def test_the_stun_scene_old_arm_is_todays_engine():
 @pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
 def test_a_stunned_knight_with_nothing_overlapping_stands(arm):
     rows = stun_scene(arm)
-    apart = [i for i, r in enumerate(rows) if r[0] and r[1] >= KNIGHT_GIANT_RADII]
+    apart = [i for i, r in enumerate(rows) if r[0] and min(r[1], r[4]) >= KNIGHT_GIANT_RADII]
     assert len(apart) >= 5, f"the scene drifted: only {len(apart)} stunned ticks began apart"
     moved = [(i, round(rows[i][2], 1)) for i in apart if rows[i][2] > 0]
     assert moved == [], f"{arm}: the stunned Knight moved with nothing overlapping it: {moved}"
