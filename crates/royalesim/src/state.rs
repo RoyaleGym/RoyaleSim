@@ -528,8 +528,8 @@ pub struct Calib {
     /// BUFF_DEATH_SPAWN_POINT (`phase_reap`), status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING (spell.rs `crown_pulse`),
     /// spells.AREA_SPAWNED_AREA_START (spell.rs `objects_for`), spells.AREA_PROJECTILE_IGNORE_BUILDINGS and
     /// spells.STRIKE_DUE (spell.rs `step_spells`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one
-    /// of those cards, and a striking area saved before STRIKE_DUE (Lightning) strikes on the same ticks under both of
-    /// its arms.
+    /// of those cards, and a striking area saved before STRIKE_DUE (Lightning) does not read it: only a centre-aimed
+    /// strike does.
     #[serde(default = "apply_buff_before_damage_default")]
     pub apply_buff_before_damage: ApplyBuffBeforeDamage,
     #[serde(default = "buff_death_spawn_deploy_default")]
@@ -2843,7 +2843,9 @@ calib_enum!(
     }
 );
 calib_enum!(
-    /// spells.STRIKE_DUE -- which update of a striking area strikes (spell.rs `step_spells`).
+    /// spells.STRIKE_DUE -- which update of a centre-aimed striking area strikes (`StrikePick::AreaCentre`, the Royal
+    /// Delivery; spell.rs `step_spells`). A strike that picks the highest hp (Lightning) does not read it: it strikes
+    /// on the update whose clock falls below zero.
     StrikeDue {
         /// The one whose clock falls to zero or below. Measured on client 15.535.29: the Royal Delivery (HitSpeed 2000)
         /// makes its crate on the cast tick + 39.

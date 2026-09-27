@@ -393,7 +393,9 @@ pub enum StrikePick {
 
 /// A striking area's gaps, ms (`StrikeDef::gaps_ms`): HitSpeed repeated while the running sum is at most LifeDuration.
 /// Empty when HitSpeed outlasts the life. A strike due at exactly the LifeDuration is scheduled (500 of 1500: three);
-/// spells.STRIKE_AREA_END decides whether it falls. The one rule for the table's value (`strike_shape`) and for a
+/// spells.STRIKE_AREA_END decides whether a highest-hp strike due then falls, and a centre-aimed one due then (the
+/// Royal Delivery's 2000 of 2000) falls on the update the life reaches 0 under spells.STRIKE_DUE =
+/// clock_at_or_below_zero (spell.rs `step_spells`). The one rule for the table's value (`strike_shape`) and for a
 /// ledger's replacement (`CardDb::with_values`, CardColumn::AreaHitSpeed).
 fn strike_gaps(hit_speed_ms: i32, life_ms: i32) -> Vec<i32> {
     let mut gaps_ms = Vec::new();

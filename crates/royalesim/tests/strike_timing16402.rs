@@ -41,7 +41,12 @@
 //!   8. the area stands after k = 0..29 under client16402 and with_last_strike, 0..28 under at_life_end, and 0..26
 //!      under none;
 //!   9. three targets under none: the same battle under either end, tick by tick (state_hash), losses on k = 10, 19
-//!      and 28.
+//!      and 28;
+//!  10. three targets under client16402 and with_last_strike: the same battle under either spells.STRIKE_DUE arm, tick
+//!      by tick. That key is the centre-aimed strike's (the Royal Delivery's, tests/royal_delivery.rs); the 500 row's
+//!      clock reaches exactly zero on k = 9, 19 and 29, and a strike that picks the highest hp waits for the update
+//!      that takes it below zero. Red when the Strikes arm reads the key for every pick: clock_at_or_below_zero then
+//!      moves the losses to k = 10, 20 and 30.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test strike_timing16402`):
 //!   * `card_values_unread` -- client16402 runs the tables' values: (1), (3), (6), (7) and (8) go red; (5) stays green.
@@ -55,7 +60,7 @@ use common::*;
 use royalesim::card::{CardColumn, CardValue, SpellShape};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, CardValuesArm, StrikeAreaEnd};
+use royalesim::state::{BattleConfig, BattleState, CardValuesArm, StrikeAreaEnd, StrikeDue};
 use royalesim::{EntityId, Team};
 
 const NEW: CardValuesArm = CardValuesArm::Client16402;
@@ -171,7 +176,12 @@ fn cast_with(cfg: BattleConfig) -> (BattleState, [EntityId; 2], Run) {
 /// Cast at THREE_TAP over the three Knights under (`values`, `end`) and run THREE_TICKS ticks: (the battle, the
 /// Knights in THREE's order, the run).
 fn three(values: CardValuesArm, end: StrikeAreaEnd) -> (BattleState, Vec<EntityId>, Run) {
-    let mut s = BattleState::new(0, with_arms(values, end));
+    three_with(with_arms(values, end))
+}
+
+/// The three-target scene under `cfg`.
+fn three_with(cfg: BattleConfig) -> (BattleState, Vec<EntityId>, Run) {
+    let mut s = BattleState::new(0, cfg);
     let spawns: Vec<(Team, &str, Vec2, Option<i32>)> = THREE.iter().map(|&(p, hp)| (Team::Red, "Knight", at(p), Some(hp))).collect();
     let ids = s.scenario_spawn_batch(&spawns).unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
     s.spawn_unit(Team::Blue, "Lightning", at(THREE_TAP), None).expect("cast Lightning");
@@ -289,4 +299,25 @@ fn the_15_535_29_row_runs_the_same_battle_under_either_end() {
     assert_eq!(a.lost, vec![(10, ids[1], dmg), (19, ids[2], dmg), (28, ids[0], dmg)], "none: D + 9, D + 18 and D + 27");
     assert_eq!((&a.lost, &a.standing), (&b.lost, &b.standing), "none: the same strikes and the same end under either arm");
     assert_eq!(a.hashes, b.hashes, "none: the same state after every tick under either arm");
+}
+
+/// spells.STRIKE_DUE does not move the Lightning: the 500 row's clock reaches exactly zero on k = 9, 19 and 29, and
+/// under either arm the strikes land on k = 11, 21 and 31, in the same battle tick by tick (WHAT IS PINNED, 10).
+#[test]
+fn the_lightning_does_not_read_spells_strike_due() {
+    let under = |due: StrikeDue| {
+        let mut cfg = with_arms(NEW, LAST);
+        cfg.calib.strike_due = due;
+        three_with(cfg)
+    };
+    let (s, ids, at_zero) = under(StrikeDue::ClockAtOrBelowZero);
+    let (_, _, below) = under(StrikeDue::ClockBelowZero);
+    let (_, _, dmg, _) = lightning(&s);
+    assert_eq!(
+        at_zero.lost,
+        vec![(11, ids[1], dmg), (21, ids[2], dmg), (31, ids[0], dmg)],
+        "clock_at_or_below_zero: the Lightning's strikes wait for the clock to fall below zero, D + 10, D + 20 and D + 30"
+    );
+    assert_eq!((&at_zero.lost, &at_zero.standing), (&below.lost, &below.standing), "the same strikes and the same end under either arm");
+    assert_eq!(at_zero.hashes, below.hashes, "the same state after every tick under either arm");
 }

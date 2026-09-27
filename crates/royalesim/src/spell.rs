@@ -1219,11 +1219,16 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // strike due at exactly the LifeDuration (HitSpeed 500 of 1500: the third, on the cast tick + 30) falls
             // one update after that one, so at_life_end loses it and with_last_strike makes it. With HitSpeed 460
             // the last strike (the cast tick + 27) comes before the life ends, and the two arms do the same.
-            // spells.STRIKE_DUE: the update whose clock falls to zero strikes (clock_at_or_below_zero; measured on the Royal
-            // Delivery, whose HitSpeed 2000 is exactly 40 ticks: its crate is made on the cast tick + 39), or only one
-            // that falls below it. Lightning's 460 never reaches zero exactly, so its strikes fall on the same ticks
-            // under both. A centre-aimed strike (`StrikePick::AreaCentre`) makes its delivery on the centre, born
-            // after this tick's spells stepped, so it lands on the next tick.
+            // That below-zero update is the Lightning's (`StrikePick::HighestHp`), and it does not read
+            // spells.STRIKE_DUE: its client 16.402 row (500, exactly 10 ticks) strikes on the cast tick + 10 and
+            // + 20 on the 16.402 corpus, one update after its clock reaches zero; the tables' 460 never brings the
+            // clock to exactly zero. A centre-aimed strike (`StrikePick::AreaCentre`, the Royal Delivery) reads
+            // spells.STRIKE_DUE: the update whose clock falls to zero strikes (clock_at_or_below_zero; measured on
+            // client 15.535.29, 7 casts: HitSpeed 2000 is exactly 40 ticks, and the crate is made on the cast tick
+            // + 39), or only one that falls below it. Its HitSpeed is its LifeDuration, so under
+            // clock_at_or_below_zero it strikes on the update its life reaches 0 under either spells.STRIKE_AREA_END
+            // arm. It makes its delivery on the centre, born after this tick's spells stepped, so the delivery lands
+            // on the next tick.
             (SpellMotion::Strikes { pos, life_ms, next_ms, k, struck }, SpellShape::Strikes(def)) => {
                 *next_ms -= tick;
                 *life_ms -= tick;
@@ -1231,9 +1236,9 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 let due_rule = ctx.calib.strike_due;
                 #[cfg(clash_plant = "strike_due_below_zero")]
                 let due_rule = StrikeDue::ClockBelowZero; // PLANT: the strike waits for the clock to fall below zero.
-                let due = match due_rule {
-                    StrikeDue::ClockAtOrBelowZero => *next_ms <= 0,
-                    StrikeDue::ClockBelowZero => *next_ms < 0,
+                let due = match (def.pick, due_rule) {
+                    (StrikePick::AreaCentre, StrikeDue::ClockAtOrBelowZero) => *next_ms <= 0,
+                    (StrikePick::HighestHp, _) | (StrikePick::AreaCentre, StrikeDue::ClockBelowZero) => *next_ms < 0,
                 };
                 if due && (*k as usize) < def.gaps_ms.len() {
                     match def.pick {

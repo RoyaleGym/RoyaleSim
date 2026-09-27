@@ -31,7 +31,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test royal_delivery`):
 //!   * `delivery_spawn_time_unchecked` -- the area's SpawnTime is not held against the projectile's: (1) goes red.
 //!   * `strike_due_below_zero` -- the strike waits for the clock to fall below zero: (2) and (3) go red.
-//!     tests/strikes.rs stays green under it (Lightning's clock never reaches zero exactly).
+//!     tests/strikes.rs and tests/strike_timing16402.rs stay green under it (a strike that picks the highest hp,
+//!     the Lightning's, does not read spells.STRIKE_DUE).
 //!   * `area_projectile_reads_area_row` -- the delivery reads the area row's IgnoreBuildings: (4) goes red.
 //!   * `delivery_release_dropped` -- the delivery releases nothing: (5) goes red.
 //!   * `hash_skips_spell_depth` (tests/spell_summon.rs's) -- the chain depth is not hashed: (6) goes red.
