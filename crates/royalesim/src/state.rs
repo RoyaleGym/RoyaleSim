@@ -2655,6 +2655,14 @@ calib_enum!(
     }
 );
 
+/// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
+/// that no other hook holds. The rule a special starts by (`BattleState::special_step`) and the one a landing hook
+/// drags by (`BattleState::apply_effects`), so a target that stopped being one while the hook flew (a Cannon Cart
+/// that became its building) is a miss.
+fn hookable(e: &Entities, by: usize, t: usize) -> bool {
+    e.kind[t] == EntityKind::Troop && !e.flying[t] && e.team[t] != e.team[by] && e.hooked_by[t].is_none()
+}
+
 /// combat.SPECIAL_HOOK = client_hook_drag: the drag's step, NATIVE units per tick
 /// (`BattleState::step_hook_drags`). Measured on client 15.535.29, 5 of 5 drags of a Knight:
 /// 509-510. A constant of the measured law, like move16402.rs `PUSHBACK_DECEL`: how it relates
@@ -8434,6 +8442,18 @@ impl BattleState {
             PathModel::Oracle2026 => c.move_speed(),
             _ => c.speed,
         } * self.cfg.calib.speed_to_subtiles_per_tick;
+        // combat.SPECIAL_HOOK: a unit a hook is dragging that becomes a building (a Cannon Cart broken mid-drag) is
+        // not moved (entity.rs `rebind`), so the drag is over where it stands, as at its margin, and so is the
+        // thrower's special (`end_drag`). Ending the victim's side alone left the thrower standing in its special
+        // until the building was gone.
+        if kind.is_building() {
+            if let Some(by) = self.ents.hooked_by[i] {
+                #[cfg(not(clash_plant = "hook_kept_through_transform"))]
+                self.end_drag(i, by);
+                #[cfg(clash_plant = "hook_kept_through_transform")]
+                let _ = by; // PLANT (regression): the thrower's special runs on.
+            }
+        }
         self.ents.rebind(
             i,
             crate::entity::RebindInit {
@@ -11318,7 +11338,10 @@ impl BattleState {
                 }
                 // Troops this unit may have to walk around (path::avoid_units),
                 // in its frame. Its own target is never a blocker: a unit walks
-                // up to what it means to hit. Query radius covers the probe
+                // up to what it means to hit. Neither is a unit under ground under
+                // movement.SPAWN_PATHFIND_BODY = untouchable, nor an attached rider
+                // (entity.rs `attached`): no unit meets either, in the shipped move pass
+                // and in the contact law. Query radius covers the probe
                 // (2 steps + clearance) plus both radii.
                 let query = e.radius[i] * 2 + self.hash.max_radius() + eff * 2;
                 self.hash.neighbours_within(e, e.pos[i], query, &mut nb);
@@ -11326,6 +11349,10 @@ impl BattleState {
                 for &j in nb.iter() {
                     let j = j as usize;
                     if j == i || e.kind[j] != EntityKind::Troop || e.flying[j] != e.flying[i] || Some(e.id_of(j)) == e.target[i] {
+                        continue;
+                    }
+                    #[cfg(not(clash_plant = "legacy_walk_avoids_untouchable"))]
+                    if (calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable && e.underground(j)) || e.attached(j) {
                         continue;
                     }
                     blockers.push(UnitBlocker {
@@ -12259,7 +12286,9 @@ impl BattleState {
     /// dragged (`step_hook_drags` ends the special when the drag ends). The load timer of the
     /// ordinary cycle runs down meanwhile, as it does in every state.
     ///
-    /// A special whose victim has died ends here, and the ordinary step runs this same pass.
+    /// A special whose victim has died ends here, and the ordinary step runs this same pass. A victim
+    /// that becomes a building ends the drag and the special with it (`rebind_unit`, `end_drag`), and a
+    /// hook that lands on one drags nothing (`apply_effects`, `hookable`).
     fn special_step(&mut self, i: usize, can_act: bool) -> bool {
         let Some(sp) = self.cfg.cards.get(self.ents.card[i]).special else { return false };
         let tick = self.cfg.calib.tick_ms;
@@ -12285,7 +12314,7 @@ impl BattleState {
         let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return false };
         let ti = t.index as usize;
         #[cfg(not(clash_plant = "special_hook_unread"))]
-        let hooks = e.kind[ti] == EntityKind::Troop && !e.flying[ti] && e.team[ti] != e.team[i] && e.hooked_by[ti].is_none();
+        let hooks = hookable(e, i, ti);
         #[cfg(clash_plant = "special_hook_unread")]
         let hooks = false; // PLANT (regression): the special never starts; the Fisherman walks to melee range.
         let (from, to, rt) = (e.pos[i], e.pos[ti], e.radius[ti]);
@@ -12311,6 +12340,17 @@ impl BattleState {
         e.attack_phase[i] = AttackPhase::Idle;
         e.attack_ms[i] = 0;
         e.target_locked[i] = false;
+    }
+
+    /// Unit `i`'s drag by the hook `by` threw is over: `i` is free from the next tick, and `by`'s special
+    /// ends when it is still on `i` (`end_special`). The one way a drag ends while both live: at its
+    /// margin (`step_hook_drags`) and when the victim becomes a building (`rebind_unit`).
+    fn end_drag(&mut self, i: usize, by: EntityId) {
+        self.ents.hooked_by[i] = None;
+        let bi = by.index as usize;
+        if self.ents.is_alive(by) && self.ents.special_on[bi] == Some(self.ents.id_of(i)) {
+            self.end_special(bi);
+        }
     }
 
     /// THE DRAG (calibration combat.SPECIAL_HOOK = client_hook_drag), the Move phase's step of
@@ -12353,10 +12393,7 @@ impl BattleState {
             #[cfg(clash_plant = "hook_drag_steps_inside_margin")]
             let room = len > stop; // PLANT (regression): the drag takes the step that ends inside the margin.
             if !room || len <= 0 {
-                self.ents.hooked_by[i] = None;
-                if self.ents.special_on[bi] == Some(self.ents.id_of(i)) {
-                    self.end_special(bi);
-                }
+                self.end_drag(i, by);
                 continue;
             }
             let np = Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32);
@@ -12425,7 +12462,12 @@ impl BattleState {
     /// Resolve and Reap: a victim at 0 hp is queued with the tick's other deaths.
     fn land_strike(&mut self, from: usize) {
         let hits: Vec<Hit> = self.dmg.hits.drain(from..).collect();
-        let king_hit = combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, target::riders_immune(&self.cfg.calib), self.tick);
+        #[cfg(not(clash_plant = "strike_lands_under_ground"))]
+        let underground_immune = self.underground_immune();
+        #[cfg(clash_plant = "strike_lands_under_ground")]
+        let underground_immune = false; // PLANT (regression): the strike lands on a unit under ground.
+        let king_hit =
+            combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
         for (t, hit) in king_hit.into_iter().enumerate() {
             if hit && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -12920,11 +12962,16 @@ impl BattleState {
             if self.ents.special_on[bi] != Some(v) {
                 continue;
             }
-            // A hook that finds its victim gone, or already held by another hook, drags
-            // nothing, and its thrower's special ends here: left running, it would stand on a
-            // live victim it can never pull (two hooks on one victim are not measured; an
-            // engine choice).
-            if !survivor(&self.ents, v) || self.ents.hooked_by[vi].is_some() {
+            // A hook that finds its victim gone, or no longer a unit a hook takes (`hookable`, the
+            // rule the special started by: a Cannon Cart that became its building while the hook
+            // flew), or already held by another hook, drags nothing, and its thrower's special ends
+            // here: left running, it would stand on a live victim it can never pull (two hooks on one
+            // victim are not measured; an engine choice).
+            #[cfg(not(clash_plant = "hook_lands_on_any_kind"))]
+            let takes = survivor(&self.ents, v) && hookable(&self.ents, bi, vi);
+            #[cfg(clash_plant = "hook_lands_on_any_kind")]
+            let takes = survivor(&self.ents, v) && self.ents.hooked_by[vi].is_none(); // PLANT (regression): it drags whatever it lands on.
+            if !takes {
                 self.end_special(bi);
                 continue;
             }
@@ -13052,12 +13099,19 @@ impl BattleState {
         }
     }
 
-    fn phase_resolve(&mut self) {
-        // movement.SPAWN_PATHFIND_BODY = untouchable: no hit lands on a unit under ground.
+    /// movement.SPAWN_PATHFIND_BODY = untouchable: no hit lands on a unit under ground (combat.rs
+    /// `untouchable_now`). The one reading for the hits Resolve lands (`phase_resolve`) and for a strike
+    /// that lands at once (`land_strike`).
+    fn underground_immune(&self) -> bool {
         #[cfg(not(clash_plant = "tunnel_targetable"))]
-        let underground_immune = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
+        let on = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
         #[cfg(clash_plant = "tunnel_targetable")]
-        let underground_immune = false; // PLANT: a unit under ground is an ordinary body.
+        let on = false; // PLANT: a unit under ground is an ordinary body.
+        on
+    }
+
+    fn phase_resolve(&mut self) {
+        let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
         let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
         for t in 0..2 {

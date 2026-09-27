@@ -46,7 +46,7 @@ use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
-    ProjectileStep, RangeProjectile, TargetBuffScope, VariableDamage,
+    ProjectileStep, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -1365,6 +1365,9 @@ fn apply_attack_buff(
 /// (the hit set is sorted, the damage summed, and each unit is pushed once by one shot).
 /// A shot with `stop_on_hit` also passes a unit the hits already written this tick have killed
 /// (`killed_this_tick`, read at `tick`), so the pellets after a kill fly on.
+/// Every shot passes a body no hit lands on (`untouchable_now`: a unit under ground, a hidden
+/// building) and an attached rider, as a target scan does: none of them is hit, and none joins
+/// the shot's hit set, so a shot that stops on its first hit flies on through them.
 /// Returns whether anything was hit.
 #[allow(clippy::too_many_arguments)]
 fn straight_hits(
@@ -1385,6 +1388,15 @@ fn straight_hits(
     let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
     let Some(s) = p.straight.as_mut() else { return false };
     let ctx = SpellCtx { ents, hash, cards, calib, steps: &[], tick };
+    // What `resolve` drops a hit on (`untouchable_now`), read from the same keys.
+    #[cfg(not(clash_plant = "straight_shot_meets_under_ground"))]
+    let underground_immune = calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
+    #[cfg(clash_plant = "straight_shot_meets_under_ground")]
+    let underground_immune = false; // PLANT (regression): a straight shot stops on a unit under ground.
+    #[cfg(not(clash_plant = "straight_shot_meets_hidden"))]
+    let hidden_immune = calib.hide_hidden_immune;
+    #[cfg(clash_plant = "straight_shot_meets_hidden")]
+    let hidden_immune = false; // PLANT (regression): a straight shot stops on a hidden building.
     hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
     let mut any = false;
     for &v in nb.iter() {
@@ -1397,6 +1409,12 @@ fn straight_hits(
         }
         // rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: a straight shot passes an attached rider.
         if crate::target::rider_untouchable(calib, ents, v) {
+            continue;
+        }
+        // movement.SPAWN_PATHFIND_BODY = untouchable and hide.HIDDEN_IMMUNE_TO_DAMAGE: it passes a unit
+        // under ground and a hidden building too. A Hunter's pellet that met a tunnelling Miner or an idle
+        // Tesla used to stop on it, and `resolve` then dropped the hit, so the pellet was spent on nothing.
+        if untouchable_now(ents, v, hidden_immune, underground_immune, false) {
             continue;
         }
         if !in_range_edge(at, ents.pos[v], s.reach, ents.radius[v]) {
@@ -1451,7 +1469,7 @@ fn killed_this_tick(ents: &Entities, dmg: &DamageBuffer, hidden_immune: bool, ti
     }
     let id = ents.id_of(v);
     let hidden = hidden_immune && ents.hide[v] == HideState::Hidden;
-    let dealt: i64 = dmg.hits.iter().filter(|h| h.target == id && h.amount > 0 && !(hidden && !h.ignores_hide)).map(|h| h.amount as i64).sum();
+    let dealt: i64 = dmg.hits.iter().filter(|h| h.target == id && h.amount > 0 && (!hidden || h.ignores_hide)).map(|h| h.amount as i64).sum();
     dealt >= ents.hp[v] as i64
 }
 
@@ -1784,6 +1802,12 @@ pub struct ResolveOut {
 /// untargetable_immune; entity.rs `attached`): a hit written on one is dropped, whatever wrote it (a melee
 /// splash, a death blow), so the rule does not rest on every writer asking first.
 pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> ResolveOut {
+    #[cfg(clash_plant = "hidden_takes_damage")]
+    let hidden_immune = {
+        // PLANT (regression): the choke point never consults the hide state.
+        let _ = hidden_immune;
+        false
+    };
     let cap = ents.capacity();
     sums.clear();
     sums.resize(cap, 0);
@@ -1792,19 +1816,9 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
             continue;
         }
         // movement.SPAWN_PATHFIND_BODY = untouchable (the caller passes it): a unit under ground takes no
-        // hit, whatever wrote it -- a splash, a death's damage, an area (entity.rs `underground`).
-        if underground_immune && ents.underground(h.target.index as usize) {
-            continue;
-        }
-        #[cfg(not(clash_plant = "hidden_takes_damage"))]
-        let immune = hidden_immune && !h.ignores_hide && ents.hide[h.target.index as usize] == HideState::Hidden;
-        #[cfg(clash_plant = "hidden_takes_damage")]
-        let immune = {
-            // PLANT (regression): the choke point never consults the hide state.
-            let _ = hidden_immune;
-            false
-        };
-        if immune {
+        // hit, whatever wrote it -- a splash, a death's damage, an area (entity.rs `underground`). And a
+        // hidden building takes none but a hit that ignores the hide (`untouchable_now`).
+        if untouchable_now(ents, h.target.index as usize, hidden_immune, underground_immune, h.ignores_hide) {
             continue;
         }
         #[cfg(not(clash_plant = "dash_not_immune"))]
@@ -1841,10 +1855,21 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
     out
 }
 
+/// A BODY NO HIT LANDS ON, now: unit `v` is under ground under movement.SPAWN_PATHFIND_BODY =
+/// untouchable (`underground_immune`; entity.rs `underground`), or it is a building hidden by its own
+/// hide under hide.HIDDEN_IMMUNE_TO_DAMAGE (`hidden_immune`; `HideState::Hidden`) and the hit does not
+/// ignore the hide (`ignores_hide`: the lifetime expiry). The one test `resolve` and `land_at_once`
+/// drop a hit by, and the one a straight shot passes a unit by (`straight_hits`).
+#[inline]
+pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, underground_immune: bool, ignores_hide: bool) -> bool {
+    (underground_immune && ents.underground(v)) || (hidden_immune && !ignores_hide && ents.hide[v] == HideState::Hidden)
+}
+
 /// LAND ONE DIRECT STRIKE AT ONCE (calibration match.TICK_ORDER = client_sequential_strike;
 /// state.rs `land_strike`): `hits` are the hits one `fire` of a unit with no projectile buffered,
 /// applied as `resolve` applies a tick's hits -- a dead target and a non-positive amount skipped,
-/// hide immunity and a dash's immunity (combat.DASH_ATTACK, entity.rs `dash_immune`, at `tick`)
+/// the under-ground and hide immunities (`untouchable_now`, `underground_immune` read as `resolve`'s
+/// caller reads it) and a dash's immunity (combat.DASH_ATTACK, entity.rs `dash_immune`, at `tick`)
 /// respected, a shield absorbing the hit with no overflow into hitpoints -- but now,
 /// so the units after the striker in the pass read the result. Returns which teams' king tower
 /// was struck, for its wake. A victim at 0 hp is not despawned here: `resolve` queues every live
@@ -1852,14 +1877,16 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
 ///
 /// ONE STRIKE AT A TIME, where `resolve` sums a tick's hits on one target before the shield: a
 /// shield broken by this strike lets a later hit of the same tick through. Unmeasured.
-pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
+pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
     let mut king_hit = [false; 2];
     for h in hits {
         if !ents.is_alive(h.target) || h.amount <= 0 {
             continue;
         }
         let t = h.target.index as usize;
-        if hidden_immune && !h.ignores_hide && ents.hide[t] == HideState::Hidden {
+        // `resolve`'s under-ground and hide immunities. The under-ground one was missing, so under this
+        // order alone a melee strike or a spin took hp off a Miner still under ground.
+        if untouchable_now(ents, t, hidden_immune, underground_immune, h.ignores_hide) {
             continue;
         }
         // `resolve`'s dash immunity (combat.DASH_ATTACK = client_dash), the same plant with it.
