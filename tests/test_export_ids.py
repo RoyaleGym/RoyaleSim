@@ -115,3 +115,28 @@ def test_a_transformed_unit_reports_the_card_it_was_played_as():
     assert sorted(red.values(), key=min) == [{CART}, {DEMOLISHER}], f"each unit keeps the card it was played as: {red}"
     cart = next(uid for uid, c in red.items() if c == {CART})
     assert kinds_by_uid[cart] == {0, 1}, "precondition: the Cannon Cart broke into its cannon (troop, then building)"
+
+
+#: the Graveyard first in hand (crates/royalesim/tests/scheduled_area.rs): catalogue ids are positional
+GRAVEYARD_DECK = ["Graveyard", "Knight", "Archer", "Musketeer", "Giant", "Minions", "Cannon", "Zap"]
+
+
+def test_the_graveyards_skeletons_report_its_card():
+    """The Skeletons a Graveyard puts down are a row no card deploys. Each reports the Graveyard's catalogue id (py.rs
+    `ids_of_indices`, through card.rs `unit_refs` and its scheduled entries), never -1. The play is Blue's, on its own
+    half, where no tower reaches its first Skeleton (on the cast tick + 44). Plant: `unit_refs_skips_scheduled`."""
+    ids = list(range(len(GRAVEYARD_DECK)))
+    b = royalesim.Battle(card_names=GRAVEYARD_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+    b.reset(0, [ids, ids], 0, 200, [10_000, 10_000], None, [])
+    [(_card, reason, *_)] = b.step([(0, 0, 9 * TILE, 12 * TILE)], 1)
+    assert royalesim.DEPLOY_REASONS[reason] == "OK", royalesim.DEPLOY_REASONS[reason]
+    graveyard = GRAVEYARD_DECK.index("Graveyard")
+    seen = False
+    for _ in range(60):
+        b.step([], 1)
+        st = json.loads(b.state_json())
+        for e in st["entities"]:
+            if e[4] < 0:  # not a crown tower
+                assert e[3] >= 0, f"a unit on the board reports no card (-1), so it cannot be named: {e}"
+                seen = seen or e[3] == graveyard
+    assert seen, "no unit reporting the Graveyard's id appeared in 60 ticks: its Skeletons report another card"

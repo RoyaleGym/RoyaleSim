@@ -31,9 +31,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 126
-//!      loadable rows (124 cards, then PrincessTower and KingTower) and
-//!      20 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 130
+//!      loadable rows (128 cards, then PrincessTower and KingTower) and
+//!      16 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -108,8 +108,8 @@ struct Pin {
 /// SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the Goblin Demolisher's `transform_at_hp`
 /// and the Ronin's `parry`). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
-/// --census`), written from the same file, holds the same 126 loadable rows in the
-/// same order and the same 20 refusals, word for word.
+/// --census`), written from the same file, holds the same 130 loadable rows in the
+/// same order and the same 16 refusals, word for word.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[
@@ -148,6 +148,7 @@ const LOADABLE_15535: &[&str] = &[
     "Miner",
     "ZapMachine",
     "Bowler",
+    "RageBarbarian",
     "BattleRam",
     "InfernoDragon",
     "IceGolemite",
@@ -171,6 +172,7 @@ const LOADABLE_15535: &[&str] = &[
     "DartBarrell",
     "Wallbreakers",
     "RoyalHogs",
+    "GoblinGiant",
     "Fisherman",
     "EliteArcher",
     "ElectroDragon",
@@ -195,6 +197,7 @@ const LOADABLE_15535: &[&str] = &[
     "TriWizards",
     "GoblinDemolisher",
     "GoblinMachine",
+    "SuspiciousBush",
     "SuperKnight",
     "SkeletonWarriors_SpookyChess",
     "GiantBuffer",
@@ -227,6 +230,7 @@ const LOADABLE_15535: &[&str] = &[
     "Lightning",
     "Zap",
     "Poison",
+    "Graveyard",
     "Log",
     "Tornado",
     "Earthquake",
@@ -246,20 +250,16 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
-    ("GoblinGiant", "attached rider SpearGoblinGiant"),
     ("GoblinPartyRocket", "projectile GoblinMorphProjectile with a target cap or an area effect is not simulated"),
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
     ("Goblinstein", "the unit runs an action graph this loader does not read (ActionActivateOnCardDeploy, ActionEnabbleHPBarConditionForDuration, ActionGroup, ActionWithDuration)"),
-    ("Graveyard", "area effect Graveyard_rework runs an action graph this loader does not read (ActionGroup, ActionSpawnToLocation; spawns CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton)"),
     ("LittlePrince", "the unit runs an action graph this loader does not read (ActionFilter, ActionGroup, ActionInterval, ActionSetAttackSequenceIndex, ActionSetVariable)"),
-    ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
     ("SkeletonBalloon", "the unit runs an action graph this loader does not read (ActionSkeletonBarrelPopBalloon)"),
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),
     ("SuperLavaHound", "death projectile FireWallProjectile"),
     ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
     ("SuperWitch", "spawner SpawnCharacter2 Bat"),
-    ("SuspiciousBush", "an invisibility with no BuffWhenNotAttackingTime"),
     ("Vines", "area effect Vines_AeO runs an action graph this loader does not read (ActionAirToGround, ActionGroup, ActionRunActionListOnObjectsInShapeWithPrio, ActionSelect, ActionSpawn; spawns BuffType:Vines_Trap_Snare_XXLarge, BuffType:Vines_Trap_Snare_XLarge, BuffType:Vines_Trap_Snare_Large, BuffType:Vines_Trap_Snare_Medium, BuffType:Vines_Trap_Snare_Small)"),
 ];
 

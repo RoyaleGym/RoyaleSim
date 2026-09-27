@@ -411,7 +411,15 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Miner, the Goblin Drill) are scored too. The stand-in figures above left the Miner and the Goblin Drill out.
     # 90 -> 92 with that widening: the Miner and the Goblin Drill, scored again. Measured on the merged next build's
     # module (not a stand-in).
-    outside_by_vintage = {"2018": 40, "15.535": 92}
+    # 92 -> 95 when the Graveyard, the Suspicious Bush, the Lumberjack and the Goblin Giant load: THE GOBLIN GIANT with
+    # DeathInheritIgnoreList, DeathSpawnDeployTime and DeathSpawnRadius (its own row's, which the measured dismount does
+    # not read), DeployDelay, IgnoreResurrect and the projectile's only_enemies; THE LUMBERJACK with DeployDelay and
+    # WalkingSpeedTweakPercentage (measured on client 15.535.29: its steps are 119 to 120 at Speed 120, so the column
+    # changes nothing seen); THE SUSPICIOUS BUSH with AllowAreaDmgWhenInvisible, BuffWhenNotAttacking and
+    # IgnoreResurrect, as the Ghost. The Graveyard loads fully read. None left. Measured with a stand-in catalogue
+    # (loadable_census.rs's LOADABLE_15535 without the towers) and the register present: 92 without the four, the
+    # pinned figure, and 95 with them.
+    outside_by_vintage = {"2018": 40, "15.535": 95}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

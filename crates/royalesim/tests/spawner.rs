@@ -1145,8 +1145,10 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     let tomb = db.get(db.index("Tombstone").unwrap());
     assert_eq!((tomb.range, tomb.sight_range, tomb.damage), (0, 0, 0));
     // Units the loader cannot run are REJECTED, naming the unit AND the reason: the
-    // bottles/containers are hitpoint-less objects, the 15.535 Lumberjack's rage a
-    // death area effect, the 15.535 Skeleton Barrel's action graph. ~~MovingCannon~~ --
+    // bottles/containers are hitpoint-less objects, the 15.535 Skeleton Barrel's action
+    // graph. ~~RageBarbarian~~ -- the 15.535 Lumberjack loads (its death area's bottle is
+    // a fuse, tests/lumberjack.rs); the 2018 one, whose bottle is a death spawn, stays
+    // refused (tests/loadable_census.rs). ~~MovingCannon~~ --
     // the 15.535 Cannon Cart loads (its BrokenCannon is a transformation target);
     // the 2018 one stays refused, pinned by tests/lifetime.rs. ~~SkeletonBalloon: a
     // chain~~ -- its SkeletonContainer is refused on `hitpoints` first; its
@@ -1156,15 +1158,11 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     // ~~Balloon, GiantSkeleton~~ -- a DEATH BOMB is no longer refused: a hitpoint-less
     // row with DeployTime + DeathDamage + DeathDamageRadius is a timed impact, not a
     // unit (card.rs `convert_death_bomb`; tests/death_bomb.rs).
-    for (card, reasons) in [
-        ("RageBarbarian", &["RageBarbarianBottle: missing hitpoints", "death area effect RageBarbarianDummyForSpawn"][..]),
-        ("SkeletonBalloon", &["SkeletonContainer: missing hitpoints", "action graph"]),
-    ] {
-        assert!(db.index(card).is_none(), "{card} must not be simulable");
-        let (_, why) = db.rejected.iter().find(|(n, _)| n == card).unwrap_or_else(|| panic!("{card} not listed as rejected"));
-        assert!(reasons.iter().any(|r| why.contains(r)), "{card}: {why} (expected one of {reasons:?})");
-        assert!(!why.contains("SpawnNumber"), "{card}: the pair-blank spawner block was read as a partial block: {why}");
-    }
+    let (card, reasons) = ("SkeletonBalloon", ["SkeletonContainer: missing hitpoints", "action graph"]);
+    assert!(db.index(card).is_none(), "{card} must not be simulable");
+    let (_, why) = db.rejected.iter().find(|(n, _)| n == card).unwrap_or_else(|| panic!("{card} not listed as rejected"));
+    assert!(reasons.iter().any(|r| why.contains(r)), "{card}: {why} (expected one of {reasons:?})");
+    assert!(!why.contains("SpawnNumber"), "{card}: the pair-blank spawner block was read as a partial block: {why}");
     // (16) Nothing points at the unresolved unit: a rejected card's blocks are dropped
     // (a format-3 board entity of a rejected card must never index cards[65535]).
     // Every block `CardDb::unit_refs` names: spawner, death spawn, spell release,
@@ -1174,13 +1172,10 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
             assert!((unit as usize) < db.cards.len(), "{}: {} unit unresolved", c.name, path.block_name());
         }
     }
-    for card in ["RageBarbarian", "SkeletonBalloon"] {
-        // Rejected after the push (an unloadable unit, a death area effect): in the
-        // list, unregistered, its blocks dropped. Rejected in `convert` (an action
-        // graph): never pushed at all.
-        if let Some(c) = db.cards.iter().find(|c| c.name == card) {
-            assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{card}: a rejected card kept a unit block");
-        }
+    // Rejected after the push (an unloadable unit): in the list, unregistered, its blocks
+    // dropped. Rejected in `convert` (an action graph): never pushed at all.
+    if let Some(c) = db.cards.iter().find(|c| c.name == "SkeletonBalloon") {
+        assert!(c.death_spawn.is_none() && c.spawner.is_none(), "SkeletonBalloon: a rejected card kept a unit block");
     }
     // A partial block is refused with its column named.
     let broken = LIMITED_CARDS.replacen("\"pause_time_ms\":500", "\"pause_time_ms\":null", 1);

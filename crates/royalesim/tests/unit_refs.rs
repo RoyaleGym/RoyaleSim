@@ -61,6 +61,10 @@
 //! PLANT: `unit_refs_skips_attach`: `unit_refs` drops the attached rider (card.rs
 //! `AttachDef`) -> 1 red (Theta, and the shipped Ram Rider against its fields) and 3 red
 //! (Jockey and the Ram Rider's rider report card id -1).
+//!
+//! PLANT: `unit_refs_skips_scheduled`: `unit_refs` drops a scheduled area's entries (card.rs
+//! `SpellShape::ScheduledArea`) -> 1 red (the shipped Graveyard and Suspicious Bush against their
+//! fields and their Debug text) and 3 red (their Skeleton and goblin report card id -1).
 
 mod common;
 
@@ -145,7 +149,7 @@ fn shape_buffs(shape: &SpellShape, out: &mut Vec<u16>) {
         SpellShape::Rolling { hit, .. } => (Some(hit), None),
         SpellShape::Strikes(d) => (Some(&d.hit), d.delivery.as_deref()),
         SpellShape::Fuse { then, .. } => (None, Some(then.as_ref())),
-        SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } => (None, None),
+        SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => (None, None),
     };
     if let Some(h) = hit {
         for b in [h.buff, h.buff2].into_iter().flatten() {
@@ -227,6 +231,24 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     }
     if let Some(t) = &c.transform_at_hp {
         out.push((UnitRef::Transform, t.unit, None));
+    }
+    // every entry of a scheduled area, in the spell, the death area or the projectile area, read field by field down
+    // each chain (the Graveyard's Skeletons, the Suspicious Bush's goblins)
+    for d in [&c.spell, &c.death_area_effect, &c.projectile_area].into_iter().flatten() {
+        let mut shape = Some(&d.shape);
+        while let Some(sh) = shape {
+            if let SpellShape::ScheduledArea { schedule, .. } = sh {
+                for (k, e) in schedule.iter().enumerate() {
+                    out.push((UnitRef::Scheduled(k as u8), e.unit, None));
+                }
+            }
+            shape = match sh {
+                SpellShape::Fuse { then, .. } => Some(then.as_ref()),
+                SpellShape::PulsingAreaEffect { child, .. } => child.as_deref(),
+                SpellShape::Strikes(s) => s.delivery.as_deref(),
+                _ => None,
+            };
+        }
     }
     out
 }
@@ -311,7 +333,7 @@ fn every_unit_block_is_enumerated() {
         }
         assert!(refs > 0, "{file}: vacuous, no record puts a unit on the board");
     }
-    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach, UnitRef::BuffDeathSpawn, UnitRef::Transform] {
+    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach, UnitRef::BuffDeathSpawn, UnitRef::Transform, UnitRef::Scheduled(0)] {
         assert!(seen.contains(&path), "vacuous: no shipped record carries {path:?}");
     }
 }

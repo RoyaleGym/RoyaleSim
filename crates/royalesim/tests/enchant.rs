@@ -266,6 +266,9 @@ fn the_rune_giant_loads_with_his_enchant() {
         (idx("Hunter"), 100, 1000),
         (idx("Firecracker"), 1000, 200),
         (idx("units.RamRider"), 0, 1000),
+        // The Goblin Giant's riders (the row SpearGoblinGiant) fire SpearGoblinGiantProjectile, which the table lists at
+        // 0, as the Ram Rider's rider's bola.
+        (idx("SpearGoblinGiant"), 0, 1000),
     ];
     want.sort_unstable();
     assert_eq!(e.per_attacker, want, "the loaded attackers the table's multipliers reach, by the rows their units fire");

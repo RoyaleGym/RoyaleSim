@@ -963,6 +963,10 @@ impl Roots {
                     UnitRef::VariantForm(_) => continue,
                     // a transformation keeps the entity: it was rooted when it appeared, and its root stays
                     UnitRef::Transform => continue,
+                    // a scheduled area's units: a spell's (the Graveyard's Skeletons) are put down by its spell, as a
+                    // release is; a death area's (the Suspicious Bush's goblins) come out of a death, as a death spawn
+                    UnitRef::Scheduled(_) if db.get(i).spell.is_some() => &mut spell_release_of,
+                    UnitRef::Scheduled(_) => &mut death_spawn_of,
                 };
                 of.entry(unit).or_default().push(i);
             }

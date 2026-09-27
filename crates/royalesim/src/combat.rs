@@ -1380,7 +1380,7 @@ fn straight_hits(
     // The enchant bonus the shot was fired with (`enchant_bonus`), on each unit it hits.
     let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
     let Some(s) = p.straight.as_mut() else { return false };
-    let ctx = SpellCtx { ents, hash, cards, calib, steps: &[] };
+    let ctx = SpellCtx { ents, hash, cards, calib, steps: &[], tick };
     hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
     let mut any = false;
     for &v in nb.iter() {
