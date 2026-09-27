@@ -13,6 +13,12 @@ C + 10 (spells.SUMMON_FUSE_START), so for a Rage L = C + 10.
     L + 21 and L + 41. With client_source_bound both give L + 19 and L + 39, so that arm cannot tell them apart here.
 The offsets are the ledger's spells.PULSING_AREA_EFFECT.hit_speed_offset_ms (client 16.402's HitSpeedOffset).
 
+WHAT THIS CANNOT TELL. Both listed values equal their cards' HitSpeed (Poison 250 and 250, Tornado 50 and 50), and a
+calibration override replaces only a key's `value`, never hit_speed_offset_ms. So an engine that waits one HitSpeed for
+every listed card, whatever value is listed, passes this file. crates/royalesim/tests/status.rs
+`the_offset_arm_waits_the_listed_value_not_one_hit_speed` moves the Poison's value off its HitSpeed (100 and 500) and
+tells the two apart. Its plant `pulsing_offset_listed_hit_speed` gives this file's scenes the same numbers.
+
 WHY THE CONTROLS ARE HERE. The delayed arm must still give the client 15.535.29 Rage onset (C + 16) and the landing arm
 C + 11, or the Rage test below could pass on an engine whose arms all do the same thing.
 
@@ -87,7 +93,8 @@ def pulses(track: list[tuple], amount: int, until: int) -> list[int]:
 
 
 def test_the_ledger_carries_the_offsets():
-    """client 16.402's HitSpeedOffset for the loadable cards whose pulsing area has one."""
+    """client 16.402's HitSpeedOffset for the loadable cards whose pulsing area has one. Each equals its card's
+    HitSpeed, which is why the value itself is tested in crates/royalesim/tests/status.rs (module doc)."""
     entry = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)["spells"]["PULSING_AREA_EFFECT"]
     assert OFFSET in entry["candidates"]
     assert entry["hit_speed_offset_ms"] == {"Poison": 250, "Tornado": 50}

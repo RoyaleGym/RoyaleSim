@@ -4615,7 +4615,15 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
     (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
     // OmitFromStartingHand (the Mirror): the deal rule reads the card (state.rs `try_new`, economy.OMIT_FROM_STARTING_HAND).
-    def.omit_from_starting_hand = raw.omit_from_starting_hand.unwrap_or(false);
+    #[cfg(not(clash_plant = "omit_spell_flag_dropped"))]
+    {
+        def.omit_from_starting_hand = raw.omit_from_starting_hand.unwrap_or(false);
+    }
+    // PLANT (regression, tests/elixir_collector.rs): a spell row's column is not read, so the Mirror is dealt as any card.
+    #[cfg(clash_plant = "omit_spell_flag_dropped")]
+    {
+        def.omit_from_starting_hand = false;
+    }
     if spell.duration_seconds.is_some() {
         return Err("spell DurationSeconds is not simulated".into());
     }

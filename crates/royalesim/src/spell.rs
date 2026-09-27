@@ -435,10 +435,13 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             let arm = calib.pulsing_area_effect;
             #[cfg(clash_plant = "pulsing_area_applies_on_landing")]
             let arm = PulsingArea::FromLanding; // PLANT (regression): every arm applies on the landing tick.
-            #[cfg(not(clash_plant = "pulsing_offset_by_hit_speed"))]
+            #[cfg(not(any(clash_plant = "pulsing_offset_by_hit_speed", clash_plant = "pulsing_offset_listed_hit_speed")))]
             let offset_of = |name: &str| calib.pulsing_area_offsets.iter().find(|(c, _)| c == name).map_or(0, |(_, ms)| *ms);
             #[cfg(clash_plant = "pulsing_offset_by_hit_speed")]
             let offset_of = |_: &str| *hit_speed_ms; // PLANT: the offset arm waits one HitSpeed, as client 15.535.29 does.
+            // PLANT (regression, tests/status.rs): a listed card waits one HitSpeed, whatever the value listed for it.
+            #[cfg(clash_plant = "pulsing_offset_listed_hit_speed")]
+            let offset_of = |name: &str| if calib.pulsing_area_offsets.iter().any(|(c, _)| c == name) { *hit_speed_ms } else { 0 };
             let wait_ms = match arm {
                 PulsingArea::FromLanding => 0,
                 PulsingArea::Delayed => *hit_speed_ms,

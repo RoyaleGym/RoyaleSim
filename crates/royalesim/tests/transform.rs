@@ -36,7 +36,9 @@
 //!  13. `a_pending_transformation_survives_a_save` (engine invariant);
 //!  14. `a_pending_transformation_is_hashed` (engine invariant);
 //!  15. `both_seats_transform_on_the_same_tick` (the mirror gate);
-//!  16. `a_unit_healed_back_above_the_line_schedules_nothing_twice` (engine invariant);
+//!  16. `a_unit_healed_back_above_the_line_schedules_nothing_twice` (engine invariant: a heal read while a change is
+//!      pending cancels nothing, and a second crossing read while it is pending schedules nothing; on the Demolisher
+//!      and on a synthetic row whose longer wait holds several updates);
 //!  17. `a_transformation_graph_with_one_more_class_is_refused_with_todays_message` (synthetic);
 //!  18. `only_the_demolishers_taunt_cancel_carries_an_action_taunt` (the no-op reading's precondition, over the data);
 //!  19. `a_transformed_unit_reports_its_catalogue_card` (py.rs `ids_of_indices`);
@@ -66,8 +68,12 @@
 //!     arm: 9, 10, 11 red.
 //!   * `taunt_guard_blind` -- the data guard of 18 stops reading the area table: 18 red.
 //!   * `unit_refs_skips_new_paths` (tests/unit_refs.rs's) -- `unit_refs` drops the transformation: 19 red.
+//!   * `transform_heal_cancels` -- a read above the line drops the pending change: 16 red.
+//!   * `transform_rescheduled_while_pending` -- a unit with a change pending schedules another: 16 red, and 7 and 8
+//!     too (the second entry runs the change again on the kamikaze form a tick later).
 //!
-//! No existing gate should go red under the first ten: no card loaded before this file carries a transformation.
+//! No existing gate should go red under the first ten or the last two: no card loaded before this file carries a
+//! transformation.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -670,29 +676,54 @@ fn both_seats_transform_on_the_same_tick() {
     assert!(switched > 0, "vacuous: neither Demolisher switched");
 }
 
-/// Plants: transform_never_fires, transform_group_delay_ignored.
+/// Plants: transform_never_fires, transform_group_delay_ignored, transform_heal_cancels,
+/// transform_rescheduled_while_pending.
 #[test]
 fn a_unit_healed_back_above_the_line_schedules_nothing_twice() {
+    // THE DEMOLISHER. Its change is scheduled 100 ms out on C + 1 and fires at the top of C + 3's Status phase, before
+    // that tick's Target phase reads the threshold, so one update reads it with the change pending: C + 2's.
+    // (a) Still below the line on that update: nothing more is scheduled.
     let (mut s, demo) = pending();
-    // Still below the line on its next update, with the change pending: nothing more is scheduled.
     s.tick();
     assert_eq!(scheduled_for(&s, demo), [50], "one entry, 50 ms left");
-    // Healed back above the line (a Heal Spirit in the game): the pending change stands.
+    // (b) Healed back above the line before that update (a Heal Spirit in the game): the update reads the unit above
+    // the line, and the pending change stands. Below the line again, the change fires on its own tick, once.
+    let (mut s, demo) = pending();
     assert!(s.debug_set_hp(demo, 1000));
     s.tick();
-    let e = s.entity(demo).unwrap();
-    assert_eq!(e.card, "GoblinDemolisher_kamikaze_form", "the change read once is carried out");
-    assert!(scheduled_for(&s, demo).is_empty());
-    let target_after = {
-        s.tick();
-        s.entity(demo).unwrap().target
-    };
-    assert!(target_after.is_some(), "precondition: the form took a target");
-    // Below the line again: the form carries no transformation, so nothing is scheduled and the target stays.
-    assert!(s.debug_set_hp(demo, 100));
+    assert_eq!(scheduled_for(&s, demo), [50], "the heal cancelled the pending change, or scheduled another");
+    assert_eq!(s.entity(demo).unwrap().card, "GoblinDemolisher", "still itself while the change is pending");
+    assert!(s.debug_set_hp(demo, 585));
     s.tick();
+    assert_eq!(s.entity(demo).unwrap().card, "GoblinDemolisher_kamikaze_form", "the change read once is carried out on its tick");
     assert!(s.scheduled().is_empty(), "a second change was scheduled");
-    assert_eq!(s.entity(demo).unwrap().target, target_after, "a second change reset the target");
+
+    // A LONGER WAIT, so that a heal and a second crossing are both read with the change pending. No loaded row has
+    // one: the Demolisher's window holds one update, and the Cannon Cart changes on the update that reads its crossing,
+    // so nothing of it is pending. The synthetic Shifter with a 300 ms group delay: scheduled on the update that reads
+    // its crossing, T, and changed at the top of T + 6's Status phase.
+    let slow = SHIFTER
+        .replace(r#""ActionChangeGameObjectData","ActionRunActionAtHealth""#, r#""ActionChangeGameObjectData","ActionGroup","ActionRunActionAtHealth""#)
+        .replace(r#""group_delays_ms":[],"at":0"#, r#""group_delays_ms":[300],"at":0"#);
+    let (mut s, id) = shifter_battle(&slow, |_| {});
+    s.tick();
+    assert!(s.debug_set_hp(id, 400), "below the line: 400 x 100 < 1000 x 50");
+    s.tick();
+    let t = s.tick_count();
+    assert_eq!(scheduled_for(&s, id), [300], "precondition: the crossing scheduled the change 300 ms out");
+    // Healed above the line, below it again, above, below: every update reads the unit with the change pending.
+    for (k, hp) in [(1, 800), (2, 400), (3, 800), (4, 400)] {
+        assert!(s.debug_set_hp(id, hp));
+        s.tick();
+        assert_eq!(scheduled_for(&s, id), [300 - 50 * k], "T + {k}, read at {hp}: the one entry, counting down");
+        assert_eq!(s.entity(id).unwrap().card, "Shifter", "T + {k}: changed before its entry came due");
+    }
+    s.tick();
+    assert_eq!(s.entity(id).unwrap().card, "Shifter", "T + 5: changed before its entry came due");
+    s.tick();
+    assert_eq!(s.tick_count(), t + 6);
+    assert_eq!(s.entity(id).expect("the same entity").card, "Husk", "the change on T + 6, the first entry's tick");
+    assert!(s.scheduled().is_empty(), "a second change is pending");
 }
 
 // ---------------------------------------------------------------------------

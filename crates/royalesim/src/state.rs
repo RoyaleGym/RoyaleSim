@@ -6213,10 +6213,13 @@ impl BattleState {
             // starting hand (OmitFromStartingHand: the Elixir Collector, Mirror) that the deal would put in the first
             // four swaps places with the first card behind them that is not one. No random draw is added, so a deck
             // without such a card deals exactly as before, shuffled or not.
-            #[cfg(not(clash_plant = "omit_ignored"))]
+            #[cfg(not(any(clash_plant = "omit_ignored", clash_plant = "omit_first_seat_only")))]
             let omits = c.omit_from_starting_hand == OmitRule::SwapWithFirstEligibleInQueue;
             #[cfg(clash_plant = "omit_ignored")]
             let omits = false; // PLANT (regression): the column is not read and the shuffle alone deals.
+            // PLANT (regression, tests/elixir_collector.rs): the rule reaches Blue's deal alone.
+            #[cfg(clash_plant = "omit_first_seat_only")]
+            let omits = c.omit_from_starting_hand == OmitRule::SwapWithFirstEligibleInQueue && t == 0;
             if omits {
                 for k in 0..HAND_SIZE.min(deck.len()) {
                     if cards.get(deck[k]).omit_from_starting_hand {
@@ -6823,7 +6826,12 @@ impl BattleState {
         // DeployTime at the deploy end, the same tick for a DeployTime of 1000.
         if sp.source == SpawnerSource::ActionInterval {
             let start = sp.start_time_ms.unwrap_or(0);
-            self.ents.spawn_ms[i] = match c.interval_start_origin {
+            #[cfg(not(clash_plant = "interval_start_origin_unread"))]
+            let origin = c.interval_start_origin;
+            // PLANT (regression, tests/furnace.rs): the key is not read and the placement counter always runs.
+            #[cfg(clash_plant = "interval_start_origin_unread")]
+            let origin = IntervalStart::PlacementCounter;
+            self.ents.spawn_ms[i] = match origin {
                 IntervalStart::PlacementCounter => {
                     let lived = self.tick.saturating_sub(self.ents.spawn_tick[i]) as i32;
                     (start - lived * c.tick_ms).max(0)
@@ -8393,10 +8401,21 @@ impl BattleState {
                     TransformCompare::StrictlyBelow => hp < line,
                 };
                 if !reached {
+                    // PLANT (regression, tests/transform.rs): a read above the line drops the unit's pending change.
+                    #[cfg(clash_plant = "transform_heal_cancels")]
+                    {
+                        let id = self.ents.id_of(i);
+                        self.scheduled.retain(|s| !matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id));
+                    }
                     continue;
                 }
                 let id = self.ents.id_of(i);
-                if self.scheduled.iter().any(|s| matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id)) {
+                #[cfg(not(clash_plant = "transform_rescheduled_while_pending"))]
+                let pending = self.scheduled.iter().any(|s| matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id));
+                // PLANT (regression, tests/transform.rs): a unit with a change pending is read again and schedules another.
+                #[cfg(clash_plant = "transform_rescheduled_while_pending")]
+                let pending = false;
+                if pending {
                     continue;
                 }
                 #[cfg(not(clash_plant = "transform_group_delay_ignored"))]
@@ -12079,7 +12098,12 @@ impl BattleState {
         if air_excluded {
             return;
         }
-        let (attacker, seq, team) = (self.ents.id_of(a), self.ents.creation_seq[a], self.ents.team[a]);
+        #[cfg(not(clash_plant = "parry_seq_from_slot"))]
+        let seq = self.ents.creation_seq[a];
+        // PLANT (regression, tests/parry.rs): the attacker's slot stands in for its creation order.
+        #[cfg(clash_plant = "parry_seq_from_slot")]
+        let seq = a as u32;
+        let (attacker, team) = (self.ents.id_of(a), self.ents.team[a]);
         for k in from..self.dmg.hits.len() {
             let h = self.dmg.hits[k];
             let d = h.target.index as usize;
