@@ -275,6 +275,6 @@ fn an_attacker_in_its_attack_keeps_a_doomed_target_beyond_its_keep_reach() {
 }
 
 #[test]
-fn the_shipped_value_is_projectile_attackers_rescan() {
-    assert_eq!(Calib::shipped().doomed_target_drop, DoomedTargetDrop::ProjectileAttackersRescan);
+fn the_shipped_value_is_projectile_attackers_walk_drop() {
+    assert_eq!(Calib::shipped().doomed_target_drop, DoomedTargetDrop::ProjectileAttackersWalkDrop);
 }

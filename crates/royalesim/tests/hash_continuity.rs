@@ -115,19 +115,7 @@ const ROW: usize = 8;
 /// The rows this change makes loadable that its parent refused while converting them,
 /// as (table file, card name). Empty in a change that loads no card. The rule is in the
 /// header (LOADED_SINCE_PARENT): never a row the parent refused after pushing it.
-const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
-    // sim/loader2 on 72ed062: W2 (Rage, Heal), W3 (Lightning, BarbLog, GoblinHut), the Ghost, and WarmSpell,
-    // which loads through W2's own-side areas (spells.OWN_SIDE_AREA_SCOPE) without being planned.
-    ("cards.json", "Rage"),
-    ("cards.json", "Heal"),
-    ("cards.json", "Lightning"),
-    ("cards.json", "BarbLog"),
-    ("cards.json", "GoblinHut"),
-    ("cards.json", "Ghost"),
-    ("cards.json", "WarmSpell"),
-    ("cards-2018.json", "Rage"),
-    ("cards-2018.json", "Heal"),
-];
+const LOADED_SINCE_PARENT: &[(&str, &str)] = &[];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is
 /// accepted). Any other refusal fails the run that meets it, recording or checking: a

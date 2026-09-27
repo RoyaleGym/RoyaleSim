@@ -396,8 +396,9 @@ fn a_standing_bandit_faces_its_dash_goal_cell() {
     let (_, p, t, f) = rows[d - 1];
     assert_ne!(f, goal_heading(p, t, radii), "the scene drifted: the walking Bandit already faced its goal cell");
     // THE STAND, entry tick excluded (it keeps the heading it has).
-    for j in d..d + BANDIT_STAND as usize - 1 {
-        let (_, p, t, f) = rows[j];
+    let end = d + BANDIT_STAND as usize - 1;
+    assert!(rows.len() >= end, "the scene drifted: the run ended {} ticks into the stand", rows.len() - d);
+    for (j, &(_, p, t, f)) in rows.iter().enumerate().take(end).skip(d) {
         assert_eq!(f, goal_heading(p, t, radii), "stand tick {} (trigger + {}): the Bandit does not face its goal cell", j, j - d);
     }
 }

@@ -298,9 +298,17 @@ fn default_tower_follows_lane_by_x_and_falls_back_to_the_king() {
     // A Knight with nothing in sight walks to the enemy princess tower on its x
     // side (LOGIC_XPOS_BASED_TOWER_TARGETING), and to the king once that tower
     // is down. Centre line x = 9 goes Left. Plant: default_tower_nearest.
-    let red_towers = BattleState::new(1, config()).tower_ids(Team::Red);
+    // This is the current_x arm of targeting.FIRST_TOWER_PICK, named here: the
+    // shipped client_spawn_lane picks by the lane the unit was created in
+    // (tests/test_first_tower_pick.py).
+    let cfg = || {
+        let mut c = config();
+        c.calib.first_tower_pick = royalesim::state::FirstTowerPick::CurrentX;
+        c
+    };
+    let red_towers = BattleState::new(1, cfg()).tower_ids(Team::Red);
     for (x100, slot) in [(350, 1usize), (1450, 2), (900, 1), (910, 2)] {
-        let mut s = BattleState::new(1, config());
+        let mut s = BattleState::new(1, cfg());
         s.spawn_unit(Team::Blue, "Knight", t(x100, 900), None).unwrap();
         let n = deploy_ticks(&s, "Knight") + 2;
         tick_n(&mut s, n);

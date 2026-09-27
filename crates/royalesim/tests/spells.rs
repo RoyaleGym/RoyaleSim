@@ -101,7 +101,8 @@ mod common;
 
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, KnockLaw, ReleaseTiming, RollDirection};
+use royalesim::card::CardColumn;
+use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -378,26 +379,46 @@ fn fireball_damage_to_troop_building_and_crown_tower_scales_with_level_and_round
     // Tap on Red's engine-Left princess tower, with a deploying Red Knight and a Red
     // Cannon inside the radius. Troop and building take the level-scaled damage in
     // full; the crown tower takes ceil(damage * CrownTowerDamagePercent / 100).
-    // Plants: ct_floor, spell_damage_unscaled, crown_pct_ignored.
+    // The percent is the arm's (cards.CLIENT16402_VALUES): `none` runs the table's
+    // (25 on the 15.535.29 table), client16402 the one measured on the 16.402 corpus
+    // (the ledger's raw -77, a 23 % share). Both arms run, each read from its own file.
+    // Plants: ct_floor, spell_damage_unscaled, crown_pct_ignored. card_values_unread
+    // (state.rs) is aimed at the client16402 half; not yet run on this test.
     assert_registry("combat.CROWN_TOWER_DAMAGE_ROUNDING", format!("{:?}", calib().crown_rounding), "CeilKeptShare");
-    for level in [9, 10] {
-        let s0 = bare(config());
-        let tower_pos = s0.arena().princess_tower_pos(Team::Red, royalesim::arena::Lane::Left);
-        let tower = s0.tower_ids(Team::Red)[1].unwrap();
-        let knight_at = Vec2::new(tower_pos.x + milli(2000), tower_pos.y - milli(1000));
-        let cannon_at = Vec2::new(tower_pos.x, tower_pos.y - milli(2500));
-        let c = cast_scenario(config(), Team::Blue, "Fireball", tower_pos, Some(level), &[(Team::Red, "Cannon", cannon_at)], &[(Team::Red, "Knight", knight_at)]);
-        let dmg = scaled_from_json(&c.s, "Fireball", level, int(&fireball_hit()["damage"]));
-        let pct = int(&fireball_hit()["crown_tower_damage_percent"]);
-        assert!(pct < 100 && (dmg * pct) % 100 != 0, "level {level}: the rounding is not exercised ({dmg} at {pct}%)");
-        assert_eq!(c.hp_loss(c.ids[1]), dmg, "level {level}: troop");
-        assert_eq!(c.hp_loss(c.ids[0]), dmg, "level {level}: non-crown building takes full damage");
-        assert_eq!(c.hp_loss(tower), crown_ceil(dmg, pct), "level {level}: crown tower ({dmg} at {pct}%)");
-        // The key is READ: floor gives one less.
-        let mut cfg = config();
-        cfg.calib.crown_rounding = royalesim::combat::CrownRounding::Floor;
-        let f = cast_scenario(cfg, Team::Blue, "Fireball", tower_pos, Some(level), &[], &[]);
-        assert_eq!(f.hp_loss(tower), dmg * pct / 100, "level {level}: registry Floor");
+    assert_registry("cards.CLIENT16402_VALUES", format!("{:?}", calib().card_values), "Client16402");
+    let table_pct = int(&fireball_hit()["crown_tower_damage_percent"]);
+    let ledger_raw = calib()
+        .card_value_overrides
+        .iter()
+        .find(|v| v.card == "Fireball" && v.column == CardColumn::CrownTowerDamagePercent)
+        .expect("the ledger lists the Fireball's CrownTowerDamagePercent")
+        .value;
+    let measured_pct = 100 + ledger_raw;
+    assert_ne!(table_pct, measured_pct, "both arms give {table_pct}%: the arm is not exercised");
+    for (arm, pct) in [(CardValuesArm::None, table_pct), (CardValuesArm::Client16402, measured_pct)] {
+        let armed = || {
+            let mut cfg = config();
+            cfg.calib.card_values = arm;
+            cfg
+        };
+        for level in [9, 10] {
+            let s0 = bare(armed());
+            let tower_pos = s0.arena().princess_tower_pos(Team::Red, royalesim::arena::Lane::Left);
+            let tower = s0.tower_ids(Team::Red)[1].unwrap();
+            let knight_at = Vec2::new(tower_pos.x + milli(2000), tower_pos.y - milli(1000));
+            let cannon_at = Vec2::new(tower_pos.x, tower_pos.y - milli(2500));
+            let c = cast_scenario(armed(), Team::Blue, "Fireball", tower_pos, Some(level), &[(Team::Red, "Cannon", cannon_at)], &[(Team::Red, "Knight", knight_at)]);
+            let dmg = scaled_from_json(&c.s, "Fireball", level, int(&fireball_hit()["damage"]));
+            assert!(pct < 100 && (dmg * pct) % 100 != 0, "{arm:?} level {level}: the rounding is not exercised ({dmg} at {pct}%)");
+            assert_eq!(c.hp_loss(c.ids[1]), dmg, "{arm:?} level {level}: troop");
+            assert_eq!(c.hp_loss(c.ids[0]), dmg, "{arm:?} level {level}: non-crown building takes full damage");
+            assert_eq!(c.hp_loss(tower), crown_ceil(dmg, pct), "{arm:?} level {level}: crown tower ({dmg} at {pct}%)");
+            // The key is READ: floor gives one less.
+            let mut cfg = armed();
+            cfg.calib.crown_rounding = royalesim::combat::CrownRounding::Floor;
+            let f = cast_scenario(cfg, Team::Blue, "Fireball", tower_pos, Some(level), &[], &[]);
+            assert_eq!(f.hp_loss(tower), dmg * pct / 100, "{arm:?} level {level}: registry Floor");
+        }
     }
 }
 
@@ -1010,6 +1031,15 @@ fn log_over_cannons(cfg: BattleConfig, cannons: &[Vec2], level: Option<i32>) -> 
     (hits, loss)
 }
 
+/// spells.ROLL_FIRST_STEP at its on_landing_tick arm, named: the roll's first step on the landing tick. The shipped
+/// tick_after_landing takes it on the next tick, measured on the Barbarian Barrel in the 16.402 corpus
+/// (tests/barb_log.rs); the Log shares the arm, and its own casts have not been re-read.
+fn landing_tick_roll() -> BattleConfig {
+    let mut c = config();
+    c.calib.roll_first_step = royalesim::state::RollFirstStep::OnLandingTick;
+    c
+}
+
 #[test]
 fn log_timing_airborne_then_roll_from_the_tap_at_speed_to_range() {
     // Registry spells.SPELL_AS_DEPLOY_LAUNCH_MODEL = airborne_from_behind_lands_on_tap:
@@ -1019,7 +1049,7 @@ fn log_timing_airborne_then_roll_from_the_tap_at_speed_to_range() {
     // last Cannon whose disc touches the final rectangle is hit, one a subtile farther
     // never is. Plants: airborne_skipped, roll_range_from_airborne_start.
     assert_registry("spells.SPELL_AS_DEPLOY_LAUNCH_MODEL", format!("{:?}", calib().spell_as_deploy_launch), "AirborneFromBehind");
-    let s0 = bare(config());
+    let s0 = bare(landing_tick_roll());
     let (air_step, min_d, step, range, _hw, hd) = log_numbers(&s0);
     let r = card_stat(&s0, "Cannon").collision_radius;
     let land = ((min_d + air_step - 1) / air_step) as u32;
@@ -1030,7 +1060,7 @@ fn log_timing_airborne_then_roll_from_the_tap_at_speed_to_range() {
     let end = range + hd + r;
     let offsets = [0, mid, end];
     let cannons: Vec<Vec2> = offsets.iter().map(|d| Vec2::new(tap.x, tap.y + d)).collect();
-    let (hits, _) = log_over_cannons(config(), &cannons, None);
+    let (hits, _) = log_over_cannons(landing_tick_roll(), &cannons, None);
     // First step j (1-based, the landing tick is j = 1) whose front face reaches the
     // disc: j * step + hd >= d - r.
     let expect = |d: i32| -> u32 { land + ((d - r - hd).max(0) + step - 1).div_euclid(step).max(1) as u32 - 1 };
@@ -1038,7 +1068,7 @@ fn log_timing_airborne_then_roll_from_the_tap_at_speed_to_range() {
         assert_eq!(hits[j].first().copied(), Some(expect(*d)), "Cannon {j} at along-offset {d}: first hit (land {land}, step {step}, hd {hd}, r {r})");
     }
     assert_eq!(expect(end), land + ((range + step - 1) / step) as u32 - 1, "the end Cannon is reached on the final step");
-    let (past, _) = log_over_cannons(config(), &[Vec2::new(tap.x, tap.y + end + 1)], None);
+    let (past, _) = log_over_cannons(landing_tick_roll(), &[Vec2::new(tap.x, tap.y + end + 1)], None);
     assert!(past[0].is_empty(), "a Cannon one subtile beyond the roll's reach was hit at {:?}", past[0]);
 }
 

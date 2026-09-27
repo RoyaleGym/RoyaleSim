@@ -17,12 +17,26 @@
 //!   8. a snapshot taken mid-rise resumes hash-for-hash;
 //!   9. every calibration hide.* candidate moves a measurable behaviour.
 //!
+//! hide.RISE_LAW, BY NAME. Items 2, 3, 6 and 8, the TARGETABLE_WHILE_RISING tests and the
+//! HIDE_DELAY_MEANING test were written for the old arm, engine_rising_phase: a Rising phase of
+//! UpTimeMs with no target and no attack, then Up with a HideTimeMs countdown. The shipped arm
+//! since the 2026-09-26 loader2 flip is client16402_surface_attacking, measured on client
+//! 15.535.29 and the 16.402 corpus. The Tesla surfaces straight into its attack on one Rising
+//! tick with no timer. No enemy may target it on that tick, it is Up from the next, and it is
+//! back under 6 ticks after it loses its target. The old-arm tests run engine_rising_phase by
+//! name (`with_rise_law`), and each has an `under_the_shipped_rise_law_*` test beside it that
+//! pins the same property on the shipped arm.
+//! Under the shipped arm hide.TARGETABLE_WHILE_RISING moves nothing (item 9 holds for it only
+//! under engine_rising_phase).
+//!
 //! TICK ALIGNMENT (state.rs `hide_pass`): timers are decremented in the Target
 //! phase, before any entity decides its target. "Post-tick k" below means the
 //! state observed after the k-th `tick()` call of the scene, i.e. `tick_count() == k`.
 //!
 //! PLANTS: tesla_always_up (the earlier engine; (1) and (4) go red),
-//! hidden_targetable, hidden_takes_damage, expiry_respects_hide.
+//! hidden_targetable, hidden_takes_damage, expiry_respects_hide. Aimed at the
+//! `under_the_shipped_rise_law_*` tests, not yet proven on a plant build: tesla_rise_kept,
+//! tesla_surface_tick_targetable, tesla_hide_wait_hidetime.
 
 mod common;
 
@@ -31,7 +45,7 @@ use royalesim::arena::Lane;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind, HideState};
 use royalesim::fixed::{Vec2, SUBTILE};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HideDelayMeaning, RiseTrigger};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HideDelayMeaning, RiseLaw, RiseTrigger};
 use royalesim::{EntityId, Team};
 
 // ---------------------------------------------------------------------------
@@ -81,6 +95,55 @@ fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
     cfg
 }
 
+/// hide.RISE_LAW BY NAME: `cfg` with the rise law set. A test written for the old arm,
+/// engine_rising_phase, passes it here so it keeps testing the machine it was written for.
+fn with_rise_law(law: RiseLaw, mut cfg: BattleConfig) -> BattleConfig {
+    cfg.calib.hide_rise_law = law;
+    cfg
+}
+
+/// The shipped rise law, asserted where a test says it pins it.
+fn shipped_rise_law() -> BattleConfig {
+    let cfg = config();
+    assert_eq!(cfg.calib.hide_rise_law, RiseLaw::Client16402SurfaceAttacking, "the shipped hide.RISE_LAW this test pins");
+    cfg
+}
+
+/// Tick calls from the wake to Up: ceil(UpTimeMs / TICK_MS) under engine_rising_phase, the one
+/// surfacing tick under client16402_surface_attacking.
+fn rise_ticks(s: &BattleState) -> u32 {
+    match s.config().calib.hide_rise_law {
+        RiseLaw::EngineRisingPhase => ticks_of(tesla_hide(s).up_time_ms),
+        RiseLaw::Client16402SurfaceAttacking => 1,
+    }
+}
+
+/// The countdown an Up Tesla holds while it has a live target, and so how long it stays up once
+/// it has none (hide.HIDE_DELAY_MEANING = idle_time_without_target). HideTimeMs under
+/// engine_rising_phase. Under client16402_surface_attacking it is the attack-finish wait,
+/// combat.POST_KILL_RETARGET_WAIT value.ticks x TICK_MS; on the 16.402 corpus the Tesla is back
+/// under 6 ticks after its loss.
+fn up_wait_ms(s: &BattleState) -> i32 {
+    match s.config().calib.hide_rise_law {
+        RiseLaw::EngineRisingPhase => tesla_hide(s).hide_time_ms,
+        RiseLaw::Client16402SurfaceAttacking => {
+            let wait = s.config().calib.post_kill_wait_ticks * dt();
+            assert_eq!(ticks_of(wait), 6, "measured on the 16.402 corpus: the Tesla is back under 6 ticks after its loss");
+            wait
+        }
+    }
+}
+
+/// The windup a card's first shot waits for (combat.rs attack_step): HitSpeed - LoadTime under
+/// the shipped cycle (combat.ATTACK_CYCLE = progress_credit), LoadTime under the old one.
+fn windup_ms(s: &BattleState, card: &str) -> i32 {
+    let c = card_stat(s, card);
+    match s.config().calib.attack_cycle {
+        royalesim::state::AttackCycle::ProgressCredit => c.hit_speed_ms - c.load_time_ms,
+        royalesim::state::AttackCycle::WindupLoadTime => c.load_time_ms,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // scenes
 
@@ -94,8 +157,9 @@ fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
 /// when it rises, when a swing is cancelled -- and they were written when a rising Tesla could
 /// not be targeted; under the shipped arm "going under" includes no untargetable rise, so they
 /// would be asserting a different property. They keep testing the machine on the arm they were
-/// written for, and `under_the_shipped_arm_a_knight_targets_a_rising_tesla_before_it_is_up`
-/// pins what the measurement settled.
+/// written for, and `under_the_rising_phase_arm_a_knight_targets_a_rising_tesla_before_it_is_up`
+/// pins what the measurement settled. The key acts only under hide.RISE_LAW = engine_rising_phase,
+/// so the tests that take this config also name that rise law (`with_rise_law`).
 fn rising_untargetable() -> BattleConfig {
     let mut c = config();
     c.calib.hide_targetable_while_rising = false;
@@ -168,7 +232,8 @@ fn a_hidden_tesla_is_not_targeted_by_a_giant_that_sees_it_but_that_it_cannot_see
 
 #[test]
 fn a_knight_entering_sight_starts_the_rise_next_tick_up_after_up_time_and_the_first_shot_follows() {
-    let (mut s, tesla, knight) = approach(rising_untargetable());
+    // The rising phase this test times is hide.RISE_LAW = engine_rising_phase, run by name.
+    let (mut s, tesla, knight) = approach(with_rise_law(RiseLaw::EngineRisingPhase, rising_untargetable()));
     let h = tesla_hide(&s);
     let (load, base) = (card_stat(&s, "Tesla").load_time_ms, card_stat(&s, "Tesla").damage);
     let hit_speed = card_stat(&s, "Tesla").hit_speed_ms;
@@ -222,27 +287,65 @@ fn a_knight_entering_sight_starts_the_rise_next_tick_up_after_up_time_and_the_fi
     assert_eq!(s.entity(knight).unwrap().hp, full - shot, "post-tick {fire_post}: the first shot did not land with the data's damage");
 }
 
+#[test]
+fn under_the_shipped_rise_law_a_knight_entering_sight_surfaces_the_tesla_attacking_and_its_first_shot_lands_seven_ticks_later() {
+    // hide.RISE_LAW = client16402_surface_attacking. Measured on client 15.535.29 (tesla-vs-knight:
+    // surfaces 240, the Knight locks on 241, first hit 247) and on the 16.402 corpus (674, 675 and
+    // 681; 1980, 1981 and 1987). tests/test_tesla_surface.py pins those numbers on that scenario.
+    let (mut s, tesla, knight) = approach(shipped_rise_law());
+    let base = card_stat(&s, "Tesla").damage;
+    let full = s.entity(knight).unwrap().hp;
+    let level = s.config().card_level[Team::Blue as usize];
+    let db = s.cards();
+    let shot = db.scaled(db.index("Tesla").unwrap(), level, base).unwrap();
+    let n = run_until(&mut s, 400, |s| sees(s, tesla, knight));
+    assert!((1..400).contains(&n), "the Knight never walked into sight (n = {n})");
+    assert_eq!(hide_of(&s, tesla), (HideState::Hidden, 0), "post-tick {n}: the Tesla surfaced before the Knight was seen");
+    // Tick N's hide pass sees the Knight. This is the SURFACING tick: Rising with no timer. The
+    // Tesla takes the Knight and starts its attack cycle; the Knight may not target it yet.
+    s.tick();
+    let surf = n + 1;
+    assert_eq!(hide_of(&s, tesla), (HideState::Rising, 0), "post-tick {surf}: the Tesla did not surface");
+    let e = s.entity(tesla).unwrap();
+    assert_eq!((e.target, e.attack_phase), (Some(knight), AttackPhase::Windup), "post-tick {surf}: the surfacing Tesla is not attacking the Knight");
+    assert_ne!(s.entity(knight).unwrap().target, Some(tesla), "post-tick {surf}: the Knight targeted the Tesla on its surfacing tick");
+    // Up from the next tick, with the attack-finish wait as its countdown, and the Knight locks on.
+    s.tick();
+    assert_eq!(hide_of(&s, tesla), (HideState::Up, up_wait_ms(&s)), "post-tick {}: not up the tick after it surfaced", surf + 1);
+    assert_eq!(s.entity(knight).unwrap().target, Some(tesla), "post-tick {}: the Knight did not lock on the tick after the Tesla surfaced", surf + 1);
+    // First shot: the cycle started on the surfacing tick, so the rising-phase test's formula
+    // holds with the surfacing tick in place of the up tick.
+    let fire_post = surf + ticks_of(windup_ms(&s, "Tesla")).max(1) - 1;
+    assert_eq!(fire_post - surf, 7, "measured on client 15.535.29 and the 16.402 corpus: the first hit lands 7 ticks after the Tesla surfaces");
+    while s.tick_count() < fire_post - 1 {
+        s.tick();
+        assert_eq!(s.entity(knight).unwrap().hp, full, "post-tick {}: fired early", s.tick_count());
+    }
+    s.tick();
+    assert_eq!(s.tick_count(), fire_post);
+    assert_eq!(s.entity(knight).unwrap().hp, full - shot, "post-tick {fire_post}: the first shot did not land with the data's damage");
+}
+
 // ---------------------------------------------------------------------------
 // (3) hiding again
 
-#[test]
-fn losing_its_target_sends_the_tesla_under_exactly_hide_time_later() {
-    // Kill the Knight by hp (dies in that tick's Resolve). The hide pass of the very
-    // tick the target is no longer live counts, so the Tesla is under after exactly
-    // ceil(HideTimeMs / TICK_MS) tick calls from the kill. Idle ticks before the kill
-    // do not count: a live target resets the countdown every Target phase.
-    let (mut s, tesla, knight, _) = approach_until_first_shot(config());
-    let h = tesla_hide(&s);
+/// Kill the Knight by hp (dies in that tick's Resolve). The hide pass of the very tick the
+/// target is no longer live counts, so the Tesla is under after exactly ceil(wait / TICK_MS)
+/// tick calls from the kill, the wait being `up_wait_ms`. Idle ticks before the kill do not
+/// count: a live target resets the countdown every Target phase.
+fn losing_its_target_sends_it_under_after_its_up_wait(cfg: BattleConfig) {
+    let (mut s, tesla, knight, _) = approach_until_first_shot(cfg);
+    let wait = up_wait_ms(&s);
     for _ in 0..5 {
         s.tick();
-        assert_eq!(hide_of(&s, tesla), (HideState::Up, h.hide_time_ms), "a live target must hold the countdown at HideTimeMs");
+        assert_eq!(hide_of(&s, tesla), (HideState::Up, wait), "a live target must hold the countdown at {wait} ms");
     }
     assert!(s.debug_set_hp(knight, 0));
-    let n = ticks_of(h.hide_time_ms);
+    let n = ticks_of(wait);
     for k in 1..n {
         s.tick();
         assert!(s.entity(knight).is_none(), "the Knight did not die");
-        assert_eq!(hide_of(&s, tesla), (HideState::Up, h.hide_time_ms - (k as i32) * dt()), "tick call {k} after the kill");
+        assert_eq!(hide_of(&s, tesla), (HideState::Up, wait - (k as i32) * dt()), "tick call {k} after the kill");
         assert_eq!(s.entity(tesla).unwrap().target, None);
     }
     s.tick();
@@ -252,6 +355,19 @@ fn losing_its_target_sends_the_tesla_under_exactly_hide_time_later() {
         s.tick();
         assert_eq!(hide_of(&s, tesla), (HideState::Hidden, 0));
     }
+}
+
+#[test]
+fn losing_its_target_sends_the_tesla_under_exactly_hide_time_later() {
+    // HideTimeMs is the up wait of hide.RISE_LAW = engine_rising_phase, run by name.
+    losing_its_target_sends_it_under_after_its_up_wait(with_rise_law(RiseLaw::EngineRisingPhase, config()));
+}
+
+#[test]
+fn under_the_shipped_rise_law_losing_its_target_sends_the_tesla_under_six_ticks_later() {
+    // client16402_surface_attacking: the up wait is the attack-finish wait. Measured on the
+    // 16.402 corpus: back under 6 ticks after the loss, where HideTimeMs gives 16.
+    losing_its_target_sends_it_under_after_its_up_wait(shipped_rise_law());
 }
 
 // ---------------------------------------------------------------------------
@@ -370,19 +486,32 @@ fn a_hidden_tesla_still_dies_at_lifetime_expiry() {
 
 #[test]
 fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacquires_it_when_up() {
+    // The rise the Knight waits out is hide.RISE_LAW = engine_rising_phase's, run by name.
+    knight_mid_swing_on_a_deploying_tesla(RiseLaw::EngineRisingPhase);
+}
+
+#[test]
+fn under_the_shipped_rise_law_a_knight_mid_swing_on_a_deploying_tesla_drops_it_on_the_surfacing_tick_and_reacquires_it_the_next() {
+    // client16402_surface_attacking: the rise is the one surfacing tick, on which no enemy may
+    // target the Tesla. The Knight drops it there and locks on again the tick after.
+    assert_eq!(config().calib.hide_rise_law, RiseLaw::Client16402SurfaceAttacking, "the shipped hide.RISE_LAW this test pins");
+    knight_mid_swing_on_a_deploying_tesla(RiseLaw::Client16402SurfaceAttacking);
+}
+
+fn knight_mid_swing_on_a_deploying_tesla(law: RiseLaw) {
     // The Tesla is deployed WITH its deploy time (spawn_unit), and is Up -- targetable
     // -- while deploying, like any deploying building. The adjacent Knight locks on and
     // starts swinging. On the tick the deploy timer ends the Tesla goes under
     // (hide.STARTS_HIDDEN); the Knight's windup is cancelled and it rescans in the same
     // Target phase. The Knight is in the Tesla's sight, so the rise starts on that same
-    // tick and the Knight re-acquires it when it is up.
+    // tick and the Knight re-acquires it when it is up (`rise_ticks` later).
     //
     // TIMING: the Knight is placed LATE enough that its windup
     // (LoadTime) spans the deploy end -- placed at tick 0 it fires at tick 13 and is
     // in COOLDOWN at deploy end, and the lock-drop path (target.rs decide's
     // `target_locked` cancel; phase_target's cancel of a hidden target) is never
     // exercised. ~~`if in_windup { .. }`~~: the windup is asserted, not tested for.
-    let mut s = bare(rising_untargetable());
+    let mut s = bare(with_rise_law(law, rising_untargetable()));
     let tesla_at = t(900, 1400);
     let knight_at = Vec2::new(tesla_at.x, tesla_at.y - 3 * SUBTILE / 2);
     s.spawn_unit(Team::Blue, "Tesla", tesla_at, None).unwrap();
@@ -391,7 +520,6 @@ fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacq
     let deploy = card_stat(&s, "Tesla").deploy_time_ms;
     let load = card_stat(&s, "Knight").load_time_ms;
     let hit_speed = card_stat(&s, "Knight").hit_speed_ms;
-    let h = tesla_hide(&s);
     assert!(deploy > 0 && s.entity(tesla).unwrap().deploying);
     assert_eq!(hide_of(&s, tesla).0, HideState::Up, "a deploying Tesla is Up (targetable) until its deploy time ends");
     // Deploy ends in the Upkeep of tick index ceil(DeployTime / TICK_MS) (the spawn
@@ -435,9 +563,10 @@ fn a_knight_mid_swing_on_a_deploying_tesla_drops_it_when_it_goes_under_and_reacq
     let drain = s.lifetime_drain(tesla);
     assert!(hp_before - e.hp <= (drain + 99) / 100, "the cancelled swing landed ({} lost)", hp_before - e.hp);
     let hp_before = e.hp;
-    // Rising: not targetable; up after UpTimeMs; then the Knight has it again and
+    // Rising: not targetable; up after the rise (UpTimeMs under engine_rising_phase, the one
+    // surfacing tick under client16402_surface_attacking); then the Knight has it again and
     // lands hits on it -- the building takes damage when it is up.
-    let rise = ticks_of(h.up_time_ms);
+    let rise = rise_ticks(&s);
     for _ in 1..rise {
         s.tick();
         assert_ne!(s.entity(knight).unwrap().target, Some(tesla));
@@ -489,7 +618,10 @@ fn a_two_seat_hide_scene_is_its_own_mirror_every_tick() {
 
 #[test]
 fn a_snapshot_taken_mid_rise_resumes_hash_for_hash() {
-    let (mut s, tesla, knight) = approach(config());
+    // A rise timer to be caught mid-way exists under hide.RISE_LAW = engine_rising_phase, run
+    // by name. `under_the_shipped_rise_law_a_snapshot_taken_on_the_surfacing_tick_resumes_hash_for_hash`
+    // is the shipped arm's case.
+    let (mut s, tesla, knight) = approach(with_rise_law(RiseLaw::EngineRisingPhase, config()));
     let h = tesla_hide(&s);
     let full = s.entity(knight).unwrap().hp;
     let n = run_until(&mut s, 400, |s| hide_of(s, tesla).0 == HideState::Rising);
@@ -512,6 +644,31 @@ fn a_snapshot_taken_mid_rise_resumes_hash_for_hash() {
         assert_eq!(l.state_hash(), s.state_hash(), "diverged {k} ticks after the load");
     }
     // Vacuity: the resumed battle went on to fire at the Knight.
+    assert!(s.entity(knight).map_or(true, |k| k.hp < full), "the Knight was never hit");
+}
+
+#[test]
+fn under_the_shipped_rise_law_a_snapshot_taken_on_the_surfacing_tick_resumes_hash_for_hash() {
+    // client16402_surface_attacking has no rise timer. Its one Rising tick is the surfacing
+    // tick, on which the Tesla already holds its target and a running attack cycle, and the
+    // next tick must read the rise law from the snapshot to come up with the attack-finish wait.
+    let (mut s, tesla, knight) = approach(shipped_rise_law());
+    let full = s.entity(knight).unwrap().hp;
+    let n = run_until(&mut s, 400, |s| hide_of(s, tesla).0 == HideState::Rising);
+    assert!(n < 400);
+    assert_eq!(hide_of(&s, tesla), (HideState::Rising, 0), "the surfacing tick has no rise timer");
+    let e = s.entity(tesla).unwrap();
+    assert_eq!((e.target, e.attack_phase), (Some(knight), AttackPhase::Windup), "vacuous: the snapshot must hold a surfacing Tesla mid-attack");
+    let blob = s.save();
+    let mut l = BattleState::load(&blob).unwrap_or_else(|e| panic!("load: {e}"));
+    assert_eq!(l.config().calib.hide_rise_law, RiseLaw::Client16402SurfaceAttacking, "the snapshot did not carry hide.RISE_LAW");
+    assert_eq!(l.state_hash(), s.state_hash());
+    assert_eq!(hide_of(&l, tesla), (HideState::Rising, 0));
+    for k in 0..150 {
+        s.tick();
+        l.tick();
+        assert_eq!(l.state_hash(), s.state_hash(), "diverged {k} ticks after the load");
+    }
     assert!(s.entity(knight).map_or(true, |k| k.hp < full), "the Knight was never hit");
 }
 
@@ -570,13 +727,42 @@ fn rise_trigger_separates_sight_from_attack_range_on_a_card_whose_sight_exceeds_
 
 #[test]
 fn targetable_while_rising_lets_the_knight_lock_on_the_tick_the_rise_begins() {
+    // The key acts under hide.RISE_LAW = engine_rising_phase only, run by name.
     for (flag, on_rise_tick) in [(false, false), (true, true)] {
-        let cfg = with_calib(|c| c.hide_targetable_while_rising = flag);
+        let cfg = with_rise_law(RiseLaw::EngineRisingPhase, with_calib(|c| c.hide_targetable_while_rising = flag));
         let (mut s, tesla, knight) = approach(cfg);
         let n = run_until(&mut s, 400, |s| hide_of(s, tesla).0 == HideState::Rising);
         assert!(n < 400);
         assert_eq!(s.entity(knight).unwrap().target == Some(tesla), on_rise_tick, "TARGETABLE_WHILE_RISING = {flag}");
     }
+}
+
+#[test]
+fn under_the_shipped_rise_law_targetable_while_rising_moves_nothing_and_the_knight_locks_on_the_tick_after_the_surfacing() {
+    // client16402_surface_attacking: no enemy may target the Tesla on its surfacing tick,
+    // whatever hide.TARGETABLE_WHILE_RISING says (target.rs `hidden_from_targeting`), and it is
+    // Up the tick after. Measured on client 15.535.29 (surfaces 240, the Knight locks on 241)
+    // and on the 16.402 corpus (674 then 675, 1980 then 1981). So both values of the key run
+    // the same battle under the shipped rise law.
+    let mut runs = Vec::new();
+    for flag in [false, true] {
+        let mut cfg = shipped_rise_law();
+        cfg.calib.hide_targetable_while_rising = flag;
+        let (mut s, tesla, knight) = approach(cfg);
+        let n = run_until(&mut s, 400, |s| hide_of(s, tesla).0 == HideState::Rising);
+        assert!(n < 400);
+        assert_ne!(s.entity(knight).unwrap().target, Some(tesla), "TARGETABLE_WHILE_RISING = {flag}: the Knight locked on the surfacing tick");
+        s.tick();
+        assert_eq!(hide_of(&s, tesla).0, HideState::Up, "TARGETABLE_WHILE_RISING = {flag}: not up the tick after the surfacing");
+        assert_eq!(s.entity(knight).unwrap().target, Some(tesla), "TARGETABLE_WHILE_RISING = {flag}: the Knight did not lock on the tick after the surfacing");
+        let mut hashes = vec![s.state_hash()];
+        for _ in 0..100 {
+            s.tick();
+            hashes.push(s.state_hash());
+        }
+        runs.push(hashes);
+    }
+    assert_eq!(runs[0], runs[1], "hide.TARGETABLE_WHILE_RISING moved the battle under the shipped rise law");
 }
 
 #[test]
@@ -595,19 +781,37 @@ fn hide_delay_time_since_last_shot_counts_from_the_shot_not_from_the_kill() {
     // Same scene, same kill 5 ticks after the first shot lands. idle_time_without_target:
     // under ceil(HideTimeMs / TICK_MS) tick calls after the kill. time_since_last_shot:
     // under on the first Target phase MORE than HideTimeMs after the shot, which is
-    // earlier by the 5 ticks the Knight outlived the shot.
-    //
-    // WHILE THE KNIGHT LIVES the two arms part on the data alone (the ledger's "LIMITS
-    // OF THE time_since_last_shot ARM"): a Tesla whose HitSpeed <= HideTimeMs (2018:
-    // 800 / 800) keeps firing every HitSpeed under both; one whose HitSpeed exceeds it
-    // (15.535: 1100 / 800) goes under between two shots with its target in range under
-    // time_since_last_shot -- the arm cannot be the live rule as written on that row,
-    // and this test pins that it does exactly what the ledger says rather than hiding
-    // the difference. Plants: none (a ledger-limit record).
+    // earlier by the 5 ticks the Knight outlived the shot. HideTimeMs is the idle wait of
+    // hide.RISE_LAW = engine_rising_phase, run by name.
+    hide_delay_meanings_after_a_kill(RiseLaw::EngineRisingPhase);
+}
+
+#[test]
+fn under_the_shipped_rise_law_hide_delay_time_since_last_shot_still_counts_hide_time_from_the_shot() {
+    // client16402_surface_attacking: the idle arm waits the attack-finish wait (6 ticks, as
+    // measured on the 16.402 corpus), while time_since_last_shot still counts HideTimeMs from
+    // the shot (state.rs `hide_wait_ms`: only the idle meaning is measured). So under the
+    // shipped rise law the time_since_last_shot arm goes under LATER than the idle arm.
+    assert_eq!(config().calib.hide_rise_law, RiseLaw::Client16402SurfaceAttacking, "the shipped hide.RISE_LAW this test pins");
+    hide_delay_meanings_after_a_kill(RiseLaw::Client16402SurfaceAttacking);
+}
+
+/// Both hide.HIDE_DELAY_MEANING arms under one rise law: the kill 5 ticks after the first shot,
+/// then the tick calls to Hidden. idle_time_without_target: the up wait (`up_wait_ms`).
+/// time_since_last_shot: HideTimeMs after the shot, strict, under either rise law.
+///
+/// WHILE THE KNIGHT LIVES the two arms part on the data alone (the ledger's "LIMITS
+/// OF THE time_since_last_shot ARM"): a Tesla whose HitSpeed <= HideTimeMs (2018:
+/// 800 / 800) keeps firing every HitSpeed under both; one whose HitSpeed exceeds it
+/// (15.535: 1100 / 800) goes under between two shots with its target in range under
+/// time_since_last_shot -- the arm cannot be the live rule as written on that row,
+/// and this test pins that it does exactly what the ledger says rather than hiding
+/// the difference. Plants: none (a ledger-limit record).
+fn hide_delay_meanings_after_a_kill(law: RiseLaw) {
     let mut got = Vec::new();
     let (hit_speed, hide_ms) = { let s = bare(config()); (card_stat(&s, "Tesla").hit_speed_ms, tesla_hide(&s).hide_time_ms) };
     for meaning in [HideDelayMeaning::IdleTimeWithoutTarget, HideDelayMeaning::TimeSinceLastShot] {
-        let cfg = with_calib(|c| c.hide_delay_meaning = meaning);
+        let cfg = with_rise_law(law, with_calib(|c| c.hide_delay_meaning = meaning));
         let (mut s, tesla, knight, _) = approach_until_first_shot(cfg);
         // What the Tesla does between two shots with the Knight alive.
         let mut probe = s.clone();
@@ -634,10 +838,11 @@ fn hide_delay_time_since_last_shot_counts_from_the_shot_not_from_the_kill() {
     }
     let n = ticks_of(hide_ms) as i64;
     assert!(n > 5, "scene: HideTimeMs must exceed the 5 ticks the Knight outlives the shot");
-    assert_eq!(got[0].1 as i64, n, "idle_time_without_target: {n} tick calls after the kill");
+    let idle = ticks_of(up_wait_ms(&bare(with_rise_law(law, config())))) as i64;
+    assert_eq!(got[0].1 as i64, idle, "idle_time_without_target under {law:?}: {idle} tick calls after the kill");
     // time_since_last_shot: HideTimeMs after the shot is n ticks; the strict "more
     // than" adds one; the 5 ticks the Knight outlived the shot come off.
-    assert_eq!(got[1].1 as i64, n + 1 - 5, "time_since_last_shot: {:?}", got);
+    assert_eq!(got[1].1 as i64, n + 1 - 5, "time_since_last_shot under {law:?}: {:?}", got);
     assert_ne!(got[0].1, got[1].1);
 }
 
@@ -698,14 +903,17 @@ fn the_loader_refuses_a_partial_hide_block_and_reads_teslas_whole() {
 }
 
 #[test]
-fn under_the_shipped_arm_a_knight_targets_a_rising_tesla_before_it_is_up() {
-    // hide.TARGETABLE_WHILE_RISING = true, MEASURED on client 15.535.29: the Tesla starts
-    // rising on 240 and the Knight locks on at 241, fifteen ticks before it is up. The engine
-    // locks on the rise tick itself, one tick earlier (the key's `open` field). So this asserts
-    // only what the measurement settles -- the lock lands WHILE the Tesla is rising -- and not
-    // the tick, on which the two clients' orderings do not yet agree.
-    assert!(config().calib.hide_targetable_while_rising, "the shipped arm this test pins");
-    let (mut s, tesla, knight) = approach(config());
+fn under_the_rising_phase_arm_a_knight_targets_a_rising_tesla_before_it_is_up() {
+    // hide.TARGETABLE_WHILE_RISING = true, MEASURED on client 15.535.29: the Tesla surfaces
+    // on 240 and the Knight locks on at 241. Under hide.RISE_LAW = engine_rising_phase, run
+    // here by name, that lock falls inside the engine's UpTimeMs rise, and the engine locks on
+    // the rise tick itself, one tick earlier (the key's `open` field). So this asserts only
+    // that the lock lands WHILE the Tesla is rising, and not the tick. The shipped rise law has
+    // no such rise and settles the tick: see
+    // `under_the_shipped_rise_law_targetable_while_rising_moves_nothing_and_the_knight_locks_on_the_tick_after_the_surfacing`.
+    let cfg = with_rise_law(RiseLaw::EngineRisingPhase, config());
+    assert!(cfg.calib.hide_targetable_while_rising, "the shipped TARGETABLE_WHILE_RISING this test pins");
+    let (mut s, tesla, knight) = approach(cfg);
     for _ in 0..400 {
         s.tick();
         let state = s.entity(tesla).expect("the Tesla lives through the scene").hide_state;

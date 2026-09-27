@@ -75,19 +75,29 @@ FIRECRACKER_LADDER = (200, 175, 150, 125, 100, 75, 50, 25, 0, 25)
 FIRECRACKER_CYCLE = 59
 #: centre to centre, its Range 6000 plus its radius 500 and the Giant's 750: inside it the Firecracker can re-enter
 FIRECRACKER_REACH = 6000 + 500 + 750
+#: the Firecracker's rocket releases 5 sparks where it lands (combat.SPAWN_PROJECTILE). They are the card's projectiles
+#: too, so the launch count must not see them. The Firecracker runs under both arms.
+KEY_SPARKS = "combat.SPAWN_PROJECTILE"
+SPARKS_NEW, SPARKS_OLD = "client_spark_fan", "not_read"
+#: a shot starts ProjectileStartRadius (200 for the Firecracker) from its firer, and the firer recoils about 200 on the
+#: launch tick. A spark starts at the landing point, on the target (about 4,000 away in these scenes).
+LAUNCH_REACH = 1500
 
 
-def overrides(arm) -> dict:
-    return {key: json.dumps(value) for key, value in zip(KEYS, arm, strict=True) if value is not None}
+def overrides(arm, extra=None) -> dict:
+    got = {key: json.dumps(value) for key, value in zip(KEYS, arm, strict=True) if value is not None}
+    got.update({key: json.dumps(value) for key, value in (extra or {}).items()})
+    return got
 
 
-def run(card, tap, play_tick, arm, ticks=330):
+def run(card, tap, play_tick, arm, ticks=330, extra=None):
     """A blue `card` played at `tap` on `play_tick`, a red Giant at GIANT_TAP on tick 1. Returns (rows, launches):
     rows maps each tick to the blue unit's (deploy ticks left, attack phase, target is the Giant, x, y, Giant x,
     Giant y)
     in millitiles, Giant fields None once it is gone; launches are the ticks on which a projectile of the blue card
-    appears that was not in flight the tick before."""
-    b = royalesim.Battle([card, "Giant"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
+    appears within LAUNCH_REACH of the blue unit, where none was the tick before. A projectile born far from the unit
+    is not a launch: the Firecracker's sparks appear where its rocket lands. `extra` sets more keys by name."""
+    b = royalesim.Battle([card, "Giant"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm, extra))
     b.reset(15, [[0] * 8, [1] * 8], 0, 200, [10_000, 10_000], None, [])
     rows, launches, before = {}, [], 0
     for t in range(1, ticks + 1):
@@ -99,10 +109,16 @@ def run(card, tap, play_tick, arm, ticks=330):
         units = [e for e in s["entities"] if e[F["tower_slot"]] < 0]
         me = [e for e in units if e[F["team"]] == 0]
         giant = [e for e in units if e[F["team"]] == 1]
-        mine = sum(p[P["firer_card_id"]] == 0 for p in s["projectiles"])
-        if mine > before:
+        near = 0
+        if me:
+            ux, uy = me[0][F["x"]] / SUB, me[0][F["y"]] / SUB
+            near = sum(
+                p[P["firer_card_id"]] == 0 and math.hypot(p[P["x"]] / SUB - ux, p[P["y"]] / SUB - uy) <= LAUNCH_REACH
+                for p in s["projectiles"]
+            )
+        if near > before:
             launches.append(t)
-        before = mine
+        before = near
         if me:
             e, g = me[0], (giant[0] if giant else None)
             rows[t] = (
@@ -207,11 +223,13 @@ def test_recoil_makes_the_cycle_79_ticks():
         assert phases[8] != 0, f"after the launch on {t} the attack phase on +9 is {phases[8]}, not back in the attack"
 
 
-def test_launch_recoils_the_firecracker_down_its_own_ladder():
+@pytest.mark.parametrize("sparks", [SPARKS_NEW, SPARKS_OLD])
+def test_launch_recoils_the_firecracker_down_its_own_ladder(sparks):
     """The same law on a second AttackPushBack, the Firecracker's 1000: a 10-tick ladder from the launch tick, 200
     first; out of the attack for the 9 ticks after the launch, back in on launch + 10, and the next launch 59 ticks
-    after the first (HitSpeed 3000 gives 60). A recoil or a hold sized to the Sparky's 750 fails it."""
-    rows, launches = run("Firecracker", DEPLOY_TAP, DEPLOY_TICK, RECOIL_ONLY)
+    after the first (HitSpeed 3000 gives 60). A recoil or a hold sized to the Sparky's 750 fails it. The sparks' arm
+    is named: the recoil and the cycle are the same under both, and the launch count must not see the sparks."""
+    rows, launches = run("Firecracker", DEPLOY_TAP, DEPLOY_TICK, RECOIL_ONLY, extra={KEY_SPARKS: sparks})
     assert len(launches) >= 2, f"the scenario drifted: only {len(launches)} Firecracker launches"
     first = launches[0]
     pre = rows[first - 1]

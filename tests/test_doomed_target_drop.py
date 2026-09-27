@@ -331,11 +331,11 @@ def test_the_keep_arm_keeps_the_doomed_target():
 
 
 def test_the_shipped_build_drops_the_doomed_target():
-    """No override at all. The compiled-in ledger ships the rescan arm, which drops the doomed target as
-    SHIPPED_ARM does, so the shipped build behaves as the client."""
+    """No override at all. The compiled-in ledger ships projectile_attackers_walk_drop (the loader2 flip), which drops
+    the doomed target as SHIPPED_ARM does, so the shipped build behaves as the client."""
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
     shipped = ledger["targeting"]["DOOMED_TARGET_DROP"]["value"]
-    assert shipped == "projectile_attackers_rescan", f"{KEY} ships {shipped!r}, not the rescan arm"
+    assert shipped == "projectile_attackers_walk_drop", f"{KEY} ships {shipped!r}, not the walk-drop arm"
     states, knight, minions = walk_scene(None)
     doom = Doom(states, knight, firer_card=TOWER_FIRER)
     assert_dropped_for_good(states, doom, knight, minions, doom.d + 1, towers(states))

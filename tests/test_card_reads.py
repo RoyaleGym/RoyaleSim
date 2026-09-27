@@ -259,17 +259,18 @@ def test_the_report_names_the_cards_the_mechanics_doc_calls_out(cards):
     # while calibration.json ships another value. The flip turns this entry red ON PURPOSE:
     # rewrite docs/mechanics.md's Electro Giant row, then point the entry at
     # ReflectAttackCrownTowerDamage, which no value runs.
-    # The same holds, since 2026-09-26, for the Inferno Dragon's ramp (combat.VARIABLE_DAMAGE)
-    # and the Mortar's MinimumRange (targeting.MINIMUM_RANGE): loaded, seen through
-    # LOADED_NOT_RUN, and each entry turns red ON PURPOSE when its key flips (rewrite that
-    # docs/mechanics.md row, then drop the entry). The Monk stays on the list under every value:
-    # its two damages come with no times, so no `variable_damage` block is written for it.
+    # The Inferno Dragon's ramp (combat.VARIABLE_DAMAGE) and the Mortar's MinimumRange
+    # (targeting.MINIMUM_RANGE) left this list at the loader2 flip, which ships both: the gate
+    # no longer reports them on the 15.535 table, and docs/mechanics.md lists them as modelled.
+    # The Monk stays under every value: its two damages come with no times, so no
+    # `variable_damage` block is written for it. The 2018 table carries no ramp columns at all,
+    # so on it the Inferno Dragon's VariableDamage2 is unread under every value too.
     want = {
-        "InfernoDragon": "VariableDamage2",
-        "Mortar": "MinimumRange",
         "GoldenKnight": "DashDamage",
         "Monk": "VariableDamage2",
     }
+    if table_vintage(cards) == "2018":
+        want["InfernoDragon"] = "VariableDamage2"
     # Four of these are cards the 2018 table predates, so on a clone the population is
     # Mortar and whatever else that vintage ships. Narrow to what the table under test
     # actually carries, and say so, rather than reporting an absent card as a gate that
@@ -373,7 +374,10 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # HideTimeMs, Hovering), GoblinHut (DeployDelay, IsBuilding, OnStartingAction, SpawnInterval, SpawnNumber,
     # SpawnPauseTime, projectile.only_enemies), Heal and Lightning (register entries only). Rage and WarmSpell
     # load fully read. None left. Measured against 72ed062's outside set with each build's own module.
-    outside_by_vintage = {"2018": 40, "15.535": 79}
+    # 79 -> 78 at the loader2 flip: the Inferno Dragon leaves, its ramp columns now run under
+    # combat.VARIABLE_DAMAGE = client16402_attack_progress_stages (the Inferno Tower keeps other
+    # unread columns and stays). None joined. Measured against the pre-flip set with each build.
+    outside_by_vintage = {"2018": 40, "15.535": 78}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

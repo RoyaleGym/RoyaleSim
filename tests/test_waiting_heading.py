@@ -121,10 +121,11 @@ def test_the_arm_does_nothing_when_no_member_waits():
 
 
 def test_the_shipped_build_steps_away_from_the_waiting_goblin():
-    """No override at all. The compiled-in ledger ships SHIPPED_ARM, so the shipped build behaves as the client."""
+    """No override at all. The compiled-in ledger ships static_obstacle since the loader2 flip (it holds zeroed's
+    heading law and adds the waiting member as a static obstacle), so the shipped build still walks this track."""
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
     shipped = ledger["movement"]["WAITING_HEADING"]["value"]
-    assert shipped == SHIPPED_ARM, f"{KEY} ships {shipped!r}, not the arm this file names as shipped"
+    assert shipped == "static_obstacle", f"{KEY} ships {shipped!r}, not static_obstacle"
     got = knight(None)
     assert got[140] == KNIGHT_TRUTH[140]
     assert all(off(got[t], KNIGHT_TRUTH[t]) <= 60 for t in KNIGHT_TRUTH), got
