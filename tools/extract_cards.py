@@ -1220,6 +1220,145 @@ def summon_members(t: dict, key: str, s: dict, res: dict) -> list[dict] | None:
     return [{"character": c, "offset_x_milli": x, "offset_y_milli": y} for c, x, y in zip(lst, xs, ys, strict=True)]
 
 
+# THE RUNE GIANT'S ENCHANT (15.535): the keys each action row of the shape may carry. A row
+# with any other key is a shape nobody has read, so the block is not written and the card stays
+# refused. `StatsTags.*` arrive as one inline table, `StatsTags`.
+ENCHANT_COLLECT_KEYS = frozenset({
+    "ClassType", "ActionDelay", "UseAbility", "MaxFriendlyTroops", "DistanceToGetTargets",
+    "DistanceToBuff", "DistanceToUnbuff", "TargetFilter", "Cooldown", "Projectile", "BuffDelay",
+    "ActionWhenUnitBuffed", "StatsTags", "OnBuffAction",
+})
+ENCHANT_BUFF_KEYS = frozenset({
+    "ClassType", "Singleton", "AttackAmount", "InstigatorDepth", "VisualActionForEnemyTarget",
+    "GameTagsToSet", "AddedCrownTowerDamage", "AddedDamage", "FinishIfInstigatorDies", "StatsTags",
+    "DamageMultiplierPerUnitNames", "DamageMultiplierPerUnitValues", "OnFinishedAction",
+    "AttackAmountAction",
+})
+ENCHANT_VISUAL_KEYS = frozenset({
+    "ClassType", "Singleton", "AddedDamageEffect", "OnAddedDamageAction", "AddedDamageMergeDuration",
+})
+# The three mechanic classes the block stands for: the loader checks the row's graph against them.
+ENCHANT_CLASSES = ["ActionGiantBufferBuff", "ActionGiantBufferBuffVisual", "ActionGiantBufferCollectFriends"]
+# The tag a row sets to be left out of the Rune Giant's pick (game_tags.csv: units that cannot be
+# enchanted by the Rune Giant or the Chef).
+ENCHANT_EXCLUDE_TAG = "NO_GIANTBUFFER_CHEF_ENCHANTMENT"
+
+
+def _present(a: dict) -> set[str]:
+    """The keys an action row sets."""
+    return {k for k, v in a.items() if v is not None}
+
+
+def _cosmetic_inline(v) -> bool:
+    """An inline sub-action ([ACTION.name.Field]) that only plays an effect, or none at all."""
+    return v is None or (isinstance(v, dict) and v.get("ClassType") == "ActionPlayEffect")
+
+
+def _cosmetic_action(acts, name, seen: tuple[str, ...] = ()) -> bool:
+    """A named action that only plays effects: an ActionPlayEffect, or an ActionSelect or
+    ActionGroup whose every branch is one."""
+    a = acts.get(name) if isinstance(name, str) else None
+    if a is None or name in seen:
+        return False
+    if a["ClassType"] == "ActionPlayEffect":
+        return True
+    if a["ClassType"] in ("ActionSelect", "ActionGroup"):
+        subs = acts.arrays.get(name, {}).get("SubActions") or [a["SubActions"]]
+        return all(_cosmetic_action(acts, s, (*seen, name)) for s in subs)
+    return False
+
+
+def enchant_friends(t: dict, rec: dict) -> dict | None:
+    """THE RUNE GIANT'S ENCHANT as a named block (15.535): the row's OnStartingAction is an
+    ActionGiantBufferCollectFriends that sends a homing projectile to its friends, and the
+    projectile's hit runs an ActionGiantBufferBuff on them. The parameters the loader reads, or
+    None for every other row.
+
+    Fail-closed, so the card stays refused with today's reason on: a root of another class; a
+    key outside the known sets; the ability path (UseAbility) or an un-enchant distance; a
+    non-cosmetic OnBuffAction, OnFinishedAction or AttackAmountAction; multiplier names and
+    values of different lengths; a visual of another class; a projectile that deals damage, does
+    not home, is not own-troops-only or may reset its target; an on-hit group that does not run
+    the enchant at delay 0 beside cosmetic actions only."""
+    if "actions" not in t or not isinstance(rec, Row):
+        return None
+    acts = t["actions"]
+    root = rec["OnStartingAction"]
+    a = acts.get(root) if isinstance(root, str) else None
+    if a is None or a["ClassType"] != "ActionGiantBufferCollectFriends" or not _present(a) <= ENCHANT_COLLECT_KEYS:
+        return None
+    if a["UseAbility"] or a["DistanceToUnbuff"] not in (0, None) or not _cosmetic_inline(a["OnBuffAction"]):
+        return None
+    ename = a["ActionWhenUnitBuffed"]
+    e = acts.get(ename) if isinstance(ename, str) else None
+    if e is None or e["ClassType"] != "ActionGiantBufferBuff" or not _present(e) <= ENCHANT_BUFF_KEYS:
+        return None
+    if not e["Singleton"]:
+        return None
+    if not (_cosmetic_inline(e["OnFinishedAction"]) and _cosmetic_inline(e["AttackAmountAction"])):
+        return None
+    arrays = acts.arrays.get(ename, {})
+
+    def listed(col: str) -> list:
+        # element 0 is the column; a longer list is in `arrays` (OverlayTable.overlay)
+        return arrays.get(col) or ([e[col]] if e[col] is not None else [])
+
+    names, values = listed("DamageMultiplierPerUnitNames"), listed("DamageMultiplierPerUnitValues")
+    if len(names) != len(values):
+        return None
+    if not all(isinstance(n, str) and isinstance(m, int) for n, m in zip(names, values, strict=True)):
+        return None
+    vname = e["VisualActionForEnemyTarget"]
+    v = acts.get(vname) if isinstance(vname, str) else None
+    if v is None or v["ClassType"] != "ActionGiantBufferBuffVisual" or not _present(v) <= ENCHANT_VISUAL_KEYS:
+        return None
+    if not _cosmetic_action(acts, v["OnAddedDamageAction"]):
+        return None
+    p = t["projectiles"].get(a["Projectile"]) if isinstance(a["Projectile"], str) else None
+    if p is None or p["Damage"] not in (0, None) or not p["Homing"] or not p["OnlyOwnTroops"] or p["OnlyEnemies"]:
+        return None
+    if p["AllowResetTarget"] is not False or not isinstance(p["Speed"], int) or p["Speed"] <= 0:
+        return None
+    hit = p["OnHitTargetAction"]
+    if not isinstance(hit, dict) or hit.get("ClassType") != "ActionGroup":
+        return None
+    subs, delays = hit.get("SubActions"), hit.get("SubActionsDelay")
+    subs = subs if isinstance(subs, list) else [subs]
+    delays = delays if isinstance(delays, list) else [delays] * len(subs)
+    if len(subs) != len(delays) or list(zip(subs, delays, strict=True)).count((ename, 0)) != 1:
+        return None
+    if not all(s == ename or _cosmetic_action(acts, s) for s in subs):
+        return None
+    def tagged(r) -> bool:
+        tags = r.get("GameTagsToSet")
+        return isinstance(tags, str) and ENCHANT_EXCLUDE_TAG in [x.strip() for x in tags.split(",")]
+
+    excluded = sorted(n for k in ("characters", "buildings") for n, r in t[k].records.items() if tagged(r))
+    return {
+        "collect": {
+            "action": root,
+            "action_delay_ms": a["ActionDelay"],
+            "cooldown_ms": a["Cooldown"],
+            "max_targets": a["MaxFriendlyTroops"],
+            "pick_radius_milli": a["DistanceToGetTargets"],
+            "buff_radius_milli": a["DistanceToBuff"],
+            "buff_delay_ms": a["BuffDelay"],
+            "target_filter": a["TargetFilter"],
+        },
+        "projectile": {"name": a["Projectile"], "speed": p["Speed"]},
+        "enchant": {
+            "action": ename,
+            "attack_amount": e["AttackAmount"],
+            "added_damage": e["AddedDamage"],
+            "added_crown_tower_damage": e["AddedCrownTowerDamage"],
+            "finish_if_instigator_dies_ms": e["FinishIfInstigatorDies"],
+            "multipliers": [[n, m] for n, m in zip(names, values, strict=True)],
+        },
+        "excluded_units": excluded,
+        "classes": list(ENCHANT_CLASSES),
+    }
+
+
 def raw_logic(rec: dict) -> dict:
     out = {}
     for h, v in rec.items():
@@ -1772,6 +1911,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         sel = attack_select(t, table, name, c)
         if sel is not None:
             u["attack_select"] = sel
+        # The Rune Giant's enchant, when the row's graph is one (`enchant_friends`); written only
+        # there, so every other row is unchanged.
+        ef = enchant_friends(t, c)
+        if ef is not None:
+            u["enchant_friends"] = ef
         # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
         # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
         # every other row are unchanged.
@@ -2150,6 +2294,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["mana"] = u["mana"]
     if "attack_select" in u:
         card["attack_select"] = u["attack_select"]
+    if "enchant_friends" in u:
+        card["enchant_friends"] = u["enchant_friends"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only and only where set (norm_unit): a card row whose own unit is a rider row carries

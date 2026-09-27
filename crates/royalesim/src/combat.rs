@@ -170,6 +170,28 @@ pub struct Projectile {
     /// `buff_first`, on the same shots only.
     #[serde(default)]
     pub src_level: i32,
+    /// THE RUNE GIANT'S PROJECTILE (state.rs `launch_due_enchants`): Some only on the projectile that carries an
+    /// enchant to a friend. It deals no damage: its landing on a live friend hands (friend, payload) to Resolve
+    /// (`step_projectiles`), which puts the enchant on it. None on every other shot. `default` so a snapshot saved
+    /// before it still loads; hashed only when Some.
+    #[serde(default)]
+    pub enchant: Option<EnchantPayload>,
+    /// THE ENCHANT BONUS this shot was fired with (`enchant_bonus`): added to what it deals to each victim, `bonus`
+    /// to a troop or a building and `bonus_crown` to a crown tower. 0 on every shot of an attacker that is not
+    /// enchanted, or not on its bonus attack. `default`; hashed only when not 0.
+    #[serde(default)]
+    pub bonus: i32,
+    #[serde(default)]
+    pub bonus_crown: i32,
+}
+
+/// What the Rune Giant's projectile carries (`Projectile::enchant`): the unit that sent it, its card (whose
+/// `EnchantDef` the enchant runs) and its level (the bonus is scaled at it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EnchantPayload {
+    pub source: EntityId,
+    pub card: u16,
+    pub level: i32,
 }
 
 /// The state of a spark carrier (`Projectile::carrier`).
@@ -181,6 +203,145 @@ pub struct Carrier {
     pub card: u16,
     /// Each spark's damage: the row's Damage scaled at the attacker's level when it fired.
     pub damage: i32,
+    /// Each spark's enchant bonus (`Projectile::bonus`), taken when the shot was fired. `default`; hashed only when
+    /// not 0.
+    #[serde(default)]
+    pub bonus: i32,
+    #[serde(default)]
+    pub bonus_crown: i32,
+}
+
+/// AN ENCHANT BONUS (`enchant_bonus`): what one hit adds, to a troop or a building (`hit`) and to a crown tower
+/// (`crown`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Bonus {
+    pub hit: i32,
+    pub crown: i32,
+}
+
+impl Bonus {
+    /// The bonus against a victim of `kind`.
+    #[inline]
+    pub fn on(self, kind: EntityKind) -> i32 {
+        if kind.is_crown_tower() {
+            self.crown
+        } else {
+            self.hit
+        }
+    }
+}
+
+/// THE ENCHANT BONUS of attacker `a`'s current attack, as (its direct hits, its sparks), both zero unless `a` carries
+/// an enchant and this attack is a bonus attack. The caller has already counted this attack (state.rs, the attack
+/// pass). Measured on client 15.535.29:
+/// - enchant.BONUS_ATTACKS = every_third_attack_from_enchant: the bonus lands on the 3rd, 6th, 9th ... attack after
+///   the enchant (AttackAmount 3), for as long as it lasts;
+/// - enchant.BONUS_LEVEL_SCALING = instigator_level: AddedDamage 86 scaled at the Rune Giant's level (+220 at 11,
+///   +182 at 9), whatever the carrier's level;
+/// - enchant.MULTIPLIER = per_mille_of_level1_then_scaled: a listed attacker takes that many thousandths of the
+///   level-1 figure, truncated, then scaled (the Electro Wizard +110 a bolt, the Hunter +20 a pellet);
+/// - enchant.CROWN_TOWER_BONUS = crown_column_no_percent: a crown tower takes AddedCrownTowerDamage scaled the same
+///   way, and the attacker's crown percent is not applied to it (a hypothesis: the two columns are equal on the one
+///   row, and the Knight's percent is 100).
+pub fn enchant_bonus(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> (Bonus, Bonus) {
+    use crate::state::{EnchantBonusAttacks, EnchantBonusLevel, EnchantCrownBonus, EnchantMultiplier};
+    let none = (Bonus::default(), Bonus::default());
+    let Some(s) = ents.enchant.get(a).copied().flatten() else { return none };
+    let Some(def) = cards.get(s.card).enchant.as_ref() else { return none };
+    let period = u32::from(def.period.max(1));
+    #[cfg(not(any(clash_plant = "enchant_bonus_ignored", clash_plant = "enchant_bonus_first_three")))]
+    let pays = match calib.enchant_bonus_attacks {
+        EnchantBonusAttacks::EveryThirdFromEnchant => s.count > 0 && s.count % period == 0,
+        EnchantBonusAttacks::FirstThree => s.count > 0 && s.count <= period,
+    };
+    #[cfg(clash_plant = "enchant_bonus_ignored")]
+    let pays = {
+        let _ = (calib.enchant_bonus_attacks, period);
+        false // PLANT: an enchanted unit's attacks carry no bonus.
+    };
+    #[cfg(clash_plant = "enchant_bonus_first_three")]
+    let pays = {
+        let _ = calib.enchant_bonus_attacks;
+        s.count > 0 && s.count <= period // PLANT: the bonus on the first AttackAmount attacks, then none.
+    };
+    if !pays {
+        return none;
+    }
+    #[cfg(not(clash_plant = "enchant_scaled_by_carrier"))]
+    let level = match calib.enchant_bonus_level {
+        EnchantBonusLevel::Instigator => Some(s.level),
+        EnchantBonusLevel::Carrier => Some(ents.level[a]),
+        EnchantBonusLevel::Flat => None,
+    };
+    #[cfg(clash_plant = "enchant_scaled_by_carrier")]
+    let level = {
+        let _ = calib.enchant_bonus_level;
+        Some(ents.level[a]) // PLANT: the bonus scaled at the carrier's level.
+    };
+    // A level-1 figure on the Rune Giant's ladder at `level`; a level the ladder does not hold (the carrier's, under
+    // carrier_level) keeps the level-1 figure, as an attack buff's pulse does.
+    let scale = |base: i32| match level {
+        Some(l) => cards.scaled(s.card, l, base).unwrap_or(base),
+        None => base,
+    };
+    let part = |added: i32, m: i32| -> i32 {
+        #[cfg(clash_plant = "enchant_multiplier_after_scaling")]
+        {
+            let _ = calib.enchant_multiplier;
+            return scale(added) * m / PER_MILLE_I32; // PLANT: the per mille taken of the scaled bonus.
+        }
+        #[cfg(clash_plant = "enchant_multiplier_percent")]
+        {
+            let _ = calib.enchant_multiplier;
+            return scale(added * m / PERCENT as i32); // PLANT: the table's values read as percents.
+        }
+        #[allow(unreachable_code)]
+        match calib.enchant_multiplier {
+            EnchantMultiplier::Level1ThenScaled => scale(added * m / PER_MILLE_I32),
+            EnchantMultiplier::OfScaled => scale(added) * m / PER_MILLE_I32,
+        }
+    };
+    let card = cards.get(ents.card[a]);
+    let bonus = |m: i32| -> Bonus {
+        let hit = part(def.added, m);
+        #[cfg(not(clash_plant = "crown_bonus_from_added_damage"))]
+        let crown = match calib.enchant_crown_bonus {
+            EnchantCrownBonus::CrownColumn => part(def.added_crown, m),
+            EnchantCrownBonus::AddedWithAttackerPercent => damage_against(EntityKind::PrincessTower, hit, card.crown_tower_damage_percent, calib.crown_rounding),
+        };
+        #[cfg(clash_plant = "crown_bonus_from_added_damage")]
+        let crown = {
+            let _ = (calib.enchant_crown_bonus, card);
+            hit // PLANT: a crown tower takes the AddedDamage bonus.
+        };
+        Bonus { hit, crown }
+    };
+    let (direct, spark) = def.per_mille(ents.card[a]);
+    (bonus(direct), bonus(spark))
+}
+
+/// `crate::card::PER_MILLE`, as the divisor the bonus arithmetic uses.
+const PER_MILLE_I32: i32 = crate::card::PER_MILLE;
+
+/// Add bonus (`hit`, `crown`) to the hits a splash just wrote (`hits`), in place: on every victim, or under
+/// enchant.SPLASH_BONUS = primary_target_only on `primary` alone. Measured on client 15.535.29 (every_victim): a
+/// Valkyrie's bonus swing gave its bonus to both victims. One Hit per victim, never a second one.
+fn add_splash_bonus(ents: &Entities, calib: &Calib, hits: &mut [Hit], b: Bonus, primary: EntityId) {
+    if b == Bonus::default() {
+        return;
+    }
+    #[cfg(not(clash_plant = "splash_bonus_primary_only"))]
+    let every = calib.enchant_splash_bonus == crate::state::EnchantSplashBonus::EveryVictim;
+    #[cfg(clash_plant = "splash_bonus_primary_only")]
+    let every = {
+        let _ = calib.enchant_splash_bonus;
+        false // PLANT: only the target the attack was aimed at takes the bonus.
+    };
+    for h in hits.iter_mut() {
+        if every || h.target == primary {
+            h.amount += b.on(ents.kind[h.target.index as usize]);
+        }
+    }
 }
 
 /// The state of a straight shot (`Projectile::straight`). Distances SUBTILES. `Default` is a
@@ -727,6 +888,9 @@ pub fn fire(
 ) {
     let card = cards.get(ents.card[a]);
     let ti = target.index as usize;
+    // THE ENCHANT BONUS of this attack (`enchant_bonus`): zero for every attacker that carries no enchant and on every
+    // attack of one that is not its bonus attack. It rides every hit the attack deals, one Hit per victim.
+    let (direct, spark) = enchant_bonus(ents, cards, calib, a);
     // THE ATTACK'S BUFF (card.rs `CardDef::attack_buff`): a projectile carries it to
     // its arrival tick, an instant hit applies it here. The per-pulse amount is the
     // ATTACKER's level-scaled figure, computed once, because the victim does not know
@@ -777,11 +941,12 @@ pub fn fire(
     // client 15.535.29: 314 = 123 x 256 % at level 11 on a Giant, landing on the frame a ranged member of the same
     // LoadTime would shoot. Its crown-tower share is the card's own (100); a bayonet on a crown tower is unmeasured. A
     // melee choice whose target is now flying (a retarget within the swing) fires the projectile: the filter's ground
-    // clause cannot hold for it.
+    // clause cannot hold for it. An enchanted member's bonus attack carries the enchant bonus on this hit as on any
+    // direct hit (`enchant_bonus`; a bayonet under an enchant is unmeasured).
     if let Some(sel) = card.attack_select {
         if melee_chosen(ents, a, ti, sel) {
             let amount = cards.scaled(ents.card[a], ents.level[a], sel.melee_damage).expect("level validated at spawn");
-            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false });
             if let Some(b) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
@@ -907,6 +1072,9 @@ pub fn fire(
                         release: None,
                         buff_first: card.attack_buff_first,
                         src_level: ents.level[a],
+                        enchant: None,
+                        bonus: direct.hit,
+                        bonus_crown: direct.crown,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -961,6 +1129,8 @@ pub fn fire(
                 from: pos,
                 card: ents.card[a],
                 damage: cards.scaled(ents.card[a], ents.level[a], sp.damage).expect("level validated at spawn"),
+                bonus: spark.hit,
+                bonus_crown: spark.crown,
             }),
             _ => None,
         };
@@ -986,10 +1156,14 @@ pub fn fire(
             firer_card: Some(ents.card[a]),
             straight: None,
             hook: None,
+            // A carrier deals nothing itself: its sparks carry the bonus (`Carrier::bonus`).
+            bonus: if carrier.is_some() { 0 } else { direct.hit },
+            bonus_crown: if carrier.is_some() { 0 } else { direct.crown },
             carrier,
             release: card.projectile_area.as_ref().map(|_| (ents.card[a], ents.level[a])),
             buff_first: card.attack_buff_first,
             src_level: ents.level[a],
+            enchant: None,
         });
         return;
     }
@@ -1002,7 +1176,9 @@ pub fn fire(
         let centre = if card.self_as_aoe_center { ents.pos[a] } else { ents.pos[ti] };
         #[cfg(clash_plant = "aoe_centre_on_target")]
         let centre = ents.pos[ti];
+        let from = dmg.hits.len();
         splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
+        add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
         apply_attack_buff(ents, calib, atk_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
     } else {
         // combat.HIT_BEYOND_CANCEL_RANGE = no_damage: a single-target direct hit whose target stands more than
@@ -1017,7 +1193,7 @@ pub fn fire(
         #[cfg(clash_plant = "hit_beyond_cancel_deals_damage")]
         let void = false; // PLANT (regression): the far hit deals its full damage under the new arm too.
         if !void {
-            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding), ignores_hide: false });
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false });
             if let Some(b) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
@@ -1032,7 +1208,7 @@ pub fn fire(
                 continue;
             }
             let bi = b.index as usize;
-            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding), ignores_hide: false });
+            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false });
             if let Some(bf) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
@@ -1140,6 +1316,9 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         release: None,
         buff_first: false,
         src_level: ents.level[a],
+        enchant: None,
+        bonus: 0,
+        bonus_crown: 0,
     });
 }
 
@@ -1198,6 +1377,8 @@ fn straight_hits(
 ) -> bool {
     let (team, damage, crown_pct, hits_air, hits_ground, buff, pulse) = (p.team, p.damage, p.crown_pct, p.hits_air, p.hits_ground, p.buff, p.pulse);
     let (src_level, before_damage) = (p.src_level, p.buff_first);
+    // The enchant bonus the shot was fired with (`enchant_bonus`), on each unit it hits.
+    let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
     let Some(s) = p.straight.as_mut() else { return false };
     let ctx = SpellCtx { ents, hash, cards, calib, steps: &[] };
     hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
@@ -1231,7 +1412,7 @@ fn straight_hits(
             Err(k) => s.hit.insert(k, id),
         }
         any = true;
-        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding), ignores_hide: false });
+        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false });
         if let Some(b) = buff {
             fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
         }
@@ -1390,6 +1571,18 @@ pub fn step_projectiles(
         if np != p.aim {
             return true;
         }
+        // THE RUNE GIANT'S PROJECTILE deals no damage either. Its landing on a live friend is handed to Resolve
+        // (state.rs `apply_effects` puts the enchant on it); one whose friend died in flight lands on nothing (the
+        // table's AllowResetTarget is false).
+        if let Some(en) = p.enchant {
+            #[cfg(not(clash_plant = "projectile_enchant_dropped"))]
+            if alive {
+                fx.enchants.push((p.target, en));
+            }
+            #[cfg(clash_plant = "projectile_enchant_dropped")]
+            let _ = en; // PLANT: the projectile lands and enchants nobody.
+            return false;
+        }
         // combat.SPECIAL_HOOK = client_hook_drag: a hook deals no damage. Its landing on a
         // live target is handed to Resolve (state.rs `apply_effects` starts the drag); a hook
         // whose target died in flight lands on nothing.
@@ -1404,12 +1597,16 @@ pub fn step_projectiles(
             release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released, tick);
             return false;
         }
+        // The enchant bonus the shot was fired with (`enchant_bonus`): on each splash victim, or on the one target.
+        let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
         if p.splash > 0 {
+            let from = dmg.hits.len();
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
+            add_splash_bonus(ents, calib, &mut dmg.hits[from..], bonus, p.target);
             apply_attack_buff(ents, calib, p.buff, p.pulse, (p.src_level, p.buff_first), p.target, scratch, fx);
         } else if alive {
             let ti = p.target.index as usize;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding), ignores_hide: false });
+            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: false });
             if let Some(b) = p.buff {
                 // The shot's buff rides its arrival. A row that sets ApplyBuffBeforeDamage (the Mother Witch's) says so
                 // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills
@@ -1485,6 +1682,9 @@ fn release_sparks(
             release: None,
             buff_first: false,
             src_level: p.src_level,
+            enchant: None,
+            bonus: c.bonus,
+            bonus_crown: c.bonus_crown,
         };
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);
@@ -1526,17 +1726,18 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 /// flight time never stretches the ETA of the shots that do.
 /// A SPARK CARRIER (`Projectile::carrier`, only under combat.SPAWN_PROJECTILE = client_spark_fan)
 /// deals nothing itself and flies to a fixed point, and is skipped for the same reason; its sparks
-/// are straight shots.
+/// are straight shots. THE RUNE GIANT'S PROJECTILE (`Projectile::enchant`) deals nothing and flies at a friend, and
+/// is skipped too. A shot's enchant bonus (`Projectile::bonus`) is part of what it deals.
 pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep) -> Vec<bool> {
     let cap = ents.capacity();
     let mut pending = vec![0i64; cap];
     let mut last_ms = vec![0i32; cap];
     for p in projectiles {
-        if p.straight.is_some() || p.hook.is_some() || p.carrier.is_some() || !ents.is_alive(p.target) {
+        if p.straight.is_some() || p.hook.is_some() || p.carrier.is_some() || p.enchant.is_some() || !ents.is_alive(p.target) {
             continue;
         }
         let t = p.target.index as usize;
-        pending[t] += damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) as i64;
+        pending[t] += (damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) + Bonus { hit: p.bonus, crown: p.bonus_crown }.on(ents.kind[t])) as i64;
         last_ms[t] = last_ms[t].max(ticks_to_land(ents, p, step) * tick_ms);
     }
     #[cfg(not(clash_plant = "doomed_eta_ignored"))]

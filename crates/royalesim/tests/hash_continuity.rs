@@ -134,6 +134,9 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     ("cards.json", "WitchMother"),
     ("cards.json", "RoyalDelivery"),
     ("cards.json", "GoblinCurse"),
+    // The Rune Giant, with his enchant (the ledger's `enchant` section). It needs no summon-only unit, so no later slot
+    // moves once it is removed.
+    ("cards.json", "GiantBuffer"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

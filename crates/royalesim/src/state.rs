@@ -546,6 +546,39 @@ pub struct Calib {
     pub area_projectile_ignore_buildings: AreaProjectileIgnoreBuildings,
     #[serde(default = "strike_due_default")]
     pub strike_due: StrikeDue,
+    /// The Rune Giant's enchant (the ledger's `enchant` section; `enchant_pass`, `launch_due_enchants`, combat.rs
+    /// `enchant_bonus`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held a Rune Giant, and each
+    /// `default` is the shipped arm.
+    #[serde(default = "enchant_collect_delay_origin_default")]
+    pub enchant_collect_delay_origin: EnchantDelayOrigin,
+    #[serde(default = "enchant_launch_delay_default")]
+    pub enchant_launch_delay: EnchantLaunchDelay,
+    #[serde(default = "enchant_pick_reach_default")]
+    pub enchant_pick_reach: EnchantPickReach,
+    #[serde(default = "enchant_pick_order_default")]
+    pub enchant_pick_order: EnchantPickOrder,
+    #[serde(default = "enchant_slots_default")]
+    pub enchant_slots: EnchantSlots,
+    #[serde(default = "enchant_empty_pick_default")]
+    pub enchant_empty_pick: EnchantEmptyPick,
+    #[serde(default = "enchant_cooldown_origin_default")]
+    pub enchant_cooldown_origin: EnchantCooldownOrigin,
+    #[serde(default = "enchant_stun_at_pick_default")]
+    pub enchant_stun_at_pick: EnchantStunAtPick,
+    #[serde(default = "enchant_bonus_attacks_default")]
+    pub enchant_bonus_attacks: EnchantBonusAttacks,
+    #[serde(default = "enchant_bonus_level_default")]
+    pub enchant_bonus_level: EnchantBonusLevel,
+    #[serde(default = "enchant_multiplier_default")]
+    pub enchant_multiplier: EnchantMultiplier,
+    #[serde(default = "enchant_splash_bonus_default")]
+    pub enchant_splash_bonus: EnchantSplashBonus,
+    #[serde(default = "enchant_crown_bonus_default")]
+    pub enchant_crown_bonus: EnchantCrownBonus,
+    #[serde(default = "enchant_instigator_death_default")]
+    pub enchant_instigator_death: EnchantInstigatorDeath,
+    #[serde(default = "enchant_buff_range_check_default")]
+    pub enchant_buff_range_check: EnchantBuffRange,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -1283,6 +1316,66 @@ fn area_projectile_ignore_buildings_default() -> AreaProjectileIgnoreBuildings {
 
 fn strike_due_default() -> StrikeDue {
     StrikeDue::ClockAtOrBelowZero
+}
+
+fn enchant_collect_delay_origin_default() -> EnchantDelayOrigin {
+    EnchantDelayOrigin::FromCreation
+}
+
+fn enchant_launch_delay_default() -> EnchantLaunchDelay {
+    EnchantLaunchDelay::BuffDelayCeilPlusOne
+}
+
+fn enchant_pick_reach_default() -> EnchantPickReach {
+    EnchantPickReach::Centre7550
+}
+
+fn enchant_pick_order_default() -> EnchantPickOrder {
+    EnchantPickOrder::NearestThenTeamSeq
+}
+
+fn enchant_slots_default() -> EnchantSlots {
+    EnchantSlots::HeldAtOnce
+}
+
+fn enchant_empty_pick_default() -> EnchantEmptyPick {
+    EnchantEmptyPick::RetryEachTick
+}
+
+fn enchant_cooldown_origin_default() -> EnchantCooldownOrigin {
+    EnchantCooldownOrigin::FromLaunch
+}
+
+fn enchant_stun_at_pick_default() -> EnchantStunAtPick {
+    EnchantStunAtPick::PickWaitsForStunEnd
+}
+
+fn enchant_bonus_attacks_default() -> EnchantBonusAttacks {
+    EnchantBonusAttacks::EveryThirdFromEnchant
+}
+
+fn enchant_bonus_level_default() -> EnchantBonusLevel {
+    EnchantBonusLevel::Instigator
+}
+
+fn enchant_multiplier_default() -> EnchantMultiplier {
+    EnchantMultiplier::Level1ThenScaled
+}
+
+fn enchant_splash_bonus_default() -> EnchantSplashBonus {
+    EnchantSplashBonus::EveryVictim
+}
+
+fn enchant_crown_bonus_default() -> EnchantCrownBonus {
+    EnchantCrownBonus::CrownColumn
+}
+
+fn enchant_instigator_death_default() -> EnchantInstigatorDeath {
+    EnchantInstigatorDeath::FinishAfter
+}
+
+fn enchant_buff_range_check_default() -> EnchantBuffRange {
+    EnchantBuffRange::AtArrival
 }
 
 macro_rules! calib_enum {
@@ -2664,6 +2757,160 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// enchant.COLLECT_DELAY_ORIGIN -- where the Rune Giant's ActionDelay counts from (`enchant_pass`).
+    EnchantDelayOrigin {
+        /// From the tick he is created, his deploy beside it: his first look is on his first walking tick. Measured
+        /// on client 15.535.29.
+        FromCreation = "from_creation",
+        /// From the end of his deploy: refuted (every first projectile came 27 ticks after his first tick).
+        AtDeployEnd = "at_deploy_end",
+    }
+);
+calib_enum!(
+    /// enchant.LAUNCH_DELAY -- how long after the pick the projectile leaves (`enchant_launch_ms`).
+    EnchantLaunchDelay {
+        /// ceil(BuffDelay / TICK_MS) + 1 ticks, 7 for BuffDelay 280. Measured on client 15.535.29 as 7 ticks; the
+        /// formula is an interim reading of that one value.
+        BuffDelayCeilPlusOne = "bolt_7_ticks_after_pick",
+        /// ceil(BuffDelay / TICK_MS) ticks, 6: refuted.
+        BuffDelayCeil = "buff_delay_ceil",
+        /// On the pick tick itself: refuted.
+        AtPick = "at_pick",
+    }
+);
+calib_enum!(
+    /// enchant.PICK_REACH -- how far a friend may stand to be picked (`enchant_candidates`), centre to centre on
+    /// start-of-tick positions: DistanceToGetTargets plus an extra, native.
+    EnchantPickReach {
+        /// 7000 + 550. Measured on client 15.535.29: the bound lies in [7536.9, 7560), and 7550 is an interim inside it.
+        Centre7550 = "centre_start_of_tick_7550",
+        /// DistanceToGetTargets alone: refuted (a friend at 7337.6 was picked).
+        Centre7000 = "centre_7000",
+        /// 7750: refuted (a friend at 7560 was not picked).
+        Centre7750 = "centre_7750",
+    }
+);
+calib_enum!(
+    /// enchant.PICK_ORDER -- which friends in reach the Rune Giant picks first (`enchant_candidates`).
+    EnchantPickOrder {
+        /// The nearest (squared centre distance), ties to the earliest created. Measured on client 15.535.29 (ties not
+        /// measured).
+        NearestThenTeamSeq = "nearest_then_team_seq",
+        /// The earliest created: refuted.
+        Creation = "creation",
+    }
+);
+calib_enum!(
+    /// enchant.SLOTS -- how many friends a look may pick (`enchant_pass`).
+    EnchantSlots {
+        /// MaxFriendlyTroops less the friends holding his enchant or with his projectile in flight at them. Measured
+        /// once on client 15.535.29.
+        HeldAtOnce = "max_targets_held_at_once",
+        /// MaxFriendlyTroops new friends on every look: refuted by that one sample.
+        FreshPick = "fresh_pick_of_max_targets",
+    }
+);
+calib_enum!(
+    /// enchant.EMPTY_PICK -- what a look with nobody in reach does (`enchant_pass`).
+    EnchantEmptyPick {
+        /// He looks again on the next tick. Measured on client 15.535.29.
+        RetryEachTick = "retry_each_tick",
+        /// He waits a whole Cooldown: refuted.
+        RestartCooldown = "restart_cooldown",
+    }
+);
+calib_enum!(
+    /// enchant.COOLDOWN_ORIGIN -- where the Cooldown to the next look counts from (`launch_due_enchants`).
+    EnchantCooldownOrigin {
+        /// From the launch: the next look is the launch + 61 ticks. Measured once on client 15.535.29.
+        FromLaunch = "from_launch",
+        /// From the pick: refuted by that one sample.
+        FromPick = "from_pick",
+    }
+);
+calib_enum!(
+    /// enchant.STUN_AT_PICK -- what a stun or a freeze does to the Rune Giant's look (`enchant_pass`).
+    EnchantStunAtPick {
+        /// His clocks run on; a look that falls while he is held waits for the first tick he is not. Measured on client
+        /// 15.535.29 where it can be told apart; one run's projectile came 2 ticks earlier than this gives.
+        PickWaitsForStunEnd = "pick_waits_for_stun_end",
+        /// His clocks stop while he is held: refuted.
+        TimerPauses = "timer_pauses",
+        /// A stun changes nothing: refuted.
+        Ignored = "ignored",
+    }
+);
+calib_enum!(
+    /// enchant.BONUS_ATTACKS -- which attacks of an enchanted unit carry the bonus (combat.rs `enchant_bonus`).
+    EnchantBonusAttacks {
+        /// Every AttackAmount-th attack after the enchant (the 3rd, 6th, 9th), for as long as it lasts. Measured on
+        /// client 15.535.29.
+        EveryThirdFromEnchant = "every_third_attack_from_enchant",
+        /// The first AttackAmount attacks, after which the enchant ends: refuted.
+        FirstThree = "first_three_attacks",
+    }
+);
+calib_enum!(
+    /// enchant.BONUS_LEVEL_SCALING -- at which level the bonus is scaled (combat.rs `enchant_bonus`).
+    EnchantBonusLevel {
+        /// The Rune Giant's level, on his ladder. Measured on client 15.535.29 (a level-9 Rune Giant gave +182 to
+        /// carriers at 11 and 12).
+        Instigator = "instigator_level",
+        /// The carrier's level: refuted.
+        Carrier = "carrier_level",
+        /// The level-1 figure, unscaled: refuted.
+        Flat = "flat",
+    }
+);
+calib_enum!(
+    /// enchant.MULTIPLIER -- how a listed attacker's per mille applies (combat.rs `enchant_bonus`).
+    EnchantMultiplier {
+        /// Per mille of the level-1 bonus, truncated, then scaled: the Hunter +20 a pellet at level 11. Measured on
+        /// client 15.535.29.
+        Level1ThenScaled = "per_mille_of_level1_then_scaled",
+        /// Per mille of the scaled bonus: refuted (it gives the Hunter +22).
+        OfScaled = "per_mille_of_scaled",
+    }
+);
+calib_enum!(
+    /// enchant.SPLASH_BONUS -- which victims of a splash take the bonus (combat.rs `add_splash_bonus`).
+    EnchantSplashBonus {
+        /// Every victim. Measured on client 15.535.29.
+        EveryVictim = "every_victim",
+        /// The attack's target alone: refuted.
+        PrimaryTargetOnly = "primary_target_only",
+    }
+);
+calib_enum!(
+    /// enchant.CROWN_TOWER_BONUS -- what a crown tower takes (combat.rs `enchant_bonus`).
+    EnchantCrownBonus {
+        /// AddedCrownTowerDamage, scaled like AddedDamage, the attacker's crown percent not applied. A hypothesis:
+        /// measured only where the two readings agree.
+        CrownColumn = "crown_column_no_percent",
+        /// The AddedDamage bonus through the attacker's crown percent.
+        AddedWithAttackerPercent = "added_damage_with_attacker_percent",
+    }
+);
+calib_enum!(
+    /// enchant.INSTIGATOR_DEATH -- what the Rune Giant's death does to the enchants he gave (`tick_status_timers`).
+    EnchantInstigatorDeath {
+        /// They end FinishIfInstigatorDies (5000 ms) after it. Measured on client 15.535.29 as a bracket: more than 80
+        /// and at most 120 ticks.
+        FinishAfter = "finish_after_5000_ms",
+        /// They end with him: refuted.
+        EndsAtDeath = "ends_at_death",
+    }
+);
+calib_enum!(
+    /// enchant.BUFF_RANGE_CHECK -- whether a landing projectile checks DistanceToBuff (`apply_effects`).
+    EnchantBuffRange {
+        /// A friend farther than DistanceToBuff from a living Rune Giant is not enchanted. A guess.
+        AtArrival = "at_arrival",
+        /// Not checked.
+        NotChecked = "not_checked",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3686,6 +3933,21 @@ impl Calib {
             area_spawned_area_start: pick(&v, &["spells", "AREA_SPAWNED_AREA_START", "value"], AreaSpawnedAreaStart::from_calibration_name)?,
             area_projectile_ignore_buildings: pick(&v, &["spells", "AREA_PROJECTILE_IGNORE_BUILDINGS", "value"], AreaProjectileIgnoreBuildings::from_calibration_name)?,
             strike_due: pick(&v, &["spells", "STRIKE_DUE", "value"], StrikeDue::from_calibration_name)?,
+            enchant_collect_delay_origin: pick(&v, &["enchant", "COLLECT_DELAY_ORIGIN", "value"], EnchantDelayOrigin::from_calibration_name)?,
+            enchant_launch_delay: pick(&v, &["enchant", "LAUNCH_DELAY", "value"], EnchantLaunchDelay::from_calibration_name)?,
+            enchant_pick_reach: pick(&v, &["enchant", "PICK_REACH", "value"], EnchantPickReach::from_calibration_name)?,
+            enchant_pick_order: pick(&v, &["enchant", "PICK_ORDER", "value"], EnchantPickOrder::from_calibration_name)?,
+            enchant_slots: pick(&v, &["enchant", "SLOTS", "value"], EnchantSlots::from_calibration_name)?,
+            enchant_empty_pick: pick(&v, &["enchant", "EMPTY_PICK", "value"], EnchantEmptyPick::from_calibration_name)?,
+            enchant_cooldown_origin: pick(&v, &["enchant", "COOLDOWN_ORIGIN", "value"], EnchantCooldownOrigin::from_calibration_name)?,
+            enchant_stun_at_pick: pick(&v, &["enchant", "STUN_AT_PICK", "value"], EnchantStunAtPick::from_calibration_name)?,
+            enchant_bonus_attacks: pick(&v, &["enchant", "BONUS_ATTACKS", "value"], EnchantBonusAttacks::from_calibration_name)?,
+            enchant_bonus_level: pick(&v, &["enchant", "BONUS_LEVEL_SCALING", "value"], EnchantBonusLevel::from_calibration_name)?,
+            enchant_multiplier: pick(&v, &["enchant", "MULTIPLIER", "value"], EnchantMultiplier::from_calibration_name)?,
+            enchant_splash_bonus: pick(&v, &["enchant", "SPLASH_BONUS", "value"], EnchantSplashBonus::from_calibration_name)?,
+            enchant_crown_bonus: pick(&v, &["enchant", "CROWN_TOWER_BONUS", "value"], EnchantCrownBonus::from_calibration_name)?,
+            enchant_instigator_death: pick(&v, &["enchant", "INSTIGATOR_DEATH", "value"], EnchantInstigatorDeath::from_calibration_name)?,
+            enchant_buff_range_check: pick(&v, &["enchant", "BUFF_RANGE_CHECK", "value"], EnchantBuffRange::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -3870,6 +4132,11 @@ impl Calib {
         only(&v, &["match", "MIRROR_LEVEL_BEYOND_MAX", "value"], "refuse_play")?;
         only(&v, &["match", "MIRROR_OF_VARIANT", "value"], "played_form")?;
         only(&v, &["match", "VARIANT_ELIXIR_MOMENT", "value"], "command")?;
+        // The Rune Giant's enchant: the pick's filter has one reading, and he does not stop when he enchants (measured
+        // on client 15.535.29). The 16.402 client's tables add a pause on each enchant; that arm is a candidate the
+        // engine does not run.
+        only(&v, &["enchant", "PICK_FILTER", "value"], "own_troops_unenchanted")?;
+        only(&v, &["enchant", "ON_BUFF_PAUSE", "value"], "none")?;
         // THE SPECIAL ATTACKS' PAIRINGS. The ramp and the first-hit load read combat.ATTACK_CYCLE's
         // progress counter and load timer, which the windup arm does not keep; the recoil IS the
         // knockback ladder, and its measured re-entry (progress 500 on the launch + 9 for the
@@ -4371,6 +4638,13 @@ pub struct EntityView<'a> {
     /// AN ATTACHED RIDER's mount while it lives (card.rs `AttachDef`; entity.rs `attached`): the unit
     /// it rides and stands on. None on every other entity.
     pub attached_to: Option<EntityId>,
+    /// THE ENCHANT this unit carries (entity.rs `EnchantSlot`: the Rune Giant that gave it, the attacks counted since,
+    /// the ms left once he is gone), or None.
+    pub enchant: Option<crate::entity::EnchantSlot>,
+    /// A Rune Giant's look (entity.rs `enchant_state`, `enchant_ms`; 0 / 0 on every other entity): 1 waiting, 2
+    /// looking, 3 launching, and the ms its clock has left.
+    pub enchant_state: u8,
+    pub enchant_ms: i32,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -4873,6 +5147,21 @@ pub const LIFE_WAKE_BUILDING_EXTRA: i64 = 228;
 /// level, and the even wave takes the larger x. Measured on client 15.535.29: the cut lies in (13.4, 14.3]; whether it is
 /// a threshold on the difference or a rounding of the points is open.
 pub const LIFE_SIDE_TIE_CUT: i64 = 14;
+
+/// enchant.PICK_REACH = centre_start_of_tick_7550: how much further than DistanceToGetTargets (7000) a friend may stand,
+/// centre to centre, to be picked by the Rune Giant, native. Measured on client 15.535.29: a friend at 7536.9 was picked
+/// and one at 7560.0 was not, so the bound lies in [7536.9, 7560); 550 is an interim inside it.
+pub const ENCHANT_PICK_REACH_EXTRA: i64 = 550;
+
+/// enchant.PICK_REACH = centre_7750's extra, native (a refuted arm, kept runnable).
+pub const ENCHANT_PICK_REACH_EXTRA_7750: i64 = 750;
+
+/// The Rune Giant's look (entity.rs `enchant_state`): not started, waiting out ActionDelay or Cooldown, looking,
+/// launching.
+pub const ENCHANT_NOT_STARTED: u8 = 0;
+pub const ENCHANT_WAITING: u8 = 1;
+pub const ENCHANT_LOOKING: u8 = 2;
+pub const ENCHANT_LAUNCHING: u8 = 3;
 
 /// THE DASH GOAL (combat.DASH_ATTACK = client_dash), native: the centre of the 500-cell holding the point `rr` (own
 /// radius + target radius, native) short of `target`'s centre on the line to `actor`, the target's centre itself when
@@ -5976,6 +6265,272 @@ impl BattleState {
         Some((team, self.ents.team_seq[i], 0, p))
     }
 
+    /// THE RUNE GIANT'S LOOK (card.rs `EnchantDef`; the 15.535.29 tables' ActionGiantBufferCollectFriends), one step per
+    /// tick at the end of the Spawn phase, on start-of-tick positions (every move of the tick comes later), the units
+    /// created this tick included. Measured on client 15.535.29:
+    /// - ActionDelay (1000) counts from the tick he is created (enchant.COLLECT_DELAY_ORIGIN): his first look is 20
+    ///   ticks later, on his first walking tick;
+    /// - a look picks the nearest friends in reach (enchant.PICK_ORDER, PICK_REACH, PICK_FILTER), as many as he has
+    ///   free places (enchant.SLOTS: MaxFriendlyTroops less the friends holding his enchant or with his projectile in
+    ///   flight); with nobody in reach he looks again the next tick (enchant.EMPTY_PICK);
+    /// - the projectile leaves 7 ticks after the pick (enchant.LAUNCH_DELAY; `launch_due_enchants`), and the next look
+    ///   comes Cooldown after the launch (enchant.COOLDOWN_ORIGIN);
+    /// - a stun or a freeze holds a look, not his clocks (enchant.STUN_AT_PICK).
+    fn enchant_pass(&mut self) {
+        let cards = Arc::clone(&self.cfg.cards);
+        let dt = self.cfg.calib.tick_ms;
+        let c = &self.cfg.calib;
+        let (origin, stun, empty, slots) = (c.enchant_collect_delay_origin, c.enchant_stun_at_pick, c.enchant_empty_pick, c.enchant_slots);
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] {
+                continue;
+            }
+            let Some(def) = cards.get(self.ents.card[i]).enchant.as_ref() else { continue };
+            let held = self.ents.held(&cards.buffs, i);
+            #[cfg(not(clash_plant = "enchant_stun_pauses_timer"))]
+            let paused = held && stun == EnchantStunAtPick::TimerPauses;
+            #[cfg(clash_plant = "enchant_stun_pauses_timer")]
+            let paused = held; // PLANT: a stun stops his clocks.
+            if self.ents.enchant_state[i] == ENCHANT_NOT_STARTED {
+                if origin == EnchantDelayOrigin::AtDeployEnd && self.ents.deploy_ms[i] > 0 {
+                    continue;
+                }
+                self.ents.enchant_state[i] = ENCHANT_WAITING;
+                self.ents.enchant_ms[i] = def.first_ms;
+            }
+            match self.ents.enchant_state[i] {
+                ENCHANT_WAITING => {
+                    if self.ents.enchant_ms[i] > 0 {
+                        if !paused {
+                            self.ents.enchant_ms[i] -= dt;
+                        }
+                        continue;
+                    }
+                    // the clock ran out on an earlier tick: this tick's pass looks
+                    self.ents.enchant_state[i] = ENCHANT_LOOKING;
+                }
+                ENCHANT_LAUNCHING => {
+                    // `launch_due_enchants` sends the projectiles in the Projectile phase of the tick this reaches 0
+                    if self.ents.enchant_ms[i] > 0 && !paused {
+                        self.ents.enchant_ms[i] -= dt;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            #[cfg(not(clash_plant = "enchant_stun_ignored"))]
+            let waits = held && stun != EnchantStunAtPick::Ignored;
+            #[cfg(clash_plant = "enchant_stun_ignored")]
+            let waits = {
+                let _ = held;
+                false // PLANT: he looks while he is held.
+            };
+            if waits {
+                continue;
+            }
+            let max = usize::from(def.max_targets);
+            #[cfg(not(clash_plant = "enchant_fresh_pick_of_two"))]
+            let free = match slots {
+                EnchantSlots::HeldAtOnce => max.saturating_sub(self.enchant_used(i)),
+                EnchantSlots::FreshPick => max,
+            };
+            #[cfg(clash_plant = "enchant_fresh_pick_of_two")]
+            let free = {
+                let _ = slots;
+                max // PLANT: every look picks MaxFriendlyTroops friends, whoever holds his enchant.
+            };
+            if free == 0 {
+                continue;
+            }
+            #[cfg(not(clash_plant = "enchant_never_picks"))]
+            let picks = self.enchant_candidates(i, def, free);
+            #[cfg(clash_plant = "enchant_never_picks")]
+            let picks: Vec<EntityId> = Vec::new(); // PLANT: a look finds nobody.
+            if picks.is_empty() {
+                #[cfg(not(clash_plant = "enchant_empty_pick_waits_cooldown"))]
+                let restart = empty == EnchantEmptyPick::RestartCooldown;
+                #[cfg(clash_plant = "enchant_empty_pick_waits_cooldown")]
+                let restart = {
+                    let _ = empty;
+                    true // PLANT: an empty look waits a whole Cooldown.
+                };
+                if restart {
+                    self.ents.enchant_state[i] = ENCHANT_WAITING;
+                    self.ents.enchant_ms[i] = def.cooldown_ms;
+                }
+                continue;
+            }
+            self.ents.enchant_picks[i] = picks;
+            self.ents.enchant_ms[i] = self.enchant_launch_ms(def);
+            self.ents.enchant_state[i] = ENCHANT_LAUNCHING;
+        }
+    }
+
+    /// The ms from a pick to its launch (enchant.LAUNCH_DELAY), a whole number of ticks. Measured on client 15.535.29: 7
+    /// ticks, which ceil(BuffDelay 280 / 50) + 1 gives; that formula is an interim reading of the one value.
+    fn enchant_launch_ms(&self, def: &crate::card::EnchantDef) -> i32 {
+        let dt = self.cfg.calib.tick_ms.max(1);
+        let ceil = (def.buff_delay_ms + dt - 1) / dt;
+        #[cfg(not(clash_plant = "enchant_launch_at_pick"))]
+        let ticks = match self.cfg.calib.enchant_launch_delay {
+            EnchantLaunchDelay::BuffDelayCeilPlusOne => ceil + 1,
+            EnchantLaunchDelay::BuffDelayCeil => ceil,
+            EnchantLaunchDelay::AtPick => 0,
+        };
+        #[cfg(clash_plant = "enchant_launch_at_pick")]
+        let ticks = {
+            let _ = (ceil, self.cfg.calib.enchant_launch_delay);
+            0 // PLANT: the projectile leaves on the pick tick.
+        };
+        ticks * dt
+    }
+
+    /// The places Rune Giant `i` has taken: the live friends holding his enchant and his projectiles in flight.
+    fn enchant_used(&self, i: usize) -> usize {
+        let me = self.ents.id_of(i);
+        let held = (0..self.ents.capacity()).filter(|&j| self.ents.alive[j] && self.ents.enchant[j].is_some_and(|s| s.source == me)).count();
+        let flying = self.projectiles.iter().filter(|p| p.enchant.is_some_and(|e| e.source == me)).count();
+        held + flying
+    }
+
+    /// THE FRIENDS RUNE GIANT `i` MAY PICK, at most `take`, in pick order. Measured on client 15.535.29
+    /// (enchant.PICK_FILTER = own_troops_unenchanted): his own troops, air and ground, deploying ones too; not buildings
+    /// or crown towers, not himself, not a friend already enchanted. The rows the tables tag
+    /// NO_GIANTBUFFER_CHEF_ENCHANTMENT are never picked (`enchantable`). In reach when the centre distance is at most
+    /// DistanceToGetTargets plus enchant.PICK_REACH's extra, on start-of-tick positions (the pass runs before the move).
+    /// enchant.PICK_ORDER = nearest_then_team_seq: the nearest first, ties to the earliest created (ties unmeasured).
+    fn enchant_candidates(&self, i: usize, def: &crate::card::EnchantDef, take: usize) -> Vec<EntityId> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let e = &self.ents;
+        #[cfg(not(clash_plant = "enchant_reach_7500"))]
+        let extra = match self.cfg.calib.enchant_pick_reach {
+            EnchantPickReach::Centre7550 => ENCHANT_PICK_REACH_EXTRA,
+            EnchantPickReach::Centre7000 => 0,
+            EnchantPickReach::Centre7750 => ENCHANT_PICK_REACH_EXTRA_7750,
+        };
+        #[cfg(clash_plant = "enchant_reach_7500")]
+        let extra = {
+            let _ = self.cfg.calib.enchant_pick_reach;
+            500 // PLANT: the bound is 7500, DistanceToGetTargets plus a friend's radius.
+        };
+        let reach = (def.pick_radius / K) as i64 + extra;
+        let mut found: Vec<(i64, u32, usize)> = Vec::new();
+        for j in 0..e.capacity() {
+            if j == i || !e.alive[j] || e.hp[j] <= 0 || e.team[j] != e.team[i] {
+                continue;
+            }
+            #[cfg(not(clash_plant = "enchant_picks_buildings"))]
+            if e.kind[j] != EntityKind::Troop {
+                continue;
+            }
+            #[cfg(clash_plant = "enchant_picks_buildings")]
+            if e.kind[j].is_crown_tower() {
+                continue; // PLANT: his own buildings may be picked.
+            }
+            #[cfg(not(clash_plant = "enchant_repicks_enchanted"))]
+            if e.enchant[j].is_some() {
+                continue;
+            }
+            if !self.enchantable(j, def) {
+                continue;
+            }
+            let (dx, dy) = ((e.pos[j].x / K - e.pos[i].x / K) as i64, (e.pos[j].y / K - e.pos[i].y / K) as i64);
+            let d2 = dx * dx + dy * dy;
+            if d2 > reach * reach {
+                continue;
+            }
+            #[cfg(not(clash_plant = "enchant_picks_by_creation"))]
+            let rank = match self.cfg.calib.enchant_pick_order {
+                EnchantPickOrder::NearestThenTeamSeq => d2,
+                EnchantPickOrder::Creation => 0,
+            };
+            #[cfg(clash_plant = "enchant_picks_by_creation")]
+            let rank = {
+                let _ = (self.cfg.calib.enchant_pick_order, d2);
+                0 // PLANT: the earliest created first, whatever the distance.
+            };
+            found.push((rank, e.team_seq[j], j));
+        }
+        found.sort_unstable();
+        found.into_iter().take(take).map(|(_, _, j)| e.id_of(j)).collect()
+    }
+
+    /// May friend `j` take an enchant? Not a row the tables tag NO_GIANTBUFFER_CHEF_ENCHANTMENT (`EnchantDef::excluded`),
+    /// not under ground (entity.rs `underground`), not invisible (target.rs `invisible_at`, the filter's FilterHidden),
+    /// and not an attached rider while its mount lives (entity.rs `attached`; the Ram Rider's rider), under either
+    /// rider.TARGETABLE_WHILE_ATTACHED arm. The last three are unmeasured.
+    fn enchantable(&self, j: usize, def: &crate::card::EnchantDef) -> bool {
+        #[cfg(not(clash_plant = "enchant_picks_tagged_unit"))]
+        if def.excluded.binary_search(&self.ents.card[j]).is_ok() {
+            return false;
+        }
+        #[cfg(clash_plant = "enchant_picks_tagged_unit")]
+        let _ = def; // PLANT: the tagged rows are picked like any other.
+        !self.ents.underground(j) && !self.ents.attached(j) && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, &self.ents, self.tick, j)
+    }
+
+    /// THE RUNE GIANT'S LAUNCH (enchant.LAUNCH_DELAY), at the top of the Projectile phase: every Rune Giant whose launch
+    /// clock ran out this tick sends each friend he picked (a dead one skipped) a homing projectile from where he stands
+    /// after his move, first stepping the next tick. Measured on client 15.535.29: it appears at his position on the 7th
+    /// tick after the pick and moves 600 on the next (the projectile row's Speed). Then his Cooldown runs
+    /// (enchant.COOLDOWN_ORIGIN), and he does not stop walking (enchant.ON_BUFF_PAUSE = none). In (team, team_seq) order,
+    /// so the order of the projectiles, and of their arrivals, is the same for both seats. A Rune Giant that died
+    /// launches nothing.
+    fn launch_due_enchants(&mut self) {
+        let cards = Arc::clone(&self.cfg.cards);
+        let mut due: Vec<usize> = (0..self.ents.capacity())
+            .filter(|&i| {
+                self.ents.alive[i] && self.ents.enchant_state[i] == ENCHANT_LAUNCHING && self.ents.enchant_ms[i] <= 0 && cards.get(self.ents.card[i]).enchant.is_some()
+            })
+            .collect();
+        due.sort_by_key(|&i| (self.ents.team[i] as u32, self.ents.team_seq[i]));
+        for i in due {
+            let def = cards.get(self.ents.card[i]).enchant.as_ref().expect("an enchant card, filtered above");
+            let payload = combat::EnchantPayload { source: self.ents.id_of(i), card: self.ents.card[i], level: self.ents.level[i] };
+            for t in std::mem::take(&mut self.ents.enchant_picks[i]) {
+                if !self.ents.is_alive(t) || self.ents.hp[t.index as usize] <= 0 {
+                    continue;
+                }
+                self.projectiles.push(Projectile {
+                    team: self.ents.team[i],
+                    pos: self.ents.pos[i],
+                    target: t,
+                    aim: self.ents.pos[t.index as usize],
+                    speed: def.bolt_speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick,
+                    damage: 0,
+                    crown_pct: 100,
+                    splash: 0,
+                    hits_air: true,
+                    hits_ground: true,
+                    frac: Vec2::default(),
+                    fresh: true,
+                    buff: None,
+                    pulse: 0,
+                    firer_card: Some(self.ents.card[i]),
+                    straight: None,
+                    hook: None,
+                    carrier: None,
+                    release: None,
+                    buff_first: false,
+                    src_level: self.ents.level[i],
+                    enchant: Some(payload),
+                    bonus: 0,
+                    bonus_crown: 0,
+                });
+            }
+            self.ents.enchant_state[i] = ENCHANT_WAITING;
+            #[cfg(not(clash_plant = "enchant_cooldown_from_pick"))]
+            let from_pick = self.cfg.calib.enchant_cooldown_origin == EnchantCooldownOrigin::FromPick;
+            #[cfg(clash_plant = "enchant_cooldown_from_pick")]
+            let from_pick = true; // PLANT: the Cooldown counts from the pick.
+            self.ents.enchant_ms[i] = if from_pick { def.cooldown_ms - self.enchant_launch_ms(def) } else { def.cooldown_ms };
+            #[cfg(clash_plant = "enchant_pause_on_launch")]
+            {
+                self.ents.stun_ms[i] = self.ents.stun_ms[i].max(600); // PLANT: he stands for 600 ms on each launch.
+            }
+        }
+    }
+
     /// EMISSIONS ONTO THE BOARD: the units a pass decided to emit, each tagged (team,
     /// the emitter's team_seq, k), put in that canonical order before anything is
     /// created, so the creation order -- and therefore team_seq -- is slot-free
@@ -6463,7 +7018,46 @@ impl BattleState {
                     *slot = BuffSlot::default();
                 }
             }
+            self.tick_enchant_finish(i);
         }
+    }
+
+    /// enchant.INSTIGATOR_DEATH = finish_after_5000_ms: an enchant outlives the Rune Giant that gave it by
+    /// FinishIfInstigatorDies. The first run of this timer after his death (he is reaped in the Reap of the tick he dies,
+    /// so the next tick) sets it, and each later run takes a tick off it; it ends on the run that brings it to 0, 101
+    /// runs after his death for 5000 ms: an attack on the 100th tick after the death still pays. Measured on client
+    /// 15.535.29: a bonus paid 80 ticks after the death, and none 120 after. Under ends_at_death (refuted) it ends on
+    /// that first run.
+    fn tick_enchant_finish(&mut self, i: usize) {
+        #[cfg(clash_plant = "enchant_outlives_instigator")]
+        if self.ents.enchant[i].is_some() {
+            return; // PLANT: an enchant lasts for ever once given.
+        }
+        let Some(mut s) = self.ents.enchant[i] else { return };
+        let dt = self.cfg.calib.tick_ms;
+        let source_alive = self.ents.is_alive(s.source);
+        #[cfg(not(clash_plant = "enchant_ends_with_instigator"))]
+        let arm = self.cfg.calib.enchant_instigator_death;
+        #[cfg(clash_plant = "enchant_ends_with_instigator")]
+        let arm = {
+            let _ = self.cfg.calib.enchant_instigator_death;
+            EnchantInstigatorDeath::EndsAtDeath // PLANT: the enchant ends with the Rune Giant.
+        };
+        if s.finish_ms < 0 {
+            if source_alive {
+                return;
+            }
+            match arm {
+                EnchantInstigatorDeath::FinishAfter => {
+                    s.finish_ms = self.cfg.cards.get(s.card).enchant.as_ref().map_or(0, |d| d.finish_ms);
+                    self.ents.enchant[i] = if s.finish_ms > 0 { Some(s) } else { None };
+                }
+                EnchantInstigatorDeath::EndsAtDeath => self.ents.enchant[i] = None,
+            }
+            return;
+        }
+        s.finish_ms -= dt;
+        self.ents.enchant[i] = if s.finish_ms > 0 { Some(s) } else { None };
     }
 
     /// THE DAMAGE-OVER-TIME AND HEAL PULSES of every buff on the board, into this
@@ -6756,6 +7350,8 @@ impl BattleState {
             self.spawner_pass();
             self.life_state_pass();
         }
+        // The Rune Giant's look, on the start-of-tick positions, the units created this tick included.
+        self.enchant_pass();
     }
 
     /// A PLAY OF A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`; movement.SPAWN_PATHFIND_STATES), queued by
@@ -7151,7 +7747,7 @@ impl BattleState {
             let mut pending = vec![0i64; self.ents.capacity()];
             for p in in_flight {
                 if p.firer_card.is_some_and(|c| cards.get(c).projectile_homing) && self.ents.is_alive(p.target) {
-                    pending[p.target.index as usize] += p.damage as i64;
+                    pending[p.target.index as usize] += p.damage as i64 + p.bonus as i64;
                 }
             }
             (0..self.ents.capacity()).map(|j| pending[j] > 0 && pending[j] >= self.ents.hp[j] as i64).collect()
@@ -9602,6 +10198,15 @@ impl BattleState {
                 let melee = select.is_some_and(|sel| combat::melee_chosen(&self.ents, i, t.index as usize, sel));
                 let shot = self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee;
                 let strike_from = self.dmg.hits.len();
+                // enchant.BONUS_ATTACKS: every fire of an enchanted unit counts toward its bonus, a shot that hits nothing
+                // included (measured on client 15.535.29); `combat::enchant_bonus` reads the count inside `fire`.
+                #[cfg(not(clash_plant = "enchant_shots_uncounted"))]
+                let counts = true;
+                #[cfg(clash_plant = "enchant_shots_uncounted")]
+                let counts = self.cfg.cards.get(self.ents.card[i]).projectile.is_none(); // PLANT: a launch is not counted.
+                if let Some(s) = self.ents.enchant[i].as_mut().filter(|_| counts) {
+                    s.count += 1;
+                }
                 combat::fire(
                     &self.ents,
                     &self.hash,
@@ -9617,6 +10222,16 @@ impl BattleState {
                     &bolts,
                     self.tick,
                 );
+                // enchant.BONUS_ATTACKS = first_three_attacks (refuted, kept runnable): the enchant ends with its
+                // AttackAmount-th attack.
+                if self.cfg.calib.enchant_bonus_attacks == EnchantBonusAttacks::FirstThree {
+                    if let Some(s) = self.ents.enchant[i] {
+                        let period = self.cfg.cards.get(s.card).enchant.as_ref().map_or(1, |d| u32::from(d.period));
+                        if s.count >= period {
+                            self.ents.enchant[i] = None;
+                        }
+                    }
+                }
                 // match.TICK_ORDER = client_sequential_strike: a DIRECT strike (no projectile: the
                 // single hit, or the melee splash) lands at once, so every later unit of the pass
                 // reads its victim's hp and death (`phase_target_attack_sequential`). A projectile
@@ -10043,6 +10658,8 @@ impl BattleState {
         // the phase hands on (spell.rs `SpellOut`) need not come from a spell: a troop's shot
         // leaves its area (CardDef::projectile_area) in `out.areas`.
         let mut out = spell::SpellOut::default();
+        // The Rune Giant's projectiles leave before any projectile steps, so each first steps the next tick.
+        self.launch_due_enchants();
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick);
         {
             let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas };
@@ -10175,7 +10792,7 @@ impl BattleState {
     /// -- buffer order is spell order, which is cast order.
     fn apply_effects(&mut self) {
         let fx = std::mem::take(&mut self.effects);
-        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() {
+        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() && fx.enchants.is_empty() {
             self.effects = fx;
             return;
         }
@@ -10374,11 +10991,43 @@ impl BattleState {
             #[cfg(clash_plant = "hook_drag_unread")]
             self.end_special(bi); // PLANT (regression): the hook lands and drags nothing.
         }
+        // THE RUNE GIANT'S PROJECTILES THAT LANDED put his enchant on a friend that survived this Resolve, in landing
+        // order (the launches' order, `launch_due_enchants`, which is the same for both seats): a friend already holding
+        // one keeps it (two Rune Giants on one friend: unmeasured, an engine choice). enchant.BUFF_RANGE_CHECK =
+        // at_arrival: not on a friend farther than DistanceToBuff from a living Rune Giant (a guess). A Rune Giant dead
+        // before the landing gives an enchant that is already counting down (enchant.INSTIGATOR_DEATH).
+        for &(t, en) in &fx.enchants {
+            if !survivor(&self.ents, t) {
+                continue;
+            }
+            let ti = t.index as usize;
+            let Some(def) = self.cfg.cards.get(en.card).enchant.as_ref() else { continue };
+            if self.ents.enchant[ti].is_some() {
+                continue;
+            }
+            let source_alive = self.ents.is_alive(en.source);
+            if source_alive && c.enchant_buff_range_check == EnchantBuffRange::AtArrival {
+                use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                let si = en.source.index as usize;
+                let (dx, dy) = ((self.ents.pos[ti].x / K - self.ents.pos[si].x / K) as i64, (self.ents.pos[ti].y / K - self.ents.pos[si].y / K) as i64);
+                let reach = (def.buff_radius / K) as i64;
+                if dx * dx + dy * dy > reach * reach {
+                    continue;
+                }
+            }
+            let finish_ms = match (source_alive, c.enchant_instigator_death) {
+                (true, _) => -1,
+                (false, EnchantInstigatorDeath::FinishAfter) => def.finish_ms,
+                (false, EnchantInstigatorDeath::EndsAtDeath) => continue,
+            };
+            self.ents.enchant[ti] = Some(crate::entity::EnchantSlot { source: en.source, card: en.card, level: en.level, count: 0, finish_ms });
+        }
         let mut fx = fx;
         fx.knocks.clear();
         fx.stuns.clear();
         fx.buffs.clear();
         fx.hooks.clear();
+        fx.enchants.clear();
         self.effects = fx;
     }
 
@@ -12292,6 +12941,14 @@ impl BattleState {
         }
         Some(self.view(id.index as usize))
     }
+    /// The friends Rune Giant `id`'s pending launch goes to (entity.rs `enchant_picks`), in pick order; empty for any
+    /// other entity and between launches.
+    pub fn enchant_picks(&self, id: EntityId) -> &[EntityId] {
+        if !self.ents.is_alive(id) {
+            return &[];
+        }
+        &self.ents.enchant_picks[id.index as usize]
+    }
     fn view(&self, i: usize) -> EntityView<'_> {
         let e = &self.ents;
         EntityView {
@@ -12351,6 +13008,9 @@ impl BattleState {
             seg_dir: e.seg_dir[i],
             tunnel_dest: e.tunnel_dest.get(i).copied().flatten(),
             attached_to: e.attached_to[i].filter(|_| e.attached(i)),
+            enchant: e.enchant[i],
+            enchant_state: e.enchant_state[i],
+            enchant_ms: e.enchant_ms[i],
         }
     }
     /// Live entities in slot order.
@@ -12594,6 +13254,27 @@ impl BattleState {
                 if self.cfg.cards.get(e.card[i]).attack_select.is_some() {
                     h.u32(e.attack_seq[i] as u32);
                 }
+                // The Rune Giant's look, only on a card that carries the enchant, and an enchant a unit carries, only when
+                // it carries one: a battle with no Rune Giant hashes as before the columns.
+                #[cfg(not(clash_plant = "hash_skips_enchant"))]
+                {
+                    if self.cfg.cards.get(e.card[i]).enchant.is_some() {
+                        h.u32(e.enchant_state[i] as u32);
+                        h.i32(e.enchant_ms[i]);
+                        h.u32(e.enchant_picks[i].len() as u32);
+                        for t in &e.enchant_picks[i] {
+                            h.id(*t);
+                        }
+                    }
+                    if let Some(sl) = e.enchant[i] {
+                        h.u32(0x454e_4348);
+                        h.id(sl.source);
+                        h.u32(sl.card as u32);
+                        h.i32(sl.level);
+                        h.u32(sl.count);
+                        h.i32(sl.finish_ms);
+                    }
+                }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
                 // it did before the columns.
@@ -12734,6 +13415,19 @@ impl BattleState {
                     h.bool(p.buff_first);
                     h.i32(p.src_level);
                 }
+                // The Rune Giant's projectile and a shot's enchant bonus, only when set: a battle with no Rune Giant
+                // hashes as before.
+                if let Some(en) = p.enchant {
+                    h.u32(0x454e_4254);
+                    h.id(en.source);
+                    h.u32(en.card as u32);
+                    h.i32(en.level);
+                }
+                if p.bonus != 0 || p.bonus_crown != 0 {
+                    h.u32(0x424f_4e53);
+                    h.i32(p.bonus);
+                    h.i32(p.bonus_crown);
+                }
             }
             // A spark carrier (combat.SPAWN_PROJECTILE new arm) hashes its own state; every other
             // shot writes nothing more, so a battle without one hashes as it did.
@@ -12742,6 +13436,11 @@ impl BattleState {
                 h.vec(c.from);
                 h.u32(c.card as u32);
                 h.i32(c.damage);
+                // its sparks' enchant bonus, only when set
+                if c.bonus != 0 || c.bonus_crown != 0 {
+                    h.i32(c.bonus);
+                    h.i32(c.bonus_crown);
+                }
             }
             // A straight shot (combat.RANGE_PROJECTILE / MULTIPLE_PROJECTILES new arms) hashes its
             // own state; a homing shot writes nothing more, so every battle without one hashes
@@ -12871,6 +13570,17 @@ impl BattleState {
                 for (v, by) in &self.effects.hooks {
                     h.id(*v);
                     h.id(*by);
+                }
+            }
+            // The Rune Giant's landed projectiles, only when one is pending.
+            if !self.effects.enchants.is_empty() {
+                h.u32(0x454e_4146);
+                h.u32(self.effects.enchants.len() as u32);
+                for (t, en) in &self.effects.enchants {
+                    h.id(*t);
+                    h.id(en.source);
+                    h.u32(en.card as u32);
+                    h.i32(en.level);
                 }
             }
         }
@@ -13202,6 +13912,13 @@ impl BattleState {
 ///    two CardDef fields with the rest of the post-format-3 tail. No new spell motion: the Goblin Curse runs a `Fuse`
 ///    for its cast tick, then its circle as a `Pulsing` object; the Royal Delivery a `Strikes`, then its crate as a
 ///    `Flight` for one tick.
+/// 20, unchanged, the Rune Giant's enchant (the ledger's `enchant` section): Calib gained fifteen enchant_* fields (serde
+///    default the shipped arms), Entities gained enchant_state / enchant_ms / enchant_picks / enchant, Projectile gained
+///    enchant / bonus / bonus_crown, Carrier gained bonus / bonus_crown and EffectBuffer gained enchants (serde default
+///    neutral, the columns sized on load, all hashed only when set), so a format-20 blob saved before them deserializes
+///    and hashes as it did. CardDef gained `enchant`, and GiantBuffer loads (every later CardDb index moves up one), so
+///    the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
+///    migrate_v3 strips the field with the rest of the post-format-3 tail; its format-3 card list gains GiantBuffer.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -13402,12 +14119,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // added `summon_members`, `summon_offsets_x_mirrored` and `attack_select` after it.
                 // ~~... attack_select~~ -- the curses (still format 20) added `ignore_buffs` and
                 // `attack_buff_first` after it.
+                // ~~... attack_buff_first~~ -- the Rune Giant's enchant (still format 20) added `enchant`
+                // after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -13456,7 +14175,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.summon_offsets_x_mirrored,
                     c.attack_select,
                     c.ignore_buffs,
-                    c.attack_buff_first
+                    c.attack_buff_first,
+                    c.enchant
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -13770,6 +14490,13 @@ impl BattleState {
             snap.ents.death_slide_centre.iter_mut().for_each(|c| *c = Vec2::default());
             snap
         };
+        #[cfg(clash_plant = "save_drops_enchant")]
+        let snap = {
+            // PLANT: the enchants units carry are lost across a save.
+            let mut snap = snap;
+            snap.ents.enchant.iter_mut().for_each(|sl| *sl = None);
+            snap
+        };
         #[cfg(clash_plant = "save_drops_acquire_delay")]
         let snap = {
             // PLANT: the acquire delays are lost across a save.
@@ -13864,6 +14591,10 @@ impl BattleState {
         snap.ents.attached_to.resize(n, None);
         snap.ents.attach_offset.resize(n, Vec2::default());
         snap.ents.attack_seq.resize(n, 0);
+        snap.ents.enchant_state.resize(n, 0);
+        snap.ents.enchant_ms.resize(n, 0);
+        snap.ents.enchant_picks.resize(n, Vec::new());
+        snap.ents.enchant.resize(n, None);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);
@@ -13900,6 +14631,11 @@ impl BattleState {
             || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).is_some_and(played_only))
             || snap.spawn_queue.iter().any(|p| cards.cards.get(p.card as usize).is_some_and(played_only))
             || snap.players.iter().filter_map(|p| p.last_played).any(|c| cards.cards.get(c as usize).map_or(true, played_only))
+            // An enchant, a pending launch or a Rune Giant's projectile names a card that carries the enchant.
+            || snap.ents.enchant.iter().flatten().any(|sl| cards.cards.get(sl.card as usize).map_or(true, |c| c.enchant.is_none()))
+            || snap.projectiles.iter().filter_map(|p| p.enchant).any(|en| cards.cards.get(en.card as usize).map_or(true, |c| c.enchant.is_none()))
+            || snap.effects.enchants.iter().any(|(_, en)| cards.cards.get(en.card as usize).map_or(true, |c| c.enchant.is_none()))
+            || snap.ents.enchant_picks.iter().zip(&snap.ents.card).any(|(picks, c)| !picks.is_empty() && cards.cards.get(*c as usize).map_or(true, |c| c.enchant.is_none()))
         {
             return Err("snapshot entity tables are inconsistent".into());
         }

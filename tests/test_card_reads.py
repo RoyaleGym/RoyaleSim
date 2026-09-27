@@ -396,7 +396,12 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # read. None left. The WHOLE delta, measured with a stand-in catalogue (loadable_census.rs's LOADABLE_15535 without
     # the towers, the Mirror, the Miner and the Goblin Drill) and a register regenerated from this tree, without a
     # module built from it.
-    outside_by_vintage = {"2018": 40, "15.535": 86}
+    # 86 -> 87 when GiantBuffer loads (the Rune Giant's enchant): it joins with Ability (its ability, whose CastTime
+    # does not stop him on client 15.535.29, calibration enchant.ON_BUFF_PAUSE) and OnStartingAction, which the loader
+    # reads through the extractor's `enchant_friends` block, a link the chain does not follow (the Goblin Hut's
+    # controller is the same case). The WHOLE delta: the outside sets with and without GiantBuffer in the catalogue
+    # (the same stand-in) differ by GiantBuffer alone.
+    outside_by_vintage = {"2018": 40, "15.535": 87}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

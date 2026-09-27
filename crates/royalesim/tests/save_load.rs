@@ -202,6 +202,30 @@ fn load_rejects_corruption_and_foreign_card_data() {
     assert!(BattleState::load(&fb).is_err(), "a fallback-card snapshot loaded against cards.json");
 }
 
+/// An enchant (entity.rs `EnchantSlot`) that names a card carrying no enchant is refused as an inconsistent
+/// snapshot, before the hash self-check: nothing could run it. One that names the Rune Giant passes that check and is
+/// refused by the self-check instead (tests/enchant.rs pins that the enchant is hashed). Plant: hash_skips_enchant.
+#[test]
+fn an_enchant_naming_a_card_without_one_is_refused() {
+    let (s, _) = scripted_until(300);
+    let db = s.cards();
+    let knight = db.index("Knight").expect("the Knight loads");
+    let giant = db.index("GiantBuffer").expect("the Rune Giant loads");
+    let mut v: serde_json::Value = serde_json::from_slice(&s.save()).expect("a snapshot is JSON");
+    let slot = |card: u16| serde_json::json!({"source": {"index": 0, "generation": 0}, "card": card, "level": 11, "count": 0, "finish_ms": -1});
+    let live = v["ents"]["alive"].as_array().expect("the alive column").iter().position(|a| a.as_bool() == Some(true)).expect("a live entity");
+    v["ents"]["enchant"][live] = slot(knight);
+    let refused = |v: &serde_json::Value, what: &str| match BattleState::load(&serde_json::to_vec(v).unwrap()) {
+        Ok(_) => panic!("{what} loaded"),
+        Err(e) => e,
+    };
+    let err = refused(&v, "an enchant from the Knight's card");
+    assert!(err.contains("inconsistent"), "refused for another reason: {err}");
+    v["ents"]["enchant"][live] = slot(giant);
+    let err = refused(&v, "an edited save");
+    assert!(err.starts_with("snapshot self-check failed"), "the Rune Giant's card passes the table check: {err}");
+}
+
 #[test]
 fn save_is_reasonably_small_and_fast() {
     let (s, _) = scripted_until(2000);
