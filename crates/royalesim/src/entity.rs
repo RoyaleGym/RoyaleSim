@@ -416,6 +416,17 @@ pub struct Entities {
     /// only while Some.
     #[serde(default)]
     pub tunnel_dest: Vec<Option<Vec2>>,
+    /// THE AIR-TO-GROUND WINDOW (a Vines catch; spell.rs `catch`, calibration spells.AIR_TO_GROUND_WINDOW): ms a caught
+    /// flier is still a ground unit for every reader of `in_air` (targeting, a hit's air filter). Counted down with the
+    /// hold timer (state.rs `tick_status_timers`). 0 on every other entity, hashed only when positive. `default` and
+    /// sized on load like `tunnel_dest`.
+    #[serde(default)]
+    pub grounded_ms: Vec<i32>,
+    /// A COPY THE CLONE MADE (state.rs `materialise_clones`), or a death spawn of one: the Clone never copies it again,
+    /// and its death spawns are copies (calibration spells.CLONE_DEATH_SPAWNS). False on every other entity, hashed
+    /// only when set. `default` and sized on load like `tunnel_dest`.
+    #[serde(default)]
+    pub cloned: Vec<bool>,
     /// Knockback displacement still to apply, WORLD subtiles (knockback.DURATION_MS > 0
     /// only; an instant knockback never lands here).
     pub knock_rem: Vec<Vec2>,
@@ -702,6 +713,19 @@ impl Entities {
         }
     }
 
+    /// Is entity `i` IN THE AIR for targeting and for a hit's air filter: a flier, unless a Vines catch holds it to the
+    /// ground (`grounded_ms`; calibration spells.AIR_TO_GROUND_WINDOW). The one predicate target.rs `can_target`, spell.rs
+    /// `eligible`, combat.rs `splash` and the straight shots, and the area pull read; the walk, the collision and the
+    /// flight height keep reading `flying`. `flying` exactly on every entity no catch has grounded.
+    #[inline]
+    pub fn in_air(&self, i: usize) -> bool {
+        #[cfg(not(clash_plant = "grounding_ignored"))]
+        let grounded = self.grounded_ms.get(i).is_some_and(|&g| g > 0);
+        #[cfg(clash_plant = "grounding_ignored")]
+        let grounded = false; // PLANT: a caught flier stays in the air.
+        self.flying[i] && !grounded
+    }
+
     /// Is entity `i` travelling UNDER the arena (a Miner's or a Goblin Drill's way to its
     /// tap; `tunnel_dest`)? The one predicate: the Path phase, the untouchable body's readers
     /// and `status_flags` bit 0 all read it.
@@ -822,6 +846,8 @@ impl Entities {
             self.special_on[i] = None;
             self.hooked_by[i] = None;
             self.tunnel_dest[i] = None;
+            self.grounded_ms[i] = 0;
+            self.cloned[i] = false;
             self.knock_rem[i] = Vec2::default();
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
@@ -916,6 +942,8 @@ impl Entities {
             self.special_on.push(None);
             self.hooked_by.push(None);
             self.tunnel_dest.push(None);
+            self.grounded_ms.push(0);
+            self.cloned.push(false);
             self.knock_rem.push(Vec2::default());
             self.push_applied.push(Vec2::default());
             self.push_neighbours.push(0);
@@ -965,7 +993,8 @@ impl Entities {
     ///     acquirable_from, reveal_from, parry_ms (0 on both rows: the loader refuses a transformation into a row with
     ///     a counter, and a row with a counter carries no other action block), tunnel_dest (None: a units row that
     ///     tunnels is refused), a rider's mount and offset (attached_to, attach_offset), the enchant a Rune Giant gave
-    ///     it (enchant), and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied, push_neighbours,
+    ///     it (enchant), a Vines catch's air-to-ground window (grounded_ms), whether it is a copy the Clone made
+    ///     (cloned), and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied, push_neighbours,
     ///     hooked_by);
     ///   THE CALLER'S, because the calibration decides them: the deploy timer (transform.REDEPLOY) and the target and
     ///     attack columns (`reset_attack`, transform.ATTACK_STATE; the attack selector's entry, attack_seq, with them);

@@ -56,17 +56,16 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Rect, Shape};
-use crate::card::{CardDb, KnockbackDef, SpawnDef, SpawnOffset, SpellHit, SpellShape, StrikeDef, StrikePick};
+use crate::card::{CardDb, KnockbackDef, SelectorDef, SpawnDef, SpawnOffset, SpellHit, SpellShape, StrikeDef, StrikePick};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
-use crate::entity::{EntityKind, Entities, SpatialHash};
+use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
-    AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling, DeathBombSpawnTiming, DeathPushbackScope, KnockLaw,
-    KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding,
-    SummonFuseStart,
-    TargetBuffScope,
+    AirToGroundWindow, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling,
+    DeathBombSpawnTiming, DeathPushbackScope, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape,
+    StaggerWait, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding, SummonFuseStart, TargetBuffScope,
 };
 use crate::{EntityId, Team};
 
@@ -196,12 +195,14 @@ fn death_bomb_push(ctx: &SpellCtx, def: &crate::card::CardDef) -> Option<Knockba
     reads.then_some(KnockbackDef { distance: def.death_pushback, all: false })
 }
 
-/// A unit a spell copies: an order to copy `src` at the spell's unified `level`.
-/// Nothing carries it out yet (`SpellOut`).
+/// A unit a spell copies (`SpellShape::Clone`): an order to copy `src` at the spell's unified `level`, for the
+/// Clone card `card` (whose shape holds the hold and the rules). state.rs `phase_projectile` hands it to Reap, which
+/// makes the copy (`materialise_clones`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CloneOrder {
     pub src: EntityId,
     pub level: i32,
+    pub card: u16,
 }
 
 /// EVERYTHING ONE PROJECTILE PHASE HANDS ON to the rest of the tick, in one bundle so
@@ -218,8 +219,8 @@ pub struct CloneOrder {
 ///   6. `fuse_ends`: containers whose fuse ended (`release_fuse_end`: their death spawn
 ///      laid out, then `release`, as step 1's units are).
 ///
-/// `clones` has no consumer yet: `phase_projectile` stops the battle if it is
-/// non-empty, so an order can never be dropped in silence.
+/// `clones` (the Clone's copies) goes to the Reap phase of the same tick (state.rs
+/// `materialise_clones`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpellOut {
     pub released: Vec<Release>,
@@ -283,6 +284,11 @@ pub struct EffectBuffer {
     /// survived it. Empty in every battle with no Rune Giant. `default` so a snapshot saved before it still loads.
     #[serde(default)]
     pub enchants: Vec<(EntityId, crate::combat::EnchantPayload)>,
+    /// Fliers a catch holds to the ground this tick, (victim, window ms) (the Vines; `catch`). Drained in Resolve by
+    /// `state.rs apply_effects`, which sets the survivor's `grounded_ms`. Empty in every battle with no Vines. `default`
+    /// so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub grounds: Vec<(EntityId, i32)>,
 }
 
 /// The caster's forward axis: +1 for Blue (toward high y), -1 for Red.
@@ -514,6 +520,10 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         // `formation_preview`, `load_with`).
         SpellShape::Mirror => return Err(format!("{} replays its side's last play; it is never cast", cards.get(card).name)),
         SpellShape::Variant { .. } => return Err(format!("{} chooses a form at the play; it is never cast", cards.get(card).name)),
+        // THE CLONE: a one-shot area at the tap, which copies on its first update (`step_spells`). It deals nothing.
+        SpellShape::Clone { .. } => {
+            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Area { pos: tap }, depth });
+        }
         // A striking area: its damage is the strike's, scaled once here; nothing happens on the cast tick.
         SpellShape::Strikes(d) => {
             let motion = SpellMotion::Strikes { pos: tap, life_ms: d.life_ms, next_ms: d.gaps_ms[0], k: 0, struck: Vec::new() };
@@ -536,8 +546,9 @@ pub struct SpellCtx<'a> {
     /// This tick's locomotion step of each entity, by index (state.rs `scratch.deltas`; empty where no Move phase
     /// ran). Read by `strike` for a candidate's predicted next position; an index past the end steps nothing.
     pub steps: &'a [Vec2],
-    /// The tick being stepped: what a scheduled area's age is counted against, and the creation tick of what a
-    /// fuse or a pulsing area makes.
+    /// The tick being stepped: what a scheduled area's age is counted against, the creation tick of what a
+    /// fuse or a pulsing area makes, and the tick a selector's FilterDashImmune reads a unit's dash immunity at
+    /// (entity.rs `dash_immune`).
     pub tick: u32,
 }
 
@@ -585,7 +596,7 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib
     #[cfg(clash_plant = "spell_friendly_fire")]
     let _ = (team, hit.only_enemies); // PLANT: OnlyEnemies ignored.
     #[cfg(clash_plant = "spells_never_hit_air")]
-    if ents.flying[v] {
+    if ents.in_air(v) {
         return false; // PLANT: AoeToAir / HitsAir ignored.
     }
     #[cfg(clash_plant = "acquire_delay_blocks_area")]
@@ -599,7 +610,8 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib
     if hit.no_effect_to_crown_towers && kind.is_crown_tower() {
         return false;
     }
-    if ents.flying[v] {
+    // A flier a Vines catch holds to the ground is a ground unit here (entity.rs `in_air`, spells.AIR_TO_GROUND_WINDOW).
+    if ents.in_air(v) {
         hit.hits_air
     } else {
         hit.hits_ground
@@ -960,6 +972,180 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
     });
 }
 
+/// THE CANDIDATES OF AN ACTION'S SELECTOR at `pos` (`StrikeDef::selector`: the Vines' catches, the Void's strikes), by
+/// index in ascending `team_seq` (one team, so the order is the creation order and the same for both seats):
+/// - every unit `eligible` admits for the strike's hit (alive, an enemy of `team`, air or ground, not under ground
+///   under the untouchable body, not an attached rider);
+/// - of a kind the filter takes (troops always; buildings, the princess towers and the king tower by its flags), and
+///   not left out by its flags: FilterHidden a building hidden under ground, FilterUnderground a unit under ground,
+///   FilterDashImmune a unit whose dash makes it immune, the UNTARGETABLE tag a formation member waiting out its deploy
+///   stagger (the predicate target.rs `can_target` reads for it). An invisible unit is taken: no filter sets
+///   FilterInvisible (spells.TARGET_FILTER_ABSENT_FLAG);
+/// - within the strike's radius plus the unit's own radius of `pos`, on this tick's post-move position
+///   (spells.SELECTOR_REACH = radius_plus_target_radius; measured on client 15.535.29: the Vines caught a Skeleton at
+///   centre 2633-2718 from their 2500 circle, the Void hit a Knight at 2874-2993 and missed it at 3352).
+fn selector_candidates(ctx: &SpellCtx, team: Team, def: &StrikeDef, sel: &SelectorDef, pos: Vec2, nb: &mut Vec<u32>) -> Vec<usize> {
+    let e = ctx.ents;
+    let f = sel.filter;
+    #[cfg(not(clash_plant = "void_counts_hidden"))]
+    let skip_hidden = f.skip_hidden;
+    #[cfg(clash_plant = "void_counts_hidden")]
+    let skip_hidden = false; // PLANT: FilterHidden not read, so the Void counts and strikes a hidden Tesla.
+    ctx.hash.neighbours_within(e, pos, def.hit.radius + ctx.hash.max_radius(), nb);
+    let mut out: Vec<usize> = nb
+        .iter()
+        .map(|&v| v as usize)
+        .filter(|&v| {
+            if !eligible(e, v, team, &def.hit, ctx.calib) {
+                return false;
+            }
+            let kind_taken = match e.kind[v] {
+                EntityKind::Troop => true,
+                EntityKind::Building => f.buildings,
+                EntityKind::PrincessTower => f.princess_towers,
+                EntityKind::KingTower => f.king_tower,
+            };
+            if !kind_taken {
+                return false;
+            }
+            if (skip_hidden && e.hide[v] == HideState::Hidden)
+                || (f.skip_underground && e.underground(v))
+                || (f.skip_dash_immune && e.dash_immune(v, ctx.tick))
+                || (f.skip_untargetable && ctx.calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[v] > 0)
+            {
+                return false;
+            }
+            #[cfg(not(clash_plant = "selector_centre_in_radius"))]
+            let edge = e.radius[v];
+            #[cfg(clash_plant = "selector_centre_in_radius")]
+            let edge = 0; // PLANT: the refuted centre-in-radius reach.
+            in_range_edge(pos, e.pos[v], def.hit.radius, edge)
+        })
+        .collect();
+    out.sort_by_key(|&v| e.team_seq[v]);
+    out
+}
+
+/// A SELECTOR'S BUFF ON ONE VICTIM (the Vines' snare, a Void tier): `b` for its time, with the pulse and the
+/// crown-tower pulse the caster's level gives it (status.BUFF_PULSE_AMOUNT, `crown_pulse`), into this tick's effect
+/// buffer, so it lands in this tick's Resolve and pulses by status.BUFF_PULSE_TIMING from there: a Void tier (one
+/// 100 ms pulse) deals its damage two ticks after its strike, a Vines snare 20 and 40 ticks after its catch.
+/// `reach_hidden`: the buff lands on a building hidden under ground too (a selector whose filter does not leave one
+/// out: the Vines hold an idle Tesla; `BuffHit::reach_hidden`).
+fn deliver(ctx: &SpellCtx, card: u16, level: i32, target: EntityId, b: BuffApply, reach_hidden: bool, fx: &mut EffectBuffer) {
+    let Some(def) = ctx.cards.buffs.get(b.buff as usize) else { return };
+    // Level validated when the cast was accepted.
+    let pulse = def.pulse_amount(ctx.calib.buff_pulse_amount, |m| ctx.cards.scaled(card, level, m)).unwrap_or(0);
+    fx.buffs.push(BuffHit { src_level: level, crown_amount: crown_pulse(ctx, card, level, b), reach_hidden, ..BuffHit::plain(target, b.buff, b.time_ms, pulse) });
+}
+
+/// ONE CATCH OF THE VINES (`StrikePick::RankedCatches`; `k` catches done before it). Measured on client 15.535.29 (the
+/// Vines runs with their controls, level 11, C the cast tick):
+/// - the catches fall on C + 18, C + 19 and C + 21 (the start delay 900 plus the Delays 0, 50, 150, on the striking
+///   area's clock, spells.STRIKE_TIMER_LEFTOVER = carried);
+/// - each takes the candidate (`selector_candidates`) with the highest current hp plus shield that this cast has not
+///   caught (a crown tower 3052 before a Mortar before a Cannon; a Dark Prince of 1200 + 240 shield before an Elite
+///   Barbarian of 1341), the earlier created on a tie, picked again at each catch from the units in reach then
+///   (spells.MULTI_CATCH_RANKING = repick_each_catch: a Skeleton inside at the first catch and outside at the third's
+///   tick was not caught);
+/// - the snare holds the victim from the next tick for its 2000 ms and pulses 153 on C' + 20 and C' + 40 (C' the catch
+///   tick), 35 a pulse on a crown tower (its CrownTowerDamagePerHit, level scaled); a hidden Tesla is caught, held and
+///   pulsed, and stays hidden;
+/// - a caught flier is a ground unit for the air-to-ground window (`EffectBuffer::grounds`, spells.AIR_TO_GROUND_WINDOW):
+///   a Knight, which attacks ground only, targeted and hit a caught Balloon and let it go on C' + 43.
+///
+/// No candidate: nothing is caught, and the catch is spent.
+#[allow(clippy::too_many_arguments)]
+fn catch(ctx: &SpellCtx, team: Team, card: u16, level: i32, def: &StrikeDef, sel: &SelectorDef, pos: Vec2, k: u8, life_ms: i32, struck: &mut Vec<EntityId>, fx: &mut EffectBuffer, nb: &mut Vec<u32>) {
+    let e = ctx.ents;
+    let Some(&snare) = sel.buffs.first() else { return };
+    let candidates = selector_candidates(ctx, team, def, sel, pos, nb);
+    #[cfg(not(clash_plant = "vines_ranked_once"))]
+    let _ = (k, life_ms);
+    // PLANT (vines_ranked_once): the order is the first catch's, so a unit that was not on the board at the first
+    // catch is never caught by a later one.
+    #[cfg(clash_plant = "vines_ranked_once")]
+    let first_catch_tick = {
+        let tick = ctx.calib.tick_ms.max(1);
+        let cast = (ctx.tick + 1).saturating_sub(((def.life_ms - life_ms) / tick) as u32);
+        cast + (def.gaps_ms[0] / tick) as u32
+    };
+    // (current hp plus shield, -team_seq, index): the greatest wins.
+    let mut best: Option<(i64, i64, usize)> = None;
+    for v in candidates {
+        let id = e.id_of(v);
+        if struck.binary_search(&id).is_ok() {
+            continue;
+        }
+        #[cfg(clash_plant = "vines_ranked_once")]
+        if k > 0 && e.spawn_tick[v] > first_catch_tick {
+            continue;
+        }
+        #[cfg(not(clash_plant = "vines_rank_ignores_shield"))]
+        let rank = e.hp[v] as i64 + e.shield[v].max(0) as i64;
+        #[cfg(clash_plant = "vines_rank_ignores_shield")]
+        let rank = e.hp[v] as i64; // PLANT: the shield left out of the rank.
+        let key = (rank, -(e.team_seq[v] as i64), v);
+        if best.map_or(true, |b| (key.0, key.1) > (b.0, b.1)) {
+            best = Some(key);
+        }
+    }
+    let Some((_, _, v)) = best else { return };
+    let id = e.id_of(v);
+    if let Err(at) = struck.binary_search(&id) {
+        struck.insert(at, id);
+    }
+    deliver(ctx, card, level, id, snare, !sel.filter.skip_hidden, fx);
+    if let (true, Some(g)) = (e.flying[v], sel.ground) {
+        let window = match ctx.calib.air_to_ground_window {
+            AirToGroundWindow::TotalPlusBothTransitions => g.total_ms + 2 * g.transition_ms,
+            AirToGroundWindow::TotalDuration => g.total_ms,
+        };
+        fx.grounds.push((id, window));
+    }
+}
+
+/// The tier a count of `n` falls in (spells.COUNT_TIER_RULE = by_count): the first whose limit it is at most, else
+/// the last (the Void's [1, 4]: one alone, two to four, five and more).
+fn tier_of(n: i32, limits: &[i32]) -> usize {
+    #[cfg(not(clash_plant = "void_tier_threshold_shifted"))]
+    let within = |l: i32| n <= l;
+    #[cfg(clash_plant = "void_tier_threshold_shifted")]
+    let within = |l: i32| n < l; // PLANT: a count equal to a limit takes the next tier.
+    limits.iter().position(|&l| within(l)).unwrap_or(limits.len())
+}
+
+/// ONE STRIKE OF THE VOID (`StrikePick::CountTiers`). Measured on client 15.535.29 (the Void runs with their
+/// controls, level 11, C the cast tick):
+/// - the strikes fall on C + 30, C + 54 and C + 78 (the start delay 500 plus FirstHitDelay 1000, then HitFrequency
+///   1200) and their damage lands two ticks later, on C + 32, C + 56 and C + 80 (`deliver`);
+/// - every candidate (`selector_candidates`) at that strike takes the buff of the tier its COUNT falls in
+///   (spells.COUNT_TIER_RULE = by_count): alone 696 (a Giant, a Cannon, a Knight), 97 on a crown tower; with two, 294
+///   each (51 on a crown tower); with four, 294 each; with five, 153 each. The rank reading (the first the most) is
+///   refuted at five;
+/// - buildings and a crown tower are counted and struck; an idle Tesla hidden under ground is neither (FilterHidden).
+///
+/// No candidate: nothing happens, and the strike is spent.
+#[allow(clippy::too_many_arguments)]
+fn laser(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &StrikeDef, sel: &SelectorDef, pos: Vec2, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>) {
+    let e = ctx.ents;
+    let candidates = selector_candidates(ctx, team, def, sel, pos, nb);
+    if candidates.is_empty() {
+        return;
+    }
+    let tier = tier_of(candidates.len() as i32, &sel.limits);
+    let Some(&b) = sel.buffs.get(tier) else { return };
+    #[cfg(not(clash_plant = "void_area_damage_loaded"))]
+    let _ = (damage, &dmg);
+    for v in candidates {
+        let id = e.id_of(v);
+        // PLANT (void_area_damage_loaded): the area's own Damage, read onto the strike by the loader, lands on each victim.
+        #[cfg(clash_plant = "void_area_damage_loaded")]
+        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, def.hit.crown_pct, ctx.calib.crown_rounding), ignores_hide: false });
+        deliver(ctx, card, level, id, b, !sel.filter.skip_hidden, fx);
+    }
+}
+
 /// One tick of a rolling projectile: move, sweep, hit each new victim once.
 /// Returns true while it still has distance to roll.
 #[allow(clippy::too_many_arguments)]
@@ -1266,6 +1452,56 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 }
                 false
             }
+            // THE CLONE (card.rs `SpellShape::Clone`): on its first update, which is the cast tick's, it copies every
+            // own unit its hit takes (the own side, troops, air and ground; its edge within the Radius by
+            // spells.AOE_HIT_TEST), except a copy (never copied again) and a unit whose row sets IgnoreClone, and hangs
+            // its hold on each. The orders go to this tick's Reap (state.rs `materialise_clones`), in team_seq order.
+            // Measured on client 15.535.29: it acts once, on the cast tick C (a Knight walking in on C + 6 was not
+            // copied: spells.ONE_SHOT_AREA_EFFECT_APPLICATION = first_update_only), copies own troops only and never a
+            // copy, and deals nothing.
+            (SpellMotion::Area { pos }, SpellShape::Clone { hit, hold, .. }) => {
+                let e = ctx.ents;
+                ctx.hash.neighbours_within(e, *pos, hit.radius + ctx.hash.max_radius(), nb);
+                let mut picked: Vec<usize> = nb
+                    .iter()
+                    .map(|&v| v as usize)
+                    .filter(|&v| {
+                        if !eligible(e, v, s.team, hit, ctx.calib) {
+                            return false;
+                        }
+                        #[cfg(not(clash_plant = "clone_recloned"))]
+                        if e.cloned[v] {
+                            return false;
+                        }
+                        #[cfg(not(clash_plant = "ignore_clone_unread"))]
+                        if ctx.cards.get(e.card[v]).ignore_clone {
+                            return false;
+                        }
+                        let edge = match ctx.calib.aoe_hit_test {
+                            AoeHitTest::EdgeInclusive => e.radius[v],
+                            AoeHitTest::CentreInRadius => 0,
+                        };
+                        #[cfg(clash_plant = "aoe_centre_to_centre")]
+                        let edge = {
+                            let _ = edge; // PLANT: centre-in-radius whatever the registry says.
+                            0
+                        };
+                        in_range_edge(*pos, e.pos[v], hit.radius, edge)
+                    })
+                    .collect();
+                picked.sort_by_key(|&v| e.team_seq[v]);
+                for v in picked {
+                    let id = e.id_of(v);
+                    out.clones.push(CloneOrder { src: id, level: s.level, card: s.card });
+                    fx.buffs.push(BuffHit::plain(id, hold.buff, hold.time_ms, 0));
+                }
+                // PLANT (clone_area_lingers): the area acts on every update, so a unit that walks in later is copied, and an
+                // original again.
+                #[cfg(clash_plant = "clone_area_lingers")]
+                return true;
+                #[allow(unreachable_code)]
+                false
+            }
             // A PULSING AREA EFFECT (Poison, Earthquake; calibration
             // spells.PULSING_AREA_EFFECT = hit_speed_period_from_landing): it lands,
             // applies at once, and re-applies every HitSpeed ms until LifeDuration is
@@ -1358,14 +1594,17 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 let due_rule = ctx.calib.strike_due;
                 #[cfg(clash_plant = "strike_due_below_zero")]
                 let due_rule = StrikeDue::ClockBelowZero; // PLANT: the strike waits for the clock to fall below zero.
+                // A selector's strike (the Vines' catches, the Void's strikes) takes the Lightning's below-zero update:
+                // measured on client 15.535.29, the catches on C + 18, 19 and 21 and the Void's strikes on C + 30, 54
+                // and 78 are the updates that take the clock below zero under STRIKE_TIMER_LEFTOVER = carried.
                 let due = match (def.pick, due_rule) {
                     (StrikePick::AreaCentre, StrikeDue::ClockAtOrBelowZero) => *next_ms <= 0,
-                    (StrikePick::HighestHp, _) | (StrikePick::AreaCentre, StrikeDue::ClockBelowZero) => *next_ms < 0,
+                    (StrikePick::HighestHp | StrikePick::RankedCatches | StrikePick::CountTiers, _) | (StrikePick::AreaCentre, StrikeDue::ClockBelowZero) => *next_ms < 0,
                 };
                 if due && (*k as usize) < def.gaps_ms.len() {
-                    match def.pick {
-                        StrikePick::HighestHp => strike(ctx, s.team, s.card, s.level, s.damage, def, *pos, struck, &mut out.launched, nb),
-                        StrikePick::AreaCentre => out.born.push(Spell {
+                    match (def.pick, def.selector.as_deref()) {
+                        (StrikePick::HighestHp, _) => strike(ctx, s.team, s.card, s.level, s.damage, def, *pos, struck, &mut out.launched, nb),
+                        (StrikePick::AreaCentre, _) => out.born.push(Spell {
                             team: s.team,
                             card: s.card,
                             level: s.level,
@@ -1374,6 +1613,10 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                             motion: SpellMotion::Flight { pos: *pos, aim: *pos, frac: Vec2::default(), delay_ms: 0 },
                             depth: s.depth + 1,
                         }),
+                        (StrikePick::RankedCatches, Some(sel)) => catch(ctx, s.team, s.card, s.level, def, sel, *pos, *k, *life_ms, struck, fx, nb),
+                        (StrikePick::CountTiers, Some(sel)) => laser(ctx, s.team, s.card, s.level, s.damage, def, sel, *pos, dmg, fx, nb),
+                        // The loader gives a selector's pick its selector; never reached.
+                        (StrikePick::RankedCatches | StrikePick::CountTiers, None) => {}
                     }
                     *k += 1;
                     let gap = def.gaps_ms.get(*k as usize).copied().unwrap_or(0);

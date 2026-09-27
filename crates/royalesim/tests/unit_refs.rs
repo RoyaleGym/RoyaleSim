@@ -157,6 +157,7 @@ fn shape_buffs(shape: &SpellShape, out: &mut Vec<u16>) {
         SpellShape::PulsingAreaEffect { hit, child, .. } => (Some(hit), child.as_deref()),
         SpellShape::Rolling { hit, .. } => (Some(hit), None),
         SpellShape::Strikes(d) => (Some(&d.hit), d.delivery.as_deref()),
+        SpellShape::Clone { hit, .. } => (Some(hit), None),
         SpellShape::Fuse { then, .. } => (None, Some(then.as_ref())),
         SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => (None, None),
     };
@@ -165,6 +166,17 @@ fn shape_buffs(shape: &SpellShape, out: &mut Vec<u16>) {
             if !out.contains(&b.buff) {
                 out.push(b.buff);
             }
+        }
+    }
+    // A selector's buffs (the Vines' snare, the Void's tiers) and the Clone's hold, after the hit's.
+    let extra: Vec<u16> = match shape {
+        SpellShape::Strikes(d) => d.selector.as_ref().map_or(Vec::new(), |s| s.buffs.iter().map(|b| b.buff).collect()),
+        SpellShape::Clone { hold, .. } => vec![hold.buff],
+        _ => Vec::new(),
+    };
+    for b in extra {
+        if !out.contains(&b) {
+            out.push(b);
         }
     }
     if let Some(n) = next {

@@ -411,18 +411,22 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Miner, the Goblin Drill) are scored too. The stand-in figures above left the Miner and the Goblin Drill out.
     # 90 -> 92 with that widening: the Miner and the Goblin Drill, scored again. Measured on the merged next build's
     # module (not a stand-in).
-    # 92 -> 96 when the Skeleton Barrel, the Suspicious Bush, the Lumberjack and the Goblin Giant load (the Graveyard
-    # loads fully read). THE SKELETON BARREL joins with DeathPushBack and DeathSpawnMinRadius (its container's, and the
-    # card row's DeathPushBack is read only for a container under knockback.DEATH_PUSHBACK's shipped arm), DeployDelay,
-    # FlyDirectPaths, IgnoreResurrect, IsBuilding, OnStartingAction (its balloon pops, read as cosmetic) and
-    # SpawnConstPriority. THE GOBLIN GIANT with DeathInheritIgnoreList, DeathSpawnDeployTime and DeathSpawnRadius (its
+    # 92 -> 95 when the Skeleton Barrel, the Suspicious Bush, the Lumberjack, the Goblin Giant, the Clone, the Vines and the
+    # Void load (the Graveyard loads fully read). THE SKELETON BARREL joins with DeathPushBack and DeathSpawnMinRadius (its
+    # container's, and the card row's DeathPushBack is read only for a container under knockback.DEATH_PUSHBACK's shipped
+    # arm), DeployDelay, FlyDirectPaths, IgnoreResurrect, IsBuilding, OnStartingAction (its balloon pops, read as cosmetic)
+    # and SpawnConstPriority. THE GOBLIN GIANT with DeathInheritIgnoreList, DeathSpawnDeployTime and DeathSpawnRadius (its
     # own row's, which the measured dismount does not read), DeployDelay, IgnoreResurrect and the projectile's
     # only_enemies; THE LUMBERJACK with DeployDelay and WalkingSpeedTweakPercentage (measured on client 15.535.29: its
     # steps are 119 to 120 at Speed 120, so the column changes nothing seen); THE SUSPICIOUS BUSH with
-    # AllowAreaDmgWhenInvisible, BuffWhenNotAttacking and IgnoreResurrect, as the Ghost. Each window measured its own
-    # delta with a stand-in catalogue (loadable_census.rs's LOADABLE_15535 without the towers) and the register
-    # present: 92 -> 93 for the barrel, 92 -> 95 for the four; merged, 96, to be confirmed on the built module.
-    outside_by_vintage = {"2018": 40, "15.535": 96}
+    # AllowAreaDmgWhenInvisible, BuffWhenNotAttacking and IgnoreResurrect, as the Ghost. The loader now reads IgnoreClone
+    # and the buff columns Clone and NotCloned, so the register pass calls the whole clone_mirror family read (it names
+    # families, not columns): the Merge Maiden leaves, its one gap having been that family (MirrorUsesRootSpell); the
+    # Goblin Drill and the chess Recruits lose IgnoreClone and stay for their other keys; the Clone, the Vines and the Void
+    # join with nothing unread. Each window measured its own delta with a stand-in catalogue (loadable_census.rs's
+    # LOADABLE_15535 without the towers) and the register present: +1 for the barrel, +3 for the four, -1 for the three;
+    # merged, 95, to be confirmed on the built module.
+    outside_by_vintage = {"2018": 40, "15.535": 95}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

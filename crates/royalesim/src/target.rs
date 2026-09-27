@@ -374,7 +374,7 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     let airborne = ctx.calib.leaping_unit_targetability == LeapingUnitTargetability::Airborne && e.jumping[c];
     #[cfg(clash_plant = "leap_targetable_by_ground")]
     let airborne = false; // PLANT (regression): a leaping troop stays a ground target under the new arm too.
-    if e.flying[c] || airborne {
+    if e.in_air(c) || airborne {
         card.attacks_air
     } else {
         card.attacks_ground

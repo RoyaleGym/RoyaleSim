@@ -126,6 +126,10 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     ("cards.json", "Graveyard"),
     // the riders off their mount's centre: refused in `convert` (`convert_attach`, its SpawnRadius) at the parent
     ("cards.json", "GoblinGiant"),
+    // the Clone, the Vines and the Void: refused in `convert_spell` at the parent
+    ("cards.json", "Clone"),
+    ("cards.json", "DarkMagic"),
+    ("cards.json", "Vines"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

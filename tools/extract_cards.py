@@ -748,6 +748,12 @@ class Tables(dict):
         # fill the `damage_types` overlay table, which `parry` reads). Empty for 2018.
         self.variables: dict[str, dict] = {}
         self.damage_types: dict[str, dict] = {}
+        # 15.535: the per-character [SHAPE.*] sections, by name (the Vines' Vines_AOE_Shape), and
+        # game_object_filters.toml, by filter name (the Vines' enemy_troops_for_vines, the Void's
+        # ForcedCharacterTargets). Read by the striking-area builder `strike_area_block` only. Empty
+        # for 2018.
+        self.shapes: dict[str, dict] = {}
+        self.filters: dict[str, dict] = {}
 
 
 def load_tables(vintage: str | Vintage | None = None) -> Tables:
@@ -799,10 +805,12 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
                 if key is None:
                     if section not in SKIP_SECTIONS:
                         raise SystemExit(f"{p.name}: unknown section [{section}]")
-                    # A VARIABLE's DefaultValue is read by name by a named-block builder (`attack_select`);
-                    # every other skipped section is dropped.
+                    # A VARIABLE's DefaultValue is read by name by a named-block builder (`attack_select`),
+                    # and a SHAPE by `strike_area_block`; every other skipped section is dropped.
                     if section == "VARIABLE" and isinstance(body, dict):
                         t.variables.update({n: f for n, f in body.items() if isinstance(f, dict)})
+                    if section == "SHAPE" and isinstance(body, dict):
+                        t.shapes.update({n: f for n, f in body.items() if isinstance(f, dict)})
                     continue
                 # A [CHARACTER.X] that says IsBuilding is a building row (none does
                 # in 15.535, every building overlay is a [BUILDING.] section; kept
@@ -815,6 +823,11 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
                         t["buildings"].overlay(p, moved, f"{sub}/{p.name} [{section}]")
                         body = {n: f for n, f in body.items() if n not in moved}
                 t[key].overlay(p, body, f"{sub}/{p.name} [{section}]")
+
+    # The target filters an action names (TargetFilter, HitFilter), by name: read by `strike_area_block`.
+    filters = v.raw / "game_object_filters.toml"
+    if filters.is_file():
+        t.filters.update({n: f for n, f in tomllib.load(filters.open("rb")).items() if isinstance(f, dict)})
 
     def unit_lookup(name: str):
         for k in ("characters", "buildings"):
@@ -884,17 +897,42 @@ COSMETIC_ACTION_CLASSES = {
 }
 
 
-def action_graph(t: dict, rec: dict, sequence: list | None = None) -> dict | None:
+# THE INLINE WALK (15.535, area rows only; `norm_aeo`). An area's *Action column may be an inline table
+# rather than an action's name (the Void's DarkMagicAOE: its OnStartingAction is an ActionGroup whose
+# SubActions are inline tables, one an ActionLaserBall whose OnDetectedUnitActionList spawns three inline
+# buffs), and a named action may hold inline sub-actions (the Goblin Curse circle's GoblinCurseCreateBuffs).
+# `action_graph` then follows those tables too: an inline root is named "<Row>.<Column>", an inline table
+# carrying a ClassType is walked like a named action, and an inline SpawnData table adds
+# "<SpawnType>:<its Name>" to `spawns`. Area rows only: a unit row whose graph would change this way (the
+# Berserker's inline OnStartingAction) keeps the reading it loads under. WALK_INLINE is module state so a
+# test can turn the walk off (the plant `inline_roots_skipped`, tests/test_action_graph_inline.py).
+WALK_INLINE = True
+
+
+def action_graph(t: dict, rec: dict, sequence: list | None = None, inline_row: str | None = None) -> dict | None:
     """The actions a row's *Action columns reach (15.535), or None when the table
     has no such column or the row sets none: {roots, class_types, spawns, mechanic}.
 
     `sequence` is a unit row's AttackSequenceList (a list of inline tables): an entry's
     DoAttackAction is a root too (`AttackSequenceList[k].DoAttackAction`), so the attack an
     entry runs shows among the classes (the Three Musketeers' bayonet: ActionRunOnInstigator,
-    ActionDealDamage). No loaded card's row carries one."""
+    ActionDealDamage). No loaded card's row carries one.
+
+    `inline_row` (an area row's name, under WALK_INLINE): inline root tables and inline
+    sub-actions are walked too (the module note above), an inline root named after the row."""
     if "actions" not in t or not isinstance(rec, Row):
         return None
+    inline = inline_row is not None
     roots = {c: rec[c] for c in sorted(rec.columns) if ACTION_COLUMN.search(c) and isinstance(rec[c], str) and rec[c]}
+    inline_roots: dict[str, dict] = {}
+    if inline:
+        row = inline_row
+        for c in sorted(rec.columns):
+            v = rec[c]
+            if ACTION_COLUMN.search(c) and isinstance(v, dict) and isinstance(v.get("ClassType"), str):
+                roots[c] = f"{row}.{c}"
+                inline_roots[c] = v
+        roots = dict(sorted(roots.items()))
     for k, entry in enumerate(sequence or []):
         if isinstance(entry, dict) and isinstance(entry.get("DoAttackAction"), str) and entry["DoAttackAction"]:
             roots[f"AttackSequenceList[{k}].DoAttackAction"] = entry["DoAttackAction"]
@@ -903,6 +941,39 @@ def action_graph(t: dict, rec: dict, sequence: list | None = None) -> dict | Non
     acts = t["actions"]
     seen: list[str] = []
     spawns: list[str] = []
+    inline_classes: set[str] = set()
+    # An inline table reached twice (a list column's first element is also the row's own value) is
+    # walked once, by identity.
+    seen_inline: set[int] = set()
+
+    def spawn_of(a) -> None:
+        if a.get("ClassType") in ("ActionSpawn", "ActionSpawnToLocation"):
+            data = a.get("SpawnData")
+            if isinstance(data, str):
+                spawns.append(f"{a.get('SpawnType')}:{data}")
+            elif inline and isinstance(data, dict) and isinstance(data.get("Name"), str):
+                spawns.append(f"{a.get('SpawnType')}:{data['Name']}")
+
+    def follow(v) -> None:
+        # A value inside an action: an action's name, an inline action, or a list of either.
+        if isinstance(v, str):
+            if v in acts.records:
+                walk(v)
+        elif inline and isinstance(v, dict) and isinstance(v.get("ClassType"), str):
+            walk_inline(v)
+        elif inline and isinstance(v, list):
+            for x in v:
+                follow(x)
+
+    def walk_inline(a: dict) -> None:
+        if id(a) in seen_inline:
+            return
+        seen_inline.add(id(a))
+        inline_classes.add(a["ClassType"])
+        spawn_of(a)
+        for k, v in a.items():
+            if k not in ("Name", "SpawnData"):
+                follow(v)
 
     def walk(name: str) -> None:
         if name in seen:
@@ -913,15 +984,29 @@ def action_graph(t: dict, rec: dict, sequence: list | None = None) -> dict | Non
         seen.append(name)
         if a["ClassType"] in ("ActionSpawn", "ActionSpawnToLocation") and isinstance(a["SpawnData"], str):
             spawns.append(f"{a['SpawnType']}:{a['SpawnData']}")
+        elif inline:
+            spawn_of(a)
         refs = [v for k, v in a.items() if k != "Name" and isinstance(v, str)]
         refs += [x for lst in acts.arrays.get(name, {}).values() for x in lst if isinstance(x, str)]
         for v in refs:
             if v in acts.records:
                 walk(v)
+        if inline:
+            for k, v in a.items():
+                if k not in ("Name", "SpawnData") and isinstance(v, dict):
+                    follow(v)
+            for lst in acts.arrays.get(name, {}).values():
+                for x in lst:
+                    if isinstance(x, dict):
+                        follow(x)
 
-    for v in roots.values():
-        walk(v)
-    classes = sorted({acts.get(n)["ClassType"] for n in seen if isinstance(acts.get(n)["ClassType"], str)})
+    for c, v in roots.items():
+        if c in inline_roots:
+            walk_inline(inline_roots[c])
+        else:
+            walk(v)
+    named = {acts.get(n)["ClassType"] for n in seen if isinstance(acts.get(n)["ClassType"], str)}
+    classes = sorted(named | inline_classes)
     return {
         "roots": roots,
         "class_types": classes,
@@ -1040,6 +1125,274 @@ def schedule_entry(t: dict, rec, name: str | None, delay) -> dict:
         return e
     e["unread"] = [f"class {cls}"]
     return e
+
+
+# THE STRIKING AREAS WHOSE STRIKES ARE AN ACTION (15.535, area rows only; `norm_aeo`). Two exact shapes, each
+# read key by key: an action that sets a key its builder does not know gives no block, and the loader then
+# refuses the row by its action graph as before (fail closed). The cosmetic keys (effects, stat labels) are
+# allowed anywhere.
+#   ranked_catches (the Vines' Vines_AeO): OnStartingAction is a group of one selector
+#     (ActionRunActionListOnObjectsInShapeWithPrio) after a delay; the selector runs one catch action at each
+#     of its Delays, each on the highest-ranked target of its filter in its shape not caught yet; a catch is a
+#     group of an ActionAirToGround and an ActionSelect of buff spawns (one per target size).
+#   laser_ball (the Void's DarkMagicAOE): OnStartingAction is an inline group whose one live entry is an
+#     ActionLaserBall after a delay: it strikes every target of its filter within DetectionRadius, first after
+#     FirstHitDelay and then every HitFrequency, and hangs the buff of the tier its count falls in
+#     (MaxUnitPerActionList, one limit fewer than the tiers).
+STRIKE_COSMETIC_KEYS = frozenset({"MainEffectList", "StatsTags", "Effect", "HitEffect", "ScaledEffect"})
+# A target filter's flags (game_object_filters.toml), by the name the block writes. Any other key gives no
+# block; FilterDescriptionTID is a label.
+FILTER_FLAGS = {
+    "MatchTeamEnemy": "match_team_enemy",
+    "MatchTeamOwn": "match_team_own",
+    "MatchTypeCharacters": "match_type_characters",
+    "FilterBuildings": "filter_buildings",
+    "FilterSummoner": "filter_summoner",
+    "FilterPrincessTowers": "filter_princess_towers",
+    "FilterUnderground": "filter_underground",
+    "FilterHidden": "filter_hidden",
+    "FilterInvisible": "filter_invisible",
+    "FilterFlying": "filter_flying",
+    "FilterCloning": "filter_cloning",
+    "FilterDashImmune": "filter_dash_immune",
+    "FilterIfNoHitpointComponent": "filter_if_no_hitpoint_component",
+}
+FILTER_LABELS = frozenset({"FilterDescriptionTID"})
+# The columns an inline laser-ball tier buff may set (`laser_ball_block`).
+LASER_BALL_BUFF_KEYS = frozenset(
+    {"Name", "Rarity", "DamagePerSecond", "CrownTowerDamagePerHit", "HitFrequency", "AddAsIndividualBuff"}
+)
+# The keys each action of the two shapes sets, exactly (less the cosmetic ones).
+GROUP_KEYS = frozenset({"ClassType", "SubActions", "SubActionsDelay"})
+SELECTOR_KEYS = frozenset(
+    {"ClassType", "OncePerTarget", "TargetSelectionMode", "TargetFilter", "Actions", "Delays", "Shape"}
+)
+AIR_TO_GROUND_KEYS = frozenset(
+    {"ClassType", "TransitionDuration", "TotalDuration", "AbortIfInstigatorDies", "Singleton", "AllowIsGroundTagOnIdle"}
+)
+SPAWN_KEYS = frozenset({"ClassType", "SpawnType", "SpawnTime", "SpawnData"})
+LASER_BALL_KEYS = frozenset(
+    {"ClassType", "DetectionRadius", "FirstHitDelay", "HitFrequency", "MaxUnitPerActionList", "HitFilter"}
+    | {"OnDetectedUnitActionList"}
+)
+
+
+def _live_keys(a: dict) -> set[str]:
+    """The keys an action sets, less the cosmetic ones."""
+    return {k for k, v in a.items() if v is not None} - STRIKE_COSMETIC_KEYS
+
+
+def _list_col(acts, name: str, col: str) -> list:
+    """A named action's list column, whole (a one-element list reads as its element)."""
+    arr = acts.arrays.get(name, {}).get(col)
+    if arr is not None:
+        return list(arr)
+    v = acts.get(name)[col]
+    return [] if v is None else [v]
+
+
+def _cosmetic_table(v) -> bool:
+    """An inline action that only plays an effect."""
+    return isinstance(v, dict) and v.get("ClassType") == "ActionPlayEffect" and _live_keys(v) <= {"ClassType", "Effect"}
+
+
+def filter_block(t: dict, name) -> dict | None:
+    """A target filter (game_object_filters.toml) as {name, <flags>, tags}, or None for a name the file
+    lacks or a key this reader does not know."""
+    f = t.filters.get(name) if isinstance(name, str) else None
+    if f is None:
+        return None
+    out: dict = {"name": name}
+    for k, v in f.items():
+        if k in FILTER_LABELS:
+            continue
+        if k == "FilterTags" and isinstance(v, str):
+            out["tags"] = [s.strip() for s in v.split(",") if s.strip()]
+        elif k in FILTER_FLAGS and isinstance(v, bool):
+            out[FILTER_FLAGS[k]] = v
+        else:
+            return None
+    return out
+
+
+def _other_roots_cosmetic(t: dict, a: dict, root_col: str) -> bool:
+    """Every *Action column of area row `a` but `root_col` is blank or only plays an effect."""
+    acts = t["actions"]
+    for c in a.columns:
+        if c == root_col or not ACTION_COLUMN.search(c):
+            continue
+        v = a[c]
+        if v is None or _cosmetic_table(v):
+            continue
+        if isinstance(v, str) and _cosmetic_action(acts, v):
+            continue
+        return False
+    return True
+
+
+def ranked_catches_block(t: dict, a: dict) -> dict | None:
+    """The Vines' block (the module note above), or None."""
+    acts = t["actions"]
+    root = a["OnStartingAction"]
+    g = acts.get(root) if isinstance(root, str) else None
+    if g is None or g["ClassType"] != "ActionGroup" or _live_keys(g) != GROUP_KEYS:
+        return None
+    subs, delays = _list_col(acts, root, "SubActions"), _list_col(acts, root, "SubActionsDelay")
+    if len(subs) != 1 or len(delays) != 1 or not isinstance(subs[0], str) or not isinstance(delays[0], int):
+        return None
+    sel_name, start = subs[0], delays[0]
+    sel = acts.get(sel_name)
+    if sel is None or sel["ClassType"] != "ActionRunActionListOnObjectsInShapeWithPrio":
+        return None
+    if _live_keys(sel) != SELECTOR_KEYS:
+        return None
+    catches, offsets = _list_col(acts, sel_name, "Actions"), _list_col(acts, sel_name, "Delays")
+    if not catches or len(catches) != len(offsets) or len(set(catches)) != 1:
+        return None
+    if not all(isinstance(d, int) for d in offsets):
+        return None
+    catch = acts.get(catches[0])
+    if catch is None or catch["ClassType"] != "ActionGroup" or _live_keys(catch) != GROUP_KEYS:
+        return None
+    parts, part_delays = _list_col(acts, catches[0], "SubActions"), _list_col(acts, catches[0], "SubActionsDelay")
+    if len(parts) != 2 or len(part_delays) != 2 or any(d != 0 for d in part_delays):
+        return None
+    by_class = {acts.get(p)["ClassType"]: p for p in parts if isinstance(p, str) and acts.get(p) is not None}
+    if set(by_class) != {"ActionAirToGround", "ActionSelect"}:
+        return None
+    ag = acts.get(by_class["ActionAirToGround"])
+    if _live_keys(ag) != AIR_TO_GROUND_KEYS:
+        return None
+    pick_name = by_class["ActionSelect"]
+    if _live_keys(acts.get(pick_name)) != {"ClassType", "SubActions", "PerActionConditions"}:
+        return None
+    options, option_time = [], []
+    for o in _list_col(acts, pick_name, "SubActions"):
+        s = acts.get(o) if isinstance(o, str) else None
+        if s is None or s["ClassType"] != "ActionSpawn" or _live_keys(s) != SPAWN_KEYS:
+            return None
+        if s["SpawnType"] != "BuffType" or not isinstance(s["SpawnData"], str):
+            return None
+        b = norm_buff(t, s["SpawnData"])
+        if b is None:
+            return None
+        options.append(b)
+        option_time.append(s["SpawnTime"])
+    shape = t.shapes.get(sel["Shape"]) if isinstance(sel["Shape"], str) else None
+    if shape is None or shape.get("ClassType") != "Circle" or _live_keys(shape) != {"ClassType", "Radius"}:
+        return None
+    filt = filter_block(t, sel["TargetFilter"])
+    if filt is None or not options or not _other_roots_cosmetic(t, a, "OnStartingAction"):
+        return None
+    return {
+        "kind": "ranked_catches",
+        "start_delay_ms": start,
+        "catch_offsets_ms": offsets,
+        "once_per_target": bool(sel["OncePerTarget"]),
+        "selection_mode": sel["TargetSelectionMode"],
+        "radius_milli": shape["Radius"],
+        "filter": filt,
+        "air_to_ground": {
+            "transition_ms": ag["TransitionDuration"],
+            "total_ms": ag["TotalDuration"],
+            "abort_if_instigator_dies": bool(ag["AbortIfInstigatorDies"]),
+            "singleton": bool(ag["Singleton"]),
+            "allow_is_ground_tag_on_idle": bool(ag["AllowIsGroundTagOnIdle"]),
+        },
+        "options": options,
+        "option_time_ms": option_time,
+        # ActionSelect PerActionConditions: which option a target takes by its row or its radius. Carried and
+        # read by nothing; the loader takes the options only when they are one buff (`strike_area_shape`).
+        "conditions": _list_col(acts, pick_name, "PerActionConditions"),
+    }
+
+
+def laser_ball_block(t: dict, a: dict) -> dict | None:
+    """The Void's block (the module note above), or None."""
+    root = a["OnStartingAction"]
+    if not isinstance(root, dict) or root.get("ClassType") != "ActionGroup" or _live_keys(root) != GROUP_KEYS:
+        return None
+    subs, delays = root["SubActions"], root["SubActionsDelay"]
+    if not isinstance(subs, list) or not isinstance(delays, list) or len(subs) != len(delays):
+        return None
+    live = [(d, s) for s, d in zip(subs, delays, strict=True) if not _cosmetic_table(s)]
+    if len(live) != 1 or not isinstance(live[0][0], int):
+        return None
+    start, lb = live[0]
+    if not isinstance(lb, dict) or lb.get("ClassType") != "ActionLaserBall":
+        return None
+    if _live_keys(lb) != LASER_BALL_KEYS:
+        return None
+    limits, lists = lb["MaxUnitPerActionList"], lb["OnDetectedUnitActionList"]
+    if not isinstance(limits, list) or not all(isinstance(n, int) and not isinstance(n, bool) for n in limits):
+        return None
+    if not isinstance(lists, list) or len(lists) != len(limits) + 1:
+        return None
+    tiers = []
+    for e in lists:
+        if not isinstance(e, dict) or e.get("ClassType") != "ActionSpawn" or e.get("SpawnType") != "BuffType":
+            return None
+        if _live_keys(e) - {"NextAction"} != {"ClassType", "SpawnType", "SpawnTime", "SpawnData"}:
+            return None
+        if e.get("NextAction") is not None and not _cosmetic_table(e["NextAction"]):
+            return None
+        data = e["SpawnData"]
+        if not isinstance(data, dict) or _live_keys(data) - LASER_BALL_BUFF_KEYS:
+            return None
+        tiers.append(
+            {
+                "buff": norm_inline_buff(t, data),
+                "time_ms": e["SpawnTime"],
+                "add_as_individual_buff": bool(data.get("AddAsIndividualBuff")),
+            }
+        )
+    filt = filter_block(t, lb["HitFilter"])
+    if filt is None or not _other_roots_cosmetic(t, a, "OnStartingAction"):
+        return None
+    return {
+        "kind": "laser_ball",
+        "start_delay_ms": start,
+        "first_hit_delay_ms": lb["FirstHitDelay"],
+        "hit_frequency_ms": lb["HitFrequency"],
+        "detection_radius_milli": lb["DetectionRadius"],
+        "max_units_per_list": limits,
+        "filter": filt,
+        "tiers": tiers,
+    }
+
+
+def strike_area_block(t: dict, a: dict) -> dict | None:
+    """An area row's striking-area block (15.535): the Vines' ranked catches or the Void's laser ball, or None."""
+    if "actions" not in t or not isinstance(a, Row):
+        return None
+    return ranked_catches_block(t, a) or laser_ball_block(t, a)
+
+
+def clone_action_block(t: dict, a: dict) -> dict | None:
+    """THE CLONE'S ACTION (15.535, an area row that sets Clone; `norm_aeo`): OnHitAction is one ActionClone
+    whose OnClonedAction is one ActionSpawn, read key by key. None for any other shape, and the loader then
+    refuses the row by its action graph as before."""
+    acts = t.get("actions")
+    root = a["OnHitAction"]
+    ac = acts.get(root) if acts is not None and isinstance(root, str) else None
+    if ac is None or ac["ClassType"] != "ActionClone":
+        return None
+    if _live_keys(ac) - {"SpawnDeployBaseAnim"} != {"ClassType", "CardDataForStats", "OnClonedAction"}:
+        return None
+    on = acts.get(ac["OnClonedAction"]) if isinstance(ac["OnClonedAction"], str) else None
+    if on is None or on["ClassType"] != "ActionSpawn" or _live_keys(on) != SPAWN_KEYS:
+        return None
+    if not isinstance(on["SpawnData"], str):
+        return None
+    return {
+        "card_data_for_stats": ac["CardDataForStats"],
+        "on_cloned": {
+            "spawn_type": on["SpawnType"],
+            "spawn": on["SpawnData"],
+            "buff": norm_buff(t, on["SpawnData"]) if on["SpawnType"] == "BuffType" else None,
+            "spawn_time_ms": on["SpawnTime"],
+        },
+    }
 
 
 def life_state_spawner(t: dict, rec: dict) -> dict | None:
@@ -1576,6 +1929,18 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
     b = t["character_buffs"].get(name)
     if b is None:
         return None
+    return norm_buff_row(t, name, b)
+
+
+def norm_inline_buff(t: dict[str, Table], data: dict) -> dict:
+    """A buff written inline where an action spawns it (the Void's three tiers: an ActionSpawn whose
+    SpawnData is a table, not a buff's name), normalised as a 15.535 character_buffs row: every
+    column the table knows and the inline table leaves out reads blank."""
+    cols = set(t["character_buffs"].columns) | set(data)
+    return norm_buff_row(t, data.get("Name"), Row(cols, dict(data)))
+
+
+def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
     out = {
         "name": name,
         # Encoding of these three is UNVERIFIED: Rage ships 135 and
@@ -1635,6 +2000,17 @@ def norm_buff(t: dict[str, Table], name: str | None) -> dict | None:
         )
         out["ignore_buildings"] = flag(b, "IgnoreBuildings")
         out["crown_tower_damage_per_hit"] = b["CrownTowerDamagePerHit"]
+        # Clone: the buff is the Clone spell's hold (the pair it copies is held, its lock and charge
+        # kept; calibration spells.CLONE_HOLD_TARGETS). NotCloned: a copy does not take this buff
+        # (spells.CLONE_COPY_BUFFS). AttachedInheritAs: the buff a caught mount's riders take (the Vines'
+        # snare), carried and read by nothing. Each written only where set, so every other buff is
+        # unchanged.
+        if flag(b, "Clone"):
+            out["clone"] = True
+        if flag(b, "NotCloned"):
+            out["not_cloned"] = True
+        if b["AttachedInheritAs"]:
+            out["attached_inherit_as"] = b["AttachedInheritAs"]
     return out
 
 
@@ -1743,7 +2119,7 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         "affects_hidden": flag(a, "AffectsHidden"),
     }
     if isinstance(a, Row):
-        out["action_graph"] = action_graph(t, a)
+        out["action_graph"] = action_graph(t, a, inline_row=name if WALK_INLINE else None)
         # ControlsBuff (15.535 only, so the 2018 file stays byte-identical): the buff this area
         # applies lives only as long as the area does (the Tornado), read with the buff's own
         # ControlledByParent under calibration status.AREA_BUFF_SOURCE_BINDING.
@@ -1766,6 +2142,15 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         out["schedule"] = action_schedule(t, a["OnStartingAction"]) if isinstance(a["OnStartingAction"], str) else None
         out["on_hit"] = action_schedule(t, a["OnHitAction"]) if isinstance(a["OnHitAction"], str) else None
         out["spawn_time_ms"] = a["SpawnTime"]
+        # A STRIKING AREA WHOSE STRIKES ARE AN ACTION (`strike_area_block`: the Vines' ranked catches, the
+        # Void's laser ball), and THE CLONE (Clone, and its action `clone_action_block`). Each written only
+        # where the row is one, so every other area is unchanged.
+        sa = strike_area_block(t, a)
+        if sa is not None:
+            out["strike_area"] = sa
+        if flag(a, "Clone"):
+            out["clone"] = True
+            out["clone_action"] = clone_action_block(t, a)
     return out
 
 
@@ -2164,6 +2549,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             u["attach_max_rotation_deg"] = c.get("SpawnAttachMaxRotation")
         if c.get("SpawnMaxAngle") is not None:
             u["spawn_max_angle_deg"] = c.get("SpawnMaxAngle")
+        # IgnoreClone: the Clone spell never copies this unit (the Goblin Drill's dig, the chess Recruits).
+        # Written only where set, so every other row is unchanged.
+        if flag(c, "IgnoreClone"):
+            u["ignore_clone"] = True
         # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
         # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
         # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
@@ -2521,6 +2910,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     for f in RIDER_FIELDS:
         if f in u:
             card[f] = u[f]
+    # 15.535 only and only where set (norm_unit): the card row whose own unit the Clone never copies.
+    if "ignore_clone" in u:
+        card["ignore_clone"] = u["ignore_clone"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:
@@ -2813,10 +3205,26 @@ def sha256_of(p: Path) -> str:
 # THE 15.535 GLOBALS THE LOADER READS (card.rs `CardDb::globals`): named rows of the vintage's own
 # globals.csv, typed -- NumberValue as an integer, BooleanValue as a boolean. Only the rows a loaded
 # mechanic reads are carried: the Mirror's MIRROR_LEVEL_OFFSET (read), with its two neighbours
-# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing). The
-# engine's other globals still come from the embedded 2018 globals.csv (state.rs `globals_number`).
-# A named row the file lacks, or one whose value is neither a number nor a boolean, stops the build.
-GLOBALS_READ = ("MIRROR_LEVEL_OFFSET", "MIRROR_CAP_TO_MAX_LEVEL", "MIRROR_IGNORE_CHAMPIONS")
+# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing), and the
+# Clone's eleven CLONE_* rules (card.rs `clone_shape` reads every one). The engine's other globals still
+# come from the embedded 2018 globals.csv (state.rs `globals_number`). A named row the file lacks, or one
+# whose value is neither a number nor a boolean, stops the build.
+GLOBALS_READ = (
+    "MIRROR_LEVEL_OFFSET",
+    "MIRROR_CAP_TO_MAX_LEVEL",
+    "MIRROR_IGNORE_CHAMPIONS",
+    "CLONE_LEVEL_OFFSET",
+    "CLONE_DISTANCE_X",
+    "CLONE_DISTANCE_Y",
+    "CLONE_PRESERVE_SHIELD",
+    "CLONE_CLONED_UNITS",
+    "CLONE_MOVE_PARENT",
+    "CLONE_DEATH_SPAWN_UNITS",
+    "CLONE_DEATH_SPAWN_BUILDINGS",
+    "CLONE_RESET_TARGET",
+    "CLONE_RESET_CHARGE",
+    "CLONE_INHERIT_CHARGE",
+)
 
 
 def globals_block(v: Vintage) -> dict:
@@ -2950,6 +3358,9 @@ def build(t: Tables) -> dict:
     if not v.is_2018:
         # the file the `globals` block comes from (`globals_block`)
         files["globals.csv"] = {"sha256": sha256_of(v.raw / "globals.csv")}
+        # the target filters a striking area names (`strike_area_block`)
+        if (v.raw / "game_object_filters.toml").is_file():
+            files["game_object_filters.toml"] = {"sha256": sha256_of(v.raw / "game_object_filters.toml")}
     provenance = {
         "source": v.source,
         "vintage": v.vintage,

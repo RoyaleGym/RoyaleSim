@@ -310,6 +310,11 @@ pub enum SpellShape {
     /// calibration actions.SUB_ACTIONS_DELAY and actions.SUB_TICK_DELAY_ROUNDING), at the point its offset gives
     /// (state.rs `scheduled_point`). The area lasts `life_ms`; an entry due after that never acts.
     ScheduledArea { life_ms: i32, schedule: Vec<ScheduledSpawn> },
+    /// THE CLONE (area_effect_objects Clone with its ActionClone; the Clone card alone): a one-shot area at the tap
+    /// that, on its first update, copies each own troop `hit` takes (spell.rs `step_spells`) and hangs `hold` on it;
+    /// the copies appear in the Reap phase of that tick (state.rs `materialise_clones`) under `rules` (the table's
+    /// CLONE_* globals) and calibration spells.CLONE_*. It deals nothing itself.
+    Clone { hit: SpellHit, hold: BuffApply, rules: CloneRules },
 }
 
 /// ONE ENTRY OF A SCHEDULED AREA (`SpellShape::ScheduledArea`): an ActionSpawnToLocation of a unit, in the order the
@@ -336,6 +341,24 @@ pub enum SpawnOffset {
     /// RelativeX / RelativeY as the table writes them (the Suspicious Bush's goblins: -1 and +1). Their unit and frame
     /// are calibration spawner.RELATIVE_SPAWN_OFFSET's.
     Relative { x: i32, y: i32 },
+}
+
+/// THE CLONE'S RULES, the 15.535.29 globals.csv CLONE_* rows (cards.json `globals`; `CardGlobals`), as the loader
+/// accepts them (`clone_shape` refuses the values the engine does not run).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CloneRules {
+    /// CLONE_DISTANCE_Y, native: how far apart the pair slides along its owner's y axis, shared between the two over
+    /// the hold (250 a tick, each 125; calibration spells.CLONE_OFFSET).
+    pub distance_y: i32,
+    /// CLONE_PRESERVE_SHIELD: a copy of a unit with a shield has one (spells.CLONE_HITPOINTS's shield).
+    pub preserve_shield: bool,
+    /// CLONE_RESET_TARGET / CLONE_RESET_CHARGE: the hold releases the original's target lock / clears its charge.
+    /// Both FALSE in the 15.535.29 table, and measured so: the original keeps its target and its charge.
+    pub reset_target: bool,
+    pub reset_charge: bool,
+    /// CLONE_DEATH_SPAWN_UNITS (and _BUILDINGS, which the loader holds equal to it): a copy's death spawns are copies
+    /// (spells.CLONE_DEATH_SPAWNS).
+    pub death_spawns: bool,
 }
 
 /// ONE FORM OF A VARIANT CARD (`SpellShape::Variant`): cards.json `spell.variant.options[k]`.
@@ -410,6 +433,9 @@ pub struct StrikeDef {
     /// next (spell.rs `step_spells`). It is the chain's next object (`SpellShape::child`) and the shape's release
     /// (`SpellShape::release`). None on a strike that picks a victim.
     pub delivery: Option<Box<SpellShape>>,
+    /// WHAT A STRIKE OF AN ACTION'S SELECTOR HANGS (`StrikePick::RankedCatches`, `StrikePick::CountTiers`; the Vines,
+    /// the Void): its filter and its buffs (`SelectorDef`). None on the Lightning and the Royal Delivery.
+    pub selector: Option<Box<SelectorDef>>,
 }
 
 /// What a striking area's strike aims at (`StrikeDef::pick`).
@@ -420,6 +446,65 @@ pub enum StrikePick {
     /// The area's own centre, whoever stands there: the strike makes its `delivery` there (the Royal Delivery's
     /// crate, a row with a Projectile and no HitBiggestTargets).
     AreaCentre,
+    /// ONE CATCH A STRIKE (the Vines' ranked catches; spell.rs `catch`): the enemy of the selector's filter within
+    /// its reach with the highest current hp plus shield that this cast has not caught, picked again at every catch
+    /// (calibration spells.MULTI_CATCH_RANKING). It takes the selector's one buff, and a flier is held to the ground
+    /// for the air-to-ground window (spells.AIR_TO_GROUND_WINDOW).
+    RankedCatches,
+    /// EVERY ENEMY OF THE FILTER WITHIN REACH A STRIKE (the Void's laser ball; spell.rs `laser`): each takes the
+    /// buff of the tier the COUNT at that strike falls in (spells.COUNT_TIER_RULE).
+    CountTiers,
+}
+
+/// THE TARGET FILTER OF AN ACTION'S SELECTOR (game_object_filters.toml; cards.json `strike_area.filter`): what a
+/// Vines catch or a Void strike may take besides an ordinary spell's eligibility (spell.rs `eligible`, which keeps
+/// out a unit under ground and an attached rider). A flag the filter leaves out filters nothing
+/// (spells.TARGET_FILTER_ABSENT_FLAG).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SelectorFilter {
+    /// FilterHidden: a building hidden under ground (a Tesla) is left out. The Void's filter sets it, the Vines' not.
+    pub skip_hidden: bool,
+    /// FilterUnderground: a unit under ground (entity.rs `underground`) is left out. Under the shipped
+    /// movement.SPAWN_PATHFIND_BODY = untouchable no spell reaches one anyway (spell.rs `eligible`).
+    pub skip_underground: bool,
+    /// FilterDashImmune: a unit whose dash makes it immune to damage is left out (entity.rs `dash_immune`).
+    pub skip_dash_immune: bool,
+    /// FilterTags UNTARGETABLE (with NO_CHECKCOLLISIONS, NO_CHECKAVOIDANCE): a formation member still waiting out its
+    /// deploy stagger is left out, the predicate target.rs `can_target` reads for it.
+    pub skip_untargetable: bool,
+    /// FilterBuildings false (or blank): buildings are taken.
+    pub buildings: bool,
+    /// FilterPrincessTowers false (or blank): the princess towers are taken.
+    pub princess_towers: bool,
+    /// FilterSummoner false (or blank): the king tower is taken.
+    pub king_tower: bool,
+}
+
+/// THE AIR-TO-GROUND WINDOW OF A CATCH (the Vines' ActionAirToGround): a caught flier is a ground unit for its
+/// targeting and for every hit's air filter until the window ends (entity.rs `grounded_ms`; spells.AIR_TO_GROUND_WINDOW
+/// says how long it is from these two).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GroundDef {
+    /// TransitionDuration, ms (50).
+    pub transition_ms: i32,
+    /// TotalDuration, ms (2000).
+    pub total_ms: i32,
+}
+
+/// A STRIKE OF AN ACTION'S SELECTOR (`StrikeDef::selector`): the filter, the buffs it hangs and, for the Void, the
+/// count limits of its tiers. Every buff is delivered as a `BuffHit` on the strike tick, so it lands in that tick's
+/// Resolve (spell.rs `deliver`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SelectorDef {
+    pub filter: SelectorFilter,
+    /// RankedCatches: the one buff a catch hangs (every size option of the Vines' select, which intern to one row).
+    /// CountTiers: the tier buffs in list order, each with its SpawnTime (the Void's lv3, lv2, lv1).
+    pub buffs: Vec<BuffApply>,
+    /// CountTiers: MaxUnitPerActionList, one fewer than `buffs` and ascending: tier i is taken when the count is at
+    /// most limits[i], the last when it is above them all (the Void's [1, 4]). Empty for RankedCatches.
+    pub limits: Vec<i32>,
+    /// RankedCatches: the catch's air-to-ground window. None for CountTiers.
+    pub ground: Option<GroundDef>,
 }
 
 /// A striking area's gaps, ms (`StrikeDef::gaps_ms`): HitSpeed repeated while the running sum is at most LifeDuration.
@@ -511,7 +596,7 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
     if !hit.hits_air && !hit.hits_ground {
         return refuse("it hits neither ground nor air");
     }
-    Ok(StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::HighestHp, delivery: None })
+    Ok(StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::HighestHp, delivery: None, selector: None })
 }
 
 /// THE CENTRE-AIMED STRIKE an area with a Projectile row and no HitBiggestTargets is (`StrikePick::AreaCentre`; the
@@ -624,7 +709,321 @@ fn centre_strike_shape(aeo: &RawAreaEffect) -> Result<(StrikeDef, UnitNeeds), St
         level_index: p.spawn_character_level_index,
     };
     let delivery = SpellShape::Projectile { speed, hit: Some(delivery_hit), waves: 1, wave_interval_ms: 0, spawn: Some(spawn) };
-    Ok((StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::AreaCentre, delivery: Some(Box::new(delivery)) }, vec![(UnitUse::Spell, unit)]))
+    Ok((StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::AreaCentre, delivery: Some(Box::new(delivery)), selector: None }, vec![(UnitUse::Spell, unit)]))
+}
+
+/// THE TARGET FILTER a selector reads (`SelectorFilter`), or the reason it is refused. Accepted: enemies, characters,
+/// and only the flags and tags the engine runs (FilterInvisible, FilterFlying and FilterCloning set are refused; a
+/// blank flag filters nothing, spells.TARGET_FILTER_ABSENT_FLAG).
+fn selector_filter(f: &RawTargetFilter) -> Result<SelectorFilter, String> {
+    let name = f.name.clone().unwrap_or_default();
+    if f.match_team_enemy != Some(true) || f.match_team_own == Some(true) {
+        return Err(format!("target filter {name} does not take enemies alone"));
+    }
+    if f.match_type_characters != Some(true) {
+        return Err(format!("target filter {name} does not take characters"));
+    }
+    for (flag, set) in [("FilterInvisible", f.filter_invisible), ("FilterFlying", f.filter_flying), ("FilterCloning", f.filter_cloning)] {
+        if set == Some(true) {
+            return Err(format!("target filter {name}: {flag} is not simulated"));
+        }
+    }
+    let tags = f.tags.clone().unwrap_or_default();
+    if let Some(t) = tags.iter().find(|t| !matches!(t.as_str(), "NO_CHECKAVOIDANCE" | "NO_CHECKCOLLISIONS" | "UNTARGETABLE")) {
+        return Err(format!("target filter {name}: the tag {t} is not simulated"));
+    }
+    #[cfg(not(clash_plant = "vines_skips_hidden"))]
+    let skip_hidden = f.filter_hidden == Some(true);
+    #[cfg(clash_plant = "vines_skips_hidden")]
+    let skip_hidden = true; // PLANT: a blank FilterHidden read as set, so the Vines leave a hidden Tesla alone.
+    Ok(SelectorFilter {
+        skip_hidden,
+        skip_underground: f.filter_underground == Some(true),
+        skip_dash_immune: f.filter_dash_immune == Some(true),
+        skip_untargetable: tags.iter().any(|t| t == "UNTARGETABLE"),
+        buildings: f.filter_buildings != Some(true),
+        princess_towers: f.filter_princess_towers != Some(true),
+        king_tower: f.filter_summoner != Some(true),
+    })
+}
+
+/// THE STRIKING AREA WHOSE STRIKES ARE AN ACTION (cards.json `strike_area`: the Vines' ranked catches, the Void's
+/// laser ball), or the reason it is refused. Both kinds: the area carries no Buff, Projectile, SpawnCharacter,
+/// MaximumTargets, Pushback, child area, own-side filter, HitBiggestTargets or positive HitSpeed of its own, has a
+/// LifeDuration, and its own Damage is not read when it hits neither ground nor air (the Void's 100; calibration
+/// spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS = inert), refused when it hits either. Then:
+///   - ranked_catches: once per target, ranked by current hp plus shield, catch offsets ascending, every size option
+///     ONE buff row by value with one time (the Vines' seven snares), an air-to-ground action that is a singleton, is
+///     not aborted by its caster's death and lets the ground tag stand while idle. The gaps are the start delay plus
+///     the first offset, then the offsets' differences (the Vines: [900, 50, 100]), each running sum within the life;
+///   - laser_ball: tiers one more than the count limits, the limits ascending and positive, each tier a buff that
+///     deals damage over time and nothing else, lasting one pulse (its time is its HitFrequency) with a
+///     CrownTowerDamagePerHit. The gaps are the start delay plus FirstHitDelay, then HitFrequency while the running
+///     sum is within the life (the Void: [1500, 1200, 1200]).
+///
+/// The strike's `hit` is a filter only (damage 0, both air and ground, enemies): the selector's filter decides.
+fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTable) -> Result<StrikeDef, String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: String| -> Result<StrikeDef, String> { Err(format!("striking area effect {what}: {why}; not simulated")) };
+    if aeo.buff.is_some()
+        || aeo.projectile.as_ref().is_some_and(|p| !p.is_null())
+        || aeo.spawn_character.is_some()
+        || aeo.maximum_targets.is_some()
+        || aeo.pushback_milli.is_some()
+        || aeo.spawn_area_effect_object.is_some()
+        || aeo.only_own_troops == Some(true)
+        || aeo.hit_biggest_targets == Some(true)
+    {
+        return refuse("the area carries its own Buff, Projectile, SpawnCharacter, MaximumTargets, Pushback, child area, own-side filter or HitBiggestTargets beside its action".into());
+    }
+    if aeo.damage.is_some() && (aeo.hits_ground == Some(true) || aeo.hits_air == Some(true)) {
+        return refuse("it carries its own Damage and its strikes".into());
+    }
+    if aeo.hit_speed_ms.is_some_and(|h| h > 0) {
+        return refuse("a HitSpeed beside its action".into());
+    }
+    let Some(life_ms) = aeo.life_duration_ms.filter(|l| *l > 0) else { return refuse("no LifeDuration".into()) };
+    let Some(raw_filter) = sa.filter.as_ref() else { return refuse("its action names no target filter".into()) };
+    let filter = selector_filter(raw_filter).map_err(|e| format!("striking area effect {what}: {e}; not simulated"))?;
+    let Some(start) = sa.start_delay_ms.filter(|d| *d >= 0) else { return refuse("its action has no start delay".into()) };
+    let hit_of = |radius: i32| SpellHit {
+        damage: 0,
+        crown_pct: crown(aeo.crown_tower_damage_percent),
+        radius: milli(radius),
+        hits_air: true,
+        hits_ground: true,
+        only_enemies: true,
+        only_own_troops: false,
+        ignore_buildings: false,
+        no_effect_to_crown_towers: false,
+        knockback: None,
+        buff: None,
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    // PLANT (void_area_damage_loaded): the area's own Damage is read onto the strike, whose victims then take it.
+    #[cfg(clash_plant = "void_area_damage_loaded")]
+    let hit_of = |radius: i32| SpellHit { damage: aeo.damage.unwrap_or(0), ..hit_of(radius) };
+    match sa.kind.as_deref() {
+        Some("ranked_catches") => {
+            if sa.once_per_target != Some(true) {
+                return refuse("catches that may take one target twice".into());
+            }
+            if sa.selection_mode.as_deref() != Some("HighestCurrentHpIncludeShields") {
+                return refuse(format!("catches ranked by {:?}", sa.selection_mode));
+            }
+            let Some(radius) = sa.radius_milli.filter(|r| *r > 0) else { return refuse("catches with no shape radius".into()) };
+            let offsets = sa.catch_offsets_ms.clone().unwrap_or_default();
+            if offsets.is_empty() || offsets[0] < 0 || offsets.windows(2).any(|w| w[1] <= w[0]) {
+                return refuse(format!("catch offsets {offsets:?} that are not ascending"));
+            }
+            // The Delays are offsets from the selector's start (measured on client 15.535.29: catches on C + 18, 19 and
+            // 21 for 0, 50 and 150), so a gap is the difference of two.
+            let mut gaps_ms = vec![start + offsets[0]];
+            #[cfg(not(clash_plant = "vines_delays_cumulative"))]
+            gaps_ms.extend(offsets.windows(2).map(|w| w[1] - w[0]));
+            #[cfg(clash_plant = "vines_delays_cumulative")]
+            gaps_ms.extend(offsets.iter().skip(1).copied()); // PLANT: each Delay read as the gap after the catch before it.
+            let mut sum = 0;
+            for g in &gaps_ms {
+                sum += g;
+                if sum > life_ms {
+                    return refuse(format!("a catch {sum} ms after the cast, past its LifeDuration {life_ms}"));
+                }
+            }
+            let Some(ag) = sa.air_to_ground.as_ref() else { return refuse("a catch without its air-to-ground action".into()) };
+            if ag.singleton != Some(true) || ag.abort_if_instigator_dies != Some(false) || ag.allow_is_ground_tag_on_idle != Some(true) {
+                return refuse("an air-to-ground action that is not a singleton, is aborted by its caster's death or drops the ground tag while idle".into());
+            }
+            let (Some(transition_ms), Some(total_ms)) = (ag.transition_ms.filter(|t| *t >= 0), ag.total_ms.filter(|t| *t > 0)) else {
+                return refuse("an air-to-ground action with no durations".into());
+            };
+            let options = sa.options.as_deref().unwrap_or_default();
+            let times = sa.option_time_ms.clone().unwrap_or_default();
+            if options.is_empty() || times.len() != options.len() {
+                return refuse("a catch whose size select has no buffs".into());
+            }
+            let mut buff: Option<BuffApply> = None;
+            for (b, t) in options.iter().zip(times) {
+                let got = buffs.apply(b, Some(t), &format!("striking area effect {what}'s catch"))?;
+                match buff {
+                    None => buff = Some(got),
+                    Some(one) if one == got => {}
+                    Some(_) => return refuse("a size select whose buffs differ in a mechanic column".into()),
+                }
+            }
+            let buff = buff.expect("options is not empty");
+            Ok(StrikeDef {
+                hit: hit_of(radius),
+                life_ms,
+                gaps_ms,
+                speed: 0,
+                pick: StrikePick::RankedCatches,
+                delivery: None,
+                selector: Some(Box::new(SelectorDef { filter, buffs: vec![buff], limits: Vec::new(), ground: Some(GroundDef { transition_ms, total_ms }) })),
+            })
+        }
+        Some("laser_ball") => {
+            let Some(radius) = sa.detection_radius_milli.filter(|r| *r > 0) else { return refuse("a laser ball with no DetectionRadius".into()) };
+            let (Some(first_ms), Some(every_ms)) = (sa.first_hit_delay_ms.filter(|d| *d >= 0), sa.hit_frequency_ms.filter(|h| *h > 0)) else {
+                return refuse("a laser ball with no FirstHitDelay or HitFrequency".into());
+            };
+            let limits = sa.max_units_per_list.clone().unwrap_or_default();
+            let tiers = sa.tiers.as_deref().unwrap_or_default();
+            if limits.is_empty() || limits[0] <= 0 || limits.windows(2).any(|w| w[1] <= w[0]) || tiers.len() != limits.len() + 1 {
+                return refuse(format!("count limits {limits:?} for {} tiers", tiers.len()));
+            }
+            let mut tier_buffs = Vec::new();
+            for tier in tiers {
+                let Some(b) = tier.buff.as_ref() else { return refuse("a tier with no buff".into()) };
+                let name = b.name.clone().unwrap_or_default();
+                let def = b.convert(&format!("striking area effect {what}'s tier"))?;
+                let one_pulse = def.damage_per_second > 0
+                    && def.heal_per_second == 0
+                    && def.speed_pct == 0
+                    && def.hit_speed_pct == 0
+                    && def.spawn_speed_pct == 0
+                    && def.attract_pct == 0
+                    && def.death_spawn.is_none()
+                    && def.crown_hit > 0
+                    && tier.time_ms == Some(def.hit_frequency_ms);
+                if !one_pulse {
+                    return refuse(format!("the tier buff {name} is not one pulse of damage with its own crown-tower figure"));
+                }
+                // AddAsIndividualBuff is read either way: a tier lives one pulse, so a second application before it
+                // ends would need two strikes 100 ms apart (status.BUFF_STACKING names the gap).
+                let _ = tier.add_as_individual_buff;
+                tier_buffs.push(buffs.apply(b, tier.time_ms, &format!("striking area effect {what}'s tier"))?);
+            }
+            let mut gaps_ms = vec![start + first_ms];
+            let mut sum = start + first_ms;
+            if sum > life_ms {
+                return refuse("its first strike falls past its LifeDuration".into());
+            }
+            while sum + every_ms <= life_ms {
+                gaps_ms.push(every_ms);
+                sum += every_ms;
+            }
+            Ok(StrikeDef {
+                hit: hit_of(radius),
+                life_ms,
+                gaps_ms,
+                speed: 0,
+                pick: StrikePick::CountTiers,
+                delivery: None,
+                selector: Some(Box::new(SelectorDef { filter, buffs: tier_buffs, limits, ground: None })),
+            })
+        }
+        other => refuse(format!("a strike_area of kind {other:?}")),
+    }
+}
+
+/// THE CLONE (area_effect_objects Clone: an own-side one-shot area whose OnHitAction is an ActionClone; cards.json
+/// `clone` and `clone_action`), or None when the area is not one, and the caller's refusal stands. None also for an
+/// area that carries its own Buff (the GlobalClone event's), which is refused by its action graph as before.
+///
+/// Refused, with the reason: an OnClonedAction that is not one BuffType spawn of a buff whose row sets Clone; a
+/// HitSpeed; the area's own Damage, Pushback, Projectile, SpawnCharacter, MaximumTargets, child area or strikes; an
+/// area that does not reach its own side alone; a CLONE_* global the file does not carry; and the rules the engine
+/// does not run: CLONE_LEVEL_OFFSET or CLONE_DISTANCE_X not 0, CLONE_DISTANCE_Y not a positive even number,
+/// CLONE_MOVE_PARENT false, CLONE_CLONED_UNITS or CLONE_INHERIT_CHARGE true, CLONE_DEATH_SPAWN_UNITS and _BUILDINGS
+/// apart.
+fn clone_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Option<Result<(SpellShape, UnitNeeds), String>> {
+    if aeo.clone != Some(true) || aeo.buff.is_some() {
+        return None;
+    }
+    let action = aeo.clone_action.as_ref()?;
+    Some(clone_shape_of(aeo, action, buffs, ctx))
+}
+
+fn clone_shape_of(aeo: &RawAreaEffect, action: &RawCloneAction, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: String| -> Result<(SpellShape, UnitNeeds), String> { Err(format!("clone area effect {what}: {why}; not simulated")) };
+    let Some(on) = action.on_cloned.as_ref() else { return refuse("its ActionClone runs nothing on a copy".into()) };
+    if on.spawn_type.as_deref() != Some("BuffType") {
+        return refuse(format!("its OnClonedAction spawns {:?} {:?}, not a buff", on.spawn_type, on.spawn));
+    }
+    let Some(raw_hold) = on.buff.as_ref() else { return refuse(format!("its OnClonedAction's buff {:?} has no row", on.spawn)) };
+    if raw_hold.clone != Some(true) {
+        return refuse(format!("its OnClonedAction's buff {} is not the Clone's hold", raw_hold.name.clone().unwrap_or_default()));
+    }
+    if aeo.hit_speed_ms.is_some_and(|h| h > 0) {
+        return refuse("a HitSpeed".into());
+    }
+    if aeo.damage.is_some()
+        || aeo.pushback_milli.is_some()
+        || aeo.projectile.as_ref().is_some_and(|p| !p.is_null())
+        || aeo.spawn_character.is_some()
+        || aeo.maximum_targets.is_some()
+        || aeo.spawn_area_effect_object.is_some()
+        || aeo.hit_biggest_targets == Some(true)
+        || aeo.strike_area.is_some()
+    {
+        return refuse("its own Damage, Pushback, Projectile, SpawnCharacter, MaximumTargets, child area or strikes".into());
+    }
+    if aeo.only_own_troops != Some(true) || aeo.only_enemies == Some(true) {
+        return refuse("it does not reach its own side alone".into());
+    }
+    let g = ctx.globals;
+    for name in CLONE_GLOBALS {
+        if g.clone_number(name).is_none() && g.clone_flag(name).is_none() {
+            return Err(format!("clone area effect {what}: Clone rules missing from cards.json: {name}"));
+        }
+    }
+    let num = |n: &str| g.clone_number(n).unwrap_or(0);
+    let flag = |n: &str| g.clone_flag(n).unwrap_or(false);
+    let bad = |n: &str, v: String| -> Result<(SpellShape, UnitNeeds), String> { Err(format!("clone area effect {what}: Clone rules: {n} {v} is not simulated")) };
+    #[cfg(not(clash_plant = "clone_rules_unchecked"))]
+    if num("CLONE_LEVEL_OFFSET") != 0 {
+        return bad("CLONE_LEVEL_OFFSET", num("CLONE_LEVEL_OFFSET").to_string());
+    }
+    if num("CLONE_DISTANCE_X") != 0 {
+        return bad("CLONE_DISTANCE_X", num("CLONE_DISTANCE_X").to_string());
+    }
+    let distance_y = num("CLONE_DISTANCE_Y");
+    if distance_y <= 0 || distance_y % 2 != 0 {
+        return bad("CLONE_DISTANCE_Y", distance_y.to_string());
+    }
+    if !flag("CLONE_MOVE_PARENT") {
+        return bad("CLONE_MOVE_PARENT", "FALSE".into());
+    }
+    for n in ["CLONE_CLONED_UNITS", "CLONE_INHERIT_CHARGE"] {
+        if flag(n) {
+            return bad(n, "TRUE".into());
+        }
+    }
+    if flag("CLONE_DEATH_SPAWN_UNITS") != flag("CLONE_DEATH_SPAWN_BUILDINGS") {
+        return bad("CLONE_DEATH_SPAWN_BUILDINGS", format!("{} beside CLONE_DEATH_SPAWN_UNITS {}", flag("CLONE_DEATH_SPAWN_BUILDINGS"), flag("CLONE_DEATH_SPAWN_UNITS")));
+    }
+    let rules = CloneRules {
+        distance_y,
+        preserve_shield: flag("CLONE_PRESERVE_SHIELD"),
+        reset_target: flag("CLONE_RESET_TARGET"),
+        reset_charge: flag("CLONE_RESET_CHARGE"),
+        death_spawns: flag("CLONE_DEATH_SPAWN_UNITS"),
+    };
+    let hold = buffs.apply(raw_hold, on.spawn_time_ms, &format!("clone area effect {what}'s hold"))?;
+    let hit = SpellHit {
+        damage: 0,
+        crown_pct: crown(aeo.crown_tower_damage_percent),
+        radius: milli(aeo.radius_milli.ok_or_else(|| format!("clone area effect {what} without radius"))?),
+        hits_air: aeo.hits_air.unwrap_or(false),
+        hits_ground: aeo.hits_ground.unwrap_or(false),
+        only_enemies: false,
+        only_own_troops: true,
+        ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
+        no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
+        knockback: None,
+        buff: None,
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    if !hit.hits_air && !hit.hits_ground {
+        return refuse("it hits neither ground nor air".into());
+    }
+    Ok((SpellShape::Clone { hit, hold, rules }, Vec::new()))
 }
 
 impl SpellShape {
@@ -687,6 +1086,7 @@ impl SpellShape {
             SpellShape::Projectile { hit, .. } => hit.as_ref(),
             SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. } | SpellShape::Rolling { hit, .. } => Some(hit),
             SpellShape::Strikes(d) => Some(&d.hit),
+            SpellShape::Clone { hit, .. } => Some(hit),
             SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => None,
         };
         if let Some(h) = hit {
@@ -694,6 +1094,17 @@ impl SpellShape {
                 if !out.contains(&b.buff) {
                     out.push(b.buff);
                 }
+            }
+        }
+        // A selector's buffs (the Vines' snare, the Void's tiers) and the Clone's hold, after the hit's.
+        let extra: Vec<u16> = match self {
+            SpellShape::Strikes(d) => d.selector.as_ref().map_or(Vec::new(), |s| s.buffs.iter().map(|b| b.buff).collect()),
+            SpellShape::Clone { hold, .. } => vec![hold.buff],
+            _ => Vec::new(),
+        };
+        for b in extra {
+            if !out.contains(&b) {
+                out.push(b);
             }
         }
         if let Some(c) = self.child() {
@@ -1409,13 +1820,16 @@ pub struct CardDef {
     /// container 1000). Loaded on every row: the Golem's 1800 and the Giant Skeleton's bomb's 1800
     /// stay unread under the shipped arm.
     pub death_pushback: i32,
+    /// characters / buildings IgnoreClone (cards.json `ignore_clone`; the Goblin Drill's dig, the chess Recruits): the
+    /// Clone spell never copies this unit (spell.rs `step_spells`). False on a blank.
+    pub ignore_clone: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `death_pushback`, and onto the end of that tail
+    // field goes HERE, after `ignore_clone`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1640,6 +2054,8 @@ struct RawCard {
     transform_at_hp: Option<RawTransform>,
     /// cards.json `parry`: the counter (`ParryDef`), 15.535 only.
     parry: Option<RawParry>,
+    /// cards.json `ignore_clone` (IgnoreClone; 15.535 only, written where set): `CardDef::ignore_clone`.
+    ignore_clone: Option<bool>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
     /// cards.json `interval_spawner` (15.535 only): the Furnace's ActionInterval -> ActionSpawnToLocation
@@ -2784,7 +3200,27 @@ pub struct CardGlobals {
     /// MIRROR_LEVEL_OFFSET: how many levels above the Mirror its copy is played (1 in 15.535.29). None when
     /// the file carries no such row: the Mirror card is then refused.
     pub mirror_level_offset: Option<i32>,
+    /// The Clone's rules, the eleven CLONE_* rows (`CLONE_GLOBALS`), each None when the file carries no such row:
+    /// the Clone card is then refused (`clone_shape`). The three numbers first, then the eight booleans, in
+    /// `CLONE_GLOBALS` order.
+    pub clone_numbers: [Option<i32>; 3],
+    pub clone_flags: [Option<bool>; 8],
 }
+
+/// THE CLONE'S GLOBALS (globals.csv, 15.535.29), in `CardGlobals::clone_numbers` then `clone_flags` order.
+pub const CLONE_GLOBALS: [&str; 11] = [
+    "CLONE_LEVEL_OFFSET",
+    "CLONE_DISTANCE_X",
+    "CLONE_DISTANCE_Y",
+    "CLONE_PRESERVE_SHIELD",
+    "CLONE_CLONED_UNITS",
+    "CLONE_MOVE_PARENT",
+    "CLONE_DEATH_SPAWN_UNITS",
+    "CLONE_DEATH_SPAWN_BUILDINGS",
+    "CLONE_RESET_TARGET",
+    "CLONE_RESET_CHARGE",
+    "CLONE_INHERIT_CHARGE",
+];
 
 impl CardGlobals {
     /// The typed globals of a cards.json `globals` map. A named row whose value is not the type the loader
@@ -2796,7 +3232,31 @@ impl CardGlobals {
                 Some(v) => v.as_i64().and_then(|x| i32::try_from(x).ok()).map(Some).ok_or_else(|| format!("cards.json globals.{name} = {v} is not an integer")),
             }
         };
-        Ok(CardGlobals { mirror_level_offset: int("MIRROR_LEVEL_OFFSET")? })
+        let flag = |name: &str| -> Result<Option<bool>, String> {
+            match m.get(name) {
+                None => Ok(None),
+                Some(v) => v.as_bool().map(Some).ok_or_else(|| format!("cards.json globals.{name} = {v} is not a boolean")),
+            }
+        };
+        let mut clone_numbers = [None; 3];
+        for (k, slot) in clone_numbers.iter_mut().enumerate() {
+            *slot = int(CLONE_GLOBALS[k])?;
+        }
+        let mut clone_flags = [None; 8];
+        for (k, slot) in clone_flags.iter_mut().enumerate() {
+            *slot = flag(CLONE_GLOBALS[3 + k])?;
+        }
+        Ok(CardGlobals { mirror_level_offset: int("MIRROR_LEVEL_OFFSET")?, clone_numbers, clone_flags })
+    }
+
+    /// A CLONE_* number by name, None when the file does not carry it (or `name` is not one).
+    pub fn clone_number(&self, name: &str) -> Option<i32> {
+        CLONE_GLOBALS[..3].iter().position(|n| *n == name).and_then(|k| self.clone_numbers[k])
+    }
+
+    /// A CLONE_* boolean by name, None when the file does not carry it (or `name` is not one).
+    pub fn clone_flag(&self, name: &str) -> Option<bool> {
+        CLONE_GLOBALS[3..].iter().position(|n| *n == name).and_then(|k| self.clone_flags[k])
     }
 }
 
@@ -2905,6 +3365,9 @@ struct RawBuff {
     ignore_buildings: Option<bool>,
     /// character_buffs CrownTowerDamagePerHit (`BuffDef::crown_hit`); 15.535 only.
     crown_tower_damage_per_hit: Option<i32>,
+    /// character_buffs Clone and NotCloned (`BuffDef::clone`, `BuffDef::not_cloned`); 15.535 only, written where set.
+    clone: Option<bool>,
+    not_cloned: Option<bool>,
 }
 
 /// cards.json buff `death_spawn` block, every field nullable (the extractor writes the whole block whenever
@@ -2960,6 +3423,8 @@ impl RawBuff {
             },
             ignore_buildings: self.ignore_buildings.unwrap_or(false),
             crown_hit: self.crown_tower_damage_per_hit.unwrap_or(0),
+            clone_hold: self.clone.unwrap_or(false),
+            not_cloned: self.not_cloned.unwrap_or(false),
         };
         // CrownTowerDamagePerHit replaces a PULSE's crown-tower damage (state.rs `buff_pulse_pass`); on a buff that
         // does not pulse it would have nothing to replace.
@@ -3160,6 +3625,97 @@ struct RawAreaEffect {
     on_hit: Option<RawSchedule>,
     /// SpawnTime: how long the unit the area's projectile releases deploys, as the area row says it (the Royal
     /// Delivery's 250; `centre_strike_shape` holds it against the projectile's SpawnCharacterDeployTime).
+    spawn_time_ms: Option<i32>,
+    /// A striking area whose strikes are an action (tools/extract_cards.py `strike_area_block`; 15.535 only, written
+    /// where the row is one): the Vines' ranked catches, the Void's laser ball (`strike_area_shape`).
+    strike_area: Option<RawStrikeArea>,
+    /// area_effect_objects Clone, and the ActionClone its OnHitAction runs (tools/extract_cards.py
+    /// `clone_action_block`; 15.535 only, written where set): `clone_shape`.
+    clone: Option<bool>,
+    clone_action: Option<RawCloneAction>,
+}
+
+/// cards.json `strike_area` (tools/extract_cards.py `strike_area_block`), every field nullable: the fields of both
+/// kinds, each read by its own kind.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawStrikeArea {
+    kind: Option<String>,
+    start_delay_ms: Option<i32>,
+    filter: Option<RawTargetFilter>,
+    // ranked_catches
+    catch_offsets_ms: Option<Vec<i32>>,
+    once_per_target: Option<bool>,
+    selection_mode: Option<String>,
+    radius_milli: Option<i32>,
+    air_to_ground: Option<RawAirToGround>,
+    options: Option<Vec<RawBuff>>,
+    option_time_ms: Option<Vec<i32>>,
+    // laser_ball
+    first_hit_delay_ms: Option<i32>,
+    hit_frequency_ms: Option<i32>,
+    detection_radius_milli: Option<i32>,
+    max_units_per_list: Option<Vec<i32>>,
+    tiers: Option<Vec<RawStrikeTier>>,
+}
+
+/// One tier of a laser ball: its buff, the buff's SpawnTime and AddAsIndividualBuff.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawStrikeTier {
+    buff: Option<RawBuff>,
+    time_ms: Option<i32>,
+    add_as_individual_buff: Option<bool>,
+}
+
+/// A catch's ActionAirToGround (cards.json `strike_area.air_to_ground`).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawAirToGround {
+    transition_ms: Option<i32>,
+    total_ms: Option<i32>,
+    abort_if_instigator_dies: Option<bool>,
+    singleton: Option<bool>,
+    allow_is_ground_tag_on_idle: Option<bool>,
+}
+
+/// A target filter (game_object_filters.toml; cards.json `strike_area.filter`), every flag nullable: a blank flag
+/// filters nothing (spells.TARGET_FILTER_ABSENT_FLAG). The block's filter_if_no_hitpoint_component is not read: every
+/// entity the engine makes has hitpoints.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawTargetFilter {
+    name: Option<String>,
+    match_team_enemy: Option<bool>,
+    match_team_own: Option<bool>,
+    match_type_characters: Option<bool>,
+    filter_buildings: Option<bool>,
+    filter_summoner: Option<bool>,
+    filter_princess_towers: Option<bool>,
+    filter_underground: Option<bool>,
+    filter_hidden: Option<bool>,
+    filter_invisible: Option<bool>,
+    filter_flying: Option<bool>,
+    filter_cloning: Option<bool>,
+    filter_dash_immune: Option<bool>,
+    tags: Option<Vec<String>>,
+}
+
+/// cards.json `clone_action` (tools/extract_cards.py `clone_action_block`). Its card_data_for_stats (the card whose
+/// stat rows the client shows) is not read.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawCloneAction {
+    on_cloned: Option<RawOnCloned>,
+}
+
+/// What the ActionClone runs on each unit it copies (its OnClonedAction, one ActionSpawn).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawOnCloned {
+    spawn_type: Option<String>,
+    spawn: Option<String>,
+    buff: Option<RawBuff>,
     spawn_time_ms: Option<i32>,
 }
 
@@ -3506,6 +4062,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         parry: None,
         kamikaze_time_ms: 0,
         death_pushback: 0,
+        ignore_clone: false,
     }
 }
 
@@ -3538,6 +4095,15 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
     // AN AREA WHOSE ONE ACTION MAKES ANOTHER AREA (the Goblin Curse) is recognised first: its action is what it does.
     if let Some(got) = area_spawns_area(aeo, buffs, ctx) {
+        return got;
+    }
+    // A STRIKING AREA WHOSE STRIKES ARE AN ACTION (the Vines, the Void; `strike_area_shape`): the extractor writes the
+    // block only for a row whose action it read whole, so the block, not the action graph, says what the area does.
+    if let Some(sa) = &aeo.strike_area {
+        return strike_area_shape(aeo, sa, buffs).map(|d| (SpellShape::Strikes(Box::new(d)), Vec::new()));
+    }
+    // THE CLONE (`clone_shape`), the same way.
+    if let Some(got) = clone_shape(aeo, buffs, ctx) {
         return got;
     }
     // AN AREA WHOSE ONE ACTION PUTS DOWN A BOTTLE (the Lumberjack's death area) is that bottle's fuse.
@@ -3931,8 +4497,9 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
     // buff; a one-shot one (HitSpeed blank) applies once. Implemented for a
     // pulse that carries a BUFF and nothing else -- Poison and
     // Earthquake. A pulse that deals its own Damage column every HitSpeed
-    // (RoyalDeliveryArea, DarkMagicAOE, Lightning, Tornado, WarmAOE) is a second
-    // mechanic and stays refused.
+    // (Tornado, WarmAOE) is a second mechanic and stays refused. The striking areas
+    // (Lightning, the Royal Delivery, the Vines, the Void) never get here: each is
+    // recognised by its own shape first.
     let pulse_ms = aeo.hit_speed_ms.filter(|h| *h > 0);
     if pulse_ms.is_some() {
         if aeo.damage.is_some() {
@@ -3953,9 +4520,9 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
         return Err(format!("area effect {what} with targets / projectile / spawn is not simulated"));
     }
     // AN AREA EFFECT THAT DOES NOTHING THIS LOADER READS is an action graph
-    // (15.535 Graveyard_rework, Vines_AeO: no Damage, no Buff, no Pushback; the
-    // Skeletons / the vines are OnStartingAction scripts the extractor does not
-    // walk). Running it as a zero-damage Zap would be a different card.
+    // (15.535 Graveyard_rework: no Damage, no Buff, no Pushback; its Skeletons are
+    // an OnStartingAction script this loader does not run). Running it as a
+    // zero-damage Zap would be a different card.
     if aeo.damage.is_none() && aeo.buff.is_none() && hit_buff.is_none() && aeo.pushback_milli.is_none() {
         return Err(format!("area effect {what} carries no damage, buff or pushback: its mechanic is an action graph this loader does not read"));
     }
@@ -4035,7 +4602,9 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
 /// because their data has exactly the implemented shape, and Freeze's 4 s life is
 /// where calibration spells.ONE_SHOT_AREA_EFFECT_APPLICATION is LOW confidence.
 /// The 15.535 table's Mirror (`spell.mirror`) and Spirit Empress (`spell.variant`) load
-/// as `SpellShape::Mirror` and `SpellShape::Variant`, which are never cast.
+/// as `SpellShape::Mirror` and `SpellShape::Variant`, which are never cast; its Clone
+/// (the area's `clone_action`) as `SpellShape::Clone`, and its Vines and Void (the
+/// area's `strike_area`) as `SpellShape::Strikes`.
 ///
 /// Returns the card, and the units it needs loaded: which mechanic, unit name
 /// (resolved to an index by `CardDb::from_json_str`, which loads each unit).
@@ -5400,6 +5969,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         parry,
         kamikaze_time_ms,
         death_pushback,
+        ignore_clone: raw.ignore_clone.unwrap_or(false),
     }, display, units))
 }
 
@@ -6780,7 +7350,7 @@ impl CardDb {
                                 h.crown_pct = pct;
                             }
                         }
-                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. }) => {
+                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } | SpellShape::Clone { .. }) => {
                             return Err(format!("{what}: the spell's own object carries no crown-tower share"))
                         }
                         None => c.crown_tower_damage_percent = pct,
@@ -7290,12 +7860,14 @@ mod tests {
         assert_eq!(db.get(db.index("Giant").unwrap()).ignore_pushback, doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Giant").unwrap()["ignore_pushback"].as_bool().unwrap());
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
         // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
-        // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes), and
-        // the Graveyard as a scheduled area (tests/scheduled_area.rs).
-        let n = "Clone";
+        // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes), the Graveyard as a scheduled
+        // area (tests/scheduled_area.rs) and the Clone as its own shape (tests/clone.rs). The event's GlobalClone,
+        // whose area runs an action graph the loader does not read, is still refused.
+        let n = "GlobalClone";
         assert!(db.index(n).is_none(), "{n} must not be simulable");
         assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         assert!(matches!(spell("Graveyard").shape, SpellShape::ScheduledArea { .. }), "Graveyard: {:?}", spell("Graveyard"));
+        assert!(matches!(spell("Clone").shape, SpellShape::Clone { .. }), "Clone: {:?}", spell("Clone"));
         // The Mirror and the Spirit Empress load as the two shapes that are never cast
         // (tests/mirror_card.rs and tests/variant_card.rs pin what playing them does).
         assert_eq!(spell("Mirror").shape, SpellShape::Mirror);

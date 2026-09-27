@@ -1438,6 +1438,18 @@ impl Battle {
             .collect())
     }
 
+    /// COPIES AND GROUNDED FLIERS (the Clone, the Vines): `(uid, cloned, grounded_ms)` for every live entity that is a
+    /// copy the Clone made (or a copy's death spawn), or that a Vines catch holds to the ground for `grounded_ms` more.
+    /// A copy reports its original's card; the client's own records carry the Clone card's id for it. `state_json` is
+    /// unchanged; a viewer reads this beside it.
+    fn clone_states(&self) -> PyResult<Vec<(i64, bool, i32)>> {
+        let s = self.s()?;
+        Ok(s.entities()
+            .filter(|e| e.cloned || e.grounded_ms > 0)
+            .map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.cloned, e.grounded_ms))
+            .collect())
+    }
+
     /// TRACE-DIFF ENTRY POINT: every live troop as
     /// `(uid, card, x, y, deploy_ms, speed, [(col, row), ...])`, positions in
     /// SUBTILES and the route as half-tile CELLS in the order the engine stores it

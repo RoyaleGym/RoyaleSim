@@ -224,6 +224,9 @@ PROLOGUE = {
     # A second periodic unit (the Super Witch's Bat), written into the spawner block after the literal on
     # the 15.535 rows only; the loader refuses a row that sets it.
     "SpawnCharacter2": "spawner.character2",
+    # The Clone never copies this unit (the Goblin Drill's dig, the chess Recruits), written after the literal on
+    # the 15.535 rows that set it.
+    "IgnoreClone": "ignore_clone",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was

@@ -4,7 +4,8 @@
 WHAT THIS PINS, 1: THE EXPORT. The 15.535.29 spells_other row MergeMaiden is a LogicBattleSpellVariantData row whose
 Options pick a form by the elixir at play: MergeMaiden_Mounted at 6000, MergeMaiden_Normal at 3000, each with
 PrecastPendingTime 1200. The extractor writes that as `spell.variant` on that row alone, and `spell.mirror` on the
-Mirror's row alone, and a top-level `globals` block with the Mirror's three globals.csv rows. The 2018 file carries
+Mirror's row alone, and a top-level `globals` block with the Mirror's three globals.csv rows (and the Clone's eleven
+CLONE_* rows, which card.rs `clone_shape` reads). The 2018 file carries
 none of it. The builder fails closed: an option key it does not know, or a form that is no card row, stops the build.
 Gate 11 holds the table to what the loader reads, and its plant lands.
 
@@ -58,10 +59,23 @@ def test_the_empress_is_the_one_variant_card(doc):
 
 def test_the_mirror_flag_and_its_globals(doc):
     assert [c["name"] for c in doc["cards"] if (c.get("spell") or {}).get("mirror")] == ["Mirror"]
+    # The whole block: the Mirror's three rows, then the Clone's eleven (tests/test_strike_area_blocks.py reads the
+    # Clone's against the tables). A global the loader does not read yet still breaks this.
     assert doc["globals"] == {
         "MIRROR_LEVEL_OFFSET": 1,
         "MIRROR_CAP_TO_MAX_LEVEL": False,
         "MIRROR_IGNORE_CHAMPIONS": False,
+        "CLONE_LEVEL_OFFSET": 0,
+        "CLONE_DISTANCE_X": 0,
+        "CLONE_DISTANCE_Y": 250,
+        "CLONE_PRESERVE_SHIELD": True,
+        "CLONE_CLONED_UNITS": False,
+        "CLONE_MOVE_PARENT": True,
+        "CLONE_DEATH_SPAWN_UNITS": True,
+        "CLONE_DEATH_SPAWN_BUILDINGS": True,
+        "CLONE_RESET_TARGET": False,
+        "CLONE_RESET_CHARGE": False,
+        "CLONE_INHERIT_CHARGE": False,
     }
     assert "globals.csv" in doc["provenance"]["files"], "the file the globals come from is in the provenance"
 

@@ -2065,7 +2065,7 @@
       "value": "first_update_only",
       "status": "hypothesis",
       "confidence": "HIGH for Zap, LOW for longer-lived one-shot effects (Freeze)",
-      "provenance": "An area effect with a blank HitSpeed applies exactly once, on its first update, whatever its LifeDuration (Zap ships LifeDuration 1 ms, shorter than any tick hypothesis, so both readings coincide for Zap). crforge's OneShotHandler does the same.",
+      "provenance": "An area effect with a blank HitSpeed applies exactly once, on its first update, whatever its LifeDuration (Zap ships LifeDuration 1 ms, shorter than any tick hypothesis, so both readings coincide for Zap). crforge's OneShotHandler does the same. The Clone's area (LifeDuration 1000, HitSpeed blank) acts once, on the cast tick: measured on client 15.535.29, a Knight 3713 from the tap on the cast tick that walked into the circle by the cast tick + 6 got no copy, and its ticks equal the control's.",
       "candidates": [
         "first_update_only",
         "each_new_entity_during_life"
@@ -2198,7 +2198,7 @@
       "value": "carried",
       "status": "measured",
       "confidence": "HIGH for Lightning: 28 casts and 40 strikes on client 15.535.29.",
-      "provenance": "A striking area (Lightning: HitBiggestTargets over a Projectile row, HitSpeed 460, LifeDuration 1500) strikes on the cast tick D + 9, D + 18 and D + 27, floor(k x 460 / 50), at most 3 (measured on client 15.535.29, 28 casts, 40 strikes). carried keeps an exact ms clock from the cast and gives those ticks; dropped restarts the clock at HitSpeed from each strike tick's end and gives D + 19 and D + 29 for the second and third. The 16.402 corpus's Lightning (HitSpeed 500) strikes on D + 10 and D + 20, which carried also gives.",
+      "provenance": "A striking area (Lightning: HitBiggestTargets over a Projectile row, HitSpeed 460, LifeDuration 1500) strikes on the cast tick D + 9, D + 18 and D + 27, floor(k x 460 / 50), at most 3 (measured on client 15.535.29, 28 casts, 40 strikes). carried keeps an exact ms clock from the cast and gives those ticks; dropped restarts the clock at HitSpeed from each strike tick's end and gives D + 19 and D + 29 for the second and third. The 16.402 corpus's Lightning (HitSpeed 500) strikes on D + 10 and D + 20, which carried also gives. The Vines (start delay 900, catch offsets 0, 50 and 150) catch on the cast tick + 18, 19 and 21 on client 15.535.29, which carried gives and dropped does not (+ 18, 20, 23); the Void (1500, then 1200 twice) strikes on + 30, 54 and 78 under both.",
       "candidates": ["carried", "dropped"],
       "promotion_rules": "Settled for HitSpeed 460. A second striking area with another HitSpeed, measured the same way.",
       "engine": "spell.rs step_spells (the Strikes arm)"
@@ -2257,7 +2257,7 @@
       "candidates": ["inert", "lands_as_disc"],
       "status": "measured",
       "confidence": "HIGH for the Goblin Curse's parent area: its Damage never landed in 20 runs on client 15.535.29. HIGH for the Suspicious Bush's death area: 9 runs.",
-      "provenance": "The Goblin Curse's parent area sets Damage 100 with HitsGround and HitsAir both false. Measured on client 15.535.29: a unit at the centre of the cast loses only the curse circle's pulses, in 20 runs; the parent's 100, scaled, never lands. The Suspicious Bush's death area sets Damage 100 with neither hit flag and no Radius. Measured on client 15.535.29 (9 runs): it hurt nothing, an enemy 1067 from the death point and a tower 3075 away. lands_as_disc (the Damage as a one-shot disc on both air and ground) is refuted by those runs and has no engine arm.",
+      "provenance": "The Goblin Curse's parent area sets Damage 100 with HitsGround and HitsAir both false. Measured on client 15.535.29: a unit at the centre of the cast loses only the curse circle's pulses, in 20 runs; the parent's 100, scaled, never lands. The Suspicious Bush's death area sets Damage 100 with neither hit flag and no Radius. Measured on client 15.535.29 (9 runs): it hurt nothing, an enemy 1067 from the death point and a tower 3075 away. lands_as_disc (the Damage as a one-shot disc on both air and ground) is refuted by those runs and has no engine arm. The Void's area (DarkMagicAOE: Damage 100, HitsGround and HitsAir false) is the second such row: measured on client 15.535.29, a lone Knight's only losses are the three strikes' 696 (card.rs strike_area_shape does not read the area's Damage).",
       "meaning": "Whether an area that hits neither ground nor air deals its own Damage column.",
       "promotion_rules": "Settled for the Goblin Curse and the Suspicious Bush. Another row with Damage and neither hit flag, if one becomes loadable.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs inert_own_damage (a scheduled area or a bottle's area with a Damage column loads only when the column is inert); card.rs area_spawns_area does not read the parent's Damage"
@@ -2279,7 +2279,7 @@
       "status": "measured",
       "confidence": "HIGH for the Royal Delivery: 7 of 7 casts on client 15.535.29.",
       "provenance": "A striking area takes a tick off its clock on each update and strikes on the update that makes the clock due. Measured on client 15.535.29 (7 casts): the Royal Delivery (HitSpeed 2000, exactly 40 ticks, and LifeDuration 2000) makes its crate on the cast tick + 39 and the crate lands on + 40. clock_at_or_below_zero strikes on the update whose clock reaches zero (the 40th, + 39), which is also the update its life reaches 0. clock_below_zero waits for the next update: under spells.STRIKE_AREA_END = at_life_end the area has ended by then and no crate is made, and under with_last_strike the crate lands on + 41. The Lightning does not read this key. Its tables' HitSpeed 460 never brings the clock to exactly zero under either spells.STRIKE_TIMER_LEFTOVER arm. Its client 16.402 row (AreaHitSpeed 500, exactly 10 ticks, under cards.CLIENT16402_VALUES) does: the 16.402 corpus's one striking cast makes its strike objects on D + 10 and D + 20, the updates that take the clock below zero, where clock_at_or_below_zero would make them on D + 9 and D + 19.",
-      "meaning": "Which update of a centre-aimed striking area's clock strikes (StrikePick::AreaCentre, the Royal Delivery): the one that brings it to zero, or the one that takes it below. A striking area that picks the highest hp (Lightning) does not read this key. It strikes on the update that takes its clock below zero.",
+      "meaning": "Which update of a centre-aimed striking area's clock strikes (StrikePick::AreaCentre, the Royal Delivery): the one that brings it to zero, or the one that takes it below. A striking area that picks the highest hp (Lightning) does not read this key. It strikes on the update that takes its clock below zero. A selector's strike (the Vines' catches, the Void's strikes) does not read it either: it strikes on the update that takes its clock below zero, measured on client 15.535.29 (the Vines' catches on the cast tick + 18, 19 and 21, the Void's strikes on + 30, 54 and 78).",
       "open": "Whether one law holds for both picks. The Lightning's 500 was read from its two strike ticks with the below-zero clock. With the at-or-below-zero clock the same two ticks need a row in (500, 525], or a cast whose area first updates one tick after the elixir drop. The Royal Delivery's one strike is due at exactly its LifeDuration and falls on the update its life reaches 0. Under that clock the 500 row's third strike (due at 1500 of 1500) would fall on D + 29, where neither spells.STRIKE_AREA_END arm puts it today (at_life_end loses it, with_last_strike makes it on D + 30).",
       "promotion_rules": "Settled for the Royal Delivery (HitSpeed 2000). One law for both picks needs a client 16.402 Lightning cast whose area's first update is read directly, not from the elixir drop, or a striking area that picks the highest hp with another whole-tick HitSpeed.",
       "engine": "spell.rs step_spells (the Strikes arm, for a StrikePick::AreaCentre strike only)"
@@ -2305,6 +2305,137 @@
       "open": "Why the fuse starts a tick late is not known; the client may create the bottle on the tick after the death. Only the Lumberjack's death area puts a bottle down.",
       "promotion_rules": "Settled for the Lumberjack.",
       "engine": "state.rs phase_reap (the death area's Fuse); card.rs area_spawns_bottle"
+    },
+    "CLONE_OFFSET": {
+      "value": "owner_axis_slide_over_hold",
+      "candidates": ["owner_axis_slide_over_hold", "split_owner_forward", "copy_owner_forward_parent_stays", "split_arena_y", "copy_arena_x_300"],
+      "status": "measured",
+      "confidence": "HIGH for troops in the open: 25 pairs on client 15.535.29. The slide against the river, a building or the arena edge is not measured.",
+      "provenance": "Measured on client 15.535.29 (25 pairs, level 11): the copy appears on the cast tick C on its original's spot, after the original's own step. On each of the next 10 ticks the original moves 125 toward the enemy side along the arena y axis and the copy 125 the other way, 2500 apart on C + 10, whatever the unit (a Knight, a charging Prince, Guards, a Battle Ram, a raged Knight) and whatever its heading: a Knight walking on a diagonal still moved (0, +125) with its x fixed. A Zap on the original during the slide did not stop it. The 15.535.29 globals give CLONE_DISTANCE_Y 250 and CLONE_MOVE_PARENT TRUE: 250 a tick shared by the two, over the Clone's 500 ms hold. split_owner_forward (both apart along the facing), copy_owner_forward_parent_stays, split_arena_y at once and copy_arena_x_300 (the 2018 globals' 300 on x) are refuted by the pairs and have no engine arm.",
+      "meaning": "Where a copy the Clone makes appears and how the pair separates: on the original's spot, then the two slide CLONE_DISTANCE_Y / 2 a tick each along the owner's y axis over the hold, the original toward the enemy.",
+      "open": "The slide against the river, a building footprint or the arena edge (the engine settles each step as a knockback slide's). Air units and buildings.",
+      "promotion_rules": "Settled for troops in the open. A copy made against the river or a tower's footprint.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); state.rs materialise_clones (the slide, through step_knock_slides)",
+      "globals_role": "context"
+    },
+    "CLONE_HOLD_TARGETS": {
+      "value": "both",
+      "candidates": ["both"],
+      "status": "measured",
+      "confidence": "HIGH: 25 pairs on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29 (25 pairs): the original and the copy are both held for 10 ticks after the cast tick. The original's attack clock pauses (a Knight in a fight hit 10 ticks later than in the control, its progress frozen, not reset), it keeps its target, the enemy keeps its lock on it, and a charged Prince keeps its charge (the table's CLONE_RESET_TARGET and CLONE_RESET_CHARGE are FALSE). The hold is the Clone buff (SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier -100 for 500 ms): it holds as a stun does, without a stun's resume rescan, charge reset or damage-ramp restart.",
+      "meaning": "Who the Clone holds, and what the hold keeps: both units of the pair, each keeping its target, its charge and its attack progress.",
+      "promotion_rules": "Settled.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); state.rs apply_effects (the Clone buff's hold) and materialise_clones (the copy's)"
+    },
+    "CLONE_LEVEL": {
+      "value": "spell_level",
+      "candidates": ["spell_level", "original_level"],
+      "status": "measured",
+      "confidence": "MEDIUM: 2 runs on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29: a level-11 Clone on a level-12 Knight made a level-11 copy, and a level-12 Clone (a Mirrored one) on a level-11 Knight made a level-12 copy. A copy of a level-11 Knight made by a level-11 Clone hit for 202, the Knight's own damage at level 11. original_level is refuted by both runs.",
+      "meaning": "The unified level a copy takes: the Clone's, or its original's. A Clone level the unit's ladder lacks falls back to the original's (not measured; an engine choice).",
+      "open": "A copy's damage when the Clone's level differs from the original's (neither run had an enemy to hit).",
+      "promotion_rules": "Settled for the level. A copy of a different level hitting an enemy settles the damage.",
+      "engine": "state.rs materialise_clones"
+    },
+    "CLONE_COPY_STATE": {
+      "value": "fresh",
+      "candidates": ["fresh", "inherit_target"],
+      "status": "measured",
+      "confidence": "HIGH: 25 copies on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29 (25 copies): a copy has no target from the cast tick C to C + 10 and takes one on C + 11, what a fresh unit would pick (the tower, or the enemy Knight in a fight); its attack timers stay 0 until it first attacks; a copy of a charged Prince walks a whole run-up (42 walking ticks, as a fresh Prince) before it charges (the table's CLONE_INHERIT_CHARGE is FALSE). inherit_target (the original's target) is refuted as a visible column; a target inherited and hidden for 11 ticks is not excluded.",
+      "meaning": "What a copy starts with: no target, empty attack timers and no charge (fresh), or its original's target.",
+      "promotion_rules": "Settled.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); state.rs materialise_clones (spawn_with gives a new entity no target and empty timers)"
+    },
+    "CLONE_COPY_BUFFS": {
+      "value": "copied_except_not_cloned",
+      "candidates": ["copied_except_not_cloned", "none"],
+      "status": "hypothesis",
+      "confidence": "LOW: not measured.",
+      "provenance": "The 15.535.29 buff table marks some rows NotCloned (ArcherQueenRapid, GoldenKnightCharge, SuperHogJumpCharge and others), which means something only if a copy takes the other buffs of its original. Not measured on client 15.535.29: the one run that staged a Rage put the copy back inside the Rage by the separation, so the copy's buff is confounded. none takes nothing but the Clone's own hold.",
+      "meaning": "Which of its original's buffs a copy takes: every buff whose row does not set NotCloned (with the Rune Giant's enchant), or none but the Clone's hold.",
+      "open": "Whether a copy takes its original's buffs at all.",
+      "promotion_rules": "A Clone on a raged troop walking out of the Rage along x, or cast in a Rage's last ticks.",
+      "engine": "state.rs materialise_clones"
+    },
+    "CLONE_DEATH_SPAWNS": {
+      "value": "cloned_at_clone_hitpoints",
+      "candidates": ["cloned_at_clone_hitpoints", "ordinary"],
+      "status": "measured",
+      "confidence": "MEDIUM: 4 units, 2 copies on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29: a copied Battle Ram killed by a Zap, and one killed by a tower arrow, each released two Barbarians with 1 hitpoint of 1, at level 11 and with the ordinary 20-tick deploy; the original's own release had 716. The death point is the copy's position after its death tick's slide step. The 15.535.29 globals set CLONE_DEATH_SPAWN_UNITS and CLONE_DEATH_SPAWN_BUILDINGS TRUE. ordinary (a copy's death spawns at full hitpoints) is refuted.",
+      "meaning": "What a copy's death spawn is: a copy too, at spells.CLONE_HITPOINTS and never copied again, when the table's CLONE_DEATH_SPAWN_UNITS (or _BUILDINGS for a building) says so; or an ordinary unit.",
+      "open": "A copy's death bomb, death damage and kamikaze, and a building's death spawn (none measured).",
+      "promotion_rules": "Settled for a troop's death spawn. A copied Balloon or Golem for the others.",
+      "engine": "state.rs phase_reap (the death-spawn loop) and make_copy",
+      "globals_role": "context"
+    },
+    "CLONE_HITPOINTS": {
+      "value": {"hitpoints": 1, "shield": 1},
+      "status": "measured",
+      "confidence": "HIGH for the hitpoints: 25 copies on client 15.535.29. The shield is only bounded, to [1, 109].",
+      "provenance": "Measured on client 15.535.29: every copy has 1 hitpoint of 1, and one hit of anything kills an unshielded copy (a Zap, a tower arrow). A copied Guard survived exactly one 109 tower shot and died to the second, where each original needed four (a 256 shield, no overflow, then 81), so a copy's shield is between 1 and 109. The Clone card's stat rows show 1 and 1, and the 15.535.29 globals set CLONE_PRESERVE_SHIELD TRUE.",
+      "meaning": "A copy's hitpoints (its hp and max hp) and, on a copy of a unit that has a shield, its shield.",
+      "open": "The exact shield.",
+      "promotion_rules": "A copied Guard hit by something that deals exactly 1 or 2.",
+      "engine": "state.rs Calib::from_json (an integer pair) and make_copy",
+      "globals_role": "context"
+    },
+    "MULTI_CATCH_RANKING": {
+      "value": "repick_each_catch",
+      "candidates": ["repick_each_catch", "rank_once"],
+      "status": "measured",
+      "confidence": "LOW: one run on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29 (one run): the Vines' third catch skipped a Skeleton that was inside the circle at the first catch and outside it at the third catch's own tick. rank_once (the order of the first catch kept for all three) is refuted by it and has no engine arm.",
+      "meaning": "Whether a striking area that makes several catches (the Vines) ranks its candidates again at each catch, from the units in reach then, or once at the first.",
+      "promotion_rules": "A second run with a unit that walks into the circle between the first and the third catch.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); spell.rs catch"
+    },
+    "COUNT_TIER_RULE": {
+      "value": "by_count",
+      "candidates": ["by_count", "by_rank"],
+      "status": "measured",
+      "confidence": "HIGH for counts 1, 2, 4 and 5: the Void runs on client 15.535.29. Not measured at 3.",
+      "provenance": "Measured on client 15.535.29 (level 11): with 5 enemies inside, each took 153; with 4 (one had died), each took 294; alone, a Giant, a Cannon and a Knight each took 696, and a lone crown tower 97; a crown tower beside one Cannon took 51 and the Cannon 294. The tiers are the Void's three buffs by MaxUnitPerActionList [1, 4]: at most 1, at most 4, more. by_rank (the first the most, the rest less) is refuted at 5 and has no engine arm.",
+      "meaning": "How the Void picks the buff each enemy takes at a strike: every one takes the tier its COUNT falls in, or a tier by its rank.",
+      "open": "A count of 3, and a crown tower among 5 or more (35 expected).",
+      "promotion_rules": "Settled for the counts measured.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); spell.rs laser and tier_of"
+    },
+    "SELECTOR_REACH": {
+      "value": "radius_plus_target_radius",
+      "candidates": ["radius_plus_target_radius", "centre_in_radius"],
+      "status": "measured",
+      "confidence": "HIGH for troops on client 15.535.29. Buildings are open.",
+      "provenance": "Measured on client 15.535.29: the Vines caught a Skeleton at centre 2633-2718 from their 2500 circle, and the Void hit a Knight at centre 2874-2993 from its 2500 and missed it at 3352, on the strike tick's positions. The shape's radius plus the unit's own radius fits both; a pure 2500 centre test (centre_in_radius) is refuted and has no engine arm. A Mortar was caught 62 beyond 2500 plus its radius 600: the bound for a building is open, and the engine uses the troop law for every kind.",
+      "meaning": "How far an action's selector (the Vines' catches, the Void's strikes) reaches: its shape's radius plus the unit's own radius, measured from the unit's centre on this tick's post-move position.",
+      "open": "The bound for a building (a footprint, or a larger radius).",
+      "promotion_rules": "Settled for troops. A building caught or missed at centre 3100-3300 settles buildings.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); spell.rs selector_candidates"
+    },
+    "AIR_TO_GROUND_WINDOW": {
+      "value": "total_plus_both_transitions",
+      "candidates": ["total_plus_both_transitions", "total_duration"],
+      "status": "measured",
+      "confidence": "LOW: 2 runs on client 15.535.29.",
+      "provenance": "Measured on client 15.535.29 (2 runs): a Knight, which attacks ground only, targeted and hit a Balloon caught by the Vines (202 twice), and let it go on the 43rd tick after the catch, 2 ticks after the Balloon's 40-tick hold. The catch's ActionAirToGround sets TotalDuration 2000 and TransitionDuration 50: 2000 plus the transition twice (2100 ms) fits, the first tick the flier is back in the air being catch + 43. total_duration (2000 ms) lets it go on catch + 41.",
+      "meaning": "How long a Vines catch holds a flier to the ground (entity.rs grounded_ms): the targeting and every hit's air filter read it as a ground unit meanwhile.",
+      "open": "Collisions and ground splash on a grounded flier, and a flier's death damage while grounded (not measured; the engine keeps its collision and its flight path as a flier's).",
+      "promotion_rules": "A third run, and a ground splash on a grounded flier.",
+      "engine": "spell.rs catch; state.rs apply_effects and tick_status_timers; entity.rs in_air (target.rs can_target, spell.rs eligible, combat.rs splash and the straight shots, the area pull)"
+    },
+    "TARGET_FILTER_ABSENT_FLAG": {
+      "value": "absent_means_not_filtered",
+      "candidates": ["absent_means_not_filtered"],
+      "status": "measured",
+      "confidence": "MEDIUM: measured for FilterHidden on client 15.535.29 (one run each way).",
+      "provenance": "The target filters an action names (game_object_filters.toml) set some flags and leave the rest out. Measured on client 15.535.29: the Vines, whose filter does not set FilterHidden, caught an idle Tesla under ground, held it and pulsed it twice, and it stayed under ground; the Void, whose filter sets FilterHidden, neither counted nor struck one. So a flag the filter leaves out filters nothing. The Vines' filter leaves out FilterInvisible, so an invisible unit is caught (not measured).",
+      "meaning": "What a target filter flag the row leaves out means: not filtered.",
+      "open": "The other flags (FilterInvisible, FilterFlying) are not measured one by one.",
+      "promotion_rules": "Settled for FilterHidden.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs selector_filter; spell.rs selector_candidates"
     }
   },
   "knockback": {
@@ -2637,7 +2768,7 @@
       "value": "after_first_period",
       "status": "guess",
       "confidence": "LOW",
-      "provenance": "WHEN a damaging or healing buff's first pulse falls. `after_first_period`: the pulse clock starts at HitFrequency, so a 1000 ms Poison buff that its area re-applies every 250 ms still pulses once a second while the unit stands in it (the refresh keeps the buff alive, it does not re-arm the pulse). `on_application` fires on the application tick, which would make a Poison cloud deal its per-second damage four times a second. Excluded by the card's published total, not by a trace.",
+      "provenance": "WHEN a damaging or healing buff's first pulse falls. `after_first_period`: the pulse clock starts at HitFrequency, so a 1000 ms Poison buff that its area re-applies every 250 ms still pulses once a second while the unit stands in it (the refresh keeps the buff alive, it does not re-arm the pulse). `on_application` fires on the application tick, which would make a Poison cloud deal its per-second damage four times a second. Excluded by the card's published total, not by a trace. Measured on client 15.535.29 since: the Void's tier buffs (100 ms, one pulse each) deal their damage 2 ticks after the strike that hangs them, and the Vines' 2000 ms snare pulses 20 and 40 ticks after its catch; after_first_period gives both, on_application gives + 1, and + 1 and + 21.",
       "candidates": [
         "after_first_period",
         "on_application"
@@ -2717,7 +2848,7 @@
       "candidates": ["level_scaled", "unscaled"],
       "status": "measured",
       "confidence": "HIGH for the Goblin Curse's damage buff at level 11: six pulses on client 15.535.29.",
-      "provenance": "The Goblin Curse's damage buff (GoblinCurseDamage: DamagePerSecond 14, HitFrequency 1000) sets CrownTowerDamagePerHit 4. Measured on client 15.535.29: a crown tower under the curse loses 10 a pulse at level 11, floor(4 x 256 / 100), on six pulses. unscaled gives 4; the crown-tower percent route, which every other pulse takes, gives 35.",
+      "provenance": "The Goblin Curse's damage buff (GoblinCurseDamage: DamagePerSecond 14, HitFrequency 1000) sets CrownTowerDamagePerHit 4. Measured on client 15.535.29: a crown tower under the curse loses 10 a pulse at level 11, floor(4 x 256 / 100), on six pulses. unscaled gives 4; the crown-tower percent route, which every other pulse takes, gives 35. Measured on client 15.535.29 since: the Vines' snare (CrownTowerDamagePerHit 14) takes 35 a pulse from a crown tower at level 11, floor(14 x 256 / 100), and the Void's tiers (38 and 20) 97 and 51.",
       "meaning": "How a buff's CrownTowerDamagePerHit, what one pulse deals a crown tower, scales with the caster's level.",
       "promotion_rules": "Another level, measured the same way.",
       "engine": "spell.rs crown_pulse (computed once per application, carried on the slot as BuffSlot::crown_amount); state.rs buff_pulse_pass (the crown-tower branch)"

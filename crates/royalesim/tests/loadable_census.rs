@@ -31,9 +31,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 131
-//!      loadable rows (129 cards, then PrincessTower and KingTower) and
-//!      15 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 134
+//!      loadable rows (132 cards, then PrincessTower and KingTower) and
+//!      12 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -102,14 +102,16 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// e0b24a55792c365a (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
+/// 5ac5d59ed353c443 (the next build: the `globals` block and the columns that load the Miner, the Goblin Drill, the
 /// Elixir Collector, the Furnace, the Elixir Golem, the Ram Rider, the Three Musketeers, the Mirror and the Spirit
 /// Empress; the curses' and the Royal Delivery's columns: a buff's death spawn, an area's action schedule, IgnoreBuff,
 /// SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the Goblin Demolisher's `transform_at_hp`,
-/// the Ronin's `parry`; the Skeleton Barrel's DeathPushBack column and its balloon pops read as cosmetic). The lists
-/// are what the loader gives for that file: 131 loadable rows and 15 refusals. `cargo run --example replay_parity --
-/// --census` writes data/derived/replay/card_census.json from the same file by the same rule (examples/replay_parity/
-/// harness.rs `census`), so a census written from this file holds these rows in this order and these refusals.
+/// the Ronin's `parry`; the Skeleton Barrel's DeathPushBack column and its balloon pops read as cosmetic; the Clone's,
+/// the Vines' and the Void's: an area's `strike_area` and `clone_action`, the inline walk of an area's action graph,
+/// IgnoreClone, and the CLONE_* globals). The lists are what the loader gives for that file: 134 loadable rows and 12
+/// refusals. `cargo run --example replay_parity -- --census` writes data/derived/replay/card_census.json from the
+/// same file by the same rule (examples/replay_parity/harness.rs `census`), so a census written from this file holds
+/// these rows in this order and these refusals.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[
@@ -234,21 +236,22 @@ const LOADABLE_15535: &[&str] = &[
     "Graveyard",
     "Log",
     "Tornado",
+    "Clone",
     "Earthquake",
     "BarbLog",
     "Heal",
     "Snowball",
     "RoyalDelivery",
     "WarmSpell",
+    "DarkMagic",
     "GoblinCurse",
     "MergeMaiden",
+    "Vines",
     "PrincessTower",
     "KingTower",
 ];
 const REJECTED_15535: &[(&str, &str)] = &[
     ("BossBandit", "the unit runs an action graph this loader does not read (ActionGroup, ActionPlayEffect, ActionRunIfGameObjectExists, ActionRunIfInstigatorMatches)"),
-    ("Clone", "area effect Clone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
-    ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
     ("GoblinPartyRocket", "projectile GoblinMorphProjectile with a target cap or an area effect is not simulated"),
@@ -260,7 +263,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("SuperLavaHound", "death projectile FireWallProjectile"),
     ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
     ("SuperWitch", "spawner SpawnCharacter2 Bat"),
-    ("Vines", "area effect Vines_AeO runs an action graph this loader does not read (ActionAirToGround, ActionGroup, ActionRunActionListOnObjectsInShapeWithPrio, ActionSelect, ActionSpawn; spawns BuffType:Vines_Trap_Snare_XXLarge, BuffType:Vines_Trap_Snare_XLarge, BuffType:Vines_Trap_Snare_Large, BuffType:Vines_Trap_Snare_Medium, BuffType:Vines_Trap_Snare_Small)"),
 ];
 
 /// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a

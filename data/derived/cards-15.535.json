@@ -562,6 +562,9 @@
    "events/event_super_knight.toml": {
     "sha256": "24bb029cafbe869723b384b61271f72c10502949436d535e475b8d0caa3d8e97"
    },
+   "game_object_filters.toml": {
+    "sha256": "b24dc45487c0f761a8cc18035d35a7661a49e89be43ad9a4bf76d9672a34ac9d"
+   },
    "globals.csv": {
     "sha256": "6b5813e24b3d68f83da2fead5952184b09794853ccdb03a0eaf854a5433ae49a"
    },
@@ -11152,6 +11155,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "count": 8,
    "summon_radius_milli": 100,
@@ -16035,6 +16039,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -18550,7 +18555,39 @@
        }
       ]
      },
-     "spawn_time_ms": null
+     "spawn_time_ms": null,
+     "clone": true,
+     "clone_action": {
+      "card_data_for_stats": "Clone",
+      "on_cloned": {
+       "spawn_type": "BuffType",
+       "spawn": "Clone",
+       "buff": {
+        "name": "Clone",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": null,
+        "hit_frequency_ms": null,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": null,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": false,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": null,
+        "clone": true
+       },
+       "spawn_time_ms": 500
+      }
+     }
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -19431,7 +19468,8 @@
       "controlled_by_parent": false,
       "death_spawn": null,
       "ignore_buildings": false,
-      "crown_tower_damage_per_hit": null
+      "crown_tower_damage_per_hit": null,
+      "clone": true
      },
      "buff_time_ms": 500,
      "only_enemies": false,
@@ -19479,7 +19517,39 @@
        }
       ]
      },
-     "spawn_time_ms": null
+     "spawn_time_ms": null,
+     "clone": true,
+     "clone_action": {
+      "card_data_for_stats": "Clone",
+      "on_cloned": {
+       "spawn_type": "BuffType",
+       "spawn": "Clone",
+       "buff": {
+        "name": "Clone",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": null,
+        "hit_frequency_ms": null,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": null,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": false,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": null,
+        "clone": true
+       },
+       "spawn_time_ms": 500
+      }
+     }
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -20034,14 +20104,134 @@
      "spawn_initial_delay_ms": null,
      "cap_buff_time_to_area_effect_time": false,
      "affects_hidden": false,
-     "action_graph": null,
+     "action_graph": {
+      "roots": {
+       "OnLifeTimeEndAction": "DarkMagicAOE.OnLifeTimeEndAction",
+       "OnStartingAction": "DarkMagicAOE.OnStartingAction"
+      },
+      "class_types": [
+       "ActionGroup",
+       "ActionLaserBall",
+       "ActionPlayEffect",
+       "ActionSpawn"
+      ],
+      "spawns": [
+       "BuffType:DarkMagicAOE_Damage_lv3",
+       "BuffType:DarkMagicAOE_Damage_lv2",
+       "BuffType:DarkMagicAOE_Damage_lv1"
+      ],
+      "mechanic": true
+     },
      "controls_buff": false,
      "spawn_area_effect_object": null,
      "buff_number": null,
      "hit_biggest_targets": false,
      "schedule": null,
      "on_hit": null,
-     "spawn_time_ms": null
+     "spawn_time_ms": null,
+     "strike_area": {
+      "kind": "laser_ball",
+      "start_delay_ms": 500,
+      "first_hit_delay_ms": 1000,
+      "hit_frequency_ms": 1200,
+      "detection_radius_milli": 2500,
+      "max_units_per_list": [
+       1,
+       4
+      ],
+      "filter": {
+       "name": "ForcedCharacterTargets",
+       "match_team_enemy": true,
+       "match_type_characters": true,
+       "filter_hidden": true,
+       "filter_if_no_hitpoint_component": true,
+       "tags": [
+        "NO_CHECKAVOIDANCE",
+        "NO_CHECKCOLLISIONS",
+        "UNTARGETABLE"
+       ]
+      },
+      "tiers": [
+       {
+        "buff": {
+         "name": "DarkMagicAOE_Damage_lv3",
+         "speed_multiplier_raw": null,
+         "hit_speed_multiplier_raw": null,
+         "spawn_speed_multiplier_raw": null,
+         "damage_per_second": 2720,
+         "hit_frequency_ms": 100,
+         "heal_per_second": null,
+         "damage_reduction": null,
+         "damage_multiplier": null,
+         "crown_tower_damage_percent": 100,
+         "immune_to_anti_magic": null,
+         "no_effect_to_crown_towers": false,
+         "attract_percentage": null,
+         "building_damage_percent": null,
+         "enable_stacking": false,
+         "hit_tick_from_source": false,
+         "controlled_by_parent": false,
+         "death_spawn": null,
+         "ignore_buildings": false,
+         "crown_tower_damage_per_hit": 38
+        },
+        "time_ms": 100,
+        "add_as_individual_buff": true
+       },
+       {
+        "buff": {
+         "name": "DarkMagicAOE_Damage_lv2",
+         "speed_multiplier_raw": null,
+         "hit_speed_multiplier_raw": null,
+         "spawn_speed_multiplier_raw": null,
+         "damage_per_second": 1150,
+         "hit_frequency_ms": 100,
+         "heal_per_second": null,
+         "damage_reduction": null,
+         "damage_multiplier": null,
+         "crown_tower_damage_percent": 100,
+         "immune_to_anti_magic": null,
+         "no_effect_to_crown_towers": false,
+         "attract_percentage": null,
+         "building_damage_percent": null,
+         "enable_stacking": false,
+         "hit_tick_from_source": false,
+         "controlled_by_parent": false,
+         "death_spawn": null,
+         "ignore_buildings": false,
+         "crown_tower_damage_per_hit": 20
+        },
+        "time_ms": 100,
+        "add_as_individual_buff": true
+       },
+       {
+        "buff": {
+         "name": "DarkMagicAOE_Damage_lv1",
+         "speed_multiplier_raw": null,
+         "hit_speed_multiplier_raw": null,
+         "spawn_speed_multiplier_raw": null,
+         "damage_per_second": 600,
+         "hit_frequency_ms": 100,
+         "heal_per_second": null,
+         "damage_reduction": null,
+         "damage_multiplier": null,
+         "crown_tower_damage_percent": 100,
+         "immune_to_anti_magic": null,
+         "no_effect_to_crown_towers": false,
+         "attract_percentage": null,
+         "building_damage_percent": null,
+         "enable_stacking": false,
+         "hit_tick_from_source": false,
+         "controlled_by_parent": false,
+         "death_spawn": null,
+         "ignore_buildings": false,
+         "crown_tower_damage_per_hit": 14
+        },
+        "time_ms": 100,
+        "add_as_individual_buff": true
+       }
+      ]
+     }
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -20483,7 +20673,223 @@
       ]
      },
      "on_hit": null,
-     "spawn_time_ms": null
+     "spawn_time_ms": null,
+     "strike_area": {
+      "kind": "ranked_catches",
+      "start_delay_ms": 900,
+      "catch_offsets_ms": [
+       0,
+       50,
+       150
+      ],
+      "once_per_target": true,
+      "selection_mode": "HighestCurrentHpIncludeShields",
+      "radius_milli": 2500,
+      "filter": {
+       "name": "enemy_troops_for_vines",
+       "match_team_enemy": true,
+       "match_type_characters": true,
+       "filter_buildings": false,
+       "filter_summoner": false,
+       "filter_princess_towers": false,
+       "filter_underground": true,
+       "filter_cloning": false,
+       "filter_if_no_hitpoint_component": true,
+       "tags": [
+        "NO_CHECKAVOIDANCE",
+        "NO_CHECKCOLLISIONS",
+        "UNTARGETABLE"
+       ],
+       "filter_dash_immune": true
+      },
+      "air_to_ground": {
+       "transition_ms": 50,
+       "total_ms": 2000,
+       "abort_if_instigator_dies": false,
+       "singleton": true,
+       "allow_is_ground_tag_on_idle": true
+      },
+      "options": [
+       {
+        "name": "Vines_Trap_Snare_XXLarge",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       },
+       {
+        "name": "Vines_Trap_Snare_XLarge",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       },
+       {
+        "name": "Vines_Trap_Snare_Large",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       },
+       {
+        "name": "Vines_Trap_Snare_Medium",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       },
+       {
+        "name": "Vines_Trap_Snare_Small",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       },
+       {
+        "name": "Vines_Trap_Snare_Medium",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       },
+       {
+        "name": "Vines_Trap_Snare_Large",
+        "speed_multiplier_raw": -100,
+        "hit_speed_multiplier_raw": -100,
+        "spawn_speed_multiplier_raw": -100,
+        "damage_per_second": 60,
+        "hit_frequency_ms": 1000,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": null,
+        "crown_tower_damage_percent": 100,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": true,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": 14,
+        "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+       }
+      ],
+      "option_time_ms": [
+       2000,
+       2000,
+       2000,
+       2000,
+       2000,
+       2000,
+       2000
+      ],
+      "conditions": [
+       "has_data(KingTower)",
+       "has_data(-1749071821) || has_data(-1103717791) || has_data(PrincessTower) || has_data(Cannoneer) || has_data(BarbarianHut)",
+       "has_data(ElixirGolem1) || has_data(InfernoDragon) || has_data(MergeMaiden_Mounted) || has_data(MightyMiner) || has_data(MovingCannon) || has_data(SuperHogRider_Terry) || has_data(SuperIceGolemite)|| has_data(BombTower) || has_data(InfernoTower)",
+       "has_data(MiniPekka) || has_data(SuperMiniPekka) || has_data(GoblinDrill) || has_data(Tombstone)",
+       "get_radius() <= 500",
+       "get_radius() < 750"
+      ]
+     }
     },
     "spell_as_deploy": false,
     "can_place_on_buildings": true,
@@ -29605,6 +30011,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "GoblinDrillDig",
@@ -33255,6 +33662,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Recruit_Chess",
@@ -39589,6 +39997,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "GoblinDrillDig",
@@ -42360,6 +42769,7 @@
     "use_attack_range": false,
     "area_damage_when_invisible": false
    },
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "RageBarbarian",
@@ -43142,6 +43552,7 @@
     ],
     "mechanic": true
    },
+   "ignore_clone": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Skeleton",
@@ -65132,7 +65543,39 @@
      }
     ]
    },
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "clone": true,
+   "clone_action": {
+    "card_data_for_stats": "Clone",
+    "on_cloned": {
+     "spawn_type": "BuffType",
+     "spawn": "Clone",
+     "buff": {
+      "name": "Clone",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": null,
+      "hit_frequency_ms": null,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": null,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": false,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": null,
+      "clone": true
+     },
+     "spawn_time_ms": 500
+    }
+   }
   },
   "Tornado": {
    "name": "Tornado",
@@ -65651,7 +66094,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "clone": true
    },
    "buff_time_ms": 500,
    "only_enemies": false,
@@ -65699,7 +66143,39 @@
      }
     ]
    },
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "clone": true,
+   "clone_action": {
+    "card_data_for_stats": "Clone",
+    "on_cloned": {
+     "spawn_type": "BuffType",
+     "spawn": "Clone",
+     "buff": {
+      "name": "Clone",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": null,
+      "hit_frequency_ms": null,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": null,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": false,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": null,
+      "clone": true
+     },
+     "spawn_time_ms": 500
+    }
+   }
   },
   "BoostRage": {
    "name": "BoostRage",
@@ -65785,7 +66261,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "clone": true
    },
    "buff_time_ms": 500,
    "only_enemies": false,
@@ -68005,7 +68482,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "not_cloned": true
    },
    "buff_time_ms": 15000,
    "only_enemies": false,
@@ -68743,14 +69221,134 @@
    "spawn_initial_delay_ms": null,
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
-   "action_graph": null,
+   "action_graph": {
+    "roots": {
+     "OnLifeTimeEndAction": "DarkMagicAOE.OnLifeTimeEndAction",
+     "OnStartingAction": "DarkMagicAOE.OnStartingAction"
+    },
+    "class_types": [
+     "ActionGroup",
+     "ActionLaserBall",
+     "ActionPlayEffect",
+     "ActionSpawn"
+    ],
+    "spawns": [
+     "BuffType:DarkMagicAOE_Damage_lv3",
+     "BuffType:DarkMagicAOE_Damage_lv2",
+     "BuffType:DarkMagicAOE_Damage_lv1"
+    ],
+    "mechanic": true
+   },
    "controls_buff": false,
    "spawn_area_effect_object": null,
    "buff_number": null,
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "strike_area": {
+    "kind": "laser_ball",
+    "start_delay_ms": 500,
+    "first_hit_delay_ms": 1000,
+    "hit_frequency_ms": 1200,
+    "detection_radius_milli": 2500,
+    "max_units_per_list": [
+     1,
+     4
+    ],
+    "filter": {
+     "name": "ForcedCharacterTargets",
+     "match_team_enemy": true,
+     "match_type_characters": true,
+     "filter_hidden": true,
+     "filter_if_no_hitpoint_component": true,
+     "tags": [
+      "NO_CHECKAVOIDANCE",
+      "NO_CHECKCOLLISIONS",
+      "UNTARGETABLE"
+     ]
+    },
+    "tiers": [
+     {
+      "buff": {
+       "name": "DarkMagicAOE_Damage_lv3",
+       "speed_multiplier_raw": null,
+       "hit_speed_multiplier_raw": null,
+       "spawn_speed_multiplier_raw": null,
+       "damage_per_second": 2720,
+       "hit_frequency_ms": 100,
+       "heal_per_second": null,
+       "damage_reduction": null,
+       "damage_multiplier": null,
+       "crown_tower_damage_percent": 100,
+       "immune_to_anti_magic": null,
+       "no_effect_to_crown_towers": false,
+       "attract_percentage": null,
+       "building_damage_percent": null,
+       "enable_stacking": false,
+       "hit_tick_from_source": false,
+       "controlled_by_parent": false,
+       "death_spawn": null,
+       "ignore_buildings": false,
+       "crown_tower_damage_per_hit": 38
+      },
+      "time_ms": 100,
+      "add_as_individual_buff": true
+     },
+     {
+      "buff": {
+       "name": "DarkMagicAOE_Damage_lv2",
+       "speed_multiplier_raw": null,
+       "hit_speed_multiplier_raw": null,
+       "spawn_speed_multiplier_raw": null,
+       "damage_per_second": 1150,
+       "hit_frequency_ms": 100,
+       "heal_per_second": null,
+       "damage_reduction": null,
+       "damage_multiplier": null,
+       "crown_tower_damage_percent": 100,
+       "immune_to_anti_magic": null,
+       "no_effect_to_crown_towers": false,
+       "attract_percentage": null,
+       "building_damage_percent": null,
+       "enable_stacking": false,
+       "hit_tick_from_source": false,
+       "controlled_by_parent": false,
+       "death_spawn": null,
+       "ignore_buildings": false,
+       "crown_tower_damage_per_hit": 20
+      },
+      "time_ms": 100,
+      "add_as_individual_buff": true
+     },
+     {
+      "buff": {
+       "name": "DarkMagicAOE_Damage_lv1",
+       "speed_multiplier_raw": null,
+       "hit_speed_multiplier_raw": null,
+       "spawn_speed_multiplier_raw": null,
+       "damage_per_second": 600,
+       "hit_frequency_ms": 100,
+       "heal_per_second": null,
+       "damage_reduction": null,
+       "damage_multiplier": null,
+       "crown_tower_damage_percent": 100,
+       "immune_to_anti_magic": null,
+       "no_effect_to_crown_towers": false,
+       "attract_percentage": null,
+       "building_damage_percent": null,
+       "enable_stacking": false,
+       "hit_tick_from_source": false,
+       "controlled_by_parent": false,
+       "death_spawn": null,
+       "ignore_buildings": false,
+       "crown_tower_damage_per_hit": 14
+      },
+      "time_ms": 100,
+      "add_as_individual_buff": true
+     }
+    ]
+   }
   },
   "Event_Global_Lightning_Charge1": {
    "name": "Event_Global_Lightning_Charge1",
@@ -70310,6 +70908,7 @@
      "OnStartingAction": "Tesla_EV1_AppearStun"
     },
     "class_types": [
+     "ActionPlayEffect",
      "ActionSpawn"
     ],
     "spawns": [
@@ -71175,10 +71774,14 @@
      "OnHitAction": "GoblinCurseCreateBuffs"
     },
     "class_types": [
-     "ActionGroup"
+     "ActionGroup",
+     "ActionSpawn"
     ],
-    "spawns": [],
-    "mechanic": false
+    "spawns": [
+     "BuffType:GoblinCurse",
+     "BuffType:GoblinCurseDamage"
+    ],
+    "mechanic": true
    },
    "controls_buff": false,
    "spawn_area_effect_object": null,
@@ -71403,7 +72006,16 @@
    "spawn_initial_delay_ms": null,
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
-   "action_graph": null,
+   "action_graph": {
+    "roots": {
+     "OnStartingAction": "dead_goblinstein.OnStartingAction"
+    },
+    "class_types": [
+     "ActionPlayEffect"
+    ],
+    "spawns": [],
+    "mechanic": false
+   },
    "controls_buff": false,
    "spawn_area_effect_object": null,
    "buff_number": null,
@@ -72430,7 +73042,223 @@
     ]
    },
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "strike_area": {
+    "kind": "ranked_catches",
+    "start_delay_ms": 900,
+    "catch_offsets_ms": [
+     0,
+     50,
+     150
+    ],
+    "once_per_target": true,
+    "selection_mode": "HighestCurrentHpIncludeShields",
+    "radius_milli": 2500,
+    "filter": {
+     "name": "enemy_troops_for_vines",
+     "match_team_enemy": true,
+     "match_type_characters": true,
+     "filter_buildings": false,
+     "filter_summoner": false,
+     "filter_princess_towers": false,
+     "filter_underground": true,
+     "filter_cloning": false,
+     "filter_if_no_hitpoint_component": true,
+     "tags": [
+      "NO_CHECKAVOIDANCE",
+      "NO_CHECKCOLLISIONS",
+      "UNTARGETABLE"
+     ],
+     "filter_dash_immune": true
+    },
+    "air_to_ground": {
+     "transition_ms": 50,
+     "total_ms": 2000,
+     "abort_if_instigator_dies": false,
+     "singleton": true,
+     "allow_is_ground_tag_on_idle": true
+    },
+    "options": [
+     {
+      "name": "Vines_Trap_Snare_XXLarge",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     },
+     {
+      "name": "Vines_Trap_Snare_XLarge",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     },
+     {
+      "name": "Vines_Trap_Snare_Large",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     },
+     {
+      "name": "Vines_Trap_Snare_Medium",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     },
+     {
+      "name": "Vines_Trap_Snare_Small",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     },
+     {
+      "name": "Vines_Trap_Snare_Medium",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     },
+     {
+      "name": "Vines_Trap_Snare_Large",
+      "speed_multiplier_raw": -100,
+      "hit_speed_multiplier_raw": -100,
+      "spawn_speed_multiplier_raw": -100,
+      "damage_per_second": 60,
+      "hit_frequency_ms": 1000,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": 100,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": true,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": 14,
+      "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
+     }
+    ],
+    "option_time_ms": [
+     2000,
+     2000,
+     2000,
+     2000,
+     2000,
+     2000,
+     2000
+    ],
+    "conditions": [
+     "has_data(KingTower)",
+     "has_data(-1749071821) || has_data(-1103717791) || has_data(PrincessTower) || has_data(Cannoneer) || has_data(BarbarianHut)",
+     "has_data(ElixirGolem1) || has_data(InfernoDragon) || has_data(MergeMaiden_Mounted) || has_data(MightyMiner) || has_data(MovingCannon) || has_data(SuperHogRider_Terry) || has_data(SuperIceGolemite)|| has_data(BombTower) || has_data(InfernoTower)",
+     "has_data(MiniPekka) || has_data(SuperMiniPekka) || has_data(GoblinDrill) || has_data(Tombstone)",
+     "get_radius() <= 500",
+     "get_radius() < 750"
+    ]
+   }
   },
   "Gift_Delivery_AEO": {
    "name": "Gift_Delivery_AEO",
@@ -73041,7 +73869,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "clone": true
   },
   "Heal": {
    "name": "Heal",
@@ -73290,7 +74119,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "GoblinCurseFoe": {
    "name": "GoblinCurseFoe",
@@ -73671,7 +74501,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "PancakesCurse": {
    "name": "PancakesCurse",
@@ -73839,7 +74670,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "SuperMiniPekkaPancakesHeal": {
    "name": "SuperMiniPekkaPancakesHeal",
@@ -73883,7 +74715,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "LoveCharm": {
    "name": "LoveCharm",
@@ -74563,7 +75396,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "Event_FreezeTimer": {
    "name": "Event_FreezeTimer",
@@ -75179,7 +76013,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "Ghost_EV1_Summon_Invisibility": {
    "name": "Ghost_EV1_Summon_Invisibility",
@@ -75340,7 +76175,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "attached_inherit_as": "Hunter_EV1_bear_trap_snare_no_effect"
   },
   "Hunter_EV1_bear_trap_snare_medium": {
    "name": "Hunter_EV1_bear_trap_snare_medium",
@@ -75362,7 +76198,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "attached_inherit_as": "Hunter_EV1_bear_trap_snare_no_effect"
   },
   "Hunter_EV1_bear_trap_snare_large": {
    "name": "Hunter_EV1_bear_trap_snare_large",
@@ -75384,7 +76221,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "attached_inherit_as": "Hunter_EV1_bear_trap_snare_no_effect"
   },
   "Hunter_EV1_bear_trap_snare_no_effect": {
    "name": "Hunter_EV1_bear_trap_snare_no_effect",
@@ -75428,7 +76266,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "not_cloned": true
   },
   "MinionHorde_EV1_Reapply_Shadow_Buff": {
    "name": "MinionHorde_EV1_Reapply_Shadow_Buff",
@@ -75758,7 +76597,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": 14
+   "crown_tower_damage_per_hit": 14,
+   "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
   },
   "Vines_Trap_Snare_No_Effect": {
    "name": "Vines_Trap_Snare_No_Effect",
@@ -75802,7 +76642,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": 14
+   "crown_tower_damage_per_hit": 14,
+   "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
   },
   "Vines_Trap_Snare_Medium": {
    "name": "Vines_Trap_Snare_Medium",
@@ -75824,7 +76665,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": 14
+   "crown_tower_damage_per_hit": 14,
+   "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
   },
   "Vines_Trap_Snare_Large": {
    "name": "Vines_Trap_Snare_Large",
@@ -75846,7 +76688,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": 14
+   "crown_tower_damage_per_hit": 14,
+   "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
   },
   "Vines_Trap_Snare_XLarge": {
    "name": "Vines_Trap_Snare_XLarge",
@@ -75868,7 +76711,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": 14
+   "crown_tower_damage_per_hit": 14,
+   "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
   },
   "Vines_Trap_Snare_XXLarge": {
    "name": "Vines_Trap_Snare_XXLarge",
@@ -75890,7 +76734,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": 14
+   "crown_tower_damage_per_hit": 14,
+   "attached_inherit_as": "Vines_Trap_Snare_No_Effect"
   },
   "Witch_EV1_Healing_Skeleton_Tint": {
    "name": "Witch_EV1_Healing_Skeleton_Tint",
@@ -76060,6 +76905,17 @@
  "globals": {
   "MIRROR_LEVEL_OFFSET": 1,
   "MIRROR_CAP_TO_MAX_LEVEL": false,
-  "MIRROR_IGNORE_CHAMPIONS": false
+  "MIRROR_IGNORE_CHAMPIONS": false,
+  "CLONE_LEVEL_OFFSET": 0,
+  "CLONE_DISTANCE_X": 0,
+  "CLONE_DISTANCE_Y": 250,
+  "CLONE_PRESERVE_SHIELD": true,
+  "CLONE_CLONED_UNITS": false,
+  "CLONE_MOVE_PARENT": true,
+  "CLONE_DEATH_SPAWN_UNITS": true,
+  "CLONE_DEATH_SPAWN_BUILDINGS": true,
+  "CLONE_RESET_TARGET": false,
+  "CLONE_RESET_CHARGE": false,
+  "CLONE_INHERIT_CHARGE": false
  }
 }
