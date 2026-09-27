@@ -5,7 +5,7 @@
 //! THE LAW, measured on client 15.535.29: take F, the first tick the dasher's target pointer names its target. Of 12
 //! dashers whose target was inside the trigger distance on F (and not nearer than DashMinRange edge to edge), the 2
 //! Mega Knights moved on F + 17 and the 10 Bandits on F + 16. The 16 dashers that walked into their trigger distance
-//! moved on T + 17 and T + 16, T the first tick within it. So F is the trigger. Today's engine (next_tick) triggers
+//! moved on T + 17 and T + 16, T the first tick within it. So F is the trigger. The old arm (next_tick) triggers
 //! on F + 1: the Mega Knight moves on F + 18 and the Bandit on F + 17.
 //!
 //! A unit set down by the scenario has its target on tick 0 (F = 0 here). WHAT IS PINNED, each with its
@@ -14,10 +14,10 @@
 //!      DashMinRange 3,500) targets the Knight on tick 0 and first moves on tick 17, and that move is the jump;
 //!   2. first_sight_tick: a Bandit set down 6,231 from a Giant standing at its tower (inside 6,000 + 750, an edge of
 //!      4,881) targets it on tick 0, stands, and first moves on tick 16, a dash half-step pair;
-//!   3. next_tick: the same scenes first move on ticks 18 and 17 (today's engine);
+//!   3. next_tick: the same scenes first move on ticks 18 and 17 (the old arm);
 //!   4. both values: a Mega Knight that walks into its trigger distance of that Giant (set down 6,061 from it) jumps
 //!      on the first tick within it + 17: the key touches no walking trigger;
-//!   5. the shipped value is next_tick.
+//!   5. the shipped value is first_sight_tick.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test dash_first_sight_trigger`):
 //!   * `dash_first_sight_next_tick` -- first_sight_tick still triggers on the tick after first sight: (1) and (2) go
@@ -110,7 +110,7 @@ fn a_bandit_put_down_inside_its_trigger_dashes_on_the_first_sight_plus_16() {
 }
 
 #[test]
-fn next_tick_is_todays_engine() {
+fn next_tick_is_the_pre_flip_engine() {
     let mk = scene(DashFirstSightTrigger::NextTick, "MegaKnight", MK_AT, "Knight", KNIGHT_AT, 40);
     preconditions(&mk, 5000 + 500, 3500 + 750 + 500);
     assert_eq!(first_move(&mk).0, 18, "next_tick: the Mega Knight's first move");
@@ -131,6 +131,6 @@ fn a_walking_trigger_is_the_same_under_both_values() {
 }
 
 #[test]
-fn the_shipped_value_is_next_tick() {
-    assert_eq!(config().calib.dash_first_sight_trigger, DashFirstSightTrigger::NextTick, "shipped combat.DASH_FIRST_SIGHT_TRIGGER");
+fn the_shipped_value_is_first_sight_tick() {
+    assert_eq!(config().calib.dash_first_sight_trigger, DashFirstSightTrigger::FirstSightTick, "shipped combat.DASH_FIRST_SIGHT_TRIGGER");
 }

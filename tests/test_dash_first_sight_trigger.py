@@ -4,7 +4,7 @@
 WHAT THIS PINS. Take F, the first tick a dasher's target is its target. On client 15.535.29, 12 of 12 dashers whose
 target was already inside DashMaxRange + the target's radius on F (and not nearer than DashMinRange edge to edge)
 moved on F + 17 (the Mega Knight, 2 of 2) or F + 16 (the Bandit, 10 of 10). The 16 that walked into the trigger
-distance moved on T + 17 and T + 16, T the first tick within it. So F is the trigger. Today's engine triggers on
+distance moved on T + 17 and T + 16, T the first tick within it. So F is the trigger. The old arm triggers on
 F + 1 and moves each of them one tick late. In the Mega Knight's single-card scenario that tick moves its goal cell
 by 500, and the Mega Knight walks its whole route from the wrong cell.
 
@@ -90,7 +90,7 @@ def test_a_dasher_played_inside_its_trigger_moves_on_the_first_sight_plus_its_co
 
 
 @pytest.mark.parametrize("card", sorted(PLAYED))
-def test_old_arm_is_todays_engine(card):
+def test_old_arm_is_the_pre_flip_engine(card):
     f, onset, _ = played(OLD_ARM, card)
     assert onset - f == PLAYED[card][1] + 1, f"{OLD_ARM}: the {card} moved on F + {onset - f}"
 
