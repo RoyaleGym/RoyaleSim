@@ -53,7 +53,10 @@
 //!      is the HitFrequency share of the level-scaled per-second figure: the Battle
 //!      Healer's spawn heal pulses 50 at a 256% multiplier, where the old order
 //!      (per_second_times_frequency, shipped until flip wave 2) gives 48, and a
-//!      once-a-second Poison is the same under both, so (5) and (10) hold under either.
+//!      once-a-second Poison is the same under both, so (5) and (10) hold under either;
+//!  13. under spells.PULSING_AREA_EFFECT = hit_speed_offset (not shipped) a pulsing area's first application waits
+//!      the value the ledger lists for its card, not one HitSpeed: a Poison listed at 100 applies on L + 1 and one
+//!      listed at 500 on L + 9, where its HitSpeed 250 gives L + 4.
 //!
 //! PLANTS (regression):
 //!   * `buff_speed_unfloored` rounds the composition instead of truncating it: (1)
@@ -62,6 +65,10 @@
 //!     query `splash` started from, the earlier bug: (9) goes red.
 //!   * `pulse_share_scaled` takes the share first under the new pulse arm: (12)
 //!     goes red.
+//!   * `pulsing_offset_listed_hit_speed` waits one HitSpeed for every listed card,
+//!     whatever value is listed: (13) goes red. tests/test_pulsing_area_offset.py cannot
+//!     see it: its Poison is listed at its own HitSpeed, and its Rage and Earthquake
+//!     are not listed.
 //!     RUSTFLAGS='--cfg clash_plant="buff_speed_unfloored"' CARGO_TARGET_DIR=target/plant cargo test --test status
 
 mod common;
@@ -850,6 +857,67 @@ fn the_pulsing_area_offsets_are_read_from_the_ledger() {
     v["spells"]["PULSING_AREA_EFFECT"].as_object_mut().expect("an entry").remove("hit_speed_offset_ms");
     let err = Calib::from_json(&serde_json::to_string(&v).unwrap()).expect_err("a ledger without the offsets must be refused");
     assert!(err.contains("hit_speed_offset_ms"), "the refusal must name the field: {err}");
+}
+
+/// The ticks from L, the first tick a Red Poison cast on the Blue engine-Left princess tower stands on the board, to
+/// the first tick the tower carries its buff (the area's first application), under `cfg`.
+fn poison_application_after_landing(cfg: BattleConfig) -> u32 {
+    let mut s = bare(cfg);
+    let (tower, tp) = s
+        .entities()
+        .find(|v| v.team == Team::Blue && v.kind == EntityKind::PrincessTower)
+        .map(|v| (v.id, v.pos))
+        .expect("the arena ships crown towers");
+    s.spawn_unit(Team::Red, "Poison", tp, None).expect("cast Poison");
+    let mut landed = None;
+    for _ in 0..200 {
+        s.tick();
+        let now = s.tick_count();
+        if landed.is_none() && s.spells().iter().any(|sp| matches!(sp.motion, royalesim::spell::SpellMotion::Pulsing(_))) {
+            landed = Some(now);
+        }
+        if s.entity(tower).expect("the tower stands").buffs.iter().any(|b| !b.is_empty()) {
+            let l = landed.expect("the tower carries a buff before the Poison landed");
+            return now - l;
+        }
+    }
+    panic!("the Poison never reached the tower, so this looked at nothing");
+}
+
+/// spells.PULSING_AREA_EFFECT = hit_speed_offset waits the VALUE the ledger lists for the card. The two listed values
+/// equal their cards' HitSpeed (the Poison 250 and 250, the Tornado 50 and 50), so the shipped ledger cannot tell the
+/// value from one HitSpeed for every listed card; here the Poison's value is moved off its HitSpeed. The first
+/// application falls on L + value / TICK_MS - 1, the landing tick counting as the first 50 ms.
+/// Plants: pulsing_offset_listed_hit_speed, pulsing_offset_by_hit_speed, pulsing_area_applies_on_landing (the plants
+/// of tests/test_pulsing_area_offset.py and this one).
+#[test]
+fn the_offset_arm_waits_the_listed_value_not_one_hit_speed() {
+    let hit_speed_ms = match &card_stat(&bare(config()), "Poison").spell.as_ref().expect("Poison is a spell").shape {
+        SpellShape::PulsingAreaEffect { hit_speed_ms, .. } => *hit_speed_ms,
+        other => panic!("Poison loaded as {other:?}"),
+    };
+    assert_eq!(hit_speed_ms, 250, "precondition: the Poison's HitSpeed");
+    let after = |arm: PulsingArea, offset_ms: Option<i32>| {
+        poison_application_after_landing(with_calib(|c| {
+            c.pulsing_area_effect = arm;
+            if let Some(ms) = offset_ms {
+                c.pulsing_area_offsets = vec![("Poison".to_string(), ms), ("Tornado".to_string(), 50)];
+            }
+        }))
+    };
+    // The landing arm, the control: the area applies on L.
+    assert_eq!(after(PulsingArea::FromLanding, None), 0, "hit_speed_period_from_landing applies on L");
+    // The ledger's 250: L + 4, where one HitSpeed would put it too.
+    assert_eq!(after(PulsingArea::HitSpeedOffset, None), 4, "the ledger's offset 250");
+    // Values off the HitSpeed: L + 1 and L + 9. One HitSpeed would give L + 4 for both.
+    assert_eq!(after(PulsingArea::HitSpeedOffset, Some(100)), 1, "an offset of 100");
+    assert_eq!(after(PulsingArea::HitSpeedOffset, Some(500)), 9, "an offset of 500");
+    // A card the list leaves out applies on L.
+    let unlisted = poison_application_after_landing(with_calib(|c| {
+        c.pulsing_area_effect = PulsingArea::HitSpeedOffset;
+        c.pulsing_area_offsets = vec![("Tornado".to_string(), 50)];
+    }));
+    assert_eq!(unlisted, 0, "a Poison the list leaves out applies on L");
 }
 
 /// What one run of the foil scene leaves behind: the two Snowballed Knights' walk
