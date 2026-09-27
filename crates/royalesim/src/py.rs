@@ -45,7 +45,10 @@
 //!     (state.rs `deploy_rule`, the engine's one definition), numbered to match
 //!     protocol.py `Placement` where a Placement exists:
 //!         0 TROOP  1 BUILDING  2 SPELL (anywhere)  3 ROLLING (troop territory, over
-//!         buildings)  4 SPELL_NOT_ON_WATER (anywhere except water: Goblin Barrel).
+//!         buildings: the Log, the Barbarian Barrel)  4 SPELL_NOT_ON_WATER (anywhere except
+//!         water: Goblin Barrel).
+//!     A spell in troop territory that keeps a troop's footprint rule (Heal, refused on a
+//!     building or a crown tower) reports 0, because it is placed exactly as a troop is.
 //!     Code 4 has NO protocol.py Placement yet -- the Python mask must add one or
 //!     it will offer the river to a Goblin Barrel that the engine refuses as WATER.
 //!     Code 6 is the MIRROR: its tap follows the placement of the card it copies
@@ -481,6 +484,11 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
     match (c.kind, deploy_rule(calib, c)) {
         (CardKind::Troop, _) => 0,
         (CardKind::Building, _) => 1,
+        // A spell in troop territory that keeps a troop's footprint rule (Heal: `on_buildings` false) is refused on a
+        // building or a crown tower as a troop is, so it takes a troop's code. By the rule, not the name: code 3 alone
+        // cannot tell it from the Log, which may land on buildings.
+        #[cfg(not(clash_plant = "footprint_spell_kind_rolling"))]
+        (CardKind::Spell, (Territory::EnemyTowerRects, true)) => 0,
         (CardKind::Spell, (Territory::EnemyTowerRects, _)) => 3,
         (CardKind::Spell, (Territory::AnywhereButWater, _)) => 4,
         (CardKind::Spell, _) => 2,
@@ -1681,13 +1689,14 @@ mod tests {
         // unit); each spell row's kind code is its deploy rule; a Goblin on the board
         // reports its barrel's id; state_json carries stun / knockback ticks and the
         // spell rows, and still parses as JSON. Plants: log_territory_anywhere,
-        // barrel_anywhere_incl_water (kind codes follow `deploy_rule`).
+        // barrel_anywhere_incl_water (kind codes follow `deploy_rule`), footprint_spell_kind_rolling
+        // (Heal, a troop-territory spell with a troop's footprint rule, reports the Log's 3).
         let db = cards();
         let calib = crate::state::Calib::shipped();
         let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
         let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &catalogue, db.lowest_level_valid_for_every_rarity()).unwrap()).unwrap();
         let row = |n: &str| rows.as_array().unwrap().iter().find(|r| r[0] == n).unwrap_or_else(|| panic!("{n} not in the catalogue")).clone();
-        for (n, code) in [("Fireball", 2), ("Arrows", 2), ("Zap", 2), ("Log", 3), ("GoblinBarrel", 4), ("Knight", 0), ("Cannon", 1)] {
+        for (n, code) in [("Fireball", 2), ("Arrows", 2), ("Zap", 2), ("Log", 3), ("BarbLog", 3), ("Heal", 0), ("GoblinBarrel", 4), ("Knight", 0), ("Cannon", 1)] {
             assert_eq!(row(n)[1], code, "{n} kind code");
         }
         assert_eq!((row("Fireball")[3].as_i64(), row("Fireball")[6].as_i64()), (Some(0), Some(0)), "spell rows: count 0, hitpoints 0");

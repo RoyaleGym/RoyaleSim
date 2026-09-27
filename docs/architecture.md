@@ -166,8 +166,8 @@ The crate itself has no Python dependency and builds alone.
   `pathfinding.PATH_SEARCH` and `formation.GROUND_Y_CLAMP`.
 - **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
-  `tower_positions`), so a learner's action mask is the engine's own answer rather than a
-  reimplementation. `check_deploy(team, slot, x, y)` returns an index into `DEPLOY_REASONS`, which
+  `tower_positions`), so a learner can build its action mask from the engine's own numbers and
+  check it against `check_deploy`, which gives the engine's answer for any tap. `check_deploy(team, slot, x, y)` returns an index into `DEPLOY_REASONS`, which
   holds fifteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
   `OUT_OF_ARENA`, `WATER`, `NO_DEPLOY`, `OUT_OF_TERRITORY`, `OCCUPIED`, `GAME_OVER`,
   `DUPLICATE_TEAM`, `ENGINE_ERROR`, `TOO_EARLY`, `NOTHING_TO_MIRROR`. A match refuses every
