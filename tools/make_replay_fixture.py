@@ -111,6 +111,15 @@ DEPLOY POSITION AND TICK
     empty the first-seen tick is used and `tick_evidence` says so. `first_seen` keeps
     the raw frame tick.
 
+    A capture can also SHOW a group late: some ticks after the spawn its own deploy
+    timers give, later than any missed frame explains (`shown_late_spawn`). The frame
+    gap then bounds the showing, not the spawn, and the group's first deploy end decides
+    alone, narrowed by its other members' ends at the card's stagger where they all
+    agree. On the 16.402 corpus (73 fixtures) this moves 3 deploy rows: side 1's Goblins
+    of 20260920-010218, shown on 572 by seat B and on 577 by seat A, whose deploy ends
+    give a spawn on 569 in both seats; and side 0's Knight of 20260919-181741, which
+    seat B shows on 1192 and seat A on 1193 (spawn 1192).
+
     The position is the TAP when the placements log recorded beside the capture (the
     taps a scripted player made: side, card, tick, requested tile) has one for that
     side and card in the window [tap tick + 5, tap tick + 80] (the tap-to-entity
@@ -174,8 +183,12 @@ FRAMES
     deltas of 2-12) and, in the earliest captures, REPEATED while the game was frozen
     (the ledger names them). Frames are de-duplicated by tick (first wins;
     `frames_duplicate` counts the rest) and a group whose first frame follows a gap
-    carries `first_seen_gap` > 1: its real spawn tick may be up to that many ticks
-    earlier.
+    carries `first_seen_gap` > 1. That gap bounds how much earlier the spawn is only
+    for a group the capture showed on time. A group it showed LATE (`shown_late_spawn`)
+    can have spawned more ticks before its first frame than the gap: on the 16.402
+    corpus 3, 8 and 1 ticks before, with gaps of 1, 2 and 1. For every group, its
+    deploy row's `first_seen` minus `tick` says how many ticks before its first frame
+    it spawned.
 
 ATTACK TIMERS
     Four more truth columns, as the capture records them per entity per frame, in ms; they
@@ -683,6 +696,77 @@ def refine_spawn_tick(
                 f" [{lo}, {hi}]",
             )
     return hi, hi, f"range [{lo}, {hi}] (frame gap, no transition seen), latest used"
+
+
+#: The behavior_state of a summon member still waiting out its deploy stagger (entity kind 12); it
+#: turns 4 when its own deploy starts.
+STATE_STAGGER_WAIT = 11
+
+
+def deploy_end(ticks: list[int], states: list[tuple[int, int]]) -> tuple[int, int] | None:
+    """(t0, t1) of one member's deploy-end transition, or None when the capture does not show it:
+    t0 the last frame of its first behavior_state-4 run, t1 the frame after it."""
+    for k in range(1, len(states)):
+        if states[k - 1][1] == 4 and states[k][1] != 4:
+            return ticks[states[k - 1][0]], ticks[states[k][0]]
+    return None
+
+
+def shown_late_spawn(
+    ticks: list[int],
+    first_index: int,
+    member_states: list[list[tuple[int, int]]],
+    deploy_ms: int | None,
+    stagger_ms: int | None = None,
+    tick_ms: int = 50,
+) -> tuple[int, str] | None:
+    """(spawn tick, evidence) when the capture showed a deploy group LATE, else None.
+
+    A capture can show a group some ticks after the tick its own deploy timers say it was
+    spawned. The frame gap then bounds when the capture first SHOWED the group, not when it
+    was spawned, and the deploy-end transition is the only clock left. Client 16.402, both
+    seats of 20260920-010218: side 1's Goblins (tapped on 545) are first shown on 572 by
+    seat B, with no frame missed, and on 577 by seat A (576 missed). Seat A shows their
+    deploys end on 588, 592, 596 and 600: 19 ticks after a spawn on 569, plus the card's
+    200 ms stagger per member. Seat B shows the same ends, the first across a missed frame
+    (587, then 589).
+
+    The group's first deploy end (a member first seen in state 4) gives the spawn range
+    [t0 + 1 - (d - 1), t1 - (d - 1)], as in refine_spawn_tick. Only when that range lies
+    wholly BEFORE the frame gap's range was the group shown late. The other members narrow
+    a range left by a missed frame: in the order their deploys end, member r ends
+    r x stagger ticks after the first. They are used only where every one of them agrees.
+    """
+    d = (deploy_ms or 0) // tick_ms
+    if d < 1:
+        return None
+    lo, hi = spawn_tick_bounds(ticks, first_index)
+    ends = []
+    for states in member_states:
+        if not states or states[0][1] not in (4, STATE_STAGGER_WAIT):
+            continue
+        end = deploy_end(ticks, states)
+        if end is not None:
+            ends.append((end[1], end[0], states[0][1]))
+    if not ends:
+        return None
+    ends.sort()
+    t1, t0, first_state = ends[0]
+    if first_state != 4:
+        return None
+    a, b = t0 + 1 - (d - 1), t1 - (d - 1)
+    if b >= lo:
+        return None
+    s = (stagger_ms or 0) // tick_ms
+    na, nb = a, b
+    for r, (u1, u0, _) in enumerate(ends):
+        na, nb = max(na, u0 + 1 - (d - 1) - r * s), min(nb, u1 - (d - 1) - r * s)
+    if na <= nb:
+        a, b = na, nb
+    shown = f"the capture shows the group from {hi}, {hi - b} tick(s) after it"
+    if a == b:
+        return b, f"exact (deploy-end transition; {shown})"
+    return b, f"range [{a}, {b}] (deploy-end transition; {shown}), latest used"
 
 
 def path_cell(index: int, rotate: bool) -> list:
@@ -1297,13 +1381,24 @@ def build(
     ):
         members.sort(key=lambda e: e["key"])
         name0 = members[0]["card"]
-        tick, first_seen, evidence = refine_spawn_tick(
+        card0 = cards_by_name.get(name0) or {}
+        late = shown_late_spawn(
             ticks,
             fi,
-            members[0].get("states", []),
-            (cards_by_name.get(name0) or {}).get("deploy_time_ms"),
-            positions=members[0].get("positions", []) if len(members) == 1 else None,
+            [e.get("states", []) for e in members],
+            card0.get("deploy_time_ms"),
+            card0.get("summon_deploy_delay_ms"),
         )
+        if late is not None:
+            (tick, evidence), first_seen = late, ticks[fi]
+        else:
+            tick, first_seen, evidence = refine_spawn_tick(
+                ticks,
+                fi,
+                members[0].get("states", []),
+                card0.get("deploy_time_ms"),
+                positions=members[0].get("positions", []) if len(members) == 1 else None,
+            )
         cx = sum(e["x0"] for e in members) // len(members)
         cy = sum(e["y0"] for e in members) // len(members)
         tap_ix = None
@@ -1407,7 +1502,9 @@ def build(
             elixir_by_side[es].append(v if isinstance(v, int) and not isinstance(v, bool) else None)
     has_elixir = any(v is not None for col in elixir_by_side.values() for v in col)
     frame_ticks = [f["tick"] for f in frames]
-    explained = {(d["side"], d["tick"]) for d in deploys}
+    # a unit deploy's cost leaves the pool on the frame the capture first SHOWS the group: `first_seen`, later
+    # than `tick` after a frame gap or where the group was shown late (shown_late_spawn)
+    explained = {(d["side"], t) for d in deploys for t in (d["tick"], d["first_seen"])}
     claimed: set[tuple[int, int]] = set()
     unresolved = []
 

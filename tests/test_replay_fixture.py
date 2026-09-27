@@ -1080,3 +1080,155 @@ def test_one_battle_is_one_fixture_whichever_way_up_it_was_recorded(m, maker_inp
     for k in ra:
         assert rb[k] == ra[k], k
     assert rb == ra
+
+
+GOBLINS, KNIGHT = 26000002, 26000000
+
+
+def _late_battle():
+    """(header towers, frames) of a battle whose capture SHOWS two Goblins groups late, as both seats of
+    client 16.402's 20260920-010218 show side 1's Goblins (seat B from 572, seat A from 577; seat A
+    shows their deploys end on 588, 592, 596 and 600: spawn 569, stagger 200 ms = 4 ticks).
+
+    Frames 0..90 with 28 and 55 missed. Side 1's Goblins, keys 20-23: spawned on 9, shown from 12
+    with no frame missed, deploys ending on 28 (missed: seen 27 -> 29), 32, 36, 40. Keys 30-33:
+    spawned on 50, shown from 56 (55 missed), ends 69, 73, 77, 81. Member i > 0 waits in state 11
+    (kind 12) and turns 4 on spawn + 4i - 1, as the capture's third and fourth do (576, 580).
+    Controls, side 0: a Knight shown on its spawn 5 (end 24), and one shown on 60 whose deploy ends
+    a tick late (80), which must not move it LATER. Side 1's elixir drops 2 on each Goblins group's
+    first shown frame."""
+    tower_rows = [
+        (1, 0, 9000, 3000, 4824),
+        (2, 0, 3500, 6500, 3052),
+        (3, 0, 14500, 6500, 3052),
+        (4, 1, 9000, 29000, 4824),
+        (5, 1, 3500, 25500, 3052),
+        (6, 1, 14500, 25500, 3052),
+    ]
+    header = [{"side": s, "x": x, "y": y} for _, s, x, y, _ in tower_rows]
+
+    def ent(key, side, cid, x, y, hp, kind, state):
+        return {"id": f"p{key}", "generation_key": key, "side": side, "x": x, "y": y, "card_id": cid,
+                "level": 11, "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": state, "target": None,
+                "path_nodes": []}
+
+    def goblin(key, i, spawn, shown, end0, t):
+        if t < shown:
+            return None
+        start = spawn + 4 * i - 1 if i else spawn
+        if t < start:
+            kind, state = 12, 11
+        elif t < end0 + 4 * i:
+            kind, state = 14, 4
+        else:
+            kind, state = 15, 1
+        return ent(key, 1, GOBLINS, 8500 + 700 * (i % 2), 30000 + 700 * (i // 2), 202, kind, state)
+
+    def knight(key, shown, end, t):
+        if t < shown:
+            return None
+        return ent(key, 0, KNIGHT, 3500, 12000, 1766, 14 if t < end else 15, 4 if t < end else 1)
+
+    frames = []
+    for t in [t for t in range(91) if t not in (28, 55)]:
+        ents = [ent(k, s, -1, x, y, hp, 13, 0) for k, s, x, y, hp in tower_rows]
+        for i in range(4):
+            ents.append(goblin(20 + i, i, 9, 12, 28, t))
+            ents.append(goblin(30 + i, i, 50, 56, 69, t))
+        ents += [knight(40, 5, 24, t), knight(41, 60, 80, t)]
+        frames.append({
+            "tick": t,
+            "entities": [e for e in ents if e is not None],
+            "effects": [],
+            "elixir_raw": [60000 + 178 * t, 50000 + 178 * t - 20000 * ((t >= 12) + (t >= 56))],
+        })
+    return header, frames
+
+
+def test_the_first_deploy_end_decides_a_late_shown_group_only_where_the_stagger_agrees(m):
+    """`shown_late_spawn` on its own: members listed by key, their deploys ending in turn."""
+    ticks = list(range(100, 150))
+
+    def member(first, end):  # seen from `first` in state 4, walking from `end`
+        return [(t - 100, 4 if t < end else 1) for t in range(first, 150)]
+
+    # shown from 112 (111 seen), deploy ends 128, 132, 136: spawn 109, with or without the stagger
+    group = [member(112, 128), member(112, 132), member(112, 136)]
+    assert m.shown_late_spawn(ticks, 12, group, 1000, 200)[0] == 109
+    assert m.shown_late_spawn(ticks, 12, group, 1000)[0] == 109
+    # the first end seen across a missed frame (128) leaves [109, 110]; the others pin 109. Where one
+    # does not sit at its rank's stagger (the third ends on 140, where a fourth would), the range stands
+    gap = [t for t in ticks if t != 128]
+    ix = {t: k for k, t in enumerate(gap)}
+
+    def member_gap(first, end):
+        return [(ix[t], 4 if t < end else 1) for t in gap if t >= first]
+
+    ok = [member_gap(112, 129), member_gap(112, 132), member_gap(112, 136)]
+    tick, why = m.shown_late_spawn(gap, ix[112], ok, 1000, 200)
+    assert (tick, why.startswith("exact")) == (109, True), why
+    bad = [member_gap(112, 129), member_gap(112, 132), member_gap(112, 140)]
+    tick, why = m.shown_late_spawn(gap, ix[112], bad, 1000, 200)
+    assert (tick, why.startswith("range [109, 110]")) == (110, True), why
+    # not late: the end puts the spawn inside the frame gap, or after the first frame
+    assert m.shown_late_spawn(ticks, 12, [member(112, 131)], 1000) is None
+    assert m.shown_late_spawn(ticks, 12, [member(112, 132)], 1000) is None
+
+
+def test_a_late_group_is_timed_by_the_member_whose_deploy_ends_first_whatever_the_key_order(m):
+    """`shown_late_spawn` sorts the members' deploy ends before it reads the first. Listed by key, the member whose
+    deploy ends first need not come first: here the first listed ends on 132, the second on 128. The spawn is still
+    109 (128 - 19), narrowed by the stagger to exactly that; read in key order it would be 113, not late at all."""
+    ticks = list(range(100, 150))
+
+    def member(first, end):
+        return [(t - 100, 4 if t < end else 1) for t in range(first, 150)]
+
+    out_of_order = [member(112, 132), member(112, 128), member(112, 136)]
+    tick, why = m.shown_late_spawn(ticks, 12, out_of_order, 1000, 200)
+    assert (tick, why.startswith("exact")) == (109, True), why
+
+
+def test_a_group_whose_first_deploy_end_is_a_waiting_member_is_not_timed_late(m):
+    """The first deploy end decides only when that member was first seen deploying (behavior_state 4). A member first
+    seen still waiting out its stagger (state 11) started its own deploy later than the spawn, so its end says nothing
+    about the spawn: the group is not timed late. Read as a deploying member, its end on 128 would give a spawn on
+    109, three ticks before the frame gap allows."""
+    ticks = list(range(100, 150))
+    waiting = [(t - 100, m.STATE_STAGGER_WAIT if t < 115 else (4 if t < 128 else 1)) for t in range(112, 150)]
+    assert m.shown_late_spawn(ticks, 12, [waiting], 1000, 200) is None
+    deploying = [(t - 100, 4 if t < 128 else 1) for t in range(112, 150)]
+    assert m.shown_late_spawn(ticks, 12, [deploying], 1000, 200)[0] == 109, "the scene no longer separates the two"
+
+
+@needs_modern_cards
+def test_a_group_the_capture_shows_late_is_deployed_on_its_spawn(m, maker_inputs, tmp_path):
+    """A capture can show a deploy group some ticks after its spawn with no frame missed, so the frame
+    gap does not bound the spawn; the group's deploy ends do (client 16.402, 20260920-010218: side 1's
+    Goblins spawned on 569, shown on 572 by one seat and on 577 by the other). The late-shown groups take
+    their spawn; a group shown on its spawn, and one whose deploy ends a tick late, keep their first
+    frame; and a late-shown group's elixir drop, on the frame the capture first shows it, stays
+    explained, so a same-cost tap with no drop of its own does not claim it."""
+    _skip_without_the_id_table(m)
+    header, frames = _late_battle()
+    path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
+    _write_capture(path, header, frames)
+    log = tmp_path / "placements-synthetic.jsonl"
+    log.write_text(
+        json.dumps({"tick": 0, "local_side_native": 1}) + "\n"
+        + json.dumps({"tick": 3, "card": "Zap", "requested": [9.5, 11.5]}) + "\n",
+        encoding="utf-8",
+    )
+    id_table, doc, name_to_id, card_names = maker_inputs
+    fx = m.build(str(path), [str(log)], 1, None, None, id_table, doc, {}, name_to_id, card_names, {})
+    rows = {(d["card"], d["keys"][0]): d for d in fx["deploys"] if d["keys"]}
+    got = {k: (d["tick"], d["first_seen"]) for k, d in rows.items()}
+    assert got == {
+        ("Goblins", 20): (9, 12),
+        ("Goblins", 30): (50, 56),
+        ("Knight", 40): (5, 5),
+        ("Knight", 41): (60, 60),
+    }, got
+    assert rows[("Goblins", 20)]["tick_evidence"].startswith("exact (deploy-end transition"), rows[("Goblins", 20)]
+    assert [d["card"] for d in fx["deploys"] if d["kind"] == "spell"] == []
+    assert [u["card"] for u in fx["unresolved"]] == ["Zap"], fx["unresolved"]
