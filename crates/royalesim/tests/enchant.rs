@@ -19,7 +19,8 @@
 //! WHAT IS PINNED, each with its precondition (F is the Rune Giant's creation tick; each test names the arms it runs
 //! through its config, `shipped()` or `with()`):
 //!   1. the loader reads his EnchantDef, and resolves the multipliers by the rows each card's unit fires (TriWizards,
-//!      whose unit is the Electro Wizard, takes 500) and the tagged PhoenixEgg into `excluded`;
+//!      whose unit is the Electro Wizard, takes 500; the Ram Rider's rider, units.RamRider, takes its bola's 0) and the
+//!      tagged PhoenixEgg into `excluded`;
 //!   2. the first projectile appears at the end of F + 27 on his post-move position and is 600 (+-1) nearer the friend
 //!      one tick later; under the named arms at_deploy_end F + 47 and buff_delay_ceil F + 26;
 //!   3. alone past his first look, a Knight created on F + 36 is sent a projectile on F + 43 (restart_cooldown: F + 88);
@@ -28,8 +29,8 @@
 //!      centre_7000 and centre_7750 each flip one);
 //!   6. the enchant appears in the Resolve of the tick the projectile lands, not before; a projectile whose friend
 //!      died in flight enchants nobody;
-//!   7. an enchanted Knight hits a Red Knight for 202, 202, 422, repeating (first_three_attacks: 422 on 1 to 3, then
-//!      202 for good);
+//!   7. an enchanted Knight hits a Red Knight for 202, 202, 422, repeating (first_three_attacks, the Rune Giant killed
+//!      so that he sends no second enchant: 422 on 1 to 3, the enchant gone with the 3rd, then 202);
 //!   8. a level-9 Rune Giant gives +182 to carriers at 11 and 12 (carrier_level: 220 and 241);
 //!   9. the Electro Wizard's bonus attack deals 227 a bolt, the Hunter's bonus volley 104 a pellet (per_mille_of_scaled:
 //!      106);
@@ -256,15 +257,20 @@ fn the_rune_giant_loads_with_his_enchant() {
     let idx = |n: &str| db.index(n).unwrap_or_else(|| panic!("{n} loads"));
     // The names-differ case: TriWizards puts the Electro Wizard on the board, and the multiplier names that row.
     assert_eq!(db.get(idx("TriWizards")).unit_name, "ElectroWizard", "the scene: TriWizards' unit is the Electro Wizard");
+    // A spawned unit's row: the Ram Rider's rider (units.RamRider, the row RamRider) fires RamRiderBola, which the table
+    // lists at 0. The bola releases no spark, so the spark keeps 1000. The card's own unit, the Ram, fires nothing listed.
+    assert_eq!(db.get(idx("units.RamRider")).unit_name, "RamRider", "the scene: the rider is the RamRider row");
     let mut want = vec![
         (idx("ElectroWizard"), 500, 1000),
         (idx("TriWizards"), 500, 1000),
         (idx("Hunter"), 100, 1000),
         (idx("Firecracker"), 1000, 200),
+        (idx("units.RamRider"), 0, 1000),
     ];
     want.sort_unstable();
     assert_eq!(e.per_attacker, want, "the loaded attackers the table's multipliers reach, by the rows their units fire");
     assert_eq!(e.per_mille(idx("Knight")), (1000, 1000), "an unlisted attacker takes the whole bonus");
+    assert_eq!(e.per_mille(idx("RamRider")), (1000, 1000), "the Ram Rider card's Ram is unlisted: only its rider takes the 0");
     let egg = db.index("PhoenixEgg").expect("the Phoenix's egg loads with the Phoenix");
     assert_eq!(e.excluded, vec![egg], "the tagged row, PhoenixEgg, is excluded from the pick");
     assert_eq!(e.excluded_units, vec!["PhoenixEgg".to_string()]);
@@ -480,11 +486,20 @@ fn the_bonus_lands_on_every_third_attack() {
         let want = if k % 3 == 0 { base + bonus } else { base };
         assert_eq!(d, want, "attack {k}: {got:?}");
     }
-    // enchant.BONUS_ATTACKS = first_three_attacks, named: the bonus on attacks 1 to 3, then the enchant is gone.
-    let (mut s, knight, _) = enchanted(with(|c| c.enchant_bonus_attacks = EnchantBonusAttacks::FirstThree), "Knight", None, None);
-    let foe = foe_beside(&mut s, knight, "Knight", (1300, 0));
-    let got: Vec<i32> = drops(&mut s, knight, foe, 400, 6).into_iter().map(|h| h.2).collect();
-    assert_eq!(got, vec![base + bonus, base + bonus, base + bonus, base, base, base], "first_three_attacks");
+    // enchant.BONUS_ATTACKS = first_three_attacks, named: the bonus on attacks 1 to 3, then the enchant is gone. Once it
+    // is gone a living Rune Giant sends the Knight a new one on his next look (a free place refills, 14), and that one
+    // pays attacks 4 to 6 again. So he is killed as in `death_scene`, 120 ticks before the 6th hit: the 3rd hit still
+    // falls inside the 100 ticks the enchant outlives him (13), and nobody sends a second enchant.
+    let (reference, enchant_tick) = death_scene(shipped(), None);
+    let t6 = reference[5].0;
+    assert!(t6 >= enchant_tick + 121, "the scene: he dies after the enchant lands ({t6} vs {enchant_tick})");
+    let (hits, _) = death_scene(with(|c| c.enchant_bonus_attacks = EnchantBonusAttacks::FirstThree), Some(t6 - 120));
+    let got: Vec<(u32, i32)> = hits.iter().map(|h| (h.1, h.2)).collect();
+    assert_eq!(
+        got,
+        vec![(1, base + bonus), (2, base + bonus), (0, base + bonus), (0, base), (0, base), (0, base)],
+        "first_three_attacks, as (enchant count after the hit, drop): the enchant ends with the 3rd attack"
+    );
 }
 
 /// The bonus (third drop less first) an enchanted Knight at `knight_level` deals, from a Rune Giant at `giant_level`.

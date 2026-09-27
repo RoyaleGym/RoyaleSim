@@ -346,7 +346,7 @@ const REJECTED_2018: &[(&str, &str)] = &[
     ("Clone", "own-troop area effect Clone holds its own side still"),
     ("Elixir Collector", "missing hit_speed_ms"),
     ("Graveyard", "area effect Graveyard with targets / projectile / spawn is not simulated"),
-    ("Lightning", "pulsing area effect Lightning pulses no buff"),
+    ("Lightning", "area effect Lightning with a projectile"),
     ("Miner", "the unit travels underground to the tap (SpawnPathfindSpeed 650) without CanDeployOnEnemySide, a territory not simulated"),
     ("Mirror", "spell with no projectile and no area effect"),
     ("MovingCannon", "units.BrokenCannon is a troop with a LifeTime"),
