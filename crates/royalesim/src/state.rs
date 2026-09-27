@@ -726,7 +726,7 @@ pub struct Calib {
     pub pulsing_area_effect: PulsingArea,
     /// spells.PULSING_AREA_EFFECT.hit_speed_offset_ms: each listed card's pulsing area waits this many
     /// ms before its first application under `PulsingArea::HitSpeedOffset` (spell.rs `objects_for`),
-    /// by card name, in the ledger object's order. Read under every arm, used under that one only.
+    /// keyed and sorted by card name. Read under every arm, used under that one only.
     /// Added after SNAPSHOT_FORMAT 20; the `default` (empty) is what a battle saved before it ran.
     #[serde(default)]
     pub pulsing_area_offsets: Vec<(String, i32)>,
@@ -1495,8 +1495,8 @@ calib_enum!(
     /// L + 1, the Tornado on L). `HitSpeedOffset`: the wait is the area's own HitSpeedOffset, counted
     /// the same way, and an area with none applies on L (`Calib::pulsing_area_offsets`, the client
     /// 16.402 table's column, which the client 15.535.29 extraction does not carry). On the 16.402
-    /// corpus the Rage buffs on L (first raged step C + 11), the Earthquake pulses on L + 20 and the
-    /// Poison (HitSpeedOffset 250) pulses on L + 24.
+    /// corpus the Rage buffs on L (first raged step C + 11), the Earthquake pulses in (L + 18, L + 20]
+    /// and the Poison (HitSpeedOffset 250) first in (L + 22, L + 24].
     PulsingArea {
         FromLanding = "hit_speed_period_from_landing",
         Delayed = "hit_speed_period_delayed",
@@ -2868,8 +2868,8 @@ fn boolean(v: &Value, path: &[&str]) -> Result<bool, String> {
     at(v, path)?.as_bool().ok_or_else(|| format!("calibration.json: {} is not a bool", path.join(".")))
 }
 
-/// spells.PULSING_AREA_EFFECT.hit_speed_offset_ms: `{card: ms}`, as a list in the ledger object's own
-/// key order. Refused at load: a missing or malformed block, a value that is not an i32 or is below 0.
+/// spells.PULSING_AREA_EFFECT.hit_speed_offset_ms: `{card: ms}`, as a list sorted by card name (the
+/// order serde_json's map gives). Refused at load: a missing or malformed block, a value that is not an i32 or is below 0.
 /// Card names are not checked here: a name no loaded card carries never matches (spell.rs
 /// `objects_for` looks the casting card up by name).
 fn pulsing_area_offsets(v: &Value) -> Result<Vec<(String, i32)>, String> {
@@ -3015,7 +3015,7 @@ impl Calib {
         if string(&v, &["status", "BUFF_PULSE_AMOUNT", "value"])? == "per_pulse" {
             return Err("status.BUFF_PULSE_AMOUNT = per_pulse has no engine implementation".into());
         }
-        // spells.PULSING_AREA_EFFECT has both arms (spell.rs `cast`) and is read with `pick` below.
+        // spells.PULSING_AREA_EFFECT has three arms (spell.rs `objects_for`) and is read with `pick` below.
         // status.BUFF_STACKING: `per_source_slot` needs the buff's source as part of
         // its identity, which no entity column carries.
         only(&v, &["status", "BUFF_STACKING", "value"], "one_slot_per_buff_row")?;

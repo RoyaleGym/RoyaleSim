@@ -6,7 +6,8 @@ below the tower's centre distance: 577 of 578 switches fit. In 20260918-124946, 
 Cannon and 6,840.8 from its princess tower took the Cannon. Today's engine ranks by centre distance minus the
 candidate's radius, so the tower (radius 1000) scores 5,840.8 against the Cannon's (600) 5,978.4 and the Goblin walks
 on. The scene below is that geometry: the Cannon where it stood in that battle, (9500, 9500), and a red Knight
-(SightRange 5500 and radius 500, as a Goblin's) walking down the left lane to the blue left princess tower at x 4000.
+(SightRange 5500 and radius 500, as a Goblin's) walking down the left lane, from x 4000, to the blue left princess
+tower at (3500, 6500).
 On this engine the Knight first stands inside its sight sum of the Cannon about 6,574 from it and 6,871 from the tower
 (the Goblin: 6,578 and 6,841).
 

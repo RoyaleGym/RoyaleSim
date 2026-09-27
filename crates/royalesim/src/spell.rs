@@ -360,7 +360,8 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         // 250, on L + 4; the Earthquake, 100, on L + 1; the Tornado, 50, on L). Under
         // hit_speed_offset the wait is the card's HitSpeedOffset (Calib::pulsing_area_offsets),
         // counted the same way, and a card with none applies on L: on the 16.402 corpus the Rage
-        // buffs on L, the Earthquake pulses on L + 20 and the Poison (HitSpeedOffset 250) on L + 24.
+        // buffs on L, the Earthquake pulses in (L + 18, L + 20] and the Poison (HitSpeedOffset 250)
+        // first in (L + 22, L + 24].
         SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child } => {
             #[cfg(not(clash_plant = "pulsing_area_applies_on_landing"))]
             let arm = calib.pulsing_area_effect;

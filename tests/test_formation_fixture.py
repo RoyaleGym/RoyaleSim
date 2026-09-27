@@ -81,3 +81,25 @@ def test_the_sample_s_skeletons_hug_the_king_and_are_clean_only_without_the_marg
     picked = m.select(groups * 3)
     for b in {key(h) for h in picked}:
         assert len([h for h in picked if key(h) == b]) <= m.PER_BUCKET
+
+
+def test_a_group_shown_late_takes_its_slack_from_its_deploy_end_range_not_the_frame_gap(m):
+    # A frame-gap row: the spawn lies in (first_seen - gap, first_seen], the latest taken.
+    gap_row = {
+        "tick": 100,
+        "first_seen": 100,
+        "first_seen_gap": 3,
+        "tick_evidence": "range [98, 100] (frame gap, no transition seen), latest used",
+    }
+    assert m.spawn_tick_slack(gap_row) == 2
+    # A group the capture showed late (make_replay_fixture.py shown_late_spawn): its first
+    # frame is 3 ticks after the range its deploy ends leave, so the gap bounds nothing.
+    shown = "the capture shows the group from 572, 3 tick(s) after it"
+    late = {
+        "tick": 569,
+        "first_seen": 572,
+        "first_seen_gap": 1,
+        "tick_evidence": f"range [567, 569] (deploy-end transition; {shown}), latest used",
+    }
+    assert m.spawn_tick_slack(late) == 2
+    assert m.spawn_tick_slack({**late, "tick_evidence": f"exact (deploy-end transition; {shown})"}) == 0

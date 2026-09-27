@@ -307,8 +307,9 @@ pub struct StrikeDef {
     /// LifeDuration, ms (Lightning 1500).
     pub life_ms: i32,
     /// ms from each strike to the next, the first from the cast: HitSpeed repeated while the running sum is at most
-    /// LifeDuration (`strike_gaps`; Lightning [460, 460, 460] from the 15.535.29 tables, [500, 500, 500] under
-    /// cards.CLIENT16402_VALUES = client16402, whose value.values give client 16.402's AreaHitSpeed 500).
+    /// LifeDuration (`strike_gaps`; Lightning [460, 460, 460] from the 15.535.29 tables, which the shipped
+    /// cards.CLIENT16402_VALUES = client16402 keeps; [500, 500, 500] when that key's value.values list the
+    /// Lightning's AreaHitSpeed 500 (client 16.402), which the shipped value.values do not yet).
     pub gaps_ms: Vec<i32>,
     /// The projectile row's Speed, raw. The strike lands the next tick whatever it is: the projectile is born on its
     /// victim.

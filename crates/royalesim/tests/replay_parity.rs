@@ -106,7 +106,12 @@ fn every_deploy_is_issued_the_tick_before_and_its_units_exist_on_the_recorded_ti
             // (the captures miss frames; the maker recovers the spawn tick from the
             // deploy-end transition)
             assert_eq!(Some(p.truth_first_tick), d.first_seen, "truth key {} first seen at {}, deploy says {:?}", p.truth_key, p.truth_first_tick, d.first_seen);
-            assert!(p.truth_first_tick >= d.tick && p.truth_first_tick < d.tick + d.first_seen_gap.max(1), "{d:?} vs first seen {}", p.truth_first_tick);
+            // The frame gap bounds the spawn only for a group the capture showed on time. A group
+            // it showed LATE (tools/make_replay_fixture.py `shown_late_spawn`, whose tick_evidence
+            // says "deploy-end transition; the capture shows") spawned more ticks before its
+            // first frame than the gap: 3, 8 and 1 ticks with gaps of 1, 2 and 1 on the corpus.
+            let shown_late = d.tick_evidence.as_deref().is_some_and(|e| e.contains("deploy-end transition; the capture shows"));
+            assert!(p.truth_first_tick >= d.tick && (shown_late || p.truth_first_tick < d.tick + d.first_seen_gap.max(1)), "{d:?} vs first seen {}", p.truth_first_tick);
             assert_eq!(p.sim_first_tick, d.tick, "{} (truth key {}): the engine's unit exists from tick {}, the recording's from {}", p.root, p.truth_key, p.sim_first_tick, d.tick);
         }
     }

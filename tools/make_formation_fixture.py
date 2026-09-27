@@ -149,9 +149,18 @@ def spawn_tick_slack(d: dict) -> int:
     capture's frame loss as an engine defect: capture 20260918-122757.b1 t2415, whose
     own tick_evidence is "range [2414, 2415] (deploy-end transition), latest used",
     is the one group of the corpus that needs it.
+
+    A group the capture showed LATE (make_replay_fixture.py `shown_late_spawn`, whose
+    tick_evidence says "deploy-end transition; the capture shows") spawned more ticks
+    before its first frame than the gap, so the gap says nothing about it. Its slack
+    is read from the range its deploy ends left, "range [a, b] (...)": tick - a.
     """
-    if str(d.get("tick_evidence", "")).startswith("exact"):
+    evidence = str(d.get("tick_evidence", ""))
+    if evidence.startswith("exact"):
         return 0
+    if "deploy-end transition; the capture shows" in evidence:
+        m = re.match(r"range \[(-?\d+), (-?\d+)\]", evidence)
+        return max(0, d["tick"] - int(m.group(1))) if m else 0
     gap = d.get("first_seen_gap") or 1
     first_seen = d.get("first_seen")
     if first_seen is None:  # a spell cast, or a group the capture never shows arriving
