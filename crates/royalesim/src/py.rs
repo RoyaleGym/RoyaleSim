@@ -1048,11 +1048,15 @@ impl Battle {
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
     /// hitpoints at the card level battles run at]. Kind codes: module doc, SPELLS.
     /// The hitpoints are the card data this object's battles run: cards.CLIENT16402_VALUES
-    /// under the calibration they run under (`reset`), so a row agrees with a spawn.
+    /// under the calibration they run under (`reset`), so a row agrees with a spawn. The
+    /// kind codes and footprints are read under that calibration too (a Goblin Drill's
+    /// footprint follows placement.SPAWN_PATHFIND_DESTINATION), overrides included.
     fn catalogue_json(&self) -> PyResult<String> {
-        let calib = self.calib.clone().unwrap_or_else(crate::state::Calib::shipped);
+        let calib = self.battle_calib().map_err(PyValueError::new_err)?;
         let cards = calib.card_data(self.cards.clone()).map_err(PyValueError::new_err)?;
-        catalogue_rows(&cards, &crate::state::Calib::shipped(), &self.catalogue, self.level()).map_err(PyValueError::new_err)
+        #[cfg(clash_plant = "catalogue_reads_shipped_calib")]
+        let calib = crate::state::Calib::shipped(); // PLANT: the rows read the shipped ledger.
+        catalogue_rows(&cards, &calib, &self.catalogue, self.level()).map_err(PyValueError::new_err)
     }
 
     /// The unified card and tower level every battle from this object uses.
@@ -2112,6 +2116,47 @@ mod tests {
         let fp = CATALOGUE_FIELDS.iter().position(|f| *f == "footprint_tiles").unwrap();
         let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &[drill], db.lowest_level_valid_for_every_rarity()).unwrap()).unwrap();
         assert_eq!(rows[0][fp], building, "the Goblin Drill's footprint_tiles");
+    }
+
+    /// A `Battle` as Python builds one, with `overrides` as `calibration_overrides`. Its error is dropped unread:
+    /// reading a Python error needs the interpreter, which these tests do not start.
+    fn battle_with(names: &[&str], overrides: &[(&str, &str)]) -> Battle {
+        let m: BTreeMap<String, String> = overrides.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let names = Some(names.iter().map(|n| n.to_string()).collect());
+        let Ok(b) = Battle::new(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None) else { panic!("the Battle was refused") };
+        b
+    }
+
+    /// THE CATALOGUE IS THE BATTLE'S. `catalogue_json` reports the card data and the placement a battle from the
+    /// same object runs, overrides included. It used to read the shipped ledger for the rows, so with
+    /// placement.SPAWN_PATHFIND_DESTINATION overridden to ordinary_ground_deploy_point a named Goblin Drill reported
+    /// its building's 2-tile footprint while the engine placed it on its dig's 1 tile. The engine's answer is read
+    /// from the engine (`building_placement`), under the calibration `Calib::shipped_with_overrides` builds, and the
+    /// two arms must give different footprints or the check could not see the defect.
+    /// Plant: catalogue_reads_shipped_calib.
+    #[test]
+    fn a_named_goblin_drill_reports_the_footprint_the_battle_places() {
+        let key = "placement.SPAWN_PATHFIND_DESTINATION";
+        let fp = CATALOGUE_FIELDS.iter().position(|f| *f == "footprint_tiles").unwrap();
+        let mut placed = Vec::new();
+        for arm in ["client_tile_centre_morph_footprint", "ordinary_ground_deploy_point"] {
+            let value = format!("\"{arm}\"");
+            let b = battle_with(&["GoblinDrill", "Knight"], &[(key, value.as_str())]);
+            let Ok(text) = b.catalogue_json() else { panic!("{arm}: catalogue_json failed") };
+            let rows: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let reported = rows[0][fp].as_i64().expect("the Drill's row has a footprint");
+            let m: BTreeMap<String, String> = [(key.to_string(), value.clone())].into_iter().collect();
+            let (calib, _) = Calib::shipped_with_overrides(&m).unwrap();
+            let mut cfg = BattleConfig::with_cards(CardDb::clone(&b.cards));
+            cfg.set_calib(calib);
+            let s = BattleState::new(0, cfg);
+            let drill = s.cards().index("GoblinDrill").unwrap();
+            let (_, rect) = s.building_placement(Team::Blue, drill, Vec2::new(crate::fixed::tiles(9), crate::fixed::tiles(8))).expect("the tap is legal");
+            let tiles = i64::from((rect.max.x - rect.min.x) / crate::fixed::tiles(1));
+            assert_eq!(reported, tiles, "{arm}: the catalogue reports {reported} tiles, the battle places the Drill on {tiles}");
+            placed.push(tiles);
+        }
+        assert_ne!(placed[0], placed[1], "vacuous: both arms place the Drill on one footprint");
     }
 
     /// THE SEAT-SYMMETRIC ARMS ARE A CALIBRATION THE LOADER ACCEPTS. `path_search` = trace_fitted_astar puts the
