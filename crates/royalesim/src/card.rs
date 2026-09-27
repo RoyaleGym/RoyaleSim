@@ -7397,6 +7397,30 @@ impl CardDb {
                     }
                     d.gaps_ms = gaps_ms;
                 }
+                // THE BUFF AN AREA HANGS, ms: the BuffTime of a spell card's own area (the Freeze: 4000 in the 15.535.29
+                // tables, 3500 on client 16.402) or of the area a unit's death leaves (the Ice Golem's slow). The
+                // area's LifeDuration stays the table's.
+                CardColumn::AreaBuffTime => {
+                    if v.value <= 0 {
+                        return Err(format!("{what}: {} is not a BuffTime", v.value));
+                    }
+                    let area = match (c.spell.as_mut(), c.death_area_effect.as_mut()) {
+                        (Some(d), _) | (None, Some(d)) => match &mut d.shape {
+                            SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. } => Some(hit),
+                            _ => None,
+                        },
+                        (None, None) => None,
+                    };
+                    let Some(buff) = area.and_then(|h| h.buff.as_mut()) else {
+                        return Err(format!("{what}: only an area that hangs a buff has a BuffTime (a spell's own area, or a death's)"));
+                    };
+                    #[cfg(not(clash_plant = "area_buff_time_unread"))]
+                    {
+                        buff.time_ms = v.value;
+                    }
+                    #[cfg(clash_plant = "area_buff_time_unread")]
+                    let _ = buff; // PLANT (regression): the column is accepted and the area keeps the tables' BuffTime.
+                }
             }
         }
         Ok(db)
@@ -7424,6 +7448,8 @@ pub enum CardColumn {
     CrownTowerDamagePercent,
     /// The HitSpeed of a striking area's row, ms (Lightning); its strike gaps follow it (`strike_gaps`).
     AreaHitSpeed,
+    /// The BuffTime of the area a card puts down, ms: a spell's own area (the Freeze) or its death's (the Ice Golem).
+    AreaBuffTime,
 }
 
 impl CardColumn {
@@ -7433,6 +7459,7 @@ impl CardColumn {
             "ProjectileDamage" => Some(CardColumn::ProjectileDamage),
             "CrownTowerDamagePercent" => Some(CardColumn::CrownTowerDamagePercent),
             "AreaHitSpeed" => Some(CardColumn::AreaHitSpeed),
+            "AreaBuffTime" => Some(CardColumn::AreaBuffTime),
             _ => None,
         }
     }
@@ -7454,7 +7481,7 @@ impl CardValue {
         for (card, cols) in cards {
             let cols = cols.as_object().ok_or_else(|| format!("{key}.{card}: an object of column names is required"))?;
             for (col, val) in cols {
-                let column = CardColumn::from_ledger_name(col).ok_or_else(|| format!("{key}.{card}.{col}: not a column the overlay replaces (Hitpoints, ProjectileDamage, CrownTowerDamagePercent, AreaHitSpeed)"))?;
+                let column = CardColumn::from_ledger_name(col).ok_or_else(|| format!("{key}.{card}.{col}: not a column the overlay replaces (Hitpoints, ProjectileDamage, CrownTowerDamagePercent, AreaHitSpeed, AreaBuffTime)"))?;
                 let value = val
                     .as_i64()
                     .and_then(|x| i32::try_from(x).ok())

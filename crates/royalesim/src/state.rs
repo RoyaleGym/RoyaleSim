@@ -2579,6 +2579,11 @@ calib_enum!(
 /// not carry it, because this key ships client16402 and the Lightning's timing is not yet scored:
 /// it joins the list together with spells.STRIKE_AREA_END = with_last_strike, under which the 500
 /// row's third strike, due at the 1500 ms LifeDuration (the cast + 30), falls.
+///
+/// A HOLD, NOT LISTED. value.values may also name an area's AreaBuffTime (card.rs
+/// `CardColumn::AreaBuffTime`, a spell's own area or a death's). The 16.402 corpus holds a Freeze's
+/// victims for 70 ticks where the tables' 4000 gives 80 (walking Knights in 2 battles, and a
+/// Tombstone's spawn clock in a third): 3500. Not in the shipped list until it is scored.
 fn with_card_values(calib: &Calib, cards: Arc<CardDb>) -> Result<Arc<CardDb>, String> {
     #[cfg(not(clash_plant = "card_values_unread"))]
     let on = calib.card_values == CardValuesArm::Client16402;
@@ -17432,6 +17437,11 @@ mod tests {
                     CardColumn::AreaHitSpeed => match d.spell.as_ref().map(|s| &s.shape) {
                         Some(SpellShape::Strikes(s)) => s.gaps_ms[0],
                         other => panic!("{}: not a striking area: {other:?}", v.card),
+                    },
+                    // An area's BuffTime, its own or its death's. No shipped value names one.
+                    CardColumn::AreaBuffTime => match d.spell.as_ref().or(d.death_area_effect.as_ref()).map(|s| &s.shape) {
+                        Some(SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. }) => hit.buff.map_or(0, |b| b.time_ms),
+                        other => panic!("{}: not an area: {other:?}", v.card),
                     },
                 }
             };
