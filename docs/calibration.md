@@ -68,7 +68,7 @@ it on 2026-09-25, and the ruling is kept in that entry's `supersedes`.
 The status vocabulary is one claim and the provenance prose is another, and they are not
 equally well checked.
 
-A re-read on 2026-09-22 went through 24 of the 282 entries against the corpus. It moved no
+A re-read on 2026-09-22 went through 24 of the 296 entries against the corpus. It moved no
 status and no value. What it turned up was in the evidence the statuses rest on: 42 places
 where a cited number, recording name or piece of arithmetic does not hold. Take that as a
 reason to re-derive, not as 42 established defects. Only a handful of the 42 have since been
@@ -82,21 +82,21 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-258 entries have not been re-read. So, concretely (every count on this page comes from
+272 entries have not been re-read. So, concretely (every count on this page comes from
 `python tools/ledger_census.py`, and `tests/test_ledger_census.py` fails when the page and the
 ledger disagree, because these figures went stale twice in one afternoon before that gate existed):
 
 - **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 282 carry a status. That 282 counts TOP-LEVEL
+  universal, so check rather than assume.** All 296 carry a status. That 296 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
-  another and carries its own `measured` status, so counting every status in the file gives 283
-  and 163 measured. The tools agree on 282 by convention, and the convention undercounts by one. 228 name the rivals the
-  value was chosen against and 236 state what would move it, and 220 do both. The gap is mostly
+  another and carries its own `measured` status, so counting every status in the file gives 297
+  and 175 measured. The tools agree on 296 by convention, and the convention undercounts by one. 242 name the rivals the
+  value was chosen against and 250 state what would move it, and 234 do both. The gap is mostly
   the 31 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 21 of
-  the 162 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 174 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -151,7 +151,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 282 top-level keys with a status, 162 are `measured`; a 283th entry nested inside another is measured too.
+disagree. Of the 296 top-level keys with a status, 174 are `measured`; a 297th entry nested inside another is measured too.
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
@@ -173,6 +173,9 @@ disagree. Of the 282 top-level keys with a status, 162 are `measured`; a 283th e
 | `spawner.INTERVAL_START_ORIGIN` | `placement_counter_first_frame_counts` | hypothesis, MEDIUM | an interval spawner whose DeployTime is not StartCounterAt - 950: the tick of its first unit |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
 | `enchant` (5 of 17 keys) | the Rune Giant's places, cooldown origin, stun at the pick, crown-tower bonus and arrival reach | hypothesis / guess, LOW-MEDIUM | each key's `promotion_rules` names the run it needs; the other 12 are measured on client 15.535.29 |
+| `transform.HEALTH_TRIGGER_COMPARE` | `at_or_below` | guess, LOW | a hit that brings a Goblin Demolisher to exactly 650 of its 1300 hp |
+| `parry.SAME_TICK_PICK` | `first_created_attacker` | guess, LOW | two melee hits landing on one tick on a ready Ronin (a swarm's first contact) |
+| `parry.READY_AT` | `spawn` | guess, LOW | a melee hit on a Ronin within its first 20 ticks, while it deploys |
 
 The keys that carry the measured 2026 movement and pathfinding model are all at `measured`/HIGH.
 They are `time.TICK_MS`, `time.SPEED_TO_SUBTILES_PER_TICK`,

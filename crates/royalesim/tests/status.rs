@@ -15,8 +15,10 @@
 //!      percent -- `tdiv(max(0, min(100, 100 - maxneg)) * tdiv(maxpos * v, 100), 100)`.
 //!      Two Rages are one Rage; a zero column is skipped, not read as 100.
 //!   B. THE HOLD: Freeze ships -100 in all three multiplier columns, so its composed
-//!      speed is 0 and the unit is HELD -- the engine's one stun path
-//!      (status.FULL_STOP_BUFF_IS_STUN), the same one a Zap takes.
+//!      speed and hit speed are 0 and the unit is HELD -- the engine's one stun path
+//!      (status.FULL_STOP_BUFF_IS_STUN), the same one a Zap takes. Every number here is
+//!      from such a row, so the shipped arm and stun_timer agree on all of them; the one
+//!      row that parts them (the Ronin's counter stun) is tests/parry.rs's.
 //!   C. THE STOMP CLOCK: a millisecond clock whose
 //!      advance is `tdiv(compose(Speed, 100), 2)` per WALKING tick -- 50 unbuffed,
 //!      65 under Rage -- against a fixed (Stop, Stop + Wait) window.
@@ -95,7 +97,7 @@ fn assert_shipped_arms() {
     let c = calib();
     assert_eq!(c.buff_speed_composition, BuffComposition::StrongestUpAndDown, "the shipped arm this file pins");
     assert_eq!(c.hit_speed_buff, HitSpeedBuff::ProgressScaled, "the shipped arm this file pins");
-    assert_eq!(c.full_stop_buff_is_stun, FullStopBuff::StunTimer, "the shipped arm this file pins");
+    assert_eq!(c.full_stop_buff_is_stun, FullStopBuff::SpeedAndHitSpeedZero, "the shipped arm this file pins");
     assert_eq!(c.stomp_schedule, StompSchedule::MsClock, "the shipped arm this file pins");
     assert_eq!(c.buff_pulse_amount, PulseAmount::ScaledPerSecondTimesFrequency, "the shipped arm this file pins");
     assert_eq!(c.buff_pulse_timing, PulseTiming::AfterFirstPeriod, "the shipped arm this file pins");
@@ -828,6 +830,7 @@ fn an_unimplemented_candidate_is_refused_at_load() {
         ("spells", "PULSING_AREA_EFFECT", "hit_speed_period_delayed"),
         ("spells", "PULSING_AREA_EFFECT", "hit_speed_offset"),
         ("status", "BUFF_PULSE_AMOUNT", "scaled_per_second_times_frequency"),
+        ("status", "FULL_STOP_BUFF_IS_STUN", "stun_timer"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");
         v[section][key]["value"] = serde_json::Value::String(good.into());

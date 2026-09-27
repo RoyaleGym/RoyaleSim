@@ -7856,6 +7856,14 @@
     "spawns": [],
     "mechanic": true
    },
+   "transform_at_hp": {
+    "into": "BrokenCannon",
+    "reset_target": false,
+    "group_delays_ms": [],
+    "at": 0,
+    "pct": 50,
+    "noop_spawns": []
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -12628,6 +12636,19 @@
     ],
     "mechanic": true
    },
+   "transform_at_hp": {
+    "into": "GoblinDemolisher_kamikaze_form",
+    "reset_target": true,
+    "group_delays_ms": [
+     0,
+     100
+    ],
+    "at": 1,
+    "pct": 50,
+    "noop_spawns": [
+     "AreaEffectType:CancelTauntAEO"
+    ]
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -14023,6 +14044,54 @@
      "BuffType:ronin_reflect_stun_buff"
     ],
     "mechanic": true
+   },
+   "parry": {
+    "counter_cooldown_ms": 3500,
+    "deploy_active": true,
+    "damage_scalar_pct": 200,
+    "defense_scalar_pct": 0,
+    "root_delays_ms": [
+     0,
+     0
+    ],
+    "counter_at": 0,
+    "self_delays_ms": [
+     0,
+     0
+    ],
+    "self_forced_ms": 500,
+    "self_tag_ms": 3500,
+    "instigator_delays_ms": [
+     50,
+     300,
+     150
+    ],
+    "stun_at": 0,
+    "reflect_at": 1,
+    "stun": {
+     "name": "ronin_reflect_stun_buff",
+     "speed_multiplier_raw": -100,
+     "hit_speed_multiplier_raw": -95,
+     "spawn_speed_multiplier_raw": -100,
+     "damage_per_second": null,
+     "hit_frequency_ms": null,
+     "heal_per_second": null,
+     "damage_reduction": null,
+     "damage_multiplier": null,
+     "crown_tower_damage_percent": null,
+     "immune_to_anti_magic": null,
+     "no_effect_to_crown_towers": false,
+     "attract_percentage": null,
+     "building_damage_percent": null,
+     "enable_stacking": false,
+     "hit_tick_from_source": false,
+     "controlled_by_parent": false,
+     "death_spawn": null,
+     "ignore_buildings": false,
+     "crown_tower_damage_per_hit": null
+    },
+    "stun_time_ms": 500,
+    "reflect_level_scaling": false
    },
    "death_spawn_pushback": false,
    "count": 1,
@@ -37047,6 +37116,14 @@
     "spawns": [],
     "mechanic": true
    },
+   "transform_at_hp": {
+    "into": "BrokenCannon",
+    "reset_target": false,
+    "group_delays_ms": [],
+    "at": 0,
+    "pct": 50,
+    "noop_spawns": []
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
@@ -39046,6 +39123,19 @@
      "AreaEffectType:CancelTauntAEO"
     ],
     "mechanic": true
+   },
+   "transform_at_hp": {
+    "into": "GoblinDemolisher_kamikaze_form",
+    "reset_target": true,
+    "group_delays_ms": [
+     0,
+     100
+    ],
+    "at": 1,
+    "pct": 50,
+    "noop_spawns": [
+     "AreaEffectType:CancelTauntAEO"
+    ]
    },
    "death_spawn_pushback": false,
    "raw": {
@@ -42077,6 +42167,54 @@
      "BuffType:ronin_reflect_stun_buff"
     ],
     "mechanic": true
+   },
+   "parry": {
+    "counter_cooldown_ms": 3500,
+    "deploy_active": true,
+    "damage_scalar_pct": 200,
+    "defense_scalar_pct": 0,
+    "root_delays_ms": [
+     0,
+     0
+    ],
+    "counter_at": 0,
+    "self_delays_ms": [
+     0,
+     0
+    ],
+    "self_forced_ms": 500,
+    "self_tag_ms": 3500,
+    "instigator_delays_ms": [
+     50,
+     300,
+     150
+    ],
+    "stun_at": 0,
+    "reflect_at": 1,
+    "stun": {
+     "name": "ronin_reflect_stun_buff",
+     "speed_multiplier_raw": -100,
+     "hit_speed_multiplier_raw": -95,
+     "spawn_speed_multiplier_raw": -100,
+     "damage_per_second": null,
+     "hit_frequency_ms": null,
+     "heal_per_second": null,
+     "damage_reduction": null,
+     "damage_multiplier": null,
+     "crown_tower_damage_percent": null,
+     "immune_to_anti_magic": null,
+     "no_effect_to_crown_towers": false,
+     "attract_percentage": null,
+     "building_damage_percent": null,
+     "enable_stacking": false,
+     "hit_tick_from_source": false,
+     "controlled_by_parent": false,
+     "death_spawn": null,
+     "ignore_buildings": false,
+     "crown_tower_damage_per_hit": null
+    },
+    "stun_time_ms": 500,
+    "reflect_level_scaling": false
    },
    "death_spawn_pushback": false,
    "raw": {

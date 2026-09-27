@@ -1387,7 +1387,7 @@
       "meaning": "client_reflect_stun: when an attack of a unit within ReflectedAttackRadius (plus its collision radius) of a unit whose card sets ReflectedAttackDamage lands on that unit, the attacker takes ReflectedAttackDamage (level-scaled; ReflectAttackCrownTowerDamage against a crown tower) in the same tick and receives ReflectedAttackBuff for ReflectedAttackBuffDuration, a stun that holds its attack progress without resetting it. not_read: today's engine, no reflect.",
       "open": "The radius edge (one hit at 2,008). A ranged attacker inside the radius (the table says any attacker in range; a Musketeer at 5,000 is outside). Whether a crown tower attacking him is reflected (towers were not: their shots came from beyond 2,000). Routing through the engine's buffered stun path may give 34 ticks, not 33: the test pins 33.",
       "promotion_rules": "The test file passes. No Electro Giant sits in a scored window of the corpus, so it flips on this evidence.",
-      "engine": "the hit pass (a reflect on landing, shared with the Ronin's parry as hit-source plumbing), the stun buff from the reflecting unit's row, and the card extractor must carry the five ReflectedAttack columns"
+      "engine": "the attack pass (state.rs reflect_melee_hit, beside the Ronin's counter, note_parry and parry_pass, which answer hits the same pass writes), the stun buff from the reflecting unit's row, and the card extractor must carry the five ReflectedAttack columns"
     },
     "RETARGET_PROGRESS": {
       "value": "keep_when_dead_or_in_reach",
@@ -2545,7 +2545,7 @@
         true
       ],
       "promotion_rules": "Freeze a Cannon for 4 s and time its total lifetime.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, BattleState::phase_status); a candidate without an engine implementation is refused at load, never silently substituted. Applied as it is to a troop with a LifeTime (a transformation target: lifetime.TROOP_LIFETIME), which no scenario has stunned"
     },
     "STUN_PAUSES_KING_ACTIVATION": {
       "value": false,
@@ -2560,16 +2560,16 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     },
     "FULL_STOP_BUFF_IS_STUN": {
-      "value": "stun_timer",
-      "status": "hypothesis",
-      "confidence": "MEDIUM (ours; the two candidates agree on every gate the engine has)",
-      "provenance": "THE ENGINE'S OWN UNIFICATION. Every stun the data ships is a BUFF: a Zap, a Freeze spell, an Ice Spirit's projectile and an Electro Wizard's hit each hang a character_buffs row whose SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier are all -100, and under movement.BUFF_SPEED_COMPOSITION / combat.HIT_SPEED_BUFF / spawner.STUN_PAUSES_SPAWNER a composed 0 is what stops the unit. The engine already had a hold path -- `stun_ms`, and with it status.STUN_ATTACK_TIMER_MODEL, status.STUN_RETARGET_ON_RESUME, the three status.STUN_PAUSES_*, spawner.STUN_PAUSES_SPAWNER and charge.RESET_ON_STUN -- so `stun_timer` drives that one timer from such a buff and every one of those keys keeps the meaning it was written with. `buff_only` would leave the timer at 0 and make each gate read the composition itself, which re-attaches every STUN_PAUSES_* key; not implemented.",
-      "candidates": [
-        "stun_timer",
-        "buff_only"
-      ],
-      "promotion_rules": "None available: the two arms are observationally identical here. They separate only if a buff is found whose composed speed is 0 and which the game does NOT treat as a stun (no shipped row is like that).",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+      "value": "stun_timer_speed_and_hit_speed_zero",
+      "status": "measured",
+      "confidence": "HIGH for the one split row: the countered attacker's clock ran at 2 a tick on 5 of 5 counters. The arms agree on every other row in both card tables.",
+      "provenance": "The Ronin's counter stun row (ronin_reflect_stun_buff: SpeedMultiplier -100, HitSpeedMultiplier -95, SpawnSpeedMultiplier -100) separates the arms. Measured on client 15.535.29 in the Ronin scenarios (level 11): a countered Knight's attack progress ran at 2 a tick (5 % of 50) for the 10 ticks the 500 ms buff lasts, then at 50 again (2 of 2 runs); countered Skeletons ran at 2 a tick until the reflect killed them (3 of 3). The Knight's load timer kept falling 50 a tick, it kept its target and it did not step; a countered Skeleton kept drifting as it did before. Under stun_timer its attack would pause and it would be held. So only a row whose speed and hit speed both compose to 0 drives the hold timer; a row that stops the walk and leaves the clock running is a plain buff. Every other speed -100 row in both card tables (Freeze, ZapFreeze, Stun, ContinueFreeze, the Electro Giant's and the rest) is -100 in all three columns, so the arms agree on every other card.",
+      "candidates": ["stun_timer_speed_and_hit_speed_zero", "stun_timer", "buff_only"],
+      "meaning": "stun_timer_speed_and_hit_speed_zero: a buff drives the engine's one hold timer, and holds the unit (entity.rs Entities::held), when its speed and its hit speed both compose to 0; a buff that stops only the walk is a plain buff, so the unit stays in the move pass and the collision set with a step of 0 and its attack clock runs at the composed hit speed. stun_timer: any buff whose speed composes to 0 drives the timer and holds the unit. buff_only: no buff drives the timer and every gate reads the composition itself (not implemented, refused at load).",
+      "open": "Whether such a row pauses a spawner: under the shipped arm its hold timer stays 0, so spawner.STUN_PAUSES_SPAWNER does not read it (the Night Witch is a ground melee troop with a spawner). Not measured.",
+      "promotion_rules": "Settled for the one split row. A countered Night Witch would settle the spawner question.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, land_buff; entity.rs Entities::held); buff_only is refused at load, never silently substituted. tests/parry.rs, tests/status.rs",
+      "supersedes": ["\"stun_timer\", status hypothesis, shipped until the Ronin loaded, whose counter stun row separates the arms. Its confidence: 'MEDIUM (ours; the two candidates agree on every gate the engine has)'. Its provenance: 'THE ENGINE'S OWN UNIFICATION. Every stun the data ships is a BUFF: a Zap, a Freeze spell, an Ice Spirit's projectile and an Electro Wizard's hit each hang a character_buffs row whose SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier are all -100, and under movement.BUFF_SPEED_COMPOSITION / combat.HIT_SPEED_BUFF / spawner.STUN_PAUSES_SPAWNER a composed 0 is what stops the unit. The engine already had a hold path -- `stun_ms`, and with it status.STUN_ATTACK_TIMER_MODEL, status.STUN_RETARGET_ON_RESUME, the three status.STUN_PAUSES_*, spawner.STUN_PAUSES_SPAWNER and charge.RESET_ON_STUN -- so `stun_timer` drives that one timer from such a buff and every one of those keys keeps the meaning it was written with. `buff_only` would leave the timer at 0 and make each gate read the composition itself, which re-attaches every STUN_PAUSES_* key; not implemented.' Its promotion rule: 'None available: the two arms are observationally identical here. They separate only if a buff is found whose composed speed is 0 and which the game does NOT treat as a stun (no shipped row is like that).'"]
     },
     "BUFF_PULSE_AMOUNT": {
       "value": "scaled_per_second_times_frequency",
@@ -2919,12 +2919,12 @@
       "value": "none",
       "candidates": ["none", "client_projectile"],
       "status": "hypothesis",
-      "confidence": "LOW for the shipped arm none, which is today's engine: the Phoenix row's DeathSpawnProjectile is not extracted. HIGH for client_projectile on client 15.535.29 for the Phoenix (three scenarios: the egg on D+2 in all three, the fireball's damage on 5 enemies, one hatch); OPEN for a death over water and for other rows with a DeathSpawnProjectile",
-      "provenance": "MEASURED on client 15.535.29, the Phoenix scenarios. With D the Phoenix's last frame, on D+2 its DeathSpawnProjectile (PhoenixFireball) acted at its death point: four enemies lost 163 (Damage 64 at level 11) at centre distances 915-2517 from the Phoenix's last position, within Radius 2500 plus their own radius, and a Minion at 2590 died of it; and the projectile's SpawnCharacter appeared there for the Phoenix's side: a PhoenixEgg with 317 hp (124 at level 1), on D+2 in all three runs, at the last position or one Phoenix step on (0 and 59 off). Left alone, the egg hatched 76 ticks after it appeared (its row's spawner, SpawnStartTime 3800 ms, limit 1) into a PhoenixNoRespawn with full hp (1052 at level 11), 1100 ahead of it for its side, deploying. A Phoenix that died over the river left its egg on the near bank (1275 from the death point).",
+      "confidence": "LOW for the shipped arm none, which is today's engine: the column is loaded and not read. HIGH for client_projectile on client 15.535.29 for the Phoenix (three scenarios: the egg on D+2 in all three, the fireball's damage on 5 enemies, one hatch) and for the Goblin Demolisher (five scenarios: the blast on D+2 on a tower and on troops, from both of its forms); OPEN for a death over water and for the Goblin Party Hut's release",
+      "provenance": "MEASURED on client 15.535.29, the Phoenix scenarios. With D the Phoenix's last frame, on D+2 its DeathSpawnProjectile (PhoenixFireball) acted at its death point: four enemies lost 163 (Damage 64 at level 11) at centre distances 915-2517 from the Phoenix's last position, within Radius 2500 plus their own radius, and a Minion at 2590 died of it; and the projectile's SpawnCharacter appeared there for the Phoenix's side: a PhoenixEgg with 317 hp (124 at level 1), on D+2 in all three runs, at the last position or one Phoenix step on (0 and 59 off). Left alone, the egg hatched 76 ticks after it appeared (its row's spawner, SpawnStartTime 3800 ms, limit 1) into a PhoenixNoRespawn with full hp (1052 at level 11), 1100 ahead of it for its side, deploying. A Phoenix that died over the river left its egg on the near bank (1275 from the death point). The Goblin Demolisher scenarios (client 15.535.29, level 11), both rows carrying GoblinDemolisherDeathProjectile (Damage 158 in a Radius of 2500, Pushback 2000, no SpawnCharacter): with D the unit's last frame, on D+2 a princess tower lost 404 (158 at level 11) in full, and Knights 1761, 2280 and 2545 from the death point lost 404 each and were pushed 250, 250, 250 (249 in one run) and on down a tick. The blast came whether the kamikaze form died at its own attack on a tower, was killed mid-run by a Knight, or the ranged form was killed from above half in one tick by a Rocket and never transformed.",
       "meaning": "client_projectile: when a unit whose row has a DeathSpawnProjectile dies, that projectile acts at its death point on the second tick after its last one: its area damage (Damage at the dead unit's level, to enemies whose centre is within Radius plus their own radius) and its SpawnCharacter, created there for the dead unit's side at its level (a ground unit on water is placed on land). The spawned unit is its own row from then on: the PhoenixEgg's spawner makes the new Phoenix. none: today's engine, where the column is not read.",
-      "open": "Where a spawned ground unit goes when the death point is water: one case, 1275 from it on the near bank (the Barbarian Barrel's water release goes to (x - 250, 14750); this one landed at y 14697). Other rows with a DeathSpawnProjectile. Whether the fireball can hit air units.",
-      "promotion_rules": "The test file passes. The flip moves every scene where a Phoenix dies, so replay reports can move; register the prediction before the flip.",
-      "engine": "tools/extract_cards.py (read the character's DeathSpawnProjectile, its damage and radius, and its SpawnCharacter) and the death path in state.rs (the area damage and the spawn on the second tick after the last one)"
+      "open": "Where a spawned ground unit goes when the death point is water: one case, 1275 from it on the near bank (the Barbarian Barrel's water release goes to (x - 250, 14750); this one landed at y 14697). Other rows with a DeathSpawnProjectile: the Goblin Demolisher's two rows are measured (above); the Goblin Party Hut's GoblinProjectile, which releases a Goblin_Stab, has no scenario. Whether the fireball can hit air units.",
+      "promotion_rules": "The test file passes. The flip moves every scene where a Phoenix or a Goblin Party Hut dies, so replay reports can move; register the prediction before the flip. It also gives the Goblin Demolisher its blast, which it lacks under none.",
+      "engine": "tools/extract_cards.py (read the character's DeathSpawnProjectile, its damage and radius, and its SpawnCharacter), card.rs (the card row's death projectile, and a spawned unit's that only deals damage: the Goblin Demolisher's kamikaze form) and the death path in state.rs (the area damage and the spawn on the second tick after the last one)"
     },
     "SPAWN_AREA_OBJECT_SCOPE": {
       "value": "every_row",
@@ -3201,8 +3201,9 @@
     "$comment": [
       "A LIFETIME BUILDING'S HITPOINTS (characters.csv / buildings.csv LifeTime, carried into",
       "data/derived/cards.json as `lifetime_ms` and read by card.rs `CardDef::lifetime_ms`).",
-      "The engine honours LifeTime on BUILDINGS only; the loader refuses a troop that ships one",
-      "(card.rs, `units.{unit} is a troop with a LifeTime`). Engine: state.rs `phase_status`.",
+      "The engine honours LifeTime on buildings, and on a troop that only a transformation reaches",
+      "(TROOP_LIFETIME below); the loader refuses a troop with one reached any other way (card.rs,",
+      "`units.{unit} is a troop with a LifeTime`). Engine: state.rs `lifetime_of`, `phase_status`.",
       "The column is the building's whole life, not a timer that fires at the end: the game",
       "bleeds the hitpoints away over it (HP_DECAY below), which is why a Tesla that nothing",
       "ever touched is at half hp halfway through. status.STUN_PAUSES_BUILDING_LIFETIME says",
@@ -3218,6 +3219,182 @@
       "meaning": "linear_drain (shipped): every tick past the deploy end the building's hundredths accumulator gains ((max_hp * 100000) / LifeTime_ms) / 20 and each whole hitpoint it crosses is dealt as a hit that ignores the hide state, so damage and the drain share one hp pool and a death by drain goes through the normal death path. expiry_hit (the earlier engine, kept runnable): hp is untouched and a hit for everything the building has left lands when LifeTime is up.",
       "promotion_rules": "Settled for every building the corpus shows. Open: whether the drain rate is recomputed when a buff changes max hp, and which pool the drain takes from on a shielded building (no shipped LifeTime card carries a shield, so neither is testable on the data).",
       "engine": "state.rs Calib::lifetime_hp_decay, read by BattleState::phase_status (`lifetime_drain_per_tick`, the accumulator BattleState::lifetime_acc); tests/lifetime.rs"
+    },
+    "TROOP_LIFETIME": {
+      "value": "same_as_buildings",
+      "candidates": ["same_as_buildings", "expiry_at_lifetime"],
+      "status": "measured",
+      "confidence": "MEDIUM: the drain is measured in 3 of 3 runs; its end (the expiry at 400 ticks) was never reached.",
+      "provenance": "Measured on client 15.535.29 on the Goblin Demolisher's kamikaze form (GoblinDemolisher_kamikaze_form, a troop row with LifeTime 20000), in the Goblin Demolisher scenarios at level 11: from its switch it lost 3, 3, 3, 4 hp a tick with nothing hitting it, in 3 of 3 runs. That is lifetime.HP_DECAY's building law on its max hp: 1300 x 100000 / 20000 / 20 = 325 hundredths a tick. Under expiry_at_lifetime its hp would have stood still.",
+      "meaning": "same_as_buildings: a troop's LifeTime runs lifetime.HP_DECAY's law, as a building's does. expiry_at_lifetime: the troop keeps its hp for the whole LifeTime, then takes one hit for everything it has. Only a troop row that a transformation reaches carries a LifeTime: card.rs refuses a troop with one reached any other way, so every battle without a transformation is the same under both values.",
+      "open": "The end of the life: 20000 ms is 400 ticks, and no scenario kept a kamikaze form alive that long.",
+      "promotion_rules": "A kamikaze form that nothing kills for 400 ticks.",
+      "engine": "state.rs lifetime_of (a troop's LifeTime) and phase_status (its decay law); card.rs, the unit loop (a troop with a LifeTime reached other than by a transformation is refused); tests/transform.rs, tests/lifetime.rs"
+    },
+    "DRAIN_BASE_AFTER_TRANSFORM": {
+      "value": "max_hp",
+      "candidates": ["max_hp", "hp_at_transform"],
+      "status": "measured",
+      "confidence": "HIGH: the rate fits exactly on both rows, and the other base is refuted by the cannon's 3 a tick.",
+      "provenance": "Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios, level 11): the Cannon Cart's broken cannon (BrokenCannon, LifeTime 30000) loses exactly 3 hp a tick from its switch, which is 301 hundredths = 1809 x 100000 / 30000 / 20 on its max hp; a base of the hp it broke at (860) would give 143 hundredths, under 2 a tick. The kamikaze form loses 3, 3, 3, 4: 325 hundredths on its max 1300.",
+      "meaning": "max_hp: after a transformation the drain is lifetime.HP_DECAY's rate on the entity's max hp, which the transformation keeps. hp_at_transform: the rate on the hp it had at the change (not implemented).",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs lifetime_drain_per_tick (reads the max hp) and rebind_unit (restarts the drain); only max_hp is implemented, the other value is refused at load"
+    }
+  },
+  "transform": {
+    "$comment": [
+      "THE HEALTH-THRESHOLD TRANSFORMATION (the 15.535.29 tables' ActionRunActionAtHealth whose action is an",
+      "ActionChangeGameObjectData into another character row: the Cannon Cart breaks into its cannon, the Goblin",
+      "Demolisher becomes its kamikaze form). tools/extract_cards.py writes the row's `transform_at_hp` block and",
+      "card.rs `TransformDef` loads it. Engine: state.rs `health_triggers` reads the threshold, `rebind_unit` changes",
+      "the unit in place, and a delayed change waits in `scheduled` (`fire_scheduled`, at the top of the Status",
+      "phase). Measured in the Cannon Cart and Goblin Demolisher scenarios on client 15.535.29 (six runs, level 11);",
+      "the 16.402 corpus holds no Cannon Cart and no Goblin Demolisher."
+    ],
+    "HEALTH_TRIGGER_COMPARE": {
+      "value": "at_or_below",
+      "candidates": ["at_or_below", "strictly_below"],
+      "status": "guess",
+      "confidence": "LOW: the tables give the percent (HealthPercentages 50 on both rows), and no run landed a hit on the line.",
+      "provenance": "Not measured. On client 15.535.29 no hit in the six Cannon Cart and Goblin Demolisher runs landed exactly on the line: the Cannon Cart's max hp 1809 is odd, so its crossings (969 -> 860, 1001 -> 799) are below half under either reading, and the Goblin Demolisher's went 694 -> 585, 755 -> 646 and 694 -> 492 of 1300. at_or_below is the reading of the column's name.",
+      "meaning": "at_or_below: the unit changes when hp x 100 <= max hp x HealthPercentages. strictly_below: when hp x 100 < max hp x HealthPercentages. They part only on a hit that lands exactly on the line.",
+      "open": "Which of the two the client uses.",
+      "promotion_rules": "A hit that brings a Goblin Demolisher to exactly 650 of its 1300 hp (a scenario not yet run).",
+      "engine": "state.rs health_triggers; tests/transform.rs the_threshold_compares_at_or_below"
+    },
+    "HEALTH_TRIGGER_TIMING": {
+      "value": "own_update",
+      "candidates": ["own_update", "crossing_tick_resolve"],
+      "status": "measured",
+      "confidence": "MEDIUM: two Cannon Cart and three Goblin Demolisher crossings fit it; the two melee crossings, one per card, fit it only under match.TICK_ORDER = client_sequential_strike.",
+      "provenance": "Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios, level 11). With C the frame a hit takes the unit to half or below: a princess tower's shot took a Cannon Cart from 969 to 860 on C, and it drained first on C + 2 (860, 860, 857, then 3 a tick); a Knight created before it took a Cannon Cart from 1001 to 799 with a melee strike on C, and it drained first on C + 1. Tower shots took a Goblin Demolisher to 585 and to 646 on C; it was still the ranged form on C + 1 and C + 2 and drained first as the kamikaze form on C + 3, which is a trigger on C + 1 and its 100 ms delay. A Knight created before it took one to 492 with a melee strike on C, and its first drain came on C + 2. Every case fits a threshold read at the unit's own update, which in the engine is its turn in the Target phase: the tick after a projectile's damage (a shot lands at the end of a tick), and the same tick after a melee strike by a unit earlier in the order under the sequential order. Reading it on the crossing tick itself (crossing_tick_resolve) puts every projectile case one tick early.",
+      "meaning": "own_update: the first thing a unit does in its own update, in the Target phase: once for every unit under match.TICK_ORDER = client16402, and at each unit's own turn under client_sequential_strike. crossing_tick_resolve: right after the tick's damage lands, in Resolve.",
+      "open": "Under the shipped match.TICK_ORDER = client16402 a melee crossing is read one tick late, as every melee strike is seen one tick late under that order.",
+      "promotion_rules": "More melee crossings, and the match.TICK_ORDER decision.",
+      "engine": "state.rs health_triggers, called first in phase_target_with, or from phase_resolve under crossing_tick_resolve; tests/transform.rs"
+    },
+    "ENTITY_CONTINUITY": {
+      "value": "same_entity_keep_hp",
+      "candidates": ["same_entity_keep_hp", "new_entity_full_hp"],
+      "status": "measured",
+      "confidence": "HIGH: one entity through the change in all six runs.",
+      "provenance": "Measured on client 15.535.29 (the Cannon Cart and Goblin Demolisher scenarios, level 11): across the change the entity kept its id and its creation ordinal, its hp went on from where it was (860 then 857 on a Cannon Cart, 585 then 582 on a Goblin Demolisher) and its max hp stayed the source row's at the unit's level (1809 is 707 at level 11, 1300 is 508), in all six runs. The target rows ship the same hitpoints as the source rows (707 and 508), so the max hp alone could not tell kept from read again; the continuous hp can.",
+      "meaning": "same_entity_keep_hp: the unit becomes the new row in place: the same entity, its hp and max hp kept, every stat the row carries read from the new row at the unit's level. new_entity_full_hp: a new entity with the new row's full hp (not implemented).",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs rebind_unit and entity.rs Entities::rebind; only same_entity_keep_hp is implemented, the other value is refused at load"
+    },
+    "ATTACK_STATE": {
+      "value": "keep_unless_reset_target",
+      "candidates": ["keep_unless_reset_target", "reset_always"],
+      "status": "measured",
+      "confidence": "MEDIUM: 2 of 2 Cannon Cart changes kept the attack, and 3 of 3 Goblin Demolisher changes reset it.",
+      "provenance": "Measured on client 15.535.29. The Cannon Cart's change sets no ResetTarget: its target stayed on it and its attack progress ran on by 50 a tick through the change (3300, 3350, 3400 in one run, 8750, 8800 in the other), a launch every 18 ticks straight through. The Goblin Demolisher's change sets ResetTarget: on its switch tick it had no target (3 of 3), and it held a building the tick after (3 of 3).",
+      "meaning": "keep_unless_reset_target: the target and the attack are kept unless the change sets ResetTarget; then the unit has no target and a fresh attack, and makes no target decision on the switch tick. reset_always: every change resets them.",
+      "open": "Whether a kept attack keeps its progress when the new row's HitSpeed differs (both measured rows share theirs).",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs rebind_unit (the switched list, read by phase_target_with) and entity.rs Entities::reset_attack; tests/transform.rs"
+    },
+    "REDEPLOY": {
+      "value": "none",
+      "candidates": ["none", "new_row_deploy_time"],
+      "status": "measured",
+      "confidence": "HIGH: no deploy frames after any of the six changes.",
+      "provenance": "Measured on client 15.535.29: after the Cannon Cart's change it went on attacking in state 2 on every one of the 40 frames that followed, and the Goblin Demolisher walked the tick after its switch. Both target rows ship DeployTime 1000, which would have held either for 20 ticks.",
+      "meaning": "none: the deploy timer is kept, so the unit does not deploy again. new_row_deploy_time: the unit serves the new row's DeployTime.",
+      "promotion_rules": "Settled for these two rows.",
+      "engine": "state.rs rebind_unit"
+    },
+    "ACT_DURING_DELAY": {
+      "value": "acts_normally",
+      "candidates": ["acts_normally", "held"],
+      "status": "measured",
+      "confidence": "LOW: the unit walked and its attack clock ran between trigger and switch, and no lob fell due in that window in any run.",
+      "provenance": "Measured on client 15.535.29: between its trigger and its switch the Goblin Demolisher walked on (steps of 59) and its attack progress kept running by 50 a tick, in all three runs.",
+      "meaning": "acts_normally: between the trigger and a delayed change the unit is still its old row and acts as it would. held: it stands and does not attack (not implemented).",
+      "open": "A lob that falls due inside the two-tick window.",
+      "promotion_rules": "A run where a lob falls due between trigger and switch.",
+      "engine": "state.rs health_triggers and fire_scheduled; only acts_normally is implemented, the other value is refused at load"
+    }
+  },
+  "parry": {
+    "$comment": [
+      "THE COUNTER (the 15.535.29 tables' ActionCounter: the Ronin's). tools/extract_cards.py writes the row's",
+      "`parry` block and card.rs `ParryDef` loads it: Cooldown 3500, DeployActive, DamageScalar 200, DefenseScalar 0,",
+      "a stun row (speed -100, hit speed -95, spawn speed -100) for 500 ms at 50 ms into its group, and a reflect at",
+      "300 ms. Engine: state.rs `note_parry` collects the hits an attack writes on a unit with a counter, `parry_pass`",
+      "takes one, and the reflect waits in `scheduled`. Measured in the Ronin scenarios on client 15.535.29 (5",
+      "counters, level 11); the 16.402 corpus holds no Ronin."
+    ],
+    "COUNTERED_HITS": {
+      "value": "ground_melee",
+      "candidates": ["ground_melee", "melee", "entity_attacks"],
+      "status": "measured",
+      "confidence": "HIGH for ground melee against shots, tower arrows and a spell. MEDIUM for air: inferred from the Bats.",
+      "provenance": "Measured on client 15.535.29 on the Ronin (ActionCounter: Cooldown 3500, DamageScalar 200, DefenseScalar 0), level 11. Countered: the first hit a Knight landed (2 of 2 runs) and a Skeleton's (3 counters), one of them from a Skeleton the Ronin was not targeting. Not countered while the counter was ready: 7 Musketeer shots (217 each; the Ronin's own attack never reset and the Musketeer's launches stayed 20 ticks apart), every princess tower arrow (15 in one run, 14 in another), a Zap (it dealt 192 and stunned the Ronin for 10 ticks, with no reset) and about 25 Bat hits, some after the counter was ready again. Distance and state do not explain the Bats, so air is inferred to be out. The engine counts a hit that an attacker's own attack writes in the Attack phase when the attacker is a ground troop with no projectile.",
+      "meaning": "ground_melee: a hit an attacker's own attack writes in the Attack phase (combat.rs fire), when the attacker is a troop with no projectile that does not fly. melee: the same, flying troops too. entity_attacks: every attack, a projectile's arrival and a building's included (it needs a source on every hit and projectile; not implemented, refused at load).",
+      "open": "Instant ranged hits with no projectile (the Electro Wizard's: the engine counts them, a ground troop with no projectile) and buildings' (Tesla, Inferno Tower: the engine does not count them). A dash blow (it lands in the Path phase: not counted). A charge hit (counted, and reflected at twice the charged damage).",
+      "promotion_rules": "A Bat or a Minion alone on a ready Ronin settles air. An Electro Wizard's hit on a ready Ronin settles instant ranged hits.",
+      "engine": "state.rs note_parry (the candidates) and parry_pass; entity_attacks is refused at load. tests/parry.rs only_a_ground_melee_hit_is_countered"
+    },
+    "SAME_TICK_PICK": {
+      "value": "first_created_attacker",
+      "candidates": ["first_created_attacker", "largest_amount"],
+      "status": "guess",
+      "confidence": "LOW: never measured.",
+      "provenance": "Not measured. No measured tick had two hits on a Ronin while its counter was ready: the two ticks that had two hits fell in the cooldown. first_created_attacker follows the order the client updates units in, their creation order (match.TICK_ORDER's measurement); largest_amount takes the largest hit.",
+      "meaning": "first_created_attacker: the hit of the attacker created first, then the hit written first. largest_amount: the largest hit, ties by creation, then the hit written first.",
+      "open": "Which hit the client takes.",
+      "promotion_rules": "A swarm's first contact on a ready Ronin (a Skeleton Army), or two melee attackers timed to land on one tick.",
+      "engine": "state.rs parry_pick; tests/parry.rs parry_pick_orders_by_creation_then_amount"
+    },
+    "SELF_LOCK": {
+      "value": "attack_restart",
+      "candidates": ["attack_restart", "none", "hold_move_and_attack_paused"],
+      "status": "measured",
+      "confidence": "HIGH: 5 of 5 counters, and 2 of 2 next hits.",
+      "provenance": "What countering does to the Ronin's own attack. Measured on client 15.535.29 on 5 of 5 counters: its attack progress reads 0 on the counter tick (from 1450, 1150, 700 or 800), or its fresh cycle's first value when it updated after the hit (150), and then runs as a fresh cycle, its load timer reloading to LoadTime 1000. After a hit of its own 2 ticks before the counter, its next hit lands 25 ticks after the counter (2 of 2). It keeps its target. The forced animation's ForcedDuration 500 holds nothing that shows: a 10-tick hold would put that hit 10 ticks later, and the old cycle run on (none) one tick later.",
+      "meaning": "attack_restart: the Ronin's attack progress goes to 0 on the counter tick, its phase and target kept, and its next attack step makes a fresh entry (combat.ATTACK_CYCLE's entry: LoadTime less the load timer). none: its attack runs on. hold_move_and_attack_paused: a hold for ForcedDuration (refuted by the next hit's tick; not implemented, refused at load).",
+      "promotion_rules": "Settled on the 5 counters.",
+      "engine": "state.rs parry_pass; tests/parry.rs the_counter_restarts_the_ronins_own_swing"
+    },
+    "COOLDOWN_START": {
+      "value": "parry_tick",
+      "candidates": ["parry_tick", "lock_end"],
+      "status": "measured",
+      "confidence": "MEDIUM: one run brackets the re-arm between 68 and 71 ticks.",
+      "provenance": "Measured on client 15.535.29: in one run the Ronin countered twice, 71 ticks apart, and all 20 melee hits between the two landed in full, the last 67 ticks after the first counter. In the other runs hits 1, 34 and 58 ticks after a counter landed in full. Cooldown 3500 ms counted from the counter tick is 70 ticks. Counted from the end of the 500 ms forced animation it is 80, refuted by the counter 71 ticks after.",
+      "meaning": "parry_tick: the counter is ready again Cooldown ms after the counter tick (70 ticks for 3500). lock_end: Cooldown ms after the forced animation ends (80 ticks).",
+      "promotion_rules": "A melee hit 69 or 70 ticks after a counter would pin the edge; the choice between the two values is settled.",
+      "engine": "state.rs parry_pass (the cooldown) and tick_status_timers (its decrement); tests/parry.rs the_next_counter_is_ready_seventy_ticks_after_the_counter"
+    },
+    "READY_AT": {
+      "value": "spawn",
+      "candidates": ["spawn", "deploy_end"],
+      "status": "guess",
+      "confidence": "LOW: the column's name; no measurement.",
+      "provenance": "DeployActive is true on the only counter row, read as a counter that works from the unit's creation, through its deploy. No measured hit landed on a deploying Ronin.",
+      "meaning": "spawn: ready from the unit's creation, through its deploy, when the row sets DeployActive, and at its deploy's end otherwise. deploy_end: at the deploy's end whatever the row says.",
+      "open": "Whether a deploying Ronin counters.",
+      "promotion_rules": "A melee hit on a Ronin within its first 20 ticks.",
+      "engine": "state.rs parry_pass; tests/parry.rs the_counter_is_ready_while_deploying"
+    }
+  },
+  "actions": {
+    "$comment": [
+      "HOW AN ACTION GROUP TIMES ITS PARTS (the 15.535.29 tables' ActionGroup: SubActions, each with a",
+      "SubActionsDelay). Engine: state.rs `sub_action_delay_ms`, read by the counter (`parry_pass`). card.rs",
+      "`transform_of` reads a transformation's group only when both readings agree, so it does not read this key."
+    ],
+    "SUB_ACTIONS_DELAY": {
+      "value": "from_group_start",
+      "candidates": ["from_group_start", "cumulative"],
+      "status": "measured",
+      "confidence": "HIGH on the Ronin's counter group: 5 of 5 counters.",
+      "provenance": "An ActionGroup gives each SubAction a SubActionsDelay. Measured on client 15.535.29 on the Ronin's counter group (SubActionsDelay [50, 300, 150]: the stun, the damage, an effect): the damage landed 6 ticks after the counter on 5 of 5 counters, 300 ms from the group's start; read as gaps it would land on the 7th. The stun, first in the group, reads 50 either way, and the attacker was slowed from the tick after the counter.",
+      "meaning": "from_group_start: each entry is its action's offset from the group's start. cumulative: each entry is the gap after the action before it, so an action's offset is the sum of the entries up to and including its own.",
+      "promotion_rules": "Settled on the counter's group.",
+      "engine": "state.rs sub_action_delay_ms, read by parry_pass; tests/parry.rs a_ready_counter_takes_nothing_and_the_attacker_takes_twice_its_hit_six_ticks_later"
     }
   },
   "charge": {

@@ -961,6 +961,8 @@ impl Roots {
                     UnitRef::SummonMember(_) => &mut second_summon_of,
                     // a variant card's form is a card of its own, deployed as itself: rooted as "deployed"
                     UnitRef::VariantForm(_) => continue,
+                    // a transformation keeps the entity: it was rooted when it appeared, and its root stays
+                    UnitRef::Transform => continue,
                 };
                 of.entry(unit).or_default().push(i);
             }

@@ -6,6 +6,9 @@ false: a formation's SECOND summon (the Rascals' RascalGirl beside the RascalBoy
 collected, so it reported card -1 in every entity row and firer -1 on every shot, and a viewer
 drew RascalGirls' shots as tower bolts flying from mid-field. The engine's own export test
 checked that tower shots read -1 and never that ONLY towers do.
+
+PLANT. `unit_refs_skips_new_paths` (card.rs `unit_refs`, built into the module with maturin under the cfg) drops the
+second summon and the transformation from the one enumeration: both tests here go red.
 """
 
 from __future__ import annotations
@@ -72,3 +75,43 @@ def test_the_royal_deliverys_recruit_reports_its_card():
                 assert e[3] >= 0, f"a unit on the board reports no card (-1), so it cannot be named: {e}"
                 seen = seen or e[3] == delivery
     assert seen, "no unit reporting the Royal Delivery's id appeared in 50 ticks: its Recruit reports another card"
+
+
+#: the health-threshold transformation (crates/royalesim/tests/transform.rs): catalogue ids are positional
+TRANSFORM_DECK = ["MovingCannon", "GoblinDemolisher", "Knight", "Archer", "Musketeer", "Giant", "Minions", "Zap"]
+CART, DEMOLISHER = TRANSFORM_DECK.index("MovingCannon"), TRANSFORM_DECK.index("GoblinDemolisher")
+SUB = 18
+
+
+def test_a_transformed_unit_reports_the_card_it_was_played_as():
+    """The Cannon Cart becomes BrokenCannon and the Goblin Demolisher its kamikaze form: the same entity, as another
+    row. Neither row is a card, so each must report the card whose transformation reaches it (py.rs `ids_of_indices`,
+    through card.rs `unit_refs`), or a viewer cannot name it. A Red Cannon Cart just above half its hitpoints in front
+    of the Blue engine-Left princess tower, and a Red Goblin Demolisher likewise before the Blue engine-Right one: the
+    towers' shots take both over their lines."""
+    ids = list(range(len(TRANSFORM_DECK)))
+    b = royalesim.Battle(card_names=TRANSFORM_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+    b.reset(
+        0,
+        [ids, ids],
+        0,
+        200,
+        [10_000, 10_000],
+        None,
+        [(1, CART, 3500 * SUB, 12500 * SUB, 905), (1, DEMOLISHER, 14500 * SUB, 12000 * SUB, 651)],
+    )
+    cards_by_uid: dict[int, set[int]] = {}
+    kinds_by_uid: dict[int, set[int]] = {}
+    for _ in range(120):
+        b.step([], 1)
+        st = json.loads(b.state_json())
+        for e in st["entities"]:
+            if e[4] >= 0:  # a crown tower
+                continue
+            assert e[3] >= 0, f"a unit on the board reports no card (-1), so it cannot be named: {e}"
+            cards_by_uid.setdefault(e[0], set()).add(e[3])
+            kinds_by_uid.setdefault(e[0], set()).add(e[2])
+    red = {uid: c for uid, c in cards_by_uid.items() if c & {CART, DEMOLISHER}}
+    assert sorted(red.values(), key=min) == [{CART}, {DEMOLISHER}], f"each unit keeps the card it was played as: {red}"
+    cart = next(uid for uid, c in red.items() if c == {CART})
+    assert kinds_by_uid[cart] == {0, 1}, "precondition: the Cannon Cart broke into its cannon (troop, then building)"

@@ -137,6 +137,14 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     // The Rune Giant, with his enchant (the ledger's `enchant` section). It needs no summon-only unit, so no later slot
     // moves once it is removed.
     ("cards.json", "GiantBuffer"),
+    // The health-threshold transformation (tests/transform.rs): both were refused in `convert` for their action
+    // graph, never pushed. Their target rows, BrokenCannon and GoblinDemolisher_kamikaze_form, are new summon-only
+    // slots reached through these two rows alone.
+    ("cards.json", "MovingCannon"),
+    ("cards.json", "GoblinDemolisher"),
+    // The counter (tests/parry.rs): refused in `convert` for its action graph, never pushed. Its stun row is a new
+    // buff interned at its place in load order, so without it every later buff keeps its parent's index too.
+    ("cards.json", "Ronin"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

@@ -129,6 +129,23 @@ pub struct SpawnInit {
     pub spawn_tick: u32,
 }
 
+/// What an in-place transformation takes from the new row (`Entities::rebind`), computed as `spawn` would compute it
+/// at the entity's level (state.rs `rebind_unit`).
+#[derive(Clone, Copy, Debug)]
+pub struct RebindInit {
+    pub kind: EntityKind,
+    pub card: u16,
+    pub damage: i32,
+    pub death_damage: i32,
+    pub radius: i32,
+    pub mass: Option<i32>,
+    /// Subtiles per tick.
+    pub speed: i32,
+    pub flying: bool,
+    /// The tick of the change: the new row plans its walk from here (`last_plan_tick`, as `spawn` sets it).
+    pub tick: u32,
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Entities {
     pub generation: Vec<u32>,
@@ -187,7 +204,9 @@ pub struct Entities {
     /// directly: every stun the data ships is a buff whose three
     /// multiplier columns are -100, and `apply_effects` sets this from such a buff
     /// under status.FULL_STOP_BUFF_IS_STUN -- so a Zap, a Freeze spell, an Ice
-    /// Spirit's projectile and an Electro Wizard's hit all reach one hold.
+    /// Spirit's projectile and an Electro Wizard's hit all reach one hold. The Ronin's
+    /// counter stun (speed -100, hit speed -95) does not set it under the shipped
+    /// stun_timer_speed_and_hit_speed_zero: it stops the walk and slows the attack clock.
     pub stun_ms: Vec<i32>,
     /// THE BUFF LIST (status.rs; calibration status.*), `MAX_BUFFS_PER_ENTITY` slots
     /// per entity in one flat column: slot `k` of entity `i` is
@@ -280,6 +299,11 @@ pub struct Entities {
     /// with no Rune Giant, and hashed only when Some. `default` and sized on load like `reveal_from`.
     #[serde(default)]
     pub enchant: Vec<Option<EnchantSlot>>,
+    /// THE COUNTER'S COOLDOWN (card.rs `ParryDef`; calibration parry.*): ms until the counter is ready, 0 = ready.
+    /// Counted down with the hold timer (state.rs `tick_status_timers`). 0 on every other entity, hashed only for a
+    /// card that carries a counter. `default` and sized on load like `reveal_from`.
+    #[serde(default)]
+    pub parry_ms: Vec<i32>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -621,11 +645,29 @@ impl Entities {
         crate::status::compose(self.buffs_of(table, i), sel, value)
     }
 
-    /// Is entity `i` HELD -- stunned, or frozen by a buff whose composed speed is 0?
-    /// The one predicate the walk, the attack and the stomp clock read.
+    /// Is entity `i` HELD -- stunned, or frozen by its buffs? The one predicate the walk, the attack and the stomp
+    /// clock read. Frozen is status.FULL_STOP_BUFF_IS_STUN's: a composed speed of 0 under stun_timer (and under the
+    /// refused buff_only); a composed speed AND hit speed of 0 under stun_timer_speed_and_hit_speed_zero, so a unit
+    /// under the Ronin's counter stun (speed -100, hit speed -95) is not held: it stays in the move pass and the
+    /// collision set with a step of 0, and its attack clock runs at the composed hit speed. On every -100 / -100 /
+    /// -100 row both terms hold, and the hold timer runs anyway.
     #[inline]
-    pub fn held(&self, table: &[BuffDef], i: usize) -> bool {
-        self.stun_ms[i] > 0 || self.buffed(table, i, Sel::Speed, 100) == 0
+    pub fn held(&self, table: &[BuffDef], i: usize, arm: crate::state::FullStopBuff) -> bool {
+        if self.stun_ms[i] > 0 {
+            return true;
+        }
+        let stopped = self.buffed(table, i, Sel::Speed, 100) == 0;
+        match arm {
+            crate::state::FullStopBuff::SpeedAndHitSpeedZero => {
+                #[cfg(not(clash_plant = "split_stop_is_stun"))]
+                let clock_stopped = self.buffed(table, i, Sel::HitSpeed, 100) == 0;
+                // PLANT (regression, tests/parry.rs): the split row holds the unit as a stun would.
+                #[cfg(clash_plant = "split_stop_is_stun")]
+                let clock_stopped = true;
+                stopped && clock_stopped
+            }
+            crate::state::FullStopBuff::StunTimer | crate::state::FullStopBuff::BuffOnly => stopped,
+        }
     }
 
     /// Is entity `i` travelling UNDER the arena (a Miner's or a Goblin Drill's way to its
@@ -727,6 +769,7 @@ impl Entities {
             self.enchant_ms[i] = 0;
             self.enchant_picks[i].clear();
             self.enchant[i] = None;
+            self.parry_ms[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -818,6 +861,7 @@ impl Entities {
             self.enchant_ms.push(0);
             self.enchant_picks.push(Vec::new());
             self.enchant.push(None);
+            self.parry_ms.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);
@@ -876,6 +920,95 @@ impl Entities {
         self.route[i].clear();
         self.free.push(id.index);
         true
+    }
+
+    /// THE IN-PLACE TRANSFORMATION (state.rs `rebind_unit`): entity `i` takes the new row's columns (`RebindInit`) and
+    /// stays the same entity. Every column is on one of three lists, and a column added to `Entities` must join one:
+    ///   KEPT, what makes it the same entity: generation, alive, team, level, team_seq, spawn_tick, creation_seq, pos,
+    ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, spawn_lane, lane_window_end, facing,
+    ///     acquirable_from, reveal_from, parry_ms (0 on both rows: the loader refuses a transformation into a row with
+    ///     a counter, and a row with a counter carries no other action block), tunnel_dest (None: a units row that
+    ///     tunnels is refused), a rider's mount and offset (attached_to, attach_offset), the enchant a Rune Giant gave
+    ///     it (enchant), and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied, push_neighbours,
+    ///     hooked_by);
+    ///   THE CALLER'S, because the calibration decides them: the deploy timer (transform.REDEPLOY) and the target and
+    ///     attack columns (`reset_attack`, transform.ATTACK_STATE; the attack selector's entry, attack_seq, with them);
+    ///   FROM THE NEW ROW (`RebindInit`) or RESET to what `spawn` gives a new entity: the old row's walk (route,
+    ///     route_goal, seg_dir, move_frac, move_ticks, last_plan_tick, avoid_offset, stomp_clock), its row-bound
+    ///     state (charge, jump, dash, special, hide, spawner, life-state controller, elixir payout, the Rune Giant's
+    ///     look), a formation member's stagger and a death-spawn slide, and a building's knockback (a building is not
+    ///     moved). The loader refuses a target row whose own attached riders, payout or enchant would need its spawn
+    ///     or deploy to start them (card.rs, the unit loop).
+    pub fn rebind(&mut self, i: usize, r: RebindInit) {
+        self.card[i] = r.card;
+        self.kind[i] = r.kind;
+        self.damage[i] = r.damage;
+        self.death_damage[i] = r.death_damage;
+        self.radius[i] = r.radius;
+        self.mass[i] = r.mass;
+        self.speed[i] = r.speed;
+        self.flying[i] = r.flying;
+        self.route[i].clear();
+        self.route_goal[i] = None;
+        self.seg_dir[i] = Vec2::default();
+        self.move_frac[i] = Vec2::default();
+        self.move_ticks[i] = 0;
+        self.last_plan_tick[i] = r.tick;
+        self.avoid_offset[i] = 0;
+        self.stomp_clock[i] = 0;
+        self.charge_progress[i] = 0;
+        self.charged[i] = false;
+        self.jumping[i] = false;
+        self.dash_state[i] = DashState::None;
+        self.dash_mark[i] = 0;
+        self.dash_goal[i] = Vec2::default();
+        self.dash_target[i] = None;
+        self.dash_blocked[i] = false;
+        self.dash_immune_until[i] = 0;
+        self.special_ms[i] = 0;
+        self.special_on[i] = None;
+        self.hide[i] = HideState::Up;
+        self.hide_ms[i] = 0;
+        self.spawn_ms[i] = 0;
+        self.spawn_wave_left[i] = 0;
+        self.life_state[i] = 0;
+        self.life_ms[i] = 0;
+        self.life_target[i] = None;
+        self.life_n[i] = 0;
+        self.stagger_ms[i] = 0;
+        self.death_slide_centre[i] = Vec2::default();
+        self.death_slide_radius[i] = 0;
+        self.mana_ms[i] = 0;
+        self.enchant_state[i] = 0;
+        self.enchant_ms[i] = 0;
+        self.enchant_picks[i].clear();
+        if r.kind.is_building() {
+            self.knock_rem[i] = Vec2::default();
+            self.knock_ms[i] = 0;
+            self.push_target[i] = Vec2::default();
+            self.push_speed[i] = 0;
+            self.push_active[i] = false;
+            self.push_applied[i] = Vec2::default();
+            self.push_neighbours[i] = 0;
+            self.hooked_by[i] = None;
+        }
+    }
+
+    /// Entity `i`'s target and attack back to a new entity's: no target, no lock, idle, both counters 0, no post-kill
+    /// wait and none of the per-target marks (a transformation that resets its target, state.rs `rebind_unit`).
+    pub fn reset_attack(&mut self, i: usize) {
+        self.target[i] = None;
+        self.target_locked[i] = false;
+        self.attack_phase[i] = AttackPhase::Idle;
+        self.attack_ms[i] = 0;
+        self.attack_load_ms[i] = 0;
+        self.retarget_wait[i] = 0;
+        self.target_doomed[i] = false;
+        self.fired_at[i] = None;
+        self.launched_beyond[i] = false;
+        self.chase_dropped[i] = None;
+        self.chase_inside[i] = None;
+        self.attack_seq[i] = 0;
     }
 
     /// Largest collision radius among live entities (bounds neighbour queries).

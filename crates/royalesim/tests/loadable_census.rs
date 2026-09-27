@@ -27,9 +27,9 @@
 //! file. Under CI, which writes both tables, a skip is a failure.
 //!
 //! THE CHECKS:
-//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 123
-//!      loadable rows (121 cards, then PrincessTower and KingTower) and
-//!      23 rejected ones, and every row of the file is one or the other, once;
+//!   1. `the_15535_table_loads_exactly_the_pinned_rows`: cards.json gives 126
+//!      loadable rows (124 cards, then PrincessTower and KingTower) and
+//!      20 rejected ones, and every row of the file is one or the other, once;
 //!   2. `the_2018_table_loads_exactly_the_pinned_rows`: the same over cards-2018.json:
 //!      71 loadable rows (the catalogue, then the towers) and 9 rejected ones, the
 //!      lists the loader gave BEFORE the change that landed this file;
@@ -45,7 +45,8 @@
 //! PLANT: `RUSTFLAGS='--cfg clash_plant="census_admits_one"' CARGO_TARGET_DIR=target/plant
 //! cargo test --test loadable_census`: `from_json_str` keeps a card it rejects after
 //! its push registered, its blocks dropped, running as the plain unit -> 1 red with
-//! SuperHogRider newly loadable and no longer rejected; 2 red with MovingCannon the same,
+//! SuperHogRider newly loadable and no longer rejected; 2 red with the 2018 MovingCannon the
+//! same (the 15.535.29 one loads: its BrokenCannon is a transformation target there),
 //! read from the loader before this file landed; 3, 4 and
 //! 5 are synthetic and stay green. The two rows are ones no other test pins in that
 //! table, which is the point: a row another test names is covered already. The
@@ -96,12 +97,12 @@ struct Pin {
 }
 
 /// cards.json at `version` cards-15535.1: the committed cards-15.535.json, FNV-1a 64
-/// f6e196f00fa4cb46 (the next build's rows, with the curses' and the Royal Delivery's columns: a buff's death spawn,
-/// an area's action schedule, IgnoreBuff, SpawnCharacter2; and GiantBuffer's `enchant_friends`). The lists are what
-/// the loader gives for that file.
+/// 23b032626fe91432 (the next build's rows, with the curses' and the Royal Delivery's columns: a buff's death spawn,
+/// an area's action schedule, IgnoreBuff, SpawnCharacter2; GiantBuffer's `enchant_friends`; the Cannon Cart's and the
+/// Goblin Demolisher's `transform_at_hp` and the Ronin's `parry`). The lists are what the loader gives for that file.
 /// data/derived/replay/card_census.json (`cargo run --example replay_parity --
-/// --census`), written from the same file, holds the same 123 loadable rows in the
-/// same order and the same 23 refusals, word for word.
+/// --census`), written from the same file, holds the same 126 loadable rows in the
+/// same order and the same 20 refusals, word for word.
 const PIN_15535: Pin = Pin { loadable: LOADABLE_15535, rejected: REJECTED_15535 };
 
 const LOADABLE_15535: &[&str] = &[
@@ -158,6 +159,7 @@ const LOADABLE_15535: &[&str] = &[
     "RamRider",
     "MiniSparkys",
     "Rascals",
+    "MovingCannon",
     "MegaKnight",
     "DartBarrell",
     "Wallbreakers",
@@ -184,6 +186,7 @@ const LOADABLE_15535: &[&str] = &[
     "PrinceBuff",
     "Phoenix",
     "TriWizards",
+    "GoblinDemolisher",
     "GoblinMachine",
     "SuperKnight",
     "SkeletonWarriors_SpookyChess",
@@ -191,6 +194,7 @@ const LOADABLE_15535: &[&str] = &[
     "Berserker",
     "MergeMaiden_Normal",
     "MergeMaiden_Mounted",
+    "Ronin",
     "Cannon",
     "GoblinHut",
     "Mortar",
@@ -235,16 +239,13 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("DarkMagic", "area effect DarkMagicAOE hits neither ground nor air"),
     ("GlobalClone", "area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
     ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
-    ("GoblinDemolisher", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionRunActionAtHealth, ActionSpawn; spawns AreaEffectType:CancelTauntAEO)"),
     ("GoblinGiant", "attached rider SpearGoblinGiant"),
     ("GoblinPartyRocket", "projectile GoblinMorphProjectile with a target cap or an area effect is not simulated"),
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
     ("Goblinstein", "the unit runs an action graph this loader does not read (ActionActivateOnCardDeploy, ActionEnabbleHPBarConditionForDuration, ActionGroup, ActionWithDuration)"),
     ("Graveyard", "area effect Graveyard_rework runs an action graph this loader does not read (ActionGroup, ActionSpawnToLocation; spawns CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton, CharacterType:Graveyard_rework_Skeleton)"),
     ("LittlePrince", "the unit runs an action graph this loader does not read (ActionFilter, ActionGroup, ActionInterval, ActionSetAttackSequenceIndex, ActionSetVariable)"),
-    ("MovingCannon", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionPlayEffect, ActionRunActionAtHealth)"),
     ("RageBarbarian", "death area effect RageBarbarianDummyForSpawn"),
-    ("Ronin", "the unit runs an action graph this loader does not read (ActionCounter, ActionDealDamage, ActionGroup, ActionPlayEffect, ActionRunForcedAnimationOnce, ActionSpawn, ActionWithDuration; spawns BuffType:ronin_reflect_stun_buff)"),
     ("SkeletonBalloon", "the unit runs an action graph this loader does not read (ActionSkeletonBarrelPopBalloon)"),
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),

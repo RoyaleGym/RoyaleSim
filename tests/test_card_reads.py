@@ -401,7 +401,12 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # reads through the extractor's `enchant_friends` block, a link the chain does not follow (the Goblin Hut's
     # controller is the same case). The WHOLE delta: the outside sets with and without GiantBuffer in the catalogue
     # (the same stand-in) differ by GiantBuffer alone.
-    outside_by_vintage = {"2018": 40, "15.535": 87}
+    # 87 -> 90 when the Cannon Cart, the Goblin Demolisher and the Ronin load: THE CANNON CART with DeployDelay,
+    # IgnoreResurrect, OnStartingAction and the projectile's only_enemies; THE GOBLIN DEMOLISHER with
+    # DeathSpawnProjectile (its blast runs only under spawner.DEATH_SPAWN_PROJECTILE = client_projectile),
+    # OnStartingAction and the projectile's aoe_to_ground and only_enemies; THE RONIN with OnStartingAction. None
+    # left. Measured with the same stand-in, the three added cards exactly these.
+    outside_by_vintage = {"2018": 40, "15.535": 90}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

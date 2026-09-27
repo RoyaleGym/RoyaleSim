@@ -270,6 +270,10 @@ SECTION_TABLE = {
     "AEO": "area_effect_objects",
     "BUFF": "character_buffs",
     "ACTION": "actions",
+    # A damage type an ActionDealDamage names (BaseDamageType): the Ronin's reflect says whether its
+    # damage scales with level. Read by `parry`; its own table, built from overlays only. The same
+    # sections are also kept by name as the files write them (`Tables.damage_types`, `attack_select`).
+    "DAMAGE_TYPE": "damage_types",
     "SPELL_CHARACTER": "spells_characters",
     "SPELL_BUILDING": "spells_buildings",
     "SPELL_OTHER": "spells_other",
@@ -739,8 +743,9 @@ class Tables(dict):
         self.vintage = vintage
         self.columns_absent: list[str] = []
         self.level_base = LEVEL_BASE_READING
-        # 15.535: the csv_logic/characters/*.toml [VARIABLE.*] and [DAMAGE_TYPE.*] sections, by name
-        # (not joined into any table; read by the named-block builders, `attack_select`). Empty for 2018.
+        # 15.535: the csv_logic/characters/*.toml [VARIABLE.*] and [DAMAGE_TYPE.*] sections, by name, as the
+        # files write them (read by the named-block builder `attack_select`; the [DAMAGE_TYPE.*] sections also
+        # fill the `damage_types` overlay table, which `parry` reads). Empty for 2018.
         self.variables: dict[str, dict] = {}
         self.damage_types: dict[str, dict] = {}
 
@@ -759,6 +764,9 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
     for k, f in v.sources.items():
         t[k] = OverlayTable(k, v.raw / f)
     t["actions"] = OverlayTable("actions", None)
+    # [DAMAGE_TYPE.*] sections of the per-character files (SECTION_TABLE). No output lists this
+    # table's files, and nothing but `parry` reads it, so every other row is unchanged by it.
+    t["damage_types"] = OverlayTable("damage_types", None)
     for k, files in v.overlays.items():
         for f in files:
             p = v.raw / f
@@ -784,15 +792,17 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
                         t[ext_key].overlay(p, {ext_name: ext}, f"{sub}/{p.name} [EXT]")
                     continue
                 key = SECTION_TABLE.get(section)
+                # A DAMAGE_TYPE's class is read by name, as the file writes it, by a named-block builder
+                # (`attack_select`), besides the overlay table SECTION_TABLE routes it to (`parry`).
+                if section == "DAMAGE_TYPE" and isinstance(body, dict):
+                    t.damage_types.update({n: f for n, f in body.items() if isinstance(f, dict)})
                 if key is None:
                     if section not in SKIP_SECTIONS:
                         raise SystemExit(f"{p.name}: unknown section [{section}]")
-                    # A VARIABLE's DefaultValue and a DAMAGE_TYPE's class are read by name by a
-                    # named-block builder (`attack_select`); every other skipped section is dropped.
+                    # A VARIABLE's DefaultValue is read by name by a named-block builder (`attack_select`);
+                    # every other skipped section is dropped.
                     if section == "VARIABLE" and isinstance(body, dict):
                         t.variables.update({n: f for n, f in body.items() if isinstance(f, dict)})
-                    elif section == "DAMAGE_TYPE" and isinstance(body, dict):
-                        t.damage_types.update({n: f for n, f in body.items() if isinstance(f, dict)})
                     continue
                 # A [CHARACTER.X] that says IsBuilding is a building row (none does
                 # in 15.535, every building overlay is a [BUILDING.] section; kept
@@ -1359,6 +1369,190 @@ def enchant_friends(t: dict, rec: dict) -> dict | None:
     }
 
 
+def _action_list(acts, name: str, col: str) -> list:
+    """An action row's column as a list: the continued (list) value when the row has one, else
+    the scalar alone, else empty."""
+    got = acts.arrays.get(name, {}).get(col)
+    if got is not None:
+        return list(got)
+    a = acts.get(name)
+    return [] if a is None or a[col] is None else [a[col]]
+
+
+def _transform_leaf(t: dict, name: str, delays: list | None, at: int | None, noops: list) -> dict | bool | None:
+    """One action under a health trigger (`transform_at_hp`): the transformation it is (a dict),
+    nothing the engine needs (None), or False for anything else, which refuses the whole block."""
+    acts = t["actions"]
+    a = acts.get(name)
+    if a is None:
+        return False
+    ct = a["ClassType"]
+    if ct == "ActionPlayEffect":
+        return None
+    if ct == "ActionChangeGameObjectData":
+        into = a["NewCharacterData"]
+        if not isinstance(into, str) or not into:
+            return False  # a projectile's or an area's change: not a unit's
+        return {
+            "into": into,
+            "reset_target": bool(flag(a, "ResetTarget")),
+            "group_delays_ms": list(delays or []),
+            "at": at or 0,
+        }
+    if ct == "ActionGroup":
+        if delays is not None:
+            return False  # a group inside a group
+        subs = _action_list(acts, name, "SubActions")
+        ds = _action_list(acts, name, "SubActionsDelay")
+        if len(ds) not in (0, len(subs)):
+            return False  # a delay list that does not pair with the sub-actions
+        ds = ds or [0] * len(subs)
+        out = None
+        for k, sub in enumerate(subs):
+            got = _transform_leaf(t, sub, ds, k, noops)
+            if got is False:
+                return False
+            if got is not None:
+                if out is not None:
+                    return False  # two transformations in one group
+                out = got
+        return out
+    if ct == "ActionSpawn" and a["SpawnType"] == "AreaEffectType" and isinstance(a["SpawnData"], str):
+        # A TAUNT CANCEL: an area whose whole graph is ActionTaunt. The engine has no taunt, so
+        # there is nothing for it to cancel; the loader accepts the spawn only by this name.
+        g = action_graph(t, t["area_effect_objects"].get(a["SpawnData"]))
+        if g and g["class_types"] == ["ActionTaunt"]:
+            noops.append(f"AreaEffectType:{a['SpawnData']}")
+            return None
+    return False
+
+
+def transform_at_hp(t: dict, rec: dict) -> dict | None:
+    """THE HEALTH-THRESHOLD TRANSFORMATION as a named block (15.535): the row's one root action,
+    OnStartingAction, is an ActionRunActionAtHealth whose HealthPercentages[i] runs Actions[i], and
+    exactly one of those actions is an ActionChangeGameObjectData into a character row, run directly
+    or as one sub-action of an ActionGroup. Effects are skipped, and the one spawn allowed is a taunt
+    cancel (`_transform_leaf`). The Cannon Cart and the Goblin Demolisher carry it; every other row
+    gives None, and the loader then refuses its graph as before. Fail-closed: any other action, a
+    nested group, a delay list that does not pair, a second transformation, or a change of a
+    projectile gives None.
+
+    SubActionsDelay is written raw, in SubActions order, with the transformation's place in it
+    (`at`): which of its two readings the client uses is not this function's to decide."""
+    g = action_graph(t, rec)
+    if not g or set(g["roots"]) != {"OnStartingAction"}:
+        return None
+    acts = t["actions"]
+    root = g["roots"]["OnStartingAction"]
+    a = acts.get(root)
+    if a is None or a["ClassType"] != "ActionRunActionAtHealth":
+        return None
+    pcts = _action_list(acts, root, "HealthPercentages")
+    names = _action_list(acts, root, "Actions")
+    if not names or len(pcts) != len(names):
+        return None
+    hits: list[dict] = []
+    noops: list[str] = []
+    for p, n in zip(pcts, names, strict=True):
+        got = _transform_leaf(t, n, None, None, noops)
+        if got is False:
+            return None
+        if got is not None:
+            hits.append({**got, "pct": p})
+    if len(hits) != 1:
+        return None
+    return {**hits[0], "noop_spawns": noops}
+
+
+def _group_leaves(acts, name: str) -> tuple[list[str], list[int]] | None:
+    """An ActionGroup's sub-actions and their SubActionsDelay, raw and in SubActions order; None
+    when `name` is not a group, a delay list does not pair with the sub-actions, or a sub-action is
+    itself a group or names no action row."""
+    a = acts.get(name)
+    if a is None or a["ClassType"] != "ActionGroup":
+        return None
+    subs = _action_list(acts, name, "SubActions")
+    ds = _action_list(acts, name, "SubActionsDelay")
+    if not subs or len(ds) not in (0, len(subs)):
+        return None
+    for s in subs:
+        sa = acts.get(s)
+        if sa is None or sa["ClassType"] == "ActionGroup":
+            return None
+    return subs, list(ds) if ds else [0] * len(subs)
+
+
+def parry(t: dict, rec: dict) -> dict | None:
+    """THE COUNTER as a named block (15.535: the Ronin). The row's OnStartingAction is an
+    ActionGroup of one ActionCounter and cosmetic effects. The counter's SelfAction group is one
+    ActionRunForcedAnimationOnce and one ActionWithDuration (the cooldown tag). Its
+    InstigatorAction group is one ActionSpawn of a BuffType, one ActionDealDamage and cosmetic
+    effects, each at its SubActionsDelay. Every other root the row names must name no action row
+    (the Ronin's VisualActions names a health bar that is not in the action tables).
+
+    Fail-closed: any other action, a nested group, a delay list that does not pair, a second
+    counter, spawn or damage gives None, and the loader then refuses the graph as before. The
+    delays are written raw, in SubActions order, with each action's place in them: which of the
+    two readings of SubActionsDelay the client uses is calibration actions.SUB_ACTIONS_DELAY's.
+    `deploy_active` and `reflect_level_scaling` are True or False, and None when the column is not
+    in the table at all (`flag`)."""
+    g = action_graph(t, rec)
+    if not g or "OnStartingAction" not in g["roots"]:
+        return None
+    acts = t["actions"]
+    if any(acts.get(v) is not None for k, v in g["roots"].items() if k != "OnStartingAction"):
+        return None
+    root = _group_leaves(acts, g["roots"]["OnStartingAction"])
+    if root is None:
+        return None
+    root_subs, root_delays = root
+    counters = [k for k, s in enumerate(root_subs) if acts.get(s)["ClassType"] == "ActionCounter"]
+    others = [s for s in root_subs if acts.get(s)["ClassType"] not in ("ActionCounter", "ActionPlayEffect")]
+    if len(counters) != 1 or others:
+        return None
+    counter = acts.get(root_subs[counters[0]])
+    own = _group_leaves(acts, counter["SelfAction"]) if isinstance(counter["SelfAction"], str) else None
+    inst = _group_leaves(acts, counter["InstigatorAction"]) if isinstance(counter["InstigatorAction"], str) else None
+    if own is None or inst is None:
+        return None
+    own_subs, own_delays = own
+    own_classes = sorted(acts.get(s)["ClassType"] for s in own_subs)
+    if own_classes != ["ActionRunForcedAnimationOnce", "ActionWithDuration"]:
+        return None
+    anim = next(acts.get(s) for s in own_subs if acts.get(s)["ClassType"] == "ActionRunForcedAnimationOnce")
+    tag = next(acts.get(s) for s in own_subs if acts.get(s)["ClassType"] == "ActionWithDuration")
+    inst_subs, inst_delays = inst
+    cls = [acts.get(s)["ClassType"] for s in inst_subs]
+    spawns = [k for k, c in enumerate(cls) if c == "ActionSpawn"]
+    damages = [k for k, c in enumerate(cls) if c == "ActionDealDamage"]
+    known = ("ActionSpawn", "ActionDealDamage", "ActionPlayEffect")
+    if len(spawns) != 1 or len(damages) != 1 or any(c not in known for c in cls):
+        return None
+    spawn = acts.get(inst_subs[spawns[0]])
+    damage = acts.get(inst_subs[damages[0]])
+    if spawn["SpawnType"] != "BuffType" or not isinstance(spawn["SpawnData"], str):
+        return None
+    dt_name = damage["BaseDamageType"]
+    dt = t["damage_types"].get(dt_name) if "damage_types" in t and isinstance(dt_name, str) else None
+    return {
+        "counter_cooldown_ms": counter["Cooldown"],
+        "deploy_active": flag(counter, "DeployActive"),
+        "damage_scalar_pct": counter["DamageScalar"],
+        "defense_scalar_pct": counter["DefenseScalar"],
+        "root_delays_ms": root_delays,
+        "counter_at": counters[0],
+        "self_delays_ms": own_delays,
+        "self_forced_ms": anim["ForcedDuration"],
+        "self_tag_ms": tag["ActionDuration"],
+        "instigator_delays_ms": inst_delays,
+        "stun_at": spawns[0],
+        "reflect_at": damages[0],
+        "stun": norm_buff(t, spawn["SpawnData"]),
+        "stun_time_ms": spawn["SpawnTime"],
+        "reflect_level_scaling": flag(dt, "EnableLevelScaling") if dt is not None else None,
+    }
+
+
 def raw_logic(rec: dict) -> dict:
     out = {}
     for h, v in rec.items():
@@ -1916,6 +2110,16 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         ef = enchant_friends(t, c)
         if ef is not None:
             u["enchant_friends"] = ef
+        # The health-threshold transformation (the Cannon Cart, the Goblin Demolisher), when the
+        # row's graph is one (`transform_at_hp`); written only there, so every other row is unchanged.
+        tb = transform_at_hp(t, c)
+        if tb is not None:
+            u["transform_at_hp"] = tb
+        # The counter (the Ronin), when the row's graph is one (`parry`); written only there, so
+        # every other row is unchanged.
+        pr = parry(t, c)
+        if pr is not None:
+            u["parry"] = pr
         # INVISIBLE WHEN IDLE (the Royal Ghost): BuffWhenNotAttacking names a buff whose own row sets
         # Invisible. Written only then, so the Super Knight's idle buff (not an invisibility) and
         # every other row are unchanged.
@@ -2296,6 +2500,10 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["attack_select"] = u["attack_select"]
     if "enchant_friends" in u:
         card["enchant_friends"] = u["enchant_friends"]
+    if "transform_at_hp" in u:
+        card["transform_at_hp"] = u["transform_at_hp"]
+    if "parry" in u:
+        card["parry"] = u["parry"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
     # 15.535 only and only where set (norm_unit): a card row whose own unit is a rider row carries

@@ -887,6 +887,38 @@ pub struct ReflectDef {
     pub buff: Option<BuffApply>,
 }
 
+/// THE COUNTER (the 15.535.29 tables' ActionCounter: the Ronin's; cards.json `parry`, calibration parry.*). While
+/// the counter is ready, the first hit parry.COUNTERED_HITS admits that lands on the unit is taken at `taken_pct`
+/// percent. The attacker gets `stun` from the next tick and takes `reflect_pct` percent of the countered hit later,
+/// each at its place in the instigator group (`delays_ms`, read by calibration actions.SUB_ACTIONS_DELAY). The
+/// counter is then spent for `cooldown_ms` (state.rs `parry_pass`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParryDef {
+    /// Cooldown, ms. The self group's cooldown tag (ActionWithDuration) must say the same, or the row is refused.
+    pub cooldown_ms: i32,
+    /// DeployActive: the counter works while the unit deploys (read under parry.READY_AT = spawn).
+    pub ready_at_deploy: bool,
+    /// DefenseScalar, 0 to 100: the percent of the countered hit the unit still takes (0 on the Ronin).
+    pub taken_pct: i32,
+    /// DamageScalar: the reflect is this percent of the countered hit (200 on the Ronin). Not scaled by level: the
+    /// damage type sets EnableLevelScaling false, and a row that scales it is refused.
+    pub reflect_pct: i32,
+    /// The self group's forced animation, ForcedDuration ms (500). Read only under parry.COOLDOWN_START =
+    /// lock_end, which counts the cooldown from its end.
+    pub self_lock_ms: i32,
+    /// The instigator group's BuffType spawn, for its SpawnTime (the Ronin's speed -100, hit speed -95 and spawn
+    /// speed -100 row for 500 ms).
+    pub stun: BuffApply,
+    /// The instigator group's SubActionsDelay, raw, in SubActions order (the Ronin's [50, 300, 150]); entries past
+    /// `group_len` are 0.
+    pub delays_ms: [i32; 4],
+    /// How many sub-actions the instigator group has.
+    pub group_len: u8,
+    /// The stun's place and the reflect's place in that group (0 and 1 on the Ronin).
+    pub stun_at: u8,
+    pub reflect_at: u8,
+}
+
 /// SummonCharacterSecond: a second kind of unit the same card summons on the same
 /// ring (Goblin Gang: 3 Goblins + 3 Spear Goblins; Rascals: the Boy + 2 Girls).
 /// Loaded as a `summon_only` card like a spawner's unit; `unit` is its CardDb index.
@@ -1011,8 +1043,10 @@ pub struct CardDef {
     pub death_damage_radius: i32,
     /// Splash centred on the attacker rather than the target (Valkyrie).
     pub self_as_aoe_center: bool,
-    /// Buildings expire after this long. Modelled as removal at expiry; the real
-    /// game's linear hp decay over the lifetime is NOT modelled.
+    /// LifeTime, ms: the entity bleeds its hitpoints away over this long (calibration lifetime.HP_DECAY;
+    /// state.rs `lifetime_of`, `phase_status`). A building's row carries it; so does a troop row that only a
+    /// transformation reaches (the Goblin Demolisher's kamikaze form, lifetime.TROOP_LIFETIME). The loader
+    /// refuses a troop with a LifeTime reached any other way.
     pub lifetime_ms: Option<i32>,
     /// cards.json level_scaling.multiplier_percent_by_level: entry L-1 is the
     /// percent of the level-1 stat at rarity-local level L. When absent the
@@ -1298,13 +1332,21 @@ pub struct CardDef {
     /// THE ENCHANT (the Rune Giant; `EnchantDef`, state.rs `enchant_pass`, combat.rs `enchant_bonus`). None on every
     /// other card.
     pub enchant: Option<EnchantDef>,
+    /// THE HEALTH-THRESHOLD TRANSFORMATION (the Cannon Cart, the Goblin Demolisher; `TransformDef`, state.rs
+    /// `health_triggers` and `rebind_unit`): at its threshold the unit becomes another row in place, the same
+    /// entity. None on every other card.
+    pub transform_at_hp: Option<TransformDef>,
+    /// THE COUNTER (the Ronin; `ParryDef`, state.rs `note_parry` and `parry_pass`): the first hit parry.COUNTERED_HITS
+    /// admits while it is ready is taken at its DefenseScalar and answered with a stun and a reflect. None on every
+    /// other card.
+    pub parry: Option<ParryDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `enchant`, and onto the end of that tail
+    // field goes HERE, after `parry`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -1331,13 +1373,13 @@ impl CardDef {
         matches!(self.spell.as_ref().map(|s| &s.shape), Some(SpellShape::Mirror))
     }
 
-    /// EVERY BUFF THIS CARD CAN HANG, as `CardDb::buffs` indices, each once: its attack buff, its reflect's, then each
-    /// buff (`buff`, then `buff2`) along the chain of every spell object it carries -- its spell, death area, deploy
-    /// blow, death projectile, deploy area, spawn area and projectile area, in that order. The one enumeration the
-    /// loader's buff death-spawn needs and `CardDb::unit_refs` read.
+    /// EVERY BUFF THIS CARD CAN HANG, as `CardDb::buffs` indices, each once: its attack buff, its reflect's, its
+    /// counter's stun, then each buff (`buff`, then `buff2`) along the chain of every spell object it carries -- its
+    /// spell, death area, deploy blow, death projectile, deploy area, spawn area and projectile area, in that order.
+    /// The one enumeration the loader's buff death-spawn needs and `CardDb::unit_refs` read.
     pub fn hung_buffs(&self) -> Vec<u16> {
         let mut out: Vec<u16> = Vec::new();
-        for b in [self.attack_buff, self.reflect.and_then(|r| r.buff)].into_iter().flatten() {
+        for b in [self.attack_buff, self.reflect.and_then(|r| r.buff), self.parry.map(|p| p.stun)].into_iter().flatten() {
             if !out.contains(&b.buff) {
                 out.push(b.buff);
             }
@@ -1525,6 +1567,10 @@ struct RawCard {
     action_graph: Option<RawActionGraph>,
     /// The Goblin Hut's controller (`LifeStateDef`), 15.535 only.
     life_state_spawner: Option<RawLifeState>,
+    /// The health-threshold transformation (`TransformDef`), 15.535 only.
+    transform_at_hp: Option<RawTransform>,
+    /// cards.json `parry`: the counter (`ParryDef`), 15.535 only.
+    parry: Option<RawParry>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
     /// cards.json `interval_spawner` (15.535 only): the Furnace's ActionInterval -> ActionSpawnToLocation
@@ -2161,6 +2207,204 @@ fn enchant_of(raw: &RawEnchantFriends, graph: &Option<RawActionGraph>) -> Result
     })
 }
 
+/// THE HEALTH-THRESHOLD TRANSFORMATION (the 15.535.29 tables' ActionRunActionAtHealth whose action is an
+/// ActionChangeGameObjectData, run directly or from an ActionGroup; state.rs `health_triggers`, `rebind_unit`).
+/// When the unit's hp reaches `pct` percent of its max hp it becomes the row `unit`, in place: the same entity,
+/// its hp and max hp kept (calibration transform.*). The Cannon Cart breaks into its cannon at once; the Goblin
+/// Demolisher becomes its kamikaze form 100 ms later, its target reset.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TransformDef {
+    /// HealthPercentages: the threshold, percent of max hp.
+    pub pct: i32,
+    /// The row the unit becomes: a `summon_only` CardDb index, u16::MAX until `from_json_str` resolves it.
+    pub unit: u16,
+    /// ResetTarget on the ChangeGameObjectData action: the unit drops its target and its attack.
+    pub reset_target: bool,
+    /// From the trigger to the change, ms: the change's SubActionsDelay in its group, 0 when it runs directly.
+    pub delay_ms: i32,
+}
+
+/// cards.json `transform_at_hp`, every field nullable (tools/extract_cards.py `transform_at_hp`).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawTransform {
+    pct: Option<i32>,
+    into: Option<String>,
+    reset_target: Option<bool>,
+    group_delays_ms: Option<Vec<i32>>,
+    at: Option<i32>,
+    noop_spawns: Option<Vec<String>>,
+}
+
+/// The transformation a `transform_at_hp` block names, and the name of the row it becomes; or the reason it is
+/// refused. The graph must be the health trigger, the change and its cosmetic hooks (ActionGroup, ActionPlayEffect),
+/// and spawn nothing but the block's taunt cancels (the engine has no taunt, so a cancel does nothing); any other
+/// graph is refused with the message every unscripted graph gets (`refuse_action_mechanic`).
+///
+/// THE DELAY. SubActionsDelay can be read as each sub-action's offset from the group's start or as the gap after
+/// the one before it. The two agree when every entry before the change is 0 (the Goblin Demolisher's [0, 100], the
+/// change second: 100 both ways), and only then is the group read here; a group whose readings disagree is refused.
+fn transform_of(raw: &RawTransform, graph: &Option<RawActionGraph>) -> Result<(TransformDef, String), String> {
+    let refuse = |why: String| Err(format!("the unit's transformation: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it".into()) };
+    let noops = raw.noop_spawns.clone().unwrap_or_default();
+    #[cfg(not(clash_plant = "transform_block_unchecked"))]
+    {
+        let has = |c: &str| g.class_types.iter().any(|x| x == c);
+        let known = g
+            .class_types
+            .iter()
+            .all(|c| matches!(c.as_str(), "ActionRunActionAtHealth" | "ActionChangeGameObjectData" | "ActionGroup" | "ActionPlayEffect" | "ActionSpawn"));
+        let spawns_listed = g.spawns.iter().all(|s| noops.contains(s)) && noops.iter().all(|s| g.spawns.contains(s));
+        if !known || !spawns_listed || !has("ActionRunActionAtHealth") || !has("ActionChangeGameObjectData") {
+            refuse_action_mechanic(graph, "the unit")?;
+            return refuse(format!("the graph is not a transformation ({})", g.class_types.join(", ")));
+        }
+    }
+    #[cfg(clash_plant = "transform_block_unchecked")]
+    let _ = (&noops, g); // PLANT: any graph that carries a transformation block loads.
+    let pct = raw.pct.filter(|p| (1..=99).contains(p)).ok_or_else(|| format!("the unit's transformation: HealthPercentages {:?} is not a percent from 1 to 99; not simulated", raw.pct))?;
+    let into = raw.into.clone().filter(|n| !n.is_empty()).ok_or("the unit's transformation names no character; not simulated")?;
+    let delays = raw.group_delays_ms.clone().unwrap_or_default();
+    let at = raw.at.unwrap_or(0);
+    let delay_ms = if delays.is_empty() {
+        if at != 0 {
+            return refuse(format!("its place {at} in a group with no delays"));
+        }
+        0
+    } else {
+        let k = usize::try_from(at).ok().filter(|k| *k < delays.len()).ok_or_else(|| format!("the unit's transformation: its place {at} is outside its group of {}; not simulated", delays.len()))?;
+        if delays.iter().any(|d| *d < 0) {
+            return refuse(format!("SubActionsDelay {delays:?} holds a negative delay"));
+        }
+        if delays[..k].iter().any(|d| *d != 0) {
+            return Err(format!("the transformation's SubActionsDelay {delays:?} reads two ways; not simulated"));
+        }
+        delays[k]
+    };
+    Ok((TransformDef { pct, unit: u16::MAX, reset_target: raw.reset_target.unwrap_or(false), delay_ms }, into))
+}
+
+/// cards.json `parry`, every field nullable (tools/extract_cards.py `parry`; names exactly as it writes them).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawParry {
+    counter_cooldown_ms: Option<i32>,
+    deploy_active: Option<bool>,
+    damage_scalar_pct: Option<i32>,
+    defense_scalar_pct: Option<i32>,
+    root_delays_ms: Option<Vec<i32>>,
+    counter_at: Option<i32>,
+    self_delays_ms: Option<Vec<i32>>,
+    self_forced_ms: Option<i32>,
+    self_tag_ms: Option<i32>,
+    instigator_delays_ms: Option<Vec<i32>>,
+    stun_at: Option<i32>,
+    reflect_at: Option<i32>,
+    stun: Option<RawBuff>,
+    stun_time_ms: Option<i32>,
+    reflect_level_scaling: Option<bool>,
+}
+
+/// The classes a counter's graph may hold: the counter, its three groups, the forced animation, the cooldown tag,
+/// the stun's spawn, the reflect's damage and cosmetic effects.
+const PARRY_CLASSES: [&str; 7] = [
+    "ActionCounter",
+    "ActionDealDamage",
+    "ActionGroup",
+    "ActionPlayEffect",
+    "ActionRunForcedAnimationOnce",
+    "ActionSpawn",
+    "ActionWithDuration",
+];
+
+/// The counter a `parry` block names, or the reason it is refused. The graph must hold the counter's classes and
+/// nothing else (`PARRY_CLASSES`) and spawn exactly the stun row; any other graph is refused with the message every
+/// unscripted graph gets (`refuse_action_mechanic`). Then every column the engine reads must be there and in the one
+/// shape it runs: the counter and the self group act at once (every root and self delay 0), the reflect is not
+/// level-scaled (its damage type's EnableLevelScaling false), and the cooldown tag lasts exactly the Cooldown (which
+/// of two different figures is the cooldown would be a guess).
+fn parry_of(raw: &RawParry, graph: &Option<RawActionGraph>, buffs: &mut BuffTable) -> Result<ParryDef, String> {
+    let refuse = |why: String| Err(format!("the unit's counter: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it".into()) };
+    let stun_name = raw.stun.as_ref().and_then(|b| b.name.clone()).unwrap_or_default();
+    #[cfg(not(clash_plant = "parry_shape_unchecked"))]
+    {
+        let known = g.class_types.iter().all(|c| PARRY_CLASSES.contains(&c.as_str()));
+        let spawns_stun = g.spawns.len() == 1 && g.spawns[0] == format!("BuffType:{stun_name}");
+        if !known || !spawns_stun || !g.class_types.iter().any(|c| c == "ActionCounter") {
+            refuse_action_mechanic(graph, "the unit")?;
+            return refuse(format!("the graph is not a counter ({})", g.class_types.join(", ")));
+        }
+    }
+    #[cfg(clash_plant = "parry_shape_unchecked")]
+    let _ = (g, &stun_name, PARRY_CLASSES); // PLANT: any graph that carries a counter block loads.
+    let cooldown_ms = match raw.counter_cooldown_ms {
+        Some(c) if c > 0 => c,
+        other => return refuse(format!("Cooldown {other:?} is not a positive time")),
+    };
+    let ready_at_deploy = raw.deploy_active.ok_or("the unit's counter: no DeployActive column; not simulated")?;
+    let taken_pct = match raw.defense_scalar_pct {
+        Some(p @ 0..=100) => p,
+        other => return refuse(format!("DefenseScalar {other:?} is not a percent from 0 to 100")),
+    };
+    let reflect_pct = match raw.damage_scalar_pct {
+        Some(p) if p >= 0 => p,
+        other => return refuse(format!("DamageScalar {other:?} is not a percent")),
+    };
+    for (what, d) in [("the counter's own group", &raw.root_delays_ms), ("the self group", &raw.self_delays_ms)] {
+        if d.as_ref().is_some_and(|d| d.iter().any(|x| *x != 0)) {
+            return refuse(format!("{what} has a SubActionsDelay {:?} that is not 0", d.as_ref().unwrap()));
+        }
+    }
+    let group = raw.instigator_delays_ms.clone().unwrap_or_default();
+    if group.is_empty() || group.len() > 4 {
+        return refuse(format!("an instigator group of {} actions", group.len()));
+    }
+    if group.iter().any(|d| *d < 0) {
+        return refuse(format!("the instigator group's SubActionsDelay {group:?} holds a negative delay"));
+    }
+    let place = |at: Option<i32>, what: &str| -> Result<u8, String> {
+        at.and_then(|k| u8::try_from(k).ok())
+            .filter(|k| (*k as usize) < group.len())
+            .ok_or_else(|| format!("the unit's counter: its {what} is not in its group of {}; not simulated", group.len()))
+    };
+    let stun_at = place(raw.stun_at, "stun")?;
+    let reflect_at = place(raw.reflect_at, "reflect")?;
+    if stun_at == reflect_at {
+        return refuse("its stun and its reflect are one action".into());
+    }
+    let rb = raw.stun.as_ref().ok_or("the unit's counter spawns no buff; not simulated")?;
+    if rb.convert("the unit's counter stun")?.pulses() {
+        return refuse("its stun pulses damage or healing".into());
+    }
+    let stun = buffs.apply(rb, raw.stun_time_ms, "the unit's counter stun")?;
+    if raw.reflect_level_scaling != Some(false) {
+        return refuse(format!("a reflect whose level scaling is {:?} has no reading here", raw.reflect_level_scaling));
+    }
+    if raw.self_tag_ms != Some(cooldown_ms) {
+        return refuse(format!("the cooldown tag lasts {:?} and the Cooldown is {cooldown_ms}", raw.self_tag_ms));
+    }
+    let self_lock_ms = raw.self_forced_ms.filter(|m| *m >= 0).ok_or("the unit's counter: its forced animation has no ForcedDuration; not simulated")?;
+    let mut delays_ms = [0i32; 4];
+    delays_ms[..group.len()].copy_from_slice(&group);
+    // `counter_at` names the counter's place in its own group; every entry there is 0 (checked above), so it
+    // moves nothing, and it is read here so a block without it is refused like any other half-blank block.
+    raw.counter_at.filter(|k| *k >= 0).ok_or("the unit's counter: no place in its group; not simulated")?;
+    Ok(ParryDef {
+        cooldown_ms,
+        ready_at_deploy,
+        taken_pct,
+        reflect_pct,
+        self_lock_ms,
+        stun,
+        delays_ms,
+        group_len: group.len() as u8,
+        stun_at,
+        reflect_at,
+    })
+}
+
 /// Err when `graph` scripts a mechanic this loader does not read.
 fn refuse_action_mechanic(graph: &Option<RawActionGraph>, what: &str) -> Result<(), String> {
     match graph {
@@ -2300,6 +2544,9 @@ enum UnitUse {
     /// Curse's GoblinCurseGoblin), a need of every card that can hang that buff. Resolved onto the buff table's row,
     /// which every such card shares, not onto the card.
     BuffDeathSpawn(u16),
+    /// The row a transformation turns the unit into (`TransformDef::unit`: the Cannon Cart's BrokenCannon, the
+    /// Goblin Demolisher's kamikaze form). The one use under which a troop row may carry a LifeTime.
+    Transform,
 }
 
 impl UnitUse {
@@ -2376,6 +2623,9 @@ pub enum UnitRef {
     /// Curse's GoblinCurseGoblin), one entry per buff (`CardDb::card_buffs`). The unit is released for the side
     /// the buff says, usually the caster's, where the dying unit fell.
     BuffDeathSpawn,
+    /// The row a transformation turns the unit into (`TransformDef::unit`). The entity stays the same one, so what
+    /// this block puts on the board is the row, not a new unit.
+    Transform,
 }
 
 impl UnitRef {
@@ -2394,6 +2644,7 @@ impl UnitRef {
             UnitRef::SummonMember(_) => "a summon member",
             UnitRef::VariantForm(_) => "a variant form",
             UnitRef::BuffDeathSpawn => "a buff's death spawn",
+            UnitRef::Transform => "a transformation",
         }
     }
 }
@@ -2691,7 +2942,9 @@ fn death_unit_masked(def: &BuffDef) -> BuffDef {
 }
 
 impl BuffTable {
-    /// Whether buff `idx` composes to a full stop (all three -100 columns): the engine's stun.
+    /// Whether buff `idx` stops the walk: its SpeedMultiplier composes to 0. That is the three -100 columns of a
+    /// stun and a freeze, and also the Ronin's counter stun (speed -100, hit speed -95), which stops the walk and
+    /// leaves the attack clock running (status.FULL_STOP_BUFF_IS_STUN). The own-side area refusal reads only the walk.
     fn stops(&self, idx: u16) -> bool {
         crate::status::compose([self.defs[idx as usize]].iter(), crate::status::Sel::Speed, 100) == 0
     }
@@ -3134,6 +3387,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         ignore_buffs: Vec::new(),
         attack_buff_first: false,
         enchant: None,
+        transform_at_hp: None,
+        parry: None,
     }
 }
 
@@ -4258,13 +4513,16 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // THE ACTION BLOCKS. A unit may run an action graph only when the graph is exactly one block the loader reads: the
     // Goblin Hut's controller (a `life_state_spawner` block, `life_state_of`), the Furnace's interval spawner (an
     // `interval_spawner` block, `interval_spawner_of`), the Three Musketeers' attack selector (an `attack_select` block,
-    // `attack_select_of`) or the Rune Giant's enchant (an `enchant_friends` block, `enchant_of`), each with its
-    // cosmetic hooks. Every other graph is refused as before, and so is a row that carries more than one block.
+    // `attack_select_of`), the Rune Giant's enchant (an `enchant_friends` block, `enchant_of`), a health-threshold
+    // transformation (a `transform_at_hp` block, `transform_of`) or a counter (a `parry` block, `parry_of`), each with
+    // its cosmetic hooks. Every other graph is refused as before, and so is a row that carries more than one block.
     let blocks: Vec<&str> = [
         (raw.life_state_spawner.is_some(), "a life-state controller"),
         (raw.interval_spawner.is_some(), "an interval spawner"),
         (raw.attack_select.is_some(), "an attack selector"),
         (raw.enchant_friends.is_some(), "an enchant"),
+        (raw.transform_at_hp.is_some(), "a transformation"),
+        (raw.parry.is_some(), "a counter"),
     ]
     .into_iter()
     .filter_map(|(has, what)| has.then_some(what))
@@ -4280,6 +4538,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let interval = raw.interval_spawner.as_ref().map(|iv| interval_spawner_of(iv, &raw.action_graph)).transpose()?;
     let attack_select = raw.attack_select.as_ref().map(|sel| attack_select_of(sel, &raw.action_graph)).transpose()?;
     let enchant = raw.enchant_friends.as_ref().map(|ef| enchant_of(ef, &raw.action_graph)).transpose()?;
+    let transform = raw.transform_at_hp.as_ref().map(|tr| transform_of(tr, &raw.action_graph)).transpose()?;
+    let parry = raw.parry.as_ref().map(|p| parry_of(p, &raw.action_graph, buffs)).transpose()?;
     // THE UNDERGROUND SPAWN WALK: read, or refused with the shape it has (`spawn_pathfind_of`). The
     // morph target is a need of the card, loaded from `units` by the unit loop.
     let can_deploy_on_enemy_side = raw.can_deploy_on_enemy_side.unwrap_or(false);
@@ -4460,6 +4720,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut units: Vec<(UnitUse, String)> = Vec::new();
     if let Some((_, name)) = &life_state {
         units.push((UnitUse::LifeState, name.clone()));
+    }
+    if let Some((_, name)) = &transform {
+        units.push((UnitUse::Transform, name.clone()));
     }
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
@@ -4733,6 +4996,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         attack_buff_first,
         // Its multipliers and exclusions are resolved against the loaded cards by `CardDb::from_json_str`.
         enchant,
+        // Resolved by `CardDb::from_json_str` (the row's name pushed on `units` above).
+        transform_at_hp: transform.map(|(d, _)| d),
+        parry,
     }, display, units))
 }
 
@@ -4956,8 +5222,9 @@ impl CardDb {
         // (unregistered again, with the unit's reason), never left pointing at nothing:
         // SkeletonBalloon goes this way (SkeletonContainer, a building with no
         // hitpoints, refused on `hitpoints` before its own 8-Skeleton death spawn
-        // is even reached), and so does MovingCannon (BrokenCannon, a troop
-        // with a LifeTime).
+        // is even reached), and so does the 2018 MovingCannon (its death spawn
+        // BrokenCannon is a troop with a LifeTime; the 15.535.29 Cannon Cart reaches its
+        // BrokenCannon, a building there, through a transformation instead).
         // NOT every hitpoint-less "unit" is a refusal: a DEATH BOMB (BalloonBomb,
         // GiantSkeletonBomb, BombTowerBomb) is a timed impact rather than an entity
         // and loads as one -- `convert_death_bomb`, and `phase_reap`, which leaves it
@@ -5193,12 +5460,44 @@ impl CardDb {
                     }
                     // A SPAWNED UNIT'S PROJECTILE AREA (the Heal Spirit's heal) is an area, not a unit: it
                     // resolves here, onto the unit's own card, and only unit needs remain a chain.
+                    // A SPAWNED UNIT'S DEATH PROJECTILE is not a unit either when it only deals damage (the
+                    // Goblin Demolisher's kamikaze form blasts where it dies): it resolves here too, onto the
+                    // unit's own card, under the one-shape rule. One that releases a unit (the Phoenix's egg
+                    // shape) is still a chain.
                     let mut chain: UnitNeeds = Vec::new();
                     for (w, u) in nested {
                         if w == UnitUse::ProjectileArea {
                             let a = ctx.aeos.get(&u).ok_or_else(|| format!("units.{unit}: its projectile area {u} has no area_effect_objects record"))?;
                             let (shape, _) = convert_area_effect(a, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: projectile area {u}: {e}"))?;
                             c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+                        } else if w == UnitUse::DeathProjectile {
+                            // PLANT spawned_death_projectile_unread (tests/transform.rs): the need is dropped, so
+                            // the kamikaze form dies with nothing following under every arm.
+                            #[cfg(clash_plant = "spawned_death_projectile_unread")]
+                            continue;
+                            #[allow(unreachable_code)]
+                            {
+                                let v = ctx.projectiles.get(&u).ok_or_else(|| format!("units.{unit}: its death projectile {u} has no projectiles record"))?;
+                                let p: RawSpellProjectile = serde_json::from_value(v.clone()).map_err(|e| format!("units.{unit}: death projectile {u}: {e}"))?;
+                                let (def, needs) = convert_death_projectile(&p, &mut buffs).map_err(|e| format!("units.{unit}: death projectile {u}: {e}"))?;
+                                if !needs.is_empty() {
+                                    chain.push((w, u));
+                                    continue;
+                                }
+                                let shapes = [
+                                    c.spell.is_some(),
+                                    c.death_area_effect.is_some(),
+                                    c.deploy_projectile.is_some(),
+                                    c.death_projectile.is_some(),
+                                    c.deploy_area_effect.is_some(),
+                                    c.spawn_area_effect.is_some(),
+                                    c.projectile_area.is_some(),
+                                ];
+                                if shapes.contains(&true) {
+                                    return Err(format!("units.{unit}: death projectile {u}: the unit already carries a spell, an area or a projectile, and one spell object names one"));
+                                }
+                                c.death_projectile = Some(def);
+                            }
                         } else {
                             chain.push((w, u));
                         }
@@ -5209,6 +5508,35 @@ impl CardDb {
                     // load as a chain below).
                     if which == UnitUse::Attach {
                         rider_shape(&c, !nested.is_empty(), &unit)?;
+                    }
+                    // A TRANSFORMATION TARGET CARRIES NO STATE ITS SPAWN OR DEPLOY WOULD START: the entity
+                    // keeps its own and is not deployed again (state.rs `rebind_unit`), so a row whose block
+                    // needs either would run without it. Refused by the block; the Cannon Cart's
+                    // BrokenCannon and the Goblin Demolisher's kamikaze form carry none of them.
+                    if which == UnitUse::Transform {
+                        let block = [
+                            (c.hide.is_some(), "a hide"),
+                            (c.spawner.is_some(), "a periodic spawner"),
+                            (c.life_state.is_some(), "a life-state controller"),
+                            (c.charge.is_some(), "a charge"),
+                            (c.jump.is_some(), "a jump"),
+                            (c.dash.is_some(), "a dash"),
+                            (c.special.is_some(), "a special"),
+                            (c.invisible_when_idle.is_some(), "an idle invisibility"),
+                            (c.deploy_projectile.is_some(), "a deploy projectile"),
+                            (nested.iter().any(|(w, _)| *w == UnitUse::DeployAreaEffect), "a deploy area effect"),
+                            (nested.iter().any(|(w, _)| *w == UnitUse::SpawnAreaEffect), "a spawn area effect"),
+                            (c.transform_at_hp.is_some(), "a transformation of its own"),
+                            (c.parry.is_some(), "a counter"),
+                            (c.attach.is_some(), "attached riders"),
+                            (c.mana.is_some_and(|m| m.collect.is_some()), "an elixir payout"),
+                            (c.enchant.is_some(), "an enchant"),
+                        ]
+                        .into_iter()
+                        .find(|(has, _)| *has);
+                        if let Some((_, what)) = block {
+                            return Err(format!("units.{unit}: a transformation into a row with {what} is not simulated"));
+                        }
                     }
                     // A UNIT'S OWN UNITS LOAD, one level deeper (the Goblin Drill's building's Goblins,
                     // the Elixir Golem's ElixirGolem4, the Phoenix egg's PhoenixNoRespawn), down to
@@ -5237,9 +5565,17 @@ impl CardDb {
                     if which == UnitUse::DeathProjectileRelease {
                         c.speed = 0;
                     }
-                    if c.kind == CardKind::Troop && c.lifetime_ms.is_some() {
-                        // The engine honours LifeTime on BUILDINGS only (spawn_now); a
-                        // troop unit that expires (BrokenCannon) would live for ever.
+                    // A TROOP WITH A LIFETIME loads as a transformation target alone (the Goblin Demolisher's
+                    // kamikaze form, lifetime.TROOP_LIFETIME). Reached any other way it is refused as before:
+                    // the 2018 MovingCannon's death spawn BrokenCannon is one. The refusal stays inside this
+                    // cached closure, so a refused unit is never pushed and no later summon-only slot moves;
+                    // the cache is by name, so a name's first use decides (no 15.535.29 row is requested both
+                    // ways).
+                    #[cfg(not(clash_plant = "troop_lifetime_refusal_lifted"))]
+                    let refused = c.kind == CardKind::Troop && c.lifetime_ms.is_some() && which != UnitUse::Transform;
+                    #[cfg(clash_plant = "troop_lifetime_refusal_lifted")]
+                    let refused = false; // PLANT (regression): a troop with a LifeTime loads whatever reaches it.
+                    if refused {
                         return Err(format!("units.{unit} is a troop with a LifeTime; not simulated"));
                     }
                     if !db.rarities.iter().any(|r| r.name == c.rarity) {
@@ -5276,6 +5612,11 @@ impl CardDb {
                 Ok(u) if which == UnitUse::Morph && (db.cards[u as usize].kind != CardKind::Building || db.cards[u as usize].death_bomb_fuse_ms().is_some()) => {
                     unloadable.push((spell_idx, format!("units.{unit}: an underground morph into anything but a building with hitpoints is not simulated")));
                 }
+                // A transformation turns the unit into a ROW the card owns, never into a playable card: the name of
+                // a card that serves as the unit (`CardDef::unit_name`) is refused here.
+                Ok(u) if which == UnitUse::Transform && !db.cards[u as usize].summon_only => {
+                    unloadable.push((spell_idx, format!("units.{unit}: a transformation into a playable card is not simulated")));
+                }
                 Ok(u) => {
                     let card = &mut db.cards[spell_idx as usize];
                     match which {
@@ -5305,6 +5646,7 @@ impl CardDb {
                         }
                         // The buff's row, which every card that hangs it shares, not the card.
                         UnitUse::BuffDeathSpawn(b) => buffs.set_death_unit(b, u),
+                        UnitUse::Transform => card.transform_at_hp.as_mut().expect("transform present").unit = u,
                         UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
@@ -5446,9 +5788,9 @@ impl CardDb {
             // table whose status no other test pins in that table, so only the check
             // over every row sees it move: the 15.535.29 SuperHogRider (its spawner's
             // SantaPresent is a building with no hitpoints) and the 2018 MovingCannon (its
-            // BrokenCannon is a troop with a LifeTime). The 15.535.29 MovingCannon is
-            // refused before its push and never gets here; the 15.535.29 ElixirGolem, the
-            // row before, is pinned by tests/spawn_chain.rs now.
+            // BrokenCannon is a troop with a LifeTime). The 15.535.29 MovingCannon loads
+            // (its BrokenCannon is a transformation target there) and never gets here; the
+            // 15.535.29 ElixirGolem, the row before, is pinned by tests/spawn_chain.rs now.
             #[cfg(clash_plant = "census_admits_one")]
             if name == "SuperHogRider" || name == "MovingCannon" {
                 continue;
@@ -5687,7 +6029,8 @@ impl CardDb {
                 | UnitRef::Morph
                 | UnitRef::Attach
                 | UnitRef::SummonMember(_)
-                | UnitRef::BuffDeathSpawn => self.unit_level(idx, unit, level_index, level)?,
+                | UnitRef::BuffDeathSpawn
+                | UnitRef::Transform => self.unit_level(idx, unit, level_index, level)?,
                 // A variant's form is a card of its own, played at the same unified level: checked whole (its own
                 // units included) by the walk below, at that level. A form is never itself a variant (the loader
                 // refuses one).
@@ -5790,6 +6133,11 @@ impl CardDb {
                 out.push((UnitRef::BuffDeathSpawn, ds.unit, None));
             }
         }
+        // LAST, so no earlier block's place in the list moves. PLANT unit_refs_skips_new_paths drops it too.
+        #[cfg(not(clash_plant = "unit_refs_skips_new_paths"))]
+        if let Some(t) = c.transform_at_hp {
+            out.push((UnitRef::Transform, t.unit, None));
+        }
         out
     }
 
@@ -5829,6 +6177,7 @@ impl CardDb {
                 UnitRef::VariantForm(_) => card.spell = None,
                 // The unit is on the buff's row, which other cards share: the card holds nothing to drop.
                 UnitRef::BuffDeathSpawn => {}
+                UnitRef::Transform => card.transform_at_hp = None,
             }
         }
         let card = &mut self.cards[idx as usize];
