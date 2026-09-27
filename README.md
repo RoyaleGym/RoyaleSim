@@ -67,7 +67,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 124 of the 144 cards in the 15.535 client's card table and refuses 20, with a reason for each. Counted by the loader itself (its census at `010d670`, `cards.json` 23b032626fe91432). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 124 of the 144 cards in the 15.535 client's card table and refuses 20, with a reason for each. Counted by the loader itself (its census at `010d670`, `cards.json` FNV-1a 64 23b032626fe91432). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 296 carry a status from guess to measured, and 178 are measured (RoyaleSim 010d670). 242 also name the rivals they were chosen against, and 250 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -104,12 +104,20 @@ You are now in the `Royale` folder. Stages 2 to 5 all start from here.
 
 ### Stage 2. Make the virtual environment
 
-The `python` on the first line has to be Python 3.12. Every later command names the venv's own
-`python` by path, so you never have to activate the venv. The second line downloads maturin,
-pytest, hypothesis and ruff, which takes under a minute on a normal connection.
+The venv has to be Python 3.12 or newer. The first line asks for 3.12 by name. On macOS and Linux
+it is `python3.12 -m venv .venv`. If `python --version` already prints 3.12 or newer,
+`python -m venv .venv` works too.
+
+The second line must print 3.12 or newer. Check it before you go on. An older Python compiles the
+engine for several minutes and is only refused at the install step.
+
+Every later command names the venv's own `python` by path, so you never have to activate the
+venv. The last line downloads maturin, pytest, hypothesis, ruff, numpy, msgspec and mypy, which
+takes under a minute on a normal connection.
 
 ```
-python -m venv .venv
+py -3.12 -m venv .venv
+.venv\Scripts\python --version
 .venv\Scripts\python -m pip install maturin pytest hypothesis ruff numpy msgspec mypy
 ```
 
@@ -148,8 +156,9 @@ cd ..
 ### Stage 4. Build the engine
 
 This is the slow one. It compiles the Rust engine and installs it into the venv as `royalesim`.
-Give it a few minutes and some free memory. It prints compiler progress the whole way, then a line
-saying it installed `royalesim`. After this you can run the example in the next section.
+Give it a few minutes and some free memory. It can go quiet for a minute or more on the engine
+itself; let it finish. At the end it prints a line saying it installed `royalesim`. After this you
+can run the example in the next section.
 
 ```
 cd RoyaleSim
@@ -208,11 +217,17 @@ a skip is not a pass. Earlier today five of them were FAILURES, and their messag
 to run `extract_cards.py --vintage 2018`, which is exactly the command that made them fail: the
 guard checked whether a `cards.json` existed rather than which table it held, and a clone has one,
 just the 2018 one. They were fixed by guarding on the table's vintage instead.
-Three checks want the 15.535 table specifically: `tests/levels.rs` scores the level ladder against
-recorded `max_hp`, `tests/jump16402.rs` wants the jump blocks of the Hog Rider, Prince and Dark
-Prince, and `tools/check_data.py`'s live-level rows go vacuous without them. They read `cards.json`, and a
-clone's `cards.json` is the committed 15.535 table (the copy in stage 3), so they run on a clone.
-Only rebuilding that table from scratch needs the 15.535 pack.
+Two Rust tests want the 15.535 table specifically: `tests/levels.rs` scores the level ladder
+against recorded `max_hp`, and `tests/jump16402.rs` wants the jump blocks of the Hog Rider, Prince
+and Dark Prince. They read `cards.json`, and a clone's `cards.json` is the committed 15.535 table
+(the copy in stage 3), so they run on a clone.
+
+What a clone cannot do is anything that reads the 15.535 pack itself. `tools/check_data.py`
+rebuilds the table from the raw files, so on a clone it stops at once and asks for the pack. Run
+it as `check_data.py --vintage 2018` there: that checks the 2018 table and passes. Its live-level
+rows run only on the 15.535 table, so a clone cannot run them. `tools/mechanic_register.py` refuses
+the same way. On a clone at `1d661b0` (2026-09-27), 29 of the Python suite's 34 skips were tests
+that need the pack.
 
 One build note. The engine compiles `data/calibration.json` and `data/derived/arena.json` in, so
 after editing either one, build again. RoyaleGym refuses a stale build.
@@ -225,17 +240,18 @@ run the shipped value. Every state that battle writes carries a `calibration_ove
 a result says it came from an experiment.
 
 The card table works the other way. Each time you create a `Battle`, the engine reads
-`data/derived/cards.json` from the checkout it was built in. So re-running `extract_cards.py`
-there changes the cards with no rebuild. `ROYALESIM_DATA_DIR`, the variable RoyaleGym uses to
+`data/derived/cards.json` from the checkout it was built in. So putting a different table at that
+path there changes the cards with no rebuild. `ROYALESIM_DATA_DIR`, the variable RoyaleGym uses to
 find `data/`, does not change which file the engine reads. Build in the checkout whose card table
 you want.
 
 ## Try it
 
-After the install above, this runs as is. A Giant is played for Blue (team 0, the bottom half of
-the arena) and left alone for 24 seconds of game time. Nobody tells it where to walk. The
-engine refuses every play in a match's opening seconds, as the game does, so the program waits
-those out first.
+After the install above, this runs as is. Save it to a file, say `try_it.py`, in the `Royale`
+folder and run it there with `.venv\Scripts\python try_it.py`. A Giant is played for Blue (team 0,
+the bottom half of the arena) and left alone for 24 seconds of game time. Nobody tells it where
+to walk. The engine refuses every play in a match's opening seconds, as the game does, so the
+program waits those out first.
 
 ```python
 import json, royalesim
@@ -291,11 +307,13 @@ Card levels come from the card table your engine reads, so the two right-hand co
 the 15.535 table the install sets up and the `--vintage 2018` one. If your hitpoints differ and the
 route does not, nothing is wrong.
 
-To watch a battle instead of reading numbers, run `python tools\watch_battle.py --open`. It plays a
-three-minute match with both sides deploying at random, runs five checks on it and opens a
-self-contained HTML page that you can scrub tick by tick. The five checks are: it replays hash for
-hash, both sides deployed and fought, the arena matches, ground units stayed mostly dry, and the
-page holds every frame. The whole thing takes under two seconds end to end (1.4 s on 2026-09-21).
+To watch a battle instead of reading numbers, go to the `RoyaleSim` folder and run
+`..\.venv\Scripts\python tools\watch_battle.py --open`. It plays a three-minute match with both
+sides deploying at random, runs five checks on it and opens a self-contained HTML page that you
+can scrub tick by tick. On macOS and Linux, if `--open` stops with `no attribute 'startfile'`,
+open the `battle.html` it names in your browser. The five checks are: it replays hash for hash,
+both sides deployed and fought, the arena matches, ground units stayed mostly dry, and the page
+holds every frame. The whole thing takes under two seconds end to end (1.4 s on 2026-09-21).
 
 The seed defaults to 1, so you get the same battle every time and only the timings move. Pass
 `--seed N` for a different one.
@@ -457,7 +475,8 @@ just be the thing underneath that plays the match.
 
 What comes in: Supercell's card and arena tables under `data/raw/`, which `tools/extract_*.py` turn
 into `data/derived/`. And recordings of real battles, which the constants were measured against.
-Those recordings are not distributed, and the tests that need them skip and say so.
+Neither the recordings nor the 15.535 asset pack is distributed. A clone has the 2018 tables and
+the committed 15.535 card table. The tests that need the pack or the recordings skip and say so.
 
 What goes out: the `royalesim` module, one JSON state per step, engine traces that RoyaleGym records
 and RoyaleViser plays, and the `data/` folder every sibling reads. RoyaleGym finds it at
@@ -479,7 +498,7 @@ Working:
   at all - a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon*
   drops, and no hand can play either. The three lists are disjoint and their union is 174: the 144
   rows plus the 2 towers plus those 28. Counts from the census at `010d670`, against `cards.json`
-  23b032626fe91432. The loadable and refused lists are pinned row by row in
+  FNV-1a 64 23b032626fe91432. The loadable and refused lists are pinned row by row in
   `crates/royalesim/tests/loadable_census.rs`, which CI runs. The 16 rows that moved from refused
   to loadable since `126992a` are the Three Musketeers, Miner, Ram Rider, Cannon Cart
   (MovingCannon), Elixir Golem, Mother Witch, Goblin Demolisher, Rune Giant (GiantBuffer), Ronin,
@@ -532,7 +551,7 @@ before you run the second one.
 
 **Both suites are green on a clean runner, on Linux and Windows, at `38346f2`.** The Rust suite is
 31 binaries, 374 passed, 0 failed and 3 ignored. The Python suite is 280 passed and 11 skipped.
-Ruff clean. The two commands are below.
+Ruff clean. The commands for all three are below.
 
 These replace the figures this page used to carry from the maintainer's laptop. A count true on one
 machine is not a certification, because a clean machine is the reader's.
@@ -574,9 +593,13 @@ only when someone re-ran with the limit lifted. A fail-fast check reports its ow
 reads exactly like a measurement once it is written into a sentence.
 
 The starting elixir moving from 5 to 6 did not create that defect. It created a battle that
-reached one already on the backlog, so the engine had carried it long before any test went red. The first run
-compiles the test binaries before it runs anything, so expect several minutes of build output
-before the first result appears.
+reached one already on the backlog, so the engine had carried it long before any test went red.
+
+The Rust suite takes tens of minutes, and most of that is compiling the test binaries before the
+first result appears. On a 4-CPU Linux machine on 2026-09-27 it took more than 26 minutes and
+about 3 GB of memory. Run it before the Python suite. Any change under `data/`, even a file
+rewritten with the same bytes, makes the next Rust run rebuild the engine and every test binary,
+and at `1d661b0` the Python suite rewrites `data/derived/globals.json`.
 
 ```
 cd RoyaleSim\crates\royalesim
@@ -588,7 +611,10 @@ On a clean runner at `38346f2` the Python suite was 280 passed and 11 skipped, a
 ```
 cd RoyaleSim
 ..\.venv\Scripts\python -m pytest -q
+..\.venv\Scripts\ruff check tools oracle tests
 ```
+
+The last line is the lint, and it prints `All checks passed!` when it is clean.
 
 Both counts come from the clean runner at `38346f2`, so they describe that commit and not a later one.
 
