@@ -459,6 +459,10 @@ pub struct Calib {
     pub strike_hp_rank: StrikeHpRank,
     #[serde(default = "strike_reach_default")]
     pub strike_reach: StrikeReach,
+    /// spells.STRIKE_AREA_END (a striking area: spell.rs `step_spells`, the Strikes arm). Added after
+    /// SNAPSHOT_FORMAT 20; the default is `AtLifeEnd`, what a battle saved before it ran.
+    #[serde(default = "strike_area_end_default")]
+    pub strike_area_end: StrikeAreaEnd,
     /// spells.ROLL_FIRST_STEP (spell.rs `step_spells`, the Airborne arm). Added after SNAPSHOT_FORMAT 20; the
     /// default is `OnLandingTick`, what a battle saved before it ran.
     #[serde(default = "roll_first_step_default")]
@@ -1034,6 +1038,10 @@ fn strike_hp_rank_default() -> StrikeHpRank {
 
 fn strike_reach_default() -> StrikeReach {
     StrikeReach::EdgeNowAndNext
+}
+
+fn strike_area_end_default() -> StrikeAreaEnd {
+    StrikeAreaEnd::AtLifeEnd
 }
 
 fn roll_first_step_default() -> RollFirstStep {
@@ -1825,6 +1833,13 @@ calib_enum!(
 /// 90, IceGolemite 595, the Bomber's 128, a Fireball crown share of 40 %, and no GoblinBrawler), the
 /// fallback set and a test's own table carry none of the five. On the corrected table a name or a
 /// column that does not fit is refused, never skipped.
+///
+/// ONE TIMING, NOT LISTED. value.values may also name a striking area's AreaHitSpeed (card.rs
+/// `CardColumn::AreaHitSpeed`). The 16.402 corpus measures the Lightning's as 500 (the tables 460):
+/// its strikes land 10 and 20 ticks after the cast where 460 gives 9 and 18. The shipped list does
+/// not carry it, because this key ships client16402 and the Lightning's timing is not yet scored:
+/// it joins the list together with spells.STRIKE_AREA_END = with_last_strike, under which the 500
+/// row's third strike, due at the 1500 ms LifeDuration (the cast + 30), falls.
 fn with_card_values(calib: &Calib, cards: Arc<CardDb>) -> Result<Arc<CardDb>, String> {
     #[cfg(not(clash_plant = "card_values_unread"))]
     let on = calib.card_values == CardValuesArm::Client16402;
@@ -2286,6 +2301,18 @@ calib_enum!(
         /// Radius + the target's radius, on the strike tick alone: refuted (a target of radius 600 was struck at a
         /// centre distance of 4242.6 from a Lightning of Radius 3500).
         RadiusPlusTarget = "radius_plus_target_radius",
+    }
+);
+calib_enum!(
+    /// spells.STRIKE_AREA_END -- when a striking area ends (spell.rs `step_spells`, the Strikes arm). Its row
+    /// schedules a strike at every k x HitSpeed up to its LifeDuration (card.rs `strike_gaps`).
+    StrikeAreaEnd {
+        /// With its last scheduled strike, or on the update its life reaches 0 if that comes first: today's engine.
+        /// A strike due at exactly the LifeDuration is lost (HitSpeed 500 of 1500 strikes twice).
+        AtLifeEnd = "at_life_end",
+        /// With its last scheduled strike: a strike due at exactly the LifeDuration still falls (HitSpeed 500 of
+        /// 1500 strikes on the cast tick + 10, + 20 and + 30). The same as at_life_end for HitSpeed 460.
+        WithLastStrike = "with_last_strike",
     }
 );
 calib_enum!(
@@ -3057,6 +3084,7 @@ impl Calib {
             strike_timer_leftover: pick(&v, &["spells", "STRIKE_TIMER_LEFTOVER", "value"], StrikeLeftover::from_calibration_name)?,
             strike_hp_rank: pick(&v, &["spells", "STRIKE_HP_RANK", "value"], StrikeHpRank::from_calibration_name)?,
             strike_reach: pick(&v, &["spells", "STRIKE_REACH", "value"], StrikeReach::from_calibration_name)?,
+            strike_area_end: pick(&v, &["spells", "STRIKE_AREA_END", "value"], StrikeAreaEnd::from_calibration_name)?,
             roll_first_step: pick(&v, &["spells", "ROLL_FIRST_STEP", "value"], RollFirstStep::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
@@ -12128,6 +12156,11 @@ mod tests {
                     CardColumn::CrownTowerDamagePercent => match d.spell.as_ref().map(|s| &s.shape) {
                         Some(SpellShape::Projectile { hit: Some(h), .. }) => h.crown_pct - 100,
                         other => panic!("{}: not a projectile spell with a hit: {other:?}", v.card),
+                    },
+                    // A striking area's HitSpeed is its first gap (card.rs `strike_gaps`). No shipped value names one.
+                    CardColumn::AreaHitSpeed => match d.spell.as_ref().map(|s| &s.shape) {
+                        Some(SpellShape::Strikes(s)) => s.gaps_ms[0],
+                        other => panic!("{}: not a striking area: {other:?}", v.card),
                     },
                 }
             };

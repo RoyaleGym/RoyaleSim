@@ -307,11 +307,26 @@ pub struct StrikeDef {
     /// LifeDuration, ms (Lightning 1500).
     pub life_ms: i32,
     /// ms from each strike to the next, the first from the cast: HitSpeed repeated while the running sum is at most
-    /// LifeDuration (Lightning [460, 460, 460]).
+    /// LifeDuration (`strike_gaps`; Lightning [460, 460, 460] from the 15.535.29 tables, [500, 500, 500] under
+    /// cards.CLIENT16402_VALUES = client16402, whose value.values give client 16.402's AreaHitSpeed 500).
     pub gaps_ms: Vec<i32>,
     /// The projectile row's Speed, raw. The strike lands the next tick whatever it is: the projectile is born on its
     /// victim.
     pub speed: i32,
+}
+
+/// A striking area's gaps, ms (`StrikeDef::gaps_ms`): HitSpeed repeated while the running sum is at most LifeDuration.
+/// Empty when HitSpeed outlasts the life. A strike due at exactly the LifeDuration is scheduled (500 of 1500: three);
+/// spells.STRIKE_AREA_END decides whether it falls. The one rule for the table's value (`strike_shape`) and for a
+/// ledger's replacement (`CardDb::with_values`, CardColumn::AreaHitSpeed).
+fn strike_gaps(hit_speed_ms: i32, life_ms: i32) -> Vec<i32> {
+    let mut gaps_ms = Vec::new();
+    let mut sum = hit_speed_ms;
+    while sum <= life_ms {
+        gaps_ms.push(hit_speed_ms);
+        sum += hit_speed_ms;
+    }
+    gaps_ms
 }
 
 /// THE STRIKING AREA a HitBiggestTargets row is (`StrikeDef`), or the reason it is refused. Exactly one shape is
@@ -356,12 +371,7 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
             Some(buffs.apply(&b, p.buff_time_ms, &format!("striking area effect {what}'s projectile"))?)
         }
     };
-    let mut gaps_ms = Vec::new();
-    let mut sum = hit_speed_ms;
-    while sum <= life_ms {
-        gaps_ms.push(hit_speed_ms);
-        sum += hit_speed_ms;
-    }
+    let gaps_ms = strike_gaps(hit_speed_ms, life_ms);
     if gaps_ms.is_empty() {
         return refuse("its HitSpeed outlasts its LifeDuration: it never strikes");
     }
@@ -4114,8 +4124,9 @@ impl CardDb {
     /// 15.535.29 extraction; `with_card_values` checks `version`), so on that table it is REFUSED,
     /// never skipped: a card this data does not load, and a column the card does not carry
     /// (hitpoints on a spell, a projectile's damage on a card with no projectile, a crown-tower
-    /// percent on a card with no hit to carry it). Setting a value twice gives the same data, so a
-    /// battle built from data that already carries the values is unchanged.
+    /// percent on a card with no hit to carry it, an area HitSpeed on a card that is not a striking
+    /// area). Setting a value twice gives the same data, so a battle built from data that already
+    /// carries the values is unchanged.
     pub fn with_values(&self, values: &[CardValue]) -> Result<CardDb, String> {
         let mut db = self.clone();
         for v in values {
@@ -4153,6 +4164,22 @@ impl CardDb {
                         None => c.crown_tower_damage_percent = pct,
                     }
                 }
+                // A striking area's HitSpeed (Lightning: 460 in the 15.535.29 tables, 500 on client 16.402). Its gaps
+                // are rebuilt by the tables' own rule (`strike_gaps`) against its LifeDuration; the clock that reads
+                // them is spells.STRIKE_TIMER_LEFTOVER's.
+                CardColumn::AreaHitSpeed => {
+                    let Some(SpellShape::Strikes(d)) = c.spell.as_mut().map(|d| &mut d.shape) else {
+                        return Err(format!("{what}: only a striking area's HitSpeed is replaced (Lightning)"));
+                    };
+                    if v.value <= 0 {
+                        return Err(format!("{what}: {} is not a HitSpeed", v.value));
+                    }
+                    let gaps_ms = strike_gaps(v.value, d.life_ms);
+                    if gaps_ms.is_empty() {
+                        return Err(format!("{what}: a {} ms HitSpeed never strikes inside a {} ms LifeDuration", v.value, d.life_ms));
+                    }
+                    d.gaps_ms = gaps_ms;
+                }
             }
         }
         Ok(db)
@@ -4178,6 +4205,8 @@ pub enum CardColumn {
     ProjectileDamage,
     /// CrownTowerDamagePercent, raw: every hit a spell carries, or the card's own.
     CrownTowerDamagePercent,
+    /// The HitSpeed of a striking area's row, ms (Lightning); its strike gaps follow it (`strike_gaps`).
+    AreaHitSpeed,
 }
 
 impl CardColumn {
@@ -4186,6 +4215,7 @@ impl CardColumn {
             "Hitpoints" => Some(CardColumn::Hitpoints),
             "ProjectileDamage" => Some(CardColumn::ProjectileDamage),
             "CrownTowerDamagePercent" => Some(CardColumn::CrownTowerDamagePercent),
+            "AreaHitSpeed" => Some(CardColumn::AreaHitSpeed),
             _ => None,
         }
     }
@@ -4207,7 +4237,7 @@ impl CardValue {
         for (card, cols) in cards {
             let cols = cols.as_object().ok_or_else(|| format!("{key}.{card}: an object of column names is required"))?;
             for (col, val) in cols {
-                let column = CardColumn::from_ledger_name(col).ok_or_else(|| format!("{key}.{card}.{col}: not a column the overlay replaces (Hitpoints, ProjectileDamage, CrownTowerDamagePercent)"))?;
+                let column = CardColumn::from_ledger_name(col).ok_or_else(|| format!("{key}.{card}.{col}: not a column the overlay replaces (Hitpoints, ProjectileDamage, CrownTowerDamagePercent, AreaHitSpeed)"))?;
                 let value = val
                     .as_i64()
                     .and_then(|x| i32::try_from(x).ok())

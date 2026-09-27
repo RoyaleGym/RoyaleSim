@@ -62,7 +62,7 @@ use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
-use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope};
+use crate::state::{AoeHitTest, AreaBuffSourceBinding, Calib, ChildAreaBirth, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape, StrikeAreaEnd, StrikeHpRank, StrikeLeftover, StrikeReach, SummonFuseStart, TargetBuffScope};
 use crate::{EntityId, Team};
 
 /// Where a spell is in its life.
@@ -1101,7 +1101,11 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // A STRIKING AREA (spells.STRIKE_TIMER_LEFTOVER): each update takes a tick off its clock, and the
             // update whose clock falls below zero strikes (`strike`). Under carried the next strike is timed from
             // the strike time itself, so strike k falls on the cast tick + floor(k x HitSpeed / TICK_MS); under
-            // dropped from the end of the strike's tick. The object goes with its last strike.
+            // dropped from the end of the strike's tick. The object goes with its last scheduled strike, and under
+            // spells.STRIKE_AREA_END = at_life_end also on the update its life reaches 0, the strike check first. A
+            // strike due at exactly the LifeDuration (HitSpeed 500 of 1500: the third, on the cast tick + 30) falls
+            // one update after that one, so at_life_end loses it and with_last_strike makes it. With HitSpeed 460
+            // the last strike (the cast tick + 27) comes before the life ends, and the two arms do the same.
             (SpellMotion::Strikes { pos, life_ms, next_ms, k, struck }, SpellShape::Strikes(def)) => {
                 *next_ms -= tick;
                 *life_ms -= tick;
@@ -1118,7 +1122,15 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                         StrikeLeftover::Dropped => gap,
                     };
                 }
-                (*k as usize) < def.gaps_ms.len() && *life_ms > 0
+                #[cfg(not(clash_plant = "strike_area_ends_at_life"))]
+                let end = ctx.calib.strike_area_end;
+                #[cfg(clash_plant = "strike_area_ends_at_life")]
+                let end = StrikeAreaEnd::AtLifeEnd; // PLANT: the life ends the area before a strike due at its end.
+                let more = (*k as usize) < def.gaps_ms.len();
+                match end {
+                    StrikeAreaEnd::AtLifeEnd => more && *life_ms > 0,
+                    StrikeAreaEnd::WithLastStrike => more,
+                }
             }
             // THE BOTTLE (spells.SUMMON_FUSE_START = unit_deploy_law): the fuse is counted like a
             // unit's DeployTime, from the cast tick's own update, and releases on the update it reaches
