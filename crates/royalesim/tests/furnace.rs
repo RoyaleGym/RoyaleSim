@@ -20,7 +20,10 @@
 //!   4. the spirit deploys for 10 frames;
 //!   5. the spirit's hitpoints are the Fire Spirits row at the Furnace's level;
 //!   6. no drain: the Furnace's hitpoints stay whole while nothing hits it;
-//!   7. both INTERVAL_START_ORIGIN arms give F + 38 at DeployTime 1000 (the corpus cannot separate them);
+//!   7. both INTERVAL_START_ORIGIN arms give F + 38 at DeployTime 1000 (the corpus cannot separate them), and on a
+//!      Furnace put down by a setup spawn, which skips its deploy, they part: the first spirit on k = 38 (k = 0 the
+//!      first tick after it is set down) under placement_counter_first_frame_counts and on k = 19 under
+//!      activation_after_own_deploy_time (engine reading);
 //!   8. the loader takes the interval block only with exactly its graph, and refuses every other shape.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test furnace`):
@@ -29,6 +32,8 @@
 //!     spawners' gates (tests/spawner.rs) stay green.
 //!   * `to_location_by_facing` -- the offset turned by the Furnace's facing: (3) red.
 //!   * `action_spawn_unit_deploy` -- the spirit deploys for its own 1000: (4) red.
+//!   * `interval_start_origin_unread` -- the first-unit timer starts as placement_counter_first_frame_counts whatever
+//!     the key says: (7)'s setup-spawn half red; its played half stays green, the arms agreeing there.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -196,6 +201,34 @@ fn both_start_origins_give_f_plus_38_at_deploy_time_1000() {
         let (_, t) = run(c, Team::Blue, 45);
         assert_eq!(emission_ticks(&t).first(), Some(&38), "{arm:?}");
     }
+}
+
+/// 7, where the arms part. Plant: interval_start_origin_unread.
+#[test]
+fn a_setup_furnace_starts_its_timer_by_the_arm() {
+    // A setup spawn puts the Furnace down already deployed, so its interval spawner starts as it is set down, with no
+    // tick lived. k = 0 is the first tick run after that. placement_counter_first_frame_counts loads StartCounterAt
+    // 1950, and the first spirit comes on k = 38, as for a played Furnace. activation_after_own_deploy_time loads
+    // the unit's DeployTime 1000, which a played Furnace has already served: k = 19. Engine reading: no client
+    // recording starts a Furnace this way.
+    let setup = |arm: IntervalStart| {
+        let mut c = cfg();
+        c.calib.interval_start_origin = arm;
+        let mut s = BattleState::new(0, c);
+        let id = s.scenario_spawn_now(Team::Blue, FURNACE, at(AT), None).expect("set the Furnace down");
+        assert!(!s.entity(id).expect("the Furnace stands").deploying, "precondition: a setup spawn is already deployed");
+        let mut first = None;
+        for k in 0..45u32 {
+            s.tick();
+            if s.entities().any(|v| v.card == SPIRIT && v.team == Team::Blue) {
+                first = Some(k);
+                break;
+            }
+        }
+        first
+    };
+    assert_eq!(setup(IntervalStart::PlacementCounter), Some(38), "placement_counter_first_frame_counts: StartCounterAt 1950");
+    assert_eq!(setup(IntervalStart::ActivationDeployTime), Some(19), "activation_after_own_deploy_time: DeployTime 1000");
 }
 
 /// 8. The loader's side, on a synthetic file: a Spirit card and Ovens carrying the block in several shapes.

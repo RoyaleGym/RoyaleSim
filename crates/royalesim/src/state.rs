@@ -6820,7 +6820,12 @@ impl BattleState {
         // DeployTime at the deploy end, the same tick for a DeployTime of 1000.
         if sp.source == SpawnerSource::ActionInterval {
             let start = sp.start_time_ms.unwrap_or(0);
-            self.ents.spawn_ms[i] = match c.interval_start_origin {
+            #[cfg(not(clash_plant = "interval_start_origin_unread"))]
+            let origin = c.interval_start_origin;
+            // PLANT (regression, tests/furnace.rs): the key is not read and the placement counter always runs.
+            #[cfg(clash_plant = "interval_start_origin_unread")]
+            let origin = IntervalStart::PlacementCounter;
+            self.ents.spawn_ms[i] = match origin {
                 IntervalStart::PlacementCounter => {
                     let lived = self.tick.saturating_sub(self.ents.spawn_tick[i]) as i32;
                     (start - lived * c.tick_ms).max(0)
