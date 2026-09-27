@@ -1825,13 +1825,18 @@ pub struct CardDef {
     /// characters / buildings IgnoreClone (cards.json `ignore_clone`; the Goblin Drill's dig, the chess Recruits): the
     /// Clone spell never copies this unit (spell.rs `step_spells`). False on a blank.
     pub ignore_clone: bool,
+    /// ProjectileYOffset, SUBTILES (0 = blank): a projectile is born this much further along its attacker's OWN
+    /// forward y (Blue +y, Red -y) than ProjectileStartRadius alone puts it, under calibration
+    /// combat.PROJECTILE_Y_OFFSET = client_forward_y (the King Tower's 400; measured on the 16.402 corpus, every
+    /// king shot's first frame). Read by combat.rs `launch_point`; ignored under the old arm.
+    pub projectile_y_offset: i32,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `ignore_clone`, and onto the end of that tail
+    // field goes HERE, after `projectile_y_offset`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -2127,6 +2132,9 @@ struct RawCard {
     spawn_max_angle_deg: Option<i32>,
     /// characters.csv ProjectileStartRadius, millitiles (the tower arrows 300).
     projectile_start_radius_milli: Option<i32>,
+    /// characters / buildings ProjectileYOffset, millitiles (the King Tower 400): `CardDef::projectile_y_offset`.
+    /// Written on the 15.535 rows that set it only, so absent (a blank, 0) everywhere else and in the 2018 file.
+    projectile_y_offset_milli: Option<i32>,
     /// characters.csv Kamikaze / KamikazeTime.
     kamikaze: Option<bool>,
     kamikaze_time_ms: Option<i32>,
@@ -4065,6 +4073,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         kamikaze_time_ms: 0,
         death_pushback: 0,
         ignore_clone: false,
+        projectile_y_offset: 0,
     }
 }
 
@@ -5980,6 +5989,12 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         kamikaze_time_ms,
         death_pushback,
         ignore_clone: raw.ignore_clone.unwrap_or(false),
+        // ProjectileYOffset: a blank (every row but the King Tower's among the loaded ones) is none. Signed: the
+        // column may point backwards (an event row ships -800), so it is not `nonneg`.
+        #[cfg(not(clash_plant = "projectile_y_offset_unread"))]
+        projectile_y_offset: milli(raw.projectile_y_offset_milli.unwrap_or(0)),
+        #[cfg(clash_plant = "projectile_y_offset_unread")]
+        projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
     }, display, units))
 }
 

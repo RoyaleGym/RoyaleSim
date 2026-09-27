@@ -46,7 +46,7 @@ use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
-    ProjectileStep, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
+    ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -1115,7 +1115,7 @@ pub fn fire(
             Some(cf) => (cf.speed, cards.scaled(ents.card[a], ents.level[a], cf.damage).expect("level validated at spawn"), cf.radius, cf.hits_air, cf.hits_ground, cf.crown_pct),
             None => (p.speed, amount, splash_r, card.attacks_air, card.attacks_ground, pct),
         };
-        let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, a, ti);
+        let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, card.projectile_y_offset, a, ti);
         // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
         // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
         // start-of-tick centre and flown there whatever the target does (measured on client
@@ -1261,7 +1261,15 @@ fn stage_damage(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> i32
 /// from the attacker's centre toward the target, first step the next tick (the live tower
 /// arrows: 299-300 from the centre on the launch frame, 600 per tick from the next); the old
 /// arm starts it at the centre and steps it at once. `fire` and `launch_hook` both read it.
-fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, a: usize, ti: usize) -> (Vec2, bool) {
+///
+/// combat.PROJECTILE_Y_OFFSET = client_forward_y adds the row's ProjectileYOffset (`y_offset`,
+/// subtiles; the King Tower's 400) along the attacker's OWN forward y to that point: Blue +y,
+/// Red -y, whatever the bearing to the target. Measured on the 16.402 corpus on every king-tower
+/// shot's first frame (413 of 413, one seat per battle): the shot sits exactly 400 past the plain
+/// point toward the enemy side, and it flies from there. Only this point moves: the bearing is
+/// still read from the attacker's centre, and the other launch paths (a straight shot's, a fan's)
+/// do not read the column, which no loaded row that sets it fires.
+fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32, a: usize, ti: usize) -> (Vec2, bool) {
     match calib.projectile_launch {
         ProjectileLaunch::StartRadiusNextTick => {
             let d = ents.pos[ti].sub(ents.pos[a]);
@@ -1282,6 +1290,13 @@ fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, a: usize, ti:
             } else {
                 ents.pos[a]
             };
+            if calib.projectile_y_offset == ProjectileYOffset::ClientForwardY && y_offset != 0 {
+                #[cfg(not(clash_plant = "projectile_y_offset_arena_frame"))]
+                let forward = forward_dy(ents.team[a]);
+                #[cfg(clash_plant = "projectile_y_offset_arena_frame")]
+                let forward = 1; // PLANT (regression): the offset goes up the arena for both seats, so the Red king's shot is born behind it.
+                return (Vec2::new(pos.x, pos.y + forward * y_offset), true);
+            }
             (pos, true)
         }
         ProjectileLaunch::AttackerCentreSameTick => (ents.pos[a], false),
@@ -1297,7 +1312,8 @@ fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, a: usize, ti:
 /// no hitpoints to it.
 pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, target: EntityId, speed_raw: i32, projectiles: &mut Vec<Projectile>) {
     let ti = target.index as usize;
-    let (pos, fresh) = launch_point(ents, calib, cards.get(ents.card[a]).projectile_start_radius, a, ti);
+    let thrower = cards.get(ents.card[a]);
+    let (pos, fresh) = launch_point(ents, calib, thrower.projectile_start_radius, thrower.projectile_y_offset, a, ti);
     projectiles.push(Projectile {
         team: ents.team[a],
         pos,

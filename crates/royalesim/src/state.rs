@@ -298,6 +298,11 @@ pub struct Calib {
     /// `fire`, `step_straight`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "range_projectile_default")]
     pub range_projectile: RangeProjectile,
+    /// combat.PROJECTILE_Y_OFFSET: whether a shot's start point takes its attacker's ProjectileYOffset along the
+    /// attacker's own forward y (combat.rs `launch_point`; the King Tower's 400). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is the old arm, what a battle saved before it actually ran.
+    #[serde(default = "projectile_y_offset_default")]
+    pub projectile_y_offset: ProjectileYOffset,
     /// combat.PROJECTILE_COLLISIONS: whether a straight shot reads its row's CheckCollisions,
     /// ProjectileStartExtraRadius and RandomDelay (combat.rs `fire`, `step_straight`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
@@ -1080,6 +1085,10 @@ fn projectile_step_default() -> ProjectileStep {
 
 fn range_projectile_default() -> RangeProjectile {
     RangeProjectile::ToTarget
+}
+
+fn projectile_y_offset_default() -> ProjectileYOffset {
+    ProjectileYOffset::NotRead
 }
 
 fn projectile_collisions_default() -> ProjectileCollisions {
@@ -4285,6 +4294,22 @@ calib_enum!(
         AttackerCentreSameTick = "attacker_centre_same_tick",
     }
 );
+calib_enum!(
+    /// combat.PROJECTILE_Y_OFFSET -- what a row's ProjectileYOffset (card.rs `CardDef::projectile_y_offset`) does to
+    /// where its shot is born (combat.rs `launch_point`). Read only under combat.PROJECTILE_LAUNCH =
+    /// start_radius_next_tick.
+    ProjectileYOffset {
+        /// Today's engine: the column is loaded and not used, so a King Tower's shot is born ProjectileStartRadius
+        /// from its centre toward the target and nowhere else.
+        NotRead = "not_read",
+        /// Measured on the 16.402 corpus (one seat per battle, 41 battles): the shot is born at the
+        /// ProjectileStartRadius point plus ProjectileYOffset along the attacker's own forward y (Blue +y, Red -y) on
+        /// 413 of 413 king-tower shots (191 Blue, 222 Red), and flown from there by combat.PROJECTILE_STEP it lands on
+        /// the client's tick on 251 of 251 followed flights (193 without the offset). The princess towers, whose
+        /// rows set none, sit on the plain point (2,085 of 2,092).
+        ClientForwardY = "client_forward_y",
+    }
+);
 
 /// combat.DASH_ATTACK = client_dash: a dash with a DashConstantTime (the Mega Knight's) ends this many
 /// ticks after its blow. Measured on client 15.535.29 on the Mega Knight only (2 of 2 jumps: the
@@ -4592,6 +4617,7 @@ impl Calib {
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
             projectile_step: pick(&v, &["combat", "PROJECTILE_STEP", "value"], ProjectileStep::from_calibration_name)?,
             range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
+            projectile_y_offset: pick(&v, &["combat", "PROJECTILE_Y_OFFSET", "value"], ProjectileYOffset::from_calibration_name)?,
             projectile_collisions: pick(&v, &["combat", "PROJECTILE_COLLISIONS", "value"], ProjectileCollisions::from_calibration_name)?,
             custom_first_projectile: pick(&v, &["combat", "CUSTOM_FIRST_PROJECTILE", "value"], CustomFirstProjectile::from_calibration_name)?,
             multiple_projectiles: pick(&v, &["combat", "MULTIPLE_PROJECTILES", "value"], MultipleProjectiles::from_calibration_name)?,
@@ -16272,6 +16298,11 @@ impl BattleState {
 /// 20, unchanged, combat.CORPSE_SWITCH_REACH: Calib gained corpse_switch_reach (serde default the old arm, keeps_any), no
 ///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
+/// 20, unchanged, combat.PROJECTILE_Y_OFFSET: Calib gained projectile_y_offset (serde default the old arm, not_read),
+///    no new state, so a format-20 blob saved before it deserializes and hashes as it did. CardDef gained
+///    `projectile_y_offset` (the King Tower's ProjectileYOffset), so the card fingerprint moves: a snapshot saved by an
+///    earlier build is refused as saved against other card data. migrate_v3 strips it with the rest of the
+///    post-format-3 tail and runs a migrated battle at not_read; no card's index moves.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16481,12 +16512,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... enchant~~ -- the transformation and the counter (still format 20) added
                 // `transform_at_hp` and `parry` after it.
                 // ~~... parry~~ -- the Clone (still format 20) added `ignore_clone` after it.
+                // ~~... parry~~ -- combat.PROJECTILE_Y_OFFSET (still format 20) added `projectile_y_offset`
+                // after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -16541,7 +16574,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.parry,
                     c.kamikaze_time_ms,
                     c.death_pushback,
-                    c.ignore_clone
+                    c.ignore_clone,
+                    c.projectile_y_offset
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -16608,6 +16642,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // same rule).
     sh.insert("projectile_step".into(), serde_json::to_value(ProjectileStep::FractionCarry).map_err(|e| e.to_string())?);
     sh.insert("range_projectile".into(), serde_json::to_value(RangeProjectile::ToTarget).map_err(|e| e.to_string())?);
+    // combat.PROJECTILE_Y_OFFSET: a format-3 battle bore every shot without the row's ProjectileYOffset; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("projectile_y_offset".into(), serde_json::to_value(ProjectileYOffset::NotRead).map_err(|e| e.to_string())?);
     sh.insert("custom_first_projectile".into(), serde_json::to_value(CustomFirstProjectile::NotRead).map_err(|e| e.to_string())?);
     sh.insert("multiple_projectiles".into(), serde_json::to_value(MultipleProjectiles::One).map_err(|e| e.to_string())?);
     sh.insert("multiple_targets".into(), serde_json::to_value(MultipleTargets::NotRead).map_err(|e| e.to_string())?);

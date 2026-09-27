@@ -475,7 +475,7 @@ SCALAR_STAT_COLUMNS = {
     "JumpEnabled", "JumpHeight",
     "JumpSpeed", "HidesWhenNotAttacking", "HideTimeMs", "UpTimeMs", "BuffOnDamage",
     "BuffOnDamageTime", "AttachedCharacter", "NoDeploySizeW", "NoDeploySizeH",
-    "ProjectileStartRadius", "Kamikaze", "KamikazeTime",
+    "ProjectileStartRadius", "ProjectileYOffset", "Kamikaze", "KamikazeTime",
     # projectiles / area effects / buffs / spells
     "Homing", "Radius", "RadiusY", "AoeToAir", "AoeToGround", "OnlyEnemies", "Pushback",
     "PushbackAll", "MaximumTargets", "ProjectileRadius", "ProjectileRadiusY", "ProjectileRange",
@@ -2418,6 +2418,12 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # point (the Skeleton Barrel's container 1000, the Golem 1800), under calibration
         # knockback.DEATH_PUSHBACK. 15.535 rows only.
         "death_pushback_milli": c.get("DeathPushBack"),
+        # ProjectileYOffset: a shot is born this much further along its attacker's own forward y than
+        # ProjectileStartRadius alone puts it (the King Tower 400), under calibration
+        # combat.PROJECTILE_Y_OFFSET. 15.535 rows only, and dropped below from every row that does not
+        # set it, so no other row and nothing in the 2018 file changes. The column also stays out of
+        # `raw` (COSMETIC), which is why it is read here by name.
+        "projectile_y_offset_milli": c.get("ProjectileYOffset"),
         # THE SPECIAL (SpecialRange / SpecialMinRange / SpecialLoadTime / ProjectileSpecial): the
         # Fisherman's hook, under calibration combat.SPECIAL_HOOK. `projectile` is the
         # ProjectileSpecial row in the shape of every projectile object, and `drag_margin_milli`
@@ -2475,6 +2481,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         del u["reflected_attack"]
     if u["mana"] is None or not isinstance(c, Row):
         del u["mana"]
+    if u["projectile_y_offset_milli"] is None or not isinstance(c, Row):
+        del u["projectile_y_offset_milli"]
     if not isinstance(c, Row):
         # The 2018 file stays byte-identical: it does not grow the keys written for the 15.535
         # rows alone (UNIT_FIELDS_15535).
@@ -2895,6 +2903,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # Only on a row that sets a Mana column (norm_unit), so every other card row is unchanged.
     if "mana" in u:
         card["mana"] = u["mana"]
+    # Only on a row that sets ProjectileYOffset (norm_unit), so every other card row is unchanged.
+    if "projectile_y_offset_milli" in u:
+        card["projectile_y_offset_milli"] = u["projectile_y_offset_milli"]
     if "attack_select" in u:
         card["attack_select"] = u["attack_select"]
     if "enchant_friends" in u:
@@ -3298,6 +3309,9 @@ def build(t: Tables) -> dict:
                 rec[f] = u[f]
         if "reflected_attack" in u:
             rec["reflected_attack"] = u["reflected_attack"]
+        # The King Tower's ProjectileYOffset (norm_unit writes it only where set).
+        if "projectile_y_offset_milli" in u:
+            rec["projectile_y_offset_milli"] = u["projectile_y_offset_milli"]
         rec["count"] = 1
         # NoDeploySizeW/H: set on exactly the crown towers (and a NOTINUSE king copy)
         # in this data. Carried as TILES -- the unit under which all four arena
