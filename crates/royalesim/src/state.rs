@@ -439,6 +439,11 @@ pub struct Calib {
     /// arm, what a battle saved before it actually ran.
     #[serde(default = "dash_attack_default")]
     pub dash_attack: DashAttack,
+    /// combat.DASH_FIRST_SIGHT_TRIGGER: whether a dasher that first sees its target already inside its trigger
+    /// distance starts its stand on that tick or on the next (`phase_path16402`'s dash). Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm.
+    #[serde(default = "dash_first_sight_trigger_default")]
+    pub dash_first_sight_trigger: DashFirstSightTrigger,
     /// spells.SUMMON_FUSE_START (the bottle; spell.rs `step_spells`). Added after SNAPSHOT_FORMAT 20;
     /// a battle saved before it held no bottle, so the default is the shipped arm.
     #[serde(default = "summon_fuse_start_default")]
@@ -1213,6 +1218,10 @@ fn spawn_pathfind_destination_default() -> SpawnPathfindDestination {
 
 fn dash_attack_default() -> DashAttack {
     DashAttack::None
+}
+
+fn dash_first_sight_trigger_default() -> DashFirstSightTrigger {
+    DashFirstSightTrigger::NextTick
 }
 
 fn summon_fuse_start_default() -> SummonFuseStart {
@@ -3293,6 +3302,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_FIRST_SIGHT_TRIGGER -- the trigger tick of a dasher (combat.DASH_ATTACK = client_dash) whose target
+    /// is already inside DashMaxRange + the target's radius on the first tick it has that target, and not nearer
+    /// than DashMinRange edge to edge. A dasher that walks into its trigger distance is not this key's.
+    DashFirstSightTrigger {
+        /// Today's engine: the first-sight tick records the target and stands, and the trigger is the next tick, so
+        /// the unit moves on the first sight + DashCooldown / 50 (+ 1 for the Bandit's still entry tick).
+        NextTick = "next_tick",
+        /// Measured on client 15.535.29: the first-sight tick is the trigger. Of 12 dashers that first saw their
+        /// target inside the trigger distance, the 2 Mega Knights moved on the first sight + 17 and the 10 Bandits on
+        /// + 16. Those are the counts from the trigger of the 16 dashers that walked into it (16 of 16).
+        FirstSightTick = "first_sight_tick",
+    }
+);
+calib_enum!(
     /// pathfinding.GOAL_TARGET_POSITION -- the target centre a chaser's goal cell is chosen around
     /// (the cells within its Range + own CollisionRadius of that centre, the nearest one to the
     /// chaser winning; path16402.rs `choose_goal_cell`).
@@ -4127,6 +4150,7 @@ impl Calib {
                 .map(|u| u.as_str().map(str::to_string).ok_or("combat.POST_KILL_RETARGET_WAIT.value.attack_finish_override_units: every entry is a unit name"))
                 .collect::<Result<Vec<_>, _>>()?,
             dash_attack: pick(&v, &["combat", "DASH_ATTACK", "value"], DashAttack::from_calibration_name)?,
+            dash_first_sight_trigger: pick(&v, &["combat", "DASH_FIRST_SIGHT_TRIGGER", "value"], DashFirstSightTrigger::from_calibration_name)?,
             summon_fuse_start: pick(&v, &["spells", "SUMMON_FUSE_START", "value"], SummonFuseStart::from_calibration_name)?,
             child_area_birth: pick(&v, &["spells", "CHILD_AREA_BIRTH", "value"], ChildAreaBirth::from_calibration_name)?,
             own_side_area_scope: pick(&v, &["spells", "OWN_SIDE_AREA_SCOPE", "value"], OwnSideScope::from_calibration_name)?,
@@ -9181,7 +9205,10 @@ impl BattleState {
                 // target's radius starts the stand. Three Bandits and a Mega Knight put down inside that
                 // distance moved on their first active frame + 17 and + 18: the trigger falls on the
                 // frame after first sight, and on the first-sight frame itself the unit already stands (a
-                // Mega Knight put down 4,805 from its target stood from its first active tick). A dash's
+                // Mega Knight put down 4,805 from its target stood from its first active tick). That first
+                // active frame is the tick BEFORE first sight: a unit put down has its first target on its
+                // first active frame + 1. Under combat.DASH_FIRST_SIGHT_TRIGGER = first_sight_tick the
+                // first-sight tick is the trigger, which is that count; under next_tick it is one later. A dash's
                 // end forgets its target, so the next sight of it is a first sight: a unit whose dash
                 // ended in melee sees it inside DashMinRange and walks in.
                 //
@@ -9220,6 +9247,18 @@ impl BattleState {
                                 #[cfg(not(clash_plant = "dash_first_sight_walks"))]
                                 {
                                     dash_stand = within && !dash_blocked[i];
+                                }
+                                // combat.DASH_FIRST_SIGHT_TRIGGER = first_sight_tick: that first-sight tick IS the
+                                // trigger (measured on client 15.535.29: 12 of 12 dashers first seeing their target
+                                // inside the trigger distance moved on the first sight + 17, the Mega Knight, or
+                                // + 16, the Bandit). Under next_tick the branch below triggers on the next tick.
+                                #[cfg(not(clash_plant = "dash_first_sight_next_tick"))]
+                                let on_sight = calib.dash_first_sight_trigger == DashFirstSightTrigger::FirstSightTick;
+                                #[cfg(clash_plant = "dash_first_sight_next_tick")]
+                                let on_sight = false; // PLANT (regression): the new arm triggers on the tick after first sight.
+                                if on_sight && within && !dash_blocked[i] {
+                                    dash_state[i] = DashState::Standing;
+                                    dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
                                 }
                             } else if !dash_blocked[i] && within {
                                 dash_state[i] = DashState::Standing;
@@ -14708,6 +14747,9 @@ impl BattleState {
 ///    `parry`, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other
 ///    card data. migrate_v3 strips it with the rest of the post-format-3 tail. The Ronin's stun row is a new buff
 ///    interned at the Ronin's place in load order, so every buff first interned by a later card moves up one index.
+/// 20, unchanged, combat.DASH_FIRST_SIGHT_TRIGGER: Calib gained dash_first_sight_trigger (serde default the old arm,
+///    next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15038,6 +15080,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("multiple_projectiles".into(), serde_json::to_value(MultipleProjectiles::One).map_err(|e| e.to_string())?);
     sh.insert("multiple_targets".into(), serde_json::to_value(MultipleTargets::NotRead).map_err(|e| e.to_string())?);
     sh.insert("deploy_projectile".into(), serde_json::to_value(DeployProjectile::NotRead).map_err(|e| e.to_string())?);
+    // combat.DASH_FIRST_SIGHT_TRIGGER: a format-3 battle ran no dash; it keeps the old arm whatever the ledger ships
+    // (the same rule).
+    sh.insert("dash_first_sight_trigger".into(), serde_json::to_value(DashFirstSightTrigger::NextTick).map_err(|e| e.to_string())?);
     // The special attacks: a format-3 battle ran no damage ramp, no first-hit load, no recoil
     // and no hook; it keeps that whatever the ledger ships (the same rule).
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
