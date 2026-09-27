@@ -823,9 +823,9 @@ is fifteen lines.
 ## 8. Open questions
 
 Open as of this corpus. Items 1 and 2 have since been settled on client 16.402 (the expansion
-order is reproduced outright and the contact law is measured), and items 5, 6 and 9 were settled
-by the same captures. `pathfinding.md` carries all of them. The rest are open, and the experiment
-each one needs is named.
+order is reproduced outright and the contact law is measured), and items 5, 6, 9 and 10 were
+settled by the same captures. `pathfinding.md` carries all of them. The rest are open, and the
+experiment each one needs is named.
 
 1. **The tie-break / expansion order.** 13/76 distinct experiments is the ceiling of a
    1040-configuration search over the offline trace corpus of client 15.535.29. The 100 %
@@ -867,8 +867,9 @@ each one needs is named.
    Hut), and re-run the six-offset sweep.
 9. **The stomp rounding mode.** One `IceGolemite` trace (predicts 52 under floor, 53 under
    round) and one `GoblinGiant` trace (predicts 69, testing the formula outside Speed 45).
-10. **`SpeedMultiplier`.** Completely unmeasured. One rage trace would calibrate the buff
-    path.
+10. **`SpeedMultiplier`.** Completely unmeasured in this corpus. One rage trace would calibrate
+    the buff path. Measured since on the 16.402 corpus (`movement.BUFF_SPEED_RULE`;
+    `pathfinding.md`).
 11. **Does building *removal* trigger the same 0-tick replan?** The Cannon's `LifeTime` is
     30 000 ms and the traces end before expiry.
 12. **`PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`.** No projectile flies in these traces. The

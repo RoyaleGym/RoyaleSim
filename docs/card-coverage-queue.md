@@ -1,12 +1,17 @@
 # Which cards to build next, ranked by how often they actually appear
 
+**Status at RoyaleSim `126992a`:** the Barbarian Barrel, Lightning and the Royal Ghost load. Miner,
+Graveyard and the action-graph reader remain. The loader's census at that commit refuses 36 of the
+144 cards, and 18 of those refusals name an action graph the loader does not read.
+
 Written 2026-09-23 from a second user's measurement of their own opponent pool, which is the
 first time this backlog has been ordered by anything other than what looked interesting.
 
 ## The measurement
 
-All figures in this file are one user's report of 2026-09-23, against their own
-held-out pool of 293 opponent decks. Nothing here was measured by this project.
+The deck counts and the 24% in this file are one user's report of 2026-09-23, against their own
+held-out pool of 293 opponent decks. This project did not measure them. The refusal counts come
+from the loader's own census.
 
 A user running RoyaleSim against held-out real matchups reported: of 293 held-out opponent
 decks, the cards that stop a deck loading are **Barbarian Barrel in 93**, **Lightning in 40**,
@@ -24,26 +29,29 @@ specific, which is the useful part: none of these is "hard", each is a named mec
 
 | card | decks blocked | what the loader says it needs |
 |---|---:|---|
-| Barbarian Barrel | 93 | a rolling projectile that carries targets, spawns and buffs at once (`BarbLogProjectileRolling`). The Log's roll already exists; this is the roll plus a spawn on stop. |
-| Lightning | 40 | a pulsing area effect whose mechanic is not in the buff columns at all — it picks N highest-hitpoint targets, which no column expresses. |
-| Royal Ghost | 33 | not in the rejected list under that name; it is the hide/reveal mechanic, and `hides_when_not_attacking` already exists in the card data. Worth re-checking before scheduling. |
+| Barbarian Barrel | 93 | **Loads at RoyaleSim `126992a`.** It needed a rolling projectile that carries targets, spawns and buffs at once (`BarbLogProjectileRolling`): the Log's roll plus a spawn on stop. |
+| Lightning | 40 | **Loads at RoyaleSim `126992a`.** It needed a pulsing area effect whose mechanic is not in the buff columns at all: it picks N highest-hitpoint targets, which no column expresses. |
+| Royal Ghost | 33 | **Loads at RoyaleSim `126992a`.** It was not in the rejected list under that name; it is the hide/reveal mechanic. |
 | Miner | 30 | spawns at the caster's own king tower and travels underground to the tap (`SpawnPathfindSpeed 650`). A second locomotion mode, not a combat rule. |
 | Graveyard | 27 | an action graph (`ActionGroup`, `ActionSpawnToLocation`) that spawns skeletons at intervals across an area. |
 
-Across the whole catalogue, 44 of 144 cards are refused, and by rejection reason **20 of them
-need an action graph the loader does not read** — that is one piece of work, not twenty.
+At RoyaleSim `126992a`, 36 of 144 cards are refused, and by rejection reason **18 of them need an
+action graph the loader does not read** (the Rage Barbarian's is in its death area effect). That is
+one piece of work, not eighteen.
 
 ## The order this suggests, and why it is not simply the frequency order
 
-1. **Barbarian Barrel.** Three times the next card's frequency, and the closest to something
-   that exists: the Log's rolling projectile is implemented and measured.
-2. **The action-graph reader.** Graveyard is 27 decks on its own, but the same reader unlocks
-   19 other cards. Ordered above Lightning and Miner despite a lower single-card count, because
-   it is the only item here whose value is not capped by its own frequency.
+1. **Barbarian Barrel.** Done: it loads at RoyaleSim `126992a`. Three times the next card's
+   frequency, and the closest to something that existed: the Log's rolling projectile.
+2. **The action-graph reader.** Graveyard is 27 decks on its own, and at RoyaleSim `126992a` 17
+   other refused cards name the same reader. Ordered above Lightning and Miner despite a lower
+   single-card count, because it is the only item here whose value is not capped by its own
+   frequency.
 3. **Miner.** Self-contained: one extra locomotion mode with a speed already in the data.
-4. **Lightning.** Needs a targeting rule (N highest-hitpoint victims) that no existing column
-   carries, so it is a new mechanic rather than a new card.
-5. **Royal Ghost.** Check the rejection reason first; the hide columns already load.
+4. **Lightning.** Done: it loads at RoyaleSim `126992a`. It needed a targeting rule (N
+   highest-hitpoint victims) that no existing column carries, so it was a new mechanic rather
+   than a new card.
+5. **Royal Ghost.** Done: it loads at RoyaleSim `126992a`.
 
 ## The honest caveat about the 24%
 

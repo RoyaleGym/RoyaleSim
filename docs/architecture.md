@@ -70,7 +70,7 @@ Nothing in the crate hardcodes a number that belongs to data:
 
 | Source | Holds | Loaded by |
 |---|---|---|
-| `data/calibration.json` | every physics constant, with its evidence | compiled in with `include_str!`; parsed in `state.rs` into `Calib` |
+| `data/calibration.json` | every physics constant, with its evidence, and five measured card values that replace the 15.535 table's (`cards.CLIENT16402_VALUES`) | compiled in with `include_str!`; parsed in `state.rs` into `Calib` |
 | `data/derived/cards.json` | card stats, generated from `data/raw/` | read by `card.rs` (through the env layer for Python callers) |
 | `data/derived/arena.json` | the arena grid and tower geometry | compiled in with `include_str!`; `arena.rs` |
 
@@ -170,8 +170,10 @@ The crate itself has no Python dependency and builds alone.
   reimplementation. `check_deploy(team, slot, x, y)` returns an index into `DEPLOY_REASONS`, which
   holds fifteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
   `OUT_OF_ARENA`, `WATER`, `NO_DEPLOY`, `OUT_OF_TERRITORY`, `OCCUPIED`, `GAME_OVER`,
-  `DUPLICATE_TEAM`, `ENGINE_ERROR`, `TOO_EARLY`, `NOTHING_TO_MIRROR`. For example, with a Giant
-  in hand slot 0 at the start of a battle (re-run 2026-09-21):
+  `DUPLICATE_TEAM`, `ENGINE_ERROR`, `TOO_EARLY`, `NOTHING_TO_MIRROR`. A match refuses every
+  deploy for its opening `match.DEPLOY_LOCKOUT_TICKS` (90 ticks), so at tick 0 every answer is
+  `TOO_EARLY`. For example, with a Giant in hand slot 0, once those 90 ticks have passed (re-run
+  2026-09-26 on RoyaleSim `126992a`):
 
   ```python
   T, R = royalesim.SUBTILE, royalesim.DEPLOY_REASONS

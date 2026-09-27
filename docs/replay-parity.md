@@ -17,9 +17,9 @@ not reproduced here.
 This page is for contributors who want to know how close the engine is to the game. The engine's
 claim is that it reproduces the game, and this file is the measurement of that claim over every
 recorded battle the repository has. The harness plays the script of what a player did through the
-engine, then scores the engine's per-tick state against what the game then showed. It is a
-property of the engine at this commit, not a record of a work pass; re-run the commands below and
-the tables come back.
+engine, then scores the engine's per-tick state against what the game then showed. It is a record
+of the engine of 2026-09-22 18:40 PDT (see the header), not of the current commit. Re-run the
+commands below for the current engine's tables.
 
 ## 1. What is scored
 
@@ -194,14 +194,16 @@ Read together with section 4:
 The battle counts come from the run's own cause table; the unit-tick columns are aggregated from
 its per-battle table, because the harness does not write them itself. Both are this run.
 
-## 5a. One divergence that is known and deliberate
+## 5a. A knockback reading that was withdrawn
 
-Before reading a knockback divergence as a new defect: the engine holds a unit's target and its
-planned route for the whole of a knockback ladder, and the corpus says the game does not. A
-Golem in capture 20260920-071744-B retargets and replans mid-ladder, six steps before the
-back-step. This is recorded in `knockback.DISPLACEMENT_LAW`'s open items and in
-[`mechanics.md`](mechanics.md). It is a known gap rather than a surprise, and a run that meets
-it has found the thing that is already on the list.
+The engine holds a unit's target and its planned route for the whole of a knockback ladder. This
+section used to say the corpus shows the game does not, because a Golem in capture
+20260920-071744-B seemed to retarget and replan mid-ladder. That reading was wrong. The Golem's
+target changed on the tick the tower it was walking at died, and the crown towers' targets changed
+on the same tick. The hold is now unrefuted rather than refuted, which is not the same as
+confirmed. [`mechanics.md`](mechanics.md) has the detail. `knockback.DISPLACEMENT_LAW`'s open
+item 4 names the capture that would settle it: a unit pushed while it walks at a tower that stays
+alive. So this section no longer explains a knockback divergence in a run.
 
 ## 6. What this does not say
 

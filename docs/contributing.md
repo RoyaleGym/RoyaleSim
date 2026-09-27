@@ -48,25 +48,29 @@ must exist **before** the build: the crate `include_str!`s `arena.json`, and `ro
 `data/raw/retroroyale-2018/` and need nothing beyond the standard library.
 `tools/extract_cards.py` defaults to the 15.535.29 card table, which needs
 `data/raw/cr-15.535.29/`. That directory comes from `tools/decode_sc_assets.py` run on a verified
-asset pack (Supercell's files, not redistributed). A checkout without that pack generates the card
-table from the tracked 2018 files instead:
+asset pack (Supercell's files, not redistributed). A checkout does not need it: the table built
+from it, `data/derived/cards-15.535.json`, is committed. The README's stage 3 copies it into place
+and builds the 2018 table beside it:
 
 ```
 python tools\extract_cards.py --vintage 2018
-python tools\extract_cards.py --vintage 2018 --out data\derived\cards.json
+Copy-Item data\derived\cards-15.535.json data\derived\cards.json
 ```
 
-The first writes `data\derived\cards-2018.json`; the second writes the same table over
-`data\derived\cards.json`, which is the file the engine loads.
+The first writes `data\derived\cards-2018.json`. The second puts the 15.535.29 table in
+`data\derived\cards.json`, which is the file the engine loads. So in this recipe `cards.json`
+comes from a copy, not from an extractor. Do not write the 2018 table over `cards.json`: the
+ledger's measured card values (`cards.CLIENT16402_VALUES`) correct the 15.535.29 table and no
+other, so on the 2018 table they do not apply.
 
-Both runs are needed: the engine reads `cards.json`, and `tests/stacked_tie.rs` loads the same
-table again by its vintage name, refusing (never skipping) when it is absent. A 2018-only
-checkout cannot score the three checks that are about the 15.535 table itself:
-`tests/levels.rs` (the level ladder against recorded `max_hp`), `tests/jump16402.rs` (the jump
-blocks of the Hog Rider, Prince and Dark Prince, which the 2018 columns give to the Hog alone) and
-`tools/check_data.py`'s live-level rows, which report themselves vacuous. Those three want the
-15.535 pack and `extract_cards.py` with no `--vintage`; the rest of `cargo test --release` does not
-care which vintage is loaded.
+Both files are needed. The engine reads `cards.json`, and some tests load `cards-2018.json` by
+that name (`crates/royalesim/tests/charge.rs`, `crates/royalesim/tests/loadable_census.rs` and
+`tests/test_card_reads.py` among them). The three checks that are about the 15.535 table itself
+read it from `cards.json`, so the copy is what they need: `tests/levels.rs` (the level ladder
+against recorded `max_hp`), `tests/jump16402.rs` (the jump blocks of the Hog Rider, Prince and
+Dark Prince, which the 2018 columns give to the Hog alone) and `tools/check_data.py`'s live-level
+rows. The asset pack and `extract_cards.py` with no `--vintage` are needed only to rebuild
+`cards-15.535.json` itself.
 
 The recorded traces in `data/oracle-native/` are not distributed; without them
 `tests/test_oracle_native_diff.py` skips and says so.
@@ -258,11 +262,11 @@ Two rules go with them, and both were learned the hard way:
 | `data/calibration.json` | the ledger: every constant with value, status, confidence, provenance (`calibration.md`) |
 | `data/raw/retroroyale-2018/` | vendored ~2018 csv_logic and tilemaps (Supercell's content, not MIT; tracked) |
 | `data/raw/cr-15.535.29/` | decoded modern csv_logic / tilemaps (gitignored; `tools/decode_sc_assets.py`) |
-| `data/derived/` | `arena.json`, `cards.json`, `globals.json` (gitignored; `tools/extract_*.py`) |
+| `data/derived/` | `arena.json`, `cards.json`, `globals.json` (gitignored; `tools/extract_*.py`, except `cards.json`, which is a copy of the committed `cards-15.535.json`) |
 | `data/oracle-native/` | the recorded 15.535 traces (gitignored, not distributed) |
 | `oracle/` | the trace format and the calibration protocol: `scenarios.json` (the discriminating scenarios), `calibrate.py`, `synth.py`, `extract_tracks.py` (video tracks; cv2 optional) |
 | `tools/` | `extract_*.py` (data/raw -> data/derived), `check_data.py`, `check_card_reads.py`, `oracle_diff.py` (the engine beside a trace, tick for tick), `diff_harness.py`, `watch_battle.py`, `throughput.py`, `make_*_fixture.py`, `mechanic_register.py`, `decode_sc_assets.py` |
-| `tests/` | pytest for the tooling (10 files); `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
+| `tests/` | pytest for the tooling; `test_oracle_native_diff.py` skips loudly without `data/oracle-native` |
 | `docs/` | this documentation; `docs/media/` holds the README's graphics |
 
 ## Test layout
