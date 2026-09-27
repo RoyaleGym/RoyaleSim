@@ -34,12 +34,32 @@ fn main() {
     println!("cargo:rustc-env=ROYALESIM_BUILD_COMMIT={commit}");
     println!("cargo:rustc-env=ROYALESIM_BUILD_TREE={dirty}");
 
-    // Rebuild the stamp when HEAD moves. A ref file is the cheapest signal; if the path is not
-    // there (a worktree, a fresh archive) the stamp simply keeps its last value, which is why
-    // `provenance()` is documented as best-effort rather than as a guarantee.
-    for path in ["../../.git/HEAD", "../../.git/index"] {
-        if std::path::Path::new(path).exists() {
-            println!("cargo:rerun-if-changed={path}");
+    // Rebuild the stamp when HEAD moves. The files are found through git, not at `../../.git`:
+    // in a linked worktree `.git` is a FILE naming the worktree's own directory, so a fixed
+    // `../../.git/HEAD` does not exist there and a commit never re-ran this script. On
+    // 2026-09-26 a wheel built in a worktree right after a commit reported the PARENT commit
+    // and "dirty" (the stamp left by a `cargo check` run before the commit) while holding the
+    // committed code. HEAD and the index live in the worktree's directory (`--git-dir`); the
+    // branch a commit moves lives in the shared one (`--git-common-dir`), as a loose ref or in
+    // packed-refs. Without git (a fresh archive) none of these exist and the stamp keeps its
+    // last value, which is why `provenance()` is documented as best-effort rather than as a
+    // guarantee.
+    let dir = |flag: &str| git(&["rev-parse", "--path-format=absolute", flag]).map(std::path::PathBuf::from);
+    let mut watched = Vec::new();
+    if let Some(d) = dir("--git-dir") {
+        watched.push(d.join("HEAD"));
+        watched.push(d.join("index"));
+    }
+    if let Some(c) = dir("--git-common-dir") {
+        watched.push(c.join("packed-refs"));
+        if let Some(branch) = git(&["symbolic-ref", "-q", "HEAD"]) {
+            watched.push(c.join(branch));
+        }
+    }
+    for path in watched {
+        // A path that does not exist would re-run this script on every build.
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
     // AND WHEN ANY BUILD INPUT CHANGES. Declaring even one `rerun-if-changed` switches OFF
