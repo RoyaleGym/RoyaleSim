@@ -6,7 +6,7 @@
 //! or 175, 149 or 150, 124 or 125, 99 or 100, 74 or 75, 49 or 50, 24 or 25 (4 of 4, within 2), away from the Mega
 //! Knight's position on the blow tick along the line to the Knight's centre (within 0.1 degree): the knockback ladder
 //! of Pushback 1000 that spells and the Mega Knight's deploy blow already run. Two Giants (IgnorePushback) did not
-//! move. Today's engine (not_read) leaves every victim where the blow found it.
+//! move. The old arm (not_read) leaves every victim where the blow found it.
 //!
 //! The scenes: a red Knight standing hitting the blue right princess tower at (14231, 9182), the Knight's spot in the
 //! client scenario, and a blue Mega Knight set down at (9500, 6500) that walks, jumps and lands its blow on it; and a
@@ -14,9 +14,9 @@
 //! precondition (the Knight loses DashDamage at the scene's level on one tick, the blow tick B):
 //!   1. client_ladder_from_landing: the Knight's moves on B + 1 .. B + 8 are the ladder above, within 2, and the first
 //!      points away from the Mega Knight's position after B (within 1 degree);
-//!   2. not_read: the Knight does not move on B + 1 (today's engine);
+//!   2. not_read: the Knight does not move on B + 1 (the old arm);
 //!   3. both values: the Giant (IgnorePushback) does not move on B + 1 .. B + 8;
-//!   4. the shipped value is not_read.
+//!   4. the shipped value is client_ladder_from_landing.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test dash_pushback`):
 //!   * `dash_pushback_unapplied` -- client_ladder_from_landing pushes nobody: (1) goes red.
@@ -107,7 +107,7 @@ fn the_jump_blow_slides_the_knight_down_the_ladder_away_from_the_landing_point()
 }
 
 #[test]
-fn not_read_is_todays_engine() {
+fn not_read_is_the_pre_flip_engine() {
     let (rows, blow) = scene(DashPushback::NotRead, "Knight", KNIGHT_AT, MK_FOR_KNIGHT, 90);
     let b = blow_tick(&rows, blow);
     assert_eq!(rows[b + 1].1, 0, "not_read: the Knight moved {} on the tick after the blow", rows[b + 1].1);
@@ -124,6 +124,6 @@ fn a_victim_that_ignores_pushback_is_not_moved_under_either_value() {
 }
 
 #[test]
-fn the_shipped_value_is_not_read() {
-    assert_eq!(config().calib.dash_pushback, DashPushback::NotRead, "shipped combat.DASH_PUSHBACK");
+fn the_shipped_value_is_client_ladder_from_landing() {
+    assert_eq!(config().calib.dash_pushback, DashPushback::ClientLadderFromLanding, "shipped combat.DASH_PUSHBACK");
 }

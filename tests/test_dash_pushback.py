@@ -84,7 +84,7 @@ def test_the_jump_blow_slides_the_knight_down_the_ladder():
     assert abs(off) <= 1.0, f"the Knight's first move is {off:.2f} degrees off the line away from the Mega Knight"
 
 
-def test_old_arm_is_todays_engine():
+def test_old_arm_is_the_pre_flip_engine():
     rows = scene(OLD_ARM, "Knight", KNIGHT_AT, MK_FOR_KNIGHT)
     b = blow_tick(rows)
     assert rows[b + 1][1] == 0, f"{OLD_ARM}: the Knight moved {rows[b + 1][1]:.1f} on the tick after the blow"
