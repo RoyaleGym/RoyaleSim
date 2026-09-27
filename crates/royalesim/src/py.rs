@@ -52,7 +52,11 @@
 //!     (`mirror_target`). The default catalogue (`card_names=None`) leaves the Mirror
 //!     out, because a decoder that maps only codes 0 to 4 refuses a catalogue holding
 //!     a 6 (RoyaleGym's does, until it maps code 6). A `card_names` list that names
-//!     the Mirror gets it. A VARIANT card (the Spirit Empress) reports its first form's
+//!     the Mirror gets it. The cards that travel under ground (the Miner, the Goblin
+//!     Drill) are left out of the default catalogue too: they go down anywhere on land
+//!     (placement.SPAWN_PATHFIND_TERRITORY), which no code 0 to 4 describes; they
+//!     report the code of their kind (0, 1) and join the default once a code for
+//!     their territory exists. A VARIANT card (the Spirit Empress) reports its first form's
 //!     code and row, and its forms in the catalogue's 10th element; what each hand slot
 //!     costs right now is each player's `hand_costs` in `state_json`.
 //!     Spell rows report count 0, radius 0, flying false, hitpoints 0 (protocol.py
@@ -934,9 +938,19 @@ impl Battle {
             // Every REGISTERED non-tower, non-summon card: a card rejected after its
             // push (its spawned unit could not load) is in `cards` but not by name.
             // The Mirror is left out (module doc, SPELLS): its kind code 6 is one a
-            // caller's decoder may not know yet. Name it in `card_names` to play it.
+            // caller's decoder may not know yet. So are the cards that travel under
+            // ground (the Miner, the Goblin Drill): they go down anywhere on land, which
+            // no placement code 0 to 4 describes, so a mask built from codes 0 to 4 would
+            // offer only their own half. Name any of them in `card_names` to play it.
             None => (0..db.cards.len() as u16)
-                .filter(|i| !is_tower(&db.get(*i).name) && !db.get(*i).summon_only && !db.get(*i).is_mirror() && db.index(&db.get(*i).name) == Some(*i))
+                .filter(|i| {
+                    let c = db.get(*i);
+                    !is_tower(&c.name)
+                        && !c.summon_only
+                        && !c.is_mirror()
+                        && c.spawn_pathfind.is_none()
+                        && db.index(&c.name) == Some(*i)
+                })
                 .collect(),
         };
         let mut seen = vec![false; db.cards.len()];

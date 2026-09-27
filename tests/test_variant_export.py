@@ -168,16 +168,20 @@ def test_the_catalogue_lists_the_empress_forms(royalesim):
     assert all(r[col] is None for k, r in enumerate(rows) if k != ID["MergeMaiden"])
 
 
-def test_the_default_catalogue_leaves_the_mirror_out(royalesim):
+def test_the_default_catalogue_leaves_the_mirror_and_the_tunnellers_out(royalesim):
     """A card_names=None catalogue holds no Mirror, so no kind code 6: a decoder that maps only codes 0 to 4 refuses
-    a catalogue with a 6 (RoyaleGym's does, until it maps 6). Named in card_names the Mirror is there (the test
-    above). The other cards this batch loads stay in the default catalogue."""
+    a catalogue with a 6 (RoyaleGym's does, until it maps 6). The Miner and the Goblin Drill are left out too: they
+    go down anywhere on land, which no code 0 to 4 describes. Named in card_names each is there. The other cards
+    this batch loads stay in the default catalogue."""
     rows = json.loads(royalesim.Battle(None, SLOTS).catalogue_json())
     names = [r[0] for r in rows]
-    assert "Mirror" not in names
-    for card in ("MergeMaiden", "Miner"):
-        assert card in names, f"the default catalogue lost {card} besides the Mirror"
+    for card in ("Mirror", "Miner", "GoblinDrill"):
+        assert card not in names, f"the default catalogue holds {card}"
+    for card in ("MergeMaiden", "ThreeMusketeers", "RamRider", "Elixir Collector", "FirespiritHut"):
+        assert card in names, f"the default catalogue lost {card} besides the Mirror and the tunnellers"
     assert {r[1] for r in rows} <= {0, 1, 2, 3, 4}, sorted({r[1] for r in rows})
+    named = [r[0] for r in json.loads(royalesim.Battle(["Knight", "Miner", "GoblinDrill"], SLOTS).catalogue_json())]
+    assert {"Miner", "GoblinDrill"} <= set(named), named
 
 
 def test_the_hand_prices_move_with_the_elixir_and_the_plays(royalesim):
