@@ -46,10 +46,11 @@
 //!
 //! PLANT: `RUSTFLAGS='--cfg clash_plant="unit_refs_skips_new_paths"'
 //! CARGO_TARGET_DIR=target/plant cargo test --test unit_refs`: `unit_refs` drops the
-//! second summon -> 1, 3, 4 and 6 red (6 by its second-summon cases: the level check
-//! passes and the bomb card loads). 2 and 5 stay green: a block the enumeration skips
-//! skips its level check silently (the defect itself, which 6 shows failing), and the
-//! numbering does not read `unit_refs`.
+//! second summon, a centre-aimed strike's delivery and a buff's death spawn -> 1, 3, 4 and
+//! 6 red (6 by its second-summon cases: the level check passes and the bomb card loads; 1
+//! and 3 also by the Royal Delivery's Recruit and the curses' units). 2 and 5 stay green: a
+//! block the enumeration skips skips its level check silently (the defect itself, which 6
+//! shows failing), and the numbering does not read `unit_refs`.
 //!
 //! PLANT: `unit_refs_skips_attach`: `unit_refs` drops the attached rider (card.rs
 //! `AttachDef`) -> 1 red (Theta, and the shipped Ram Rider against its fields) and 3 red
@@ -59,6 +60,7 @@ mod common;
 
 use common::*;
 use royalesim::card::{CardDb, CardDef, CardSource, SpellDef, SpellShape, UnitRef, KING_TOWER, PRINCESS_TOWER};
+use std::collections::BTreeSet;
 use royalesim::py::ids_of_indices;
 
 /// A file with every unit block this loader reads, each unit a distinct row:
@@ -117,13 +119,42 @@ fn shipped() -> Vec<(&'static str, CardDb)> {
     vec![("cards.json", cards()), ("cards-2018.json", old)]
 }
 
+/// Every buff a shape's chain hangs, field by field (`buff`, then `buff2`, then the next object's), each once.
+fn shape_buffs(shape: &SpellShape, out: &mut Vec<u16>) {
+    let (hit, next) = match shape {
+        SpellShape::Projectile { hit, .. } => (hit.as_ref(), None),
+        SpellShape::AreaEffect { hit } => (Some(hit), None),
+        SpellShape::PulsingAreaEffect { hit, child, .. } => (Some(hit), child.as_deref()),
+        SpellShape::Rolling { hit, .. } => (Some(hit), None),
+        SpellShape::Strikes(d) => (Some(&d.hit), d.delivery.as_deref()),
+        SpellShape::Fuse { then, .. } => (None, Some(then.as_ref())),
+        SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } => (None, None),
+    };
+    if let Some(h) = hit {
+        for b in [h.buff, h.buff2].into_iter().flatten() {
+            if !out.contains(&b.buff) {
+                out.push(b.buff);
+            }
+        }
+    }
+    if let Some(n) = next {
+        shape_buffs(n, out);
+    }
+}
+
 /// The unit blocks a card's FIELDS carry, read field by field: what `unit_refs` must
 /// equal. A new unit-producing block joins this list and `unit_refs` together.
-fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
+fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     let mut out = Vec::new();
     // a projectile's release and a roll's, read field by field
     if let Some(SpellDef { shape: SpellShape::Projectile { spawn: Some(sp), .. } | SpellShape::Rolling { spawn: Some(sp), .. }, .. }) = &c.spell {
         out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
+    }
+    // a centre-aimed strike's delivery (the Royal Delivery's crate)
+    if let Some(SpellDef { shape: SpellShape::Strikes(d), .. }) = &c.spell {
+        if let Some(SpellShape::Projectile { spawn: Some(sp), .. }) = d.delivery.as_deref() {
+            out.push((UnitRef::SpellRelease, sp.unit, sp.level_index));
+        }
     }
     if let Some(sp) = &c.spawner {
         out.push((UnitRef::Spawner, sp.unit, None));
@@ -161,20 +192,47 @@ fn field_refs(c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
             out.push((UnitRef::VariantForm(k as u8), o.card, None));
         }
     }
+    // the death spawn of each buff the card hangs: its attack's, its reflect's, then along each spell object's chain
+    let mut buffs: Vec<u16> = Vec::new();
+    for b in [c.attack_buff, c.reflect.and_then(|r| r.buff)].into_iter().flatten() {
+        if !buffs.contains(&b.buff) {
+            buffs.push(b.buff);
+        }
+    }
+    for d in [&c.spell, &c.death_area_effect, &c.deploy_projectile, &c.death_projectile, &c.deploy_area_effect, &c.spawn_area_effect, &c.projectile_area].into_iter().flatten() {
+        shape_buffs(&d.shape, &mut buffs);
+    }
+    for b in buffs {
+        if let Some(ds) = db.buffs[b as usize].death_spawn {
+            out.push((UnitRef::BuffDeathSpawn, ds.unit, None));
+        }
+    }
     out
 }
 
-/// The unit indices a record carries, counted off its Debug text: every `unit: <n>`
-/// field of any block, whether or not a list names the block (today SpawnDef,
-/// SpawnerDef, DeathSpawnDef, SecondSummonDef, LifeStateDef, SummonMemberDef and AttachDef), the
-/// underground walk's `morph: Some(<n>)` (SpawnPathfindDef, the Goblin Drill's building), and
-/// every `card: <n>` (a VariantOption's form, a card index). `unit_name:` does not match.
-fn unit_fields_in_debug(c: &CardDef) -> usize {
-    let text = format!("{c:?}");
+/// Every `unit: <n>` field in `text`, the underground walk's `morph: Some(<n>)` (SpawnPathfindDef, the Goblin Drill's
+/// building), and every `card: <n>` (a VariantOption's form, a card index). `unit_name:` does not match.
+fn unit_fields_in(text: &str) -> usize {
     ["{ unit: ", ", unit: ", "morph: Some(", ", card: "]
         .into_iter()
         .map(|sep| text.match_indices(sep).filter(|&(at, _)| text[at + sep.len()..].starts_with(|ch: char| ch.is_ascii_digit())).count())
         .sum()
+}
+
+/// The unit indices a record carries, counted off Debug text: every `unit: <n>` field of
+/// any block of the record, whether or not a list names the block (today SpawnDef,
+/// SpawnerDef, DeathSpawnDef, SecondSummonDef, LifeStateDef, SummonMemberDef and AttachDef, with
+/// SpawnPathfindDef's morph and VariantOption's card, `unit_fields_in`), and of every buff row the
+/// record names (`BuffApply { buff: <n>`, each row once: a buff's death spawn holds its unit
+/// on the shared row, BuffDeathSpawn).
+fn unit_fields_in_debug(db: &CardDb, c: &CardDef) -> usize {
+    let text = format!("{c:?}");
+    let sep = "BuffApply { buff: ";
+    let rows: BTreeSet<usize> = text
+        .match_indices(sep)
+        .filter_map(|(at, _)| text[at + sep.len()..].split(|ch: char| !ch.is_ascii_digit()).next().and_then(|d| d.parse().ok()))
+        .collect();
+    unit_fields_in(&text) + rows.into_iter().map(|b| unit_fields_in(&format!("{:?}", db.buffs[b]))).sum::<usize>()
 }
 
 /// Every registered non-tower, non-summon card in CardDb order: the catalogue py.rs
@@ -207,18 +265,18 @@ fn every_unit_block_is_enumerated() {
     // `unit_refs` nor `field_refs` names is counted here all the same.
     let why_debug = "unit_refs does not name every unit index its Debug text carries";
     for i in 0..db.cards.len() as u16 {
-        assert_eq!(unit_fields_in_debug(db.get(i)), db.unit_refs(i).len(), "the synthetic file {}: {why_debug}", db.get(i).name);
+        assert_eq!(unit_fields_in_debug(&db, db.get(i)), db.unit_refs(i).len(), "the synthetic file {}: {why_debug}", db.get(i).name);
     }
     // Every record of the shipped files, against its fields and its Debug text; together
     // they carry every block (15.535: the Goblin Barrel, the Tombstone, the Golem, the
-    // Goblin Gang, the Ram Rider).
+    // Goblin Gang, the Ram Rider, and the Mother Witch's and the Goblin Curse's buff death spawns).
     let mut seen: Vec<UnitRef> = Vec::new();
     for (file, db) in shipped() {
         let mut refs = 0;
         for i in 0..db.cards.len() as u16 {
             let got = db.unit_refs(i);
-            assert_eq!(got, field_refs(db.get(i)), "{file} {}: unit_refs is not the blocks its fields carry", db.get(i).name);
-            assert_eq!(unit_fields_in_debug(db.get(i)), got.len(), "{file} {}: {why_debug}", db.get(i).name);
+            assert_eq!(got, field_refs(&db, db.get(i)), "{file} {}: unit_refs is not the blocks its fields carry", db.get(i).name);
+            assert_eq!(unit_fields_in_debug(&db, db.get(i)), got.len(), "{file} {}: {why_debug}", db.get(i).name);
             refs += got.len();
             for (path, _, _) in got {
                 if !seen.contains(&path) {
@@ -228,7 +286,7 @@ fn every_unit_block_is_enumerated() {
         }
         assert!(refs > 0, "{file}: vacuous, no record puts a unit on the board");
     }
-    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach] {
+    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach, UnitRef::BuffDeathSpawn] {
         assert!(seen.contains(&path), "vacuous: no shipped record carries {path:?}");
     }
 }
@@ -279,7 +337,7 @@ fn every_unit_a_catalogue_card_puts_on_the_board_reports_its_card() {
         let ids = ids_of_indices(db, &catalogue);
         let mut checked = 0;
         for &i in &catalogue {
-            for (path, u, _) in field_refs(db.get(i)) {
+            for (path, u, _) in field_refs(db, db.get(i)) {
                 assert!(
                     ids.get(u as usize).is_some_and(|id| *id >= 0),
                     "{file} {}: its {} unit {} reports card id -1",

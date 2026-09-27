@@ -942,6 +942,10 @@ impl Roots {
                     // A tunneller's building (the Goblin Drill's) appears on the tick its dig goes,
                     // where the dig came up: rooted to that disappearance, as a death spawn.
                     UnitRef::Morph => &mut death_spawn_of,
+                    // A buff's death spawn (the Mother Witch's hog, the Goblin Curse's goblin) comes out of a death too:
+                    // rooted to the nearest recent death, as a death spawn. It belongs to the side OPPOSITE the dying
+                    // unit's (the caster's), and the client reports its card as -1.
+                    UnitRef::BuffDeathSpawn => &mut death_spawn_of,
                     // a spell summon's unit (the Heal Spirit) is put down by its spell, as a release is
                     UnitRef::SpellRelease | UnitRef::SpellSummon => &mut spell_release_of,
                     UnitRef::SecondSummon => &mut second_summon_of,

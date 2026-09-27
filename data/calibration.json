@@ -2227,6 +2227,48 @@
       "candidates": ["on_landing_tick", "tick_after_landing"],
       "promotion_rules": "Score the Log's and the Barbarian Barrel's casts under both arms; ship tick_after_landing if the Log agrees, else split the key by rolling row.",
       "engine": "spell.rs step_spells (the Airborne arm)"
+    },
+    "AREA_SPAWNED_AREA_START": {
+      "value": "on_parent_first_update",
+      "candidates": ["on_parent_first_update", "with_parent"],
+      "status": "measured",
+      "confidence": "HIGH for the Goblin Curse: five casts on client 15.535.29 agree on the first and the last application.",
+      "provenance": "An area whose one action makes another area (the Goblin Curse: an area of LifeDuration 6000 that hits nothing, whose OnStartingAction spawns the curse circle GoblinCurseBase at delay 0; LifeDuration 6000, HitSpeed 50) is read as a zero fuse over the child. Measured on client 15.535.29 (five casts): the curse circle first applies one tick after the cast and applies every tick through the 120th tick after it; a unit inside at its post-move position on tick t is slowed on its steps t + 1 and t + 2, and the last slowed step is the cast tick + 122. on_parent_first_update makes the circle on the parent's first update, the cast tick, so it first acts on the next with its whole life: applications on the cast tick + 1 to + 120. with_parent makes it with the parent, so it applies on the cast tick (+ 0 to + 119). A child made one tick later with its life counted from the cast (+ 1 to + 119) is refuted by the last application.",
+      "meaning": "When an area that an area's action spawns is made, and so when it first and last acts.",
+      "open": "Only a delay-0 spawn is read: an action with a delay (the global Lightning's) keeps its card refused.",
+      "promotion_rules": "Settled for the Goblin Curse. A second card whose area spawns an area, measured the same way.",
+      "engine": "card.rs area_spawns_area (the collapse to SpellShape::Fuse with fuse_ms 0); spell.rs objects_for (the Fuse arm) and step_spells"
+    },
+    "AREA_DAMAGE_WITHOUT_HIT_FLAGS": {
+      "value": "inert",
+      "candidates": ["inert", "lands_as_disc"],
+      "status": "measured",
+      "confidence": "HIGH for the Goblin Curse's parent area: its Damage never landed in 20 runs on client 15.535.29.",
+      "provenance": "The Goblin Curse's parent area sets Damage 100 with HitsGround and HitsAir both false. Measured on client 15.535.29: a unit at the centre of the cast loses only the curse circle's pulses, in 20 runs; the parent's 100, scaled, never lands. lands_as_disc (the Damage as a one-shot disc on both air and ground) is refuted by those runs and has no engine arm.",
+      "meaning": "Whether an area that hits neither ground nor air deals its own Damage column.",
+      "promotion_rules": "Settled for the Goblin Curse. Another row with Damage and neither hit flag, if one becomes loadable.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs area_spawns_area does not read the parent's Damage"
+    },
+    "AREA_PROJECTILE_IGNORE_BUILDINGS": {
+      "value": "projectile_row",
+      "candidates": ["projectile_row", "area_row"],
+      "status": "measured",
+      "confidence": "LOW: one run on client 15.535.29.",
+      "provenance": "The Royal Delivery's area row (RoyalDeliveryArea) sets IgnoreBuildings; its projectile row (RoyalDeliveryProjectile), which deals the damage, leaves the column blank. Measured on client 15.535.29 (one run): an enemy building 2550 from the tap took the full 384 (150 at level 11). projectile_row reads the delivery's own blank and hits the building; area_row reads the area's IgnoreBuildings and would spare it.",
+      "meaning": "Whose IgnoreBuildings a centre-aimed strike's delivery reads: its projectile row's, or the area row's that fires it.",
+      "open": "Crown towers were not measured.",
+      "promotion_rules": "A second run with an enemy building under the tap, and one with a crown tower in reach.",
+      "engine": "spell.rs step_spells (the Flight arm, on the depth-1 delivery of a StrikePick::AreaCentre strike)"
+    },
+    "STRIKE_DUE": {
+      "value": "clock_at_or_below_zero",
+      "candidates": ["clock_at_or_below_zero", "clock_below_zero"],
+      "status": "measured",
+      "confidence": "HIGH for the Royal Delivery: 7 of 7 casts on client 15.535.29.",
+      "provenance": "A striking area takes a tick off its clock on each update and strikes on the update that makes the clock due. Measured on client 15.535.29 (7 casts): the Royal Delivery (HitSpeed 2000, exactly 40 ticks) makes its crate on the cast tick + 39 and the crate lands on + 40. clock_at_or_below_zero strikes on the update whose clock reaches zero (the 40th, + 39); clock_below_zero waits for the next and lands the crate on + 41. Lightning's HitSpeed 460 never brings the clock to exactly zero under either spells.STRIKE_TIMER_LEFTOVER arm, so its strikes fall on the same ticks under both.",
+      "meaning": "Which update of a striking area's clock strikes: the one that brings it to zero, or the one that takes it below.",
+      "promotion_rules": "Settled for HitSpeed 2000. A striking area whose HitSpeed is a whole number of ticks and whose clock carries a leftover, measured the same way.",
+      "engine": "spell.rs step_spells (the Strikes arm)"
     }
   },
   "knockback": {
@@ -2459,7 +2501,8 @@
     "BUFF_STACKING": {
       "value": "one_slot_per_buff_row",
       "status": "hypothesis",
-      "confidence": "MEDIUM (ours; correct for every combination the corpus ships)",
+      "confidence": "MEDIUM (ours; correct for every combination the corpus ships). REFUTED for two Goblin Curses on one unit: measured on client 15.535.29, they pulse on their own clocks and at their own levels (35 and 39 a pulse, 3 runs), where one slot per row keeps one clock and the latest level.",
+      "refuted_for": ["GoblinCurse"],
       "provenance": "character_buffs ships EnableStacking on Poison, Earthquake, RageModeRage and the Heal Spirit's buff, so the game can carry a row more than once. WHAT IT CANNOT MEAN is one copy per APPLICATION: a Poison area re-applies its 1000 ms buff every HitSpeed = 250 ms for a LifeDuration of 8000, so 32 copies would stack on a unit that stood in one cloud and the card would deal 32 times its published damage. Stacking therefore needs the buff's SOURCE (the area effect object, the projectile) as part of its identity, and the engine does not carry that: `one_slot_per_buff_row` keys a slot on the buff ROW alone, so a second cloud refreshes the first rather than adding to it. A NAMED GAP -- two Poisons on one unit deal one Poison's damage. Measured against this: with per-application slots a Knight standing in one Poison took 17 damage ticks over the cloud's 8 s instead of 8 (tests/status.rs).",
       "candidates": [
         "one_slot_per_buff_row",
@@ -2578,6 +2621,59 @@
       ],
       "promotion_rules": "Snowball three Skeletons standing together and time all three: all three slowed under whole_splash.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
+    },
+    "APPLY_BUFF_BEFORE_DAMAGE": {
+      "value": "lands_on_a_unit_the_hit_kills",
+      "candidates": ["lands_on_a_unit_the_hit_kills", "survivors_only"],
+      "status": "measured",
+      "confidence": "MEDIUM: one card, the Mother Witch; six kills on client 15.535.29.",
+      "provenance": "The Mother Witch's projectile row (VoodooProjectile) sets ApplyBuffBeforeDamage; its TargetBuff, VoodooCurse, releases a VoodooHog when its carrier dies. Measured on client 15.535.29: every unit killed by her first impact on it left a hog on that tick (3 Skeletons, and 3 Goblins set to 10 hp). survivors_only, the path every other buff takes, lands a buff on the hit's survivors alone, so such a kill leaves nothing.",
+      "meaning": "Whether a buff that a hit carries lands on a unit the same hit kills, when the hit's row sets ApplyBuffBeforeDamage.",
+      "open": "Read only for a buff whose carrier releases a unit when it dies: no other buff does anything on a unit that is about to be removed.",
+      "promotion_rules": "Another row that sets ApplyBuffBeforeDamage, measured on a kill.",
+      "engine": "state.rs apply_effects (the survivor filter); combat.rs carries the flag on the shot (Projectile::buff_first)"
+    },
+    "BUFF_DEATH_SPAWN_DEPLOY_TIME": {
+      "value": "unit_deploy_time",
+      "candidates": ["unit_deploy_time", "zero"],
+      "status": "measured",
+      "confidence": "HIGH for the Goblin Curse's goblin (9 of 9 on client 15.535.29); MEDIUM for the Mother Witch's hog (fewer runs).",
+      "provenance": "A buff's death spawn on a row that sets DeathSpawnDeployDelay. Measured on client 15.535.29: the curse goblin deploys 20 ticks, its row's DeployTime 1000 (9 of 9), and first steps the tick after; the Mother Witch's hog deploys 4 ticks, its DeployTime 200. zero is refuted by both. The hog's row also sets DeployDelay 400: neither 400 alone nor 200 + 400 fits its 4 ticks.",
+      "meaning": "How long a unit a buff's death spawn releases takes to deploy.",
+      "promotion_rules": "Settled for the two rows loaded. A row without DeathSpawnDeployDelay, if one loads.",
+      "engine": "state.rs phase_reap (the buff death-spawn loop)"
+    },
+    "BUFF_DEATH_SPAWN_LEVEL": {
+      "value": "source_level",
+      "candidates": ["source_level", "victim_level"],
+      "status": "guess",
+      "confidence": "LOW: every measured run is level 11 on both sides, where the two arms agree.",
+      "provenance": "The unit a buff's death spawn releases (the curse goblin, the hog) takes a unified level. source_level gives it the level of whatever hung the buff (the spell's, the Mother Witch's; BuffSlot::src_level); victim_level the dying unit's. Every run measured on client 15.535.29 has both sides at level 11, so they agree there. The card's stats row shows the goblin at the spell's level, which reads like source_level; it is not a measurement.",
+      "meaning": "The level of a unit a buff's death spawn releases.",
+      "open": "Not separated by any run on disk.",
+      "promotion_rules": "A level-12 Goblin Curse that kills a level-11 unit, or a Mother Witch of another level than her victim: the released unit's hitpoints.",
+      "engine": "state.rs phase_reap (the buff death-spawn loop); the slot's source level is hashed on a buff with a death spawn only"
+    },
+    "BUFF_DEATH_SPAWN_POINT": {
+      "value": "same_location_or_victim_forward_tangent",
+      "candidates": ["same_location_or_victim_forward_tangent", "death_position"],
+      "status": "hypothesis",
+      "confidence": "MEDIUM for the goblin on the victim's point (9 of 9); LOW for the axis of the hog's offset (one seat measured).",
+      "provenance": "Measured on client 15.535.29: a curse goblin (its buff sets DeathSpawnSameLocation) stands on the victim's position after the victim's last step, 9 of 9; a hog (the column blank) stands 1100 from a standing victim, 6 of 6, which is the two radii, 500 + 600, toward the victim's side's forward. Only one seat was measured, so the victim's forward and the arena's -y are not separated. death_position puts both on the victim's point, which the hog refutes. The arm clamps the point to the arena and puts a ground unit on land; the three goblins measured over the river stood over it through their deploy, a named gap.",
+      "meaning": "Where the unit a buff's death spawn releases appears.",
+      "open": "The axis of the offset (a side-1 victim decides); a unit that dies over the river.",
+      "promotion_rules": "A Mother Witch hog from a victim on the other seat, and one from a walking victim.",
+      "engine": "state.rs phase_reap (the buff death-spawn loop)"
+    },
+    "CROWN_TOWER_DAMAGE_PER_HIT_SCALING": {
+      "value": "level_scaled",
+      "candidates": ["level_scaled", "unscaled"],
+      "status": "measured",
+      "confidence": "HIGH for the Goblin Curse's damage buff at level 11: six pulses on client 15.535.29.",
+      "provenance": "The Goblin Curse's damage buff (GoblinCurseDamage: DamagePerSecond 14, HitFrequency 1000) sets CrownTowerDamagePerHit 4. Measured on client 15.535.29: a crown tower under the curse loses 10 a pulse at level 11, floor(4 x 256 / 100), on six pulses. unscaled gives 4; the crown-tower percent route, which every other pulse takes, gives 35.",
+      "meaning": "How a buff's CrownTowerDamagePerHit, what one pulse deals a crown tower, scales with the caster's level.",
+      "promotion_rules": "Another level, measured the same way.",
+      "engine": "spell.rs crown_pulse (computed once per application, carried on the slot as BuffSlot::crown_amount); state.rs buff_pulse_pass (the crown-tower branch)"
     }
   },
   "hide": {

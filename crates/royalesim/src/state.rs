@@ -523,6 +523,29 @@ pub struct Calib {
     pub attack_select_range: AttackSelectRange,
     #[serde(default = "variant_trigger_compare_default")]
     pub variant_trigger_compare: VariantTriggerCompare,
+    /// The curses and the centre-aimed strike (the Goblin Curse, the Mother Witch, the Royal Delivery):
+    /// status.APPLY_BUFF_BEFORE_DAMAGE (`apply_effects`), status.BUFF_DEATH_SPAWN_DEPLOY_TIME, BUFF_DEATH_SPAWN_LEVEL and
+    /// BUFF_DEATH_SPAWN_POINT (`phase_reap`), status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING (spell.rs `crown_pulse`),
+    /// spells.AREA_SPAWNED_AREA_START (spell.rs `objects_for`), spells.AREA_PROJECTILE_IGNORE_BUILDINGS and
+    /// spells.STRIKE_DUE (spell.rs `step_spells`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one
+    /// of those cards, and a striking area saved before STRIKE_DUE (Lightning) strikes on the same ticks under both of
+    /// its arms.
+    #[serde(default = "apply_buff_before_damage_default")]
+    pub apply_buff_before_damage: ApplyBuffBeforeDamage,
+    #[serde(default = "buff_death_spawn_deploy_default")]
+    pub buff_death_spawn_deploy: BuffDeathSpawnDeploy,
+    #[serde(default = "buff_death_spawn_level_default")]
+    pub buff_death_spawn_level: BuffDeathSpawnLevel,
+    #[serde(default = "buff_death_spawn_point_default")]
+    pub buff_death_spawn_point: BuffDeathSpawnPoint,
+    #[serde(default = "crown_per_hit_scaling_default")]
+    pub crown_per_hit_scaling: CrownPerHitScaling,
+    #[serde(default = "area_spawned_area_start_default")]
+    pub area_spawned_area_start: AreaSpawnedAreaStart,
+    #[serde(default = "area_projectile_ignore_buildings_default")]
+    pub area_projectile_ignore_buildings: AreaProjectileIgnoreBuildings,
+    #[serde(default = "strike_due_default")]
+    pub strike_due: StrikeDue,
     /// combat.REFLECT_ATTACK: whether a unit whose card carries a reflect (card.rs `ReflectDef`,
     /// the Electro Giant) answers a melee hit on it (`reflect_melee_hit`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `NotRead`, what a battle saved before it actually ran.
@@ -1228,6 +1251,38 @@ fn attack_select_range_default() -> AttackSelectRange {
 
 fn variant_trigger_compare_default() -> VariantTriggerCompare {
     VariantTriggerCompare::AtLeast
+}
+
+fn apply_buff_before_damage_default() -> ApplyBuffBeforeDamage {
+    ApplyBuffBeforeDamage::LandsOnAUnitTheHitKills
+}
+
+fn buff_death_spawn_deploy_default() -> BuffDeathSpawnDeploy {
+    BuffDeathSpawnDeploy::UnitDeployTime
+}
+
+fn buff_death_spawn_level_default() -> BuffDeathSpawnLevel {
+    BuffDeathSpawnLevel::SourceLevel
+}
+
+fn buff_death_spawn_point_default() -> BuffDeathSpawnPoint {
+    BuffDeathSpawnPoint::SameLocationOrVictimForward
+}
+
+fn crown_per_hit_scaling_default() -> CrownPerHitScaling {
+    CrownPerHitScaling::LevelScaled
+}
+
+fn area_spawned_area_start_default() -> AreaSpawnedAreaStart {
+    AreaSpawnedAreaStart::OnParentFirstUpdate
+}
+
+fn area_projectile_ignore_buildings_default() -> AreaProjectileIgnoreBuildings {
+    AreaProjectileIgnoreBuildings::ProjectileRow
+}
+
+fn strike_due_default() -> StrikeDue {
+    StrikeDue::ClockAtOrBelowZero
 }
 
 macro_rules! calib_enum {
@@ -2525,6 +2580,90 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.APPLY_BUFF_BEFORE_DAMAGE -- whether a buff whose carrier releases a unit when it dies lands on a unit
+    /// the same hit kills, when the hit's row sets ApplyBuffBeforeDamage (the Mother Witch's; `apply_effects`).
+    ApplyBuffBeforeDamage {
+        /// It does. Measured on client 15.535.29: every unit killed by the Mother Witch's first hit on it left a hog.
+        LandsOnAUnitTheHitKills = "lands_on_a_unit_the_hit_kills",
+        /// It lands on the hit's survivors only, the path every other buff takes: such a kill leaves nothing.
+        SurvivorsOnly = "survivors_only",
+    }
+);
+calib_enum!(
+    /// status.BUFF_DEATH_SPAWN_DEPLOY_TIME -- how long a buff's death spawn deploys (`phase_reap`), on a row that sets
+    /// DeathSpawnDeployDelay.
+    BuffDeathSpawnDeploy {
+        /// The unit's own DeployTime. Measured on client 15.535.29: the curse goblin deploys 20 ticks (its 1000), the
+        /// hog 4 (its 200).
+        UnitDeployTime = "unit_deploy_time",
+        /// None: it acts on the tick it appears.
+        Zero = "zero",
+    }
+);
+calib_enum!(
+    /// status.BUFF_DEATH_SPAWN_LEVEL -- the unified level a buff's death spawn takes (`phase_reap`).
+    BuffDeathSpawnLevel {
+        /// The level of whatever hung the buff (`BuffSlot::src_level`).
+        SourceLevel = "source_level",
+        /// The dying unit's.
+        VictimLevel = "victim_level",
+    }
+);
+calib_enum!(
+    /// status.BUFF_DEATH_SPAWN_POINT -- where a buff's death spawn appears (`phase_reap`).
+    BuffDeathSpawnPoint {
+        /// On the dying unit's point when the row sets DeathSpawnSameLocation (the curse goblin, 9 of 9 measured on
+        /// client 15.535.29), else the two radii ahead of it along its side's forward axis (the hog, 1100 from a
+        /// standing victim, 6 of 6).
+        SameLocationOrVictimForward = "same_location_or_victim_forward_tangent",
+        /// On the dying unit's point, whatever the row says.
+        DeathPosition = "death_position",
+    }
+);
+calib_enum!(
+    /// status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING -- how a buff's CrownTowerDamagePerHit is scaled (spell.rs
+    /// `crown_pulse`).
+    CrownPerHitScaling {
+        /// By the caster's level, like every other level-1 figure. Measured on client 15.535.29: a crown tower under
+        /// the Goblin Curse loses 10 a pulse at level 11, floor(4 x 256 / 100).
+        LevelScaled = "level_scaled",
+        /// As the row ships it.
+        Unscaled = "unscaled",
+    }
+);
+calib_enum!(
+    /// spells.AREA_SPAWNED_AREA_START -- when an area whose action makes another area (card.rs `area_spawns_area`)
+    /// makes it (spell.rs `objects_for`).
+    AreaSpawnedAreaStart {
+        /// On the parent's first update, so the child first acts the next tick, with its whole life. Measured on
+        /// client 15.535.29: the curse circle applies from the cast tick + 1 to + 120.
+        OnParentFirstUpdate = "on_parent_first_update",
+        /// With the parent, so the child acts on the cast tick.
+        WithParent = "with_parent",
+    }
+);
+calib_enum!(
+    /// spells.AREA_PROJECTILE_IGNORE_BUILDINGS -- whose IgnoreBuildings a centre-aimed strike's delivery reads (spell.rs
+    /// `step_spells`).
+    AreaProjectileIgnoreBuildings {
+        /// The projectile row's (blank on the Royal Delivery's). Measured on client 15.535.29: an enemy building took
+        /// the delivery's full hit.
+        ProjectileRow = "projectile_row",
+        /// The area row's (set on the Royal Delivery's).
+        AreaRow = "area_row",
+    }
+);
+calib_enum!(
+    /// spells.STRIKE_DUE -- which update of a striking area strikes (spell.rs `step_spells`).
+    StrikeDue {
+        /// The one whose clock falls to zero or below. Measured on client 15.535.29: the Royal Delivery (HitSpeed 2000)
+        /// makes its crate on the cast tick + 39.
+        ClockAtOrBelowZero = "clock_at_or_below_zero",
+        /// The one whose clock falls below zero: the crate on + 40, one tick late.
+        ClockBelowZero = "clock_below_zero",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_WAKE_REACH -- how far an enemy wakes a Goblin Hut (`life_state_pass`), centre distance less
     /// the enemy's CollisionRadius.
     LifeWakeReach {
@@ -3368,6 +3507,9 @@ impl Calib {
         // status.BUFF_STACKING: `per_source_slot` needs the buff's source as part of
         // its identity, which no entity column carries.
         only(&v, &["status", "BUFF_STACKING", "value"], "one_slot_per_buff_row")?;
+        // spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS: an area that hits neither ground nor air lands no Damage of its own (the
+        // Goblin Curse's parent; card.rs `area_spawns_area` does not read the column).
+        only(&v, &["spells", "AREA_DAMAGE_WITHOUT_HIT_FLAGS", "value"], "inert")?;
         only(&v, &["movement", "CONTACT_DOMAIN", "value"], "isolated_unit_only")?;
         {
             // REPLAN_TRIGGERS is a SET, and the engine implements exactly this set.
@@ -3536,6 +3678,14 @@ impl Calib {
             attack_select_moment: pick(&v, &["combat", "ATTACK_SELECT_MOMENT", "value"], AttackSelectMoment::from_calibration_name)?,
             attack_select_range: pick(&v, &["combat", "ATTACK_SELECT_RANGE", "value"], AttackSelectRange::from_calibration_name)?,
             variant_trigger_compare: pick(&v, &["match", "VARIANT_TRIGGER_COMPARE", "value"], VariantTriggerCompare::from_calibration_name)?,
+            apply_buff_before_damage: pick(&v, &["status", "APPLY_BUFF_BEFORE_DAMAGE", "value"], ApplyBuffBeforeDamage::from_calibration_name)?,
+            buff_death_spawn_deploy: pick(&v, &["status", "BUFF_DEATH_SPAWN_DEPLOY_TIME", "value"], BuffDeathSpawnDeploy::from_calibration_name)?,
+            buff_death_spawn_level: pick(&v, &["status", "BUFF_DEATH_SPAWN_LEVEL", "value"], BuffDeathSpawnLevel::from_calibration_name)?,
+            buff_death_spawn_point: pick(&v, &["status", "BUFF_DEATH_SPAWN_POINT", "value"], BuffDeathSpawnPoint::from_calibration_name)?,
+            crown_per_hit_scaling: pick(&v, &["status", "CROWN_TOWER_DAMAGE_PER_HIT_SCALING", "value"], CrownPerHitScaling::from_calibration_name)?,
+            area_spawned_area_start: pick(&v, &["spells", "AREA_SPAWNED_AREA_START", "value"], AreaSpawnedAreaStart::from_calibration_name)?,
+            area_projectile_ignore_buildings: pick(&v, &["spells", "AREA_PROJECTILE_IGNORE_BUILDINGS", "value"], AreaProjectileIgnoreBuildings::from_calibration_name)?,
+            strike_due: pick(&v, &["spells", "STRIKE_DUE", "value"], StrikeDue::from_calibration_name)?,
             reflect_attack: pick(&v, &["combat", "REFLECT_ATTACK", "value"], ReflectAttack::from_calibration_name)?,
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
@@ -4590,28 +4740,31 @@ fn gcd(a: i64, b: i64) -> i64 {
     }
 }
 
-/// ONE BUFF APPLICATION LANDING on entity `i` (status.rs): `buff` (a `CardDb::buffs` index) for
-/// `time_ms`, with `pulse_amount` per pulse. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): it
+/// ONE BUFF APPLICATION LANDING on entity `i` (status.rs): `h.buff` (a `CardDb::buffs` index) for
+/// `h.time_ms`, with `h.pulse_amount` per pulse. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): it
 /// refreshes the slot that already holds that row or takes a free one, and a unit already
 /// carrying MAX_BUFFS_PER_ENTITY distinct rows drops it. Returns whether the row is a FULL STOP
 /// that also drives the hold timer (status.FULL_STOP_BUFF_IS_STUN), whether or not a slot took
 /// it, for the caller's stun merge. The one implementation behind `apply_effects` (the effect
-/// buffer, drained in Resolve) and `reflect_melee_hit` (the attack pass). `first_pulse_ms` and
-/// `source` are the pulse clock and the area a pulsing area binds the application to
-/// (status.AREA_BUFF_SOURCE_BINDING, spell.rs `area_bound`; `BuffHit`), None on every other one.
-#[allow(clippy::too_many_arguments)]
-fn land_buff(
-    e: &mut Entities,
-    table: &[crate::status::BuffDef],
-    c: &Calib,
-    i: usize,
-    buff: u16,
-    time_ms: i32,
-    pulse_amount: i32,
-    first_pulse_ms: Option<i32>,
-    source: Option<Vec2>,
-) -> bool {
-    let Some(def) = table.get(buff as usize).copied() else { return false };
+/// buffer, drained in Resolve) and `reflect_melee_hit` (the attack pass). `h.first_pulse_ms` and
+/// `h.source` are the pulse clock and the area a pulsing area binds the application to
+/// (status.AREA_BUFF_SOURCE_BINDING, spell.rs `area_bound`), None on every other one; `h.src_level`
+/// and `h.crown_amount` ride onto the slot (`BuffSlot`).
+///
+/// TWO ROWS NEVER LAND, and take no slot and no stun: a buff whose row sets IgnoreBuildings on a
+/// building or a crown tower (the curses), and a buff the unit's own row lists in IgnoreBuff
+/// (`CardDef::ignore_buffs`: the VoodooHog is never cursed).
+fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::status::BuffHit) -> bool {
+    let Some(def) = cards.buffs.get(h.buff as usize).copied() else { return false };
+    #[cfg(not(clash_plant = "curse_on_buildings"))]
+    if def.ignore_buildings && e.kind[i] != EntityKind::Troop {
+        return false;
+    }
+    #[cfg(not(clash_plant = "ignore_buff_not_read"))]
+    if cards.get(e.card[i]).ignore_buffs.contains(&h.buff) {
+        return false;
+    }
+    let (buff, time_ms, pulse_amount, first_pulse_ms, source) = (h.buff, h.time_ms, h.pulse_amount, h.first_pulse_ms, h.source);
     // status.FULL_STOP_BUFF_IS_STUN: a buff whose composed speed is 0 (the -100 / -100 / -100
     // rows: ZapFreeze, Freeze, ContinueFreeze) also drives the engine's one hold timer, so every
     // status.STUN_* key keeps its meaning and a Zap, a Freeze spell and an Ice Spirit all hold
@@ -4641,10 +4794,16 @@ fn land_buff(
             // inside two areas of one row keeps the buff while either stands. None on every
             // application under not_read.
             slots[k].source = source;
+            // The latest application's source level and crown-tower pulse, like its pulse amount.
+            #[cfg(not(clash_plant = "curse_refresh_keeps_source"))]
+            {
+                slots[k].src_level = h.src_level;
+                slots[k].crown_amount = h.crown_amount;
+            }
         }
         None => {
             if let Some(k) = slots.iter().position(|s| s.is_empty()) {
-                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount, source };
+                slots[k] = BuffSlot { id, ms: time_ms, pulse_ms, pulse_amount, source, src_level: h.src_level, crown_amount: h.crown_amount };
             }
         }
     }
@@ -6287,6 +6446,13 @@ impl BattleState {
             if !self.ents.alive[i] {
                 continue;
             }
+            // A UNIT THIS TICK'S HITS KILLED keeps its slots as they are until Reap, which reads them (a buff's death
+            // spawn, `phase_reap`): a curse still live when the killing hit lands releases its unit. Every such unit is
+            // in this tick's death queue and gone at Reap, so nothing else reads the skipped countdown.
+            #[cfg(not(clash_plant = "curse_expires_before_reap"))]
+            if self.ents.hp[i] <= 0 {
+                continue;
+            }
             self.ents.stun_ms[i] = (self.ents.stun_ms[i] - dt).max(0);
             for slot in self.ents.buff_slots_mut(i) {
                 if slot.is_empty() {
@@ -6354,7 +6520,16 @@ impl BattleState {
                     // (`tests/status.rs::an_earthquake_deals_a_building_its_own_percent`).
                     // Buff damage is non-negative and the percent is non-negative, so
                     // the building scale is a plain truncating division.
-                    let dealt = if kind.is_crown_tower() {
+                    // A buff whose row sets CrownTowerDamagePerHit (the Goblin Curse's damage) deals a crown tower
+                    // that figure a pulse, already scaled by the caster (`BuffSlot::crown_amount`,
+                    // status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING), instead of its crown-tower percent of the pulse.
+                    #[cfg(not(clash_plant = "crown_per_hit_ignored"))]
+                    let per_hit = slot.crown_amount;
+                    #[cfg(clash_plant = "crown_per_hit_ignored")]
+                    let per_hit = 0; // PLANT: the percent route for every buff.
+                    let dealt = if kind.is_crown_tower() && per_hit > 0 {
+                        per_hit * fired
+                    } else if kind.is_crown_tower() {
                         crate::combat::damage_against(kind, amount, def.crown_pct, rounding)
                     } else if kind == EntityKind::Building {
                         (amount as i64 * def.building_pct as i64 / 100) as i32
@@ -7362,10 +7537,8 @@ impl BattleState {
                     else {
                         return None;
                     };
-                    let pct = match hit.buff {
-                        Some(b) => self.cfg.cards.buffs[b.buff as usize].attract_pct,
-                        None => 0,
-                    };
+                    // `buff` or `buff2`, whichever pulls (the loader's second buff never does today).
+                    let pct = [hit.buff, hit.buff2].into_iter().flatten().map(|b| self.cfg.cards.buffs[b.buff as usize].attract_pct).find(|p| *p != 0).unwrap_or(0);
                     if pct == 0 {
                         return None;
                     }
@@ -9602,12 +9775,12 @@ impl BattleState {
             self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false });
             let Some(b) = r.buff else { continue };
             #[cfg(not(clash_plant = "reflect_stun_buffered"))]
-            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &self.cfg.calib, a, b.buff, b.time_ms, 0, None, None) {
+            if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(me, b.buff, b.time_ms, 0)) {
                 land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
             }
             // PLANT (regression): the stun through the effect buffer, landed in Resolve.
             #[cfg(clash_plant = "reflect_stun_buffered")]
-            self.effects.buffs.push(crate::status::BuffHit { target: me, buff: b.buff, time_ms: b.time_ms, pulse_amount: 0, first_pulse_ms: None, source: None });
+            self.effects.buffs.push(crate::status::BuffHit::plain(me, b.buff, b.time_ms, 0));
         }
     }
 
@@ -10036,13 +10209,27 @@ impl BattleState {
         // targeting.DEPRIORITIZED_TARGET_BUFF: every (victim, buff) this Resolve applies.
         let mut landed: Vec<(EntityId, u16)> = Vec::new();
         for b in &fx.buffs {
-            if !survivor(&self.ents, b.target) {
+            let i = b.target.index as usize;
+            // status.APPLY_BUFF_BEFORE_DAMAGE = lands_on_a_unit_the_hit_kills: a buff whose carrier releases a unit
+            // when it dies, carried by a hit whose row sets ApplyBuffBeforeDamage (the Mother Witch's), lands on a unit
+            // that same hit killed, so the unit leaves its death spawn in this tick's Reap. Measured on client
+            // 15.535.29: every unit her first hit on it killed left a hog. Every other buff lands on survivors only.
+            let lands_before = c.apply_buff_before_damage == ApplyBuffBeforeDamage::LandsOnAUnitTheHitKills
+                && b.before_damage
+                && self.cfg.cards.buffs.get(b.buff as usize).is_some_and(|d| d.death_spawn.is_some())
+                && self.ents.is_alive(b.target)
+                && self.ents.hp[i] <= 0;
+            #[cfg(clash_plant = "curse_survivors_only")]
+            let lands_before = {
+                let _ = lands_before;
+                false // PLANT: a unit the hit kills takes no buff, whatever the key says.
+            };
+            if !survivor(&self.ents, b.target) && !lands_before {
                 continue;
             }
-            let i = b.target.index as usize;
             // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
             // stun (`reflect_melee_hit`), which lands the same way in the attack pass.
-            if land_buff(&mut self.ents, &self.cfg.cards.buffs, &c, i, b.buff, b.time_ms, b.pulse_amount, b.first_pulse_ms, b.source) {
+            if land_buff(&mut self.ents, &self.cfg.cards, &c, i, b) {
                 stun_new[i] = stun_new[i].max(b.time_ms);
             }
             landed.push((b.target, b.buff));
@@ -10344,8 +10531,9 @@ impl BattleState {
                 let spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
                 let def = spell::shape_of(self.cfg.cards.get(s.card))?;
                 let crate::card::SpellShape::PulsingAreaEffect { hit, .. } = &def.shape else { return None };
-                hit.buff.map(|b| (p.pos, b.buff + 1))
+                Some([hit.buff, hit.buff2].into_iter().flatten().map(|b| (p.pos, b.buff + 1)).collect::<Vec<_>>())
             })
+            .flatten()
             .collect();
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
@@ -10536,6 +10724,72 @@ impl BattleState {
             };
             for (k, p) in points.into_iter().enumerate() {
                 spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false }));
+            }
+        }
+        // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
+        // leaves a VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin), beside the unit's own death spawn above,
+        // which still happens (the loader reads only rows that allow it). One unit per live slot whose buff has one:
+        //   - for the side opposite the dead unit's when the row sets DeathSpawnIsEnemy (the caster's), else its own;
+        //   - at the level status.BUFF_DEATH_SPAWN_LEVEL names (the slot's source level, or the dead unit's), skipped
+        //     when the unit has no such level;
+        //   - deploying its own DeployTime when the row sets DeathSpawnDeployDelay, under
+        //     status.BUFF_DEATH_SPAWN_DEPLOY_TIME = unit_deploy_time; else acting at once;
+        //   - where status.BUFF_DEATH_SPAWN_POINT says, clamped to the arena and, for a ground unit, put on land;
+        //   - an ordinary target from its first tick (measured on client 15.535.29: the towers target a curse goblin
+        //     from the tick after it appears, where a unit's own death spawn waits out targeting.SPAWNED_UNIT_
+        //     ACQUIRE_DELAY), and not stepped on its first frame (its deploy frames are measured: 20 for the goblin).
+        // Keyed after the unit's own members (256 + the slot), so the release order stays canonical.
+        #[cfg(not(clash_plant = "buff_death_spawn_dropped"))]
+        for id in &deaths {
+            let i = id.index as usize;
+            let a = i * crate::status::MAX_BUFFS_PER_ENTITY;
+            for k in 0..crate::status::MAX_BUFFS_PER_ENTITY {
+                let slot = self.ents.buffs[a + k];
+                if slot.is_empty() {
+                    continue;
+                }
+                let Some(ds) = self.cfg.cards.buffs.get(slot.id as usize - 1).and_then(|d| d.death_spawn) else { continue };
+                if ds.unit == u16::MAX {
+                    continue; // the loader drops an unresolved one; never reached
+                }
+                let victim = self.ents.team[i];
+                let team = if ds.for_other_side { victim.other() } else { victim };
+                let level = match self.cfg.calib.buff_death_spawn_level {
+                    BuffDeathSpawnLevel::SourceLevel => slot.src_level,
+                    BuffDeathSpawnLevel::VictimLevel => self.ents.level[i],
+                };
+                if self.cfg.cards.level_multiplier(ds.unit, level).is_err() {
+                    continue;
+                }
+                let unit = self.cfg.cards.get(ds.unit);
+                let deploy_ms = match (ds.deploy_delay, self.cfg.calib.buff_death_spawn_deploy) {
+                    (true, BuffDeathSpawnDeploy::UnitDeployTime) => Some(unit.deploy_time_ms),
+                    _ => Some(0),
+                };
+                let pos = self.ents.pos[i];
+                #[cfg(not(clash_plant = "buff_death_spawn_at_death_point"))]
+                let point_rule = self.cfg.calib.buff_death_spawn_point;
+                #[cfg(clash_plant = "buff_death_spawn_at_death_point")]
+                let point_rule = BuffDeathSpawnPoint::DeathPosition; // PLANT: the death point for every row.
+                let at = match point_rule {
+                    BuffDeathSpawnPoint::SameLocationOrVictimForward if !ds.same_location => {
+                        Vec2::new(pos.x, pos.y + spell::forward_dy(victim) * (self.ents.radius[i] + unit.collision_radius))
+                    }
+                    _ => pos,
+                };
+                let arena = &self.cfg.arena;
+                let at = Vec2::new(at.x.clamp(0, arena.width), at.y.clamp(0, arena.height));
+                let at = if unit.is_flying() || arena.is_passable_ground(at) { at } else { arena.nearest_passable_ground(at, team).unwrap_or(at) };
+                #[cfg(not(clash_plant = "buff_death_spawn_acquire_delayed"))]
+                let acquire_delay = false;
+                #[cfg(clash_plant = "buff_death_spawn_acquire_delayed")]
+                let acquire_delay = true; // PLANT: the curse's unit waits out the death spawn's acquire delay.
+                spawned.push((
+                    team,
+                    self.ents.team_seq[i],
+                    256 + k as u32,
+                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false },
+                ));
             }
         }
         spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
@@ -12287,6 +12541,16 @@ impl BattleState {
                     if let Some(src) = slot.source {
                         h.vec(src);
                     }
+                    // A slot's source level only on a buff whose carrier releases a unit when it dies, and its
+                    // crown-tower pulse only when set, so every other slot hashes as before the fields.
+                    #[cfg(not(clash_plant = "hash_skips_buff_source"))]
+                    if !slot.is_empty() && self.cfg.cards.buffs.get(slot.id as usize - 1).is_some_and(|d| d.death_spawn.is_some()) {
+                        h.i32(slot.src_level);
+                    }
+                    #[cfg(not(clash_plant = "hash_skips_buff_source"))]
+                    if slot.crown_amount > 0 {
+                        h.i32(slot.crown_amount);
+                    }
                 }
                 h.i32(e.stomp_clock[i]);
                 h.bool(e.retarget_on_resume[i]);
@@ -12462,6 +12726,13 @@ impl BattleState {
                 if let Some((c, l)) = p.release {
                     h.u32(1 + c as u32);
                     h.i32(l);
+                }
+                // A shot whose buff releases a unit when its carrier dies (the Mother Witch's): whether it lands before
+                // the damage, and the firer's level. Only on such a shot, so every other hashes as before.
+                #[cfg(not(clash_plant = "hash_skips_buff_source"))]
+                if p.buff.is_some_and(|b| self.cfg.cards.buffs.get(b.buff as usize).is_some_and(|d| d.death_spawn.is_some())) {
+                    h.bool(p.buff_first);
+                    h.i32(p.src_level);
                 }
             }
             // A spark carrier (combat.SPAWN_PROJECTILE new arm) hashes its own state; every other
@@ -12919,6 +13190,18 @@ impl BattleState {
 ///    move up (tests/hash_continuity.rs LOADED_SINCE_PARENT names the three). migrate_v3 strips the three fields with
 ///    the rest of the post-format-3 tail. `load_with` refuses a snapshot naming a Mirror or a variant card as an
 ///    entity, a cast, a pending spawn or a last play.
+/// 20, unchanged, the curses and the centre-aimed strike (status.APPLY_BUFF_BEFORE_DAMAGE, BUFF_DEATH_SPAWN_DEPLOY_TIME,
+///    BUFF_DEATH_SPAWN_LEVEL, BUFF_DEATH_SPAWN_POINT, CROWN_TOWER_DAMAGE_PER_HIT_SCALING; spells.AREA_SPAWNED_AREA_START,
+///    AREA_PROJECTILE_IGNORE_BUILDINGS, STRIKE_DUE): Calib gained eight fields (serde default each shipped arm), BuffSlot
+///    gained src_level and crown_amount, BuffHit src_level, before_damage and crown_amount, and Projectile buff_first
+///    and src_level (serde default neutral; a slot's source level hashed only on a buff with a death spawn, its crown
+///    pulse only when set, a shot's two only when its buff has a death spawn), so a format-20 blob saved before them
+///    still deserializes and hashes as it did. BuffDef gained death_spawn, ignore_buildings and crown_hit, SpellHit
+///    buff2, StrikeDef pick and delivery, and CardDef ignore_buffs and attack_buff_first, so the card fingerprint
+///    moves: a snapshot saved by an earlier build is refused as saved against other card data. migrate_v3 strips the
+///    two CardDef fields with the rest of the post-format-3 tail. No new spell motion: the Goblin Curse runs a `Fuse`
+///    for its cast tick, then its circle as a `Pulsing` object; the Royal Delivery a `Strikes`, then its crate as a
+///    `Flight` for one tick.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -13117,12 +13400,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `attach`, `target_only_troops` and `deprioritize_buff` after it.
                 // ~~... deprioritize_buff~~ -- the explicit offsets and the attack selector (still format 20)
                 // added `summon_members`, `summon_offsets_x_mirrored` and `attack_select` after it.
+                // ~~... attack_select~~ -- the curses (still format 20) added `ignore_buffs` and
+                // `attack_buff_first` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -13169,7 +13454,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.deprioritize_buff,
                     c.summon_members,
                     c.summon_offsets_x_mirrored,
-                    c.attack_select
+                    c.attack_select,
+                    c.ignore_buffs,
+                    c.attack_buff_first
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))

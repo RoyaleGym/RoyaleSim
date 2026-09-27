@@ -130,6 +130,10 @@ const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
     ("cards.json", "ThreeMusketeers"),
     ("cards.json", "Mirror"),
     ("cards.json", "MergeMaiden"),
+    // the curses and the centre-aimed strike: all three refused in `convert` at the parent
+    ("cards.json", "WitchMother"),
+    ("cards.json", "RoyalDelivery"),
+    ("cards.json", "GoblinCurse"),
 ];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is

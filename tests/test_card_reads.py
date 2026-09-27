@@ -388,6 +388,14 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # and THE SPIRIT EMPRESS (named by the register pass alone). The Mirror loads and carries nothing unread. The
     # WHOLE delta, measured with a stand-in catalogue (the 126992a module's catalogue plus the nine rows, register
     # present): 78 without them, 86 with them, the eight added cards exactly these and none removed.
+    # 86 -> 84 when the default catalogue left out the cards that travel under ground (py.rs `card_names=None`): this
+    # population is that catalogue, so the Miner and the Goblin Drill left it. The 86 above was measured with a
+    # stand-in that still held them.
+    # 84 -> 86 when the Mother Witch, the Royal Delivery and the Goblin Curse load: the Mother Witch joins with
+    # projectile.only_enemies, the Royal Delivery by the register pass alone (deflect), and the Goblin Curse loads fully
+    # read. None left. The WHOLE delta, measured with a stand-in catalogue (loadable_census.rs's LOADABLE_15535 without
+    # the towers, the Mirror, the Miner and the Goblin Drill) and a register regenerated from this tree, without a
+    # module built from it.
     outside_by_vintage = {"2018": 40, "15.535": 86}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
