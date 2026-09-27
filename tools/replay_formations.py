@@ -6,7 +6,8 @@ python tools/replay_formations.py [<fixture.replay.json> ...] [--card NAME] [--j
 Default: every fixture in data/derived/replay/. Per DEPLOY group of the fixtures:
 
   formation   each member's offset from the group's deploy position (the tap tile
-              for a multi-unit group, else the centroid), native units, on the
+              for a multi-unit group, else the centroid, also for a group the maker
+              placed on a recovered tile), native units, on the
               group's first frame -- the ring the game lays N summons on
               (the formation gap)
   stagger     each member's deploy-end tick (its first frame in a state other than
@@ -75,7 +76,11 @@ def group_rows(fx: dict) -> list[dict]:
     for d in fx["deploys"]:
         if d["kind"] == "spell" or not d.get("keys"):
             continue
-        px, py = d["pos"]
+        # A group the maker placed on a RECOVERED tile (tools/make_replay_fixture.py RECOVERED TILE) is read at its
+        # centroid, as before that recovery: the tile was chosen through the formation measurement's own offsets, so
+        # offsets read from it would only give those offsets back.
+        recovered = d["source"] == "recovered_tile"
+        px, py = d["centroid"] if recovered else d["pos"]
         members = []
         for key in d["keys"]:
             e = ents.get(key)
@@ -115,8 +120,8 @@ def group_rows(fx: dict) -> list[dict]:
                 "side": d["side"],
                 "card": d["card"],
                 "count": d["count"],
-                "pos": d["pos"],
-                "source": d["source"],
+                "pos": [px, py],
+                "source": "centroid" if recovered else d["source"],
                 "members": members,
             }
         )

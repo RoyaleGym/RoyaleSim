@@ -131,12 +131,14 @@ DEPLOY POSITION AND TICK
     displaces a formation off a footprint or an edge, and the centroid then says where
     the units went, not where the player tapped; the engine is charged with that
     difference). A single unit is placed where it appeared (its centroid, which is the
-    tap snapped to the game's grid). Without a tap the centroid is used. `source` says
-    which. A matched tap is kept on the row as `tap` (`tick`, `native`, `cycled`): the
-    harness resolves a tapped troop's point on the board of `tap.tick`, where the client
-    resolved it (replay_parity/harness.rs `resolve_tick`). A log names a card as the client
-    showed it; `canon_name` matches that to cards.json by name or display name. A spell
-    cast comes from the `effects` stream (`spell_casts`: the stream
+    tap snapped to the game's grid), or where it was created when its first tick pushed
+    it (CREATION POINT below). Without a tap the centroid is used, except where
+    the group's members agree on the tile centre it was laid around (RECOVERED TILE
+    below). `source` says which. A matched tap is kept on the row as `tap` (`tick`,
+    `native`, `cycled`): the harness resolves a tapped troop's point on the board of
+    `tap.tick`, where the client resolved it (replay_parity/harness.rs `resolve_tick`).
+    A log names a card as the client showed it; `canon_name` matches that to cards.json
+    by name or display name. A spell cast comes from the `effects` stream (`spell_casts`: the stream
     lists every projectile object on every frame it exists, so ONE cast is the run of
     class-28 objects of one (side, card) with no gap over CAST_GAP_TICKS between
     sightings -- a Fireball seen on 15 frames, a Log's airborne object then its rolling
@@ -147,6 +149,49 @@ DEPLOY POSITION AND TICK
     spell the effects stream does not show (no projectile: Zap, Rage, Freeze, ...),
     from the tap plus this capture's median tap latency, flagged `timing: estimated`; a spell tap
     with no latency measurement is listed under `unresolved` instead of guessed.
+
+RECOVERED TILE
+    A group of several members with no tap is played at its centroid, and the centroid is
+    not where the game put the group when a member was clamped. The game snaps a troop tap
+    to a tile centre, lays the formation around it, then clamps each member into its tile
+    column's deploy range and into the arena's bounds, each along one axis. A clamped
+    member pulls the centroid a few hundred off the tile, and the engine then lays the
+    whole formation that far off. Side 1's Skeletons laid on the king's back row are the
+    plainest case: their two back members are clamped to y 31000, and their centroid sits
+    600 below the tile they were laid on.
+
+    So such a group is played at the tile centre its members agree on, when they agree on
+    exactly one (`source` `recovered_tile`). The members are read at their CREATION POINT:
+    the capture's x2, y2 on the member's first frame, where it stood before that tick's
+    movement (the frame's x, y already carry the first tick's contact push). They agree
+    through NOMINAL OFFSETS: the member offsets from the tap that the committed formation
+    measurement shows for the card (FORMATIONS, tools/make_formation_fixture.py), on its
+    groups with a logged tap whose members stand centred on it, both lanes, and each side
+    also taking the other side's offsets turned a half-turn. A candidate is a tile centre
+    that some member's creation point minus a nominal offset lands on, to within
+    RECOVER_TOLERANCE on both axes. Nothing in the offsets puts a candidate on a tile
+    centre, so landing on one is the check. The candidate taken is the only one with the
+    most members on a nominal offset from it, and either two or more members are, or one
+    is and every other member matches a nominal offset on one axis (a clamped member).
+    Otherwise the centroid stays. `recovery` says what decided, on every row that tried.
+    The group's `centroid` is kept as it was.
+
+    The recovery reads the client's measured offsets, not the engine's formation law, so
+    a group it places is still evidence against that law. tools/replay_formations.py
+    reports such a group at its centroid, so the formation measurement never reads a tile
+    this recovery chose.
+
+CREATION POINT
+    A single unit is played where it appeared, and its first frame's x, y already carry
+    that tick's contact push: a Knight deployed onto a unit stands up to 150 off the point
+    it was created on. So a single unit the capture shows deploying (behavior_state 4 or
+    11) on its creation tick is played at its creation point, the first frame's x2, y2,
+    when the two differ (`source` `creation_point`). Its creation tick is its first frame
+    when `first_seen` = `tick` and either no frame was missed before it
+    (`first_seen_gap` 1) or its deploy end pins the spawn there (`tick_evidence` exact).
+    Otherwise the unit keeps its first frame: its x2, y2 may be a tick after its creation,
+    already pushed. A unit that travels under ground keeps its row (it is played at its
+    `destination`).
 
 SPELL OBJECTS
     A cast from the effects stream also publishes every object of the run, in the fixture's
@@ -283,6 +328,9 @@ LIVE = os.environ.get("ROYALELIVE_REPORTS")
 RAW = os.path.join(ROOT, "data", "raw", "cr-15.535.29", "csv_logic")
 CARDS = os.path.join(ROOT, "data", "derived", "cards.json")
 REGISTER = os.path.join(ROOT, "data", "derived", "mechanic_register.json")
+#: The committed measurement of the client's summon formations (tools/make_formation_fixture.py; tests/formations.rs
+#: holds the engine to it). This tool reads it only for the nominal offsets of a recovered tile (RECOVERED TILE).
+FORMATIONS = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "formations", "measured.json")
 OUT_DEFAULT = os.path.join(ROOT, "data", "derived", "replay")
 CENSUS = "card_census.json"
 
@@ -331,6 +379,16 @@ TAP_MIN, TAP_MAX = 5, 80
 # smallest hp that is a DIFFERENT object is 49 % off (the Goblin Drill's surfaced
 # building 1313 against its dig troop 2560). Beyond it the entity is `unknown_object`.
 NEAREST_MAX_ERROR_PERCENT = 10
+#: A tile's side in native units: a troop tap snaps to the centre of one (calibration placement.TAP_SNAP).
+TILE_NATIVE = 1000
+#: A measured formation group gives nominal offsets only when its members' mean offset from its tap is within this on
+#: both axes. That leaves out a group laid a tile away from its logged tap (a tap the game moved off a tower) and a
+#: group with a clamped member: neither is a formation around its logged tile.
+NOMINAL_CENTRED_NATIVE = 60
+#: How far a creation point minus a nominal offset may sit from a tile centre, and a member from a nominal offset,
+#: native per axis. The measured offsets are first-frame positions after the first tick's contact push, so two siblings
+#: that overlap at creation stand a few units off their ring (the Minions' 577 ring, 2 apart).
+RECOVER_TOLERANCE = 3
 # Spell casts: the effects stream lists every projectile OBJECT on every frame it
 # exists (a Fireball 15 frames, a Log's airborne object then its rolling object, Arrows
 # 9-30 objects on one tick). A cast is the run of objects of one (side, card) with no
@@ -877,6 +935,87 @@ def snap_troop_tap(native: list) -> list:
     return [x, y]
 
 
+def nominal_offsets(doc: dict) -> dict[tuple[str, int], list[tuple[int, int]]]:
+    """(card, side) -> the member offsets from the tap that a formation measurement shows (FORMATIONS' format).
+
+    Read from its `tap_tile` groups whose members stand centred on the tap (NOMINAL_CENTRED_NATIVE), both lanes pooled.
+    Each side also takes the other side's offsets turned a half-turn: the ring is one ring in its owner's frame, less
+    the one-unit ground deploy point (formation.GROUND_DEPLOY_POINT). In the committed measurement side 0's Skeletons
+    stand at (-1, 807) and (+-699, -403) from their tap and side 1's at (-1, -808) and (+-699, 402)."""
+    out: dict[tuple[str, int], set[tuple[int, int]]] = defaultdict(set)
+    for g in doc.get("groups", []):
+        offs = [tuple(m["offset"]) for m in g.get("members", [])]
+        if g.get("source") != "tap_tile" or not offs:
+            continue
+        reach = NOMINAL_CENTRED_NATIVE * len(offs)
+        if abs(sum(o[0] for o in offs)) > reach or abs(sum(o[1] for o in offs)) > reach:
+            continue
+        for ox, oy in offs:
+            out[(g["card"], g["side"])].add((ox, oy))
+            out[(g["card"], 1 - g["side"])].add((-ox, -oy))
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def load_nominal_offsets(path: str = FORMATIONS) -> dict[tuple[str, int], list[tuple[int, int]]]:
+    """nominal_offsets() of the committed formation measurement. Refuses when it is absent: without it every group with
+    no tap would silently stay at its centroid."""
+    if not os.path.exists(path):
+        raise SystemExit(
+            f"{path} is absent, so no deploy group can be placed on its recovered tile"
+            " (python tools/make_formation_fixture.py writes it)"
+        )
+    with open(path, encoding="utf-8") as fh:
+        return nominal_offsets(json.load(fh))
+
+
+def recovered_tile(
+    points: list[tuple[int, int]], offsets: list[tuple[int, int]]
+) -> tuple[list[int] | None, str]:
+    """The tile centre a deploy group's members agree it was laid around, and why; or None and why not (module doc,
+    RECOVERED TILE).
+
+    `points` are the members' creation points, `offsets` the card's nominal offsets for the side. A candidate is a tile
+    centre that a point minus an offset lands on, within RECOVER_TOLERANCE on both axes. Per candidate, a member is ON
+    it when its offset from the centre matches a nominal offset on both axes, and CLAMPED when on one axis only (the
+    game's clamps each move a member along one axis). The candidate with the most members on it is taken when no other
+    candidate has as many, and either two or more members are on it, or one is and every other member is clamped."""
+    n = len(points)
+    if not offsets:
+        return None, "no nominal offsets for this card and side"
+    tol = RECOVER_TOLERANCE
+
+    def centre(v: int) -> int | None:
+        c = (v // TILE_NATIVE) * TILE_NATIVE + TILE_NATIVE // 2
+        return c if abs(v - c) <= tol else None
+
+    candidates = set()
+    for x, y in points:
+        for ox, oy in offsets:
+            cx, cy = centre(x - ox), centre(y - oy)
+            if cx is not None and cy is not None:
+                candidates.add((cx, cy))
+    if not candidates:
+        return None, "no member's creation point is a nominal offset from a tile centre"
+    scored = []
+    for cx, cy in candidates:
+        on = clamped = 0
+        for x, y in points:
+            dx, dy = x - cx, y - cy
+            if any(abs(dx - ox) <= tol and abs(dy - oy) <= tol for ox, oy in offsets):
+                on += 1
+            elif any(abs(dx - ox) <= tol or abs(dy - oy) <= tol for ox, oy in offsets):
+                clamped += 1
+        scored.append((on, clamped, (cx, cy)))
+    scored.sort(key=lambda s: (-s[0], -s[1], s[2]))
+    on, clamped, (cx, cy) = scored[0]
+    tied = [s[2] for s in scored if s[0] == on]
+    if len(tied) > 1:
+        return None, f"{len(tied)} tile centres tie with {on} of {n} members on a nominal offset: {sorted(tied)}"
+    if on >= 2 or (on == 1 and clamped == n - 1):
+        return [cx, cy], f"{on} of {n} members on a nominal offset from it, {clamped} clamped on one axis"
+    return None, f"the best tile centre ({cx}, {cy}) has {on} of {n} members on a nominal offset, {clamped} on one axis"
+
+
 def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
     """The first frame tick at or after `tap_tick`, inside CAST_DROP_WINDOW ticks, on which one
     side's `elixir` (per frame, aligned with `frame_ticks`; None where the capture has none) falls
@@ -1217,7 +1356,11 @@ def build(
     name_to_id: dict[str, int],
     card_names: set[str],
     seats: dict[str, str] | None = None,
+    nominal: dict[tuple[str, int], list[tuple[int, int]]] | None = None,
 ) -> dict:
+    # the nominal offsets of a recovered tile (RECOVERED TILE): the committed measurement unless the caller hands some
+    if nominal is None:
+        nominal = load_nominal_offsets()
     header, raw_frames = read_capture(capture)
     frames, dup, back = dedupe(raw_frames)
     if until_tick is not None:
@@ -1318,6 +1461,8 @@ def build(
                     "frames": 0,
                     "x0": x,
                     "y0": y,
+                    # the CREATION POINT (RECOVERED TILE): where the entity stood before its first frame's movement
+                    "c0": pos_of(e["x2"], e["y2"]) if e.get("x2") is not None and e.get("y2") is not None else None,
                 }
             rec["last_index"] = fi
             rec["frames"] += 1
@@ -1484,10 +1629,28 @@ def build(
             }
             if t["native"] and len(members) > 1:
                 d["pos"], d["source"] = snap_troop_tap(t["native"]), "tap_tile"
-            else:
-                d["pos"], d["source"] = [cx, cy], "centroid"
-        else:
+        if "pos" not in d:
             d["pos"], d["source"] = [cx, cy], "centroid"
+            if len(members) > 1:
+                # the tile the members agree the game laid them around (module doc, RECOVERED TILE)
+                if all(e.get("c0") is not None for e in members):
+                    points = [tuple(e["c0"]) for e in members]
+                    tile, d["recovery"] = recovered_tile(points, nominal.get((name, side), []))
+                    if tile is not None:
+                        d["pos"], d["source"] = tile, "recovered_tile"
+                else:
+                    d["recovery"] = "the capture gives no creation point for every member"
+            elif (
+                first_seen == tick
+                and (d["first_seen_gap"] == 1 or evidence.startswith("exact"))
+                and members[0].get("c0") is not None
+                and list(members[0]["c0"]) != [cx, cy]
+                and (members[0].get("states") or [(0, None)])[0][1] in (4, STATE_STAGGER_WAIT)
+                and not card.get("spawn_pathfind")
+            ):
+                # a single unit the capture saw deploying on its creation tick and pushed on it: played where it was
+                # created (module doc, CREATION POINT)
+                d["pos"], d["source"] = list(members[0]["c0"]), "creation_point"
         deploys.append(d)
 
     # spawned and unknown-object groups: truth only, cross-checked against the taps.
@@ -1997,6 +2160,7 @@ def main() -> int:
         name: cid for cid, name in sorted(id_table.items(), reverse=True) if name in card_names
     }
     census = load_census(args.out)
+    nominal = load_nominal_offsets()
     captures = (
         [args.capture]
         if args.capture
@@ -2031,6 +2195,7 @@ def main() -> int:
             name_to_id,
             card_names,
             seats,
+            nominal,
         )
         if args.check:
             with open(args.check, encoding="utf-8") as fh:

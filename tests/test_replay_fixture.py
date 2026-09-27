@@ -1280,3 +1280,222 @@ def test_a_group_the_capture_shows_late_is_deployed_on_its_spawn(m, maker_inputs
     assert rows[("Goblins", 20)]["tick_evidence"].startswith("exact (deploy-end transition"), rows[("Goblins", 20)]
     assert [d["card"] for d in fx["deploys"] if d["kind"] == "spell"] == []
     assert [u["card"] for u in fx["unresolved"]] == ["Zap"], fx["unresolved"]
+
+
+# ---------------------------------------------------------------------------
+# a group with no tap and a clamped member (the maker's module doc: RECOVERED TILE)
+
+#: The ring offsets from the tap tile's centre that the committed formation measurement shows (native): side 1's
+#: Skeletons, side 0's Goblins, side 0's Minions.
+SKELETONS_RING_SIDE1 = [(-700, 402), (-1, -808), (698, 402)]
+GOBLINS_RING_SIDE0 = [(-762, -761), (-762, 761), (760, -761), (760, 761)]
+MINIONS_RING_SIDE0 = [(-499, -288), (0, 579), (499, -288)]
+#: Client 16.402, 20260918-122757.b1: side 1's Skeletons deployed on 494 with no logged tap, at their CREATION POINTS
+#: (the first frame's x2, y2). The front member stands on its ring point; the two back members are clamped to side 1's
+#: back bound, y 31000. Their centroid, (8499, 30897), lies in the tile below the one they were laid around.
+SKELETONS_KING_BACK = [(8499, 30692), (7800, 31000), (9198, 31000)]
+#: 20260918-130203.b2: side 0's Goblins deployed on 397 with no logged tap, laid around (500, 10500); the two left
+#: members are clamped to the arena's bound, x 250. Their centroid is (755, 10500).
+GOBLINS_LEFT_EDGE = [(250, 9739), (250, 11261), (1260, 11261), (1260, 9739)]
+
+
+def test_a_group_with_a_clamped_member_is_placed_on_the_tile_its_members_agree_on(m):
+    tile, why = m.recovered_tile(SKELETONS_KING_BACK, SKELETONS_RING_SIDE1)
+    assert tile == [8500, 31500], f"placed on {tile} ({why}); the centroid (8499, 30897) is in the tile below"
+    assert why == "1 of 3 members on a nominal offset from it, 2 clamped on one axis", why
+    tile, why = m.recovered_tile(GOBLINS_LEFT_EDGE, GOBLINS_RING_SIDE0)
+    assert tile == [500, 10500], f"placed on {tile} ({why}); the centroid is (755, 10500)"
+    assert why == "2 of 4 members on a nominal offset from it, 2 clamped on one axis", why
+
+
+def test_no_tile_is_recovered_where_the_members_do_not_single_one_out(m):
+    """The recovery answers only where exactly one tile centre explains the members; every other group keeps its
+    centroid, and the reason says why."""
+    # a capture's opening frame (20260918-121158, tick 335): three Skeletons already walking, none on a ring point
+    tile, why = m.recovered_tile([(4953, 26633), (5325, 25576), (13002, 26845)], SKELETONS_RING_SIDE1)
+    assert tile is None, why
+    assert why.startswith("no member's creation point"), why
+    # a Minion on (499, -288) from (3500, 14500) is on (-501, -288) from (4500, 14500), and its sibling is on a nominal
+    # offset from neither: two tile centres with one member each
+    tile, why = m.recovered_tile([(3999, 14212), (3500, 15000)], MINIONS_RING_SIDE0)
+    assert tile is None, why
+    assert why.startswith("2 tile centres tie"), why
+    # one member on its ring point and one on no nominal offset on either axis (moved before its first frame): one
+    # member is not enough unless every other one is clamped
+    tile, why = m.recovered_tile([(8499, 30692), (9000, 30000)], SKELETONS_RING_SIDE1)
+    assert tile is None, why
+    assert why.startswith("the best tile centre (8500, 31500) has 1 of 2"), why
+    # a card the measurement has no groups for
+    tile, why = m.recovered_tile(GOBLINS_LEFT_EDGE, [])
+    assert tile is None, why
+    assert why == "no nominal offsets for this card and side", why
+
+
+def test_the_nominal_offsets_are_the_committed_measurement_s_centred_groups_both_ways_up(m):
+    """nominal_offsets() keeps a measured group only when its members stand centred on its tap, and gives each side the
+    other side's offsets turned a half-turn."""
+    doc = {
+        "groups": [
+            # centred on its tap: kept, and turned for side 1
+            {"card": "Goblins", "side": 0, "source": "tap_tile",
+             "members": [{"offset": list(o)} for o in GOBLINS_RING_SIDE0]},
+            # laid a tile below its logged tap (a tap moved off a tower): left out
+            {"card": "Skeletons", "side": 0, "source": "tap_tile",
+             "members": [{"offset": [-1, -193]}, {"offset": [699, -1403]}, {"offset": [-700, -1403]}]},
+            # a centroid-sourced group has no tap to measure from: left out
+            {"card": "Minions", "side": 0, "source": "centroid",
+             "members": [{"offset": list(o)} for o in MINIONS_RING_SIDE0]},
+        ]
+    }
+    got = m.nominal_offsets(doc)
+    assert got.get(("Goblins", 0)) == sorted(GOBLINS_RING_SIDE0), got
+    assert got.get(("Goblins", 1)) == sorted((-x, -y) for x, y in GOBLINS_RING_SIDE0), f"no half-turn for side 1: {got}"
+    assert ("Skeletons", 0) not in got, got
+    assert ("Minions", 0) not in got, got
+    # the committed measurement gives the rings the tests above quote
+    committed = m.load_nominal_offsets()
+    for key, ring in ((("Skeletons", 1), SKELETONS_RING_SIDE1), (("Goblins", 0), GOBLINS_RING_SIDE0),
+                      (("Minions", 0), MINIONS_RING_SIDE0)):
+        assert set(ring) <= set(committed[key]), (key, committed.get(key))
+
+
+def _clamped_battle():
+    """(header towers, frames) of a battle with three Goblins groups and no placements log, frames 0..30. Side 0's at
+    the arena's left edge from 5: laid around (500, 10500), two members clamped to x 250 (GOBLINS_LEFT_EDGE, as
+    20260918-130203.b2 t397 shows them). Side 0's mid-field from 12: laid around (3500, 8500), every member on its ring
+    point, the first one's first frame already pushed 150 by its first tick's contact push. Side 1's from 20: four
+    members on no ring point."""
+    tower_rows = [
+        (1, 0, 9000, 3000, 4824),
+        (2, 0, 3500, 6500, 3052),
+        (3, 0, 14500, 6500, 3052),
+        (4, 1, 9000, 29000, 4824),
+        (5, 1, 3500, 25500, 3052),
+        (6, 1, 14500, 25500, 3052),
+    ]
+    header = [{"side": s, "x": x, "y": y} for _, s, x, y, _ in tower_rows]
+
+    def ent(key, side, cid, x, y, hp, kind, state, x2=None, y2=None):
+        return {"id": f"p{key}", "generation_key": key, "side": side, "x": x, "y": y,
+                "x2": x if x2 is None else x2, "y2": y if y2 is None else y2, "card_id": cid, "level": 11,
+                "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": state, "target": None, "path_nodes": []}
+
+    mid = [(2738, 7739), (2738, 9261), (4260, 9261), (4260, 7739)]
+    walking = [(6000, 20000), (6400, 20300), (7000, 21000), (7300, 20100)]
+    frames = []
+    for t in range(31):
+        ents = [ent(k, s, -1, x, y, hp, 13, 0) for k, s, x, y, hp in tower_rows]
+        if t >= 5:
+            ents += [ent(20 + i, 0, GOBLINS, x, y, 202, 14, 4) for i, (x, y) in enumerate(GOBLINS_LEFT_EDGE)]
+        if t >= 12:
+            for i, (x, y) in enumerate(mid):
+                if t == 12 and i == 0:  # the first frame: x, y after the push, x2, y2 the creation point
+                    ents.append(ent(30, 0, GOBLINS, x - 150, y, 202, 14, 4, x, y))
+                else:
+                    ents.append(ent(30 + i, 0, GOBLINS, x - (150 if i == 0 else 0), y, 202, 14, 4))
+        if t >= 20:
+            ents += [ent(40 + i, 1, GOBLINS, x, y, 202, 14, 4) for i, (x, y) in enumerate(walking)]
+        frames.append({"tick": t, "entities": ents, "effects": [], "elixir_raw": [50000 + 178 * t, 50000 + 178 * t]})
+    return header, frames
+
+
+@needs_modern_cards
+def test_a_group_with_no_tap_is_played_on_its_recovered_tile(m, maker_inputs, tmp_path):
+    """Built end to end: a group with no tap whose members agree on one tile centre is played there (`source`
+    recovered_tile), its `centroid` kept as it was; a group whose members agree on none stays at its centroid, and
+    `recovery` says why. Before the recovery the left-edge group was played at its centroid, (755, 10500), and the
+    engine laid the whole ring 255 to the right of where the game laid it."""
+    _skip_without_the_id_table(m)
+    header, frames = _clamped_battle()
+    path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    rows = {d["keys"][0]: d for d in fx["deploys"] if d["keys"]}
+    edge, mid, walking = rows[20], rows[30], rows[40]
+    assert (edge["pos"], edge["source"]) == ([500, 10500], "recovered_tile"), (
+        f"the left-edge Goblins are played at {edge['pos']} ({edge['source']}), not on the tile the game laid them on"
+    )
+    assert edge["centroid"] == [755, 10500], edge
+    assert (mid["pos"], mid["source"]) == ([3500, 8500], "recovered_tile"), mid
+    assert mid["centroid"] == [(2738 - 150 + 2738 + 4260 + 4260) // 4, 8500], mid
+    assert (walking["pos"], walking["source"]) == (walking["centroid"], "centroid"), walking
+    assert walking["recovery"].startswith("no member's creation point"), walking
+
+
+def test_replay_formations_reads_a_recovered_group_at_its_centroid():
+    """The formation measurement never reads a tile the recovery chose: tools/replay_formations.py reports a
+    `recovered_tile` group at its centroid, as a centroid group, so the offsets it measures are not the nominal offsets
+    that chose the tile."""
+    rf = _load_formations()
+
+    def goblin(key, x, y):
+        return {"key": key, "card_id": GOBLINS, "t0": 0, "n": 2, "x": [x, 2], "y": [y, 2], "hp": [202, 2],
+                "target": [-1, 2], "path_n": [0, 2], "state": [4, 1, 1, 1]}
+
+    fx = {
+        "capture": "synthetic",
+        "truth": {"ticks": [5, 6], "entities": [goblin(20 + i, x, y) for i, (x, y) in enumerate(GOBLINS_LEFT_EDGE)]},
+        "deploys": [{"tick": 5, "side": 0, "card": "Goblins", "kind": "troop", "count": 4, "keys": [20, 21, 22, 23],
+                     "pos": [500, 10500], "centroid": [755, 10500], "source": "recovered_tile"}],
+    }
+    (g,) = rf.group_rows(fx)
+    assert (g["pos"], g["source"]) == ([755, 10500], "centroid"), (g["pos"], g["source"])
+    assert [mm["offset"] for mm in g["members"]] == [[x - 755, y - 10500] for x, y in GOBLINS_LEFT_EDGE]
+
+
+# ---------------------------------------------------------------------------
+# a single unit pushed on its creation tick (the maker's module doc: CREATION POINT)
+
+
+def _pushed_single_battle():
+    """(header towers, frames) of a battle with three single Knights, frames 0..30 with 11 missed.
+
+    Key 50, side 0: created on 5 at (3499, 14500) and pushed 150 on that tick, so its first frame stands at
+    (3589, 14380) (client 16.402, 20260918-112751 t1202). Key 51, side 0: first seen on 12, after the missed 11, at
+    (9394, 5394), its x2, y2 at (9500, 5500): it may have been created on 11. Key 52, side 1: on the board from the
+    first frame, walking."""
+    tower_rows = [
+        (1, 0, 9000, 3000, 4824),
+        (2, 0, 3500, 6500, 3052),
+        (3, 0, 14500, 6500, 3052),
+        (4, 1, 9000, 29000, 4824),
+        (5, 1, 3500, 25500, 3052),
+        (6, 1, 14500, 25500, 3052),
+    ]
+    header = [{"side": s, "x": x, "y": y} for _, s, x, y, _ in tower_rows]
+
+    def ent(key, side, cid, xy, prev, hp, kind, state):
+        return {"id": f"p{key}", "generation_key": key, "side": side, "x": xy[0], "y": xy[1], "x2": prev[0],
+                "y2": prev[1], "card_id": cid, "level": 11, "kind": kind, "hp": hp, "max_hp": hp,
+                "behavior_state": state, "target": None, "path_nodes": []}
+
+    frames = []
+    for t in [t for t in range(31) if t != 11]:
+        ents = [ent(k, s, -1, (x, y), (x, y), hp, 13, 0) for k, s, x, y, hp in tower_rows]
+        if t >= 5:
+            ents.append(ent(50, 0, KNIGHT, (3589, 14380), (3499, 14500) if t == 5 else (3589, 14380), 1766, 14, 4))
+        if t >= 12:
+            ents.append(ent(51, 0, KNIGHT, (9394, 5394), (9500, 5500) if t == 12 else (9394, 5394), 1766, 14, 4))
+        ents.append(ent(52, 1, KNIGHT, (6000, 20000 - 10 * t), (6000, 20010 - 10 * t), 1766, 15, 1))
+        frames.append({"tick": t, "entities": ents, "effects": [], "elixir_raw": [50000 + 178 * t, 50000 + 178 * t]})
+    return header, frames
+
+
+@needs_modern_cards
+def test_a_single_unit_pushed_on_its_creation_tick_is_played_where_it_was_created(m, maker_inputs, tmp_path):
+    """A single unit's first frame carries its first tick's contact push; its x2, y2 is where it was created. It is
+    played there when the capture saw its creation tick, and keeps its first frame when a missed frame leaves that tick
+    unseen or it was not deploying."""
+    _skip_without_the_id_table(m)
+    header, frames = _pushed_single_battle()
+    path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    rows = {d["keys"][0]: d for d in fx["deploys"] if d["keys"]}
+    pushed, unseen, walking = rows[50], rows[51], rows[52]
+    assert (pushed["pos"], pushed["source"]) == ([3499, 14500], "creation_point"), (
+        f"the Knight pushed on its creation tick is played at {pushed['pos']} ({pushed['source']}), its first frame"
+    )
+    assert pushed["centroid"] == [3589, 14380], pushed
+    assert (unseen["pos"], unseen["source"]) == ([9394, 5394], "centroid"), unseen
+    assert (walking["pos"], walking["source"]) == (walking["centroid"], "centroid"), walking
