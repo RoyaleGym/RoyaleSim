@@ -8393,10 +8393,21 @@ impl BattleState {
                     TransformCompare::StrictlyBelow => hp < line,
                 };
                 if !reached {
+                    // PLANT (regression, tests/transform.rs): a read above the line drops the unit's pending change.
+                    #[cfg(clash_plant = "transform_heal_cancels")]
+                    {
+                        let id = self.ents.id_of(i);
+                        self.scheduled.retain(|s| !matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id));
+                    }
                     continue;
                 }
                 let id = self.ents.id_of(i);
-                if self.scheduled.iter().any(|s| matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id)) {
+                #[cfg(not(clash_plant = "transform_rescheduled_while_pending"))]
+                let pending = self.scheduled.iter().any(|s| matches!(s.action, ScheduledAction::Transform { entity, .. } if entity == id));
+                // PLANT (regression, tests/transform.rs): a unit with a change pending is read again and schedules another.
+                #[cfg(clash_plant = "transform_rescheduled_while_pending")]
+                let pending = false;
+                if pending {
                     continue;
                 }
                 #[cfg(not(clash_plant = "transform_group_delay_ignored"))]
