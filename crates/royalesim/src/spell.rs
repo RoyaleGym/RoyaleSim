@@ -966,6 +966,7 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         straight: None,
         hook: None,
         carrier: None,
+        fixed: false,
         release: None,
         buff_first: false,
         src_level: level,

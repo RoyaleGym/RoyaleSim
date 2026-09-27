@@ -155,6 +155,14 @@ pub struct Projectile {
     /// only when present.
     #[serde(default)]
     pub carrier: Option<Carrier>,
+    /// A SHOT THAT KEEPS ITS AIM (calibration combat.NON_HOMING_AIM = fixed_at_fire): a splash shot whose
+    /// row is not Homing (projectiles.csv Homing false: the Princess's, the Bomber's, the Mortar's) flies to
+    /// `aim`, its target's start-of-tick position on the fire tick, lands there and splashes there, whatever
+    /// its target does after the shot. False on every other shot, and on every shot under the shipped
+    /// follows_target. Added after SNAPSHOT_FORMAT 20; absent in older snapshots = false, and hashed only when
+    /// set.
+    #[serde(default)]
+    pub fixed: bool,
     /// The firer's (card, level) whose `projectile_area` this projectile leaves where it lands (the
     /// Heal Spirit's heal): an AreaRelease on the arrival tick. None for every other shot, and in a
     /// snapshot older than the field. In the state hash only when set.
@@ -1057,6 +1065,7 @@ pub fn fire(
                         pulse: atk_pulse,
                         firer_card: Some(ents.card[a]),
                         carrier: None,
+                        fixed: false,
                         straight: Some(Straight {
                             origin: src,
                             reach: rs.reach,
@@ -1138,11 +1147,25 @@ pub fn fire(
             }),
             _ => None,
         };
+        // combat.NON_HOMING_AIM = fixed_at_fire: a splash shot of a row that is not Homing keeps the aim it is
+        // fired with, its target's start-of-tick position (Attack runs before Move), and `step_projectiles` flies
+        // it there, lands it there and splashes there. Measured on client 16.402: every Princess, Bomber and
+        // Mortar shot at a moving target kept its end point for the whole flight, and the Princess's area landed
+        // on that point, not on her target. The Princess's CustomFirstProjectile row is not Homing either. A
+        // direct hit (no splash) and a spark carrier are left as they were.
+        #[cfg(not(clash_plant = "non_homing_shot_follows"))]
+        let fixed = calib.non_homing_aim == crate::state::NonHomingAim::FixedAtFire && !card.projectile_homing && splash_r > 0 && carrier.is_none();
+        #[cfg(clash_plant = "non_homing_shot_follows")]
+        let fixed = {
+            let _ = calib.non_homing_aim;
+            false // PLANT (regression): the new arm's non-homing splash shot follows its target, as follows_target.
+        };
         projectiles.push(Projectile {
             team: ents.team[a],
             pos,
             target,
             aim: ents.pos[ti],
+            fixed,
             // Every projectile reads time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK, its
             // own key, NOT the troop key `calib.speed_to_subtiles_per_tick` (the two
             // hold the same value today; see that key's provenance for why they are
@@ -1333,6 +1356,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         straight: None,
         hook: Some(ents.id_of(a)),
         carrier: None,
+        fixed: false,
         release: None,
         buff_first: false,
         src_level: ents.level[a],
@@ -1595,11 +1619,12 @@ pub fn step_projectiles(
             return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch, tick);
         }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
-        // A spark carrier flies to the point it was aimed at and never follows its target.
+        // A spark carrier flies to the point it was aimed at and never follows its target, and so does a shot
+        // that keeps its aim (`Projectile::fixed`, combat.NON_HOMING_AIM = fixed_at_fire).
         #[cfg(not(clash_plant = "carrier_follows_target"))]
-        let follows = p.carrier.is_none();
+        let follows = p.carrier.is_none() && !p.fixed;
         #[cfg(clash_plant = "carrier_follows_target")]
-        let follows = true; // PLANT (regression): the new arm's carrier follows its target, as a homing shot does.
+        let follows = !p.fixed; // PLANT (regression): the new arm's carrier follows its target, as a homing shot does.
         if alive && follows {
             p.aim = ents.pos[p.target.index as usize];
         }
@@ -1715,6 +1740,7 @@ fn release_sparks(
             pulse: 0,
             firer_card: p.firer_card,
             carrier: None,
+            fixed: false,
             straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),
             hook: None,
             release: None,
@@ -1733,9 +1759,9 @@ fn release_sparks(
 /// takes toward its target as the target stands now (`step_projectiles`' own step, combat.PROJECTILE_STEP's
 /// `step`, arriving on the step that reaches it), plus one for a shot whose first step is next tick's
 /// (`fresh`). A moving target's count is re-read each tick; for a still target it is the countdown fixed
-/// at launch.
+/// at launch. A shot that keeps its aim (`Projectile::fixed`) counts the steps to that aim.
 pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i32 {
-    let aim = if ents.is_alive(p.target) { ents.pos[p.target.index as usize] } else { p.aim };
+    let aim = if ents.is_alive(p.target) && !p.fixed { ents.pos[p.target.index as usize] } else { p.aim };
     let (mut pos, mut frac) = (p.pos, p.frac);
     let mut n = i32::from(p.fresh);
     // A shot always lands: either step moves it closer each tick and lands it within one step. The

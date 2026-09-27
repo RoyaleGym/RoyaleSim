@@ -339,6 +339,11 @@ pub struct Calib {
     /// the old arm.
     #[serde(default = "spawn_projectile_default")]
     pub spawn_projectile: SpawnProjectile,
+    /// combat.NON_HOMING_AIM: whether a splash shot whose row is not Homing keeps the aim it was fired with
+    /// (combat.rs `fire`, `step_projectiles`, `ticks_to_land`). Added after SNAPSHOT_FORMAT 20; the `default`
+    /// is the old arm.
+    #[serde(default = "non_homing_aim_default")]
+    pub non_homing_aim: NonHomingAim,
     /// targeting.DOOMED_TARGET_DROP: whether a projectile attacker drops a target the shots in flight
     /// will kill (`phase_target`, target.rs `can_target`). Added after SNAPSHOT_FORMAT 20; the
     /// `default` is the old arm, what a battle saved before it actually ran.
@@ -1128,6 +1133,10 @@ fn deploy_projectile_default() -> DeployProjectile {
 
 fn spawn_projectile_default() -> SpawnProjectile {
     SpawnProjectile::NotRead
+}
+
+fn non_homing_aim_default() -> NonHomingAim {
+    NonHomingAim::FollowsTarget
 }
 
 fn doomed_target_drop_default() -> DoomedTargetDrop {
@@ -2513,6 +2522,21 @@ calib_enum!(
         /// aimed ProjectileRange out at -32, -16, 0, +16, +32 degrees from its flight line; each
         /// hits a unit once and flies on.
         ClientSparkFan = "client_spark_fan",
+    }
+);
+calib_enum!(
+    /// combat.NON_HOMING_AIM -- where a splash shot whose row is not Homing (projectiles.csv Homing false) flies,
+    /// lands and splashes (combat.rs `fire`, `step_projectiles`, `ticks_to_land`). A homing row's shot follows its
+    /// target under either value.
+    NonHomingAim {
+        /// Today's engine: every shot is re-aimed at its target's position each tick, so it lands on its target
+        /// and its area is centred there.
+        FollowsTarget = "follows_target",
+        /// Measured on client 16.402: the shot keeps the aim it was fired with, its target's start-of-tick
+        /// position on the fire tick, flies there, lands there and centres its area there. Every Princess, Bomber
+        /// and Mortar shot at a moving target kept its end point; the Princess's volleys took units 1,840 to 2,479
+        /// from that point and 2,589 to 3,040 from her target.
+        FixedAtFire = "fixed_at_fire",
     }
 );
 calib_enum!(
@@ -4707,6 +4731,7 @@ impl Calib {
             multiple_targets: pick(&v, &["combat", "MULTIPLE_TARGETS", "value"], MultipleTargets::from_calibration_name)?,
             deploy_projectile: pick(&v, &["combat", "DEPLOY_PROJECTILE", "value"], DeployProjectile::from_calibration_name)?,
             spawn_projectile: pick(&v, &["combat", "SPAWN_PROJECTILE", "value"], SpawnProjectile::from_calibration_name)?,
+            non_homing_aim: pick(&v, &["combat", "NON_HOMING_AIM", "value"], NonHomingAim::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             doomed_drop_swing: pick(&v, &["targeting", "DOOMED_DROP_SWING", "value"], DoomedDropSwing::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
@@ -7730,6 +7755,7 @@ impl BattleState {
                     straight: None,
                     hook: None,
                     carrier: None,
+                    fixed: false,
                     release: None,
                     buff_first: false,
                     src_level: self.ents.level[i],
@@ -15777,6 +15803,11 @@ impl BattleState {
                     h.i32(p.bonus);
                     h.i32(p.bonus_crown);
                 }
+                // combat.NON_HOMING_AIM = fixed_at_fire: a shot that keeps its aim, only when set, so a battle
+                // without one hashes as before.
+                if p.fixed {
+                    h.u32(0x4649_5844);
+                }
             }
             // A spark carrier (combat.SPAWN_PROJECTILE new arm) hashes its own state; every other
             // shot writes nothing more, so a battle without one hashes as it did.
@@ -16414,6 +16445,9 @@ impl BattleState {
 /// 20, unchanged, pathfinding.FLYER_GOAL_BUILDINGS: Calib gained flyer_goal_buildings (serde default the old arm,
 ///    demoted), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, combat.NON_HOMING_AIM: Calib gained non_homing_aim (serde default the old arm, follows_target) and
+///    Projectile gained `fixed` (serde default false, hashed only when set, and set only under fixed_at_fire), so a
+///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16842,6 +16876,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
+    // combat.NON_HOMING_AIM: a format-3 battle aimed every shot at its target each tick; it keeps that whatever the
+    // ledger ships (the same rule).
+    sh.insert("non_homing_aim".into(), serde_json::to_value(NonHomingAim::FollowsTarget).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
