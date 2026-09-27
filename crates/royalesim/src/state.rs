@@ -418,6 +418,11 @@ pub struct Calib {
     /// `Skipped`, which is what a battle saved before this key actually ran.
     #[serde(default = "zero_step_waypoint_test_default")]
     pub zero_step_waypoint_test: ZeroStepWaypointTest,
+    /// pathfinding.AVOIDANCE_DROP_SEGMENT: what the avoidance scan's waypoint drop does to the
+    /// frozen segment direction (`phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is the old arm, `Refrozen`, which is what a battle saved before this key ran.
+    #[serde(default = "avoidance_drop_segment_default")]
+    pub avoidance_drop_segment: AvoidanceDropSegment,
     /// spawner.RELEASE_TIMING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `NextSpawnPhase`, which is what a battle saved before this key actually ran. Read
     /// through `BattleState::release_timing`, so the regression plant can force the old arm.
@@ -1238,6 +1243,10 @@ fn waiting_heading_default() -> WaitingHeading {
 
 fn zero_step_waypoint_test_default() -> ZeroStepWaypointTest {
     ZeroStepWaypointTest::Skipped
+}
+
+fn avoidance_drop_segment_default() -> AvoidanceDropSegment {
+    AvoidanceDropSegment::Refrozen
 }
 
 fn projectile_spawn_formation_default() -> ProjectileSpawnFormation {
@@ -2713,6 +2722,20 @@ calib_enum!(
         /// Measured on client 15.535.29 and client 16.402: a zero-step walk tick pops a
         /// reached node and refreezes the segment from the unmoved position.
         Run = "run"
+    }
+);
+calib_enum!(
+    /// pathfinding.AVOIDANCE_DROP_SEGMENT -- the frozen segment direction after the avoidance
+    /// scan drops the next waypoint (a static neighbour's circle holds its centre; move16402.rs
+    /// `avoidance_scan`). The reached test (pathfinding.WAYPOINT_ARRIVE_RULE) measures the new
+    /// waypoint along that direction, so it decides the tick the unit takes its next node.
+    AvoidanceDropSegment {
+        /// The engine before this key: the drop clears the segment, and the step refreezes it
+        /// from the start of the tick toward the new next waypoint.
+        Refrozen = "refrozen",
+        /// Measured on client 16.402 and client 15.535.29: the drop leaves the segment as it
+        /// was, the direction toward the node it dropped; only a reached pop refreezes it.
+        Client16402Kept = "client16402_kept"
     }
 );
 calib_enum!(
@@ -4649,6 +4672,7 @@ impl Calib {
             special_hook: pick(&v, &["combat", "SPECIAL_HOOK", "value"], SpecialHook::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             zero_step_waypoint_test: pick(&v, &["pathfinding", "ZERO_STEP_WAYPOINT_TEST", "value"], ZeroStepWaypointTest::from_calibration_name)?,
+            avoidance_drop_segment: pick(&v, &["pathfinding", "AVOIDANCE_DROP_SEGMENT", "value"], AvoidanceDropSegment::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
             emission_water_turn: pick(&v, &["spawner", "EMISSION_WATER_TURN", "value"], EmissionWaterTurn::from_calibration_name)?,
             spawn_area_object_scope: pick(&v, &["spawner", "SPAWN_AREA_OBJECT_SCOPE", "value"], SpawnAreaObjectScope::from_calibration_name)?,
@@ -10598,7 +10622,18 @@ impl BattleState {
                     let pop = move16402::avoidance_scan(&index, &bodies, i, &mut con, waypoint, e.charged[i], &mut scratch);
                     if pop {
                         routes[i].pop();
-                        segs[i] = Vec2::default();
+                        // pathfinding.AVOIDANCE_DROP_SEGMENT = client16402_kept: the drop leaves the
+                        // frozen segment as it is -- the direction toward the node just dropped --
+                        // and the reached test measures the new waypoint along it. refrozen, the
+                        // engine before this key, clears it, and the step below refreezes it from
+                        // the start of the tick toward the new waypoint.
+                        #[cfg(not(clash_plant = "avoidance_drop_refreezes"))]
+                        let keep_segment = calib.avoidance_drop_segment == AvoidanceDropSegment::Client16402Kept;
+                        #[cfg(clash_plant = "avoidance_drop_refreezes")]
+                        let keep_segment = false; // PLANT (regression): the drop refreezes the segment under either arm.
+                        if !keep_segment {
+                            segs[i] = Vec2::default();
+                        }
                     }
                 }
                 move16402::decay_offset(&mut con);
@@ -16308,6 +16343,9 @@ impl BattleState {
 ///    `projectile_y_offset` (the King Tower's ProjectileYOffset), so the card fingerprint moves: a snapshot saved by an
 ///    earlier build is refused as saved against other card data. migrate_v3 strips it with the rest of the
 ///    post-format-3 tail and runs a migrated battle at not_read; no card's index moves.
+/// 20, unchanged, pathfinding.AVOIDANCE_DROP_SEGMENT: Calib gained avoidance_drop_segment (serde default the old arm,
+///    refrozen), no new state (the segment direction is the saved `seg_dir` column), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16727,6 +16765,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // targeting.DOOMED_DROP_SWING: a format-3 battle dropped no doomed target, so it cancelled no swing for one; it runs
     // the old arm whatever the ledger ships (the same rule).
     sh.insert("doomed_drop_swing".into(), serde_json::to_value(DoomedDropSwing::Cancel).map_err(|e| e.to_string())?);
+    // pathfinding.AVOIDANCE_DROP_SEGMENT: a format-3 battle refroze the segment after a drop; it keeps that whatever
+    // the ledger ships (the same rule).
+    sh.insert("avoidance_drop_segment".into(), serde_json::to_value(AvoidanceDropSegment::Refrozen).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
