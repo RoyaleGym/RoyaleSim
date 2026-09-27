@@ -50,7 +50,7 @@ use crate::state::{
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
-use crate::target::in_attack_range;
+use crate::target::{in_attack_range, walking_own_radius};
 use crate::{EntityId, Rng, Team};
 
 const PERCENT: i64 = 100;
@@ -735,7 +735,11 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
         return idle(load);
     }
     let ti = t.index as usize;
-    let in_range = in_attack_range(calib, ents.pos[a], card.range, ents.radius[a], ents.pos[ti], ents.radius[ti]);
+    // targeting.VARIABLE_DAMAGE_WALK_REACH: a unit that walked on the previous tick (it still holds a walking goal,
+    // entity.rs `route_goal`) is gated at the reach it walks to, which adds no own radius for an Inferno Dragon under
+    // client16402_no_own_radius_walking (target.rs `walking_own_radius`); a standing one at Range + both radii.
+    let own = if ents.route_goal[a].is_some() { walking_own_radius(calib, card, ents.radius[a]) } else { ents.radius[a] };
+    let in_range = in_attack_range(calib, ents.pos[a], card.range, own, ents.pos[ti], ents.radius[ti]);
     // THE HIT-STARTED TEST, `progress % HitSpeed > TICK_MS` -- a FLAT constant and
     // not the buffed advance, so a slowed unit's swing is still under way. `>=
     // TICK_MS` would be off by one and reachable on EVERY cycle of EVERY card: a

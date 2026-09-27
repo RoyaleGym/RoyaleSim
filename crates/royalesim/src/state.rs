@@ -342,6 +342,11 @@ pub struct Calib {
     /// `inside_minimum_range`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "minimum_range_default")]
     pub minimum_range: MinimumRange,
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH: whether a walking flyer whose row sets VariableDamage2 adds its own radius
+    /// to the reach it walks to and stops at (target.rs `walking_own_radius`). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is the old arm.
+    #[serde(default = "variable_damage_walk_reach_default")]
+    pub variable_damage_walk_reach: VariableDamageWalkReach,
     /// collision.HELD_UNIT_CONTACT: whether a unit held by a freeze or a stun keeps its contact update and stays in
     /// its neighbours' scans (`phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "held_unit_contact_default")]
@@ -1057,6 +1062,10 @@ fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
 
 fn minimum_range_default() -> MinimumRange {
     MinimumRange::NotRead
+}
+
+fn variable_damage_walk_reach_default() -> VariableDamageWalkReach {
+    VariableDamageWalkReach::RangePlusBothRadii
 }
 
 fn held_unit_contact_default() -> HeldUnitContact {
@@ -2019,6 +2028,23 @@ calib_enum!(
         /// collision radii) is below it, on the start-of-tick positions. A target that falls inside is dropped on
         /// that tick with its swing cancelled, as a lost target and not a kill, so no post-kill wait follows.
         Client16402EdgeDistance = "client16402_edge_distance",
+    }
+);
+calib_enum!(
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH -- whether a WALKING flyer whose row sets VariableDamage2 (the Inferno
+    /// Dragon's row alone in the 15.535.29 tables) adds its own collision radius to the reach it walks to and stops at
+    /// (target.rs `walking_own_radius`, read by the Path phase's goal cell, direct aim and in-range test and by the
+    /// attack cycle's range gate). The Mighty Miner, a ground row with the column, keeps its own radius under both.
+    VariableDamageWalkReach {
+        /// Today's engine: every unit walks to and stops at Range + its own radius + the target's radius
+        /// (targeting.ATTACK_RANGE_RULE), walking or standing.
+        RangePlusBothRadii = "range_plus_both_radii",
+        /// Measured on the 16.402 corpus and on client 15.535.29: a walking Inferno Dragon stops, and its attack
+        /// starts, only once the target's centre is within Range + the TARGET's radius; its goal cell lies within
+        /// Range of the target's centre. Once it stands (its attack under way, or standing since its last target)
+        /// its reach is Range + both radii again, as for every other unit. "Walking" is the state the previous
+        /// tick's Path phase left: a unit that holds a walking goal (entity.rs `route_goal`).
+        Client16402NoOwnRadiusWalking = "client16402_no_own_radius_walking",
     }
 );
 calib_enum!(
@@ -4192,6 +4218,7 @@ impl Calib {
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
+            variable_damage_walk_reach: pick(&v, &["targeting", "VARIABLE_DAMAGE_WALK_REACH", "value"], VariableDamageWalkReach::from_calibration_name)?,
             held_unit_contact: pick(&v, &["collision", "HELD_UNIT_CONTACT", "value"], HeldUnitContact::from_calibration_name)?,
             target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
@@ -9592,6 +9619,11 @@ impl BattleState {
                 // corpus says otherwise: 50.6 per cent within 250 against 50.5 with the
                 // clear, so the replan is not the cost. The cost is the push itself
                 // taking the unit out of range.
+                // targeting.VARIABLE_DAMAGE_WALK_REACH: the radius a walking unit's reach adds (its own, but 0 for an
+                // Inferno Dragon under client16402_no_own_radius_walking). The in-range test reads it only for a unit
+                // that walked on the previous tick (it still holds a walking goal); the goal cell and the direct aim
+                // below run only for a unit about to walk, so they read it always.
+                let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
                 if phase_hold {
                     routes[i].clear();
                     goals[i] = None;
@@ -9600,7 +9632,8 @@ impl BattleState {
                 // a held unit (`held_walk`) asks for no path either: its route waits out the hold as it is
                 if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk, goal_id) {
                     let gi = gid.index as usize;
-                    if target::in_attack_range(calib, e.pos[i], card.range, e.radius[i], e.pos[gi], e.radius[gi]) {
+                    let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
+                    if target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
                         // SPEC 5.3: the path is cleared on the transition to attacking
                         routes[i].clear();
                         goals[i] = None;
@@ -9618,7 +9651,7 @@ impl BattleState {
                         let as_held = false; // PLANT (regression): the new arm reads the start of the tick.
                         let target = if as_held { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
                         target_abs = Some(target);
-                        let reach = (card.range + e.radius[i]) / K;
+                        let reach = (card.range + walk_own) / K;
                         // pathfinding.FLYER_GOAL_WATER: whether this chaser's goal choice ranks water
                         // below dry ground. A ground chaser always does.
                         #[cfg(not(clash_plant = "flyer_water_demoted"))]
@@ -9752,7 +9785,7 @@ impl BattleState {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
                         // target on the line to itself (move16402::direct_aim)
-                        Some(t) => (move16402::direct_aim(actor, t, (card.range + e.radius[i]) / K), native_speed),
+                        Some(t) => (move16402::direct_aim(actor, t, (card.range + walk_own) / K), native_speed),
                         None => (actor, 0),
                     },
                     _ => (actor, 0),
@@ -14910,6 +14943,9 @@ impl BattleState {
 /// 20, unchanged, collision.HELD_UNIT_CONTACT: Calib gained held_unit_contact (serde default the old arm,
 ///    out_of_the_pass), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, targeting.VARIABLE_DAMAGE_WALK_REACH: Calib gained variable_damage_walk_reach (serde default the
+///    old arm, range_plus_both_radii), no new state (the walking test reads entity.rs `route_goal`, already saved),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -15272,6 +15308,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
     sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
     sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
+    // targeting.VARIABLE_DAMAGE_WALK_REACH: a format-3 battle walked every unit to Range + both radii; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("variable_damage_walk_reach".into(), serde_json::to_value(VariableDamageWalkReach::RangePlusBothRadii).map_err(|e| e.to_string())?);
     // collision.HELD_UNIT_CONTACT: a format-3 battle took a held unit out of the move pass; it keeps that whatever the
     // ledger ships (the same rule).
     sh.insert("held_unit_contact".into(), serde_json::to_value(HeldUnitContact::OutOfThePass).map_err(|e| e.to_string())?);

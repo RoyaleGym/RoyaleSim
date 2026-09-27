@@ -41,7 +41,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Lane};
-use crate::card::CardDb;
+use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
@@ -153,6 +153,41 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
         in_range_edge(from, target, reach, target_radius)
     } else {
         in_range_edge(from, target, range, 0)
+    }
+}
+
+/// targeting.VARIABLE_DAMAGE_WALK_REACH: the attacker radius a WALKING unit's reach adds, where `own` is its
+/// collision radius (subtiles). Under client16402_no_own_radius_walking, 0 for a FLYING card whose row sets
+/// VariableDamage2 (card.rs `CardDef::variable_damage`, `is_flying`): in the 15.535.29 tables that is the Inferno
+/// Dragon's row alone. `own` for every other card (the Mighty Miner, a ground row with the column, is unmeasured and
+/// keeps its own radius) and under the old arm. The caller decides what "walking" is (the Path phase's goal cell and
+/// direct aim, which run only for a unit about to walk; a unit holding a walking goal, entity.rs `route_goal`, in the
+/// Path phase's in-range test and the attack cycle's range gate). A STANDING unit's reach adds its own radius under
+/// both arms.
+///
+/// Measured on the 16.402 corpus (one Inferno Dragon battle, one seat) and on client 15.535.29 (the Inferno Dragon
+/// sweep scene): a walking Inferno Dragon walked on through 31 + 16 ticks that started with its target inside Range +
+/// both radii but outside Range + the target's radius, and stopped on none; it stopped 4 + 2 times, each on the first
+/// tick that started inside Range + the target's radius. Walkers of every other card stood on 979 + 235 such ticks
+/// (and walked on 277 + 38). Standing, it held its place through 42 + 17 ticks with the target in that band, and its
+/// attack gate let go only past Range + both radii (the sweep's 4,506 from a Knight, 6 past it). Its goal cells lie
+/// within Range of the target's centre (the largest 3,523 of 20 choices on the corpus seat, 3,509 of 5 in the
+/// sweep); every other flyer's reach Range + its radius.
+#[inline]
+pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
+    #[cfg(not(clash_plant = "walk_reach_keeps_own_radius"))]
+    let no_own = calib.variable_damage_walk_reach == crate::state::VariableDamageWalkReach::Client16402NoOwnRadiusWalking
+        && card.variable_damage.is_some()
+        && card.is_flying();
+    #[cfg(clash_plant = "walk_reach_keeps_own_radius")]
+    let no_own = {
+        let _ = (calib, card);
+        false // PLANT (regression): the new arm still adds the walker's own radius.
+    };
+    if no_own {
+        0
+    } else {
+        own
     }
 }
 
