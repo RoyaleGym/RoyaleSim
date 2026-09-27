@@ -210,8 +210,9 @@ guard checked whether a `cards.json` existed rather than which table it held, an
 just the 2018 one. They were fixed by guarding on the table's vintage instead.
 Three checks want the 15.535 table specifically: `tests/levels.rs` scores the level ladder against
 recorded `max_hp`, `tests/jump16402.rs` wants the jump blocks of the Hog Rider, Prince and Dark
-Prince, and `tools/check_data.py`'s live-level rows go vacuous without them. Those need the 15.535
-pack and `extract_cards.py` with no `--vintage`.
+Prince, and `tools/check_data.py`'s live-level rows go vacuous without them. They read `cards.json`, and a
+clone's `cards.json` is the committed 15.535 table (the copy in stage 3), so they run on a clone.
+Only rebuilding that table from scratch needs the 15.535 pack.
 
 One build note. The engine compiles `data/calibration.json` and `data/derived/arena.json` in, so
 after editing either one, build again. RoyaleGym refuses a stale build.
@@ -512,10 +513,10 @@ Not modelled yet, in plain words:
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
 - Morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
-- Damage that grows the longer a unit keeps one target, which the Inferno Tower and Inferno Dragon
-  depend on, and the Mortar's minimum range. The engine loads both, but the shipped calibration
-  switches them off. All three cards load, so a random deck can hold one, and it will not fight
-  like the real card.
+- The Monk's two damages. They come with no times, so the engine does not load them, and the Monk
+  hits for its first damage only. (The Inferno Tower's and Inferno Dragon's growing damage and the
+  Mortar's minimum range run since `126992a`, measured on the 16.402 corpus. The 2018 table carries
+  no ramp columns, so on it the Infernos keep their first damage.)
 - One known collision defect: a unit overlapping several obstacles gets the push-outs summed
   instead of one chosen. The 47-tick overlap was retired on 2026-09-22 (docs/mechanics.md, Known
   defects).
