@@ -357,13 +357,25 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         // hit_speed_period_delayed it is due one HitSpeed after it lands, the landing tick
         // counting as its first TICK_MS: `next_ms` HitSpeed - TICK_MS, so the first application
         // falls on L + HitSpeed / TICK_MS - 1 (measured on client 15.535.29: Poison, HitSpeed
-        // 250, on L + 4; the Earthquake, 100, on L + 1; the Tornado, 50, on L).
+        // 250, on L + 4; the Earthquake, 100, on L + 1; the Tornado, 50, on L). Under
+        // hit_speed_offset the wait is the card's HitSpeedOffset (Calib::pulsing_area_offsets),
+        // counted the same way, and a card with none applies on L: on the 16.402 corpus the Rage
+        // buffs on L, the Earthquake pulses on L + 20 and the Poison (HitSpeedOffset 250) on L + 24.
         SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child } => {
             #[cfg(not(clash_plant = "pulsing_area_applies_on_landing"))]
-            let delayed = calib.pulsing_area_effect == PulsingArea::Delayed;
+            let arm = calib.pulsing_area_effect;
             #[cfg(clash_plant = "pulsing_area_applies_on_landing")]
-            let delayed = false; // PLANT (regression): the delayed arm applies on the landing tick.
-            let next_ms = if delayed { (*hit_speed_ms - calib.tick_ms).max(0) } else { 0 };
+            let arm = PulsingArea::FromLanding; // PLANT (regression): every arm applies on the landing tick.
+            #[cfg(not(clash_plant = "pulsing_offset_by_hit_speed"))]
+            let offset_of = |name: &str| calib.pulsing_area_offsets.iter().find(|(c, _)| c == name).map_or(0, |(_, ms)| *ms);
+            #[cfg(clash_plant = "pulsing_offset_by_hit_speed")]
+            let offset_of = |_: &str| *hit_speed_ms; // PLANT: the offset arm waits one HitSpeed, as client 15.535.29 does.
+            let wait_ms = match arm {
+                PulsingArea::FromLanding => 0,
+                PulsingArea::Delayed => *hit_speed_ms,
+                PulsingArea::HitSpeedOffset => offset_of(cards.get(card).name.as_str()),
+            };
+            let next_ms = (wait_ms - calib.tick_ms).max(0);
             out.push(Spell {
                 team,
                 card,

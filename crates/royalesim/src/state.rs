@@ -724,6 +724,12 @@ pub struct Calib {
     pub target_buff_on_splash: TargetBuffScope,
     /// spells.PULSING_AREA_EFFECT: when a standing area effect applies.
     pub pulsing_area_effect: PulsingArea,
+    /// spells.PULSING_AREA_EFFECT.hit_speed_offset_ms: each listed card's pulsing area waits this many
+    /// ms before its first application under `PulsingArea::HitSpeedOffset` (spell.rs `objects_for`),
+    /// by card name, in the ledger object's order. Read under every arm, used under that one only.
+    /// Added after SNAPSHOT_FORMAT 20; the `default` (empty) is what a battle saved before it ran.
+    #[serde(default)]
+    pub pulsing_area_offsets: Vec<(String, i32)>,
     /// movement.STOMP_PAUSE_SCHEDULE: the buffable millisecond clock, or the tick index.
     pub stomp_schedule: StompSchedule,
 }
@@ -1486,8 +1492,16 @@ calib_enum!(
     /// `FromLanding`: on the tick it lands and every HitSpeed after. `Delayed`: one HitSpeed after it
     /// lands, the landing tick counting as the area's first TICK_MS, so the first application falls on
     /// L + HitSpeed / TICK_MS - 1 (measured on client 15.535.29: Poison on L + 4, the Earthquake on
-    /// L + 1, the Tornado on L).
-    PulsingArea { FromLanding = "hit_speed_period_from_landing", Delayed = "hit_speed_period_delayed" }
+    /// L + 1, the Tornado on L). `HitSpeedOffset`: the wait is the area's own HitSpeedOffset, counted
+    /// the same way, and an area with none applies on L (`Calib::pulsing_area_offsets`, the client
+    /// 16.402 table's column, which the client 15.535.29 extraction does not carry). On the 16.402
+    /// corpus the Rage buffs on L (first raged step C + 11), the Earthquake pulses on L + 20 and the
+    /// Poison (HitSpeedOffset 250) pulses on L + 24.
+    PulsingArea {
+        FromLanding = "hit_speed_period_from_landing",
+        Delayed = "hit_speed_period_delayed",
+        HitSpeedOffset = "hit_speed_offset",
+    }
 );
 calib_enum!(
     /// targeting.DOOMED_TARGET_DROP -- what an attacker does with a target that the shots already in
@@ -2854,6 +2868,27 @@ fn boolean(v: &Value, path: &[&str]) -> Result<bool, String> {
     at(v, path)?.as_bool().ok_or_else(|| format!("calibration.json: {} is not a bool", path.join(".")))
 }
 
+/// spells.PULSING_AREA_EFFECT.hit_speed_offset_ms: `{card: ms}`, as a list in the ledger object's own
+/// key order. Refused at load: a missing or malformed block, a value that is not an i32 or is below 0.
+/// Card names are not checked here: a name no loaded card carries never matches (spell.rs
+/// `objects_for` looks the casting card up by name).
+fn pulsing_area_offsets(v: &Value) -> Result<Vec<(String, i32)>, String> {
+    let key = "spells.PULSING_AREA_EFFECT.hit_speed_offset_ms";
+    let cards = at(v, &["spells", "PULSING_AREA_EFFECT", "hit_speed_offset_ms"])?
+        .as_object()
+        .ok_or_else(|| format!("calibration.json: {key}: an object of card names is required"))?;
+    let mut out = Vec::new();
+    for (card, ms) in cards {
+        let ms = ms
+            .as_i64()
+            .and_then(|x| i32::try_from(x).ok())
+            .filter(|x| *x >= 0)
+            .ok_or_else(|| format!("calibration.json: {key}.{card}: {ms} is not an i32 of 0 or more"))?;
+        out.push((card.clone(), ms));
+    }
+    Ok(out)
+}
+
 /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED's value: `true` or `false` for every attacker, or the string
 /// "projectile_attackers_only" (the lock on, scoped to projectile attackers).
 fn preserve_value(v: &Value) -> Result<(bool, PreserveTargetScope), String> {
@@ -3170,6 +3205,7 @@ impl Calib {
             buff_pulse_timing: pick(&v, &["status", "BUFF_PULSE_TIMING", "value"], PulseTiming::from_calibration_name)?,
             target_buff_on_splash: pick(&v, &["status", "TARGET_BUFF_ON_SPLASH", "value"], TargetBuffScope::from_calibration_name)?,
             pulsing_area_effect: pick(&v, &["spells", "PULSING_AREA_EFFECT", "value"], PulsingArea::from_calibration_name)?,
+            pulsing_area_offsets: pulsing_area_offsets(&v)?,
             stomp_schedule: pick(&v, &["movement", "STOMP_PAUSE_SCHEDULE", "value"], StompSchedule::from_calibration_name)?,
             stun_pauses_deploy: boolean(&v, &["status", "STUN_PAUSES_DEPLOY_TIMER", "value"])?,
             stun_pauses_building_lifetime: boolean(&v, &["status", "STUN_PAUSES_BUILDING_LIFETIME", "value"])?,
@@ -11282,6 +11318,10 @@ impl BattleState {
 ///    life_state_first_update and life_state_wave_point (serde default the old arms, creation_tick
 ///    and one_division), no new state, so a blob saved before them deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arms.
+/// 20, unchanged, the pulsing area's HitSpeedOffset (spells.PULSING_AREA_EFFECT = hit_speed_offset):
+///    Calib gained pulsing_area_offsets (serde default empty), so a blob saved before it
+///    deserializes and hashes as it did; a blob saved by this build carries the list, so its BYTES
+///    differ. No card data, no Entities column and no state moved.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

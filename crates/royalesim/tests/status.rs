@@ -824,12 +824,26 @@ fn an_unimplemented_candidate_is_refused_at_load() {
         ("status", "BUFF_PULSE_TIMING", "on_application"),
         ("status", "TARGET_BUFF_ON_SPLASH", "primary_target_only"),
         ("spells", "PULSING_AREA_EFFECT", "hit_speed_period_delayed"),
+        ("spells", "PULSING_AREA_EFFECT", "hit_speed_offset"),
         ("status", "BUFF_PULSE_AMOUNT", "scaled_per_second_times_frequency"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");
         v[section][key]["value"] = serde_json::Value::String(good.into());
         Calib::from_json(&serde_json::to_string(&v).unwrap()).unwrap_or_else(|e| panic!("{section}.{key} = {good}: {e}"));
     }
+}
+
+#[test]
+fn the_pulsing_area_offsets_are_read_from_the_ledger() {
+    // spells.PULSING_AREA_EFFECT.hit_speed_offset_ms: client 16.402's HitSpeedOffset, read under every arm and
+    // refused when absent, so the offset arm never runs as the landing arm for want of its data.
+    let base = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/calibration.json")).expect("calibration.json");
+    let c = Calib::from_json(&base).expect("the shipped ledger loads");
+    assert_eq!(c.pulsing_area_offsets, vec![("Poison".to_string(), 250), ("Tornado".to_string(), 50)]);
+    let mut v: serde_json::Value = serde_json::from_str(&base).expect("parse");
+    v["spells"]["PULSING_AREA_EFFECT"].as_object_mut().expect("an entry").remove("hit_speed_offset_ms");
+    let err = Calib::from_json(&serde_json::to_string(&v).unwrap()).expect_err("a ledger without the offsets must be refused");
+    assert!(err.contains("hit_speed_offset_ms"), "the refusal must name the field: {err}");
 }
 
 /// What one run of the foil scene leaves behind: the two Snowballed Knights' walk
