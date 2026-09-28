@@ -1319,6 +1319,83 @@ def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
     return out
 
 
+#: How far past a damaging spell's radius a victim's centre may stand and still be read as hit (a unit's own radius).
+SPELL_VICTIM_MARGIN = 1500
+#: How many frames after a spell row's tick its first hit is looked for.
+SPELL_HIT_WINDOW = 120
+#: How much more than its damage a victim may lose on the hit frame (a building's decay tick, a concurrent chip).
+SPELL_HIT_SLACK = 2
+
+
+def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
+    """A damaging spell's hit on a troop or a building at a unified level, scaled as the engine scales it (card.rs
+    `level_multiplier`: the ladder entered at level_scaling.base_level, truncating division). None for a card with no
+    damage, and for a level its ladder does not have."""
+    base = card.get("damage")
+    ls = card.get("level_scaling")
+    if not base or not ls:
+        return None
+    first = ls.get("base_level", doc["rarities"][ls["rarity"]]["relative_level"] + 1)
+    table = ls["multiplier_percent_by_level"]
+    step = level - first
+    return base * table[step] // 100 if 0 <= step < len(table) else None
+
+
+def spell_levels_from_damage(
+    deploys: list[dict], doc: dict, cards_by_name: dict, ents: dict, per_tick_rows: list, ticks: list
+) -> None:
+    """A damaging spell's LEVEL, read off what its first hit took. A capture records no level for a cast, so a spell
+    row takes its side's mode (`level_source` "side mode"). That is wrong where a side levels its spells apart from its
+    troops: 20260918-112751's side-0 Fireball of tick 583 took 357 from a Goblin Hut on 607 (358 with the hut's decay
+    tick), its ladder's level 4, where the side mode 3 plays 325. The spell's HIT is the first frame, from its row's
+    tick on, on which an enemy that is not a tower (card id >= 0) and stood within the spell's radius +
+    SPELL_VICTIM_MARGIN of its point loses at least the spell's least damage and lives. A level fits when every such drop is its damage at that level
+    up to SPELL_HIT_SLACK more. One fitting level replaces the side mode (`level_source` "damage"); several are settled
+    by the one nearest the side mode; none keep the side mode. The drops are in `level_evidence` either way."""
+    ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
+    index_of = {t: i for i, t in enumerate(ticks)}
+    for d in deploys:
+        if d["kind"] != "spell" or d.get("level_source") != "side mode" or d.get("level") is None:
+            continue
+        card = cards_by_name.get(d["card"]) or {}
+        if spell_damage_at(doc, card, d["level"]) is None:
+            continue
+        reach = (card.get("area_damage_radius_milli") or (card.get("projectile") or {}).get("radius_milli") or 0)
+        reach += SPELL_VICTIM_MARGIN
+        i0 = index_of.get(d["tick"])
+        if i0 is None:
+            continue
+        foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
+        # a drop below the spell's least damage is not its hit (a building's decay tick, a troop's chip)
+        least = min(x for lv in range(1, 17) if (x := spell_damage_at(doc, card, lv)) is not None)
+        hit = None
+        for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
+            drops = []
+            for e in foes:
+                a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
+                if a is None or b is None or a[ihp] - b[ihp] < least or b[ihp] <= 0:
+                    continue
+                if math.dist((a[ix], a[iy]), d["pos"]) <= reach:
+                    drops.append(a[ihp] - b[ihp])
+            if drops:
+                hit = (ticks[i], sorted(drops))
+                break
+        if hit is None:
+            d["level_evidence"] = "no enemy within its reach lost hp inside the window"
+            continue
+        fits = [
+            lv for lv in range(1, 17)
+            if (dmg := spell_damage_at(doc, card, lv)) is not None
+            and all(dmg <= x <= dmg + SPELL_HIT_SLACK for x in hit[1])
+        ]
+        d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}; fitting levels {fits}"
+        if fits:
+            best = min(fits, key=lambda lv: (abs(lv - d["level"]), lv))
+            if best != d["level"]:
+                d["level"] = best
+                d["level_source"] = "damage"
+
+
 def tunnel_destinations(deploys: list[dict], ents: dict, per_tick_rows: list, cards_by_name: dict) -> None:
     """Give every deploy of a card that travels underground (`spawn_pathfind` in cards.json: the Miner, the Goblin
     Drill) its DESTINATION, the point it surfaces at, which the harness must play instead of `pos` (the tunnel's
@@ -2081,6 +2158,7 @@ def build(
             if d["side"] == s and d["level"] is None:
                 d["level"] = side_level
                 d["level_source"] = "side mode"
+    spell_levels_from_damage(deploys, doc, cards_by_name, ents, per_tick_rows, ticks)
 
     # -- decks and levels per side
     script_decks = {}

@@ -1624,3 +1624,51 @@ def test_a_single_unit_pushed_on_its_creation_tick_is_played_where_it_was_create
     assert pushed["centroid"] == [3589, 14380], pushed
     assert (unseen["pos"], unseen["source"]) == ([9394, 5394], "centroid"), unseen
     assert (walking["pos"], walking["source"]) == (walking["centroid"], "centroid"), walking
+
+
+@needs_cards
+def test_a_spells_level_is_read_off_its_first_hit(m):
+    """A cast carries no level in the captures. A damaging spell's level is the one whose damage its first hit took
+    (20260918-112751: a Fireball took 357 + the hut's decay tick 1 from a Goblin Hut, the ladder's level 4, where the
+    side mode 3 plays 325). A hit no level fits keeps the side mode; a tower's drop and the hut's own decay tick
+    before the hit (531 -> 530) are never read."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    fb = cards["Fireball"]
+    assert (m.spell_damage_at(doc, fb, 3), m.spell_damage_at(doc, fb, 4)) == (325, 357)
+
+    def row(x, y, hp):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = x, y, hp
+        return tuple(r)
+
+    ticks = [100, 101, 102, 103]
+    ents = {
+        7: {"key": 7, "side": 1, "card_id": 27000001},  # a hut in the blast
+        8: {"key": 8, "side": 1, "card_id": -1},  # a tower in the blast: never read
+        9: {"key": 9, "side": 0, "card_id": 26000000},  # the caster's own unit
+    }
+
+    def rows(hut_after):
+        return [
+            {7: row(6500, 17500, 531), 8: row(6500, 18000, 3000), 9: row(6500, 17000, 600)},
+            {7: row(6500, 17500, 530), 8: row(6500, 18000, 3000), 9: row(6500, 17000, 600)},
+            {7: row(6500, 17500, hut_after), 8: row(6500, 18000, 2900), 9: row(6500, 17000, 600)},
+            {7: row(6500, 17500, hut_after - 1), 8: row(6500, 18000, 2900), 9: row(6500, 17000, 600)},
+        ]
+
+    def cast():
+        return {"tick": 100, "side": 0, "card": "Fireball", "kind": "spell", "level": 3,
+                "level_source": "side mode", "pos": [6500, 17500]}
+
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, rows(530 - 358), ticks)
+    assert (d["level"], d["level_source"]) == (4, "damage"), d
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, rows(530 - 326), ticks)
+    assert (d["level"], d["level_source"]) == (3, "side mode"), d
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, rows(530 - 500), ticks)
+    assert (d["level"], d["level_source"]) == (3, "side mode"), "no level fits a 500 drop: the side mode stays"
+    assert "fitting levels []" in d["level_evidence"]
