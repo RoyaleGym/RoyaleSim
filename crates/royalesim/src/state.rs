@@ -6018,10 +6018,10 @@ struct Scratch {
     /// (`doomed_mask`). A read-only derivation, rebuilt every tick; nothing
     /// writes hp from it.
     doomed: Vec<bool>,
-    /// spawner.SPAWNED_FIRST_STEP: the buildings that died in this Reap and left a death spawn that takes its
-    /// first update, native (x, y, radius, side): `first_update`'s avoidance-only blockers. Filled and drained
-    /// inside one `phase_reap`, so it never outlives the phase.
-    dying_blockers: Vec<(i32, i32, i32, u8)>,
+    /// spawner.SPAWNED_FIRST_STEP: the units (buildings and troops) that died in this Reap and left a death spawn
+    /// that takes its first update, native (x, y, radius, side, flying): `first_update`'s avoidance-only blockers.
+    /// Filled and drained inside one `phase_reap`, so it never outlives the phase.
+    dying_blockers: Vec<(i32, i32, i32, u8, bool)>,
     /// spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the units that died in this Reap without releasing a unit,
     /// as bodies of the contact law (`dying_body`), taken before they are despawned: the death spawns' first update
     /// meets them. Filled and drained inside one `phase_reap`, so it never outlives the phase: not saved, not hashed.
@@ -8502,15 +8502,22 @@ impl BattleState {
     /// emits two units on one tick. Otherwise they step in creation order, each seeing the
     /// others' bodies as the move pass does.
     ///
-    /// THE DYING BUILDING STEERS THE FIRST STEP: `blockers`, the buildings whose death released these
-    /// units, stand in the avoidance scan as static blockers, and the separation scan does not see them.
-    /// So a Goblin Cage's Brawler, born on the cage's centre, reads avoidance offset -190 on its first
-    /// frame (the scan's -200 and one decay). The scan in each birth's creation-tick update predicts the
+    /// THE DYING PARENT STEERS THE FIRST STEP: `blockers`, the units whose death released these units,
+    /// stand in the avoidance scan as static blockers, and the separation scan does not see them. So a
+    /// Goblin Cage's Brawler, born on the cage's centre, reads avoidance offset -190 on its first frame
+    /// (the scan's -200 and one decay). The scan in each birth's creation-tick update predicts the
     /// first-frame offset, sign included, for 30 of 30 births beside a dying building on client 15.535.29
     /// (the Goblin Cage's Brawler 3, the Goblin Drill's goblins 13, the Tombstone's Skeletons 14). A dying
-    /// TROOP is not a blocker here, because troops disagree: the Elixir Golem's halves read the +-190 of a
-    /// blocker (42 of 48) and the Battle Ram's Barbarians read 0 (24 of 25). A DeathSpawnPushback row's
-    /// members take no first update at all.
+    /// TROOP blocks the same way, the scan run along the member's heading at creation: on client
+    /// 15.535.29 the Elixir Golem's halves read the +-190 it predicts in 42 of the 42 that walk on their
+    /// first frame (6 more are in their attack there, which the scan skips, and read 0), and the Battle
+    /// Ram's Barbarians, which carry the Ram's heading, in 33 of 33 (they deploy through it, and the
+    /// offset decays away before they walk). A blocker stands on its parent's layer: the Goblin Giant's
+    /// riders are flying rows, and their ground Spear Goblins read 0 (12 of 12). On the 16.402 corpus (20260920-090204, the ElixirGolem1
+    /// death on tick 1260) each half steps out, away from the dying Golem, and turns back in at a full
+    /// step while the offset decays 190, 180, 170, ... with no blocker after the first tick: x steps of
+    /// -48, -32, -28, -21, -14 and +60, +47, +42, +36, +30 off the ring at +-750, to the native unit.
+    /// A DeathSpawnPushback row's members take no first update at all.
     ///
     /// THE OTHER UNITS DYING ON THE TICK (spawner.FIRST_STEP_DYING_BODIES): under hidden, today's engine,
     /// the step meets none of them, because the doomed mask hides an emission's dying neighbour and Reap
@@ -8523,7 +8530,7 @@ impl BattleState {
     /// or client_sequential_strike, whose Target and Attack are one pass): the step is that
     /// model's move pass, and under the legacy tick order the Attack phase runs after Move
     /// anyway. Troops only: a building takes no step.
-    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8)], dying: &[move16402::Body]) {
+    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8, bool)], dying: &[move16402::Body]) {
         #[cfg(not(clash_plant = "first_step_unread"))]
         let on = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick;
         #[cfg(clash_plant = "first_step_unread")]
@@ -10563,12 +10570,12 @@ impl BattleState {
     /// obstacle set, the grid and the doomed mask are the pass's own and are not rebuilt, and a unit
     /// the mask dooms, which the pass dropped at its own place, is hidden from their scans (under
     /// spawner.FIRST_STEP_DYING_BODIES = hidden; under client16402_seen it stays, where it stood), as are
-    /// the `unseen` ones. `blockers` (native x, y, radius, side) join the board as bodies that are
+    /// the `unseen` ones. `blockers` (native x, y, radius, side, flying) join the board as bodies that are
     /// collidable but not alive: the avoidance scan sees them as static blockers, the separation scan
     /// skips them. `dying` (client16402_seen only: the units that died in this Reap, `dying_body`) join it
     /// as ordinary bodies, which both scans meet. The per-tick diagnostics of every other unit stay as the
     /// pass wrote them.
-    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8)], dying: &[move16402::Body]) {
+    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8, bool)], dying: &[move16402::Body]) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         if only.is_none() {
             self.build_obstacles();
@@ -10847,7 +10854,7 @@ impl BattleState {
                 if sees_dying {
                     bodies.extend_from_slice(dying);
                 }
-                for &(x, y, r, side) in blockers {
+                for &(x, y, r, side, air) in blockers {
                     bodies.push(move16402::Body {
                         x,
                         y,
@@ -10856,7 +10863,7 @@ impl BattleState {
                         side,
                         r,
                         mass: 0,
-                        air: false,
+                        air,
                         mover: false,
                         alive: false,
                         collidable: true,
@@ -14410,18 +14417,29 @@ impl BattleState {
             let first_update = !card.death_spawn_pushback;
             #[cfg(clash_plant = "first_step_moves_pushback_spawns")]
             let first_update = true; // PLANT (regression): a Golemite steps on its death frame.
-            // A DYING BUILDING STAYS IN ITS MEMBERS' FIRST AVOIDANCE SCAN, as a static blocker, and out of
-            // their separation push (`first_update`). A dying troop does not, because the troops disagree on
-            // client 15.535.29: the Elixir Golem's halves read the +-190 of a blocker (42 of 48), the Battle
-            // Ram's Barbarians read 0 where its body would block (24 of 25).
-            #[cfg(not(clash_plant = "first_step_parent_gone"))]
-            let blocks = first_update && self.ents.kind[i].is_building();
+            // THE DYING PARENT STAYS IN ITS MEMBERS' FIRST AVOIDANCE SCAN, as a static blocker, and out of
+            // their separation push (`first_update`): a building and a troop alike, on the parent's own layer
+            // (the scan skips a body of the other one). Measured on client 15.535.29 (the members' first-frame
+            // avoidance offset, the scan run along the member's heading at creation): the Elixir Golem's halves
+            // 42 of 42 that walk on their first frame (the other 6 are in their attack there, which the scan
+            // skips, and read 0), the Battle Ram's Barbarians 33 of 33 (+-190 while they deploy); the Goblin
+            // Giant's riders, flying rows, leave their ground Spear Goblins at 0 (12 of 12). On the 16.402 corpus
+            // the Elixir Golem's halves then walk out and turn back in at a full step as the offset decays
+            // (20260920-090204, tick 1260).
+            #[cfg(not(any(clash_plant = "first_step_parent_gone", clash_plant = "first_step_troop_parent_gone")))]
+            let blocks = first_update;
             #[cfg(clash_plant = "first_step_parent_gone")]
             let blocks = false; // PLANT (regression): the dying building is gone from the scan.
+            #[cfg(clash_plant = "first_step_troop_parent_gone")]
+            let blocks = first_update && self.ents.kind[i].is_building(); // PLANT (regression): a dying troop is not a blocker.
+            #[cfg(not(clash_plant = "first_step_blocker_ground"))]
+            let air = self.ents.flying[i];
+            #[cfg(clash_plant = "first_step_blocker_ground")]
+            let air = false; // PLANT (regression): every blocker on the ground layer, a flying parent's too.
             if blocks {
                 use crate::fixed::SUBTILE_PER_MILLITILE as K;
                 let p = self.ents.pos[i];
-                self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8));
+                self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, air));
             }
             // spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded: the members start with the dying unit's heading, the
             // ring's axis normalized to 256 in native units (measured on client 15.535.29: (28, -254) for a Ram dying
