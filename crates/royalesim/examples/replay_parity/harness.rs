@@ -355,11 +355,21 @@ pub fn resolve_tick(d: &Deploy) -> Option<u32> {
 
 /// The point `spawn_unit` would put deploy `d` at on the board `s` holds NOW: `play_point`, through the engine's
 /// own placement resolution (state.rs `resolve_point`: the snap, the relocation off a tile the troop may not take).
-/// None for a card this CardDb does not hold.
+/// A corpus troop row (`observed_row`) takes `resolve_observed_point`: its point is the capture's, which the snap
+/// must not move again. None for a card this CardDb does not hold.
 pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2> {
     let idx = db.index(&deploy_play(d, db))?;
-    let p = play_point(d);
-    Some(s.resolve_point(team_of(d.side), idx, from_native(p[0], p[1])))
+    let p = from_native(play_point(d)[0], play_point(d)[1]);
+    let team = team_of(d.side);
+    Some(if observed_row(d, db) { s.resolve_observed_point(team, idx, p) } else { s.resolve_point(team, idx, p) })
+}
+
+/// A CORPUS TROOP row: its `tap` is no [x, y] pair (a live capture's), so its point is what the capture saw, which
+/// the client already resolved; it goes down through `spawn_unit_resolved`. A spell row (an approximate landing
+/// point, which the snap puts on the tile the cast was aimed at) and every scenario row (a tap) do not.
+pub fn observed_row(d: &Deploy, db: &CardDb) -> bool {
+    let corpus_row = !d.tap.as_ref().is_some_and(|t| t.is_array());
+    corpus_row && db.index(&deploy_play(d, db)).is_some_and(|i| db.get(i).kind == CardKind::Troop)
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -1460,13 +1470,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                         (None, from_native(p[0], p[1]))
                     }
                 };
-                // A CORPUS TROOP row (its `tap` no [x, y] pair: a live capture's observed creation point) goes down as
-                // seen (`spawn_unit_resolved`), so placement.TAP_SNAP does not snap a point the client already
-                // resolved. A spell row (its point an approximate landing point, which the snap puts on the tile the
-                // cast was aimed at) and every scenario row (a tap) go through `spawn_unit`.
-                let corpus_row = !d.tap.as_ref().is_some_and(|t| t.is_array());
-                let troop = db.index(&name).is_some_and(|i| db.get(i).kind == CardKind::Troop);
-                let r = if corpus_row && troop { s.spawn_unit_resolved(team, &name, pos, d.level) } else { s.spawn_unit(team, &name, pos, d.level) };
+                // A CORPUS TROOP row goes down as seen (`observed_row`, `spawn_unit_resolved`), so placement.TAP_SNAP
+                // does not snap a point the client already resolved; spell rows and scenario rows through `spawn_unit`.
+                let r = if observed_row(d, db) { s.spawn_unit_resolved(team, &name, pos, d.level) } else { s.spawn_unit(team, &name, pos, d.level) };
                 if r.is_ok() {
                     if let Some(idx) = db.index(&name) {
                         if db.get(idx).kind == CardKind::Spell {

@@ -15380,6 +15380,13 @@ impl BattleState {
         self.resolve_point_with(team, idx, pos, true)
     }
 
+    /// `resolve_point` for a troop at an OBSERVED creation point (`spawn_unit_resolved`): everything but the
+    /// placement.TAP_SNAP snap, which the point already carries. A building or a spell resolves as `resolve_point`.
+    pub fn resolve_observed_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
+        let troop = self.cfg.cards.get(idx).kind == CardKind::Troop;
+        self.resolve_point_with(team, idx, pos, !troop)
+    }
+
     /// `resolve_point`, with `snap` false leaving out placement.TAP_SNAP (`spawn_unit_resolved`'s troops).
     fn resolve_point_with(&self, team: Team, idx: u16, pos: Vec2, snap: bool) -> Vec2 {
         let card = self.cfg.cards.get(idx);
