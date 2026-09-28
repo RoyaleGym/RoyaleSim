@@ -17,7 +17,9 @@
 //!                late); the matching is one-to-one on both sides; the score counters
 //!                are consistent (nested tolerances, parts summing to the total, the
 //!                per-card rows summing to the battle); the group pairing keeps a
-//!                spawner's extra wave from shifting its death spawn (synthetic).
+//!                spawner's extra wave from shifting its death spawn (synthetic); a
+//!                Clone's copy is rooted as "Clone", the card the recording names every
+//!                copy by (plant: replay_roots_a_copy_as_its_unit).
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
 //!                100 % for the Prince (92 frames, charge included),
@@ -439,6 +441,30 @@ fn a_mirror_row_plays_the_card_it_copied() {
         matches!(s.spawn_unit(royalesim::Team::Red, &mirror_play(&unnamed), Vec2::new(9500 * royalesim::fixed::SUBTILE_PER_MILLITILE, 20500 * royalesim::fixed::SUBTILE_PER_MILLITILE), Some(12)), Err(royalesim::state::DeployError::UnsupportedCard(..))),
         "a mirror row with no copy is refused, never guessed"
     );
+}
+
+/// A CLONE'S COPY IS ROOTED AS "Clone": the recording names every copy by the Clone card's id (28000013), whatever
+/// unit it copies, so the maker labels it "Clone", and a copy rooted as the unit it copies has no counterpart and is
+/// never scored. The sample gains a Knight on 700 and a Clone cast on it 30 ticks later; the recording has neither, so
+/// both are unmatched on the sim side, where the copy is listed under "Clone" and the Knight under its own name. Plant:
+/// replay_roots_a_copy_as_its_unit (a copy roots as its unit: no "Clone" row).
+#[test]
+fn a_clones_copy_is_rooted_as_clone() {
+    let row = |tick: u32, card: &str, card_id: i64, kind: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": {tick}, "side": 0, "card": "{card}", "card_id": {card_id}, "kind": "{kind}", "level": 11, "count": 1,
+                "pos": [8500, 5500], "source": "tap_tile"}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let mut f = sample();
+    f.deploys.push(row(700, "Knight", 26000000, "troop"));
+    f.deploys.push(row(730, "Clone", 28000013, "spell"));
+    f.deploys.sort_by_key(|d| d.tick);
+    let r = play(&f);
+    let roots: Vec<&str> = r.unmatched_sim.iter().map(|(_, _, root)| root.as_str()).collect();
+    assert!(roots.contains(&"Knight"), "vacuous: the Knight never stood on the board: {roots:?}");
+    assert!(roots.contains(&"Clone"), "no copy is rooted as Clone: {roots:?}");
 }
 
 /// A corpus troop row is resolved on the board of its TAP tick when that tick is before its issue tick: its
