@@ -271,6 +271,14 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// combat.RETARGET_WAIT_WHILE_HELD (`phase_target`): whether a stun or freeze pauses the post-kill wait. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "retarget_wait_while_held_default")]
+    pub retarget_wait_while_held: RetargetWaitWhileHeld,
+    /// combat.RETARGET_WAIT_REACH_LOSS (`phase_target`): whether the post-kill wait also follows a live target that left
+    /// the attacker's reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "retarget_wait_reach_loss_default")]
+    pub retarget_wait_reach_loss: RetargetWaitReachLoss,
     /// spells.CLONE_COPY_DEPLOY (`materialise_clones`): the deploy a Clone's copy is born with. Added after SNAPSHOT_FORMAT
     /// 20; the `default` is the old arm.
     #[serde(default = "clone_copy_deploy_default")]
@@ -1160,6 +1168,14 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn retarget_wait_while_held_default() -> RetargetWaitWhileHeld {
+    RetargetWaitWhileHeld::RunsThrough
+}
+
+fn retarget_wait_reach_loss_default() -> RetargetWaitReachLoss {
+    RetargetWaitReachLoss::KillOnly
 }
 
 fn clone_copy_deploy_default() -> CloneCopyDeploy {
@@ -3013,6 +3029,36 @@ calib_enum!(
         /// to t827) are cloned on t812; all six stand without a target through t826 and walk from t827, where the engine's
         /// copies target and walk on t823, when the hold ends.
         ClientOriginalRemaining = "client_original_remaining",
+    }
+);
+calib_enum!(
+    /// combat.RETARGET_WAIT_REACH_LOSS -- whether combat.POST_KILL_RETARGET_WAIT's wait also follows the loss of a LIVE
+    /// target (`phase_target`): a unit in its attack whose target, still on the board, has left its attack reach.
+    RetargetWaitReachLoss {
+        /// Today's engine: only a dead target starts the wait; a unit whose live target leaves its reach takes the
+        /// decision's next target on the same tick.
+        KillOnly = "kill_only",
+        /// The loss starts the same wait, under the same exemptions but the doomed one (the target lives), unless the
+        /// decision's new target already stands in the unit's reach: no target and no walk for five Target phases, the
+        /// next target on the sixth. Its attack progress is 0 at once. Read off the 16.402 corpus, 20260920-082459 (both
+        /// seats): an Inferno Dragon whose Giant walks out of its reach on t3012 reads no target t3012..t3016 and takes
+        /// the Skeletons on t3017 without moving. A new target in reach is taken at once (client 15.535.29's reach-loss
+        /// scenarios: a Knight switches to a Cannon in its reach on the next tick).
+        ClientAfterReachLoss = "client_after_reach_loss",
+    }
+);
+calib_enum!(
+    /// combat.RETARGET_WAIT_WHILE_HELD -- whether the post-kill wait (combat.POST_KILL_RETARGET_WAIT) counts the Target
+    /// phases on which its unit is held by a stun or a freeze (`Entities::held`) (`phase_target`).
+    RetargetWaitWhileHeld {
+        /// Today's engine: the wait counts every Target phase, held or not, and a unit frozen through it rescans on
+        /// resume (status.STUN_RETARGET_ON_RESUME).
+        RunsThrough = "runs_through",
+        /// The wait counts only the Target phases on which the unit is not held: a freeze pauses it, and it resumes
+        /// with what was left. Read off client 15.535.29's sp-scene-b-s1: a princess tower loses its target on t316, is
+        /// frozen t317..t338, reads progress 0 on t343 and takes its next target on t344, the loss + 6 in unfrozen
+        /// ticks; the engine took it on t340, the first tick after the freeze.
+        ClientPaused = "client_paused",
     }
 );
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
@@ -5172,6 +5218,8 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            retarget_wait_while_held: pick(&v, &["combat", "RETARGET_WAIT_WHILE_HELD", "value"], RetargetWaitWhileHeld::from_calibration_name)?,
+            retarget_wait_reach_loss: pick(&v, &["combat", "RETARGET_WAIT_REACH_LOSS", "value"], RetargetWaitReachLoss::from_calibration_name)?,
             clone_copy_deploy: pick(&v, &["spells", "CLONE_COPY_DEPLOY", "value"], CloneCopyDeploy::from_calibration_name)?,
             scheduled_unit_first_update: pick(&v, &["spawner", "SCHEDULED_UNIT_FIRST_UPDATE", "value"], ScheduledUnitFirstUpdate::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
@@ -10798,6 +10846,54 @@ impl BattleState {
                 }
             }
             if wait_arm {
+                // combat.RETARGET_WAIT_WHILE_HELD = client_paused: a Target phase on which the unit is held (a stun, a
+                // freeze) does not count toward its wait; it holds with no target and the count resumes after.
+                #[cfg(not(clash_plant = "retarget_wait_runs_while_held"))]
+                let paused = calib.retarget_wait_while_held == RetargetWaitWhileHeld::ClientPaused
+                    && e.retarget_wait[i] > 0
+                    && e.held(&cards.buffs, i, calib.full_stop_buff_is_stun);
+                #[cfg(clash_plant = "retarget_wait_runs_while_held")]
+                let paused = false; // PLANT (regression): the new arm counts the held ticks too.
+                if paused {
+                    e.target[i] = None;
+                    continue;
+                }
+                // combat.RETARGET_WAIT_REACH_LOSS = client_after_reach_loss: a unit in its attack whose live target has
+                // left its attack reach, on this phase's start-of-tick positions, and which the decision does not keep
+                // nor replace by an enemy already in that reach, starts the wait here as a kill would (the exemptions (a)
+                // and (b) below; (c) needs a dead target), with its attack progress 0 at once.
+                #[cfg(not(clash_plant = "reach_loss_no_wait"))]
+                let reach_wait = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::ClientAfterReachLoss;
+                #[cfg(clash_plant = "reach_loss_no_wait")]
+                let reach_wait = false; // PLANT (regression): the new arm retargets at once after a reach loss.
+                if reach_wait && e.retarget_wait[i] == 0 && !d.resumed && e.attack_phase[i] != AttackPhase::Idle {
+                    if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && d.target != Some(*t)) {
+                        let (ti, c) = (t.index as usize, cards.get(e.card[i]));
+                        let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
+                        // A new target already in reach is taken at once, as client 15.535.29's reach-loss scenarios show
+                        // a Knight doing (the Cannon it switched to stood in its reach).
+                        let next_in_reach = d.target.filter(|n| e.standing(*n, struck)).is_some_and(|n| {
+                            let ni = n.index as usize;
+                            target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ni], e.radius[ni])
+                        });
+                        let waits = match wait_mode {
+                            PostKillWait::MeasuredList => wait_units.iter().any(|u| *u == c.unit_name),
+                            PostKillWait::AttackFinish => !override_units.contains(&c.unit_name) && e.attack_ms[i] != 0,
+                            PostKillWait::None => false,
+                        };
+                        if left && !next_in_reach && waits {
+                            e.retarget_wait[i] = wait_ticks - 1;
+                            e.target[i] = None;
+                            e.target_locked[i] = false;
+                            e.attack_phase[i] = AttackPhase::Idle;
+                            e.attack_ms[i] = 0;
+                            if e.retarget_wait[i] > 0 {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 if e.retarget_wait[i] > 0 {
                     e.retarget_wait[i] -= 1;
                     if e.retarget_wait[i] > 0 {
@@ -18554,6 +18650,12 @@ impl BattleState {
 /// 20, unchanged, spells.CLONE_COPY_DEPLOY: Calib gained clone_copy_deploy (serde default the old arm, deployed), no new
 ///    state (the new arm writes the saved and hashed deploy_ms of a copy on its creation tick), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS: Calib gained retarget_wait_reach_loss (serde default the old arm,
+///    kill_only), no new state (the new arm writes the saved and hashed retarget_wait on other ticks), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RETARGET_WAIT_WHILE_HELD: Calib gained retarget_wait_while_held (serde default the old arm,
+///    runs_through), no new state (the new arm holds the saved and hashed retarget_wait on held ticks), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19058,6 +19160,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // combat.RETARGET_WAIT_WHILE_HELD: a format-3 battle's wait counted every tick; it keeps that whatever the ledger ships
+    // (the same rule).
+    sh.insert("retarget_wait_while_held".into(), serde_json::to_value(RetargetWaitWhileHeld::RunsThrough).map_err(|e| e.to_string())?);
+    // combat.RETARGET_WAIT_REACH_LOSS: a format-3 battle waited after a kill only; it keeps that whatever the ledger ships
+    // (the same rule).
+    sh.insert("retarget_wait_reach_loss".into(), serde_json::to_value(RetargetWaitReachLoss::KillOnly).map_err(|e| e.to_string())?);
     // spells.CLONE_COPY_DEPLOY: a format-3 battle's copies were born deployed; it keeps that whatever the ledger ships (the
     // same rule).
     sh.insert("clone_copy_deploy".into(), serde_json::to_value(CloneCopyDeploy::Deployed).map_err(|e| e.to_string())?);
