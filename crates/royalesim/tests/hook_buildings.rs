@@ -9,6 +9,7 @@
 //!   - he is pulled from t862, 449 or 450 a tick straight at the tower (DragSelfSpeed 450), and stands on t875
 //!     1,699 from its centre (1,000 + 500 + DragMargin 200);
 //!   - on t876 he stands with no target, and his first hit lands on the tower on t877 (every 26 ticks after).
+//!
 //! The old arm is today's engine: the special takes troops only, and he walks on to melee range.
 //!
 //! THE SCENE: a Blue Fisherman at (3500, 12000) on the left lane, no other troop; the Red left princess tower at

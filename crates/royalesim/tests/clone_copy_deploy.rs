@@ -57,11 +57,14 @@ struct Run {
     copy_walks: u32,
 }
 
+/// Per tick after the tick: (k, the unit's position).
+type Track = Vec<(u32, Vec2)>;
+
 fn run(arm: CloneCopyDeploy) -> Run {
     let mut s = BattleState::new(0, with(arm));
     s.spawn_unit(Team::Blue, "Knight", Vec2::new(AT.0 * K, AT.1 * K), None).expect("play the Knight");
     let (mut original, mut copy, mut born, mut copy_deploy_ms, mut original_deploy_at_20) = (None, None, None, None, None);
-    let (mut op, mut cp): (Vec<(u32, Vec2)>, Vec<(u32, Vec2)>) = (Vec::new(), Vec::new());
+    let (mut op, mut cp): (Track, Track) = (Vec::new(), Vec::new());
     for k in 1..50u32 {
         if k == CLONE_AT {
             let o = original.expect("the scene drifted: the Knight is not on the board before the Clone");

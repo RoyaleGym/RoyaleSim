@@ -32,17 +32,17 @@
 //! WHAT IS PINNED (L: the first tick the unit reads no target after the loss):
 //!   1. reach, kill_only: the Dragon's next target is the Cannon on L itself, and it flies at it;
 //!   2. reach, client_after_reach_loss: no target on L..L + 4 and no move, the Cannon on L + 5;
-//!   2a. reach, the null: with the Cannon in reach both arms take it on L;
-//!   2b. reach, the scope: a Knight in the Dragon's place (no VariableDamage), with the Giant and the Cannon set to
-//!       its reach, takes the Cannon out of its reach on L under both arms;
-//!   3. held, runs_through: the Knight's next target lands on the first tick after the freeze;
-//!   4. held, client_paused: it lands the unfrozen ticks the wait still owed later, pinned on the tick;
-//!   5. both shipped values are the old arms.
+//!   3. reach, the null: with the Cannon in reach both arms take it on L;
+//!   4. reach, the scope: a Knight in the Dragon's place (no VariableDamage), with the Giant and the Cannon set to its
+//!      reach, takes the Cannon out of its reach on L under both arms;
+//!   5. held, runs_through: the Knight's next target lands on the first tick after the freeze;
+//!   6. held, client_paused: it lands the unfrozen ticks the wait still owed later, pinned on the tick;
+//!   7. both shipped values are the old arms.
 //!
 //! PLANTS (regression):
 //!   * `reach_loss_no_wait` -- the new arm retargets at once after a reach loss: (2) goes red.
-//!   * `reach_loss_any_unit` -- every unit waits after a reach loss, not the inferno's alone: (2b) goes red.
-//!   * `retarget_wait_runs_while_held` -- the new arm counts the held ticks: (4) goes red.
+//!   * `reach_loss_any_unit` -- every unit waits after a reach loss, not the inferno's alone: (4) goes red.
+//!   * `retarget_wait_runs_while_held` -- the new arm counts the held ticks: (6) goes red.
 //!     RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!     retarget_wait_arms
 #![allow(unexpected_cfgs)]
@@ -63,10 +63,13 @@ const MOVED_AT: usize = 40;
 /// Where the Dragon stands.
 const DRAGON: (i32, i32) = (9000, 13500);
 
+/// Per tick after the tick: (the attacker's target, its position, whether the Giant is on the board).
+type ReachRows = Vec<(Option<EntityId>, Vec2, bool)>;
+
 /// Per tick after the tick: (the attacker's target, its position, whether the Giant is on the board), and the Giant's and
 /// the Cannon's ids. The attacker stands on DRAGON; the Giant is held 1,500 south of it, then on MOVED_AT set down
 /// `giant_at` south of it, where it walks on south, away; the Cannon stands at `cannon`, an offset from the attacker.
-fn reach_scene(arm: RetargetWaitReachLoss, attacker: &str, giant_at: i32, cannon: (i32, i32)) -> (Vec<(Option<EntityId>, Vec2, bool)>, EntityId, EntityId) {
+fn reach_scene(arm: RetargetWaitReachLoss, attacker: &str, giant_at: i32, cannon: (i32, i32)) -> (ReachRows, EntityId, EntityId) {
     let mut cfg: BattleConfig = config();
     cfg.calib.retarget_wait_reach_loss = arm;
     let mut s = BattleState::new(0, cfg);
@@ -88,12 +91,12 @@ fn reach_scene(arm: RetargetWaitReachLoss, attacker: &str, giant_at: i32, cannon
 
 /// The Dragon's scene: the Giant set down 4,800 away (550 past its keep reach on it, 3,500 + 500 + 750 + 25) and the
 /// Cannon due north, `cannon_off` past the Dragon's reach on it.
-fn dragon_scene(arm: RetargetWaitReachLoss, cannon_off: i32) -> (Vec<(Option<EntityId>, Vec2, bool)>, EntityId, EntityId) {
+fn dragon_scene(arm: RetargetWaitReachLoss, cannon_off: i32) -> (ReachRows, EntityId, EntityId) {
     reach_scene(arm, "InfernoDragon", 4800, (0, CANNON_REACH + cannon_off))
 }
 
 /// L: the first row after one holding the Giant whose target is not the Giant; the Giant is still on the board there.
-fn reach_loss(rows: &[(Option<EntityId>, Vec2, bool)], g: EntityId, what: &str) -> usize {
+fn reach_loss(rows: &ReachRows, g: EntityId, what: &str) -> usize {
     let first = rows.iter().position(|r| r.0 == Some(g)).unwrap_or_else(|| panic!("{what}: the scene drifted: the Dragon never took the Giant"));
     let l = first + rows[first..].iter().position(|r| r.0 != Some(g)).unwrap_or_else(|| panic!("{what}: the scene drifted: the Dragon never lost the Giant"));
     assert!(rows[l].2, "{what}: the scene drifted: the Giant died on L = {l} (a kill, not a reach loss)");
