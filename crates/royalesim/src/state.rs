@@ -986,6 +986,16 @@ pub struct Calib {
     /// arm, current_ray, what a battle saved before it ran.
     #[serde(default = "death_slide_aim_default")]
     pub death_slide_aim: DeathSlideAim,
+    /// spawner.DEATH_SLIDE_BIRTH (`death_spawn_points`, `slide_birth_toward_end`): where a sliding death-spawn member
+    /// is born. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, sine_table, what a battle saved before it
+    /// ran.
+    #[serde(default = "death_slide_birth_default")]
+    pub death_slide_birth: DeathSlideBirth,
+    /// spawner.DEATH_SLIDE_STOP (`phase_reap`, `slide_move_count`, entity.rs `death_slide_until`): when a dying troop's
+    /// sliding member's slide ends. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, on_reach, what a
+    /// battle saved before it ran.
+    #[serde(default = "death_slide_stop_default")]
+    pub death_slide_stop: DeathSlideStop,
     /// combat.KAMIKAZE_TIME, spawner.DEATH_BOMB_SPAWN_TIMING and knockback.DEATH_PUSHBACK (the Skeleton Barrel:
     /// `kamikaze_drain`, spell.rs `step_spells`, `release_fuse_end`). Added after SNAPSHOT_FORMAT 20; the `default`
     /// is each key's old arm, what a battle saved before them actually ran.
@@ -1447,6 +1457,14 @@ fn death_spawn_pushback_default() -> DeathSpawnPushback {
 
 fn death_slide_aim_default() -> DeathSlideAim {
     DeathSlideAim::CurrentRay
+}
+
+fn death_slide_birth_default() -> DeathSlideBirth {
+    DeathSlideBirth::SineTable
+}
+
+fn death_slide_stop_default() -> DeathSlideStop {
+    DeathSlideStop::OnReach
 }
 
 fn kamikaze_time_default() -> KamikazeTime {
@@ -4601,6 +4619,38 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_SLIDE_BIRTH -- where a sliding death-spawn member is born (spawner.DEATH_SPAWN_PUSHBACK =
+    /// client_ring_slide; `death_spawn_points`), a dying troop's and a container's alike, under either
+    /// spawner.DEATH_SLIDE_AIM arm. The ring's angles, the start radius and where the slide ends are not this key's.
+    DeathSlideBirth {
+        /// Today's engine: member k at move16402::DEATH_SLIDE_START (250) from the death point on its ring direction
+        /// through formation.rs's sine table, each axis truncated (`fixed_slide_ring`, `container_slide_ring`): a
+        /// 60-degree member on (125, 216).
+        SineTable = "sine_table",
+        /// Member k one slide step from the death point toward its end point, the ring point at DeathSpawnRadius
+        /// (`slide_end_points`), through the walk's 1/256 direction and truncation (move16402.rs
+        /// `death_slide_toward`; `slide_birth_toward_end`): a 60-degree member on (125, 215). Read off client 16.402
+        /// and 15.535.29: the six Lava Pups of 20260920-071744 and all seven members of the Skeleton Barrel's ring,
+        /// where the sine table puts two Pups of the six and four members of the seven on their points.
+        StepTowardEnd = "step_toward_end",
+    }
+);
+calib_enum!(
+    /// spawner.DEATH_SLIDE_STOP -- when a dying troop's sliding member's slide ends under spawner.DEATH_SLIDE_AIM =
+    /// fixed_end_point (`phase_reap`, `slide_move_count`; entity.rs `death_slide_until`). Inert under current_ray,
+    /// which lays no end point, and on a container's member, which keeps its move16402::CONTAINER_SLIDE_TICKS cap.
+    DeathSlideStop {
+        /// Today's engine: the slide ends on the step that reaches the end point (the end within
+        /// move16402::DEATH_SLIDE_STEP), however many steps that takes.
+        OnReach = "on_reach",
+        /// The slide also ends after its N-th move, N = ceil(max(|dx|, |dy|) / DEATH_SLIDE_STEP) with (dx, dy) the
+        /// member's end point less its birth point, native, fixed at birth: a Lava Pup on an axis 9 moves, a diagonal
+        /// one 8, a Golemite 5. A member a push took off its line stops after move N short of its end point. Fitted
+        /// on the two angle classes the captured rings have (the axis and 60 degrees).
+        MoveCount = "move_count",
+    }
+);
+calib_enum!(
     /// combat.KAMIKAZE_TIME -- see `BattleState::kamikaze_drain`: what a Kamikaze row's KamikazeTime (the Skeleton
     /// Barrel's 500 ms; card.rs `CardDef::kamikaze_time_ms`) does.
     KamikazeTime {
@@ -5414,6 +5464,8 @@ impl Calib {
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             death_slide_aim: pick(&v, &["spawner", "DEATH_SLIDE_AIM", "value"], DeathSlideAim::from_calibration_name)?,
+            death_slide_birth: pick(&v, &["spawner", "DEATH_SLIDE_BIRTH", "value"], DeathSlideBirth::from_calibration_name)?,
+            death_slide_stop: pick(&v, &["spawner", "DEATH_SLIDE_STOP", "value"], DeathSlideStop::from_calibration_name)?,
             kamikaze_time: pick(&v, &["combat", "KAMIKAZE_TIME", "value"], KamikazeTime::from_calibration_name)?,
             death_bomb_spawn_timing: pick(&v, &["spawner", "DEATH_BOMB_SPAWN_TIMING", "value"], DeathBombSpawnTiming::from_calibration_name)?,
             death_pushback: pick(&v, &["knockback", "DEATH_PUSHBACK", "value"], DeathPushbackScope::from_calibration_name)?,
@@ -5928,8 +5980,9 @@ struct PendingSpawn {
     #[serde(default)]
     slide_radius: i32,
     /// The most ticks that slide may run (entity.rs `death_slide_until`): `move16402::CONTAINER_SLIDE_TICKS`
-    /// on a container's member (`release_fuse_end`), 0 (no cap) on every other spawn. Added after SNAPSHOT_FORMAT
-    /// 20; `default`, the value a queue saved before it held.
+    /// on a container's member (`release_fuse_end`), the member's move count on a dying troop's member under
+    /// spawner.DEATH_SLIDE_STOP = move_count (`slide_move_count`), 0 (no cap) on every other spawn. Added after
+    /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     slide_ticks: u8,
     /// The slide's fixed end point (entity.rs `death_slide_end`, `slide_end_points`), WORLD subtiles: set on a sliding
@@ -6180,6 +6233,54 @@ fn slide_end_points(arena: &crate::arena::Arena, team: Team, pos: Vec2, count: i
         RingOrientation::Troop => fixed_ring_at(pos, count, r),
         RingOrientation::Container => container_ring_at(arena, team, pos, count, r),
     }
+}
+
+/// WHERE A SLIDING MEMBER IS BORN under spawner.DEATH_SLIDE_BIRTH = step_toward_end (`death_spawn_points`, which
+/// water-ejects these points like every other layout's), member k of `count` in creation order, WORLD subtiles: one
+/// slide step, move16402::DEATH_SLIDE_START, from the death point `pos` toward the member's end point, the ring point at
+/// DeathSpawnRadius (`radius`, subtiles; `slide_end_points` for `orientation`), through the walk's 1/256 direction and
+/// truncation (move16402.rs `death_slide_toward`, the slide's own step). The 1/256 direction is what puts a 60-degree
+/// Lava Pup on (125, 215) from the death point where the sine table at 250 gives (125, 216).
+///
+/// Read off client 16.402 (20260920-071744-B, the Lava Hound's death on t1798): the six Pups are born on (125, -215),
+/// (-125, -215), (-250, 0), (-125, 215), (125, 215) and (250, 0) from the death point, all six on this rule, two on the
+/// sine table's (the axes). Client 15.535.29 (the Skeleton Barrel's container ring, side 0 on the left half): the seven
+/// on (-153, -196), (55, -243), (226, -105), (224, 109), (51, 244), (-157, 194) and (-250, 0), all seven on this rule,
+/// four on the sine table's. A radius at or inside the step lays the member on its end point, as the sine table does.
+fn slide_birth_toward_end(arena: &crate::arena::Arena, team: Team, pos: Vec2, count: i32, radius: i32, orientation: RingOrientation) -> Vec<Vec2> {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    // PLANT death_birth_sine_table (tests/death_slide_birth.rs): the new arm lays the sine table's ring.
+    #[cfg(clash_plant = "death_birth_sine_table")]
+    {
+        return match orientation {
+            RingOrientation::Troop => fixed_slide_ring(pos, count, radius),
+            RingOrientation::Container => container_slide_ring(arena, team, pos, count, radius),
+        };
+    }
+    #[allow(unreachable_code)]
+    slide_end_points(arena, team, pos, count, radius, orientation)
+        .into_iter()
+        .map(|end| {
+            let off = ((end.x - pos.x) / K, (end.y - pos.y) / K);
+            let ((x, y), _) = move16402::death_slide_toward((0, 0), off, move16402::DEATH_SLIDE_START);
+            pos.add(Vec2::new(x * K, y * K))
+        })
+        .collect()
+}
+
+/// spawner.DEATH_SLIDE_STOP = move_count: HOW MANY MOVES A DYING TROOP'S SLIDING MEMBER MAKES, fixed at birth: N =
+/// ceil(max(|dx|, |dy|) / move16402::DEATH_SLIDE_STEP), (dx, dy) the member's end point `end` less its birth point
+/// `birth` (WORLD subtiles), native. The member's slide runs on the N ticks after its birth tick and ends after the
+/// last of them wherever it stands (entity.rs `death_slide_until`, `death_slide_capped`), or earlier on the step that
+/// reaches its end point. Read off client 16.402 and 15.535.29 (20260920-071744, ub-b1-tm2-air, the ub-ds3 family):
+/// the axis Pups (birth 250, end 2500 out) make 9 moves, the four diagonal ones 8, three of them ending 41, 95 and 127
+/// short after a push bent their paths; the Golemites (250 to 1500) make 5. The captured rings have two angle classes,
+/// the axes and 60 degrees; this rule is the one fitted on them. Capped at u8::MAX.
+fn slide_move_count(birth: Vec2, end: Vec2) -> u8 {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let (dx, dy) = (((end.x - birth.x) / K).abs(), ((end.y - birth.y) / K).abs());
+    let n = (dx.max(dy) + move16402::DEATH_SLIDE_STEP - 1) / move16402::DEATH_SLIDE_STEP;
+    n.clamp(1, u8::MAX as i32) as u8
 }
 
 /// THE FIXED RING'S ANGLE LAW, one member: the NATIVE offset of member `k` of `n` (k in
@@ -9118,6 +9219,9 @@ impl BattleState {
         let arena = &self.cfg.arena;
         let r = radius.max(0) as i64;
         let points: Vec<Vec2> = match self.cfg.calib.death_spawn_layout {
+            // spawner.DEATH_SLIDE_BIRTH = step_toward_end: one slide step from the death point toward the end point, a
+            // dying troop's ring and a container's alike.
+            _ if slide && self.cfg.calib.death_slide_birth == DeathSlideBirth::StepTowardEnd => slide_birth_toward_end(arena, team, pos, count, radius, orientation),
             // A container's ring (the Skeleton Barrel's): its owner's frame, x-mirrored by the half.
             _ if slide && orientation == RingOrientation::Container => container_slide_ring(arena, team, pos, count, radius),
             #[cfg(not(clash_plant = "death_ring_seat_rotated"))]
@@ -12230,8 +12334,9 @@ impl BattleState {
         self.ents.jumping = jumping;
         self.ents.death_slide_centre = slide_c;
         self.ents.death_slide_radius = slide_r;
-        // A slide that ended this pass drops its cap with it (only a container's member carries one), and its end
-        // point (carried under spawner.DEATH_SLIDE_AIM = fixed_end_point alone).
+        // A slide that ended this pass drops its cap with it (a container's member carries one, and a dying troop's
+        // under spawner.DEATH_SLIDE_STOP = move_count), and its end point (carried under spawner.DEATH_SLIDE_AIM =
+        // fixed_end_point alone).
         for (until, r) in self.ents.death_slide_until.iter_mut().zip(self.ents.death_slide_radius.iter()) {
             if *until != 0 && *r == 0 {
                 *until = 0;
@@ -15107,9 +15212,19 @@ impl BattleState {
                 None
             };
             parents.push(i);
+            // spawner.DEATH_SLIDE_STOP = move_count: a member with an end point (DEATH_SLIDE_AIM = fixed_end_point)
+            // slides at most its move count (`slide_move_count`), from where it is born.
+            #[cfg(not(clash_plant = "death_slide_count_ignored"))]
+            let counted = self.cfg.calib.death_slide_stop == DeathSlideStop::MoveCount;
+            #[cfg(clash_plant = "death_slide_count_ignored")]
+            let counted = false; // PLANT (regression): the new arm slides on until the member reaches its end point.
             for (k, p) in points.into_iter().enumerate() {
                 let slide_end = ends.get(k).copied().unwrap_or_default();
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks: 0, slide_end, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false }));
+                let slide_ticks = match ends.get(k) {
+                    Some(&end) if counted => slide_move_count(p, end),
+                    _ => 0,
+                };
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks, slide_end, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false }));
             }
         }
         // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
@@ -18537,6 +18652,11 @@ impl BattleState {
 /// 20, unchanged, collision.HELD_UNIT_AVOIDANCE: Calib gained held_unit_avoidance (serde default the old arm,
 ///    scanned), no new state (the new arm skips a scan inside one tick; the offset is the saved `avoid_offset`), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_SLIDE_BIRTH and spawner.DEATH_SLIDE_STOP: Calib gained death_slide_birth and
+///    death_slide_stop (serde defaults the old arms, sine_table and on_reach), no new state (the new birth arm moves
+///    where a member is created; the new stop arm writes the saved `death_slide_until` cap, hashed only when set, on a
+///    dying troop's members, which carried none), so a blob saved before them deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19001,6 +19121,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("jump_landing_contact".into(), serde_json::to_value(JumpLandingContact::LandingTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
+    // spawner.DEATH_SLIDE_BIRTH and DEATH_SLIDE_STOP: the same (a format-3 battle laid no slide at all).
+    sh.insert("death_slide_birth".into(), serde_json::to_value(DeathSlideBirth::SineTable).map_err(|e| e.to_string())?);
+    sh.insert("death_slide_stop".into(), serde_json::to_value(DeathSlideStop::OnReach).map_err(|e| e.to_string())?);
     // status.DAMAGE_REDUCTION and status.IDLE_BUFF: the same (a format-3 battle held no reduction and no idle buff).
     sh.insert("damage_reduction".into(), serde_json::to_value(DamageReductionLaw::NotRead).map_err(|e| e.to_string())?);
     sh.insert("idle_buff".into(), serde_json::to_value(IdleBuffLaw::NotRead).map_err(|e| e.to_string())?);
