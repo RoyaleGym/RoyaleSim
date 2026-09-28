@@ -152,7 +152,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 339 top-level keys with a status, 225 are `measured`; a 340th entry nested inside another is measured too.
+disagree. Of the 339 top-level keys with a status, 225 are `measured`; one more entry, nested inside another, is measured too (340 in all).
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|

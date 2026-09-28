@@ -110,7 +110,8 @@ CHECKS = [
     # one is worse than an unwatched page, because the green check vouches for it.
     (r"That (\d+) counts TOP-LEVEL", "entries"),
     (r"The tools agree on (\d+) by convention", "entries"),
-    (r"a (\d+)th entry nested inside another is measured too", "entries_with_nested"),
+    # No ordinal: at 341 entries the page would read "a 341th entry".
+    (r"nested inside another, is measured too \((\d+) in all\)", "entries_with_nested"),
 ]
 
 
