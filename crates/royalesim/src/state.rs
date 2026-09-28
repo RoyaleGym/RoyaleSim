@@ -4387,9 +4387,10 @@ calib_enum!(
     /// movement.JUMP_LANDING_CONTACT -- when a unit landing from a river jump becomes a contact body (the leap's
     /// landing in `phase_path16402_for`). A jumper is out of the contact pass while it leaps, under both arms.
     JumpLandingContact {
-        /// Today's engine (shipped): the lander is a contact body for the units the move pass updates after it on its
-        /// landing tick L, so a neighbour updated later is pushed on L.
+        /// The engine before the 2026-09-28 round 9 flip: the lander is a contact body for the units the move pass
+        /// updates after it on its landing tick L, so a neighbour updated later is pushed on L.
         LandingTick = "landing_tick",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// It is not one until L + 1, when the pass rebuilds the bodies. Read on client 15.535.29 (sweep-RoyalHogs t291:
         /// a Hog lands overlapping another, neither is pushed on L, and the lander takes a walk-plus-push step on
         /// L + 1) and client 16.402 (20260920-002736, both seats, t545: the neighbour walks its plain step on L and
