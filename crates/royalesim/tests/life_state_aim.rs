@@ -1,6 +1,7 @@
 //! spawner.LIFE_STATE_FIRST_LOOK_AIM and spawner.LIFE_STATE_AIM_REPICK, read off the engine: where a Goblin Hut's
 //! first look reads its aim (state.rs `note_first_looks`, `life_aim_pos`), and when the hut re-picks the aim its waves
-//! hold (`life_repick_lost_aim`). Both ship at their old arms, post_move and on_wave; every test names its arms.
+//! hold (`life_repick_lost_aim`). Both ship their new arms since the 2026-09-28 round 9 flip,
+//! start_of_tick_on_first_wave and on_aim_lost; every test names its arms.
 //!
 //! THE EVIDENCE, read off the 16.402 corpus with the engine's wave arithmetic (the ledger has the rows):
 //!   - a first look on ActionDelay's end reads the aim's START-OF-TICK position: 5 first waves fit it only, none the
@@ -17,7 +18,7 @@
 //!   2. start_of_tick_on_first_wave: a hut that slept and wakes to a walking Knight reads its post-move position;
 //!   3. on_aim_lost: the aim dies between waves while a Cannon A is the nearest; a Cannon B is then moved nearer; the
 //!      next two waves stand on A's candidates. on_wave: the next wave stands on B's;
-//!   4. both keys ship at their old arms.
+//!   4. both keys ship their new arms.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test life_state_aim`):
 //!   * `life_first_look_post_move` -- the new arm reads the post-move position too: (1) goes red.
@@ -180,8 +181,10 @@ fn a_lost_aim_is_re_picked_when_the_wave_is_due_under_the_old_arm() {
 }
 
 #[test]
-fn both_keys_ship_at_their_old_arms() {
+fn both_keys_ship_their_new_arms() {
     let c = Calib::shipped();
-    assert_eq!(c.life_state_first_look_aim, LifeStateFirstLookAim::PostMove, "post_move ships (a hypothesis, scored by override)");
-    assert_eq!(c.life_state_aim_repick, LifeStateAimRepick::OnWave, "on_wave ships (one hut in one battle)");
+    assert_eq!(c.life_state_first_look_aim, LifeStateFirstLookAim::StartOfTickOnFirstWave, "start_of_tick_on_first_wave ships (a hypothesis, round 9)");
+    assert_eq!(c.life_state_aim_repick, LifeStateAimRepick::OnAimLost, "on_aim_lost ships (a hypothesis, round 9: one hut in one battle)");
+    assert_eq!(config().calib.life_state_first_look_aim, LifeStateFirstLookAim::StartOfTickOnFirstWave);
+    assert_eq!(config().calib.life_state_aim_repick, LifeStateAimRepick::OnAimLost);
 }

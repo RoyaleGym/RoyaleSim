@@ -12,6 +12,12 @@
 //! facing ring (its Barbarians at 600 on its axis, no slide). The key ships at client_ring_slide
 //! since the round-6 flip (not_read before), and every scene here selects its arm explicitly.
 //!
+//! WHERE THE SLIDE STEERS is spawner.DEATH_SLIDE_AIM's (tests/death_slide_aim.rs). Its shipped arm since the
+//! 2026-09-28 round 9 flip, fixed_end_point, steps each member toward its own end point on the ring; current_ray, the
+//! arm before it, steps along the ray through where the member stands and clamps it to the radius
+//! (move16402.rs `death_slide_to`, the site of death_slide_unclamped and death_slide_pulls_back). The Golemite tracks
+//! (3) are the same under both and run both; the clamp (4) is current_ray's alone and names it.
+//!
 //! WHAT IS PINNED, and the plant that turns each gate red (each one compiled in with
 //! `--cfg clash_plant="..."`, docs/contributing.md):
 //!   1. the loader reads the column off every row, absent reading false, and the Golem and
@@ -21,10 +27,10 @@
 //!      measured angles, for a Golem (2) and a Lava Hound (6) whose facing is off every
 //!      ring angle -- death_ring_slide_facing;
 //!   3. the Golemites slide: the measured tracks, tick for tick, then the slide state
-//!      clears and the ordinary update takes over -- death_slide_never (and
-//!      death_slide_unclamped on the last tick);
-//!   4. the clamp: six Pups, contact and all, never pass DeathSpawnRadius and stop on it
-//!      -- death_slide_unclamped;
+//!      clears and the ordinary update takes over, under both spawner.DEATH_SLIDE_AIM arms
+//!      -- death_slide_never (and death_slide_unclamped on the last tick, under current_ray);
+//!   4. the clamp, under current_ray by name: six Pups, contact and all, never pass
+//!      DeathSpawnRadius and stop on it -- death_slide_unclamped;
 //!   5. a sliding member takes no target, and takes one once the slide is over
 //!      -- death_slide_targets;
 //!   6. the control: the Battle Ram's Barbarians keep the facing ring at 600 under the new
@@ -73,7 +79,7 @@ use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::formation::sin1024;
 use royalesim::move16402::{death_slide_to, DEATH_SLIDE_STEP};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeathSpawnPushback};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeathSlideAim, DeathSpawnPushback};
 use royalesim::{EntityId, PathModel, Team};
 use std::collections::BTreeSet;
 
@@ -89,6 +95,12 @@ fn with_arm(mut cfg: BattleConfig, arm: DeathSpawnPushback) -> BattleConfig {
 
 fn slide_config() -> BattleConfig {
     with_arm(config(), DeathSpawnPushback::ClientRingSlide)
+}
+
+/// `cfg` with spawner.DEATH_SLIDE_AIM at `aim`, by name.
+fn with_aim(mut cfg: BattleConfig, aim: DeathSlideAim) -> BattleConfig {
+    cfg.calib.death_slide_aim = aim;
+    cfg
 }
 
 /// A spot on Blue's half, clear of every tower and of the river by more than a Lava Hound's
@@ -257,9 +269,16 @@ fn the_members_are_born_on_the_fixed_ring_at_250_whatever_the_heading() {
 
 #[test]
 fn the_golemites_slide_out_as_measured_then_walk() {
-    // Plant death_slide_never: they walk from 250. Plant death_slide_unclamped: 1650 / 1601
-    // on the fifth tick.
-    let (mut s, ids) = kill(slide_config(), "Golem", &[]);
+    // Plant death_slide_never: they walk from 250, under both arms. Plant death_slide_unclamped: 1650 / 1601 on the
+    // fifth tick under current_ray, whose radial step it corrupts; fixed_end_point steps toward (1500, 0) and lands on
+    // it without that clamp. The Golemites never leave their ring line, so the two arms give the same tracks.
+    for aim in [DeathSlideAim::CurrentRay, DeathSlideAim::FixedEndPoint] {
+        golemites_slide_out_as_measured(aim);
+    }
+}
+
+fn golemites_slide_out_as_measured(aim: DeathSlideAim) {
+    let (mut s, ids) = kill(with_aim(slide_config(), aim), "Golem", &[]);
     let (_, _, r) = death_spawn(&s, "Golem");
     let c = centre_of(&s, &ids);
     let mut tracks: Vec<Vec<i32>> = ids.iter().map(|id| vec![radius(offset(&s, *id, c))]).collect();
@@ -276,28 +295,31 @@ fn the_golemites_slide_out_as_measured_then_walk() {
     // moves first and 101 for the other, and every later step is the slide's own 250.
     let measured: BTreeSet<Vec<i32>> = [vec![250, 650, 900, 1150, 1400, 1500], vec![250, 601, 851, 1101, 1351, 1500]].into_iter().collect();
     let got: BTreeSet<Vec<i32>> = tracks.iter().map(|t| t[..6].to_vec()).collect();
-    assert_eq!(got, measured, "the Golemites' radius per tick");
+    assert_eq!(got, measured, "{aim:?}: the Golemites' radius per tick");
     assert_eq!(r, 1500, "data: the measured tracks end at the Golem's DeathSpawnRadius");
     for (k, t) in tracks.iter().enumerate() {
         // the law, stated without the numbers: after the first tick every step is the
         // slide's until the clamp, and the clamp lands on the radius itself
         for w in t[1..6].windows(2) {
             if w[0] + DEATH_SLIDE_STEP < r {
-                assert_eq!(w[1] - w[0], DEATH_SLIDE_STEP, "member {k}: {t:?}");
+                assert_eq!(w[1] - w[0], DEATH_SLIDE_STEP, "{aim:?}: member {k}: {t:?}");
             }
         }
-        assert_eq!(t[5], r, "member {k} ends the slide on DeathSpawnRadius: {t:?}");
-        assert_eq!(&sliding[k][..6], &[true, true, true, true, true, false], "member {k}: the slide ends on the tick it reaches the radius");
-        assert!(sliding[k][6..].iter().all(|x| !x), "member {k}: the slide came back");
+        assert_eq!(t[5], r, "{aim:?}: member {k} ends the slide on DeathSpawnRadius: {t:?}");
+        assert_eq!(&sliding[k][..6], &[true, true, true, true, true, false], "{aim:?}: member {k}: the slide ends on the tick it reaches the radius");
+        assert!(sliding[k][6..].iter().all(|x| !x), "{aim:?}: member {k}: the slide came back");
         // then the ordinary update: a walk, not another 250
-        assert!((t[6] - t[5]).abs() < DEATH_SLIDE_STEP, "member {k} still slides after the radius: {t:?}");
+        assert!((t[6] - t[5]).abs() < DEATH_SLIDE_STEP, "{aim:?}: member {k} still slides after the radius: {t:?}");
     }
 }
 
 #[test]
 fn the_pups_never_pass_the_radius_and_stop_on_it() {
     // Plant death_slide_unclamped: a Pup lands past 2500.
-    let (mut s, ids) = kill(slide_config(), "LavaHound", &[]);
+    // current_ray BY NAME: the radial clamp is that arm's (move16402.rs `death_slide_to`, where the plant sits). Under
+    // the shipped fixed_end_point a Pup stops on its own end point, the sine table's point on the ring, which leaves a
+    // diagonal Pup 1 or 2 inside 2500 (its end within a unit on each axis): tests/death_slide_aim.rs pins that.
+    let (mut s, ids) = kill(with_aim(slide_config(), DeathSlideAim::CurrentRay), "LavaHound", &[]);
     let (_, _, r) = death_spawn(&s, "LavaHound");
     let c = centre_of(&s, &ids);
     let mut last: Vec<i32> = ids.iter().map(|id| radius(offset(&s, *id, c))).collect();

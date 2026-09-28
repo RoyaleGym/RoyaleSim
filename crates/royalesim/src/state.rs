@@ -3998,9 +3998,10 @@ calib_enum!(
     /// is not this key's, and later waves, and the wave of a hut waking from sleep, read the aim's post-move position
     /// under either arm.
     LifeStateFirstLookAim {
-        /// Today's engine (shipped): every wave, the first look's included, reads the aim's post-move position, the
-        /// pass running after this tick's move.
+        /// The engine before the 2026-09-28 round 9 flip: every wave, the first look's included, reads the aim's
+        /// post-move position, the pass running after this tick's move.
         PostMove = "post_move",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// The first look reads the aim's START-OF-TICK position, where it stood on the previous frame
         /// (`note_first_looks`). Read off the 16.402 corpus: of the first waves on ActionDelay's end, 5 fit the
         /// start-of-tick point only, none the post-move point only and 8 both; of the waves of a hut waking from
@@ -4013,9 +4014,10 @@ calib_enum!(
     /// `life_wave`). Which enemy a pick takes (the nearest waker by edge, a tie to the earliest created) and where the
     /// aim is read are not this key's.
     LifeStateAimRepick {
-        /// Today's engine (shipped): the aim is re-picked only when a wave is due: the last wave's aim while it still
-        /// wakes the hut, else the nearest waker then.
+        /// The engine before the 2026-09-28 round 9 flip: the aim is re-picked only when a wave is due: the last
+        /// wave's aim while it still wakes the hut, else the nearest waker then.
         OnWave = "on_wave",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// The hut re-picks on the tick its aim dies or leaves its reach (the nearest waker on that tick, or none), and
         /// its waves hold that aim while it wakes the hut (`life_repick_lost_aim`). Read off the 16.402 corpus: one hut
         /// in one battle, whose next three waves only this arm puts on their client points.
@@ -4028,10 +4030,11 @@ calib_enum!(
     /// the unit's PendingSpawn carrying `action_made`). A unit a play or a scenario puts down is not this key's, nor is
     /// the turret's deploy blow (`deploy_blow`).
     AbilityUnitFirstUpdate {
-        /// Today's engine: the turret is created in the Spawn phase of the tick its ability fires and takes that tick's
-        /// deploy countdown, as a played building does: it leaves its deploy on c + 19 and first loses lifetime hp on
-        /// c + 20, c being its first frame.
+        /// The engine before the 2026-09-28 round 9 flip: the turret is created in the Spawn phase of the tick its
+        /// ability fires and takes that tick's deploy countdown, as a played building does: it leaves its deploy on
+        /// c + 19 and first loses lifetime hp on c + 20, c being its first frame.
         CreationTick = "creation_tick",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// It does not: its first countdown is on c + 1, so it leaves its deploy on c + 20 and first loses lifetime hp
         /// on c + 21. Measured on client 15.535.29 over every ability-made turret of the hero scenes; a played Cannon or
         /// Tesla leaves on c + 19 and decays from c + 20 there, as in the engine.
@@ -4557,10 +4560,11 @@ calib_enum!(
     /// members are not this key's. Read by the 16.402 move pass only: the frame-planned Path arms
     /// (`frame_planned_slide`) keep the radial step under either arm.
     DeathSlideAim {
-        /// Today's engine (shipped): `move16402::death_slide_to`, DEATH_SLIDE_STEP out along the ray from the death
-        /// point through where the member now stands, stopping `radius` out, so a contact push that turned the member
-        /// is kept to the end of the slide.
+        /// The engine before the 2026-09-28 round 9 flip: `move16402::death_slide_to`, DEATH_SLIDE_STEP out along the
+        /// ray from the death point through where the member now stands, stopping `radius` out, so a contact push that
+        /// turned the member is kept to the end of the slide.
         CurrentRay = "current_ray",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// `move16402::death_slide_toward`: DEATH_SLIDE_STEP toward the member's END POINT, fixed at birth (entity.rs
         /// `death_slide_end`, `slide_end_points`): the death point + its ring direction x DeathSpawnRadius, the
         /// container ring's direction for a container's member; the step through the walk's 1/256 direction, and
@@ -11499,8 +11503,9 @@ impl BattleState {
                     let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
                     move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
                     let c = slide_c[i];
-                    // spawner.DEATH_SLIDE_AIM: fixed_end_point steps toward the end point fixed at birth (entity.rs
-                    // `death_slide_end`); the shipped current_ray along the ray through where the member stands.
+                    // spawner.DEATH_SLIDE_AIM: the shipped fixed_end_point steps toward the end point fixed at birth
+                    // (entity.rs `death_slide_end`); current_ray, the arm before the 2026-09-28 round 9 flip, along the
+                    // ray through where the member stands.
                     let end = match calib.death_slide_aim {
                         DeathSlideAim::FixedEndPoint => Some((e.death_slide_end[i].x / K, e.death_slide_end[i].y / K)),
                         DeathSlideAim::CurrentRay => None,

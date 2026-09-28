@@ -1,8 +1,7 @@
 //! THE TURRET A HERO'S BUTTON PUTS DOWN, read off the engine: spawner.ABILITY_UNIT_FIRST_UPDATE (state.rs
 //! `phase_spawn`) and targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings (`delay_acquisition`),
-//! both reading the release's `action_made`, which `fire_ability` alone sets. spawner.ABILITY_UNIT_FIRST_UPDATE ships
-//! its old arm creation_tick; targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client_8th_frame_action_buildings since the
-//! 2026-09-28 round 9 flip. Every scene names its arms.
+//! both reading the release's `action_made`, which `fire_ability` alone sets. Both ship their new arms since the
+//! 2026-09-28 round 9 flip, client_next_tick and client_8th_frame_action_buildings. Every scene names its arms.
 //!
 //! THE EVIDENCE, measured on client 15.535.29 over the hero scenes (Parity's round 8 item 9; the ledger has the rows).
 //! The Hero Musketeer's turret, first seen on frame c, leaves its deploy on c + 20 and first loses lifetime hp on c + 21
@@ -275,9 +274,9 @@ fn the_turrets_blow_lands_on_c2_under_client_on_landing_action_at_2() {
 #[test]
 fn the_shipped_arms() {
     let c = Calib::shipped();
-    assert_eq!(c.ability_unit_first_update, OLD_UPDATE, "spawner.ABILITY_UNIT_FIRST_UPDATE ships creation_tick");
+    assert_eq!(c.ability_unit_first_update, NEW_UPDATE, "spawner.ABILITY_UNIT_FIRST_UPDATE ships client_next_tick");
     assert_eq!(c.spawned_unit_acquire_delay, NEW_DELAY, "targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client_8th_frame_action_buildings");
-    assert_eq!(config().calib.ability_unit_first_update, OLD_UPDATE);
+    assert_eq!(config().calib.ability_unit_first_update, NEW_UPDATE);
     assert_eq!(config().calib.spawned_unit_acquire_delay, NEW_DELAY);
     assert_eq!(c.deploy_projectile, DeployProjectile::ClientOnLanding, "combat.DEPLOY_PROJECTILE ships client_on_landing");
 }
