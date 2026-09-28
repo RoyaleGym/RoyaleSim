@@ -16735,9 +16735,18 @@ impl BattleState {
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
         let Some(a) = self.cfg.cards.get(card).ability.clone() else { return };
         match a.effect {
-            crate::card::AbilityEffect::SpawnAhead { unit, relative_x, relative_y } => {
+            crate::card::AbilityEffect::SpawnAhead { unit, relative_x, relative_y, validate_as_building } => {
                 let flying = self.cfg.cards.get(unit).is_flying();
-                let at = self.scheduled_point(team, pos, crate::card::SpawnOffset::Relative { x: relative_x, y: relative_y }, flying);
+                #[cfg(clash_plant = "ability_point_unvalidated")]
+                let validate_as_building = {
+                    let _ = validate_as_building;
+                    false // PLANT (regression): the point is not placed as a building, as before.
+                };
+                let at = if validate_as_building {
+                    self.ability_building_point(team, pos, relative_x, relative_y, unit)
+                } else {
+                    self.scheduled_point(team, pos, crate::card::SpawnOffset::Relative { x: relative_x, y: relative_y }, flying)
+                };
                 let lvl = self.cfg.cards.unit_level(card, unit, None, level).expect("the ability unit's level is validated at try_new");
                 self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: true, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
             }
@@ -16753,6 +16762,82 @@ impl BattleState {
                 }
             }
         }
+    }
+
+    /// WHERE A SPAWN VALIDATED AS A BUILDING STANDS (`AbilityEffect::SpawnAhead` with `validate_as_building`: the Hero
+    /// Musketeer's turret, which the table puts down through a 50 ms placeholder building). The point is the hero +
+    /// the RelativeX / RelativeY offset (spawner.RELATIVE_SPAWN_OFFSET, the owner's frame), and it is placed as a
+    /// building TWICE (`place_as_building`): the placeholder (CollisionRadius 0, one half tile) from the point, then the
+    /// unit (its CollisionRadius; ceil(R / 500) + 1 half tiles) from the placeholder's point, with the placeholder
+    /// standing there as a building of radius 0 that the unit's first test skips and its search does not. Last, the
+    /// clamp a scheduled spawn takes: SCHEDULED_EDGE_MARGIN native inside each edge.
+    ///
+    /// Measured on client 15.535.29 over the 24 hero scenes that put a turret down (the sp-h4 scenes and 17 taps of
+    /// a grid over both side-0 crown towers): 22 exact, and y exact in all 24; the two others are points pushed below
+    /// the arena's edge, laid on y 250 as here and on x one more. Off a tower the point stands as it is; on a princess
+    /// box the side columns land on y 3000 and the centre column on y 2000 (its placeholder is pushed first and then
+    /// blocks the unit's first candidate row); on the king's box the inner columns land on y 500. Side 1's search runs
+    /// toward +y, the rotation (unmeasured).
+    fn ability_building_point(&self, team: Team, centre: Vec2, rx: i32, ry: i32, unit: u16) -> Vec2 {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (ox, oy) = match self.cfg.calib.relative_spawn_offset {
+            RelativeSpawnOffset::HalfTileOwnerLeft => (-500 * rx, 500 * ry),
+            RelativeSpawnOffset::TilesOwnerFrame => (1000 * rx, 1000 * ry),
+        };
+        let (wx, wy) = match team {
+            Team::Blue => (ox, oy),
+            Team::Red => (-ox, -oy),
+        };
+        let raw = Vec2::new(centre.x + wx * K, centre.y + wy * K);
+        let point = (raw.x.div_euclid(K), raw.y.div_euclid(K));
+        let holder = self.place_as_building(team, point, 0, 1, None);
+        let r = self.cfg.cards.get(unit).collision_radius / K;
+        let (x, y) = self.place_as_building(team, holder, r, (r + 499) / 500 + 1, Some(holder));
+        // An axis the placements left alone keeps the subtile point; a moved one lands on the native value.
+        let arena = &self.cfg.arena;
+        let m = SCHEDULED_EDGE_MARGIN * K;
+        let sx = if x == point.0 { raw.x } else { x * K };
+        let sy = if y == point.1 { raw.y } else { y * K };
+        Vec2::new(sx.clamp(m, arena.width - m), sy.clamp(m, arena.height - m))
+    }
+
+    /// ONE PLACEMENT "AS A BUILDING" (`ability_building_point`), native units: a building of radius `r` and size `s`
+    /// half tiles at `p`, for `team`.
+    ///   - clamp p into the arena; col = x / 500, row = y / 500 (the 36 x 64 half-tile grid);
+    ///   - kept when no building overlaps it (an alive building, crown towers included, either side, whose squared
+    ///     distance is < (r + its radius)^2, strictly; `holder` is not counted here) and cell (col, row) is free (in
+    ///     the grid, no NO_DEPLOY and no WATER bit);
+    ///   - else for k = 1..=9, candidate row c = row - k (side 1: row + k): cells (col, c - s / 2) and (col, c + s / 2)
+    ///     free and nothing overlapping (x, 500 c), `holder` counted as a building of radius 0; the first to pass puts
+    ///     the building on (x, 500 (c - s / 2 - s)) (side 1: + s), one size beyond the row that was tested;
+    ///   - none passes: `p`, as given.
+    fn place_as_building(&self, team: Team, p: (i32, i32), r: i32, s: i32, holder: Option<(i32, i32)>) -> (i32, i32) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let e = &self.ents;
+        let (w, h) = (arena.cols * 500, arena.rows * 500);
+        let (x, y) = (p.0.clamp(0, w - 1), p.1.clamp(0, h - 1));
+        let (col, row) = (x / 500, y / 500);
+        let free = |c: i32, rw: i32| c >= 0 && rw >= 0 && c < arena.cols && rw < arena.rows && arena.cell_bits(c, rw) & (arena.bit_no_deploy | arena.bit_water) == 0;
+        let over = |px: i32, py: i32, bx: i32, by: i32, br: i32| {
+            let (dx, dy) = ((px - bx) as i64, (py - by) as i64);
+            dx * dx + dy * dy < ((r + br) as i64) * ((r + br) as i64)
+        };
+        let hit = |px: i32, py: i32, with_holder: bool| {
+            e.live_indices().any(|i| e.kind[i].is_building() && over(px, py, e.pos[i].x / K, e.pos[i].y / K, e.radius[i] / K))
+                || (with_holder && holder.is_some_and(|(hx, hy)| over(px, py, hx, hy, 0)))
+        };
+        if !hit(x, y, false) && free(col, row) {
+            return (x, y);
+        }
+        let up = team == Team::Red;
+        for k in 1..=9 {
+            let c = if up { row + k } else { row - k };
+            if free(col, c - s / 2) && free(col, c + s / 2) && !hit(x, 500 * c, true) {
+                return (x, 500 * (c - s / 2 + if up { s } else { -s }));
+            }
+        }
+        p
     }
 
     /// PURE query: exactly the verdict `deploy` would give this play right now,

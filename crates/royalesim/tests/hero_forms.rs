@@ -561,6 +561,45 @@ fn turret_from(x: i32, y: i32) -> (Vec2, Vec2) {
     panic!("no turret from ({x}, {y})");
 }
 
+/// `turret_from`, in a battle whose Blue princess towers stand (`battle` takes them down).
+fn turret_with_towers(x: i32, y: i32) -> (Vec2, Vec2) {
+    let mut cfg = config();
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.spawn_unit(Team::Blue, "Musketeer_hero", native(x, y), None).unwrap();
+    s.tick();
+    let hid = find_live(&s, Team::Blue, "Musketeer_hero")[0].id;
+    s.press_ability_button(Team::Blue, 0).expect("the press is never refused for its point");
+    for _ in 0..40 {
+        let at = s.entity(hid).unwrap().pos;
+        s.tick();
+        if let Some(t) = find_live(&s, Team::Blue, "MusketeerTurret").first() {
+            return (at, t.pos);
+        }
+    }
+    panic!("no turret from ({x}, {y})");
+}
+
+#[test]
+fn the_turret_is_placed_as_a_building_off_its_own_towers() {
+    // S4 grid (sp-h4grid, sp-h4tower and its variants, sp-h4king8500): the point hero + (0, 2500) on an own crown
+    // tower is placed as a building twice, the placeholder's and then the turret's, x kept. The princess box's side
+    // columns land on y 3000, its centre column on y 2000 (the placeholder, pushed first, blocks the turret's first
+    // candidate row), the king's inner columns on y 500; off every box the point stands. The plant
+    // ability_point_unvalidated (the point never placed as a building) turns this red.
+    for (x, y, lands) in [(2517, 3556, Some(3000)), (4481, 3556, Some(3000)), (3481, 3556, Some(2000)), (8457, 542, Some(500)), (9542, 542, Some(500)), (5481, 3556, None)] {
+        let (hero, turret) = turret_with_towers(x, y);
+        assert_eq!(turret.x, hero.x, "x kept, from ({x}, {y})");
+        let want = lands.map_or(hero.y + 2500 * K, |v| v * K);
+        assert_eq!(turret.y, want, "from ({x}, {y}): turret at native y {}", turret.y / K);
+    }
+}
+
 #[test]
 fn the_turret_goes_down_in_the_river_and_across_the_bridge() {
     // S4 (sp-h4river, sp-h4enemy): hero (3274, 13054) gives (3274, 15554); (3269, 15514) gives (3269, 18014).

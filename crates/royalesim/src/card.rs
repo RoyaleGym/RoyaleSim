@@ -1143,8 +1143,10 @@ pub enum AbilityEffect {
     /// A UNIT PUT DOWN AHEAD OF THE HERO (the Hero Musketeer's turret): `unit` (a summon-only record) at the
     /// ActionSpawnToLocation's RelativeX / RelativeY from the hero, read as a scheduled area's relative offset is
     /// (state.rs `scheduled_point`), deploying its own DeployTime. The table's 50 ms placeholder building, whose only
-    /// job is to spawn the unit on its own point, is not made.
-    SpawnAhead { unit: u16, relative_x: i32, relative_y: i32 },
+    /// job is to spawn the unit on its own point, is not made. `validate_as_building` (the table's
+    /// ValidatePlacementAsBuilding, set on both the placeholder's and the unit's actions): the point is placed as a
+    /// building twice, the placeholder's and then the unit's (state.rs `ability_building_point`).
+    SpawnAhead { unit: u16, relative_x: i32, relative_y: i32, validate_as_building: bool },
     /// AREAS RIDING ON THE HERO (the Hero Ice Golem's storm): `start` are made at the trigger, each an index into
     /// `areas`; an area's `end` is made where it stands when its life runs out.
     Areas { areas: Vec<AttachedArea>, start: Vec<u8> },
@@ -3653,6 +3655,8 @@ struct RawAbilityEffect {
     relative_y: Option<i32>,
     unit: Option<String>,
     use_deploy: Option<bool>,
+    /// The table's ValidatePlacementAsBuilding on the spawn (absent: false).
+    validate_as_building: Option<bool>,
     areas: Option<Vec<RawHeroArea>>,
 }
 
@@ -7685,7 +7689,12 @@ impl CardDb {
                 }
                 u.summon_only = true;
                 unit = Some(u);
-                AbilityEffect::SpawnAhead { unit: u16::MAX, relative_x: a.effect.relative_x.unwrap_or(0), relative_y: a.effect.relative_y.unwrap_or(0) }
+                AbilityEffect::SpawnAhead {
+                    unit: u16::MAX,
+                    relative_x: a.effect.relative_x.unwrap_or(0),
+                    relative_y: a.effect.relative_y.unwrap_or(0),
+                    validate_as_building: a.effect.validate_as_building.unwrap_or(false),
+                }
             }
             "parent_areas" => {
                 let mut areas = Vec::new();
