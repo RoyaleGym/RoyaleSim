@@ -14088,13 +14088,37 @@ impl BattleState {
 
     /// Unit `i`'s drag by the hook `by` threw is over: `i` is free from the next tick, and `by`'s special
     /// ends when it is still on `i` (`end_special`). The one way a drag ends while both live: at its
-    /// margin (`step_hook_drags`) and when the victim becomes a building (`rebind_unit`).
+    /// margin (`step_hook_drags`, which then primes the thrower's first hit: `prime_after_release`) and
+    /// when the victim becomes a building (`rebind_unit`).
     fn end_drag(&mut self, i: usize, by: EntityId) {
         self.ents.hooked_by[i] = None;
         let bi = by.index as usize;
         if self.ents.is_alive(by) && self.ents.special_on[bi] == Some(self.ents.id_of(i)) {
             self.end_special(bi);
         }
+    }
+
+    /// THE FIRST HIT AFTER A DRAG (combat.SPECIAL_HOOK = client_hook_drag): the drag of thrower `bi` ended on its
+    /// margin on this tick, the stop tick S, and its victim is free from S + 1. Its attack cycle stands one tick short
+    /// of the hit, HitSpeed - TICK_MS in the attack, so its next attack pass, on S + 1, lands the first ordinary hit
+    /// with no fresh load. The ledger's provenance states it ("his first melee hit lands on the release tick"), and
+    /// the client shows it on both builds: over the 9 drags that end in his reach (the Fisherman scenes on client
+    /// 15.535.29, 7 drags; the 16.402 corpus's 20260920-081819, 2), the first hit lands on S + 1 in 9 of 9, with his
+    /// attack_progress_ms held at 1,250 (HitSpeed 1,300 less one tick) from the throw to the release. The engine had
+    /// left the special with a fresh cycle, whose entry credit (LoadTime + TICK_MS) put the first hit on S + 2 in 9 of
+    /// 9. Under the progress_credit cycle only (combat.ATTACK_CYCLE), the one the measurement read.
+    fn prime_after_release(&mut self, bi: usize) {
+        if self.cfg.calib.attack_cycle != AttackCycle::ProgressCredit {
+            return;
+        }
+        let hs = self.cfg.cards.get(self.ents.card[bi]).hit_speed_ms;
+        #[cfg(not(clash_plant = "hook_release_fresh_cycle"))]
+        if hs > self.cfg.calib.tick_ms {
+            self.ents.attack_phase[bi] = AttackPhase::Windup;
+            self.ents.attack_ms[bi] = hs - self.cfg.calib.tick_ms;
+        }
+        #[cfg(clash_plant = "hook_release_fresh_cycle")]
+        let _ = hs; // PLANT (regression): the special ends with a fresh cycle; the first hit lands on S + 2.
     }
 
     /// THE DRAG (calibration combat.SPECIAL_HOOK = client_hook_drag), the Move phase's step of
@@ -14137,7 +14161,13 @@ impl BattleState {
             #[cfg(clash_plant = "hook_drag_steps_inside_margin")]
             let room = len > stop; // PLANT (regression): the drag takes the step that ends inside the margin.
             if !room || len <= 0 {
+                // The victim is free from the next tick, and the thrower whose special was on it lands its first hit
+                // then (`prime_after_release`).
+                let releases = self.ents.special_on[bi] == Some(self.ents.id_of(i));
                 self.end_drag(i, by);
+                if releases {
+                    self.prime_after_release(bi);
+                }
                 // combat.HOOK_DRAG_ROUTE = client16402_dropped: the drag left the unit off the route it was walking,
                 // and its next waypoint can lie behind it. The route is dropped here, as the knockback ladder's end
                 // drops it (phase_path16402_for), and the replan gate plans a fresh one from where the unit stands.
