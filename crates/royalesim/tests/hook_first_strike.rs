@@ -4,11 +4,11 @@
 //! THE LAW, which combat.SPECIAL_HOOK's provenance states ("his first melee hit lands on the release tick"): let S be the
 //! stop tick, the first tick after the drag's last 510 step, on which the victim is still held. The victim is free from
 //! S + 1, and the thrower's first ordinary hit lands on S + 1, with no fresh load: his attack progress stands at
-//! HitSpeed less one tick (1,250 of 1,300) from the throw to the release. Measured on both clients, 9 of 9 drags that
-//! end in his reach: the Fisherman scenes on client 15.535.29 (mech-fisherman-far, -near and -knight, both seats, 6
-//! drags) and the 16.402 corpus's 20260920-081819 (the Musketeer's drag in both seats and the Giant's first in seat B,
-//! 3). The engine, before the round 9 fix, left the special with a fresh cycle, whose entry credit put the first hit on
-//! S + 2 in 9 of 9.
+//! HitSpeed less one tick (1,250 of 1,300) from the throw to the release. Measured on both clients, on all 8 drags that
+//! end in his reach, 9 seat readings: the Fisherman scenes on client 15.535.29 (mech-fisherman-far, -near and -knight,
+//! both seats, 6 drags) and the 16.402 corpus's 20260920-081819 (2 drags: the Musketeer's, read in both seats, and the
+//! Giant's first, read in seat B). The engine, before the round 9 fix, left the special with a fresh cycle, whose entry
+//! credit put the first hit on S + 2 in all 9.
 //!
 //! THE SCENE: a Blue Fisherman at (9000, 11000) and a Red Knight at (9000, 17500), out of every crown tower's reach at the
 //! start (the scene tests/test_fisherman_hook.py pins the drag on).

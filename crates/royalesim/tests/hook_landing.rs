@@ -6,7 +6,7 @@
 //! the 510 drag steps start on the next tick, from there. Read off client 15.535.29's Fisherman scenes and the 16.402
 //! corpus's 20260920-081819: the recorded hook stands still on the landing tick and the victim stands on it (far-s0: the
 //! hook on (11572, 17340) on t161, 98 short of the Knight; on t162 it has not moved and the Knight stands on it). The
-//! victim's landing move is 42 to 759 toward the thrower over the 9 drags. Today's engine lands the hook on the victim
+//! victim's landing move is 42 to 759 toward the thrower over the 8 drags (9 seat readings). Today's engine lands the hook on the victim
 //! and leaves the victim where it walked, so its drag starts farther out: one and two extra steps in near-s1 and
 //! near-s0.
 //!

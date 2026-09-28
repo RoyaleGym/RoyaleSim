@@ -4,7 +4,8 @@
 //! THE READING (client_pull_self, shipped at its old arm troops_only), off the 16.402 corpus's 20260920-081051 (both
 //! seats), a Fisherman walking up the left lane at the enemy left princess tower (3500, 25500):
 //!   - he stops on the first tick his centre distance is 8,000 or less (t823 8,049, t824 7,989): SpecialRange 7,000
-//!     plus the TARGET's radius, the tower's 1,000 (his own 500 would have stopped him about 8 ticks earlier);
+//!     plus the TARGET's radius, the tower's 1,000 (his own 500 would have walked him about 8 ticks further, to
+//!     7,500);
 //!   - he loads 26 ticks (SpecialLoadTime 1,300) and throws on t851; the hook lands on t861;
 //!   - he is pulled from t862, 449 or 450 a tick straight at the tower (DragSelfSpeed 450), and stands on t875
 //!     1,699 from its centre (1,000 + 500 + DragMargin 200);

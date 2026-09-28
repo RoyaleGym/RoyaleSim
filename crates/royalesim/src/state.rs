@@ -14179,11 +14179,12 @@ impl BattleState {
     /// margin on this tick, the stop tick S, and its victim is free from S + 1. Its attack cycle stands one tick short
     /// of the hit, HitSpeed - TICK_MS in the attack, so its next attack pass, on S + 1, lands the first ordinary hit
     /// with no fresh load. The ledger's provenance states it ("his first melee hit lands on the release tick"), and
-    /// the client shows it on both builds: over the 9 drags that end in his reach (the Fisherman scenes on client
-    /// 15.535.29, 7 drags; the 16.402 corpus's 20260920-081819, 2), the first hit lands on S + 1 in 9 of 9, with his
-    /// attack_progress_ms held at 1,250 (HitSpeed 1,300 less one tick) from the throw to the release. The engine had
-    /// left the special with a fresh cycle, whose entry credit (LoadTime + TICK_MS) put the first hit on S + 2 in 9 of
-    /// 9. Under the progress_credit cycle only (combat.ATTACK_CYCLE), the one the measurement read.
+    /// the client shows it on both builds: over the 8 drags that end in his reach, read in 9 seat views (the Fisherman
+    /// scenes on client 15.535.29, 6 drags; the 16.402 corpus's 20260920-081819, 2, one read in both seats), the first
+    /// hit lands on S + 1 in all 9, with his attack_progress_ms held at 1,250 (HitSpeed 1,300 less one tick) from the
+    /// throw to the release. The engine had left the special with a fresh cycle, whose entry credit (LoadTime +
+    /// TICK_MS) put the first hit on S + 2 in all 9. Under the progress_credit cycle only (combat.ATTACK_CYCLE), the
+    /// one the measurement read.
     fn prime_after_release(&mut self, bi: usize) {
         if self.cfg.calib.attack_cycle != AttackCycle::ProgressCredit {
             return;
