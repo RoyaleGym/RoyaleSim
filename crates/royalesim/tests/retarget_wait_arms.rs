@@ -8,12 +8,14 @@
 //! REACH LOSS (client_after_reach_loss, shipped at its old arm kill_only): a unit whose row sets VariableDamage (the
 //! Inferno Dragon), in its attack, whose LIVE target has left its attack reach, and which the decision neither keeps nor
 //! replaces by an enemy already in that reach, starts the same wait, its progress 0 at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon loses
-//! a Giant that walks out of its reach on t3012, reads no target t3012..t3016, and takes the Skeletons that have walked
-//! into its reach on t3017 without moving; the engine took them on t3012, out of its reach, and flew at them. One event.
+//! a Giant that walks out of its reach on t3012, reads no target t3012..t3016, and takes the Skeletons on t3017 without
+//! moving; the engine took them on t3012, out of its reach, and flew at them. One event. It refutes the reading that
+//! takes only an enemy already in reach: the Skeletons stand inside the Dragon's reach on them (3,500 + 500 + 500) from
+//! the t3013 frame, so that reading takes them on t3014.
 //! A new target already in reach is taken at once: client 15.535.29's reach-loss scenarios show a Knight whose Hog Rider
 //! ran out of its reach switch to a Cannon in its reach on the next tick, its swing unbroken. And a unit without the
-//! inferno retargets at once: on the 16.402 corpus a Spear Goblin, a Skeleton and a Goblin whose targets left their
-//! reach took the next at once, and the arm read on every unit lost 3,207 within 250 there.
+//! inferno retargets at once: on the 16.402 corpus a Spear Goblin and a Skeleton whose targets left their reach took
+//! the next at once, and the arm read on every unit lost 3,207 within 250 there.
 //!
 //! HELD (client_paused, shipped at its old arm runs_through): the wait counts only Target phases on which its unit is not
 //! held (a stun or a freeze). Read off client 15.535.29's sp-scene-b-s1: a princess tower that lost its target on t316
@@ -22,7 +24,7 @@
 //!
 //! THE SCENES:
 //!   * reach: a Blue Inferno Dragon at (9000, 13500) burning a Red Giant held 1,500 south of it; on k 40 the Giant is
-//!     set down 4,800 south (550 past the Dragon's keep reach on it), alive, and walks on away. A Red Cannon due north
+//!     set down 4,800 south (25 past the Dragon's keep reach on it), alive, and walks on away. A Red Cannon due north
 //!     is the nearer enemy then, 100 outside the Dragon's reach on it (or, for the null, 100 inside). The Cannon hits
 //!     ground only, so nothing touches the Dragon;
 //!   * held: a Blue Knight at (9000, 12500), out of every crown tower's reach, with a Red Skeleton 900 north of it and a
@@ -89,8 +91,8 @@ fn reach_scene(arm: RetargetWaitReachLoss, attacker: &str, giant_at: i32, cannon
     (rows, g, c)
 }
 
-/// The Dragon's scene: the Giant set down 4,800 away (550 past its keep reach on it, 3,500 + 500 + 750 + 25) and the
-/// Cannon due north, `cannon_off` past the Dragon's reach on it.
+/// The Dragon's scene: the Giant set down 4,800 away (25 past its keep reach on it, 3,500 + 500 + 750 + 25 = 4,775)
+/// and the Cannon due north, `cannon_off` past the Dragon's reach on it.
 fn dragon_scene(arm: RetargetWaitReachLoss, cannon_off: i32) -> (ReachRows, EntityId, EntityId) {
     reach_scene(arm, "InfernoDragon", 4800, (0, CANNON_REACH + cannon_off))
 }

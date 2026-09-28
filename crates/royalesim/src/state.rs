@@ -3066,10 +3066,10 @@ calib_enum!(
         /// exemptions but the doomed one (the target lives), unless the decision's new target already stands in its
         /// reach: no target and no walk for five Target phases, the next target on the sixth. Its attack progress is 0
         /// at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon whose Giant walks out of
-        /// its reach on t3012 reads no target t3012..t3016 and takes the Skeletons on t3017 without moving. Every other
-        /// unit retargets at once, as the corpus shows (a Spear Goblin, a Skeleton and a Goblin whose targets left their
-        /// reach), and a new target in reach is taken at once (client 15.535.29's reach-loss scenarios: a Knight switches
-        /// to a Cannon in its reach on the next tick).
+        /// its reach on t3012 reads no target t3012..t3016 and takes the Skeletons on t3017 without moving, where they
+        /// had stood inside its reach since the t3013 frame. Every other unit retargets at once, as the corpus shows (a
+        /// Spear Goblin and a Skeleton whose targets left their reach), and a new target in reach is taken at once
+        /// (client 15.535.29's reach-loss scenarios: a Knight switches to a Cannon in its reach on the next tick).
         ClientAfterReachLoss = "client_after_reach_loss",
     }
 );
@@ -10957,7 +10957,7 @@ impl BattleState {
                 // start-of-tick positions, and which the decision does not keep nor replace by an enemy already in that
                 // reach, starts the wait here as a kill would (the exemptions (a) and (b) below; (c) needs a dead
                 // target), with its attack progress 0 at once. Other units retarget at once: the 16.402 corpus shows it
-                // (a Spear Goblin, a Skeleton, a Goblin), and the arm read on every unit lost 3,207 within 250 there.
+                // (a Spear Goblin, a Skeleton), and the arm read on every unit lost 3,207 within 250 there.
                 #[cfg(not(clash_plant = "reach_loss_no_wait"))]
                 let reach_wait = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::ClientAfterReachLoss;
                 #[cfg(clash_plant = "reach_loss_no_wait")]
