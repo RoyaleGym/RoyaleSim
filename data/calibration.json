@@ -4231,6 +4231,20 @@
       "units": "native millitiles; JumpSpeed is native units per tick, the Speed column's unit",
       "plant": "tests/jump16402.rs (8): jumper_pays_blocked (a jumper priced like a walker) red on 5, jump_never_hops (the cost-7 walk, no leap) red on 3, jump_never_lands (the reached flag decides, as for a walk) red on 4; goal_ignores_flying_target (the global passed unconditionally) red on the flying-target case and green on every oracle2026.rs gate"
     },
+    "JUMP_LANDING_CONTACT": {
+      "value": "landing_tick",
+      "status": "hypothesis",
+      "candidates": [
+        "landing_tick",
+        "client_next_tick"
+      ],
+      "confidence": "LOW-MEDIUM for client_next_tick: two landing events with an overlapping neighbour, one per client (15.535.29 and 16.402), agree; the other 8 landings of the corpus traces have none and cannot separate the arms. landing_tick is the engine before the key, never measured.",
+      "provenance": "READ OFF the captures (the 2026-09-28 round 8). Client 15.535.29, sweep-RoyalHogs t291: Hog 9 lands overlapping Hog 10; the client pushes neither on t291, and on t292 Hog 9 takes a 250-long step (its walk plus the push), where the engine pushes Hog 10 by (-57, -139) on t291. Client 16.402, 20260920-002736, both seats, t545: Hog 11 lands next to Hog 12; the client's Hog 12 walks its plain step on t545 and the pair push apart on t546, where the engine pushes Hog 12 by (-84, -123) on t545. Of the 9 landings in the corpus traces, 8 have no overlapping neighbour and agree under both arms; this is the ninth. It is sweep-RoyalHogs' first divergence.",
+      "meaning": "landing_tick: a unit landing from a river jump (movement.JUMP_WATER_HOP's leap) is a contact body for the units the move pass updates after it on its landing tick L. client_next_tick: it becomes one on L + 1; on L it neither pushes nor is pushed.",
+      "open": "Whether the lander's own step on L + 1 carries the push the engine applies on L to its neighbour (sweep-RoyalHogs' 250-long step suggests the push lands on the lander); whether a unit updated BEFORE the lander on L sees it (in the engine it does not, under both arms: the bodies are built with the jumper out).",
+      "promotion_rules": "Score client_next_tick by override on sweep-RoyalHogs, 20260920-002736 A and B and the scenario fixtures with a jumper; flip when it moves those and nothing loses.",
+      "engine": "state.rs phase_path16402_for, the leap's landing (`bodies[i].collidable`), selected by Calib::jump_landing_contact; tests/jump_landing_contact.rs."
+    },
     "DYING_UNIT_VISIBILITY": {
       "value": "whole_tick",
       "status": "measured",

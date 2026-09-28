@@ -195,6 +195,11 @@ pub struct Calib {
     /// walks the cost-7 water at its Speed, the naive reading of the cost field the
     /// live captures refute, kept runnable as the foil.
     pub jump_water_hop: JumpWaterHop,
+    /// movement.JUMP_LANDING_CONTACT (`phase_path16402_for`, the leap's landing): whether a unit landing from a river
+    /// jump is a contact body for the units the move pass updates after it on its landing tick. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "jump_landing_contact_default")]
+    pub jump_landing_contact: JumpLandingContact,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     pub start_mana: i32,
@@ -1569,6 +1574,10 @@ fn life_state_first_look_aim_default() -> LifeStateFirstLookAim {
 
 fn life_state_aim_repick_default() -> LifeStateAimRepick {
     LifeStateAimRepick::OnWave
+}
+
+fn jump_landing_contact_default() -> JumpLandingContact {
+    JumpLandingContact::LandingTick
 }
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
@@ -4369,6 +4378,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.JUMP_LANDING_CONTACT -- when a unit landing from a river jump becomes a contact body (the leap's
+    /// landing in `phase_path16402_for`). A jumper is out of the contact pass while it leaps, under both arms.
+    JumpLandingContact {
+        /// Today's engine (shipped): the lander is a contact body for the units the move pass updates after it on its
+        /// landing tick L, so a neighbour updated later is pushed on L.
+        LandingTick = "landing_tick",
+        /// It is not one until L + 1, when the pass rebuilds the bodies. Read on client 15.535.29 (sweep-RoyalHogs t291:
+        /// a Hog lands overlapping another, neither is pushed on L, and the lander takes a walk-plus-push step on
+        /// L + 1) and client 16.402 (20260920-002736, both seats, t545: the neighbour walks its plain step on L and
+        /// the pair push apart on L + 1). The other 8 landings of the corpus traces have no overlapping neighbour.
+        NextTick = "client_next_tick",
+    }
+);
+calib_enum!(
     /// match.TICK_ORDER -- see `Calib::tick_order` and lib.rs `TICK_PHASES`.
     TickOrder {
         /// The measured order: Target, Attack, Path, Move, the countdown after Move.
@@ -5077,6 +5100,7 @@ impl Calib {
             tie_break: pick(&v, &["pathfinding", "TIE_BREAK", "value"], TieBreak::from_calibration_name)?,
             path_search: pick(&v, &["pathfinding", "PATH_SEARCH", "value"], PathSearch::from_calibration_name)?,
             jump_water_hop: pick(&v, &["movement", "JUMP_WATER_HOP", "value"], JumpWaterHop::from_calibration_name)?,
+            jump_landing_contact: pick(&v, &["movement", "JUMP_LANDING_CONTACT", "value"], JumpLandingContact::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             start_mana: int(&v, &["match", "START_MANA", "value"])?,
@@ -11836,7 +11860,16 @@ impl BattleState {
                         routes[i].clear();
                         goals[i] = None;
                         segs[i] = Vec2::default();
-                        bodies[i].collidable = true; // state 1 for the units updated after it
+                        // movement.JUMP_LANDING_CONTACT: state 1 for the units updated after it on this tick under
+                        // landing_tick; under client_next_tick it stays out of this tick's contact pass and the next
+                        // tick's bodies (built from `jumping`) take it in.
+                        #[cfg(not(clash_plant = "lander_collides_on_landing"))]
+                        let now = calib.jump_landing_contact == JumpLandingContact::LandingTick;
+                        #[cfg(clash_plant = "lander_collides_on_landing")]
+                        let now = true; // PLANT: the lander is a contact body on its landing tick under both arms.
+                        if now {
+                            bodies[i].collidable = true;
+                        }
                     }
                     continue;
                 }
@@ -18417,6 +18450,9 @@ impl BattleState {
 ///    placement_troop_building_taps and placement_spell_as_deploy_taps (serde defaults the old arms, not_relocated and
 ///    spell_point), no new state (the new arms read the saved buildings and the card's placement), so a blob saved
 ///    before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arms.
+/// 20, unchanged, movement.JUMP_LANDING_CONTACT: Calib gained jump_landing_contact (serde default the old arm,
+///    landing_tick), no new state (the new arm leaves a body the pass builds inside one tick), so a blob saved before
+///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SLIDE_AIM: Calib gained death_slide_aim (serde default the old arm, current_ray),
 ///    Entities gained `death_slide_end` (serde default, sized on load) and PendingSpawn `slide_end` (serde default):
 ///    a sliding member's fixed end point, set at birth under fixed_end_point alone and hashed only while its slide
@@ -18885,6 +18921,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("life_state_aim_repick".into(), serde_json::to_value(LifeStateAimRepick::OnWave).map_err(|e| e.to_string())?);
     // spawner.ABILITY_UNIT_FIRST_UPDATE: a format-3 battle held no hero; it keeps the old arm whatever the ledger ships.
     sh.insert("ability_unit_first_update".into(), serde_json::to_value(AbilityUnitFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
+    // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
+    // whatever the ledger ships (the same rule).
+    sh.insert("jump_landing_contact".into(), serde_json::to_value(JumpLandingContact::LandingTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
     // status.DAMAGE_REDUCTION and status.IDLE_BUFF: the same (a format-3 battle held no reduction and no idle buff).
