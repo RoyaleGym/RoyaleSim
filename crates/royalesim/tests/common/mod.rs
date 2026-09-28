@@ -92,6 +92,12 @@ pub fn symmetric_config() -> BattleConfig {
     // judges the own king block HALF-OPEN in ABSOLUTE coordinates, as measured, so a tap on its max edge is legal for
     // one seat and its rotated twin is not. closed_block, the old arm, is the same for both seats.
     c.calib.placement_troop_tower_taps = royalesim::state::TroopTowerTaps::ClosedBlock;
+    // A troop or spell tap (placement.TAP_SNAP): the shipped client16402_tile_centre takes a tap at its tile's centre,
+    // and a tap on a tile BOUNDARY snaps up for one seat and down for its rotated twin (a tap at own y 11000 is taken
+    // at own 11500 for Blue and own 10500 for Red), so a rotation gate would be measuring its own scene's geometry. The
+    // client's taps are tile indices and never on a boundary. none, the old arm, takes the raw tap for both seats.
+    // Battle::new's `tap_snap` kwarg is the Python selector (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
+    c.calib.placement_tap_snap = royalesim::state::TapSnap::None;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }

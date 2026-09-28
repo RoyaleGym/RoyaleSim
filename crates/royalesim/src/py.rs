@@ -159,6 +159,10 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // lays its ring in the ABSOLUTE frame for both seats (client 15.535.29, 8 runs), so a Red death is not the rotation
     // of a Blue one; not_read is its seat-symmetric old arm.
     "death_spawn_pushback",
+    // Battle::new's `tap_snap` kwarg. The measured tile centre (client16402_tile_centre) snaps a tap on a tile
+    // BOUNDARY up for one seat and down for the other, so a scene's boundary tap is not the rotation of its twin;
+    // none, the raw tap, is the seat-symmetric old arm.
+    "placement_tap_snap",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 
@@ -390,6 +394,8 @@ pub struct Battle {
     /// An override of calibration spawner.DEATH_SPAWN_PUSHBACK for every battle this object starts (None = the
     /// ledger's value).
     death_spawn_pushback: Option<crate::state::DeathSpawnPushback>,
+    /// An override of calibration placement.TAP_SNAP for every battle this object starts (None = the ledger's value).
+    tap_snap: Option<crate::state::TapSnap>,
     /// The unified card level and the tower level every battle this object starts runs (`level` / `tower_level`;
     /// None = the lowest level valid for every rarity, and the tower level = the card level).
     level: Option<i32>,
@@ -972,6 +978,7 @@ impl Battle {
         death_spawn_pushback: Option<String>,
         level: Option<i32>,
         tower_level: Option<i32>,
+        tap_snap: Option<String>,
     ) -> Result<Self, BuildError> {
         let (calib, calib_overrides) = match calibration_overrides {
             Some(m) if !m.is_empty() => {
@@ -1006,6 +1013,13 @@ impl Battle {
             Some(name) => Some(
                 crate::state::DeathSpawnPushback::from_calibration_name(name)
                     .ok_or_else(|| BuildError::Value(format!("death_spawn_pushback {name:?} has no engine implementation")))?,
+            ),
+        };
+        let tap_snap = match tap_snap.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::TapSnap::from_calibration_name(name)
+                    .ok_or_else(|| BuildError::Value(format!("tap_snap {name:?} has no engine implementation")))?,
             ),
         };
         let db = CardDb::load_repo().map_err(|e| BuildError::Runtime(format!("cards.json: {e}")))?;
@@ -1062,7 +1076,7 @@ impl Battle {
             db.check_levels(idx, tower_lvl).map_err(|e| BuildError::Value(format!("tower_level {tower_lvl}: {e}")))?;
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, level, tower_level, calib, calib_overrides, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, state: None })
     }
 
     /// `catalogue_json`'s body, with no Python type in it (`build` says why).
@@ -1092,7 +1106,7 @@ impl Battle {
 
     /// The calibration every battle this object starts runs (`selected_calib`).
     fn battle_calib(&self) -> Result<Calib, String> {
-        selected_calib(self.calib.as_ref(), self.path_search, self.ground_y_clamp, self.ground_deploy_point, self.death_spawn_pushback)
+        selected_calib(self.calib.as_ref(), self.path_search, self.ground_y_clamp, self.ground_deploy_point, self.death_spawn_pushback, self.tap_snap)
     }
 }
 
@@ -1109,6 +1123,7 @@ pub fn selected_calib(
     ground_y_clamp: Option<crate::state::GroundYClamp>,
     ground_deploy_point: Option<crate::state::GroundDeployPoint>,
     death_spawn_pushback: Option<crate::state::DeathSpawnPushback>,
+    tap_snap: Option<crate::state::TapSnap>,
 ) -> Result<Calib, String> {
     let mut c = base.cloned().unwrap_or_else(Calib::shipped);
     if let Some(ps) = path_search {
@@ -1131,6 +1146,9 @@ pub fn selected_calib(
     }
     if let Some(dp) = death_spawn_pushback {
         c.death_spawn_pushback = dp;
+    }
+    if let Some(ts) = tap_snap {
+        c.placement_tap_snap = ts;
     }
     #[cfg(not(clash_plant = "symmetric_selection_unchecked"))]
     c.validate()?;
@@ -1192,9 +1210,15 @@ impl Battle {
     /// `level`: the unified card level of both sides, for every battle this object starts; None = the lowest level
     /// valid for every rarity (11 on 15.535.29). `tower_level`: the crown towers' level; None = `level`. Checked
     /// here against every catalogue card (and the units it makes) and the two towers, so a level a card's ladder
-    /// lacks is refused now, not at a spawn. These two are the LAST arguments.
+    /// lacks is refused now, not at a spawn.
+    ///
+    /// `tap_snap`: None = the ledger's placement.TAP_SNAP. Its measured arm, "client16402_tile_centre", takes a troop
+    /// or spell tap at its tile's centre, so a tap on a tile BOUNDARY snaps up for one seat and down for the other and
+    /// a scene's boundary tap is not the rotation of its twin (the client's taps are tile indices, never on one).
+    /// "none", the raw tap, is the arm a rotation gate wants. This is the LAST argument, after `level` and
+    /// `tower_level`.
     #[new]
-    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None, death_spawn_pushback = None, level = None, tower_level = None))]
+    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None, death_spawn_pushback = None, level = None, tower_level = None, tap_snap = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         card_names: Option<Vec<String>>,
@@ -1206,8 +1230,9 @@ impl Battle {
         death_spawn_pushback: Option<String>,
         level: Option<i32>,
         tower_level: Option<i32>,
+        tap_snap: Option<String>,
     ) -> PyResult<Self> {
-        Ok(Self::build(card_names, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, calibration_overrides, death_spawn_pushback, level, tower_level)?)
+        Ok(Self::build(card_names, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, calibration_overrides, death_spawn_pushback, level, tower_level, tap_snap)?)
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -2308,7 +2333,7 @@ mod tests {
     fn battle_with(names: &[&str], overrides: &[(&str, &str)]) -> Battle {
         let m: BTreeMap<String, String> = overrides.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let names = Some(names.iter().map(|n| n.to_string()).collect());
-        let Ok(b) = Battle::build(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None, None, None) else { panic!("the Battle was refused") };
+        let Ok(b) = Battle::build(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None, None, None, None) else { panic!("the Battle was refused") };
         b
     }
 
@@ -2353,11 +2378,11 @@ mod tests {
     /// Plant: symmetric_selection_keeps_attack_recoil.
     #[test]
     fn the_symmetric_selection_is_a_calibration_the_loader_accepts() {
-        use crate::state::{AttackPushback, DeathSpawnPushback, GroundDeployPoint, GroundYClamp, KnockLaw, PathSearch};
+        use crate::state::{AttackPushback, DeathSpawnPushback, GroundDeployPoint, GroundYClamp, KnockLaw, PathSearch, TapSnap};
         let m: BTreeMap<String, String> = [("targeting.FIRST_TOWER_PICK".to_string(), "\"client_spawn_lane_own_frame\"".to_string())].into_iter().collect();
         let (experiment, _) = Calib::shipped_with_overrides(&m).unwrap();
         for base in [None, Some(&experiment)] {
-            let c = selected_calib(base, Some(PathSearch::TraceFittedAstar), Some(GroundYClamp::DeployColumnRangeOwnFrame), Some(GroundDeployPoint::None), Some(DeathSpawnPushback::NotRead))
+            let c = selected_calib(base, Some(PathSearch::TraceFittedAstar), Some(GroundYClamp::DeployColumnRangeOwnFrame), Some(GroundDeployPoint::None), Some(DeathSpawnPushback::NotRead), Some(TapSnap::None))
                 .unwrap_or_else(|e| panic!("the symmetric selection was refused: {e}"));
             assert_eq!((c.knock_law, c.attack_pushback), (KnockLaw::FixedDistance, AttackPushback::None));
             c.validate().unwrap_or_else(|e| panic!("the symmetric selection is a calibration the loader refuses: {e}"));
@@ -2380,7 +2405,7 @@ mod tests {
         // The selection: a base whose own pairing is refused and which the keyword does not touch.
         let mut hand = Calib::shipped();
         hand.attack_cycle = AttackCycle::WindupLoadTime;
-        let Err(e) = selected_calib(Some(&hand), Some(PathSearch::TraceFittedAstar), None, None, None) else { panic!("the selection accepted a refused pairing") };
+        let Err(e) = selected_calib(Some(&hand), Some(PathSearch::TraceFittedAstar), None, None, None, None) else { panic!("the selection accepted a refused pairing") };
         assert!(e.contains("ATTACK_CYCLE"), "the selection refused it for another reason: {e}");
         // A hand-edited battle config.
         let mut cfg = BattleConfig::with_cards(CardDb::clone(&cards()));
@@ -2395,9 +2420,9 @@ mod tests {
     /// under the base card's id, the unit with status bit 3.
     #[test]
     fn an_evolved_cannon_reports_under_its_base_card() {
-        let Ok(b) = Battle::build(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None) else { panic!("the default Battle was refused") };
+        let Ok(b) = Battle::build(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None, None) else { panic!("the default Battle was refused") };
         assert!(b.catalogue.iter().all(|i| b.cards.get(*i).evo.is_none()), "a form in the default catalogue");
-        assert!(Battle::build(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None).is_err(), "a named form was taken");
+        assert!(Battle::build(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None, None).is_err(), "a named form was taken");
         let db = b.cards.clone();
         let ids = ids_of_indices(&db, &b.catalogue);
         let (cannon, form) = (db.index("Cannon").unwrap(), db.index("Cannon_EV1").unwrap());
