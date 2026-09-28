@@ -1027,6 +1027,12 @@ pub struct TraceRow {
     /// it.
     pub radius: Option<i32>,
     pub dist: Option<i32>,
+    /// THE SIM'S HEADING AND AVOIDANCE OFFSET after this tick: facing x, y (length 256, the HEADING_LAW's integer
+    /// normalize) and the avoidance offset (-200..200). The recording carries the client's (`movement_direction`,
+    /// `avoidance_offset`), so a reader can tell which way each engine steered round the same blocker from the same
+    /// position. 20260918-124946's Ice Golem on t2302 and 20260918-122757.b2's Goblins on t1168 turn the other way from
+    /// identical positions, and the trace could not say why. Its own field, like `push`: absent is not zero.
+    pub heading: Option<[i64; 3]>,
 }
 
 /// Which unit card (summon_only) each spawning card puts out, for rooting.
@@ -1422,6 +1428,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             radius: e.radius,
                             push: e.push_applied,
                             push_neighbours: e.push_neighbours,
+                            facing: e.facing,
+                            avoid: e.avoid_offset,
                         },
                     )
                 })
@@ -1685,7 +1693,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 };
                 let push = sim_row.map(|r| [r.push.x as i64, r.push.y as i64, r.push_neighbours as i64]);
                 let radius = sim_row.map(|r| r.radius);
-                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist });
+                let heading = sim_row.map(|r| [r.facing.x as i64, r.facing.y as i64, r.avoid as i64]);
+                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading });
             }
             match (truth_row, sim_row) {
                 (Some(tr), Some(sr)) => {
@@ -1891,6 +1900,9 @@ pub struct Snap {
     /// knows it: a position delta cannot say whether a unit was pushed or walked.
     push: Vec2,
     push_neighbours: i32,
+    /// The heading and the avoidance offset after the tick (`EntityView::facing`, `avoid_offset`).
+    facing: Vec2,
+    avoid: i32,
 }
 
 // ---------------------------------------------------------------------------

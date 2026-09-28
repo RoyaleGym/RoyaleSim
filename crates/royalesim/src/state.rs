@@ -5885,6 +5885,10 @@ pub struct EntityView<'a> {
     /// a push the wrong way from a push too far.
     pub push_applied: Vec2,
     pub push_neighbours: i32,
+    /// The avoidance offset after the tick just run (move16402.rs `Contact::offset`, -200..200): the steering a
+    /// walker carries round a blocker. The recording has the client's (its `avoidance_offset`), so a parity trace
+    /// that shows this beside `facing` can say which side a unit steered, not only where it ended up.
+    pub avoid_offset: i32,
     pub hp: i32,
     pub max_hp: i32,
     pub shield: i32,
@@ -16464,6 +16468,7 @@ impl BattleState {
             facing: e.facing[i],
             push_applied: e.push_applied[i],
             push_neighbours: e.push_neighbours[i],
+            avoid_offset: e.avoid_offset[i],
             hp: e.hp[i],
             max_hp: e.max_hp[i],
             shield: e.shield[i],
