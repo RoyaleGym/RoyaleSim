@@ -271,6 +271,10 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
             };
         }
     }
+    // the unit a hero's button puts down (the Hero Musketeer's turret)
+    if let Some(royalesim::card::AbilityDef { effect: royalesim::card::AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
+        out.push((UnitRef::AbilityUnit, *unit, None));
+    }
     out
 }
 

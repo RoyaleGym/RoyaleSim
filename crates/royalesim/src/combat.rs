@@ -1116,6 +1116,10 @@ pub fn fire(
             None => (p.speed, amount, splash_r, card.attacks_air, card.attacks_ground, pct),
         };
         let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, a, ti);
+        // ProjectileYOffset (the hero rows alone, `CardDef::projectile_y_offset`): the shot starts that much further
+        // along its owner's forward axis. Measured on client 16.402: the Hero Musketeer's shots first appear at 1800 x
+        // the aim + 300 x her side's forward (100 launches over five captures), the base Musketeer's at 450 x the aim.
+        let pos = if fresh && card.projectile_y_offset != 0 { Vec2::new(pos.x, pos.y + crate::spell::forward_dy(ents.team[a]) * card.projectile_y_offset) } else { pos };
         // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
         // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
         // start-of-tick centre and flown there whatever the target does (measured on client

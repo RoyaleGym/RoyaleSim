@@ -967,6 +967,9 @@ impl Roots {
                     // release is; a death area's (the Suspicious Bush's goblins) come out of a death, as a death spawn
                     UnitRef::Scheduled(_) if db.get(i).spell.is_some() => &mut spell_release_of,
                     UnitRef::Scheduled(_) => &mut death_spawn_of,
+                    // a hero button's unit (the Hero Musketeer's turret) comes from a press, which the fixtures do not
+                    // carry yet: not rooted
+                    UnitRef::AbilityUnit => continue,
                 };
                 of.entry(unit).or_default().push(i);
             }

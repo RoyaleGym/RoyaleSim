@@ -57,7 +57,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, FootprintModel, Lane, Rect, Shape, Territory, TerritoryModel};
-use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpawnerSource, SpellPlacement, SpellShape, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpawnerSource, SpellPlacement, SpellShape, FORM_HERO, KING_TOWER, PRINCESS_TOWER};
 use crate::collide::{self, CollideScratch};
 use crate::combat::{self, CrownRounding, DamageBuffer, Hit, Projectile};
 use crate::spell::{self, EffectBuffer, Spell};
@@ -5036,6 +5036,10 @@ pub struct BattleConfig {
     pub shuffle_decks: bool,
     /// Spatial hash bucket, subtiles.
     pub bucket_subtiles: i32,
+    /// THE FORM OF EACH DECK ENTRY per team, parallel to `decks`: 0 the base card, 2 its hero form (card.rs
+    /// `FORM_HERO`; `CardDb::form_card`). Empty (the default): every entry its base card. A form-2 entry plays its hero
+    /// form on every play (`resolve_play`) and is one of its side's ability buttons, in deck order (`try_new`).
+    pub forms: [Vec<u8>; 2],
 }
 
 impl BattleConfig {
@@ -5082,6 +5086,7 @@ impl BattleConfig {
             tower_level: [level, level],
             shuffle_decks: false,
             bucket_subtiles: SUBTILE,
+            forms: [Vec::new(), Vec::new()],
         }
     }
 }
@@ -5091,6 +5096,10 @@ impl BattleConfig {
 
 /// Cards in hand. A game rule, not a physics constant (protocol.py HAND_SIZE).
 pub const HAND_SIZE: usize = 4;
+
+/// THE MOST ABILITY BUTTONS A SIDE HAS: one per form-2 deck entry, at most this many (loadout.toml's top ladder: a
+/// hero slot and a flex slot). The Python layer's command slots HAND_SIZE .. HAND_SIZE + ABILITY_BUTTONS press them.
+pub const ABILITY_BUTTONS: usize = 2;
 
 /// Why a deploy was refused.
 ///
@@ -5125,6 +5134,12 @@ pub enum DeployError {
     InvalidLevel(String),
     /// A MIRROR played before its side has played anything it could copy (match.MIRROR_RECORD).
     NothingToMirror,
+    /// An ability button with no living hero behind it (or no form-2 deck entry at all).
+    NoHero,
+    /// The button's hero is still deploying.
+    AbilityNotReady,
+    /// The button's hero has used its one charge.
+    AbilitySpent,
 }
 
 impl From<crate::arena::ZoneError> for DeployError {
@@ -5157,6 +5172,35 @@ pub struct PlayerState {
     /// deck holds a Mirror (`hash_state`), so a battle without one hashes as it did before the field.
     #[serde(default)]
     pub last_played: Option<u16>,
+    /// THE SIDE'S ABILITY BUTTONS: the base card of each form-2 deck entry, in the order the deck gave them (before
+    /// any shuffle). A hand card listed here plays its hero form (`resolve_play`). Empty in every battle without a hero,
+    /// and hashed only when not empty, so such a battle hashes as it did before the field.
+    #[serde(default)]
+    pub heroes: Vec<u16>,
+}
+
+/// A HERO UNIT'S ONE CHARGE (card.rs `AbilityDef`): every unit created of a card with an ability, in creation order
+/// (`BattleState::hero_units`). A copy the Clone makes is not listed: it has no charge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HeroUnit {
+    pub id: EntityId,
+    pub spent: bool,
+}
+
+/// ONE ABILITY BUTTON as a side sees it (`BattleState::ability_buttons`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AbilityButton {
+    /// The base card of the button's deck entry, and its hero form.
+    pub base: u16,
+    pub form: u16,
+    /// The button's newest living hero, if any.
+    pub hero: Option<EntityId>,
+    /// A press would be taken but for the elixir and the opening lockout: a hero, deployed, charge unused.
+    pub available: bool,
+    /// The newest living hero has used its charge.
+    pub spent: bool,
+    /// The press's elixir (ManaCost).
+    pub cost: i32,
 }
 
 /// WHAT PLAYING ONE HAND SLOT PUTS DOWN (`BattleState::resolve_play`): the card in the slot, the card the play
@@ -5271,6 +5315,9 @@ pub enum ScheduledAction {
     /// when the target is gone by then. The Ronin's own stun is never scheduled: its 50 ms is the next tick, which the
     /// effect buffer gives at once (`parry_pass`).
     Buff { target: EntityId, buff: u16, time_ms: i32 },
+    /// A hero's button taking effect (card.rs `AbilityEffect`), TriggerDelay after the press (`fire_ability`). Dropped
+    /// when the hero is gone by then; the elixir paid at the press is not given back.
+    Ability { hero: EntityId },
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -5507,7 +5554,7 @@ pub struct EntityView<'a> {
     /// `hide_state == Hidden`: under ground, untargetable, immune (hide.*).
     pub hidden: bool,
     /// The protocol's status bits (entity.rs `Entities::status_flags`; py.rs ENTITY_FIELDS
-    /// `status_flags`): bit 0 underground, bit 1 invisible to enemies, bit 2 hidden.
+    /// `status_flags`): bit 0 underground, bit 1 invisible to enemies, bit 2 hidden, bit 4 a hero unit.
     pub status_flags: i32,
     /// Periodic spawner (card.rs `SpawnerDef`; 0 / 0 on every other entity): ms until
     /// its next emission (entity.rs `spawn_ms`) and the units of the current wave
@@ -5952,6 +5999,9 @@ pub struct BattleState {
     /// Actions scheduled for a later tick (`Scheduled`: a delayed transformation), in the order they were written.
     /// Empty in every battle without one, which hashes as it did before the field.
     scheduled: Vec<Scheduled>,
+    /// Every hero unit's charge (`HeroUnit`), in creation order; a dead one is dropped at the next Status phase. Empty
+    /// in every battle without a hero, which hashes as it did before the field.
+    hero_units: Vec<HeroUnit>,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -6188,13 +6238,39 @@ impl BattleState {
         let mut players: Vec<PlayerState> = Vec::with_capacity(2);
         for t in 0..2 {
             let mut deck: Vec<u16> = Vec::new();
-            for name in &config.decks[t] {
+            // THE DECK'S FORMS (`BattleConfig::forms`): empty, or one per entry; 0 or FORM_HERO, the second only on a
+            // card with a loaded hero form, once per card, at most ABILITY_BUTTONS of them.
+            let forms = &config.forms[t];
+            if !forms.is_empty() && forms.len() != config.decks[t].len() {
+                return Err(format!("forms[{t}] has {} entries for a deck of {}", forms.len(), config.decks[t].len()));
+            }
+            let mut heroes: Vec<u16> = Vec::new();
+            for (k, name) in config.decks[t].iter().enumerate() {
                 let idx = cards.index(name).ok_or_else(|| format!("deck card {name} unknown"))?;
                 // The card's own level and every unit it can release, spawn or leave
                 // behind: nothing on the tick path may fail on a level.
                 cards.check_levels(idx, config.card_level[t])?;
+                if cards.get(idx).form_of.is_some() {
+                    return Err(format!("{name} is a hero form: name its base card, with form {FORM_HERO}"));
+                }
                 if cards.get(idx).summon_only {
                     return Err(format!("{name} is a spawned unit, not a playable card"));
+                }
+                match forms.get(k).copied().unwrap_or(0) {
+                    0 => {}
+                    FORM_HERO => {
+                        let Some(form) = cards.form_card(idx, FORM_HERO) else {
+                            let why = cards.rejected_forms.iter().find(|(n, _)| n.strip_suffix("_hero") == Some(name.as_str())).map_or("the table carries none", |(_, w)| w.as_str());
+                            return Err(format!("{name} has no loadable hero form: {why}"));
+                        };
+                        // The form and every unit its button can put down, at the entry's level.
+                        cards.check_levels(form, config.card_level[t])?;
+                        if heroes.contains(&idx) {
+                            return Err(format!("{name} is marked a hero twice in one deck"));
+                        }
+                        heroes.push(idx);
+                    }
+                    f => return Err(format!("deck entry {k} ({name}): form {f} is not simulated")),
                 }
                 // movement.SPAWN_PATHFIND_STATES = not_modelled: a card that tunnels is refused whole, never
                 // run as a card born at its tap.
@@ -6202,6 +6278,9 @@ impl BattleState {
                     return Err(format!("{name} travels underground, which movement.SPAWN_PATHFIND_STATES = not_modelled does not run"));
                 }
                 deck.push(idx);
+            }
+            if heroes.len() > ABILITY_BUTTONS {
+                return Err(format!("forms[{t}] marks {} heroes; a side has at most {ABILITY_BUTTONS} ability buttons", heroes.len()));
             }
             if config.shuffle_decks {
                 for i in (1..deck.len()).rev() {
@@ -6231,7 +6310,7 @@ impl BattleState {
             }
             let hand: Vec<u16> = deck.iter().take(HAND_SIZE).copied().collect();
             let queue: VecDeque<u16> = deck.iter().skip(HAND_SIZE).copied().collect();
-            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None });
+            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None, heroes });
         }
         let players: [PlayerState; 2] = [players.remove(0), players.remove(0)];
 
@@ -6260,6 +6339,7 @@ impl BattleState {
             lifetime_ms: Vec::new(),
             lifetime_acc: Vec::new(),
             scheduled: Vec::new(),
+            hero_units: Vec::new(),
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -6404,6 +6484,10 @@ impl BattleState {
         // right after it, so their team_seq and creation_seq follow the mount's.
         if let Some(at) = c.attach {
             self.spawn_riders(id, at, team, level, pos)?;
+        }
+        // A HERO UNIT'S ONE CHARGE (`HeroUnit`), for every creation of a card with an ability but a Clone's copy.
+        if appearance && c.ability.is_some() {
+            self.hero_units.push(HeroUnit { id, spent: false });
         }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
@@ -8364,6 +8448,11 @@ impl BattleState {
                         self.effects.buffs.push(crate::status::BuffHit::plain(target, buff, time_ms, 0));
                     }
                 }
+                ScheduledAction::Ability { hero } => {
+                    if self.ents.is_alive(hero) {
+                        self.fire_ability(hero);
+                    }
+                }
             }
         }
     }
@@ -8641,6 +8730,10 @@ impl BattleState {
         // drain below reads the entity's LifeTime (measured on client 15.535.29: the Goblin Demolisher's switch and
         // its first drain on the same tick).
         self.fire_scheduled();
+        if !self.hero_units.is_empty() {
+            let ents = &self.ents;
+            self.hero_units.retain(|h| ents.is_alive(h.id));
+        }
         let dt = self.cfg.calib.tick_ms;
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
         let short = self.cfg.calib.buff_expiry == BuffExpiry::OneTickShort;
@@ -14677,6 +14770,13 @@ impl BattleState {
             let cost = c.elixir; // PLANT: the card's cost whatever the form.
             return Ok(Play { in_slot: idx, card: o.card, level, cost });
         }
+        // A FORM-2 DECK ENTRY plays its hero form on every play (measured on client 16.402: 5 of 5 plays of the entry
+        // put the form down), for the form's cost, which the loader holds to the base card's. The hand card cycles as
+        // any card does (`deploy_slot`).
+        if self.players[t].heroes.contains(&idx) {
+            let form = cards.form_card(idx, FORM_HERO).expect("try_new admits form 2 only on a card with a hero form");
+            return Ok(Play { in_slot: idx, card: form, level, cost: cards.get(form).elixir });
+        }
         if c.is_mirror() {
             let last = self.players[t].last_played.ok_or(DeployError::NothingToMirror)?;
             let offset = cards.globals.mirror_level_offset.expect("the loader refuses a Mirror without MIRROR_LEVEL_OFFSET");
@@ -14713,6 +14813,131 @@ impl BattleState {
     /// The card a Mirror played by `team` now would copy (`PlayerState::last_played`), or None.
     pub fn mirror_target(&self, team: Team) -> Option<u16> {
         self.players[team as usize].last_played
+    }
+
+    // -----------------------------------------------------------------------
+    // hero abilities
+    //
+    // A side's ABILITY BUTTONS are its form-2 deck entries, in deck order (`PlayerState::heroes`). Button k presses
+    // the ability of its NEWEST living hero unit (the last created of the button's hero form on that side); each
+    // hero unit has one charge (`HeroUnit`), usable once its deploy has ended, paid at the press.
+
+    /// The (base card, hero form) of `team`'s button `k`, or None.
+    fn button_form(&self, team: Team, k: usize) -> Option<(u16, u16)> {
+        let base = *self.players[team as usize].heroes.get(k)?;
+        Some((base, self.cfg.cards.form_card(base, FORM_HERO)?))
+    }
+
+    /// The `hero_units` entry of the newest living hero of `team`'s hero form `form`, or None.
+    fn newest_hero(&self, team: Team, form: u16) -> Option<usize> {
+        self.hero_units.iter().rposition(|u| {
+            let i = u.id.index as usize;
+            self.ents.is_alive(u.id) && self.ents.team[i] == team && self.ents.card[i] == form
+        })
+    }
+
+    /// EVERY ABILITY BUTTON OF `team`, in button order (`AbilityButton`).
+    pub fn ability_buttons(&self, team: Team) -> Vec<AbilityButton> {
+        (0..self.players[team as usize].heroes.len())
+            .filter_map(|k| {
+                let (base, form) = self.button_form(team, k)?;
+                let cost = self.cfg.cards.get(form).ability.as_ref().map_or(0, |a| a.cost);
+                let hu = self.newest_hero(team, form).map(|h| self.hero_units[h]);
+                let deployed = hu.is_some_and(|u| self.ents.deploy_ms[u.id.index as usize] <= 0);
+                let spent = hu.is_some_and(|u| u.spent);
+                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: deployed && !spent, spent, cost })
+            })
+            .collect()
+    }
+
+    /// PURE: the verdict a press of `team`'s button `k` gets now, in the deploy verdict's order for what the two share
+    /// -- the opening lockout, game over, the elixir -- then NoHero (no form-2 entry k, or no living hero of it),
+    /// AbilityNotReady (the hero is deploying) and AbilitySpent (its charge is used). A stunned or frozen hero may
+    /// press: both hero rows set IsChampion, and the table's LOGIC_CHAMPION_CAN_EXECUTE_ABILITY_FROZEN is TRUE.
+    pub fn check_ability_button(&self, team: Team, k: usize) -> Result<(), DeployError> {
+        let until = self.cfg.calib.deploy_lockout_ticks.max(0) as u32;
+        if self.tick < until {
+            return Err(DeployError::TooEarly { tick: self.tick, until });
+        }
+        if self.outcome.is_some() {
+            return Err(DeployError::GameOver);
+        }
+        let (_, form) = self.button_form(team, k).ok_or(DeployError::NoHero)?;
+        let a = self.cfg.cards.get(form).ability.as_ref().ok_or(DeployError::NoHero)?;
+        self.check_elixir(team, a.cost)?;
+        let h = self.newest_hero(team, form).ok_or(DeployError::NoHero)?;
+        let u = self.hero_units[h];
+        if self.ents.deploy_ms[u.id.index as usize] > 0 {
+            return Err(DeployError::AbilityNotReady);
+        }
+        if u.spent {
+            return Err(DeployError::AbilitySpent);
+        }
+        Ok(())
+    }
+
+    /// PRESS `team`'s button `k` (`check_ability_button` first, so the two cannot disagree). The press pays the
+    /// ability's ManaCost now and spends the hero's charge; a CastTime holds the hero from now for that long, as the
+    /// Clone's hold does (no walk, no attack, the attack clock paused), and without KeepCurrentTarget its target is let
+    /// go for a rescan when the hold ends; the effect comes TriggerDelay later (`ScheduledAction::Ability`: the top of
+    /// the Status phase of the tick TriggerDelay / TICK_MS after this one, so a 0 comes on the next tick). Returns the
+    /// hero pressed.
+    ///
+    /// Unmeasured, each read the plainest way until a scene measures it (a press with the hero's attack state, position
+    /// and the side's elixir read every tick): that the elixir goes at the press and not at the trigger; that the cast
+    /// holds the hero (KeepCurrentTarget only means something if it does); the tick the trigger lands on; that a press
+    /// becomes possible on the tick the hero's deploy ends.
+    pub fn press_ability_button(&mut self, team: Team, k: usize) -> Result<EntityId, DeployError> {
+        self.check_ability_button(team, k)?;
+        let (_, form) = self.button_form(team, k).expect("checked");
+        let h = self.newest_hero(team, form).expect("checked");
+        let a = self.cfg.cards.get(form).ability.clone().expect("checked");
+        self.players[team as usize].mana -= (a.cost as i64) * self.mana_unit;
+        self.hero_units[h].spent = true;
+        let id = self.hero_units[h].id;
+        let i = id.index as usize;
+        if a.cast_ms > 0 {
+            self.ents.stun_ms[i] = self.ents.stun_ms[i].max(a.cast_ms);
+            if !a.keep_target {
+                self.ents.target_locked[i] = false;
+                self.ents.retarget_on_resume[i] = true;
+            }
+        }
+        self.scheduled.push(Scheduled { ms: a.trigger_ms, action: ScheduledAction::Ability { hero: id } });
+        Ok(id)
+    }
+
+    /// A HERO'S BUTTON TAKES EFFECT (card.rs `AbilityEffect`), at the top of the Status phase:
+    ///   - `SpawnAhead` (the Hero Musketeer's turret): the unit is queued at the table's RelativeX / RelativeY from the
+    ///     hero, read as a scheduled area's relative offset is (spawner.RELATIVE_SPAWN_OFFSET: 500 native a unit,
+    ///     RelativeY along the owner's forward), clamped into the arena and off water as a scheduled spawn's point is
+    ///     (`scheduled_point`), at the hero's level on the unit's own ladder, with its own DeployTime. It is created in
+    ///     this tick's Spawn phase, and its OnStartingAction's projectile is its deploy blow (`deploy_blow`).
+    ///   - `Areas` (the Hero Ice Golem's storm): each starting area is made on the hero now and acts from this tick's
+    ///     Projectile phase (spell.rs `SpellMotion::Attached`).
+    ///
+    /// Unmeasured (a press scene reading the turret's first frame and point, and the victims' hp, would measure them):
+    /// RelativeY's direction (no other row sets it); what ValidatePlacementAsBuilding does with a point on water or a
+    /// building; the tick the turret's blow lands (it lands as the Mega Knight's deploy projectile does, 6 ticks after
+    /// the turret appears, combat.rs DEPLOY_PROJECTILE_DELAY_TICKS).
+    fn fire_ability(&mut self, hero: EntityId) {
+        let i = hero.index as usize;
+        let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+        let Some(a) = self.cfg.cards.get(card).ability.clone() else { return };
+        match a.effect {
+            crate::card::AbilityEffect::SpawnAhead { unit, relative_x, relative_y } => {
+                let flying = self.cfg.cards.get(unit).is_flying();
+                let at = self.scheduled_point(team, pos, crate::card::SpawnOffset::Relative { x: relative_x, y: relative_y }, flying);
+                let lvl = self.cfg.cards.unit_level(card, unit, None, level).expect("the ability unit's level is validated at try_new");
+                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
+            }
+            crate::card::AbilityEffect::Areas { start, .. } => {
+                for part in start {
+                    let sp = spell::attached_area(&self.cfg.cards, &self.cfg.calib, team, card, level, hero, pos, part).expect("the ability's areas load with their card");
+                    self.spells.push(sp);
+                }
+            }
+        }
     }
 
     /// PURE query: exactly the verdict `deploy` would give this play right now,
@@ -15179,7 +15404,9 @@ impl BattleState {
             // Bit 1 is the targeting predicate itself, asked for the tick the next targeting runs on (`self.tick`
             // already counts the tick just run).
             status_flags: e.status_flags(i)
-                | if crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, i) { 2 } else { 0 },
+                | if crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, i) { 2 } else { 0 }
+                // Bit 4: a hero form's unit (card.rs `CardDef::form_of` with an ability).
+                | if self.cfg.cards.get(e.card[i]).ability.is_some() { 16 } else { 0 },
             spawn_ms: e.spawn_ms[i],
             spawn_wave_left: e.spawn_wave_left[i],
             spawned_by: e.spawned_by[i],
@@ -15325,6 +15552,19 @@ impl BattleState {
                         h.u32(1);
                         h.u32(c as u32);
                     }
+                }
+            }
+            // The side's ability buttons, only when it has some: a battle without a hero hashes as before the field.
+            // PLANT hash_heroes_always (tests/hash_continuity.rs): hashed in every battle, so every battle's hash moves.
+            #[cfg(not(clash_plant = "hash_heroes_always"))]
+            let hashed = !p.heroes.is_empty();
+            #[cfg(clash_plant = "hash_heroes_always")]
+            let hashed = true;
+            if hashed {
+                h.u32(0x4845_524f);
+                h.u32(p.heroes.len() as u32);
+                for c in &p.heroes {
+                    h.u32(*c as u32);
                 }
             }
         }
@@ -15777,6 +16017,14 @@ impl BattleState {
                         h.u32(7);
                         h.vec(*pos);
                     }
+                    spell::SpellMotion::Attached { parent, pos, part, life_ms, next_ms } => {
+                        h.u32(8);
+                        h.id(*parent);
+                        h.vec(*pos);
+                        h.u32(*part as u32);
+                        h.i32(*life_ms);
+                        h.i32(*next_ms);
+                    }
                 }
             }
         }
@@ -15883,6 +16131,15 @@ impl BattleState {
             h.i32(x.amount);
         }
         h.u32(self.death_queue.len() as u32);
+        // The heroes' charges (`HeroUnit`), only when there are some: a battle without a hero hashes as before the list.
+        if !self.hero_units.is_empty() {
+            h.u32(0x4348_5247);
+            h.u32(self.hero_units.len() as u32);
+            for u in &self.hero_units {
+                h.id(u.id);
+                h.bool(u.spent);
+            }
+        }
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
         // pending transformation -- hashes as it did before the list.
         #[cfg(not(clash_plant = "hash_skips_scheduled"))]
@@ -15902,6 +16159,10 @@ impl BattleState {
                         h.id(target);
                         h.i32(amount);
                         h.i32(crown_pct);
+                    }
+                    ScheduledAction::Ability { hero } => {
+                        h.u32(0x4142_4c54);
+                        h.id(hero);
                     }
                     ScheduledAction::Buff { target, buff, time_ms } => {
                         h.u32(0x4255_4646);
@@ -16364,6 +16625,12 @@ struct Snapshot {
     /// snapshot saved before it, which held none.
     #[serde(default)]
     scheduled: Vec<Scheduled>,
+    /// `BattleConfig::forms` and the heroes' charges (`BattleState::hero_units`). Added after SNAPSHOT_FORMAT 20;
+    /// `default` (empty) for a snapshot saved before them, which held no hero.
+    #[serde(default)]
+    forms: [Vec<u8>; 2],
+    #[serde(default)]
+    hero_units: Vec<HeroUnit>,
     state_hash: u64,
 }
 
@@ -16481,12 +16748,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... enchant~~ -- the transformation and the counter (still format 20) added
                 // `transform_at_hp` and `parry` after it.
                 // ~~... parry~~ -- the Clone (still format 20) added `ignore_clone` after it.
+                // ~~... ignore_clone~~ -- the hero forms (still format 20) added `form_of`, `ability` and
+                // `projectile_y_offset` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, form_of: {:?}, ability: {:?}, projectile_y_offset: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -16541,7 +16810,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.parry,
                     c.kamikaze_time_ms,
                     c.death_pushback,
-                    c.ignore_clone
+                    c.ignore_clone,
+                    c.form_of,
+                    c.ability,
+                    c.projectile_y_offset
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -16861,6 +17133,8 @@ impl BattleState {
             scheduled: self.scheduled.clone(),
             #[cfg(clash_plant = "scheduled_dropped_on_save")]
             scheduled: Vec::new(), // PLANT: a pending transformation is lost across a save.
+            forms: c.forms.clone(),
+            hero_units: self.hero_units.clone(),
             state_hash: self.state_hash(),
         };
         #[cfg(clash_plant = "save_drops_path_grid")]
@@ -17022,9 +17296,15 @@ impl BattleState {
             // so a death's area release -- an ordinary `Spell` under the DYING
             // card's index, which carries no `spell` of its own -- is not read as a
             // corrupt snapshot on the tick it is in the air.
-            || snap.spells.iter().any(|s| {
-                cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).and_then(|d| crate::spell::shape_at(&d.shape, s.depth)).is_none())
+            || snap.spells.iter().any(|s| match &s.motion {
+                // An area riding on a unit names an area of its card's ability and an entity of the table.
+                crate::spell::SpellMotion::Attached { parent, part, .. } => (parent.index as usize) >= n || crate::spell::attached_def(&cards, s.card, *part).is_none(),
+                _ => cards.cards.get(s.card as usize).map_or(true, |c| crate::spell::shape_of(c).and_then(|d| crate::spell::shape_at(&d.shape, s.depth)).is_none()),
             })
+            // A hero's charge names an entity of the table, and a live one a card with an ability; a button a base card
+            // with a hero form.
+            || snap.hero_units.iter().any(|u| (u.id.index as usize) >= n || (snap.ents.is_alive(u.id) && cards.cards.get(snap.ents.card[u.id.index as usize] as usize).map_or(true, |c| c.ability.is_none())))
+            || snap.players.iter().flat_map(|p| p.heroes.iter()).any(|b| cards.form_card(*b, FORM_HERO).is_none())
             || snap.spawn_queue.iter().any(|p| (p.card as usize) >= cards.cards.len())
             // A Mirror and a variant card are never put down themselves (`resolve_play`), so no saved entity, cast,
             // pending spawn or last play may name one, and a last play must name a card of this data.
@@ -17048,6 +17328,7 @@ impl BattleState {
                 }
                 // A delayed hit or buff names an entity of the table, and a buff a row of this card data's table.
                 ScheduledAction::Damage { target, .. } => (target.index as usize) >= n,
+                ScheduledAction::Ability { hero } => (hero.index as usize) >= n,
                 ScheduledAction::Buff { target, buff, .. } => (target.index as usize) >= n || (buff as usize) >= cards.buffs.len(),
             })
         {
@@ -17067,6 +17348,7 @@ impl BattleState {
             tower_level: snap.tower_level,
             shuffle_decks: snap.shuffle_decks,
             bucket_subtiles: snap.bucket_subtiles,
+            forms: snap.forms,
         };
         let mut s = BattleState {
             cfg,
@@ -17092,6 +17374,7 @@ impl BattleState {
             lifetime_ms: snap.lifetime_ms,
             lifetime_acc: snap.lifetime_acc,
             scheduled: snap.scheduled,
+            hero_units: snap.hero_units,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),
