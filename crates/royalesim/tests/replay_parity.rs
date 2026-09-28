@@ -682,3 +682,43 @@ fn members_on_one_point_pair_by_their_first_hp() {
 fn sim_far(near: Vec2, far: Vec2) -> Vec<(u32, Vec<Vec2>)> {
     vec![(1442u32, vec![far, near])]
 }
+
+
+/// A capture runs the card values of the client that recorded it (`own_client_card_values`): a fixture naming client
+/// 15.535.29 runs cards.CLIENT16402_VALUES = none and its report says so; one naming no client (the corpus maker's, the
+/// sample) or 16.402 runs the ledger's arm; a run that overrides the key runs its override. Plant:
+/// replay_card_values_by_ledger.
+#[test]
+fn a_capture_runs_the_card_values_of_the_client_that_recorded_it() {
+    use royalesim::state::{Calib, CardValuesArm};
+    let shipped = Calib::shipped().card_values;
+    assert_eq!(shipped, CardValuesArm::Client16402, "the ledger ships the 16.402 values; this test reads a capture that differs");
+    let none = std::collections::BTreeMap::new();
+    let plain = sample();
+    assert!(plain.card_table.is_none(), "the sample is a corpus capture and names no client");
+    assert_eq!(config_for_with(&plain, common::cards(), None, &none).unwrap().0.calib.card_values, shipped);
+    let mut old = sample();
+    old.card_table = Some(CardTable { game_version: Some("15.535.29".to_string()) });
+    assert_eq!(
+        config_for_with(&old, common::cards(), None, &none).unwrap().0.calib.card_values,
+        CardValuesArm::None,
+        "a 15.535.29 capture ran the tables' values"
+    );
+    let r = replay(&old, &common::cards(), &register(), &Options::default()).expect("the sample replays as a 15.535.29 capture");
+    assert_eq!(r.card_values_client.as_deref(), Some("15.535.29"), "the report does not name the client whose values it ran");
+    assert!(r.notes.iter().any(|n| n.contains("arm none")), "the notes do not say the key ran at arm none: {:?}", r.notes);
+    assert!(!r.level_deviations.iter().any(|n| n.contains("card values")), "the client is filed as a level deviation");
+    assert_eq!(play(&plain).card_values_client, None, "a corpus capture names no client");
+    let mut new = sample();
+    new.card_table = Some(CardTable { game_version: Some("16.402.7".to_string()) });
+    assert_eq!(config_for_with(&new, common::cards(), None, &none).unwrap().0.calib.card_values, shipped, "a 16.402 capture ran the 16.402 values");
+    let ledger: serde_json::Value = serde_json::from_str(include_str!("../../../data/calibration.json")).unwrap();
+    let value = ledger.pointer("/cards/CLIENT16402_VALUES/value").expect("the ledger carries the key's value");
+    let mut ov = std::collections::BTreeMap::new();
+    ov.insert(CARD_VALUES_KEY.to_string(), value.to_string());
+    assert_eq!(
+        config_for_with(&old, common::cards(), None, &ov).unwrap().0.calib.card_values,
+        shipped,
+        "a run that overrides the key runs its override, whatever the fixture's client"
+    );
+}

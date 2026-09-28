@@ -401,6 +401,15 @@ pub struct Truth {
     pub entities: Vec<TruthEntity>,
 }
 
+/// The card table a fixture's truth ran, as its generator names it (the scenario oracle's `card_table`). The corpus
+/// maker writes none.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct CardTable {
+    /// The client version whose card data the recorded battle ran ("15.535.29" on every scenario fixture).
+    #[serde(default)]
+    pub game_version: Option<String>,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Fixture {
     pub format: String,
@@ -431,6 +440,9 @@ pub struct Fixture {
     #[serde(default)]
     pub deploys: Vec<Deploy>,
     pub truth: Option<Truth>,
+    /// The client whose card data the truth ran (`own_client_card_values`). Absent on a corpus fixture.
+    #[serde(default)]
+    pub card_table: Option<CardTable>,
 }
 
 impl Fixture {
@@ -957,6 +969,10 @@ pub struct Report {
     /// The run's `--calibration-override`s as given (`section.KEY` -> JSON text); empty when
     /// the run is the shipped ledger. A score quoted from this report names its arm by this.
     pub calibration_overrides: BTreeMap<String, String>,
+    /// THE CLIENT WHOSE CARD VALUES THE BATTLE RAN when it is not the ledger's (`own_client_card_values`): the fixture's
+    /// card_table.game_version, and cards.CLIENT16402_VALUES ran at arm none. None: the ledger's arm, or the run's
+    /// override of the key.
+    pub card_values_client: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub trace: Vec<TraceRow>,
 }
@@ -1145,6 +1161,32 @@ fn containers_waiting(s: &BattleState) -> Vec<(Team, u16, Vec2)> {
         .collect()
 }
 
+/// The ledger key whose values are one client's (calibration cards.CLIENT16402_VALUES).
+pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
+/// The client whose card values that key's arm client16402 carries.
+pub const CARD_VALUES_CLIENT: &str = "16.402";
+
+/// A CAPTURE RUNS THE CARD VALUES OF THE CLIENT THAT RECORDED IT. cards.CLIENT16402_VALUES ships client16402: the 16.402
+/// client's values (the Fire Spirits' Hitpoints 84, the Bomber's projectile Damage 83, ...) replace the 15.535.29
+/// tables' (85, 88) in every battle. A fixture whose truth another client recorded -- every scenario fixture names
+/// card_table.game_version 15.535.29 -- was played on the tables' values, so replayed on the 16.402 ones its hp differs
+/// from the first hit or the first frame whatever the mechanics do: the client 15.535.29 sweep's Fire Spirits scene is
+/// created at 217 hp and the engine made it 215, and its Bomber's bombs take 225 off the Knight where the engine took
+/// 212. Returns that fixture's client version, and the battle runs the tables' values (arm none). None -- the shipped
+/// arm -- for a fixture that names no client (the corpus maker's) or names 16.402, and for a run that overrides the key
+/// itself (`--calibration-override`), whose arm is the run's.
+pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>) -> Option<String> {
+    if overrides.contains_key(CARD_VALUES_KEY) {
+        return None;
+    }
+    let v = f.card_table.as_ref()?.game_version.as_deref()?;
+    #[cfg(not(clash_plant = "replay_card_values_by_ledger"))]
+    let other = v != CARD_VALUES_CLIENT && !v.starts_with(&format!("{CARD_VALUES_CLIENT}."));
+    #[cfg(clash_plant = "replay_card_values_by_ledger")]
+    let other = false; // PLANT: the ledger's arm for every capture, whatever client recorded it.
+    other.then(|| v.to_string())
+}
+
 /// Build the engine config a fixture asks for.
 pub fn config_for(f: &Fixture, db: CardDb) -> Result<(BattleConfig, Vec<String>), String> {
     config_for_with(f, db, None, &BTreeMap::new())
@@ -1168,6 +1210,9 @@ pub fn config_for_with(
     }
     if let Some(arm) = attacking_movement {
         cfg.calib.attacking_unit_movement = arm;
+    }
+    if own_client_card_values(f, overrides).is_some() {
+        cfg.calib.card_values = royalesim::state::CardValuesArm::None;
     }
     for side in 0..2 {
         let key = side.to_string();
@@ -1241,6 +1286,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         cards_json_engine: cards_json_hash().ok(),
         notes: Vec::new(),
         calibration_overrides: BTreeMap::new(),
+        card_values_client: None,
         trace: Vec::new(),
     };
     if let (Some(a), Some(b)) = (&report.cards_json_fixture, &report.cards_json_engine) {
@@ -1270,6 +1316,10 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     report.level_deviations = levels;
     report.notes.extend(overrides);
     report.calibration_overrides = opts.calibration_overrides.clone();
+    report.card_values_client = own_client_card_values(f, &opts.calibration_overrides);
+    if let Some(v) = &report.card_values_client {
+        report.notes.push(format!("card values of client {v}, the fixture's: {CARD_VALUES_KEY} ran at arm none"));
+    }
     let roots = Roots::new(db);
     let mut s = BattleState::try_new(opts.seed, cfg)?;
     // tower hp as recorded on the first frame
