@@ -310,8 +310,7 @@ route does not, nothing is wrong.
 To watch a battle instead of reading numbers, go to the `RoyaleSim` folder and run
 `..\.venv\Scripts\python tools\watch_battle.py --open`. It plays a three-minute match with both
 sides deploying at random, runs five checks on it and opens a self-contained HTML page that you
-can scrub tick by tick. On macOS and Linux, if `--open` stops with `no attribute 'startfile'`,
-open the `battle.html` it names in your browser. The five checks are: it replays hash for hash,
+can scrub tick by tick. The five checks are: it replays hash for hash,
 both sides deployed and fought, the arena matches, ground units stayed mostly dry, and the page
 holds every frame. The whole thing takes under two seconds end to end (1.4 s on 2026-09-21).
 
