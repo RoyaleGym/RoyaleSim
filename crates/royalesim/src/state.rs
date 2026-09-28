@@ -14424,7 +14424,7 @@ impl BattleState {
             // 42 of 42 that walk on their first frame (the other 6 are in their attack there, which the scan
             // skips, and read 0), the Battle Ram's Barbarians 33 of 33 (+-190 while they deploy); the Goblin
             // Giant's riders, flying rows, leave their ground Spear Goblins at 0 (12 of 12). On the 16.402 corpus
-            // the Elixir Golem's halves then walk out and turn back in at a full step as the offset decays
+            // the Elixir Golem's halves then slide outward as they walk while the offset decays
             // (20260920-090204, tick 1260).
             #[cfg(not(any(clash_plant = "first_step_parent_gone", clash_plant = "first_step_troop_parent_gone")))]
             let blocks = first_update;
