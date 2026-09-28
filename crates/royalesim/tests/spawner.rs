@@ -37,7 +37,7 @@
 //!      pointing at the unresolved u16::MAX; a constructed death spawn whose grid
 //!      reaches past its radius is pulled back onto it (the engine_grid_within_radius
 //!      arm, the foil rather than the shipped layout);
-//!  17. spawner.SPAWN_SPAWNER_SPAWN_SPEED, which ships at tick_ms: a Tombstone
+//!  17. spawner.SPAWN_SPAWNER_SPAWN_SPEED, which ships buffed (the 2026-09-28 flip): a Tombstone
 //!      slowed by an Ice Golem's death slow (IceWizardSlowDown, 2,500 ms) spawns its
 //!      next wave 15 ticks late under buffed and on time under tick_ms, as the 16.402
 //!      corpus Tombstone of 20260918-130203.b2 waits 95 ticks instead of 80; under
@@ -695,8 +695,15 @@ fn a_zap_on_a_tombstone_delays_its_next_wave_by_exactly_the_stun() {
     assert!(hp < full, "the Zap hit the Tombstone");
     assert_eq!(stunned[0], control[0], "the wave before the Zap is untouched");
     assert_eq!(&stunned[1..], control[1..].iter().map(|k| k + held).collect::<Vec<_>>().as_slice(), "every later wave is late by exactly the stun's {held} ticks");
-    // The other arm: the timer runs through the stun.
-    let (through, _) = run(with_calib(|c| c.spawner_stun_pauses = false), Some(zap_tick));
+    // The other arm: the timer runs through the stun. Under spawner.SPAWN_SPAWNER_SPAWN_SPEED's old arm, tick_ms, by
+    // name: the shipped buffed stops the clock through the Zap's SpawnSpeed -100 whatever this key says (item 17).
+    let (through, _) = run(
+        with_calib(|c| {
+            c.spawner_stun_pauses = false;
+            c.spawn_spawner_spawn_speed = royalesim::state::SpawnSpawnerSpawnSpeed::TickMs;
+        }),
+        Some(zap_tick),
+    );
     assert_eq!(through, control, "spawner.STUN_PAUSES_SPAWNER = false: the cadence ignores the stun");
 }
 
@@ -1456,10 +1463,10 @@ fn slowed_tombstone(cfg: BattleConfig, kill_at: Option<u32>, horizon: u32) -> (V
 }
 
 #[test]
-fn a_slowed_tombstone_waits_longer_under_buffed_and_on_time_under_the_shipped_tick_ms() {
+fn a_slowed_tombstone_waits_longer_under_the_shipped_buffed_and_on_time_under_tick_ms() {
     // Plant spawn_spawner_speed_unread: the buffed wave comes on time, as the old arm's.
     use royalesim::state::SpawnSpawnerSpawnSpeed;
-    assert_eq!(calib().spawn_spawner_spawn_speed, SpawnSpawnerSpawnSpeed::TickMs, "the shipped arm is the old one, tick_ms");
+    assert_eq!(calib().spawn_spawner_spawn_speed, SpawnSpawnerSpawnSpeed::Buffed, "the shipped arm is buffed (the 2026-09-28 flip)");
     let arm = |a: SpawnSpawnerSpawnSpeed| with_calib(|c| c.spawn_spawner_spawn_speed = a);
     let sp = spawner(&bare(config()), "Tombstone");
     let (pause, slow_ticks) = (ticks_of(sp.pause_time_ms), ticks_of(GOLEM_SLOW_MS));
