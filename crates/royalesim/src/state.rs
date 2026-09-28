@@ -18680,7 +18680,9 @@ mod tests {
         // correct. A re-extraction that renames it fails here; it never drops the values silently.
         assert_eq!(shipped.version, c.card_values_table, "cards.json is not the table cards.CLIENT16402_VALUES corrects");
         let on = with_card_values(&c, shipped.clone()).unwrap();
-        assert_eq!(c.card_value_overrides.len(), 8, "{:?}", c.card_value_overrides);
+        // The eight Hitpoints, ProjectileDamage and CrownTowerDamagePercent rows, and since parity scored them the
+        // Freeze's and the Ice Golemite's AreaBuffTime.
+        assert_eq!(c.card_value_overrides.len(), 10, "{:?}", c.card_value_overrides);
         for v in &c.card_value_overrides {
             let idx = shipped.index(&v.card).unwrap_or_else(|| panic!("{} is not loaded", v.card));
             let read = |db: &CardDb| -> i32 {
@@ -18697,7 +18699,8 @@ mod tests {
                         Some(SpellShape::Strikes(s)) => s.gaps_ms[0],
                         other => panic!("{}: not a striking area: {other:?}", v.card),
                     },
-                    // An area's BuffTime, its own or its death's. No shipped value names one.
+                    // An area's BuffTime, its own or its death's: the shipped Freeze 3500 (tables 4000) and Ice
+                    // Golemite 2500 (tables 2000).
                     CardColumn::AreaBuffTime => match d.spell.as_ref().or(d.death_area_effect.as_ref()).map(|s| &s.shape) {
                         Some(SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. }) => hit.buff.map_or(0, |b| b.time_ms),
                         other => panic!("{}: not an area: {other:?}", v.card),

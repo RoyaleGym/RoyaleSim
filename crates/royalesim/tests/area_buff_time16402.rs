@@ -7,13 +7,15 @@
 //! both through the cast + 80. A frozen Tombstone's spawn clock pauses the same 70 (20260920-070448, 3191 against the
 //! engine's 3201). 3500 ms is 70 ticks.
 //!
-//! NOT LISTED. cards.CLIENT16402_VALUES ships client16402, and its value.values do not carry an AreaBuffTime: the
-//! Freeze's 3500 is not scored yet. Every scene here that wants it lists it itself (`with`), as an override would.
+//! LISTED. cards.CLIENT16402_VALUES ships client16402, and since parity scored them its value.values carry the
+//! Freeze's AreaBuffTime 3500 and the Ice Golemite's 2500. Every scene here drops the shipped AreaBuffTime rows and
+//! lists what it wants itself (`with`), as an override would, so an unlisted card runs the tables' value.
 //!
 //! WHAT IS PINNED, each with its precondition (the Knight walks before the Freeze and again after it):
 //!   1. with the Freeze's 3500 listed under client16402, the battle's Freeze row hangs 3500 ms and a walking Knight
-//!      it lands on stands still 10 ticks fewer than unlisted;
-//!   2. the same list under the old arm none runs the tables' 4000, and so does the shipped list;
+//!      it lands on stands still 10 ticks fewer than unlisted (the tables' 4000);
+//!   2. the shipped list holds the Knight as that listing does, and its AreaBuffTime rows are the Freeze's 3500 and
+//!      the Ice Golemite's 2500; the same Freeze listing under the old arm none runs the tables' 4000, as unlisted;
 //!   3. an Ice Golem's death area takes the column too: listed at 2500, its slow is 2500 ms (the tables: 2000);
 //!   4. the column is refused on a card with no area that hangs a buff, and at 0.
 //!
@@ -28,15 +30,17 @@ use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState, CardValuesArm, Calib};
 use royalesim::Team;
 
-/// The Freeze's BuffTime on client 16.402 (the 15.535.29 tables: 4000). Not in the shipped value.values.
+/// The Freeze's BuffTime on client 16.402 (the 15.535.29 tables: 4000), as the shipped value.values list it.
 const FREEZE_16402: i32 = 3500;
-/// A value for the Ice Golem's death area, to show the column reaches it (the tables: 2000).
+/// The Ice Golem's death area's BuffTime, as the shipped value.values list it (the tables: 2000).
 const GOLEM_SLOW: i32 = 2500;
 
-/// The shipped config under `values`, with `listed` (card, AreaBuffTime) added to the values.
+/// The shipped config under `values`, with the shipped AreaBuffTime rows dropped and `listed` (card, AreaBuffTime)
+/// added to the values.
 fn with(values: CardValuesArm, listed: &[(&str, i32)]) -> BattleConfig {
     let mut cfg = config();
     cfg.calib.card_values = values;
+    cfg.calib.card_value_overrides.retain(|v| v.column != CardColumn::AreaBuffTime);
     for (card, value) in listed {
         cfg.calib.card_value_overrides.push(CardValue { card: card.to_string(), column: CardColumn::AreaBuffTime, value: *value });
     }
@@ -94,15 +98,16 @@ fn a_listed_freeze_holds_for_its_16402_buff_time() {
 }
 
 #[test]
-fn the_old_arm_and_the_shipped_list_run_the_tables_buff_time() {
+fn the_shipped_list_holds_the_16402_buff_time_and_the_old_arm_the_tables() {
     let shipped = freeze_hold(config());
+    let listed = freeze_hold(with(CardValuesArm::Client16402, &[("Freeze", FREEZE_16402)]));
+    assert_eq!(shipped, listed, "the shipped list (ms, ticks held) against client16402 with the Freeze listed");
     let old = freeze_hold(with(CardValuesArm::None, &[("Freeze", FREEZE_16402)]));
-    assert_eq!(shipped, old, "the shipped list (ms, ticks held) against the old arm with the Freeze listed");
-    assert!(
-        !Calib::shipped().card_value_overrides.iter().any(|v| v.column == CardColumn::AreaBuffTime),
-        "the shipped value.values list an AreaBuffTime: {:?}",
-        Calib::shipped().card_value_overrides
-    );
+    let unlisted = freeze_hold(with(CardValuesArm::Client16402, &[]));
+    assert_eq!(old, unlisted, "the old arm with the Freeze listed (ms, ticks held) against client16402 unlisted");
+    let c = Calib::shipped();
+    let rows: Vec<(&str, i32)> = c.card_value_overrides.iter().filter(|v| v.column == CardColumn::AreaBuffTime).map(|v| (v.card.as_str(), v.value)).collect();
+    assert_eq!(rows, [("Freeze", FREEZE_16402), ("IceGolemite", GOLEM_SLOW)], "the shipped value.values' AreaBuffTime rows");
 }
 
 #[test]
