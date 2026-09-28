@@ -1672,3 +1672,41 @@ def test_a_spells_level_is_read_off_its_first_hit(m):
     m.spell_levels_from_damage([d], doc, cards, ents, rows(530 - 500), ticks)
     assert (d["level"], d["level_source"]) == (3, "side mode"), "no level fits a 500 drop: the side mode stays"
     assert "fitting levels []" in d["level_evidence"]
+
+
+def test_a_key_the_capture_reused_for_another_unit_is_split(m):
+    """005517-A's key 22: a Skeleton last seen at (13690, 8449) and seen again 15 ticks later at (12457, 28019), another
+    Skeleton. The later rows go to a new key, a target naming key 22 from then on names the new key, and a unit seen
+    again near where it was (a short gap) stays one entity."""
+
+    def row(x, y, target=-1):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")] = x, y
+        r[m.TRUTH_COLUMNS.index("hp")], r[m.TRUTH_COLUMNS.index("target")] = 81, target
+        return tuple(r)
+
+    ticks = [936, 937, 938, 953, 954, 960, 961, 963]
+    per_tick_rows = [
+        {22: row(13750, 8617), 30: row(9000, 9000, 22)},
+        {22: row(13720, 8533), 30: row(9000, 9000, 22)},
+        {22: row(13690, 8449), 30: row(9000, 9000, 22)},
+        {22: row(12457, 28019), 30: row(9000, 9000, 22)},
+        {22: row(12496, 27825), 30: row(9000, 9000, 22), 31: row(5000, 5000)},
+        {31: row(5010, 5000)},
+        {},
+        {31: row(5100, 5000)},
+    ]
+    base = {"side": 1, "card_id": 26000010, "level": 11, "max_hp": 81, "kind_first": 14, "c0": None}
+    ents = {
+        22: dict(base, key=22, first_index=0, last_index=4, frames=5, x0=13750, y0=8617),
+        30: dict(base, key=30, first_index=0, last_index=4, frames=5, x0=9000, y0=9000),
+        31: dict(base, key=31, first_index=4, last_index=7, frames=3, x0=5000, y0=5000),
+    }
+    splits = m.split_reused_keys(ents, per_tick_rows, ticks)
+    assert splits == [[22, 32, 953]], splits
+    assert (ents[22]["first_index"], ents[22]["last_index"], ents[22]["frames"]) == (0, 2, 3)
+    assert (ents[32]["first_index"], ents[32]["last_index"], ents[32]["frames"], ents[32]["c0"]) == (3, 4, 2, None)
+    assert 22 not in per_tick_rows[3] and per_tick_rows[3][32][:2] == (12457, 28019)
+    t = m.TRUTH_COLUMNS.index("target")
+    assert per_tick_rows[2][30][t] == 22 and per_tick_rows[3][30][t] == 32, "targets follow the unit they meant"
+    assert 31 in ents and ents[31]["last_index"] == 7, "a short gap near the same point stays one unit"

@@ -751,6 +751,62 @@ REKEY_MAX_TICKS = 2
 REKEY_STEP_PER_TICK = 100
 
 
+#: A truth unit seen again after a gap farther than this (native per elapsed tick) from where it was last seen is another
+#: unit under the same key: no walk, charge, dash, knockback or hook-drag step comes near it (the Fisherman's drag, the
+#: fastest, takes 510 a tick; the reused key of 005517-A jumped 1,307 a tick). A gap is a tick the key is not seen
+#: on (a frame without it, or a frame the capture missed).
+REUSE_REACH_PER_TICK = 1000
+
+
+def split_reused_keys(ents: dict, per_tick_rows: list, ticks: list[int]) -> list[list[int]]:
+    """Split a truth key that names TWO units. The capture can hand a new unit the key of one that is gone:
+    20260920-005517-A's key 22, a Tombstone's Skeleton last seen on 938 at (13690, 8449), is seen again on 953 at
+    (12457, 28019), 19,609 away, a fresh Skeleton beside a Tombstone at the other end of the arena. One entity then
+    reads as a unit that died in the engine and lives on in the truth. A key seen again after a gap farther than
+    REUSE_REACH_PER_TICK per elapsed tick from its last point is split there: the later rows move to a new key (above
+    every key in use), the new entity takes the old one's side, card, kind, level and max hp with no creation point,
+    and every target naming the old key from that frame on names the new one. Returns [old key, new key, tick] per
+    split; the fixture records them."""
+    splits: list[list[int]] = []
+    next_key = max(ents) + 1 if ents else 1
+    todo = sorted(ents.values(), key=lambda e: e["key"])
+    while todo:
+        e = todo.pop(0)
+        last = None
+        for fi in range(e["first_index"], e["last_index"] + 1):
+            r = per_tick_rows[fi].get(e["key"])
+            if r is None:
+                continue
+            if last is not None and ticks[fi] - ticks[last] > 1:
+                ra = per_tick_rows[last][e["key"]]
+                if math.hypot(r[0] - ra[0], r[1] - ra[1]) > REUSE_REACH_PER_TICK * (ticks[fi] - ticks[last]):
+                    nk = next_key
+                    next_key += 1
+                    frames = 0
+                    for fj in range(fi, e["last_index"] + 1):
+                        row = per_tick_rows[fj].pop(e["key"], None)
+                        if row is not None:
+                            per_tick_rows[fj][nk] = row
+                            frames += 1
+                    new = dict(e, key=nk, first_index=fi, frames=frames, x0=r[0], y0=r[1], c0=None,
+                               states=[x for x in e.get("states", []) if x[0] >= fi],
+                               positions=[x for x in e.get("positions", []) if x[0] >= fi])
+                    e["last_index"] = last
+                    e["frames"] -= frames
+                    e["states"] = [x for x in e.get("states", []) if x[0] < fi]
+                    e["positions"] = [x for x in e.get("positions", []) if x[0] < fi]
+                    ents[nk] = new
+                    for fj in range(fi, len(per_tick_rows)):
+                        for k2, row in per_tick_rows[fj].items():
+                            if row[3] == e["key"]:
+                                per_tick_rows[fj][k2] = (*row[:3], nk, *row[4:])
+                    splits.append([e["key"], nk, ticks[fi]])
+                    todo.append(new)
+                    break
+            last = fi
+    return splits
+
+
 def merge_rekeyed(ents: dict, per_tick_rows: list, ticks: list[int]) -> list[list[int]]:
     """Fold a truth unit the capture gave a NEW KEY mid-life back into one entity.
 
@@ -1695,6 +1751,10 @@ def build(
                 rec.setdefault("positions", []).append((fi, x, y))
         per_tick_rows.append(rows)
 
+    # -- a key the capture reused for another unit is two entities (split_reused_keys)
+    reused = split_reused_keys(ents, per_tick_rows, ticks)
+    if reused:
+        fx["truth_split_keys"] = reused
     # -- a unit the capture re-keyed mid-life is one entity (merge_rekeyed)
     rekeyed = merge_rekeyed(ents, per_tick_rows, ticks)
     if rekeyed:
