@@ -7,22 +7,32 @@
 //! neighbour's contact push. Read off client 15.535.29's sweep-Graveyard: of 12 Skeletons, the one created on t318
 //! stands on its first frame at (14639, 8945), its slot (14500, 9000) plus one contact push from a Knight 290 away,
 //! where the engine put it on the slot and gave it the same push a tick later. The other 11 had no neighbour and stand
-//! on their slots under either arm. One event, so the old arm ships.
+//! on their slots under either arm. The ub-gy scenes show the same on crown towers: a Skeleton born overlapping a
+//! princess tower or the King's appears pushed 150 off its slot, (2850, 25500) for (3000, 25500) in
+//! ub-gy3-slot-in-tower and (4634, 24933) for (4500, 25000) in ub-gy1-left, then 150 more a tick. 9 of 9 Skeletons
+//! born overlapping a body over the ten fixtures. A new behaviour ships at its old arm until parity's score flips it.
 //!
-//! THE SCENE: a Blue Graveyard cast on (4500, 11000), in Blue's own half, with no enemy on the board. The first Skeleton
+//! THE SCENES: a Blue Graveyard cast on (4500, 11000), in Blue's own half, with no enemy on the board. The first Skeleton
 //! it puts down is found on a bare run; a second run stands a Blue Knight, still deploying and so standing still, 290
-//! north of that Skeleton's slot two ticks before the Skeleton is created.
+//! north of that Skeleton's slot two ticks before the Skeleton is created. And a Blue Graveyard cast 3,500 east of
+//! either ub-gy slot above, so that its first Skeleton's slot is that slot, its body overlapping the Red left
+//! princess tower.
 //!
 //! WHAT IS PINNED:
 //!   1. the null: with no neighbour both arms put the first Skeleton on its slot on its first frame, and run the same;
 //!   2. client_creation_tick, with the Knight: the first frame already carries the push, (-52, -141) off the slot, the
 //!      contact law's cap of 150;
 //!   3. next_tick (the old arm), with the Knight: the first frame is the slot, and the push of 150 comes on the second
-//!      frame, (-60, -137). The two pushes are not the same vector: the Knight has taken a push of its own by then;
-//!   4. the shipped value is next_tick.
+//!      frame, (-60, -137), 149. The two pushes are not the same vector: the Knight has taken a push of its own by then;
+//!   4. the shipped value is next_tick;
+//!   5. client_creation_tick, a slot whose Skeleton overlaps the Red left princess tower: the first three frames are
+//!      the client's (ub-gy3-slot-in-tower: (2850, 25500), (2700, 25500), (2550, 25500); ub-gy1-left: (4634, 24933),
+//!      (4768, 24866), (4902, 24799));
+//!   6. next_tick, the same slots: the bare slot, then the client's frames a tick late.
 //!
 //! PLANT (regression):
-//!   * `scheduled_first_update_unread` -- the new arm's units take their first update on the next tick: (2) goes red.
+//!   * `scheduled_first_update_unread` -- the new arm's units take their first update on the next tick: (2) and (5) go
+//!     red.
 //!     RUSTFLAGS='--cfg clash_plant="scheduled_first_update_unread"' CARGO_TARGET_DIR=target/plant cargo test --profile
 //!     gate --test scheduled_first_update
 #![allow(unexpected_cfgs)]
@@ -58,8 +68,13 @@ fn skeletons(s: &BattleState) -> Vec<EntityId> {
 /// The first Skeleton: (the tick count after the cast on which it is first on the board, its first three frames).
 /// `neighbour`: the tick count and point at which to stand the Blue Knight.
 fn first_skeleton(arm: ScheduledUnitFirstUpdate, neighbour: Option<(u32, (i32, i32))>) -> (u32, Vec<(i32, i32)>) {
+    first_skeleton_of(arm, CAST, neighbour)
+}
+
+/// `first_skeleton` for a Graveyard cast on `cast`.
+fn first_skeleton_of(arm: ScheduledUnitFirstUpdate, cast: (i32, i32), neighbour: Option<(u32, (i32, i32))>) -> (u32, Vec<(i32, i32)>) {
     let mut s = BattleState::new(0, with(arm));
-    s.spawn_unit(Team::Blue, "Graveyard", Vec2::new(CAST.0 * K, CAST.1 * K), None).expect("cast the Graveyard");
+    s.spawn_unit(Team::Blue, "Graveyard", Vec2::new(cast.0 * K, cast.1 * K), None).expect("cast the Graveyard");
     for k in 1..200u32 {
         if let Some((at, p)) = neighbour {
             if k == at {
@@ -113,6 +128,37 @@ fn the_old_arm_takes_the_push_a_tick_later() {
     let (_, old, slot) = with_knight(OLD);
     assert_eq!(old[0], slot, "next_tick: the first frame is off the slot");
     assert_eq!(off(old[1], slot), ((-60, -137), 149), "next_tick: the second frame {:?}", old[1]);
+}
+
+/// The two ub-gy slots whose Skeleton overlaps the Red left princess tower (3500, 25500), and the client's first three
+/// frames of the Skeleton born on each (client 15.535.29, ub-gy3-slot-in-tower and ub-gy1-left).
+const IN_TOWER: [((i32, i32), [(i32, i32); 3]); 2] = [
+    ((3000, 25500), [(2850, 25500), (2700, 25500), (2550, 25500)]),
+    ((4500, 25000), [(4634, 24933), (4768, 24866), (4902, 24799)]),
+];
+
+/// The first three frames of the first Skeleton of a Blue Graveyard cast so that its first slot is `slot` (the
+/// Graveyard's first slot lies 3,500 west of its cast; the old arm's first frame shows the slot).
+fn in_tower(arm: ScheduledUnitFirstUpdate, slot: (i32, i32)) -> Vec<(i32, i32)> {
+    let (_, bare) = first_skeleton(OLD, None);
+    let off = (bare[0].0 - CAST.0, bare[0].1 - CAST.1);
+    let (_, frames) = first_skeleton_of(arm, (slot.0 - off.0, slot.1 - off.1), None);
+    frames
+}
+
+/// Plant: scheduled_first_update_unread.
+#[test]
+fn the_new_arm_pushes_a_skeleton_born_in_a_crown_tower_on_its_first_frame() {
+    for (slot, client) in IN_TOWER {
+        assert_eq!(in_tower(NEW, slot), client.to_vec(), "client_creation_tick: the first three frames on the slot {slot:?}");
+    }
+}
+
+#[test]
+fn the_old_arm_runs_a_push_behind_on_a_crown_tower() {
+    for (slot, client) in IN_TOWER {
+        assert_eq!(in_tower(OLD, slot), vec![slot, client[0], client[1]], "next_tick: the first three frames on the slot {slot:?}");
+    }
 }
 
 #[test]

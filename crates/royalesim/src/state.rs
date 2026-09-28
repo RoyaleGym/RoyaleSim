@@ -3036,9 +3036,10 @@ calib_enum!(
         /// included, on the next tick.
         NextTick = "next_tick",
         /// The unit takes its first update on its creation tick (`first_update`): a deploying Skeleton does not walk, but
-        /// a neighbour's contact push moves it there. Read off client 15.535.29's sweep-Graveyard: of 12 Skeletons, the
-        /// one created on t318 beside a Knight 290 away appears pushed (139, -55) off its slot, and the other 11, with no
-        /// neighbour, appear on their slots under either arm.
+        /// a neighbour's contact push moves it there. Read off client 15.535.29's ten Graveyard fixtures: 9 of 120
+        /// Skeletons are born overlapping a body (a crown tower 7, the sweep's Knight, an older Skeleton) and appear
+        /// pushed off their slot, 150 at the contact cap (the sweep's t318 one (139, -55)); the other 111 appear on their
+        /// slots under either arm.
         ClientCreationTick = "client_creation_tick",
     }
 );
