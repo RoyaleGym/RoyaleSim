@@ -467,6 +467,11 @@ pub struct Calib {
     /// `default` is `None`, what a battle saved before it actually ran.
     #[serde(default = "deploy_area_effect_default")]
     pub deploy_area_effect: DeployAreaEffect,
+    /// spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME: whether the character such a card's area effect spawns takes one tick
+    /// more to deploy than a troop played by hand (`phase_spawn`). Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// the old arm, what a battle saved before it actually ran.
+    #[serde(default = "deploy_area_effect_deploy_time_default")]
+    pub deploy_area_effect_deploy_time: DeployAreaEffectDeployTime,
     /// combat.POST_KILL_RETARGET_WAIT (value.arm, value.units, value.ticks). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is `None`, what a battle saved before it actually ran.
     #[serde(default = "post_kill_wait_default")]
@@ -1295,6 +1300,10 @@ fn death_spawn_projectile_default() -> DeathSpawnProjectile {
 
 fn deploy_area_effect_default() -> DeployAreaEffect {
     DeployAreaEffect::None
+}
+
+fn deploy_area_effect_deploy_time_default() -> DeployAreaEffectDeployTime {
+    DeployAreaEffectDeployTime::UnitDeployTime
 }
 
 fn post_kill_wait_default() -> PostKillWait {
@@ -3016,6 +3025,20 @@ calib_enum!(
         /// every enemy whose centre is within Radius plus its own collision radius -- and the
         /// character is spawned as today.
         ClientAreaEffect = "client_area_effect",
+    }
+);
+calib_enum!(
+    /// spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME -- how long the character a card's area effect spawns (card.rs
+    /// `deploy_area_effect`: the Ice Wizard, the Electro Wizard) deploys, against a troop played by hand
+    /// (`BattleState::phase_spawn`).
+    DeployAreaEffectDeployTime {
+        /// Today's engine: its DeployTime, as any troop: it leaves its deploy on its 20th tick and acts on its 21st
+        /// (its first tick F included: F + 19 and F + 20).
+        UnitDeployTime = "unit_deploy_time",
+        /// Measured on client 16.402 and client 15.535.29: one tick more. Every Ice Wizard and Electro Wizard
+        /// recorded from its first frame left its deploy on F + 20 and took its first step or attack on F + 21,
+        /// where every troop played by hand left on F + 19.
+        OneTickLonger = "client_one_tick_longer",
     }
 );
 calib_enum!(
@@ -4783,6 +4806,7 @@ impl Calib {
             spawn_area_object_scope: pick(&v, &["spawner", "SPAWN_AREA_OBJECT_SCOPE", "value"], SpawnAreaObjectScope::from_calibration_name)?,
             death_spawn_projectile: pick(&v, &["spawner", "DEATH_SPAWN_PROJECTILE", "value"], DeathSpawnProjectile::from_calibration_name)?,
             deploy_area_effect: pick(&v, &["spells", "DEPLOY_AREA_EFFECT", "value"], DeployAreaEffect::from_calibration_name)?,
+            deploy_area_effect_deploy_time: pick(&v, &["spells", "DEPLOY_AREA_EFFECT_DEPLOY_TIME", "value"], DeployAreaEffectDeployTime::from_calibration_name)?,
             post_kill_wait: pick(&v, &["combat", "POST_KILL_RETARGET_WAIT", "value", "arm"], PostKillWait::from_calibration_name)?,
             post_kill_wait_units: v
                 .pointer("/combat/POST_KILL_RETARGET_WAIT/value/units")
@@ -9007,6 +9031,21 @@ impl BattleState {
                 if d == 0 {
                     self.on_deployed(id.index as usize);
                 }
+            }
+            // spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME = client_one_tick_longer: the character a card's area effect spawns
+            // (card.rs `deploy_area_effect`: the Ice Wizard, the Electro Wizard) deploys one tick longer than a troop
+            // played by hand, whatever spells.DEPLOY_AREA_EFFECT does with the area. Measured on client 16.402 (every Ice
+            // Wizard and Electro Wizard recorded from its first frame F left its deploy on F + 20 and first acted on
+            // F + 21; every troop played by hand left on F + 19) and on client 15.535.29 (both Wizards' sweep scenes,
+            // F + 20 where 40 other troops leave on F + 19). One more tick on the timer the deploy countdown already
+            // runs down (`deploy_countdown`), so nothing new is saved or hashed. A scenario spawn puts the character
+            // down, not the card, and keeps its DeployTime.
+            #[cfg(not(clash_plant = "area_character_deploy_unread"))]
+            let longer = self.cfg.calib.deploy_area_effect_deploy_time == DeployAreaEffectDeployTime::OneTickLonger;
+            #[cfg(clash_plant = "area_character_deploy_unread")]
+            let longer = false; // PLANT (regression): the new arm deploys the character in its DeployTime, as the old one does.
+            if longer && self.cfg.cards.get(p.card).deploy_area_effect.is_some() && self.ents.deploy_ms[id.index as usize] > 0 {
+                self.ents.deploy_ms[id.index as usize] += self.cfg.calib.tick_ms;
             }
             // spells.DEPLOY_AREA_EFFECT = client_area_effect: a card whose row IS an area effect
             // that spawns its character (card.rs `deploy_area_effect`: the Electro Wizard's
@@ -16557,6 +16596,10 @@ impl BattleState {
 /// 20, unchanged, spawner.FIRST_STEP_DYING_BODIES: Calib gained first_step_dying (serde default the old arm, hidden),
 ///    no new state (the dying bodies are a scratch list filled and drained inside one Reap), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME: Calib gained deploy_area_effect_deploy_time (serde default the
+///    old arm, unit_deploy_time), no new state (the new arm puts one more tick on the deploy timer an entity already
+///    carries), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16920,6 +16963,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_area_object_scope".into(), serde_json::to_value(SpawnAreaObjectScope::MorphTargetsOnly).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_projectile".into(), serde_json::to_value(DeathSpawnProjectile::None).map_err(|e| e.to_string())?);
     sh.insert("deploy_area_effect".into(), serde_json::to_value(DeployAreaEffect::None).map_err(|e| e.to_string())?);
+    // spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME: a format-3 battle deployed such a character in its DeployTime; it keeps
+    // that whatever the ledger ships (the same rule).
+    sh.insert("deploy_area_effect_deploy_time".into(), serde_json::to_value(DeployAreaEffectDeployTime::UnitDeployTime).map_err(|e| e.to_string())?);
     // Hovering water, the rise law, the area-bound buff and the card values: a format-3 battle
     // ran none of them; it keeps that whatever the ledger ships (the same rule).
     sh.insert("hovering_water_rule".into(), serde_json::to_value(HoveringWaterRule::Walker).map_err(|e| e.to_string())?);
