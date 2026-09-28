@@ -8,11 +8,9 @@
 //! against two lists written out below:
 //!   (a) the LOADABLE rows (registered, not a summon-only unit) in CardDb order. That
 //!       is the default catalogue's order (py.rs `Battle(card_names=None)`), and the
-//!       crown towers follow it. The default leaves out the Mirror (code 6) and the
-//!       cards that travel under ground (the Miner, the Goblin Drill), which a decoder
-//!       of codes 0 to 4 cannot place yet; a `card_names` list that names one gets it.
-//!       So this list is the default before that filter: a row's default catalogue id
-//!       is its place here less the number of those three rows before it;
+//!       crown towers follow it. The default holds the Mirror (code 6) and the cards
+//!       that travel under ground (the Miner, the Goblin Drill, code 5) too, so a row's
+//!       default catalogue id is its place here;
 //!   (b) the REJECTED rows, sorted, each with the FIRST CLAUSE of its refusal
 //!       (`first_clause`: up to the first `:` or `;` outside parentheses), so a row
 //!       that is still refused, but by another site, shows up too. The clause names
@@ -94,8 +92,7 @@ const TABLE_2018: Table = Table {
 
 /// A table's two lists.
 struct Pin {
-    /// Every loadable row, in CardDb order: the default catalogue before it leaves out the Mirror and the cards
-    /// that travel under ground (the module doc, (a)), then the towers.
+    /// Every loadable row, in CardDb order: the default catalogue (the module doc, (a)), then the towers.
     loadable: &'static [&'static str],
     /// Every rejected row with the first clause of its refusal, sorted.
     rejected: &'static [(&'static str, &'static str)],

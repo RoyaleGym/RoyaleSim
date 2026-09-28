@@ -23,10 +23,8 @@
 //!      every registered card at every level it has: each unit resolves, exists at its
 //!      level, and `check_levels` agrees;
 //!   3. `every_unit_a_catalogue_card_puts_on_the_board_reports_its_card`: in the
-//!      default catalogue (py.rs `Battle(card_names=None)`) before it leaves out the
-//!      Mirror (code 6) and the cards that travel under ground (the Miner, the Goblin
-//!      Drill), which a decoder of codes 0 to 4 cannot place yet and a `card_names`
-//!      list that names one gets, every unit a catalogue card's FIELDS name gets a
+//!      default catalogue (py.rs `Battle(card_names=None)`, the Mirror and the cards
+//!      that travel under ground included), every unit a catalogue card's FIELDS name gets a
 //!      card id, never -1 -- both shipped files and the synthetic one, where the id is
 //!      pinned to the first card that names the unit;
 //!   4. `a_rejected_card_keeps_no_unit_block`: cards rejected after their push, one
@@ -304,10 +302,8 @@ fn unit_fields_in_debug(db: &CardDb, c: &CardDef) -> usize {
 }
 
 /// Every registered non-tower, non-summon card in CardDb order: the catalogue py.rs
-/// builds when no names are given, BEFORE it leaves out the Mirror (code 6) and the
-/// cards that travel under ground (the Miner, the Goblin Drill), which a decoder of
-/// codes 0 to 4 cannot place yet. A `card_names` list that names one gets it, so the
-/// units those cards put on the board are kept in view here.
+/// builds when no names are given, the Mirror (code 6) and the cards that travel under
+/// ground (the Miner, the Goblin Drill, code 5) included.
 fn default_catalogue(db: &CardDb) -> Vec<u16> {
     (0..db.cards.len() as u16)
         .filter(|i| {

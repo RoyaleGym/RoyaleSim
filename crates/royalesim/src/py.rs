@@ -59,18 +59,15 @@
 //!         water: Goblin Barrel).
 //!     A spell in troop territory that keeps a troop's footprint rule (Heal, refused on a
 //!     building or a crown tower) reports 0, because it is placed exactly as a troop is.
-//!     Code 4 has NO protocol.py Placement yet -- the Python mask must add one or
-//!     it will offer the river to a Goblin Barrel that the engine refuses as WATER.
-//!     Code 6 is the MIRROR: its tap follows the placement of the card it copies
-//!     (`mirror_target`). The default catalogue (`card_names=None`) leaves the Mirror
-//!     out, because a decoder that maps only codes 0 to 4 refuses a catalogue holding
-//!     a 6 (RoyaleGym's does, until it maps code 6). A `card_names` list that names
-//!     the Mirror gets it. The cards that travel under ground (the Miner, the Goblin
-//!     Drill) are left out of the default catalogue too: they go down anywhere but water
-//!     (placement.SPAWN_PATHFIND_TERRITORY) with a troop's or a building's footprint
-//!     rule, a pair no code 0 to 4 describes (code 4 is that territory for a spell,
-//!     which has no footprint); they report the code of their kind (0, 1) and join the
-//!     default once a code for that pair exists. A VARIANT card (the Spirit Empress) reports its first form's
+//!     Code 4 is protocol.py's SPELL_NOT_ON_WATER (a Python mask without it would offer
+//!     the river to a Goblin Barrel that the engine refuses as WATER).
+//!         5 TUNNEL: a card that travels under ground (the Miner, the Goblin Drill) goes
+//!           down anywhere but water (placement.SPAWN_PATHFIND_TERRITORY) with its KIND's
+//!           footprint rule, a troop's or a building's; the catalogue's card_kind says which.
+//!         6 MIRROR: its tap follows the placement of the card it copies (`mirror_target`).
+//!     All three are in the default catalogue (`card_names=None`), since RoyaleGym maps
+//!     codes 5 and 6; a decoder that maps only codes 0 to 4 refuses a catalogue holding
+//!     them, and a `card_names` list without them leaves them out. A VARIANT card (the Spirit Empress) reports its first form's
 //!     code and row, and its forms in the catalogue's 10th element; what each hand slot
 //!     costs right now is each player's `hand_costs` in `state_json`.
 //!     Spell rows report count 0, radius 0, flying false, hitpoints 0 (protocol.py
@@ -555,7 +552,7 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
     let c = cards.get(idx);
     // THE MIRROR (6): its tap is judged by the placement of the card it copies (match.MIRROR_PLACEMENT), which the
     // mask learns from `mirror_target`. A VARIANT card (the Spirit Empress): its first form's code; the loader holds
-    // every form to one CardKind.
+    // every form to one CardKind. A TUNNELLER (5): a troop or a building whose rule is anywhere but water.
     if c.is_mirror() {
         return KIND_MIRROR;
     }
@@ -563,6 +560,7 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
         return kind_code(cards, calib, opts[0].card);
     }
     match (c.kind, deploy_rule(calib, c)) {
+        (CardKind::Troop | CardKind::Building, (Territory::AnywhereButWater, _)) => KIND_TUNNEL,
         (CardKind::Troop, _) => 0,
         (CardKind::Building, _) => 1,
         // A spell in troop territory that keeps a troop's footprint rule (Heal: `on_buildings` false) is refused on a
@@ -578,6 +576,9 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
 
 /// The catalogue kind code of the Mirror (module doc, SPELLS).
 pub const KIND_MIRROR: u8 = 6;
+
+/// The catalogue kind code of a card that travels under ground to its tap (module doc, SPELLS).
+pub const KIND_TUNNEL: u8 = 5;
 
 /// Catalogue id per CardDb index: the catalogue position, or for a unit a catalogue
 /// card puts on the board the id of the FIRST such card, or -1.
@@ -1033,22 +1034,14 @@ impl Battle {
                 })
                 .collect::<Result<_, BuildError>>()?,
             // Every REGISTERED non-tower, non-summon card: a card rejected after its
-            // push (its spawned unit could not load) is in `cards` but not by name.
-            // The Mirror is left out (module doc, SPELLS): its kind code 6 is one a
-            // caller's decoder may not know yet. So are the cards that travel under
-            // ground (the Miner, the Goblin Drill): they go down anywhere but water with a
-            // troop's or a building's footprint rule. Code 4 is that territory for a spell,
-            // with no footprint, and no placement code 0 to 4 describes the pair, so a mask
-            // built from codes 0 to 4 would offer only their own half (the code of their
-            // kind). Name any of them in `card_names` to play it.
+            // push (its spawned unit could not load) is in `cards` but not by name. The
+            // Mirror (code 6) and the tunnellers (code 5) are in it (module doc, SPELLS).
             None => (0..db.cards.len() as u16)
                 .filter(|i| {
                     let c = db.get(*i);
                     !is_tower(&c.name)
                         && !c.summon_only
                         && c.evo.is_none()
-                        && !c.is_mirror()
-                        && c.spawn_pathfind.is_none()
                         && db.index(&c.name) == Some(*i)
                 })
                 .collect(),
@@ -1147,9 +1140,8 @@ pub fn selected_calib(
 #[pymethods]
 impl Battle {
     /// `card_names`: the catalogue, in card-id order (None = every simulable
-    /// non-tower card in cards.json order except the Mirror (code 6) and the cards
-    /// that travel under ground (the Miner, the Goblin Drill), which a decoder of
-    /// codes 0 to 4 cannot place yet; a list that names one gets it; module doc,
+    /// non-tower card in cards.json order, the Mirror (code 6) and the cards that
+    /// travel under ground (the Miner, the Goblin Drill, code 5) included; module doc,
     /// SPELLS). `slot_of_k[team][k]` names engine tower
     /// k (0 king, 1 engine-Left princess, 2 engine-Right) as a protocol TowerSlot.
     ///
@@ -2236,7 +2228,9 @@ mod tests {
             };
             // A spell placed as a troop is (troop territory with a troop's footprint rule: Heal) reports a troop's 0.
             let troop_placed_spell = kind == "SPELL" && code == 0 && matches!(deploy_rule(&calib, db.get(shown)), (Territory::EnemyTowerRects, true));
-            assert!(kind == band || troop_placed_spell, "{r:?}: card_kind {kind}, kind code band {band}");
+            // A tunneller (5) keeps its kind's footprint rule, a troop's or a building's, which card_kind names.
+            let tunneller = code == u64::from(KIND_TUNNEL) && (kind == "TROOP" || kind == "BUILDING");
+            assert!(kind == band || troop_placed_spell || tunneller, "{r:?}: card_kind {kind}, kind code band {band}");
             seen.insert(kind);
         }
         assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec!["BUILDING", "SPELL", "TROOP"], "the catalogue should carry every kind");

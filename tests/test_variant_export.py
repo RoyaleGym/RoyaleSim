@@ -11,9 +11,8 @@ Gate 11 holds the table to what the loader reads, and its plant lands.
 
 WHAT THIS PINS, 2: THE PROTOCOL (it needs an extension built from this tree): the catalogue's 10th element lists the
 Empress's forms; each player's `hand_costs` and `mirror_target` move with the elixir and the plays; a Mirror with
-nothing to copy answers NOTHING_TO_MIRROR. The default catalogue (card_names=None) leaves out the Mirror (code 6) and
-the cards that travel under ground (the Miner, the Goblin Drill), which a decoder of codes 0 to 4 cannot place yet, so
-it holds no kind code 6; a card_names list that names one gets it (py.rs `Battle::new`).
+nothing to copy answers NOTHING_TO_MIRROR. The default catalogue (card_names=None) holds the Mirror (code 6) and the
+cards that travel under ground (the Miner, the Goblin Drill, code 5), which RoyaleGym places (py.rs `Battle::new`).
 """
 
 from __future__ import annotations
@@ -183,19 +182,18 @@ def test_the_catalogue_lists_the_empress_forms(royalesim):
     assert all(r[col] is None for k, r in enumerate(rows) if k != ID["MergeMaiden"])
 
 
-def test_the_default_catalogue_leaves_the_mirror_and_the_tunnellers_out(royalesim):
-    """A card_names=None catalogue holds no Mirror, so no kind code 6: a decoder that maps only codes 0 to 4 refuses
-    a catalogue with a 6 (RoyaleGym's does, until it maps 6). The Miner and the Goblin Drill are left out too: they
-    go down anywhere but water with a troop's or a building's footprint rule, a pair no code 0 to 4 describes (code
-    4 is that territory for a spell, with no footprint). Named in card_names each is there. The other cards this
-    batch loads stay in the default catalogue."""
+def test_the_default_catalogue_holds_the_mirror_and_the_tunnellers(royalesim):
+    """A card_names=None catalogue holds the Mirror (kind code 6) and the Miner and the Goblin Drill (code 5: anywhere
+    but water with their kind's footprint rule, the catalogue's card_kind naming it), since RoyaleGym maps both codes.
+    The other cards this batch loads stay in the default catalogue."""
     rows = json.loads(royalesim.Battle(None, SLOTS).catalogue_json())
-    names = [r[0] for r in rows]
-    for card in ("Mirror", "Miner", "GoblinDrill"):
-        assert card not in names, f"the default catalogue holds {card}"
+    code = {r[0]: r[1] for r in rows}
+    assert code.get("Mirror") == 6, code.get("Mirror")
+    assert code.get("Miner") == 5, code.get("Miner")
+    assert code.get("GoblinDrill") == 5, code.get("GoblinDrill")
     for card in ("MergeMaiden", "ThreeMusketeers", "RamRider", "Elixir Collector", "FirespiritHut"):
-        assert card in names, f"the default catalogue lost {card} besides the Mirror and the tunnellers"
-    assert {r[1] for r in rows} <= {0, 1, 2, 3, 4}, sorted({r[1] for r in rows})
+        assert card in code, f"the default catalogue lost {card}"
+    assert set(code.values()) <= {0, 1, 2, 3, 4, 5, 6}, sorted(set(code.values()))
     named = [r[0] for r in json.loads(royalesim.Battle(["Knight", "Miner", "GoblinDrill"], SLOTS).catalogue_json())]
     assert {"Miner", "GoblinDrill"} <= set(named), named
 

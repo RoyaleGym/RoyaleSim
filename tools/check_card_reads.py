@@ -82,9 +82,8 @@ WHAT COULD MAKE THIS WRONG (read this before trusting a green run)
     - "Loaded" is every card the engine loads when the extension module imports:
       its default catalogue (royalesim.Battle(None, ...)) and every other card row
       a catalogue that names it alone builds with (royalesim.Battle([name], ...)).
-      The default is not the whole set: it leaves out the Mirror and the cards that
-      travel under ground (the Miner, the Goblin Drill), which a decoder of codes
-      0 to 4 cannot place yet.  Without the module the gate falls back to every card
+      The default holds the Mirror and the cards that travel under ground too; any
+      card row it did not hold would be offered by name.  Without the module the gate falls back to every card
       in the file and says so.  The thin slice is loaded under either reading.
 
 VINTAGE AND A THIN CHECKOUT
@@ -813,11 +812,11 @@ class Result:
 def loaded_catalogue(names: list[str]) -> tuple[set[str] | None, str]:
     """The cards of `names` (the file's card rows) the engine actually loads, from the built extension module.
 
-    The default catalogue (`Battle(None, ...)`) is not that set: it leaves out cards that load (the Mirror, and the
-    cards that travel under ground, the Miner and the Goblin Drill), which a decoder of placement codes 0 to 4 cannot
-    place yet. So every card row the default does not hold is offered to the engine by name, alone, and kept when a
-    catalogue that names it builds. The engine refuses a card it does not load with a ValueError that names the
-    reason; any other error is not an answer about the card, and skips the whole pass loudly."""
+    The default catalogue (`Battle(None, ...)`) holds every card row that loads, the Mirror and the cards that travel
+    under ground included; so that a card left out of it one day is still counted, every card row the default does
+    not hold is offered to the engine by name, alone, and kept when a catalogue that names it builds. The engine
+    refuses a card it does not load with a ValueError that names the reason; any other error is not an answer about
+    the card, and skips the whole pass loudly."""
     try:
         import royalesim
 

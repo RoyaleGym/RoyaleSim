@@ -164,9 +164,8 @@ The crate itself has no Python dependency and builds alone.
 - **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
   `cards.json` order. The 15.535.29 table holds 144 cards (102 troops, 15 buildings, 27 spells)
   and 334 units, and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
-  the rest with the reason. The default leaves out three cards that load: the Mirror (code 6) and
-  the cards that travel under ground (the Miner, the Goblin Drill), which a decoder of codes 0 to 4
-  cannot place yet. A `card_names` list that names one gets it. `path_search="trace_fitted_astar"`
+  the rest with the reason. That includes the Mirror (code 6) and the cards that travel under
+  ground (the Miner and the Goblin Drill, code 5), which RoyaleGym places. `path_search="trace_fitted_astar"`
   selects the frame-planned arm and `ground_y_clamp="deploy_column_range_own_frame"` the own-frame
   summon clamp (see "Selectable model arms"); each defaults to the ledger's value,
   `pathfinding.PATH_SEARCH` and `formation.GROUND_Y_CLAMP`.

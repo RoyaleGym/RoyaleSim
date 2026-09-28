@@ -96,9 +96,8 @@ engine is usable for your purpose.
 `data/derived/cards.json` holds **144 cards** (102 troops, 15 buildings, 27 spells) and 334
 units. The engine loads every simulable non-tower card of it;
 `Battle(card_names=None).catalogue_json()` lists what loaded and `CardDb::rejected` what did
-not, with the reason. The one exception: that default leaves out the Mirror (code 6) and the
-cards that travel under ground (the Miner, the Goblin Drill), which a decoder of codes 0 to 4
-cannot place yet. They load, and a `card_names` list that names one gets it. Some of the loaded
+not, with the reason. That default includes the Mirror (code 6) and the cards that travel under
+ground (the Miner and the Goblin Drill, code 5), which RoyaleGym places. Some of the loaded
 cards carry a mechanic `card.rs` never parses, so an 8-card deck drawn uniformly from the whole
 catalogue is much more likely than not to hold one.
 If you are picking decks programmatically, draw from `cards.json`'s own `thin_slice` key rather

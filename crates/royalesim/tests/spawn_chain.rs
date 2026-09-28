@@ -97,9 +97,7 @@ fn rejected<'a>(db: &'a CardDb, card: &str) -> Option<&'a str> {
 }
 
 /// Every registered non-tower, non-summon card in CardDb order: the catalogue py.rs builds when no names are given,
-/// BEFORE it leaves out the Mirror (code 6) and the cards that travel under ground (the Miner, the Goblin Drill),
-/// which a decoder of codes 0 to 4 cannot place yet. A `card_names` list that names one gets it, so the units those
-/// cards put on the board are kept in view here.
+/// the Mirror (code 6) and the cards that travel under ground (the Miner, the Goblin Drill, code 5) included.
 fn default_catalogue(db: &CardDb) -> Vec<u16> {
     (0..db.cards.len() as u16)
         .filter(|i| {
