@@ -2721,7 +2721,7 @@ calib_enum!(
         /// first frame the projectile lands at the unit's position as an area impact, through the
         /// spell impact and knockback path.
         ClientOnLanding = "client_on_landing",
-        /// Shipped since the 2026-09-28 round 9 flip (a hypothesis on its action half).
+        /// Shipped since the 2026-09-28 round 9 flip (its action half measured on few hits).
         /// client_on_landing, and the blow of a unit an ACTION makes (the Hero Musketeer's turret, whose PendingSpawn
         /// carries `action_made`) lands on the 2nd tick after its creation (combat.rs
         /// ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), not the 6th. Read on client 15.535.29's hero scenes: every enemy hp
