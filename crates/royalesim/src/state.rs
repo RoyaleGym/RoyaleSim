@@ -8501,6 +8501,24 @@ impl BattleState {
         if fresh.is_empty() {
             return;
         }
+        // A UNIT CREATED THIS TICK IS NOT DOOMED. The doomed mask (`doomed_mask`) is indexed by SLOT and was taken in the
+        // tick's Path phase, from that tick's hits; a death spawn is created at the end of Reap, after the tick's dead have
+        // freed their slots, and the allocator hands out the last freed slot first (entity.rs `spawn`). A member born in
+        // the slot of a troop an Attack-phase hit killed on the same tick read that troop's bit, and the move pass dropped
+        // it as a victim: no walk, no push, left on its creation point with no path while its siblings stepped. Measured on
+        // the 16.402 corpus, where the truth steps all four of a Tombstone's members to one point on their first frame:
+        // 20260918-115249.b1 tick 3600 (the side-1 Tombstone at (2500, 18500), turned sideways to (1000, 18500); truth
+        // (1076, 18524)), the engine with three troops dying on the tick left two members on (1000, 18500), path 0, push
+        // 0, and stepped the other two; 20260918-124946 tick 2097 (the bridge Tombstone, (3500, 17000); one Goblin dying
+        // on the tick), one member of four. With the bit cleared all four step together in both. (Read with the ledger's
+        // 15 latest switch-ons turned back off, FIRST_STEP_DYING_BODIES kept on for the first: with all 15 on, upstream
+        // changes move those deaths off the Tombstone's tick.)
+        #[cfg(not(clash_plant = "first_step_reads_stale_doom"))]
+        for &i in &fresh {
+            if let Some(d) = self.scratch.doomed.get_mut(i) {
+                *d = false;
+            }
+        }
         #[cfg(not(clash_plant = "first_step_walks_only"))]
         if self.tick_order() == TickOrder::ClientSequentialStrike {
             self.phase_target_attack_sequential(Some(&fresh));

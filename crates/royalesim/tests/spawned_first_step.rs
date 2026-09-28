@@ -21,7 +21,12 @@
 //!   6. a Goblin Cage's Brawler, born on the dying cage's centre, reads avoidance offset -190 on its first frame
 //!      under client16402_same_tick (the cage a static blocker in its first scan) and 0 under none;
 //!   7. a snapshot taken under client16402_same_tick resumes hash for hash;
-//!   8. the shipped value is client16402_same_tick.
+//!   8. the shipped value is client16402_same_tick;
+//!   9. a dying Tombstone's four Skeletons, born on the tick a Red Knight's hit kills a Blue Knight far from it, all
+//!      step together, the one born in the Knight's freed slot included (the tick's doomed mask is indexed by slot
+//!      and was taken before the member existed), under both values of spawner.FIRST_STEP_DYING_BODIES. Measured on
+//!      the 16.402 corpus: the truth steps all four of a Tombstone's members on their first frame (20260918-115249.b1
+//!      tick 3600, 20260918-124946 tick 2097), where the engine left the ones in a dead troop's slot on the point.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spawned_first_step`):
 //!   * `first_step_unread` -- the new value stands on the creation point: (1), (2) and (4) go red.
@@ -29,12 +34,14 @@
 //!   * `first_step_moves_pushback_spawns` -- a DeathSpawnPushback row's members step on the death frame: (3) goes red.
 //!   * `first_step_walks_only` -- the first update is the move step alone, no target and no attack: (4) goes red.
 //!   * `first_step_parent_gone` -- the dying building is not a blocker in the first scan: (6) goes red.
+//!   * `first_step_reads_stale_doom` -- a fresh unit reads the doomed bit its slot's previous occupant left: (9) goes
+//!     red.
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeathSpawnPushback, SpawnedFirstStep};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeathSpawnPushback, FirstStepDying, SpawnedFirstStep};
 use royalesim::{EntityId, Team};
 
 const NEW: SpawnedFirstStep = SpawnedFirstStep::SameTick;
@@ -141,6 +148,72 @@ fn a_dying_tombstones_four_skeletons_take_one_step_together() {
     assert!(new.iter().all(|p| *p == new[0]), "the four death Skeletons do not share one point on their first frame: {new:?}");
     let moved = dist(new[0], EMISSION);
     assert!((60..=100).contains(&moved), "the death stack stands {moved} from the emission point, not one step");
+}
+
+/// A Blue Knight at 1 hp and the Red Knight that kills it, over 7,000 from the Tombstone's emission point.
+const BLUE_KNIGHT: (i32, i32) = (2500, 12500);
+const RED_KNIGHT: (i32, i32) = (2500, 13600);
+
+/// Units born on one tick with their first-frame points, native, in creation order.
+type Born = Vec<(EntityId, (i32, i32))>;
+
+/// A Blue Tombstone whose first wave has walked off (as `death_stack`), then a Blue Knight at 1 hp and a Red Knight
+/// beside it, under spawner.FIRST_STEP_DYING_BODIES = `dying`. With `kill` the Tombstone is set to 0 hp before that
+/// tick runs. Returns (the tick after which the Blue Knight is gone, its slot, the death Skeletons born on that tick
+/// with their first-frame points, native, in creation order).
+fn death_on_a_kill_tick(dying: FirstStepDying, kill: Option<u32>) -> (u32, u32, Born) {
+    let mut cfg = config();
+    cfg.calib.first_step_dying = dying;
+    let mut s = BattleState::new(7, cfg);
+    let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", at(TOMB), None).unwrap();
+    tick_until_born(&mut s, 40, |e| e.spawned_by.is_some());
+    tick_until_born(&mut s, 40, |e| e.spawned_by.is_some());
+    for _ in 0..12 {
+        s.tick();
+    }
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Blue, "Knight", at(BLUE_KNIGHT), Some(1)), (Team::Red, "Knight", at(RED_KNIGHT), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let knight = ids[0];
+    for _ in 0..80 {
+        if kill == Some(s.tick_count() + 1) {
+            let near: Vec<(i32, i32)> = s.entities().filter(|e| e.card == "Skeleton").map(|e| native(e.pos)).filter(|p| dist(*p, EMISSION) < 1000).collect();
+            assert!(near.is_empty(), "scene: a periodic Skeleton stands near the emission point: {near:?}");
+            assert!(s.debug_set_hp(tomb, 0));
+        }
+        let before: Vec<EntityId> = s.entities().map(|e| e.id).collect();
+        s.tick();
+        if s.entity(knight).is_none() {
+            let mut born: Vec<(u32, EntityId)> = s
+                .entities()
+                .filter(|e| e.team == Team::Blue && e.card == "Skeleton" && e.spawned_by.is_none() && !before.contains(&e.id))
+                .map(|e| (e.team_seq, e.id))
+                .collect();
+            born.sort();
+            let born = born.into_iter().map(|(_, id)| (id, native(s.entity(id).unwrap().pos))).collect();
+            if kill.is_some() {
+                assert!(s.entity(tomb).is_none(), "scene: the Tombstone did not die on the Knight's death tick");
+            }
+            return (s.tick_count(), knight.index, born);
+        }
+    }
+    panic!("scene: the Red Knight did not kill the Blue Knight within 80 ticks");
+}
+
+#[test]
+fn a_death_spawn_born_in_a_slot_freed_by_the_ticks_kill_still_steps() {
+    for dying in [FirstStepDying::Hidden, FirstStepDying::Seen] {
+        let (died, _, _) = death_on_a_kill_tick(dying, None);
+        let (died_k, slot, born) = death_on_a_kill_tick(dying, Some(died));
+        assert_eq!(died_k, died, "{dying:?} scene: the kill moved the Blue Knight's death");
+        let four = born;
+        assert_eq!(four.len(), 4, "{dying:?} scene: the Tombstone's four death Skeletons: {four:?}");
+        assert!(four.iter().any(|(id, _)| id.index == slot), "{dying:?} scene: no member was born in the Blue Knight's freed slot {slot}: {four:?}");
+        let pts: Vec<(i32, i32)> = four.iter().map(|(_, p)| *p).collect();
+        assert!(pts.iter().all(|p| *p == pts[0]), "{dying:?}: the four death Skeletons do not share one point on their first frame: {four:?} (slot {slot})");
+        let moved = dist(pts[0], EMISSION);
+        assert!((60..=100).contains(&moved), "{dying:?}: the death stack stands {moved} from the emission point, not one step");
+    }
 }
 
 /// A Blue Golem at 0 hp at (9000, 13000) dies on the first tick; its Golemites, native, on their first frame.
