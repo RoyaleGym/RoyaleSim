@@ -1832,14 +1832,14 @@ def test_a_captures_partners_are_the_other_seat_of_its_battle(m):
     seat's other part, another battle, or a capture without a seat tag."""
     s = m.CAPTURE_SUFFIX
     pool = [
-        f"frames-auto-20260920-005517-21503{s}",
-        f"frames-auto-20260920-005517-21513{s}",
-        f"frames-auto-20260918-164951-21513{s}",
-        f"frames-auto-20260918-164953-21503{s}",
-        f"frames-auto-20260920-010218-21503.b1{s}",
-        f"frames-auto-20260920-010218-21503.b2{s}",
-        f"frames-auto-20260920-010218-21513{s}",
-        f"frames-auto-20260920-010240-21513{s}",
+        f"frames-auto-20260920-005517-40001{s}",
+        f"frames-auto-20260920-005517-40002{s}",
+        f"frames-auto-20260918-164951-40002{s}",
+        f"frames-auto-20260918-164953-40001{s}",
+        f"frames-auto-20260920-010218-40001.b1{s}",
+        f"frames-auto-20260920-010218-40001.b2{s}",
+        f"frames-auto-20260920-010218-40002{s}",
+        f"frames-auto-20260920-010240-40002{s}",
         f"frames-20260918-122757.b1{s}",
         f"frames-20260918-122757.b2{s}",
     ]
@@ -1884,8 +1884,8 @@ def test_a_battle_recorded_from_both_seats_dates_a_row_by_the_other_seat(m, tmp_
     on 12, pair-dated with B, and B unchanged; `--check` of A alone rebuilds B to reach the same fixture."""
     _skip_without_the_id_table(m)
     reports = tmp_path / "reports"
-    seat_a = reports / ("frames-auto-20260920-120000-21503" + m.CAPTURE_SUFFIX)
-    seat_b = reports / ("frames-auto-20260920-120000-21513" + m.CAPTURE_SUFFIX)
+    seat_a = reports / ("frames-auto-20260920-120000-40001" + m.CAPTURE_SUFFIX)
+    seat_b = reports / ("frames-auto-20260920-120000-40002" + m.CAPTURE_SUFFIX)
     _write_capture(seat_a, *_seat_battle([t for t in range(31) if t != 11]))
     _write_capture(seat_b, *_seat_battle(list(range(31))))
     out = tmp_path / "out"
@@ -1906,7 +1906,10 @@ def test_a_battle_recorded_from_both_seats_dates_a_row_by_the_other_seat(m, tmp_
     ), a["tick_evidence"]
     assert (b["tick"], b["tick_evidence"]) == (12, "exact"), b
     check = subprocess.run(
-        [sys.executable, tool, str(seat_a), "--check", str(out / "20260920-120000-A.replay.json")],
+        # --reports names the test's own folder: without it the seat letters come from ROYALELIVE_REPORTS's captures,
+        # and the check passed only while their seat tags happened to sort the same way as these two.
+        [sys.executable, tool, str(seat_a), "--reports", str(reports),
+         "--check", str(out / "20260920-120000-A.replay.json")],
         capture_output=True, text=True, timeout=600, cwd=ROOT,
     )
     assert check.returncode == 0, check.stdout + check.stderr
