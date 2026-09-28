@@ -63,8 +63,10 @@ pub struct BuffDef {
     pub speed_pct: i32,
     /// HitSpeedMultiplier, raw, same convention.
     pub hit_speed_pct: i32,
-    /// SpawnSpeedMultiplier, raw, same convention. Read by nothing yet (the spawner
-    /// pass is `spawner.EMISSION_TIMING`'s, and no corpus card buffs a spawner).
+    /// SpawnSpeedMultiplier, raw, same convention. Read by the spawner clocks: an
+    /// action-made spawner's (spawner.ACTION_SPAWNER_SPAWN_SPEED) and, under
+    /// spawner.SPAWN_SPAWNER_SPAWN_SPEED = buffed, a Spawn* spawner's (state.rs
+    /// `spawner_pass`).
     pub spawn_speed_pct: i32,
     /// DamagePerSecond: a damage-over-time pulse of `dps * hit_frequency_ms / 1000`
     /// every `hit_frequency_ms`. Level-scaled at APPLICATION time, like every other

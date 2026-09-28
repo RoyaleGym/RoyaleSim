@@ -36,7 +36,14 @@
 //!  16. no card, rejected ones included, keeps a unit block
 //!      pointing at the unresolved u16::MAX; a constructed death spawn whose grid
 //!      reaches past its radius is pulled back onto it (the engine_grid_within_radius
-//!      arm, the foil rather than the shipped layout).
+//!      arm, the foil rather than the shipped layout);
+//!  17. spawner.SPAWN_SPAWNER_SPAWN_SPEED, which ships at tick_ms: a Tombstone
+//!      slowed by an Ice Golem's death slow (IceWizardSlowDown, 2,500 ms) spawns its
+//!      next wave 15 ticks late under buffed and on time under tick_ms, as the 16.402
+//!      corpus Tombstone of 20260918-130203.b2 waits 95 ticks instead of 80; under
+//!      buffed a Zap holds it by its stun's ticks under either STUN_PAUSES_SPAWNER arm.
+//!      Plant spawn_spawner_speed_unread (the buffed arm keeps TICK_MS): the slowed
+//!      test and the Zap test's pause-off run go red.
 //!
 //! TICK ALIGNMENT (state.rs `spawner_pass`; spawner.EMISSION_TIMING =
 //! move_phase_immediate, measured): the timer is decremented in the MOVE phase, right
@@ -1397,4 +1404,150 @@ fn a_death_spawn_whose_grid_reaches_past_its_radius_is_pulled_back_onto_it() {
         assert!(d2 <= (r as i64) * (r as i64), "a Statue at {p:?} is {} from the death point, radius {r}", isqrt(d2));
         assert!(d2 > 0, "a Statue sits ON the death point: the pull-back did not run");
     }
+}
+
+// ---------------------------------------------------------------------------
+// (17): a slowed Tombstone (spawner.SPAWN_SPAWNER_SPAWN_SPEED)
+
+/// The Ice Golem's death slow, IceWizardSlowDown, as the shipped cards.CLIENT16402_VALUES list it (IceGolemite
+/// AreaBuffTime; the tables: 2000).
+const GOLEM_SLOW_MS: i32 = 2500;
+
+/// The interned IceWizardSlowDown row (its buff id, one past its index) and its SpawnSpeedMultiplier.
+fn slow_buff(s: &BattleState) -> (u16, i32) {
+    let db = s.cards();
+    let ids: Vec<usize> = db.buff_names.iter().enumerate().filter(|(_, n)| n.contains("IceWizardSlowDown")).map(|(k, _)| k).collect();
+    assert_eq!(ids.len(), 1, "data: one IceWizardSlowDown row, {:?}", ids.iter().map(|&k| &db.buff_names[k]).collect::<Vec<_>>());
+    (ids[0] as u16 + 1, db.buffs[ids[0]].spawn_speed_pct)
+}
+
+/// A Blue Tombstone for `horizon` post-ticks. With `kill_at`, a Red Ice Golem is put down 1.5 tiles behind it before
+/// tick `kill_at` runs and set to 0 hp there, so its death area hangs IceWizardSlowDown on the Tombstone. Returns the
+/// post-ticks its Skeletons first appear on, the post-ticks it carries IceWizardSlowDown on, and the longest
+/// IceWizardSlowDown it carried, in ms.
+fn slowed_tombstone(cfg: BattleConfig, kill_at: Option<u32>, horizon: u32) -> (Vec<u32>, Vec<u32>, i32) {
+    let mut s = bare(cfg);
+    let sp = spawner(&s, "Tombstone");
+    let unit = unit_name(&s, sp.unit);
+    let slow = slow_buff(&s).0;
+    let pos = blue_spot(&s);
+    let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+    let behind = Vec2::new(pos.x, pos.y - milli(1500));
+    let (mut waves, mut slowed, mut longest) = (Vec::new(), Vec::new(), 0);
+    let mut known: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for k in 0..horizon {
+        if kill_at == Some(k) {
+            let golem = s.scenario_spawn_now(Team::Red, "IceGolemite", behind, None).expect("put the Ice Golem down");
+            assert!(s.debug_set_hp(golem, 0));
+        }
+        s.tick();
+        for e in find_live(&s, Team::Blue, &unit) {
+            if known.insert((e.id.index, e.id.generation)) {
+                waves.push(s.tick_count());
+            }
+        }
+        let t = s.entity(tomb).expect("the Tombstone outlives the scene");
+        if let Some(b) = t.buffs.iter().find(|b| b.id == slow) {
+            slowed.push(s.tick_count());
+            longest = longest.max(b.ms);
+        }
+    }
+    (waves, slowed, longest)
+}
+
+#[test]
+fn a_slowed_tombstone_waits_longer_under_buffed_and_on_time_under_the_shipped_tick_ms() {
+    // Plant spawn_spawner_speed_unread: the buffed wave comes on time, as the old arm's.
+    use royalesim::state::SpawnSpawnerSpawnSpeed;
+    assert_eq!(calib().spawn_spawner_spawn_speed, SpawnSpawnerSpawnSpeed::TickMs, "the shipped arm is the old one, tick_ms");
+    let arm = |a: SpawnSpawnerSpawnSpeed| with_calib(|c| c.spawn_spawner_spawn_speed = a);
+    let sp = spawner(&bare(config()), "Tombstone");
+    let (pause, slow_ticks) = (ticks_of(sp.pause_time_ms), ticks_of(GOLEM_SLOW_MS));
+    // Four waves, and room for the fourth to come 15 ticks late.
+    let horizon = first_wave_tick(&sp) + 3 * (pause + ticks_of(sp.interval_ms)) + 30;
+    let (control, _, _) = slowed_tombstone(arm(SpawnSpawnerSpawnSpeed::Buffed), None, horizon);
+    assert_eq!(control.len(), 4 * sp.number as usize, "the scene: four waves, {control:?}");
+    // The slow lands right after the second wave's last Skeleton, so all of it falls inside one pause, as on the
+    // corpus's tick 625 (its Tombstone's waves 597 and 692).
+    let last = control[3];
+    assert!(slow_ticks + 10 < pause, "the scene: the {slow_ticks}-tick slow must fit inside the {pause}-tick pause");
+    let kill_at = last + 1;
+    let run = |a| slowed_tombstone(arm(a), Some(kill_at), horizon);
+    let (buffed, slowed, longest) = run(SpawnSpawnerSpawnSpeed::Buffed);
+    assert_eq!(longest, GOLEM_SLOW_MS, "the Ice Golem's death slow, as the shipped list gives it");
+    assert_eq!(slowed.len() as u32, slow_ticks, "the Tombstone carries the slow {slow_ticks} ticks: {slowed:?}");
+    assert!(slowed[0] > last && *slowed.last().unwrap() < control[4], "the slow falls inside one pause: {slowed:?} between {last} and {}", control[4]);
+    // 50 ticks at 70 % advance the clock 1,750 ms where 2,500 were due: 750 ms, 15 ticks, lost.
+    let pct = slow_buff(&bare(config())).1;
+    assert!(pct < 0, "data: IceWizardSlowDown slows SpawnSpeed ({pct})");
+    let lost = (slow_ticks as i32 * dt() - slow_ticks as i32 * (dt() * (100 + pct) / 100)) / dt();
+    assert_eq!(lost, 15, "the arithmetic of the corpus's 95 against 80");
+    assert_eq!(&buffed[..4], &control[..4], "the waves before the slow are untouched");
+    assert_eq!(
+        &buffed[4..],
+        control[4..].iter().map(|k| k + lost as u32).collect::<Vec<_>>().as_slice(),
+        "buffed: every wave after the slow is {lost} ticks late (control {control:?})"
+    );
+    // The shipped arm: the clock runs at TICK_MS through the slow.
+    let (on_time, slowed_old, _) = run(SpawnSpawnerSpawnSpeed::TickMs);
+    assert_eq!(slowed_old, slowed, "the slow lands alike under both arms");
+    assert_eq!(on_time, control, "tick_ms: the slowed Tombstone keeps its cadence");
+}
+
+/// The post-ticks a Blue Tombstone's Skeletons first appear on over `horizon` post-ticks, with a Red Zap cast on it
+/// before tick `zap_at` runs (None: no Zap).
+fn zapped_tombstone(cfg: BattleConfig, zap_at: Option<u32>, horizon: u32) -> Vec<u32> {
+    let mut s = bare(cfg);
+    let unit = unit_name(&s, spawner(&s, "Tombstone").unit);
+    let pos = blue_spot(&s);
+    s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+    let mut seen = Vec::new();
+    let mut known: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for k in 0..horizon {
+        if zap_at == Some(k) {
+            s.spawn_unit(Team::Red, "Zap", pos, None).unwrap();
+        }
+        s.tick();
+        for e in find_live(&s, Team::Blue, &unit) {
+            if known.insert((e.id.index, e.id.generation)) {
+                seen.push(s.tick_count());
+            }
+        }
+    }
+    seen
+}
+
+#[test]
+fn under_buffed_a_zap_holds_a_tombstone_by_its_stun_under_either_stun_pauses_arm() {
+    // How spawner.SPAWN_SPAWNER_SPAWN_SPEED = buffed composes with spawner.STUN_PAUSES_SPAWNER: the pause rule decides
+    // first, and on the ticks it does not pause the clock the buffs set the step. A Zap lands ZapFreeze (SpawnSpeed
+    // -100) beside its stun, so under buffed it holds the clock by the stun's ticks with the pause rule on (as tick_ms
+    // does) and through the buff with it off (where tick_ms runs through).
+    use royalesim::state::SpawnSpawnerSpawnSpeed;
+    let cfg = |a: SpawnSpawnerSpawnSpeed, pauses: bool| {
+        with_calib(|c| {
+            c.spawn_spawner_spawn_speed = a;
+            c.spawner_stun_pauses = pauses;
+        })
+    };
+    let sp = spawner(&bare(config()), "Tombstone");
+    let zap = card_stat(&bare(config()), "Zap").spell.clone().unwrap();
+    let stun_ms = match zap.shape {
+        royalesim::card::SpellShape::AreaEffect { hit } => hit.buff.map(|b| b.time_ms).unwrap_or(0),
+        other => panic!("Zap is not an area effect: {other:?}"),
+    };
+    let held = ticks_of(stun_ms);
+    assert!(held > 0, "data: Zap stuns");
+    let horizon = first_wave_tick(&sp) + 2 * (ticks_of(sp.pause_time_ms) + ticks_of(sp.interval_ms)) + held + 2;
+    let control = zapped_tombstone(config(), None, horizon);
+    assert!(control.len() >= 4, "vacuous: control waves {control:?}");
+    let zap_at = Some(control[sp.number as usize - 1] + 5);
+    let late: Vec<u32> = control.iter().enumerate().map(|(j, k)| if j < sp.number as usize { *k } else { k + held }).collect();
+    for pauses in [true, false] {
+        let buffed = zapped_tombstone(cfg(SpawnSpawnerSpawnSpeed::Buffed, pauses), zap_at, horizon);
+        assert_eq!(buffed[..late.len().min(buffed.len())], late[..late.len().min(buffed.len())], "buffed, STUN_PAUSES_SPAWNER = {pauses}: the waves after the Zap are {held} ticks late");
+        assert!(buffed.len() >= sp.number as usize * 2, "vacuous: {buffed:?}");
+    }
+    let through = zapped_tombstone(cfg(SpawnSpawnerSpawnSpeed::TickMs, false), zap_at, horizon);
+    assert_eq!(through, control, "tick_ms with the pause rule off: the cadence ignores the Zap");
 }

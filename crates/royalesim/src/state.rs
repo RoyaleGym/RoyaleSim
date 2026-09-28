@@ -541,6 +541,10 @@ pub struct Calib {
     pub life_state_wake_targets: LifeWakeTargets,
     #[serde(default = "action_spawner_spawn_speed_default")]
     pub action_spawner_spawn_speed: ActionSpawnSpeed,
+    /// spawner.SPAWN_SPAWNER_SPAWN_SPEED (a Spawn* spawner's clock, `spawner_pass`). Added after SNAPSHOT_FORMAT 20;
+    /// the default is `TickMs`, the old arm, what a battle saved before it ran.
+    #[serde(default = "spawn_spawner_spawn_speed_default")]
+    pub spawn_spawner_spawn_speed: SpawnSpawnerSpawnSpeed,
     /// spawner.LIFE_STATE_FIRST_UPDATE (`life_state_pass`) and spawner.LIFE_STATE_WAVE_POINT (`life_wave`): whether a
     /// Goblin Hut's wave takes an update on the tick it is created, and the arithmetic of its point. Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before them ran.
@@ -1481,6 +1485,10 @@ fn life_state_wake_targets_default() -> LifeWakeTargets {
 
 fn action_spawner_spawn_speed_default() -> ActionSpawnSpeed {
     ActionSpawnSpeed::Buffed
+}
+
+fn spawn_spawner_spawn_speed_default() -> SpawnSpawnerSpawnSpeed {
+    SpawnSpawnerSpawnSpeed::TickMs
 }
 
 fn life_state_first_update_default() -> LifeStateFirstUpdate {
@@ -3773,6 +3781,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SPAWN_SPAWNER_SPAWN_SPEED -- whether a Spawn* spawner's clock (the Tombstone's, a hut's, the Witch's;
+    /// `spawner_pass`) runs at its composed SpawnSpeed. An interval spawner's is spawner.ACTION_SPAWNER_SPAWN_SPEED's.
+    SpawnSpawnerSpawnSpeed {
+        /// Today's engine: the clock advances TICK_MS a tick whatever the spawner's buffs, and stands still only on a
+        /// tick spawner.STUN_PAUSES_SPAWNER pauses it.
+        TickMs = "tick_ms",
+        /// The clock advances TICK_MS x the composed SpawnSpeed / 100 a tick (status.rs `compose`, truncated): 35 ms
+        /// under IceWizardSlowDown (-30), 65 under Rage (130), 0 under a -100 row. STUN_PAUSES_SPAWNER still decides
+        /// first: a tick it pauses advances nothing, and on every other tick the buffs set the step. So a Zap's or a
+        /// Freeze's SpawnSpeed -100 stops the clock through the buff under either STUN_PAUSES_SPAWNER arm, and a hold
+        /// whose row carries no SpawnSpeed column keeps the pause rule alone. The evidence, on the 16.402 corpus:
+        /// a Tombstone that waits 95 ticks instead of 80 after an Ice Golem's death slow (2,500 ms at -30 %).
+        Buffed = "buffed",
+    }
+);
+calib_enum!(
     /// spawner.LIFE_STATE_FIRST_UPDATE -- whether a Goblin Hut's wave takes an update on the tick it is created
     /// (`life_state_pass`; `first_update` under spawner.SPAWNED_FIRST_STEP = client16402_same_tick). A periodic
     /// emission and a death spawn are not this key's.
@@ -4894,6 +4918,7 @@ impl Calib {
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
+            spawn_spawner_spawn_speed: pick(&v, &["spawner", "SPAWN_SPAWNER_SPAWN_SPEED", "value"], SpawnSpawnerSpawnSpeed::from_calibration_name)?,
             life_state_first_update: pick(&v, &["spawner", "LIFE_STATE_FIRST_UPDATE", "value"], LifeStateFirstUpdate::from_calibration_name)?,
             life_state_wave_point: pick(&v, &["spawner", "LIFE_STATE_WAVE_POINT", "value"], LifeStateWavePoint::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
@@ -7791,7 +7816,9 @@ impl BattleState {
             // `interval_spawner_of`): the same timer law, with its clock at the spawner's composed SpawnSpeed under
             // spawner.ACTION_SPAWNER_SPAWN_SPEED = buffed (the row sets AffectedBySpawnSpeed; a stun is the -100 that
             // stops it), its unit put SPAWN_TO_LOCATION_OFFSET from its centre, and that unit deploying for the
-            // action's own DeployTime. A Spawn* spawner keeps spawner.STUN_PAUSES_SPAWNER and TICK_MS.
+            // action's own DeployTime. A Spawn* spawner keeps spawner.STUN_PAUSES_SPAWNER, and its clock runs at
+            // TICK_MS (spawner.SPAWN_SPAWNER_SPAWN_SPEED = tick_ms, shipped) or at its composed SpawnSpeed (buffed) on
+            // every tick the stun rule does not pause it.
             let action = sp.source == SpawnerSource::ActionInterval;
             #[cfg(clash_plant = "interval_spawner_never_fires")]
             if action {
@@ -7806,7 +7833,14 @@ impl BattleState {
                 if stun_pauses && e.stun_ms[i] > 0 {
                     continue;
                 }
-                dt
+                match self.cfg.calib.spawn_spawner_spawn_speed {
+                    SpawnSpawnerSpawnSpeed::TickMs => dt,
+                    #[cfg(not(clash_plant = "spawn_spawner_speed_unread"))]
+                    SpawnSpawnerSpawnSpeed::Buffed => dt * e.buffed(&cards.buffs, i, Sel::SpawnSpeed, 100) / 100,
+                    // PLANT (regression, tests/spawner.rs): the key is read and the clock keeps TICK_MS.
+                    #[cfg(clash_plant = "spawn_spawner_speed_unread")]
+                    SpawnSpawnerSpawnSpeed::Buffed => dt,
+                }
             };
             let mut ms = e.spawn_ms[i] - step;
             let mut left = e.spawn_wave_left[i];
@@ -17557,6 +17591,9 @@ impl BattleState {
 ///    blob saved before them deserializes and hashes as it did. CardDef gained `evo`, so the card fingerprint moves:
 ///    a snapshot saved by an earlier build is refused as saved against other card data. The forms take card and buff
 ///    slots after every existing one. migrate_v3 strips `evo` with the rest of the post-format-3 tail.
+/// 20, unchanged, spawner.SPAWN_SPAWNER_SPAWN_SPEED: Calib gained spawn_spawner_spawn_speed (serde default the old arm,
+///    tick_ms), no new state (the new arm reads the spawner's buff slots, already saved), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18031,6 +18068,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spawner.FIRST_STEP_DYING_BODIES: a format-3 battle's first updates met no unit dying on their tick; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("first_step_dying".into(), serde_json::to_value(FirstStepDying::Hidden).map_err(|e| e.to_string())?);
+    // spawner.SPAWN_SPAWNER_SPAWN_SPEED: a format-3 battle ran a Spawn* spawner's clock at TICK_MS whatever its buffs; it
+    // keeps that whatever the ledger ships (the same rule).
+    sh.insert("spawn_spawner_spawn_speed".into(), serde_json::to_value(SpawnSpawnerSpawnSpeed::TickMs).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

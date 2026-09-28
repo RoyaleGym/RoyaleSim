@@ -3468,6 +3468,17 @@
       "promotion_rules": "Settled for the Goblin Hut; the interval spawners are measured apart: the 15.535.29 furnace-stun-rage scenario (a raged and a zapped Furnace, the tick of its next Fire Spirit) settles the Furnace.",
       "engine": "state.rs life_state_pass, and spawner_pass for an interval spawner"
     },
+    "SPAWN_SPAWNER_SPAWN_SPEED": {
+      "value": "tick_ms",
+      "candidates": ["tick_ms", "buffed"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm tick_ms, which is today's engine: it puts the one slowed Tombstone wave of the 16.402 corpus 15 ticks early. MEDIUM for buffed: that wave lands on its tick by arithmetic, one wave in one battle, not yet scored on the corpus or the sweep.",
+      "provenance": "The 16.402 corpus, battle 20260918-130203.b2. The side-1 Tombstone spawns a pair of Skeletons about every 80 ticks (358, 437, 517, 597), then waits 95 (692), then 80 again (772, 852). On tick 625 a side-0 Ice Golem dies next to it. Its death area, FreezeIceGolemite, hangs IceWizardSlowDown, which the tables of client 15.535.29 give -30 in all three of SpeedMultiplier, HitSpeedMultiplier and SpawnSpeedMultiplier, for 2,500 ms (cards.CLIENT16402_VALUES lists IceGolemite AreaBuffTime 2500). A clock at 70 % for those 50 ticks advances 1,750 ms where 2,500 were due: 750 ms, 15 ticks, lost, which is the client's 95. Every other Tombstone cadence in the corpus agrees with the unslowed one to within the capture's 1-tick jitter. tick_ms runs a Spawn* spawner's clock at TICK_MS whatever its buffs, so it predicts that wave on 677 (597 + 80); an action-made spawner's clock already runs at its SpawnSpeed (spawner.ACTION_SPAWNER_SPAWN_SPEED, measured on the Goblin Hut).",
+      "meaning": "tick_ms: today's engine. A Spawn* spawner's clock (the Tombstone's, a hut's, the Witch's) advances TICK_MS a tick whatever its buffs, and stands still only on a tick spawner.STUN_PAUSES_SPAWNER pauses it. buffed: it advances TICK_MS x the composed SpawnSpeed / 100 a tick, truncated: 35 ms under IceWizardSlowDown, 65 under Rage, 0 under a -100 row. STUN_PAUSES_SPAWNER still decides first: a tick it pauses advances nothing, and on every other tick the buffs set the step. So a Zap's or a Freeze's SpawnSpeed -100 stops the clock through the buff under either STUN_PAUSES_SPAWNER arm, and a hold whose row carries no SpawnSpeed column keeps the pause rule alone. An interval spawner's clock is spawner.ACTION_SPAWNER_SPAWN_SPEED's, not this key's.",
+      "open": "One slowed wave in one battle is the whole evidence. A raged Spawn* spawner (65 ms a tick under Rage 130) and a slowed hut or Witch are not read, and the one wave cannot tell whether a row's AffectedBySpawnSpeed column gates the buff on a Spawn* spawner.",
+      "promotion_rules": "Switch on when parity's corpus and sweep score it positive; the registered prediction: 20260918-130203.b2's Tombstone wave of 692 lands on the client's tick.",
+      "engine": "state.rs spawner_pass (a Spawn* spawner's step). Plant spawn_spawner_speed_unread."
+    },
     "LIFE_STATE_FIRST_UPDATE": {
       "value": "client16402_next_tick",
       "candidates": ["creation_tick", "client16402_next_tick"],
