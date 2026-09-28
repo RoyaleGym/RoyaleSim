@@ -28,7 +28,9 @@
 //! WHERE THE POINT IS RESOLVED. The client resolves a tap on the board of the tick it was
 //! TAPPED, some 25 ticks before the units appear. A corpus troop row whose placements-log tap
 //! is older than its issue tick has its point resolved on the tap tick's board and is played
-//! from there (`resolve_tick`); every other row is resolved when it is issued.
+//! from there (`resolve_tick`); every other row is resolved when it is issued. A scenario
+//! BUILDING row is laid from its tap as a play would lay it (`scenario_building_tap`,
+//! `BattleState::spawn_unit_tapped`), since `spawn_unit` keeps a building where it was put.
 //!
 //! MATCHING. A sim entity is reduced to its ROOT card: the card that was deployed to
 //! put it there -- itself for a deployed card, its spawner's card for a spawner
@@ -356,9 +358,10 @@ pub fn play_point(d: &Deploy) -> [i32; 2] {
 /// A troop row of a corpus fixture carries its placements-log tap as an object with a `tick`; when that tick is before
 /// the issue tick, the row's play point is resolved on that tick's board (`resolve_on_board`) and played, at the
 /// issue tick, from the resolved point. Every other row (a scenario row, whose tap is an [x, y] pair and whose issue
-/// tick is its tap; a spell; a building, which `spawn_unit` plays where it was seen; a row with no tap) is resolved
-/// at its issue as before. `spawn_unit` resolves the point again at the issue; a point already resolved is legal
-/// there unless the board changed under it, and then the issue tick's law applies to it.
+/// tick is its tap; a spell; a building, which a corpus row plays where it was seen and a scenario row from its tap
+/// (`scenario_building_tap`); a row with no tap) is resolved at its issue as before. `spawn_unit` resolves the point
+/// again at the issue; a point already resolved is legal there unless the board changed under it, and then the issue
+/// tick's law applies to it.
 ///
 /// Plant: replay_resolves_at_issue.
 pub fn resolve_tick(d: &Deploy) -> Option<u32> {
@@ -381,6 +384,44 @@ pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2
     let p = from_native(play_point(d)[0], play_point(d)[1]);
     let team = team_of(d.side);
     Some(if observed_row(d, db) { s.resolve_observed_point(team, idx, p) } else { s.resolve_point(team, idx, p) })
+}
+
+/// THE TAP A SCENARIO BUILDING ROW IS LAID FROM, native: the row's `tap` when it is an [x, y] pair (a scenario row), the
+/// card it plays (`deploy_play`) is a building, and it carries no tunnel `destination` (a surfacing the client already
+/// resolved, `play_point`). The harness lays it through `spawn_unit_tapped`, which resolves the tap as a play's
+/// (`building_placement`), where `spawn_unit` leaves a building where it was put and stacked a second Cannon on the
+/// first. The RAW tap, not the row's snapped `pos`: the ring search ties on the distance to it (a Cannon tapped at
+/// (9000, 14500), its box over the river, stands on (8500, 13500) in the client; from (9500, 14500) the search picks
+/// (9500, 13500)). A card that tunnels into a building is one: the Goblin Drill of sweep-GoblinDrill, tapped at (9500,
+/// 21500), surfaces on (9000, 21000), its building's 2x2 footprint (placement.SPAWN_PATHFIND_DESTINATION). None for
+/// every other row: a corpus building stands where it was seen.
+///
+/// Plant: replay_stacks_scenario_buildings.
+pub fn scenario_building_tap(d: &Deploy, db: &CardDb) -> Option<[i32; 2]> {
+    #[cfg(clash_plant = "replay_stacks_scenario_buildings")]
+    {
+        let _ = (d, db);
+        return None; // PLANT (regression): every building row through spawn_unit, stacked where it was put.
+    }
+    #[allow(unreachable_code)]
+    let a = d.tap.as_ref()?.as_array()?;
+    let (x, y) = (i32::try_from(a.first()?.as_i64()?).ok()?, i32::try_from(a.get(1)?.as_i64()?).ok()?);
+    let building = db.index(&deploy_play(d, db)).is_some_and(|i| db.get(i).kind == CardKind::Building);
+    (building && d.destination.is_none()).then_some([x, y])
+}
+
+/// ISSUE deploy row `d` of `team`, playing card `name` at `pos` (its `play_point`, or the point it was resolved on its
+/// tap tick): a scenario building row from its tap (`scenario_building_tap`, `spawn_unit_tapped`), a corpus troop row
+/// seen where it stood (`observed_row`, `spawn_unit_resolved`), every other row through `spawn_unit`.
+pub fn issue_row(s: &mut BattleState, db: &CardDb, d: &Deploy, team: Team, name: &str, pos: Vec2) -> Result<(), DeployError> {
+    if let Some([x, y]) = scenario_building_tap(d, db) {
+        return s.spawn_unit_tapped(team, name, from_native(x, y), d.level);
+    }
+    if observed_row(d, db) {
+        s.spawn_unit_resolved(team, name, pos, d.level)
+    } else {
+        s.spawn_unit(team, name, pos, d.level)
+    }
 }
 
 /// A CORPUS TROOP row whose point the capture SAW: its `tap` is no [x, y] pair (a live capture's) and its `source`
@@ -1560,8 +1601,10 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     }
                 };
                 // A CORPUS TROOP row goes down as seen (`observed_row`, `spawn_unit_resolved`), so placement.TAP_SNAP
-                // does not snap a point the client already resolved; spell rows and scenario rows through `spawn_unit`.
-                let r = if observed_row(d, db) { s.spawn_unit_resolved(team, &name, pos, d.level) } else { s.spawn_unit(team, &name, pos, d.level) };
+                // does not snap a point the client already resolved; a SCENARIO BUILDING row from its tap, resolved as
+                // a play's (`scenario_building_tap`, `spawn_unit_tapped`); spell rows and other scenario rows through
+                // `spawn_unit`.
+                let r = issue_row(&mut s, db, d, team, &name, pos);
                 if r.is_ok() {
                     if let Some(idx) = db.index(&name) {
                         if db.get(idx).kind == CardKind::Spell {

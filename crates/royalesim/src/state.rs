@@ -16529,6 +16529,41 @@ impl BattleState {
         self.spawn_unit_with(team, card_name, pos, level, true)
     }
 
+    /// `spawn_unit` at a TAP: a BUILDING goes down where a play tapped there puts it (`building_placement`: its
+    /// footprint's snap, then the relocation off whatever its box would overlap, placement.ILLEGAL_TAP), and is refused
+    /// where a play would be (the tap's own zone, or no tile that fits: Occupied). A troop or a spell goes down as
+    /// through `spawn_unit`, whose resolution is already the play's. `spawn_unit` itself keeps a building where it was
+    /// put, which the Gym's scenario placement relies on.
+    ///
+    /// The replay harness lays a scenario building row through it: its point is the tap the scenario sent, which the
+    /// client resolved. Measured on client 15.535.29 (parity, round 8): a Cannon tapped on a standing Cannon at (15500,
+    /// 2500) stands on (12500, 2500), where `spawn_unit` stacks it on the first; a Cannon tapped at (9000, 14500), its box
+    /// over the river, stands on (8500, 13500); side 1's Tesla tapped at (5500, 20500) stands on (5000, 20000), the
+    /// corner placement.SNAP_EVEN_CORNER = absolute takes (the shipped placer_frame takes (6000, 21000)); a Goblin
+    /// Drill tapped at (9500, 21500) surfaces on (9000, 21000), its building's footprint.
+    ///
+    /// A building whose play is queued on the same tick (not yet on the board) is not read, as `building_placement`
+    /// reads none.
+    pub fn spawn_unit_tapped(&mut self, team: Team, card_name: &str, tap: Vec2, level: Option<i32>) -> Result<(), DeployError> {
+        let idx = self.simulable(card_name)?;
+        if self.cfg.cards.get(idx).kind != CardKind::Building {
+            return self.spawn_unit(team, card_name, tap, level);
+        }
+        #[cfg(not(clash_plant = "spawn_unit_tapped_keeps_the_tap"))]
+        let placed = self.building_placement(team, idx, tap).map(|(c, _)| c);
+        #[cfg(clash_plant = "spawn_unit_tapped_keeps_the_tap")]
+        let placed = Some(tap); // PLANT (regression): the building stands where it was tapped, as through spawn_unit.
+        match placed {
+            Some(at) => self.spawn_unit(team, card_name, at, level),
+            None => {
+                let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
+                let rects = self.enemy_no_deploy_rects(team);
+                self.cfg.arena.deploy_zone(tap, team, territory, &rects)?;
+                Err(DeployError::Occupied)
+            }
+        }
+    }
+
     fn spawn_unit_with(&mut self, team: Team, card_name: &str, pos: Vec2, level: Option<i32>, observed: bool) -> Result<(), DeployError> {
         if self.outcome.is_some() {
             return Err(DeployError::GameOver);
