@@ -3062,12 +3062,14 @@ calib_enum!(
         /// Today's engine: only a dead target starts the wait; a unit whose live target leaves its reach takes the
         /// decision's next target on the same tick.
         KillOnly = "kill_only",
-        /// The loss starts the same wait, under the same exemptions but the doomed one (the target lives), unless the
-        /// decision's new target already stands in the unit's reach: no target and no walk for five Target phases, the
-        /// next target on the sixth. Its attack progress is 0 at once. Read off the 16.402 corpus, 20260920-082459 (both
-        /// seats): an Inferno Dragon whose Giant walks out of its reach on t3012 reads no target t3012..t3016 and takes
-        /// the Skeletons on t3017 without moving. A new target in reach is taken at once (client 15.535.29's reach-loss
-        /// scenarios: a Knight switches to a Cannon in its reach on the next tick).
+        /// For a unit whose row sets VariableDamage (the Inferno Dragon), the loss starts the same wait, under the same
+        /// exemptions but the doomed one (the target lives), unless the decision's new target already stands in its
+        /// reach: no target and no walk for five Target phases, the next target on the sixth. Its attack progress is 0
+        /// at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon whose Giant walks out of
+        /// its reach on t3012 reads no target t3012..t3016 and takes the Skeletons on t3017 without moving. Every other
+        /// unit retargets at once, as the corpus shows (a Spear Goblin, a Skeleton and a Goblin whose targets left their
+        /// reach), and a new target in reach is taken at once (client 15.535.29's reach-loss scenarios: a Knight switches
+        /// to a Cannon in its reach on the next tick).
         ClientAfterReachLoss = "client_after_reach_loss",
     }
 );
@@ -10950,10 +10952,12 @@ impl BattleState {
                     e.target[i] = None;
                     continue;
                 }
-                // combat.RETARGET_WAIT_REACH_LOSS = client_after_reach_loss: a unit in its attack whose live target has
-                // left its attack reach, on this phase's start-of-tick positions, and which the decision does not keep
-                // nor replace by an enemy already in that reach, starts the wait here as a kill would (the exemptions (a)
-                // and (b) below; (c) needs a dead target), with its attack progress 0 at once.
+                // combat.RETARGET_WAIT_REACH_LOSS = client_after_reach_loss: a unit whose row sets VariableDamage (the
+                // Inferno Dragon's inferno), in its attack, whose live target has left its attack reach on this phase's
+                // start-of-tick positions, and which the decision does not keep nor replace by an enemy already in that
+                // reach, starts the wait here as a kill would (the exemptions (a) and (b) below; (c) needs a dead
+                // target), with its attack progress 0 at once. Other units retarget at once: the 16.402 corpus shows it
+                // (a Spear Goblin, a Skeleton, a Goblin), and the arm read on every unit lost 3,207 within 250 there.
                 #[cfg(not(clash_plant = "reach_loss_no_wait"))]
                 let reach_wait = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::ClientAfterReachLoss;
                 #[cfg(clash_plant = "reach_loss_no_wait")]
@@ -10969,12 +10973,16 @@ impl BattleState {
                             let ni = n.index as usize;
                             target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ni], e.radius[ni])
                         });
+                        #[cfg(not(clash_plant = "reach_loss_any_unit"))]
+                        let inferno = c.variable_damage.is_some();
+                        #[cfg(clash_plant = "reach_loss_any_unit")]
+                        let inferno = true; // PLANT (regression): every unit waits after a reach loss, not the inferno's alone.
                         let waits = match wait_mode {
-                            PostKillWait::MeasuredList => wait_units.iter().any(|u| *u == c.unit_name),
+                            PostKillWait::MeasuredList => wait_units.contains(&c.unit_name),
                             PostKillWait::AttackFinish => !override_units.contains(&c.unit_name) && e.attack_ms[i] != 0,
                             PostKillWait::None => false,
                         };
-                        if left && !next_in_reach && waits {
+                        if inferno && left && !next_in_reach && waits {
                             e.retarget_wait[i] = wait_ticks - 1;
                             e.target[i] = None;
                             e.target_locked[i] = false;

@@ -5,13 +5,15 @@
 //! for five Target phases from the one that finds the loss, its attack progress zeroed on the fifth, and takes the
 //! decision's target on the sixth.
 //!
-//! REACH LOSS (client_after_reach_loss, shipped at its old arm kill_only): a unit in its attack whose LIVE target has left
-//! its attack reach, and which the decision neither keeps nor replaces by an enemy already in that reach, starts the
-//! same wait, its progress 0 at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon loses
+//! REACH LOSS (client_after_reach_loss, shipped at its old arm kill_only): a unit whose row sets VariableDamage (the
+//! Inferno Dragon), in its attack, whose LIVE target has left its attack reach, and which the decision neither keeps nor
+//! replaces by an enemy already in that reach, starts the same wait, its progress 0 at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon loses
 //! a Giant that walks out of its reach on t3012, reads no target t3012..t3016, and takes the Skeletons that have walked
 //! into its reach on t3017 without moving; the engine took them on t3012, out of its reach, and flew at them. One event.
 //! A new target already in reach is taken at once: client 15.535.29's reach-loss scenarios show a Knight whose Hog Rider
-//! ran out of its reach switch to a Cannon in its reach on the next tick, its swing unbroken.
+//! ran out of its reach switch to a Cannon in its reach on the next tick, its swing unbroken. And a unit without the
+//! inferno retargets at once: on the 16.402 corpus a Spear Goblin, a Skeleton and a Goblin whose targets left their
+//! reach took the next at once, and the arm read on every unit lost 3,207 within 250 there.
 //!
 //! HELD (client_paused, shipped at its old arm runs_through): the wait counts only Target phases on which its unit is not
 //! held (a stun or a freeze). Read off client 15.535.29's sp-scene-b-s1: a princess tower that lost its target on t316
@@ -31,12 +33,15 @@
 //!   1. reach, kill_only: the Dragon's next target is the Cannon on L itself, and it flies at it;
 //!   2. reach, client_after_reach_loss: no target on L..L + 4 and no move, the Cannon on L + 5;
 //!   2a. reach, the null: with the Cannon in reach both arms take it on L;
+//!   2b. reach, the scope: a Knight in the Dragon's place (no VariableDamage), with the Giant and the Cannon set to
+//!       its reach, takes the Cannon out of its reach on L under both arms;
 //!   3. held, runs_through: the Knight's next target lands on the first tick after the freeze;
 //!   4. held, client_paused: it lands the unfrozen ticks the wait still owed later, pinned on the tick;
 //!   5. both shipped values are the old arms.
 //!
 //! PLANTS (regression):
 //!   * `reach_loss_no_wait` -- the new arm retargets at once after a reach loss: (2) goes red.
+//!   * `reach_loss_any_unit` -- every unit waits after a reach loss, not the inferno's alone: (2b) goes red.
 //!   * `retarget_wait_runs_while_held` -- the new arm counts the held ticks: (4) goes red.
 //!     RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!     retarget_wait_arms
@@ -55,30 +60,36 @@ fn at(p: (i32, i32)) -> Vec2 {
 /// The Dragon's reach on the Cannon (Range + both radii, native), and the tick count at which the Giant is moved away.
 const CANNON_REACH: i32 = 3500 + 500 + 600;
 const MOVED_AT: usize = 40;
+/// Where the Dragon stands.
+const DRAGON: (i32, i32) = (9000, 13500);
 
-/// Per tick after the tick: (the Dragon's target, its position, whether the Giant is on the board), and the Giant's and
-/// the Cannon's ids. `cannon_off`: the Cannon's centre distance from the Dragon less its reach on it (native).
-fn reach_scene(arm: RetargetWaitReachLoss, cannon_off: i32) -> (Vec<(Option<EntityId>, Vec2, bool)>, EntityId, EntityId) {
+/// Per tick after the tick: (the attacker's target, its position, whether the Giant is on the board), and the Giant's and
+/// the Cannon's ids. The attacker stands on DRAGON; the Giant is held 1,500 south of it, then on MOVED_AT set down
+/// `giant_at` south of it, where it walks on south, away; the Cannon stands at `cannon`, an offset from the attacker.
+fn reach_scene(arm: RetargetWaitReachLoss, attacker: &str, giant_at: i32, cannon: (i32, i32)) -> (Vec<(Option<EntityId>, Vec2, bool)>, EntityId, EntityId) {
     let mut cfg: BattleConfig = config();
     cfg.calib.retarget_wait_reach_loss = arm;
     let mut s = BattleState::new(0, cfg);
-    let dragon = (9000, 13500);
-    let d = s.scenario_spawn_now(Team::Blue, "InfernoDragon", at(dragon), None).expect("the Dragon");
-    let g = s.scenario_spawn_now(Team::Red, "Giant", at((9000, 12000)), None).expect("the Giant");
-    let c = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, dragon.1 + CANNON_REACH + cannon_off)), None).expect("the Cannon");
+    let d = s.scenario_spawn_now(Team::Blue, attacker, at(DRAGON), None).expect("the attacker");
+    let g = s.scenario_spawn_now(Team::Red, "Giant", at((DRAGON.0, DRAGON.1 - 1500)), None).expect("the Giant");
+    let c = s.scenario_spawn_now(Team::Red, "Cannon", at((DRAGON.0 + cannon.0, DRAGON.1 + cannon.1)), None).expect("the Cannon");
     let mut rows = Vec::new();
     for k in 0..90 {
-        // The Giant is held where it was put, 1,500 from the Dragon, then set down 4,800 away (550 past the Dragon's
-        // keep reach on it, 3,500 + 500 + 750 + 25), where it walks on south, away from the Dragon.
-        let spot = if k < MOVED_AT { (9000, 12000) } else { (9000, 8700) };
+        let spot = if k < MOVED_AT { (DRAGON.0, DRAGON.1 - 1500) } else { (DRAGON.0, DRAGON.1 - giant_at) };
         if k <= MOVED_AT {
             s.debug_set_pos(g, at(spot));
         }
         s.tick();
-        let v = s.entity(d).expect("the scene drifted: the Dragon died");
+        let v = s.entity(d).expect("the scene drifted: the attacker died");
         rows.push((v.target, v.pos, s.entity(g).is_some()));
     }
     (rows, g, c)
+}
+
+/// The Dragon's scene: the Giant set down 4,800 away (550 past its keep reach on it, 3,500 + 500 + 750 + 25) and the
+/// Cannon due north, `cannon_off` past the Dragon's reach on it.
+fn dragon_scene(arm: RetargetWaitReachLoss, cannon_off: i32) -> (Vec<(Option<EntityId>, Vec2, bool)>, EntityId, EntityId) {
+    reach_scene(arm, "InfernoDragon", 4800, (0, CANNON_REACH + cannon_off))
 }
 
 /// L: the first row after one holding the Giant whose target is not the Giant; the Giant is still on the board there.
@@ -92,7 +103,7 @@ fn reach_loss(rows: &[(Option<EntityId>, Vec2, bool)], g: EntityId, what: &str) 
 
 #[test]
 fn the_old_arm_takes_the_cannon_on_the_reach_loss() {
-    let (rows, g, c) = reach_scene(RetargetWaitReachLoss::KillOnly, 100);
+    let (rows, g, c) = dragon_scene(RetargetWaitReachLoss::KillOnly, 100);
     let l = reach_loss(&rows, g, "kill_only");
     assert_eq!(rows[l].0, Some(c), "kill_only: the target on L = {l}");
     assert_ne!(rows[l + 1].1, rows[l].1, "kill_only: the Dragon does not fly at the Cannon out of its reach");
@@ -103,7 +114,7 @@ fn the_old_arm_takes_the_cannon_on_the_reach_loss() {
 #[test]
 fn a_new_target_in_reach_is_taken_at_once_under_both_arms() {
     for arm in [RetargetWaitReachLoss::KillOnly, RetargetWaitReachLoss::ClientAfterReachLoss] {
-        let (rows, g, c) = reach_scene(arm, -100);
+        let (rows, g, c) = dragon_scene(arm, -100);
         let l = reach_loss(&rows, g, "in reach");
         assert_eq!(rows[l].0, Some(c), "{arm:?}: the target on L = {l}, the Cannon in reach");
     }
@@ -112,12 +123,24 @@ fn a_new_target_in_reach_is_taken_at_once_under_both_arms() {
 /// Plant: reach_loss_no_wait.
 #[test]
 fn the_new_arm_waits_five_ticks_then_takes_the_cannon_where_it_stands() {
-    let (rows, g, c) = reach_scene(RetargetWaitReachLoss::ClientAfterReachLoss, 100);
+    let (rows, g, c) = dragon_scene(RetargetWaitReachLoss::ClientAfterReachLoss, 100);
     let l = reach_loss(&rows, g, "client_after_reach_loss");
     let targets: Vec<Option<EntityId>> = rows[l..l + 6].iter().map(|r| r.0).collect();
     assert_eq!(targets, vec![None, None, None, None, None, Some(c)], "client_after_reach_loss: the targets on L..L + 5 (L = {l})");
     assert!(rows[l - 1..l + 5].iter().all(|r| r.1 == rows[l - 1].1), "client_after_reach_loss: the Dragon moved during the wait");
     assert_ne!(rows[l + 5].1, rows[l + 4].1, "client_after_reach_loss: the Dragon does not fly at the Cannon out of its reach on L + 5");
+}
+
+/// Plant: reach_loss_any_unit. A Knight in the Dragon's place: the Giant set down 2,550 away (75 past its keep reach,
+/// 1,200 + 500 + 750 + 25), and the Cannon 2,400 east, 100 past its reach on it (1,200 + 500 + 600) and nearer than the
+/// Giant. The Knight has no VariableDamage: it takes the Cannon on L under both arms, and walks at it.
+#[test]
+fn a_unit_without_the_inferno_takes_the_cannon_at_once_under_both_arms() {
+    for arm in [RetargetWaitReachLoss::KillOnly, RetargetWaitReachLoss::ClientAfterReachLoss] {
+        let (rows, g, c) = reach_scene(arm, "Knight", 2550, (2400, 0));
+        let l = reach_loss(&rows, g, "Knight");
+        assert_eq!(rows[l].0, Some(c), "{arm:?}: the Knight's target on L = {l}");
+    }
 }
 
 /// Per tick after the tick: the Knight's target; and the ticks (k) the Knight is frozen.
