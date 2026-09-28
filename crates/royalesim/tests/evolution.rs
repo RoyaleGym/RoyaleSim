@@ -7,7 +7,7 @@
 //!
 //! One scene per form, each at level 11:
 //!   - Evo Cannon: its nine bombs land where and when client 15.535.29 put them, 281 each, never twice on one unit;
-//!   - Evo Skeletons: every second hit of the play's group makes one more evolved skeleton, up to 8 alive;
+//!   - Evo Skeletons: every hit of the play's group makes one more evolved skeleton, up to 8 alive;
 //!   - Evo Musketeer: her first three shots at a target far ahead in her lane are snipes, then plain shots.
 //!
 //! And the invariant that keeps every other battle: the forms take slots after every existing card and buff.
@@ -112,11 +112,15 @@ fn a_deck_card_marked_evolved_plays_its_form_every_third_play() {
 fn evo_cannon_drops_its_barrage() {
     let mut s = battle(config());
     let form = idx(&s, "Cannon_EV1");
-    // Three Golems on the far row, deploying (3000 ms) through the whole barrage, far from every other attack:
+    // Five Golems (radius 750) about the far row, deploying (3000 ms) through the whole barrage, far from every other
+    // attack:
     //   (7000, 18000) 2000 from the 9000 bomb (lands I + 26) and from the 5000 bomb (I + 28): hit once, on I + 26;
     //   (13000, 18000) under the 13000 bomb (I + 28);
-    //   (17000, 18000) under the 17000 bomb (I + 30).
-    let golems = [(n(7000, 18000), 26), (n(13000, 18000), 28), (n(17000, 18000), 30)];
+    //   (17000, 18000) under the 17000 bomb (I + 30);
+    //   (13000, 20400) 2400 behind the 13000 bomb: hit, on I + 28;
+    //   (9000, 20600) 2600 behind the 9000 bomb: missed, the reach being 2500 centre to centre, though its edge is 1850
+    //   from the bomb.
+    let golems = [(n(7000, 18000), Some(26)), (n(13000, 18000), Some(28)), (n(17000, 18000), Some(30)), (n(13000, 20400), Some(28)), (n(9000, 20600), None)];
     let play = s.tick_count();
     s.spawn_unit(Team::Blue, "Cannon_EV1", n(9000, 9500), None).unwrap();
     for (at, _) in golems {
@@ -139,10 +143,10 @@ fn evo_cannon_drops_its_barrage() {
         _ => unreachable!(),
     }).collect();
     assert!(red.iter().all(|y| *y == 21000 || *y == 14000), "{red:?}");
-    // Each Golem loses 281 once, on the tick measured for its bomb.
+    // Each Golem in reach loses 281 once, on the tick measured for its bomb; the one past 2500 loses nothing.
     let ids: Vec<_> = golems.iter().map(|(at, _)| s.entities().filter(|e| e.card == "Golem").min_by_key(|e| e.pos.dist2(*at)).expect("a Golem").id).collect();
     let full: Vec<i32> = ids.iter().map(|id| s.entity(*id).unwrap().hp).collect();
-    let mut lost: Vec<Vec<(u32, i32)>> = vec![Vec::new(); 3];
+    let mut lost: Vec<Vec<(u32, i32)>> = vec![Vec::new(); golems.len()];
     let mut last = full.clone();
     while s.tick_count() < play + 40 {
         s.tick();
@@ -158,12 +162,12 @@ fn evo_cannon_drops_its_barrage() {
         }
     }
     for (k, (_, tick)) in golems.iter().enumerate() {
-        assert_eq!(lost[k], vec![(*tick, 281)], "Golem {k}");
+        assert_eq!(lost[k], tick.map(|t| vec![(t, 281)]).unwrap_or_default(), "Golem {k}");
     }
 }
 
 #[test]
-fn evo_skeletons_copy_on_every_second_group_hit() {
+fn evo_skeletons_copy_on_every_group_hit() {
     let mut s = battle(config());
     let form = idx(&s, "Skeletons_EV1");
     s.spawn_unit(Team::Red, "Giant", n(9000, 13500), None).unwrap();
@@ -178,10 +182,10 @@ fn evo_skeletons_copy_on_every_second_group_hit() {
         let hitters: Vec<_> = s.entities().filter(|e| e.card_idx == form && e.attack_phase == AttackPhase::Cooldown).map(|e| e.id).collect();
         hits += hitters.len() as u32;
         let alive = skeletons(&s);
-        assert_eq!(alive, (3 + hits / 2).min(8), "after {hits} group hits");
+        assert_eq!(alive, (3 + hits).min(8), "after {hits} group hits");
         for e in s.entities().filter(|e| e.card_idx == form) {
             assert_eq!(e.status_flags & 8, 8, "an evolved skeleton reports status bit 3");
-            if !before.iter().any(|(id, _)| *id == e.id) && s.tick_count() > 1 && hits >= 2 {
+            if !before.iter().any(|(id, _)| *id == e.id) && s.tick_count() > 1 && hits >= 1 {
                 assert_eq!(e.hp, e.max_hp, "a copy starts at full hp");
                 assert!(e.target.is_some(), "a copy has a target on its first frame");
                 if first_copy.is_none() {

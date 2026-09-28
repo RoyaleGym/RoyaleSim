@@ -845,6 +845,8 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
             let _ = edge; // PLANT: centre-in-radius whatever the registry says.
             0
         };
+        // A barrage bomb reaches centre to centre (card.rs `BARRAGE_REACH_MILLI`, measured).
+        let edge = if barrage.is_some() { 0 } else { edge };
         if !in_range_edge(centre, e.pos[v], hit.radius, edge) {
             continue;
         }

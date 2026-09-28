@@ -5455,11 +5455,6 @@ struct EvoCopy {
 /// in the arena's y (+ for side 0, - for side 1), whatever it faces. Measured on client 15.535.29, both sides.
 pub const EVO_COPY_AHEAD_MILLI: i32 = 1000;
 
-/// THE GROUP HITS PER EVO SKELETONS COPY. Measured on client 15.535.29 (both sides): the play's group counts its hits
-/// together, a copy's included, and every second one (2, 4, 6 ...) makes one copy; a tick with two hits made one.
-/// The table's BuffAfterHitsCount 1 is not this count.
-pub const EVO_HITS_PER_COPY: u32 = 2;
-
 /// THE BARRAGE'S LANDING, ticks past the area object's LifeDuration, from the cannon's first frame. Measured on client
 /// 15.535.29 (3 runs): the play issued on tick I, the cannon's first frame I + 1, the bombs on I + 2, and the damage on
 /// I + 26 for the 1100 ms bombs, I + 28 for the 1200 ms and I + 30 for the 1300 ms.
@@ -7148,16 +7143,18 @@ impl BattleState {
 
     /// AN EVOLVED UNIT'S FIRE (`phase_attack_for`, right after `combat::fire`), `shots_from` the projectile list's
     /// length before it:
-    ///   - Evo Skeletons: the hit counts for the hitter's group, and every `EVO_HITS_PER_COPY`-th earns a copy
-    ///     (`EvoCopy`), made in this tick's Reap (`evo_copies`). Every hit counts, a hit on a building or a crown
-    ///     tower too (unmeasured: the tables name no filter);
+    ///   - Evo Skeletons: the hit counts for the hitter's group, and every `DuplicationDef::hits_per_copy`-th (the
+    ///     table's BuffAfterHitsCount, 1: every hit) earns a copy (`EvoCopy`), made in this tick's Reap (`evo_copies`),
+    ///     which makes none once the group holds GroupMaxSize alive. Measured on client 15.535.29 (both sides): every
+    ///     damaging hit copies while fewer than 8 are alive, so two hits on one tick with 7 alive make one copy and
+    ///     with 3 or 5 alive make two; a hit on a crown tower counts, and so does a copy's.
     ///   - Evo Musketeer: a shot at the target she aims a snipe at is the snipe (AttackSequenceList entry 1): its speed
     ///     and damage are the snipe projectile's, and it spends one snipe.
     fn evo_after_fire(&mut self, i: usize, shots_from: usize) {
         let cards = self.cfg.cards.clone();
         let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
         let id = self.ents.id_of(i);
-        if evo.duplication.is_some() {
+        if let Some(d) = evo.duplication {
             if let Some(&(_, g)) = self.evo.members.iter().find(|(m, _)| *m == id) {
                 let n = match self.evo.hits.iter_mut().find(|(k, _)| *k == g) {
                     Some((_, n)) => {
@@ -7169,7 +7166,7 @@ impl BattleState {
                         1
                     }
                 };
-                if n % EVO_HITS_PER_COPY == 0 {
+                if n % d.hits_per_copy == 0 {
                     use crate::fixed::SUBTILE_PER_MILLITILE as K;
                     let team = self.ents.team[i];
                     let ahead = if team == Team::Blue { EVO_COPY_AHEAD_MILLI } else { -EVO_COPY_AHEAD_MILLI };

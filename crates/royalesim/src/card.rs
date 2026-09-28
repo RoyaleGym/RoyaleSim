@@ -1577,6 +1577,8 @@ pub struct BarrageDef {
 pub struct DuplicationDef {
     /// GroupMaxSize: the most living skeletons one play's group holds.
     pub group_max: i32,
+    /// BuffAfterHitsCount: the group's hits per copy. 1 on 15.535.29, and measured so: every damaging hit copies.
+    pub hits_per_copy: u32,
     /// SpawnerAliveRequired: a hitter that died on its hit tick makes no copy.
     pub alive_required: bool,
 }
@@ -3389,6 +3391,7 @@ struct RawBarrage {
 
 #[derive(Deserialize)]
 struct RawDuplication {
+    hits: Option<i32>,
     group_max: Option<i32>,
     spawner_alive_required: Option<bool>,
 }
@@ -3418,10 +3421,16 @@ struct RawSnipe {
 /// 17000, and 1500 and 8500 ahead of the cannon.
 pub const BARRAGE_OFFSET_UNIT: i32 = 500;
 
-/// THE BARRAGE'S REACH beyond a victim's own radius, native: the bomb projectile's Radius. Measured on client
-/// 15.535.29 on Barbarians (radius 500): hit at centre distances up to 2452, missed from 2555, so a bomb reaches
-/// 2000 from its centre to the victim's edge (not the area object's Radius 1000).
-pub const BARRAGE_REACH_MILLI: i32 = 2000;
+/// THE BARRAGE'S REACH, native, from the bomb's centre to the victim's CENTRE, whatever the victim's radius (spell.rs
+/// `impact`, whatever spells.AOE_HIT_TEST ships). Measured on client 15.535.29, walking units and units standing in
+/// deploy state around far-row bombs: hits at centre distances up to 2471 (a Minion Horde flier), 2452 (a Goblin),
+/// 2381 (a Skeleton Army skeleton) and 2224 (a Barbarian); misses from 2555 (a Barbarian) and 2558 (a skeleton). The
+/// small and the large victims' brackets overlap, so no victim radius is added; 2500 is the bracket's round value.
+/// Neither the bomb projectile's Radius (`BARRAGE_DATA_RADIUS_MILLI`) nor the area object's (1000) is it.
+pub const BARRAGE_REACH_MILLI: i32 = 2500;
+
+/// The bomb projectile's Radius the reach above was measured beside; a table with another refuses the load.
+pub const BARRAGE_DATA_RADIUS_MILLI: i32 = 2000;
 
 fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, String> {
     if b.bombs.is_empty() {
@@ -3434,8 +3443,8 @@ fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, Strin
     }
     let damage = b.buff_damage_per_second.filter(|d| *d > 0).ok_or("a barrage buff with no DamagePerSecond")?;
     let radius = b.radius_milli.filter(|r| *r > 0).ok_or("a barrage projectile with no Radius")?;
-    if radius != BARRAGE_REACH_MILLI {
-        return Err(format!("a barrage projectile of Radius {radius}; the measured reach is {BARRAGE_REACH_MILLI}"));
+    if radius != BARRAGE_DATA_RADIUS_MILLI {
+        return Err(format!("a barrage projectile of Radius {radius}; the reach was measured beside {BARRAGE_DATA_RADIUS_MILLI}"));
     }
     let time_ms = b.buff_time_ms.filter(|t| *t > 0).ok_or("a barrage buff with no BuffTime")?;
     // THE BUFF LANDS AS A MARK: it carries none of its row's columns here (its damage is the impact's), and a unit
@@ -3445,7 +3454,7 @@ fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, Strin
     let hit = SpellHit {
         damage,
         crown_pct: 100,
-        radius: milli(radius),
+        radius: milli(BARRAGE_REACH_MILLI),
         hits_air: b.hits_air.unwrap_or(false),
         hits_ground: b.hits_ground.unwrap_or(false),
         only_enemies: b.only_enemies.unwrap_or(true),
@@ -7393,7 +7402,8 @@ impl CardDb {
         }
         if let Some(d) = &extra.evo_duplication {
             let group_max = d.group_max.filter(|g| *g >= c.count.max(1)).ok_or("a duplication with no GroupMaxSize of at least the play's members")?;
-            evo.duplication = Some(DuplicationDef { group_max, alive_required: d.spawner_alive_required.unwrap_or(false) });
+            let hits_per_copy = d.hits.and_then(|h| u32::try_from(h).ok()).filter(|h| *h >= 1).ok_or("a duplication with no BuffAfterHitsCount of at least 1")?;
+            evo.duplication = Some(DuplicationDef { group_max, hits_per_copy, alive_required: d.spawner_alive_required.unwrap_or(false) });
         }
         if let Some(sn) = &extra.evo_snipe {
             if c.projectile.is_none() {
