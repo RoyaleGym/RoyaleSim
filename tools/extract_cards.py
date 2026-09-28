@@ -1509,6 +1509,58 @@ def interval_spawner(t: dict, rec: dict) -> dict | None:
     }
 
 
+# The keys an idle buff's interval and its area spawn may set (`idle_buff_block`).
+IDLE_INTERVAL_KEYS = {"Name", "ClassType", "Interval", "ActionToExecute", "ForceStopIfTrue"}
+IDLE_SPAWN_KEYS = {"Name", "ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies"}
+
+
+def idle_buff_block(t: dict, c: dict, name: str, row: dict | None) -> dict:
+    """AN IDLE BUFF THAT IS NOT AN INVISIBILITY (15.535): what a unit's BuffWhenNotAttacking does, for the loader
+    (card.rs `idle_buff_of`): {buff_name, buff, time_ms, area} and, where the loader cannot read the buff's action,
+    `action_graph`.
+
+    `buff` is the buff's row, normalised as every buff is (`norm_buff_row`; None when the column names no row), and
+    `time_ms` the unit row's BuffWhenNotAttackingTime. `area` is the one shape of the buff's OnStartAction the loader
+    runs: an ActionInterval every `interval_ms` whose ActionToExecute is an ActionSpawn of an area (`area`, a name of
+    `area_effect_objects`), stopped when the buff ends (ForceStopIfTrue "!TAG()" of the buff's own GameTagsToSet),
+    nothing else set on either action but AbortIfInstigatorDies false on the spawn. The Super Knight's
+    SuperKnight_ShieldBuff is that shape (every 50 ms, SuperKnight_ShieldAEO). Any other OnStartAction is written as
+    `action_graph`, which the loader refuses; a buff with no OnStartAction writes neither (the Evo Knight's
+    Knight_Fortify_EV1, a DamageReduction of its own)."""
+    out: dict = {
+        "buff_name": name,
+        "buff": None if row is None else norm_buff_row(t, name, row),
+        "time_ms": c["BuffWhenNotAttackingTime"],
+        "area": None,
+    }
+    start = row["OnStartAction"] if row is not None else None
+    if not start:
+        return out
+    acts = t["actions"]
+    iv = acts.get(start) if isinstance(start, str) else None
+    sp = acts.get(iv["ActionToExecute"]) if iv is not None and isinstance(iv["ActionToExecute"], str) else None
+    readable = (
+        iv is not None
+        and sp is not None
+        and iv["ClassType"] == "ActionInterval"
+        and not set_keys(iv) - IDLE_INTERVAL_KEYS
+        and isinstance(iv["Interval"], int)
+        and iv["Interval"] > 0
+        and iv["ForceStopIfTrue"] == f"!{row['GameTagsToSet']}()"
+        and sp["ClassType"] == "ActionSpawn"
+        and not set_keys(sp) - IDLE_SPAWN_KEYS
+        and sp["SpawnType"] == "AreaEffectType"
+        and isinstance(sp["SpawnData"], str)
+        and sp["SpawnData"]
+        and not sp["AbortIfInstigatorDies"]
+    )
+    if readable:
+        out["area"] = {"interval_ms": iv["Interval"], "area": sp["SpawnData"]}
+    else:
+        out["action_graph"] = action_graph(t, row)
+    return out
+
+
 # THE ATTACK SELECTOR's one accepted shape (15.535; the Three Musketeers): the row's
 # OnStartingAttackAction is an ActionFilter "target_in_range(<VARIABLE>) && target_is_ground" whose two
 # branches are ActionSetAttackSequenceIndex, and the row's AttackSequenceList holds the row's own
@@ -2554,6 +2606,12 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
                 "use_attack_range": flag(c, "BuffWhenNotAttackingUseAttackRange"),
                 "area_damage_when_invisible": flag(c, "AllowAreaDmgWhenInvisible"),
             }
+        # ANY OTHER IDLE BUFF (the Super Knight's shield, whose buff starts an interval of own-troop areas; the Evo
+        # Knight's own DamageReduction): the buff's row, the idle time, and what its OnStartAction does
+        # (`idle_buff_block`). Written only where the column is set and the buff is not an invisibility, so every
+        # other row is unchanged; the loader refuses a row whose block says something it does not run.
+        elif isinstance(idle, str) and idle:
+            u["idle_buff"] = idle_buff_block(t, c, idle, idle_row)
         # THE ATTACHED RIDER (the Ram Rider's rider, the Goblin Giant's two Spear Goblins): a
         # SpawnCharacter block with SpawnAttach is not a periodic spawner but units that ride this
         # row and stand where it stood a tick before (card.rs `AttachDef`, calibration rider.*).
@@ -2937,6 +2995,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["parry"] = u["parry"]
     if "idle_invisibility" in u:
         card["idle_invisibility"] = u["idle_invisibility"]
+    if "idle_buff" in u:
+        card["idle_buff"] = u["idle_buff"]
     # 15.535 only and only where set (norm_unit): a card row whose own unit is a rider row carries
     # its targeting columns, as the unit row does. No card's own unit is one today.
     for f in RIDER_FIELDS:

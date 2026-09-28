@@ -145,8 +145,8 @@ SHOULD A LOADED CARD CARRYING AN UNREAD MECHANIC BE REFUSED, THE WAY RAGE AND HE
     So the graded rule: refuse a card when the mechanic it carries makes the loaded
     card a DIFFERENT card, and keep loading it when the column has nothing to
     change.  That is already the loader's own principle -- it refuses a spawn
-    pathfind, a death area effect, a scripted mechanic graph and a buff with
-    DamageReduction / DamageMultiplier / AttractPercentage, each with a named
+    pathfind, a death area effect, a scripted mechanic graph and a buff with a
+    column it does not run (DamageMultiplier today), each with a named
     consequence -- and the 39 are the population it has not yet been applied to.
     The evidence that running the wrong row is worse than refusing it is already in
     the tree: the Goblin Drill scored 0.0 % against a recording, with 99.6 % of its

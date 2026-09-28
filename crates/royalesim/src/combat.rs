@@ -45,7 +45,7 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
-    AttackCycle, Calib, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
+    AttackCycle, Calib, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
@@ -86,6 +86,12 @@ pub struct Hit {
     /// victim is Hidden. Snapshot format 6; absent in older snapshots = false.
     #[serde(default)]
     pub ignores_hide: bool,
+    /// THE UNIT'S OWN DRAIN OR DEATH: a building's lifetime drain and expiry, a delayed kamikaze's drain, a
+    /// kamikaze's death on its fire (state.rs). No DamageReduction applies to it (status.DAMAGE_REDUCTION,
+    /// `reduce_hit`): the unit is not being hit by anything. Every other writer leaves it false. `default` so a
+    /// buffer saved before it still reads.
+    #[serde(default)]
+    pub own: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -640,7 +646,7 @@ pub fn splash(
             continue;
         }
         if in_range_edge(center, ents.pos[v], radius, ents.radius[v]) {
-            out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false });
+            out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false, own: false });
             scratch[kept] = v as u32;
             kept += 1;
         }
@@ -977,7 +983,7 @@ pub fn fire(
     if let Some(sel) = card.attack_select {
         if melee_chosen(ents, a, ti, sel) {
             let amount = cards.scaled(ents.card[a], ents.level[a], sel.melee_damage).expect("level validated at spawn");
-            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false });
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
             if let Some(b) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
@@ -1243,7 +1249,7 @@ pub fn fire(
         #[cfg(clash_plant = "hit_beyond_cancel_deals_damage")]
         let void = false; // PLANT (regression): the far hit deals its full damage under the new arm too.
         if !void {
-            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false });
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
             if let Some(b) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
@@ -1258,7 +1264,7 @@ pub fn fire(
                 continue;
             }
             let bi = b.index as usize;
-            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false });
+            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false, own: false });
             if let Some(bf) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
@@ -1488,7 +1494,7 @@ fn straight_hits(
         // combat.PROJECTILE_COLLISIONS = client_columns: a CheckCollisions shot does not collide
         // with a unit this tick's earlier hits have already killed; it flies on past it.
         #[cfg(not(clash_plant = "kill_inside_tick_unread"))]
-        if s.stop_on_hit && killed_this_tick(ents, dmg, calib.hide_hidden_immune, tick, v) {
+        if s.stop_on_hit && killed_this_tick(ents, cards, calib, dmg, tick, v) {
             continue;
         }
         #[cfg(clash_plant = "kill_inside_tick_unread")]
@@ -1499,7 +1505,7 @@ fn straight_hits(
             Err(k) => s.hit.insert(k, id),
         }
         any = true;
-        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false });
+        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false, own: false });
         if let Some(b) = buff {
             fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
         }
@@ -1528,14 +1534,88 @@ fn straight_hits(
 /// because a shield takes the whole sum. Every hit in the buffer counts, whatever wrote it; only
 /// pellets killing for pellets is measured. Whether a pellet passes a victim killed this tick by
 /// something else, and in which order the client runs the tick's other hits, are unmeasured.
-fn killed_this_tick(ents: &Entities, dmg: &DamageBuffer, hidden_immune: bool, tick: u32, v: usize) -> bool {
+fn killed_this_tick(ents: &Entities, cards: &CardDb, calib: &Calib, dmg: &DamageBuffer, tick: u32, v: usize) -> bool {
     if ents.shield[v] > 0 || ents.dash_immune(v, tick) {
         return false;
     }
     let id = ents.id_of(v);
-    let hidden = hidden_immune && ents.hide[v] == HideState::Hidden;
-    let dealt: i64 = dmg.hits.iter().filter(|h| h.target == id && h.amount > 0 && (!hidden || h.ignores_hide)).map(|h| h.amount as i64).sum();
+    let hidden = calib.hide_hidden_immune && ents.hide[v] == HideState::Hidden;
+    // status.DAMAGE_REDUCTION: each hit as `resolve` lands it.
+    let r = damage_reduction_of(ents, cards, calib, tick, v);
+    let dealt: i64 = dmg
+        .hits
+        .iter()
+        .filter(|h| h.target == id && h.amount > 0 && (!hidden || h.ignores_hide))
+        .map(|h| landed(h, r, calib.damage_reduction) as i64)
+        .sum();
     dealt >= ents.hp[v] as i64
+}
+
+/// status.IDLE_BUFF: is unit `v`'s idle buff (card.rs `IdleBuffDef`: the Super Knight's shield, the Evo Knight's
+/// reduction) on at `tick`? Never under not_read, never on a card without one, never while the unit deploys. Else on
+/// from `idle_back` (entity.rs): 0 before the unit's first hit, and after a hit the first tick past the unit's attack
+/// plus its BuffWhenNotAttackingTime (state.rs `idle_buff_pass`). Read at the tick's START state: the pass that moves
+/// `idle_back` runs after Resolve, so the tick of the unit's own hit still counts as idle.
+pub fn idle_on(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, v: usize) -> bool {
+    if calib.idle_buff == IdleBuffLaw::NotRead || cards.get(ents.card[v]).idle_buff.is_none() {
+        return false;
+    }
+    #[cfg(not(clash_plant = "idle_shield_while_attacking"))]
+    let back = ents.idle_back[v];
+    #[cfg(clash_plant = "idle_shield_while_attacking")]
+    let back = 0; // PLANT (regression): the idle buff never goes off, the unit's attack included.
+    ents.deploy_ms[v] <= 0 && tick >= back
+}
+
+/// status.DAMAGE_REDUCTION: the DamageReduction unit `v` takes a hit under at `tick`: the strongest of the buffs it
+/// carries (its slots, and its own idle buff while that is on, `idle_on`), as every other multiplier column composes
+/// (status.rs `compose`: the strongest of a sign applies). 0 under not_read and on a unit carrying none. The one
+/// definition `resolve`, `land_at_once` and `killed_this_tick` read.
+pub fn damage_reduction_of(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, v: usize) -> i32 {
+    if calib.damage_reduction == DamageReductionLaw::NotRead {
+        return 0;
+    }
+    let mut r = ents.buff_slots(v).iter().filter(|s| !s.is_empty()).map(|s| cards.buffs[(s.id - 1) as usize].damage_reduction).max().unwrap_or(0);
+    if let Some(own) = cards.get(ents.card[v]).idle_buff.as_ref().and_then(|b| b.own) {
+        if idle_on(ents, cards, calib, tick, v) {
+            r = r.max(cards.buffs[own as usize].damage_reduction);
+        }
+    }
+    r
+}
+
+/// status.DAMAGE_REDUCTION: hit `amount` (> 0) on a unit whose DamageReduction is `r` (1..=100), under `law`. A
+/// non-positive amount, and a unit with no reduction, pass unchanged. The shipped truncated_floor_one is
+/// max(1, amount * (100 - r) / 100) with the division truncating, as every other percentage buff's is (status.rs
+/// `compose`): measured at r = 100 on client 15.535.29 (sweep-SuperKnight, a Knight's 202 and a princess tower's hit
+/// each take 1); the Evo Knight's 60, the Monk's 65 and the hero Valkyrie's 15 are datamined, and what the formula
+/// gives at them is a hypothesis (202 at 60: 80).
+pub fn reduce_hit(amount: i32, r: i32, law: DamageReductionLaw) -> i32 {
+    if amount <= 0 || r <= 0 {
+        return amount;
+    }
+    let (a, kept) = (amount as i64, (100 - r.min(100)) as i64);
+    match law {
+        DamageReductionLaw::NotRead => amount,
+        #[cfg(not(clash_plant = "reduction_rounds_up"))]
+        DamageReductionLaw::TruncatedFloorOne => (a * kept / 100).max(1) as i32,
+        // PLANT (regression): the shipped arm rounds a partial reduction up (202 at 60: 81, not 80); 100 still gives 1.
+        #[cfg(clash_plant = "reduction_rounds_up")]
+        DamageReductionLaw::TruncatedFloorOne => ((a * kept + 99) / 100).max(1) as i32,
+        DamageReductionLaw::TruncatedNoFloor => (a * kept / 100) as i32,
+        DamageReductionLaw::CeilFloorOne => ((a * kept + 99) / 100).max(1) as i32,
+    }
+}
+
+/// What hit `h` takes off a unit whose DamageReduction is `r`: `reduce_hit`, except on the unit's own drain or death
+/// (`Hit::own`), which lands whole.
+#[inline]
+fn landed(h: &Hit, r: i32, law: DamageReductionLaw) -> i32 {
+    if h.own {
+        h.amount
+    } else {
+        reduce_hit(h.amount, r, law)
+    }
 }
 
 /// One tick of a straight shot (`Projectile::straight`), after the move pass. Returns false
@@ -1694,7 +1774,7 @@ pub fn step_projectiles(
             apply_attack_buff(ents, calib, p.buff, p.pulse, (p.src_level, p.buff_first), p.target, scratch, fx);
         } else if alive {
             let ti = p.target.index as usize;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: false });
+            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: false, own: false });
             if let Some(b) = p.buff {
                 // The shot's buff rides its arrival. A row that sets ApplyBuffBeforeDamage (the Mother Witch's) says so
                 // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills
@@ -1878,7 +1958,18 @@ pub struct ResolveOut {
 /// AND FOR AN ATTACHED RIDER (`riders_immune`: target.rs `riders_immune`, rider.TARGETABLE_WHILE_ATTACHED =
 /// untargetable_immune; entity.rs `attached`): a hit written on one is dropped, whatever wrote it (a melee
 /// splash, a death blow), so the rule does not rest on every writer asking first.
-pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>, hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> ResolveOut {
+#[allow(clippy::too_many_arguments)]
+pub fn resolve(
+    ents: &mut Entities,
+    cards: &CardDb,
+    calib: &Calib,
+    dmg: &mut DamageBuffer,
+    sums: &mut Vec<i64>,
+    hidden_immune: bool,
+    underground_immune: bool,
+    riders_immune: bool,
+    tick: u32,
+) -> ResolveOut {
     #[cfg(clash_plant = "hidden_takes_damage")]
     let hidden_immune = {
         // PLANT (regression): the choke point never consults the hide state.
@@ -1907,7 +1998,9 @@ pub fn resolve(ents: &mut Entities, dmg: &mut DamageBuffer, sums: &mut Vec<i64>,
         if riders_immune && ents.attached(h.target.index as usize) {
             continue;
         }
-        sums[h.target.index as usize] += h.amount as i64;
+        // status.DAMAGE_REDUCTION: each hit is scaled on its own, before the tick's sum meets the shield.
+        let r = damage_reduction_of(ents, cards, calib, tick, h.target.index as usize);
+        sums[h.target.index as usize] += landed(&h, r, calib.damage_reduction) as i64;
     }
     let mut out = ResolveOut::default();
     for (i, &s) in sums.iter().enumerate() {
@@ -1954,7 +2047,8 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
 ///
 /// ONE STRIKE AT A TIME, where `resolve` sums a tick's hits on one target before the shield: a
 /// shield broken by this strike lets a later hit of the same tick through. Unmeasured.
-pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
+#[allow(clippy::too_many_arguments)]
+pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
     let mut king_hit = [false; 2];
     for h in hits {
         if !ents.is_alive(h.target) || h.amount <= 0 {
@@ -1980,10 +2074,12 @@ pub fn land_at_once(ents: &mut Entities, hits: &[Hit], hidden_immune: bool, unde
         if ents.kind[t] == EntityKind::KingTower {
             king_hit[ents.team[t] as usize] = true;
         }
+        // status.DAMAGE_REDUCTION, as `resolve` scales each hit.
+        let amount = landed(h, damage_reduction_of(ents, cards, calib, tick, t), calib.damage_reduction) as i64;
         if ents.shield[t] > 0 {
-            ents.shield[t] = (ents.shield[t] as i64 - h.amount as i64).max(0) as i32;
+            ents.shield[t] = (ents.shield[t] as i64 - amount).max(0) as i32;
         } else {
-            ents.hp[t] = (ents.hp[t] as i64 - h.amount as i64).max(i32::MIN as i64) as i32;
+            ents.hp[t] = (ents.hp[t] as i64 - amount).max(i32::MIN as i64) as i32;
         }
     }
     king_hit

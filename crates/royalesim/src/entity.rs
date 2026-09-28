@@ -304,6 +304,12 @@ pub struct Entities {
     /// card that carries a counter. `default` and sized on load like `reveal_from`.
     #[serde(default)]
     pub parry_ms: Vec<i32>,
+    /// THE IDLE BUFF'S RETURN (status.IDLE_BUFF; card.rs `IdleBuffDef`, combat.rs `idle_on`): the first tick on which
+    /// the unit's BuffWhenNotAttacking is on again, written by state.rs `idle_buff_pass` after the unit's hit and on
+    /// every tick it keeps attacking after it; 0 before its first hit (the buff is on). 0 on every other entity,
+    /// hashed only for a card that carries an idle buff. `default` and sized on load like `reveal_from`.
+    #[serde(default)]
+    pub idle_back: Vec<u32>,
     /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop this unit last let go of because it ran past
     /// the chase-drop limit (target.rs `decide`), which the unit's later scans admit only within that limit (`scan`).
     /// None otherwise, cleared when the unit takes that troop again, and None on every unit under the old arm.
@@ -834,6 +840,7 @@ impl Entities {
             self.enchant_picks[i].clear();
             self.enchant[i] = None;
             self.parry_ms[i] = 0;
+            self.idle_back[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.spawn_lane[i] = 0;
@@ -931,6 +938,7 @@ impl Entities {
             self.enchant_picks.push(Vec::new());
             self.enchant.push(None);
             self.parry_ms.push(0);
+            self.idle_back.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.spawn_lane.push(0);
@@ -1001,7 +1009,8 @@ impl Entities {
     ///   KEPT, what makes it the same entity: generation, alive, team, level, team_seq, spawn_tick, creation_seq, pos,
     ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, spawn_lane, lane_window_end, facing,
     ///     acquirable_from, reveal_from, parry_ms (0 on both rows: the loader refuses a transformation into a row with
-    ///     a counter, and a row with a counter carries no other action block), tunnel_dest (None: a units row that
+    ///     a counter, and a row with a counter carries no other action block), idle_back (0 on both rows: the loader
+    ///     refuses a transformation into a row with an idle buff, and the Super Knight transforms into nothing), tunnel_dest (None: a units row that
     ///     tunnels is refused), a rider's mount and offset (attached_to, attach_offset), the enchant a Rune Giant gave
     ///     it (enchant), a Vines catch's air-to-ground window (grounded_ms), whether it is a copy the Clone made
     ///     (cloned), and a troop's knockback (knock_rem, knock_ms, the ladder, push_applied, push_neighbours,

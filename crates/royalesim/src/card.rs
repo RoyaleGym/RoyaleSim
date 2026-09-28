@@ -1980,6 +1980,14 @@ pub struct CardDef {
     pub form_of: Option<u16>,
     /// ON A HERO FORM: its button (`AbilityDef`). None on every other card.
     pub ability: Option<AbilityDef>,
+    /// THE IDLE BUFF (`IdleBuffDef`; units BuffWhenNotAttacking when the buff is not an invisibility, status.IDLE_BUFF):
+    /// the Super Knight's shield. None on every other card.
+    pub idle_buff: Option<IdleBuffDef>,
+    /// THE AREA THE IDLE BUFF PUTS DOWN (`IdleBuffDef::area_every_ms`; the Super Knight's SuperKnight_ShieldAEO): a
+    /// whole SpellDef, cast on the unit's own point under its card index and level by state.rs `idle_buff_pass`, and
+    /// acting from the next Projectile phase like every area born outside it. Resolved by `CardDb::from_json_str` against
+    /// the file's `area_effect_objects`, like `spawn_area_effect`. None on every other card.
+    pub idle_area: Option<SpellDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -2032,9 +2040,15 @@ impl CardDef {
             &self.deploy_area_effect,
             &self.spawn_area_effect,
             &self.projectile_area,
+            &self.idle_area,
         ];
         for d in blocks.into_iter().flatten() {
             d.shape.buffs_into(&mut out);
+        }
+        if let Some(b) = self.idle_buff.and_then(|b| b.own) {
+            if !out.contains(&b) {
+                out.push(b);
+            }
         }
         out
     }
@@ -2215,6 +2229,9 @@ struct RawCard {
     ignore_clone: Option<bool>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
+    /// cards.json `idle_buff` (15.535 only, written where BuffWhenNotAttacking names a buff that is not an
+    /// invisibility): `CardDef::idle_buff`, `idle_buff_of`.
+    idle_buff: Option<RawIdleBuff>,
     /// cards.json `interval_spawner` (15.535 only): the Furnace's ActionInterval -> ActionSpawnToLocation
     /// (`interval_spawner_of`).
     interval_spawner: Option<RawIntervalSpawner>,
@@ -2561,6 +2578,85 @@ pub struct LifeStateDef {
 struct RawIdleInvisibility {
     time_ms: Option<i32>,
     area_damage_when_invisible: Option<bool>,
+}
+
+/// cards.json `idle_buff` (tools/extract_cards.py `idle_buff_block`), every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawIdleBuff {
+    buff_name: Option<String>,
+    buff: Option<RawBuff>,
+    time_ms: Option<i32>,
+    area: Option<RawIdleArea>,
+    /// Written only where the buff's OnStartAction is not the one shape `area` reads: refused.
+    action_graph: Option<RawActionGraph>,
+}
+
+/// cards.json `idle_buff.area`: the idle buff's OnStartAction, an ActionInterval of an ActionSpawn of an area.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawIdleArea {
+    interval_ms: Option<i32>,
+    area: Option<String>,
+}
+
+/// A UNIT'S IDLE BUFF (units BuffWhenNotAttacking, when the buff is not an invisibility; status.IDLE_BUFF): what the
+/// unit does while it is not attacking (combat.rs `idle_on`, state.rs `idle_buff_pass`). Two shapes load:
+///   * its OWN buff (`own`): the buff row carries a DamageReduction and no other effect column, and the unit takes
+///     that reduction while the buff is on (combat.rs `damage_reduction_of`). The Evo Knight's Knight_Fortify_EV1, 60;
+///     no row of the card table loads one today (the Evo Knight is not in it), so a synthetic row pins it;
+///   * an AREA (`area_every_ms`, the area itself `CardDef::idle_area`): the buff row is a marker with no effect column
+///     and its OnStartAction puts down an area effect every `area_every_ms` while the buff is on; the area's own buff
+///     is what the unit and whatever the area reaches carry. The Super Knight's SuperKnight_ShieldBuff, every 50 ms an
+///     own-troop SuperKnight_ShieldAEO of radius 8000 whose SuperKnight_ShieldBuff_other is a DamageReduction of 100.
+///
+/// Every other shape is refused (`idle_buff_of`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct IdleBuffDef {
+    /// The unit's own buff while the idle buff is on: an index into `CardDb::buffs`, or None on the area shape.
+    pub own: Option<u16>,
+    /// BuffWhenNotAttackingTime, ms: how long after the unit stops attacking the buff is on again.
+    pub idle_ms: i32,
+    /// The ActionInterval's Interval, ms, between two of the areas; 0 on the own-buff shape.
+    pub area_every_ms: i32,
+}
+
+/// THE IDLE BUFF a `idle_buff` block names (`IdleBuffDef`), with the name of the area it puts down (a need of the card,
+/// `UnitUse::IdleArea`), or the reason the unit is refused. Its buff row goes through `RawBuff::convert`, the refusal
+/// every buff a card can hang meets; the area's own buff meets it when the area loads (`area_effect_shape`).
+fn idle_buff_of(ib: &RawIdleBuff, buffs: &mut BuffTable) -> Result<(IdleBuffDef, Option<String>), String> {
+    let name = ib.buff.as_ref().and_then(|b| b.name.clone()).or_else(|| ib.buff_name.clone()).unwrap_or_default();
+    let refuse = |why: String| Err(format!("the unit's idle buff {name}: {why}; not simulated"));
+    let Some(raw) = &ib.buff else { return refuse("BuffWhenNotAttacking names no buff row".into()) };
+    if let Some(g) = &ib.action_graph {
+        let spawns = if g.spawns.is_empty() { String::new() } else { format!("; spawns {}", g.spawns.join(", ")) };
+        return refuse(format!("its OnStartAction runs an action graph this loader does not read ({}{spawns})", g.class_types.join(", ")));
+    }
+    let Some(idle_ms) = ib.time_ms.filter(|t| *t >= 0) else { return refuse("no BuffWhenNotAttackingTime".into()) };
+    let what = "the unit's idle buff";
+    match &ib.area {
+        // THE AREA SHAPE: the buff row is a marker (no effect column of its own), its mechanic the area.
+        Some(a) => {
+            let def = raw.convert_with(what, true)?;
+            if !def.is_inert() {
+                return refuse("a buff with effect columns of its own beside the area its action puts down".into());
+            }
+            let every = a.interval_ms.filter(|i| *i > 0).ok_or_else(|| format!("the unit's idle buff {name}: its interval has no positive Interval; not simulated"))?;
+            let area = a.area.clone().filter(|s| !s.is_empty()).ok_or_else(|| format!("the unit's idle buff {name}: its interval spawns no area; not simulated"))?;
+            Ok((IdleBuffDef { own: None, idle_ms, area_every_ms: every }, Some(area)))
+        }
+        // THE OWN-BUFF SHAPE: a DamageReduction and nothing else the engine would have to run while the unit idles.
+        None => {
+            let def = raw.convert(what)?;
+            let others = BuffDef { damage_reduction: 0, ..def };
+            if def.damage_reduction == 0 || !others.is_inert() {
+                return refuse("an idle buff of the unit's own is read for its DamageReduction alone, and this row carries another effect".into());
+            }
+            let death = raw.death_spawn.as_ref().and_then(|d| d.character.as_deref());
+            let own = buffs.intern(def, &name, death)?;
+            Ok((IdleBuffDef { own: Some(own), idle_ms, area_every_ms: 0 }, None))
+        }
+    }
 }
 
 /// cards.json `life_state_spawner`, every field nullable.
@@ -3178,6 +3274,8 @@ enum UnitUse {
     DeployAreaEffect,
     /// SpawnAreaObject (`spawn_area_effect`). Not a unit: resolved against `area_effect_objects`.
     SpawnAreaEffect,
+    /// The area an idle buff puts down (`idle_area`, `IdleBuffDef`). Not a unit: resolved against `area_effect_objects`.
+    IdleArea,
     /// A spell's SummonCharacter (`SpellShape::Summon`, or the `Fuse` a bottle row becomes).
     SpellSummon,
     /// A troop projectile's SpawnAreaEffectObject: an AREA, resolved like `DeathAreaEffect` into
@@ -3215,7 +3313,7 @@ impl UnitUse {
     /// projectile), not loaded as a unit: it adds no summon-only record, and the units IT needs
     /// are queued at the end of its owner's level of the worklist.
     fn is_table(self) -> bool {
-        matches!(self, UnitUse::DeathAreaEffect | UnitUse::ProjectileArea | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect)
+        matches!(self, UnitUse::DeathAreaEffect | UnitUse::ProjectileArea | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea)
     }
 }
 
@@ -3826,23 +3924,38 @@ struct RawBuffDeathSpawn {
 
 impl RawBuff {
     /// The columns the engine runs, or the reason it will not run this row. A buff
-    /// whose mechanic is DamageReduction / DamageMultiplier / AttractPercentage is
-    /// REFUSED rather than loaded without them, so a card can never run as a
-    /// weaker card (the loader's rule everywhere else).
+    /// whose mechanic is DamageMultiplier, or a DamageReduction outside 1..=100, is
+    /// REFUSED rather than loaded without it, so a card can never run as a
+    /// weaker card (the loader's rule everywhere else). Every chain a card can hang a
+    /// buff through reaches this one refusal (`BuffTable::apply`, and the idle buff's
+    /// area, `idle_buff_of`).
     fn convert(&self, what: &str) -> Result<BuffDef, String> {
+        self.convert_with(what, false)
+    }
+
+    /// `convert`, with `marker` taking a row with no effect column (a MARKER whose mechanic lives in an action) rather
+    /// than refusing it: the idle buff whose action puts down an area (`idle_buff_of`). Every other refusal stands.
+    fn convert_with(&self, what: &str, marker: bool) -> Result<BuffDef, String> {
         let name = self.name.clone().unwrap_or_default();
         // AttractPercentage came off this list on 2026-09-23: it is the Tornado's pull
         // and it is now measured and implemented (status.ATTRACT_LAW, state.rs
-        // `phase_path16402`). The other two stay, and the rule behind the list is
-        // unchanged -- a card is REFUSED rather than run without a mechanic it carries,
-        // so nothing here may be removed before the mechanic exists.
-        for (col, set) in [
-            ("DamageReduction", self.damage_reduction.is_some()),
-            ("DamageMultiplier", self.damage_multiplier.is_some()),
-        ] {
+        // `phase_path16402`). DamageReduction came off it on 2026-09-28: the Super
+        // Knight's shield, measured on client 15.535.29 and implemented
+        // (status.DAMAGE_REDUCTION, combat.rs `reduce_hit`). DamageMultiplier stays, and
+        // the rule behind the list is unchanged -- a card is REFUSED rather than run
+        // without a mechanic it carries, so nothing here may be removed before the
+        // mechanic exists.
+        for (col, set) in [("DamageMultiplier", self.damage_multiplier.is_some())] {
             if set {
                 return Err(format!("{what}: buff {name} carries {col}, which is not simulated"));
             }
+        }
+        // A DamageReduction the arithmetic reads is 1..=100 (0 reads as blank). A negative one is a damage INCREASE
+        // (the Dark Elixir event bottle's DarkElixirBuff, -100) and one above 100 would heal: neither is measured, so
+        // both are refused rather than run through the reduction's formula.
+        let damage_reduction = self.damage_reduction.unwrap_or(0);
+        if !(0..=100).contains(&damage_reduction) {
+            return Err(format!("{what}: buff {name} carries DamageReduction {damage_reduction}, outside 1..=100; not simulated"));
         }
         let def = BuffDef {
             speed_pct: self.speed_multiplier_raw.unwrap_or(0),
@@ -3866,6 +3979,7 @@ impl RawBuff {
             crown_hit: self.crown_tower_damage_per_hit.unwrap_or(0),
             clone_hold: self.clone.unwrap_or(false),
             not_cloned: self.not_cloned.unwrap_or(false),
+            damage_reduction,
         };
         // CrownTowerDamagePerHit replaces a PULSE's crown-tower damage (state.rs `buff_pulse_pass`); on a buff that
         // does not pulse it would have nothing to replace.
@@ -3875,7 +3989,7 @@ impl RawBuff {
         if def.crown_hit < 0 {
             return Err(format!("{what}: buff {name}: CrownTowerDamagePerHit {} is negative", def.crown_hit));
         }
-        if def.is_inert() {
+        if def.is_inert() && !marker {
             // A row with no multiplier, no damage and no heal is a MARKER (Invisible,
             // Clone, a filter) whose mechanic lives in an action graph.
             return Err(format!("{what}: buff {name} has no multiplier, damage or heal: its mechanic is not in the columns"));
@@ -4536,6 +4650,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         evo: None,
         form_of: None,
         ability: None,
+        idle_buff: None,
+        idle_area: None,
     }
 }
 
@@ -4947,6 +5063,20 @@ fn convert_spawn_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &L
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic(&aeo.action_graph, &format!("spawn area effect {what}"))?;
     area_effect_shape(aeo, buffs, ctx)
+}
+
+/// THE AREA AN IDLE BUFF PUTS DOWN (`CardDef::idle_area`; the Super Knight's SuperKnight_ShieldAEO). Its action graph is
+/// refused like any area's, and its shape must be an area that hits and hangs its buff where it stands (a one-shot or a
+/// pulsing area): the buff it hangs meets `RawBuff::convert` there (`area_effect_shape`), so an idle chain carrying a
+/// column the engine does not run refuses the unit as a direct buff would.
+fn convert_idle_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    refuse_action_mechanic(&aeo.action_graph, &format!("idle buff area {what}"))?;
+    let (shape, needs) = area_effect_shape(aeo, buffs, ctx)?;
+    if !matches!(shape, SpellShape::AreaEffect { .. } | SpellShape::PulsingAreaEffect { child: None, .. }) {
+        return Err(format!("idle buff area {what} is neither a one-shot nor a pulsing area; not simulated"));
+    }
+    Ok((shape, needs))
 }
 
 /// The shape of an area effect whose action graph the caller has accepted (`convert_area_effect`,
@@ -5977,6 +6107,22 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             }
         }
     };
+    // THE IDLE BUFF (status.IDLE_BUFF): any other BuffWhenNotAttacking, its buff row through the refusal every buff
+    // meets and its area a need of the card (`idle_buff_of`). A row carrying both readings is a shape the extractor
+    // does not write.
+    if raw.idle_invisibility.is_some() && raw.idle_buff.is_some() {
+        return Err("a unit with an idle invisibility and an idle buff; not simulated".into());
+    }
+    // A BuffWhenNotAttacking NOTHING READS: the unit's row (`units.<row>.raw`) names an idle buff and the file carries
+    // neither of its readings, as a table written before the extractor wrote `idle_buff` does. Refused rather than run
+    // without it: the Super Knight's shield loaded that way, unread, until 2026-09-28.
+    let idle_column = ctx.units.get(raw.summon_character.as_deref().unwrap_or(raw.name.as_str())).and_then(|u| u.get("raw")).and_then(|r| r.get("BuffWhenNotAttacking"));
+    if let Some(b) = idle_column.and_then(serde_json::Value::as_str).filter(|b| !b.is_empty()) {
+        if raw.idle_invisibility.is_none() && raw.idle_buff.is_none() {
+            return Err(format!("the unit's BuffWhenNotAttacking {b} is read by nothing in this file; not simulated"));
+        }
+    }
+    let idle = raw.idle_buff.as_ref().map(|ib| idle_buff_of(ib, buffs)).transpose()?;
     let need = |v: Option<i32>, what: &str| v.ok_or_else(|| format!("missing {what}"));
     let mut damage = raw.damage;
     let mut attack_buff: Option<BuffApply> = None;
@@ -6254,6 +6400,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     if let Some(a) = &raw.spawn_area_object {
         units.push((UnitUse::SpawnAreaEffect, a.clone()));
     }
+    if let Some((_, Some(a))) = &idle {
+        units.push((UnitUse::IdleArea, a.clone()));
+    }
     if let Some((_, Some(m))) = &spawn_pathfind {
         units.push((UnitUse::Morph, m.clone()));
     }
@@ -6461,6 +6610,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // A hero form's links and button are set by its own pass (`CardDb::load_hero_forms`).
         form_of: None,
         ability: None,
+        idle_buff: idle.map(|(d, _)| d),
+        // Resolved by `CardDb::from_json_str` (the name pushed on `units` above).
+        idle_area: None,
     }, display, units))
 }
 
@@ -6778,7 +6930,7 @@ impl CardDb {
                 }
                 continue;
             }
-            if matches!(which, UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect) {
+            if matches!(which, UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea) {
                 // THE DEATH PROJECTILE, THE DEPLOY AREA AND THE SPAWN AREA ARE NOT UNITS either:
                 // each is a row of one of the file's own tables, resolved here and stored on the
                 // card as a `SpellDef`, exactly as a death area effect is, and a name the table
@@ -6795,6 +6947,7 @@ impl CardDb {
                 let label = match which {
                     UnitUse::DeathProjectile => "death projectile",
                     UnitUse::DeployAreaEffect => "deploy area effect",
+                    UnitUse::IdleArea => "idle buff area",
                     _ => "spawn area effect",
                 };
                 let c = &db.cards[spell_idx as usize];
@@ -6805,6 +6958,7 @@ impl CardDb {
                     c.death_projectile.is_some(),
                     c.deploy_area_effect.is_some(),
                     c.spawn_area_effect.is_some(),
+                    c.idle_area.is_some(),
                 ];
                 let members = c.count.max(1) + c.formation.second_summon.map_or(0, |s| s.count);
                 let own_unit = c.unit_name.clone();
@@ -6824,6 +6978,10 @@ impl CardDb {
                             Some(aeo) => convert_deploy_area_effect(aeo, &own_unit, &mut buffs, &ctx).map(|(shape, needs)| (SpellDef { shape, placement: SpellPlacement::Anywhere }, needs)),
                             None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
                         },
+                        UnitUse::IdleArea => match ctx.aeos.get(&unit) {
+                            Some(aeo) => convert_idle_area_effect(aeo, &mut buffs, &ctx).map(|(shape, needs)| (SpellDef { shape, placement: SpellPlacement::Anywhere }, needs)),
+                            None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
+                        },
                         _ => match ctx.aeos.get(&unit) {
                             Some(aeo) => convert_spawn_area_effect(aeo, &mut buffs, &ctx).map(|(shape, needs)| (SpellDef { shape, placement: SpellPlacement::Anywhere }, needs)),
                             None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
@@ -6836,11 +6994,20 @@ impl CardDb {
                         match which {
                             UnitUse::DeathProjectile => card.death_projectile = Some(def),
                             UnitUse::DeployAreaEffect => card.deploy_area_effect = Some(def),
+                            UnitUse::IdleArea => card.idle_area = Some(def),
                             _ => card.spawn_area_effect = Some(def),
                         }
                         let at = work.iter().position(|q| q.3 > depth).unwrap_or(work.len());
                         for (k, (w, u)) in needs.into_iter().enumerate() {
                             work.insert(at + k, (spell_idx, w, u, depth));
+                        }
+                    }
+                    // PLANT idle_area_buff_unrefused (tests/idle_buff.rs): an idle buff's area the loader cannot run is
+                    // dropped, and the unit loads without it -- the hole this refusal closes.
+                    #[cfg(clash_plant = "idle_area_buff_unrefused")]
+                    Err(_) if which == UnitUse::IdleArea => {
+                        if let Some(ib) = db.cards[spell_idx as usize].idle_buff.as_mut() {
+                            ib.area_every_ms = 0;
                         }
                     }
                     Err(e) => unloadable.push((spell_idx, format!("{label} {unit}: {e}"))),
@@ -6990,6 +7157,7 @@ impl CardDb {
                             (c.dash.is_some(), "a dash"),
                             (c.special.is_some(), "a special"),
                             (c.invisible_when_idle.is_some(), "an idle invisibility"),
+                            (c.idle_buff.is_some(), "an idle buff"),
                             (c.deploy_projectile.is_some(), "a deploy projectile"),
                             (nested.iter().any(|(w, _)| *w == UnitUse::DeployAreaEffect), "a deploy area effect"),
                             (nested.iter().any(|(w, _)| *w == UnitUse::SpawnAreaEffect), "a spawn area effect"),
@@ -7127,7 +7295,7 @@ impl CardDb {
                                 e.unit = u;
                             }
                         }
-                        UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea => {
+                        UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea | UnitUse::IdleArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
                         UnitUse::VariantForm(_) => unreachable!("a variant form never enters the worklist"),

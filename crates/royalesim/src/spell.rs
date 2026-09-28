@@ -339,6 +339,7 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.spawn_area_effect.as_ref())
         .or(def.projectile_area.as_ref())
         .or(def.evo.as_ref().and_then(|v| v.barrage.as_ref()).map(|b| &b.shot))
+        .or(def.idle_area.as_ref())
 }
 
 /// The shape `depth` steps down `root`'s chain (`SpellShape::child`), or None past its end.
@@ -863,14 +864,14 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         if let (Some(b), true) = (barrage, e.kind[v].is_crown_tower()) {
             let amount = ctx.cards.scaled(card, level, b.crown_damage).unwrap_or(b.crown_damage);
             if amount > 0 {
-                dmg.hits.push(Hit { target: id, amount, ignores_hide: false });
+                dmg.hits.push(Hit { target: id, amount, ignores_hide: false, own: false });
             }
         } else if damage > 0 {
             #[cfg(not(clash_plant = "crown_pct_ignored"))]
             let pct = hit.crown_pct;
             #[cfg(clash_plant = "crown_pct_ignored")]
             let pct = 100; // PLANT: crown towers take full spell damage.
-            dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false });
+            dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false, own: false });
         }
         if hit.buff.is_some() || second.is_some() {
             // THE BUFF RIDES THE IMPACT and lands on every victim the impact lands on
@@ -1201,7 +1202,7 @@ fn laser(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &S
         let id = e.id_of(v);
         // PLANT (void_area_damage_loaded): the area's own Damage, read onto the strike by the loader, lands on each victim.
         #[cfg(clash_plant = "void_area_damage_loaded")]
-        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, def.hit.crown_pct, ctx.calib.crown_rounding), ignores_hide: false });
+        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, def.hit.crown_pct, ctx.calib.crown_rounding), ignores_hide: false, own: false });
         deliver(ctx, card, level, id, b, !sel.filter.skip_hidden, fx);
     }
 }
@@ -1270,7 +1271,7 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         let pct = hit.crown_pct;
         #[cfg(clash_plant = "crown_pct_ignored")]
         let pct = 100; // PLANT: crown towers take full spell damage.
-        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false });
+        dmg.hits.push(Hit { target: id, amount: damage_against(e.kind[v], damage, pct, ctx.calib.crown_rounding), ignores_hide: false, own: false });
         if let Some(k) = hit.knockback {
             if pushable(ctx, v, &k) {
                 let along = Vec2::new(0, fwd * k.distance);

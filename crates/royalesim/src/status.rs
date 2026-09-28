@@ -132,6 +132,12 @@ pub struct BuffDef {
     /// card hangs.
     #[serde(default)]
     pub not_cloned: bool,
+    /// character_buffs DamageReduction, RAW, 1..=100 (0 = blank; the loader refuses any other value): every hit a
+    /// carrier takes is scaled by (100 - DamageReduction) / 100 under status.DAMAGE_REDUCTION (combat.rs
+    /// `reduce_hit`, `damage_reduction_of`). The Super Knight's shield area hangs 100, the Evo Knight's idle buff 60.
+    /// `default` so a record written before the field still reads.
+    #[serde(default)]
+    pub damage_reduction: i32,
 }
 
 /// A UNIT THAT DIES WITH THIS BUFF LIVE RELEASES `count` of `unit` (character_buffs DeathSpawn,
@@ -156,7 +162,8 @@ impl BuffDef {
     /// no damage and no heal is a marker (an Invisible or a Clone flag) and the
     /// loader refuses the card that carries it rather than running it as a no-op.
     /// A buff that releases a unit when its carrier dies does something: that is its
-    /// whole mechanic (the curses).
+    /// whole mechanic (the curses). So does one that reduces the damage its carrier
+    /// takes (status.DAMAGE_REDUCTION).
     pub fn is_inert(&self) -> bool {
         self.speed_pct == 0
             && self.hit_speed_pct == 0
@@ -165,6 +172,7 @@ impl BuffDef {
             && self.heal_per_second == 0
             && self.attract_pct == 0
             && self.death_spawn.is_none()
+            && self.damage_reduction == 0
     }
 
     /// Does this buff pulse damage or healing?

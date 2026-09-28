@@ -583,6 +583,14 @@ pub struct Calib {
     /// it ran.
     #[serde(default = "ability_unit_first_update_default")]
     pub ability_unit_first_update: AbilityUnitFirstUpdate,
+    /// status.DAMAGE_REDUCTION (combat.rs `reduce_hit`): how a hit on a unit carrying a DamageReduction buff is
+    /// scaled. status.IDLE_BUFF (`idle_buff_pass`, combat.rs `damage_reduction_of`): whether a BuffWhenNotAttacking
+    /// that is not an invisibility runs. Added after SNAPSHOT_FORMAT 20; each `default` is the old arm, not_read,
+    /// what a battle saved before them ran.
+    #[serde(default = "damage_reduction_default")]
+    pub damage_reduction: DamageReductionLaw,
+    #[serde(default = "idle_buff_default")]
+    pub idle_buff: IdleBuffLaw,
     /// targeting.INVISIBILITY (target.rs `invisible`). Added after SNAPSHOT_FORMAT 20; no battle saved before it held
     /// an invisible unit.
     #[serde(default = "invisibility_default")]
@@ -1565,6 +1573,14 @@ fn life_state_aim_repick_default() -> LifeStateAimRepick {
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
     AbilityUnitFirstUpdate::CreationTick
+}
+
+fn damage_reduction_default() -> DamageReductionLaw {
+    DamageReductionLaw::NotRead
+}
+
+fn idle_buff_default() -> IdleBuffLaw {
+    IdleBuffLaw::NotRead
 }
 
 fn invisibility_default() -> Invisibility {
@@ -4013,6 +4029,40 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.DAMAGE_REDUCTION -- what a hit of `a` (> 0) does to a unit carrying a buff whose DamageReduction is `r`
+    /// (1..=100; the strongest one the unit carries, combat.rs `damage_reduction_of`), per hit, before the unit's
+    /// shield takes the tick's sum (combat.rs `reduce_hit`, `resolve`, `land_at_once`). A unit's own drains and deaths
+    /// (`Hit::own`) are never reduced.
+    DamageReductionLaw {
+        /// The column is not read: the full hit, as the engine ran before the key (the loader refused every row
+        /// carrying the column, but the Super Knight's shield loaded through a chain the loader did not walk).
+        NotRead = "not_read",
+        /// SHIPPED. max(1, a * (100 - r) / 100), the division truncating as every other percentage buff's does
+        /// (status.rs `compose`). Measured at r = 100 on client 15.535.29 (sweep-SuperKnight: a 202 hit and a tower's
+        /// hit each take 1); at 15, 60 and 65 the formula is a hypothesis.
+        TruncatedFloorOne = "truncated_floor_one",
+        /// a * (100 - r) / 100 truncated, no floor: r = 100 is an immunity. Refuted at 100 (the 1 of sweep-SuperKnight).
+        TruncatedNoFloor = "truncated_no_floor",
+        /// max(1, ceil(a * (100 - r) / 100)): the crown-tower rounding's direction. Agrees at 100; parts from the
+        /// shipped arm at a partial reduction (202 at 60: 81 against 80), where nothing is measured.
+        CeilFloorOne = "ceil_floor_one",
+    }
+);
+calib_enum!(
+    /// status.IDLE_BUFF -- a unit's BuffWhenNotAttacking that is not an invisibility (card.rs `IdleBuffDef`: the Super
+    /// Knight's shield area, the Evo Knight's own reduction): whether it runs, and when it is on (`idle_buff_pass`,
+    /// `idle_on`).
+    IdleBuffLaw {
+        /// The column is not read: the unit runs without its idle buff, as the engine ran before the key.
+        NotRead = "not_read",
+        /// SHIPPED. On from the unit's deploy end; its own hit takes it off from the next tick; it stays off while
+        /// the unit keeps attacking, and is on again BuffWhenNotAttackingTime after the unit stops (entity.rs
+        /// `idle_back`). Measured on client 15.535.29 (sweep-SuperKnight): the hit that lands on the Super Knight's
+        /// own first-hit tick takes 1, the three while it attacks take 202 each, the three after it walks on take 1.
+        OffAfterHitWhileAttacking = "off_after_hit_while_attacking",
+    }
+);
+calib_enum!(
     /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
     RollFirstStep {
         /// On the tick the airborne projectile lands: today's engine.
@@ -5137,6 +5187,8 @@ impl Calib {
             life_state_first_look_aim: pick(&v, &["spawner", "LIFE_STATE_FIRST_LOOK_AIM", "value"], LifeStateFirstLookAim::from_calibration_name)?,
             life_state_aim_repick: pick(&v, &["spawner", "LIFE_STATE_AIM_REPICK", "value"], LifeStateAimRepick::from_calibration_name)?,
             ability_unit_first_update: pick(&v, &["spawner", "ABILITY_UNIT_FIRST_UPDATE", "value"], AbilityUnitFirstUpdate::from_calibration_name)?,
+            damage_reduction: pick(&v, &["status", "DAMAGE_REDUCTION", "value"], DamageReductionLaw::from_calibration_name)?,
+            idle_buff: pick(&v, &["status", "IDLE_BUFF", "value"], IdleBuffLaw::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             production_rate: pick(&v, &["economy", "PRODUCTION_RATE_IN_DOUBLE_ELIXIR", "value"], ProductionRate::from_calibration_name)?,
             stun_pauses_production: boolean(&v, &["economy", "STUN_PAUSES_PRODUCTION", "value"])?,
@@ -9465,7 +9517,7 @@ impl BattleState {
                     // A slot that reaches a building hidden under ground (the Vines' snare on an idle Tesla) hits it
                     // there too (`BuffSlot::reach_hidden`); every other pulse is dropped on a hidden building.
                     if dealt > 0 {
-                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: slot.reach_hidden });
+                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: slot.reach_hidden, own: false });
                     }
                 } else {
                     // A HEAL, capped at the missing hitpoints. It is applied here rather
@@ -9590,7 +9642,7 @@ impl BattleState {
                     if self.ents.is_alive(target) {
                         let kind = self.ents.kind[target.index as usize];
                         let amount = combat::damage_against(kind, amount, crown_pct, self.cfg.calib.crown_rounding);
-                        self.dmg.hits.push(Hit { target, amount, ignores_hide: false });
+                        self.dmg.hits.push(Hit { target, amount, ignores_hide: false, own: false });
                     }
                 }
                 ScheduledAction::Buff { target, buff, time_ms } => {
@@ -9849,7 +9901,7 @@ impl BattleState {
         self.ents.kamikaze_from[i] = self.tick + 1;
         let amount = self.kamikaze_drain_amount(i);
         let me = self.ents.id_of(i);
-        self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true });
+        self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true, own: true });
     }
 
     /// THE DELAYED KAMIKAZE'S DRAIN in the Status phase (combat.KAMIKAZE_TIME): every live unit past its first fire
@@ -9876,7 +9928,7 @@ impl BattleState {
                 KamikazeTime::FlatDrainThenExpire if since >= ticks => self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1),
                 _ => self.kamikaze_drain_amount(i),
             };
-            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true });
+            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true, own: true });
         }
     }
 
@@ -9947,7 +9999,7 @@ impl BattleState {
                     let whole = acc / 100;
                     self.lifetime_acc[i] = acc - whole * 100;
                     if whole > 0 {
-                        self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount: whole, ignores_hide });
+                        self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount: whole, ignores_hide, own: true });
                     }
                 }
                 LifetimeDecay::ExpiryHit => {
@@ -9957,7 +10009,7 @@ impl BattleState {
                             // Expiry is a hit for everything it has, so it goes through
                             // the same buffer and death path as any other damage.
                             let amount = self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1);
-                            self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide });
+                            self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide, own: true });
                             self.lifetime_ms[i] = None;
                         }
                     }
@@ -10944,7 +10996,7 @@ impl BattleState {
                     if let Some(t) = target.filter(|t| self.ents.is_alive(*t)) {
                         let kind = self.ents.kind[t.index as usize];
                         let amount = combat::damage_against(kind, amount, pct, self.cfg.calib.crown_rounding);
-                        self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false });
+                        self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false, own: false });
                     }
                 }
                 Some(r) => {
@@ -13444,7 +13496,7 @@ impl BattleState {
                 if self.cfg.cards.get(self.ents.card[i]).kamikaze {
                     let me = self.ents.id_of(i);
                     let all = self.ents.hp[i].max(0) + self.ents.shield[i].max(0);
-                    self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false });
+                    self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false, own: true });
                 }
                 // combat.KAMIKAZE_TIME: a DELAYED kamikaze (the Skeleton Barrel) starts to drain on its first fire, this
                 // tick's drain buffered to Resolve with the tick's other damage (`kamikaze_drain`).
@@ -13587,7 +13639,7 @@ impl BattleState {
                 let reflect = self.cfg.cards.scaled(self.ents.card[d], self.ents.level[d], (countered as i64 * p.reflect_pct as i64 / 100) as i32).expect("level validated at spawn");
                 let reflect_ms = sub_action_delay_ms(&c, group, p.reflect_at as usize);
                 if reflect_ms <= 0 {
-                    self.dmg.hits.push(Hit { target: pick.attacker, amount: reflect, ignores_hide: false });
+                    self.dmg.hits.push(Hit { target: pick.attacker, amount: reflect, ignores_hide: false, own: false });
                 } else {
                     self.scheduled.push(Scheduled { ms: reflect_ms, action: ScheduledAction::Damage { target: pick.attacker, amount: reflect, crown_pct: 100 } });
                 }
@@ -13665,7 +13717,7 @@ impl BattleState {
             let amount = self.cfg.cards.scaled(e.card[v], e.level[v], r.damage).expect("level validated at spawn");
             #[cfg(clash_plant = "reflect_damage_unscaled")]
             let amount = r.damage; // PLANT (regression): the level-1 column, 75 where the Knight takes 192.
-            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false });
+            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false, own: false });
             let Some(b) = r.buff else { continue };
             #[cfg(not(clash_plant = "reflect_stun_buffered"))]
             if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(me, b.buff, b.time_ms, 0)) {
@@ -13952,7 +14004,7 @@ impl BattleState {
         #[cfg(clash_plant = "strike_lands_under_ground")]
         let underground_immune = false; // PLANT (regression): the strike lands on a unit under ground.
         let king_hit =
-            combat::land_at_once(&mut self.ents, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
+            combat::land_at_once(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
         for (t, hit) in king_hit.into_iter().enumerate() {
             if hit && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -14629,7 +14681,7 @@ impl BattleState {
     fn phase_resolve(&mut self) {
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
-        let out = combat::resolve(&mut self.ents, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
+        let out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -14648,6 +14700,57 @@ impl BattleState {
         }
         self.apply_effects();
         self.release_orphaned_buffs();
+        self.idle_buff_pass();
+    }
+
+    /// THE IDLE BUFF (status.IDLE_BUFF = off_after_hit_while_attacking; card.rs `IdleBuffDef`), at the end of Resolve,
+    /// once this tick's damage has landed, for every live unit whose card carries one:
+    ///   1. THE RETURN MOVES (entity.rs `idle_back`): a unit whose hit landed this tick (its attack phase is Cooldown),
+    ///      or that is still attacking while its buff is off, has the buff back on the first tick past this one plus its
+    ///      BuffWhenNotAttackingTime (ceil to ticks). So the buff is on through the tick of the unit's own hit (combat.rs
+    ///      `idle_on` reads the start-of-tick state), off from the next, off while the unit keeps attacking, and on again
+    ///      BuffWhenNotAttackingTime after its attack ends. Measured on client 15.535.29 (sweep-SuperKnight): the enemy
+    ///      Knight's hit that lands on the Super Knight's own first-hit tick takes 1; the three that land while it
+    ///      attacks take 202 each; the princess tower's three hits after it walks on take 1 each. How soon the buff is
+    ///      back is measured only to within the 122 ticks before the next hit.
+    ///   2. THE AREA (the Super Knight's shield, `CardDef::idle_area`): while the buff is on NEXT tick, the unit puts its
+    ///      area down on its own point, under its card index and level, every `area_every_ms` counted from the buff's
+    ///      return, through `spell::cast` like a spawn area. It acts from the next tick's Projectile phase, and hangs its
+    ///      buff for the capped time (status.AREA_BUFF_SOURCE_BINDING). The table's area follows its unit
+    ///      (FollowBehaviour FollowParent); here each one stands where it was put down, one tick behind a walking unit.
+    ///
+    /// A held unit keeps its attack phase (combat.rs `attack_step`), so a unit held right after its hit counts as
+    /// attacking until the hold ends: unmeasured.
+    fn idle_buff_pass(&mut self) {
+        if self.cfg.calib.idle_buff == IdleBuffLaw::NotRead {
+            return;
+        }
+        let cards = self.cfg.cards.clone();
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let tick = self.tick;
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] || self.ents.hp[i] <= 0 {
+                continue;
+            }
+            let card = self.ents.card[i];
+            let Some(ib) = cards.get(card).idle_buff else { continue };
+            let phase = self.ents.attack_phase[i];
+            let on_now = combat::idle_on(&self.ents, &cards, &self.cfg.calib, tick, i);
+            if phase == AttackPhase::Cooldown || (phase != AttackPhase::Idle && !on_now) {
+                let idle_ticks = (ib.idle_ms.max(0) + tick_ms - 1) / tick_ms;
+                self.ents.idle_back[i] = tick + 1 + idle_ticks as u32;
+            }
+            if ib.area_every_ms <= 0 || !combat::idle_on(&self.ents, &cards, &self.cfg.calib, tick + 1, i) {
+                continue;
+            }
+            let every = ((ib.area_every_ms + tick_ms - 1) / tick_ms).max(1) as u32;
+            if (tick + 1).wrapping_sub(self.ents.idle_back[i]) % every != 0 {
+                continue;
+            }
+            let (team, level, pos) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
+            let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos, tick).expect("the idle area loaded and the level was validated at spawn");
+            self.spells.extend(area);
+        }
     }
 
     /// rider.DIES_WITH_MOUNT = same_tick_full_hp (measured on client 16.402 on one Ram Rider: the
@@ -17377,6 +17480,12 @@ impl BattleState {
                 if self.cfg.cards.get(e.card[i]).parry.is_some() {
                     h.i32(e.parry_ms[i]);
                 }
+                // The idle buff's return (status.IDLE_BUFF), only on a card that carries an idle buff: a battle without
+                // one hashes as before the column. PLANT hash_skips_idle_back (tests/idle_buff.rs): it is not hashed.
+                #[cfg(not(clash_plant = "hash_skips_idle_back"))]
+                if self.cfg.cards.get(e.card[i]).idle_buff.is_some() {
+                    h.u32(e.idle_back[i]);
+                }
                 // targeting.CHASE_DROP_RANGE = client_sight_minus_1000: the troop the chase drop let go of and the target
                 // held within the limit (the edge), written under that arm only, so a battle under the old arm hashes as
                 // it did before the columns.
@@ -18313,6 +18422,12 @@ impl BattleState {
 ///    a sliding member's fixed end point, set at birth under fixed_end_point alone and hashed only while its slide
 ///    runs under that arm, so a blob saved before it (or any battle at current_ray) deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.DAMAGE_REDUCTION and status.IDLE_BUFF: Calib gained damage_reduction and idle_buff (serde
+///    default the old arm, not_read), Hit gained `own` (serde default false; the buffer is empty between ticks), the
+///    entities `idle_back` (serde default, sized on load, hashed only for a card that carries an idle buff), BuffDef
+///    `damage_reduction` and CardDef `idle_buff` and `idle_area`, so the card fingerprint moves: a snapshot saved by an
+///    earlier build is refused as saved against other card data. migrate_v3 strips `idle_buff` and `idle_area` with
+///    the rest of the post-format-3 tail and runs a migrated battle at both old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18554,12 +18669,13 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // `projectile_y_offset` after it.
                 // ~~... projectile_y_offset~~ -- the evolved forms (still format 20) added `evo` after it.
                 // ~~... evo~~ -- the hero forms (still format 20) added `form_of` and `ability` after it.
+                // ~~... ability~~ -- the idle buff (still format 20) added `idle_buff` and `idle_area` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -18618,7 +18734,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.projectile_y_offset,
                     c.evo,
                     c.form_of,
-                    c.ability
+                    c.ability,
+                    c.idle_buff,
+                    c.idle_area
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -18769,6 +18887,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ability_unit_first_update".into(), serde_json::to_value(AbilityUnitFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
+    // status.DAMAGE_REDUCTION and status.IDLE_BUFF: the same (a format-3 battle held no reduction and no idle buff).
+    sh.insert("damage_reduction".into(), serde_json::to_value(DamageReductionLaw::NotRead).map_err(|e| e.to_string())?);
+    sh.insert("idle_buff".into(), serde_json::to_value(IdleBuffLaw::NotRead).map_err(|e| e.to_string())?);
     // The underground walk and the listed death ring: a format-3 battle ran no tunneller and laid every death
     // spawn by the layout key; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_ring".into(), serde_json::to_value(DeathRingArm::None).map_err(|e| e.to_string())?);
@@ -19119,6 +19240,7 @@ impl BattleState {
         snap.ents.enchant_picks.resize(n, Vec::new());
         snap.ents.enchant.resize(n, None);
         snap.ents.parry_ms.resize(n, 0);
+        snap.ents.idle_back.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);

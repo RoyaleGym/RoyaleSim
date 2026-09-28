@@ -13104,6 +13104,36 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "idle_buff": {
+    "buff_name": "SuperKnight_ShieldBuff",
+    "buff": {
+     "name": "SuperKnight_ShieldBuff",
+     "speed_multiplier_raw": null,
+     "hit_speed_multiplier_raw": null,
+     "spawn_speed_multiplier_raw": null,
+     "damage_per_second": null,
+     "hit_frequency_ms": null,
+     "heal_per_second": null,
+     "damage_reduction": null,
+     "damage_multiplier": null,
+     "crown_tower_damage_percent": null,
+     "immune_to_anti_magic": null,
+     "no_effect_to_crown_towers": false,
+     "attract_percentage": null,
+     "building_damage_percent": null,
+     "enable_stacking": false,
+     "hit_tick_from_source": false,
+     "controlled_by_parent": false,
+     "death_spawn": null,
+     "ignore_buildings": false,
+     "crown_tower_damage_per_hit": null
+    },
+    "time_ms": 50,
+    "area": {
+     "interval_ms": 50,
+     "area": "SuperKnight_ShieldAEO"
+    }
+   },
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -34977,6 +35007,33 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "idle_buff": {
+    "buff_name": "Knight_Fortify_EV1",
+    "buff": {
+     "name": "Knight_Fortify_EV1",
+     "speed_multiplier_raw": null,
+     "hit_speed_multiplier_raw": null,
+     "spawn_speed_multiplier_raw": null,
+     "damage_per_second": null,
+     "hit_frequency_ms": null,
+     "heal_per_second": null,
+     "damage_reduction": 60,
+     "damage_multiplier": null,
+     "crown_tower_damage_percent": null,
+     "immune_to_anti_magic": null,
+     "no_effect_to_crown_towers": false,
+     "attract_percentage": null,
+     "building_damage_percent": null,
+     "enable_stacking": false,
+     "hit_tick_from_source": false,
+     "controlled_by_parent": false,
+     "death_spawn": null,
+     "ignore_buildings": false,
+     "crown_tower_damage_per_hit": null
+    },
+    "time_ms": 50,
+    "area": null
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Knight",
@@ -45845,6 +45902,36 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "idle_buff": {
+    "buff_name": "SuperKnight_ShieldBuff",
+    "buff": {
+     "name": "SuperKnight_ShieldBuff",
+     "speed_multiplier_raw": null,
+     "hit_speed_multiplier_raw": null,
+     "spawn_speed_multiplier_raw": null,
+     "damage_per_second": null,
+     "hit_frequency_ms": null,
+     "heal_per_second": null,
+     "damage_reduction": null,
+     "damage_multiplier": null,
+     "crown_tower_damage_percent": null,
+     "immune_to_anti_magic": null,
+     "no_effect_to_crown_towers": false,
+     "attract_percentage": null,
+     "building_damage_percent": null,
+     "enable_stacking": false,
+     "hit_tick_from_source": false,
+     "controlled_by_parent": false,
+     "death_spawn": null,
+     "ignore_buildings": false,
+     "crown_tower_damage_per_hit": null
+    },
+    "time_ms": 50,
+    "area": {
+     "interval_ms": 50,
+     "area": "SuperKnight_ShieldAEO"
+    }
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
