@@ -565,6 +565,11 @@ pub struct Calib {
     /// its waves hold. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
     #[serde(default = "life_state_aim_repick_default")]
     pub life_state_aim_repick: LifeStateAimRepick,
+    /// spawner.ABILITY_UNIT_FIRST_UPDATE (`phase_spawn`): whether the unit a hero's button puts down takes an update on
+    /// the tick it is created. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before
+    /// it ran.
+    #[serde(default = "ability_unit_first_update_default")]
+    pub ability_unit_first_update: AbilityUnitFirstUpdate,
     /// targeting.INVISIBILITY (target.rs `invisible`). Added after SNAPSHOT_FORMAT 20; no battle saved before it held
     /// an invisible unit.
     #[serde(default = "invisibility_default")]
@@ -1522,6 +1527,10 @@ fn life_state_first_look_aim_default() -> LifeStateFirstLookAim {
 
 fn life_state_aim_repick_default() -> LifeStateAimRepick {
     LifeStateAimRepick::OnWave
+}
+
+fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
+    AbilityUnitFirstUpdate::CreationTick
 }
 
 fn invisibility_default() -> Invisibility {
@@ -3897,6 +3906,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.ABILITY_UNIT_FIRST_UPDATE -- whether the unit a hero's button puts down (`fire_ability`,
+    /// AbilityEffect::SpawnAhead: the Hero Musketeer's turret) takes an update on the tick it is created (`phase_spawn`,
+    /// the unit's PendingSpawn carrying `action_made`). A unit a play or a scenario puts down is not this key's, nor is
+    /// the turret's deploy blow (`deploy_blow`).
+    AbilityUnitFirstUpdate {
+        /// Today's engine: the turret is created in the Spawn phase of the tick its ability fires and takes that tick's
+        /// deploy countdown, as a played building does: it leaves its deploy on c + 19 and first loses lifetime hp on
+        /// c + 20, c being its first frame.
+        CreationTick = "creation_tick",
+        /// It does not: its first countdown is on c + 1, so it leaves its deploy on c + 20 and first loses lifetime hp
+        /// on c + 21. Measured on client 15.535.29 over every ability-made turret of the hero scenes; a played Cannon or
+        /// Tesla leaves on c + 19 and decays from c + 20 there, as in the engine.
+        NextTick = "client_next_tick",
+    }
+);
+calib_enum!(
     /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
     RollFirstStep {
         /// On the tick the airborne projectile lands: today's engine.
@@ -4991,6 +5016,7 @@ impl Calib {
             life_state_wave_point: pick(&v, &["spawner", "LIFE_STATE_WAVE_POINT", "value"], LifeStateWavePoint::from_calibration_name)?,
             life_state_first_look_aim: pick(&v, &["spawner", "LIFE_STATE_FIRST_LOOK_AIM", "value"], LifeStateFirstLookAim::from_calibration_name)?,
             life_state_aim_repick: pick(&v, &["spawner", "LIFE_STATE_AIM_REPICK", "value"], LifeStateAimRepick::from_calibration_name)?,
+            ability_unit_first_update: pick(&v, &["spawner", "ABILITY_UNIT_FIRST_UPDATE", "value"], AbilityUnitFirstUpdate::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             production_rate: pick(&v, &["economy", "PRODUCTION_RATE_IN_DOUBLE_ELIXIR", "value"], ProductionRate::from_calibration_name)?,
             stun_pauses_production: boolean(&v, &["economy", "STUN_PAUSES_PRODUCTION", "value"])?,
@@ -5714,6 +5740,14 @@ struct PendingSpawn {
     /// set. Added after SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     cloned: bool,
+    /// A UNIT AN ACTION MAKES, NOT A PLAY: the unit a hero's button puts down (`fire_ability`, AbilityEffect::SpawnAhead,
+    /// the Hero Musketeer's turret, which the client makes through a 50 ms dummy building's OnStartingAction). Set by
+    /// `fire_ability` alone; false on every other spawn. It says what KIND of spawn this is, nothing more: what it
+    /// changes is decided in `phase_spawn` by spawner.ABILITY_UNIT_FIRST_UPDATE. It is pushed in a tick's Status phase
+    /// and created in the same tick's Spawn phase, so no queue saved between ticks holds it set. Added after
+    /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
+    #[serde(default)]
+    action_made: bool,
 }
 
 /// AN ACTION A MECHANIC SCHEDULED FOR A LATER TICK (`BattleState::scheduled`): `ms` counts down by TICK_MS at the top
@@ -7977,7 +8011,7 @@ impl BattleState {
                     #[cfg(clash_plant = "action_spawn_unit_deploy")]
                     let action_deploy: Option<i32> = None; // PLANT (regression): the unit's own DeployTime (1000).
                     let deploy_ms = if action { action_deploy } else { deploy_ms };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
                     k += 1;
                 }
                 left -= 1;
@@ -8292,6 +8326,7 @@ impl BattleState {
             summon_x: None,
             morph_birth: false,
             cloned: false,
+            action_made: false,
         };
         Some((team, self.ents.team_seq[i], 0, p))
     }
@@ -9815,6 +9850,23 @@ impl BattleState {
             if longer && self.cfg.cards.get(p.card).deploy_area_effect.is_some() && self.ents.deploy_ms[id.index as usize] > 0 {
                 self.ents.deploy_ms[id.index as usize] += self.cfg.calib.tick_ms;
             }
+            // spawner.ABILITY_UNIT_FIRST_UPDATE = client_next_tick: the unit a hero's button puts down (`fire_ability`;
+            // the Hero Musketeer's turret, which the client makes through a dummy building's OnStartingAction) takes
+            // no update on the tick it is created, so its deploy countdown first runs on the next tick. It is created
+            // here, before this tick's countdown (`deploy_countdown`, the per-unit update at the end of Move), and the
+            // countdown is the one update a deploying building has, so one more TICK_MS on its timer is exactly that
+            // update withheld: it leaves its deploy on c + 20 and first loses lifetime hp on c + 21 (the drain starts
+            // on the tick after the deploy end), c being its first frame, where a played building leaves on c + 19 and
+            // decays from c + 20. Measured on client 15.535.29 on every ability-made turret of the hero scenes. The
+            // same form as the area-effect character's one tick above; a Goblin Hut's wave misses its countdown by
+            // being created after it (spawner.LIFE_STATE_FIRST_UPDATE).
+            #[cfg(not(clash_plant = "ability_unit_counts_down_at_creation"))]
+            let late = p.action_made && self.cfg.calib.ability_unit_first_update == AbilityUnitFirstUpdate::NextTick;
+            #[cfg(clash_plant = "ability_unit_counts_down_at_creation")]
+            let late = false; // PLANT (regression): the new arm counts the turret down on its creation tick, as the old one does.
+            if late && self.ents.deploy_ms[id.index as usize] > 0 {
+                self.ents.deploy_ms[id.index as usize] += self.cfg.calib.tick_ms;
+            }
             // spells.DEPLOY_AREA_EFFECT = client_area_effect: a card whose row IS an area effect
             // that spawns its character (card.rs `deploy_area_effect`: the Electro Wizard's
             // ElectroWizardZap, the Ice Wizard's IceWizardCold) acts as that area where the
@@ -10092,6 +10144,7 @@ impl BattleState {
                     summon_x: None,
                     morph_birth: true,
                     cloned: false,
+                    action_made: false,
                 });
                 if self.cfg.cards.get(m).spawn_area_effect.is_some() {
                     let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest, self.tick).expect("the spawn area's level is validated at the play");
@@ -13677,7 +13730,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
             }
         }
         // A SCHEDULED AREA'S UNITS (the Graveyard's Skeletons, the Suspicious Bush's goblins), each at its own point
@@ -13695,7 +13748,7 @@ impl BattleState {
             let acquire_delay = true;
             #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
             let acquire_delay = false; // PLANT: a target from its first frame.
-            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
+            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
@@ -13798,6 +13851,7 @@ impl BattleState {
                 morph_birth: false,
                 // A cloned barrel's container is not modelled (a copy's death bomb is unmeasured), so its units are not copies.
                 cloned: false,
+                action_made: false,
             });
         }
     }
@@ -14608,7 +14662,7 @@ impl BattleState {
             };
             parents.push(i);
             for (k, p) in points.into_iter().enumerate() {
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks: 0, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks: 0, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false }));
             }
         }
         // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
@@ -14674,7 +14728,7 @@ impl BattleState {
                     team,
                     self.ents.team_seq[i],
                     256 + k as u32,
-                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false },
+                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false },
                 ));
             }
         }
@@ -15137,7 +15191,7 @@ impl BattleState {
                 return;
             }
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
             return;
         }
         // A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): ONE entry, its count 1 (card.rs `convert` refuses any
@@ -15152,7 +15206,7 @@ impl BattleState {
                 SpawnPathfindDestination::ClientTileCentreMorphFootprint => pos,
                 SpawnPathfindDestination::OrdinaryGroundDeployPoint => self.formation_members_with(team, idx, level, pos, observed).first().map_or(pos, |m| m.pos),
             };
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
             return;
         }
         for m in self.formation_members_with(team, idx, level, pos, observed) {
@@ -15234,7 +15288,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false, cloned: false }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false, cloned: false, action_made: false }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -16105,7 +16159,9 @@ impl BattleState {
     ///     hero, read as a scheduled area's relative offset is (spawner.RELATIVE_SPAWN_OFFSET: 500 native a unit,
     ///     RelativeY along the owner's forward), clamped into the arena and off water as a scheduled spawn's point is
     ///     (`scheduled_point`), at the hero's level on the unit's own ladder, with its own DeployTime. It is created in
-    ///     this tick's Spawn phase, and its OnStartingAction's projectile is its deploy blow (`deploy_blow`).
+    ///     this tick's Spawn phase, marked as an action's unit (`action_made`: spawner.ABILITY_UNIT_FIRST_UPDATE decides
+    ///     whether it takes that tick's deploy countdown), and its OnStartingAction's projectile is its deploy blow
+    ///     (`deploy_blow`).
     ///   - `Areas` (the Hero Ice Golem's storm): each starting area is made on the hero now and acts from the NEXT
     ///     tick, as an area another area makes does (spell.rs `SpellMotion::Attached`, `SpellOut::born`): its life and
     ///     its first hit start one tick on (ABILITY_AREA_FIRST_UPDATE_TICKS).
@@ -16114,8 +16170,11 @@ impl BattleState {
     /// her facing (Red: -2500, read as the team frame, unmeasured), in the river and across the bridge alike; the
     /// storm's waves land on P + 2, P + 32 and P + 62. Unmeasured or open: a turret point on the side's own princess
     /// tower is moved behind the hero on the client (hero (3499, 3500) gives (3481, 2000)), which `scheduled_point`
-    /// does not do; the tick the turret's blow lands (it lands as the Mega Knight's deploy projectile does, 6 ticks
-    /// after the turret appears, combat.rs DEPLOY_PROJECTILE_DELAY_TICKS).
+    /// does not do; the tick the turret's blow lands. The engine lands it as the Mega Knight's deploy projectile, 6
+    /// ticks after the turret appears (combat.rs DEPLOY_PROJECTILE_DELAY_TICKS), under either arm of
+    /// spawner.ABILITY_UNIT_FIRST_UPDATE. On client 15.535.29 it lands on c + 2, c being the turret's first frame: in
+    /// the three hero scenes with an enemy in its reach (sp-h2, sp-h2l9 and sp-scene-d, a Knight losing the blow's
+    /// 204 at level 11 and 169 at level 9 and sliding), where the engine lands it on c + 6.
     fn fire_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
@@ -16125,7 +16184,7 @@ impl BattleState {
                 let flying = self.cfg.cards.get(unit).is_flying();
                 let at = self.scheduled_point(team, pos, crate::card::SpawnOffset::Relative { x: relative_x, y: relative_y }, flying);
                 let lvl = self.cfg.cards.unit_level(card, unit, None, level).expect("the ability unit's level is validated at try_new");
-                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
+                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
             }
             crate::card::AbilityEffect::Areas { start, .. } => {
                 for part in start {
@@ -17371,6 +17430,11 @@ impl BattleState {
                 if s.cloned {
                     h.u32(0xC1);
                 }
+                // A hero's button's unit (`fire_ability`; spawner.ABILITY_UNIT_FIRST_UPDATE), only when set. It is
+                // pushed and created inside one tick, so no queue hashed between ticks has held it set yet.
+                if s.action_made {
+                    h.u32(0xAC);
+                }
             }
         }
         h.u32(self.dmg.hits.len() as u32);
@@ -17859,6 +17923,10 @@ impl BattleState {
 /// 20, unchanged, spawner.LIFE_STATE_AIM_REPICK: Calib gained life_state_aim_repick (serde default the old arm,
 ///    on_wave), no new state (the new arm writes the saved and hashed life_target on other ticks), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.ABILITY_UNIT_FIRST_UPDATE: Calib gained ability_unit_first_update (serde default the old
+///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
+///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
+///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18311,6 +18379,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("life_state_first_look_aim".into(), serde_json::to_value(LifeStateFirstLookAim::PostMove).map_err(|e| e.to_string())?);
     // spawner.LIFE_STATE_AIM_REPICK: the same.
     sh.insert("life_state_aim_repick".into(), serde_json::to_value(LifeStateAimRepick::OnWave).map_err(|e| e.to_string())?);
+    // spawner.ABILITY_UNIT_FIRST_UPDATE: a format-3 battle held no hero; it keeps the old arm whatever the ledger ships.
+    sh.insert("ability_unit_first_update".into(), serde_json::to_value(AbilityUnitFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
     // The underground walk and the listed death ring: a format-3 battle ran no tunneller and laid every death
     // spawn by the layout key; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_ring".into(), serde_json::to_value(DeathRingArm::None).map_err(|e| e.to_string())?);
