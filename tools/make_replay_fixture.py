@@ -1332,6 +1332,34 @@ def projectile_target(eff: dict) -> tuple[int, int]:
     return eff.get("projectile_x", eff["x"]), eff.get("projectile_y", eff["y"])
 
 
+def launch_tick(frame: dict, side: int, cid: int) -> tuple[int, str] | None:
+    """(ticks already flown, evidence) for a cast whose first sighting is `frame`, when its object left from its caster's
+    king tower (a Fireball, a Rocket, a Snowball: every such cast the corpus sees on its launch tick stands one step
+    from the king, its previous point on the king's centre) and is already past its first step: its point is a whole
+    number k of steps (point minus previous point) from the king, on the line from it, so it was launched on the first
+    frame's tick minus k plus 1. None for every other object (a volley, a roll, a strike, one seen on its launch tick).
+    20260920-071744-B: a Fireball first seen on 475, after the frames of 473 and 474 were lost, on (9678, 27335) with
+    its previous point (9452, 27890): 1798 from the king (9000, 29000), three steps of 599, launched on 473, the tick
+    the other seat's capture first shows it."""
+    effs = [e for e in frame.get("effects") or [] if e.get("card_id") == cid and e.get("side") == side]
+    kings = [(e["x"], e["y"]) for e in frame.get("entities") or [] if e.get("kind") == 12 and e.get("side") == side]
+    if len(effs) != 1 or len(kings) != 1 or effs[0].get("x2") is None:
+        return None
+    e, (kx, ky) = effs[0], kings[0]
+    sx, sy = e["x"] - e["x2"], e["y"] - e["y2"]
+    step = math.hypot(sx, sy)
+    if step == 0 or (e["x2"], e["y2"]) == (kx, ky):
+        return None
+    k = math.hypot(e["x"] - kx, e["y"] - ky) / step
+    # on the line from the king: the previous point is k - 1 steps out along the same heading
+    ok = round(k) >= 2 and abs(k - round(k)) < LAUNCH_STEP_TOLERANCE and math.hypot(
+        kx + sx * (round(k) - 1) - e["x2"], ky + sy * (round(k) - 1) - e["y2"]) <= LAUNCH_POINT_TOLERANCE * round(k)
+    if not ok:
+        return None
+    return round(k), (f"{round(k)} steps of {step:.0f} from its caster's king ({kx}, {ky}) on its first frame, so"
+                      f" launched {round(k) - 1} ticks earlier")
+
+
 def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
     """The casts in the `effects` stream: one per run of class-28 objects of one (side,
     card) with no gap over CAST_GAP_TICKS between sightings (CAST_GAP_TICKS). Each:
@@ -1411,6 +1439,10 @@ def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
     return out
 
 
+#: `launch_tick`: how far from a whole number of steps, and how far per step off the king's line, a first sighting may
+#: stand and still be dated by its steps (the corpus's gap-seen king-launched casts stand on whole steps to 0.01).
+LAUNCH_STEP_TOLERANCE = 0.05
+LAUNCH_POINT_TOLERANCE = 3
 #: How far past a damaging spell's radius a victim's centre may stand and still be read as hit (a unit's own radius).
 SPELL_VICTIM_MARGIN = 1500
 #: How many frames after a spell row's tick its first hit is looked for.
@@ -1456,6 +1488,9 @@ def spell_levels_from_damage(
         reach = (card.get("area_damage_radius_milli") or (card.get("projectile") or {}).get("radius_milli") or 0)
         reach += SPELL_VICTIM_MARGIN
         i0 = index_of.get(d["tick"])
+        if i0 is None and d.get("source") == "effect":
+            # a cast dated before its first sighting (`launch_tick`): its hit is looked for from that sighting on
+            i0 = index_of.get(d.get("first_seen"))
         if i0 is None:
             continue
         foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
@@ -2062,6 +2097,12 @@ def build(
         ax, ay = cast["aim"]  # already in the fixture's frame
         tick = ticks[fi]
         side = cast["side"]
+        # A KING-LAUNCHED CAST FIRST SEEN AFTER A FRAME GAP is dated by the steps it has flown (`launch_tick`).
+        flown = launch_tick(frames[fi], side, cid) if fi > 0 and ticks[fi] - ticks[fi - 1] > 1 else None
+        if flown is not None and ticks[fi - 1] < tick - flown[0] + 1 < tick:
+            tick = tick - flown[0] + 1
+        else:
+            flown = None
         tap_ix = None
         for ix, t in enumerate(taps):
             if ix in used_taps or t["kind"] != "cast" or t["side"] != side or t["id"] != cid:
@@ -2071,13 +2112,14 @@ def build(
                 break
         d = {
             "tick": tick,
-            "first_seen": tick,
+            "first_seen": ticks[fi],
             "tick_evidence": "first frame of the projectile"
             + (
                 f" (frame gap {ticks[fi] - ticks[fi - 1]})"
                 if fi > 0 and ticks[fi] - ticks[fi - 1] > 1
                 else ""
-            ),
+            )
+            + (f"; {flown[1]}" if flown is not None else ""),
             "side": side,
             "card": name,
             "card_id": cid,

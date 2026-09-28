@@ -1729,3 +1729,20 @@ def test_a_pair_with_no_measured_ring_is_played_on_the_tile_its_laid_point_names
     tile, why = m.laid_tile([(13701, 10828), (4280, 11616)], 0, False)
     assert tile is None, why
     assert why.startswith("the members' mean (8990.5, 11222) is no tile"), why
+
+
+def test_a_king_launched_cast_seen_after_a_frame_gap_is_dated_by_its_steps(m):
+    """20260920-071744-B: the Fireball's frames of 473 and 474 were lost; on 475 it stands three steps of 599 from its
+    caster's king, so it left on 473, the tick the other seat's capture first shows it. A cast seen on its launch tick
+    (previous point on the king) and a point off the king's line are not dated."""
+    king = {"kind": 12, "side": 1, "x": 9000, "y": 29000}
+    fb = 28000000
+
+    def frame(x, y, x2, y2):
+        return {"entities": [king], "effects": [{"card_id": fb, "side": 1, "x": x, "y": y, "x2": x2, "y2": y2}]}
+
+    k, why = m.launch_tick(frame(9678, 27335, 9452, 27890), 1, fb)
+    assert k == 3, why
+    assert m.launch_tick(frame(9226, 28445, 9000, 29000), 1, fb) is None, "seen on its launch tick"
+    assert m.launch_tick(frame(9678, 27335, 9452, 27990), 1, fb) is None, "off the line from the king"
+    assert m.launch_tick(frame(9678, 27335, 9452, 27890), 0, fb) is None, "no king of that side on the frame"
