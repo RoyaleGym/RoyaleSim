@@ -15123,7 +15123,13 @@ impl BattleState {
                     // single unit: the column's front bound and the passable-ground ejection were
                     // never measured for one, and a scenario unit placed in the enemy half
                     // (spawn_unit) keeps its exact point.
-                    let single_point = !observed && calib.placement_tap_snap == TapSnap::TileCentre && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
+                    // A BUILDING keeps its own placement (its footprint's even corner) and takes no ground deploy
+                    // point: the corpus stands every Goblin Hut and Tombstone exactly on its tile (parity, the
+                    // TAP_SNAP residue: 112215 t187, 130203.b2 t339, 143305-A t304, 122757.b2 t504).
+                    let single_point = !observed
+                        && card.kind != CardKind::Building
+                        && calib.placement_tap_snap == TapSnap::TileCentre
+                        && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
                     let single_clamp = calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
                     if cards.get(unit_of(0)).is_flying() || !(single_point || single_clamp) {
                         return vec![member(0, pos)];
