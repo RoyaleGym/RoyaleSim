@@ -16284,18 +16284,30 @@ impl BattleState {
     /// accepts, and a TIE between two equally near tiles to the first in COLUMN-MAJOR order in the placer's frame
     /// (columns from its low x, each from its low y). Under placement.ILLEGAL_TAP = relocate_first_fitting_ring the
     /// first ring holding a fit ends the search. None when nothing within PLACEMENT_SEARCH_RINGS fits.
-    fn ring_nearest_fit(&self, team: Team, snapped: Vec2, tap: Vec2, fits: impl Fn(Vec2) -> bool) -> Option<Vec2> {
+    /// A RELOCATION RING'S CANDIDATE: `step` taken in the PLACER's frame from `snapped`, whatever
+    /// placement.SNAP_EVEN_CORNER says. That key selects the frame of the snap's floor (an even box's corner, a tap on a
+    /// tile edge), which client 15.535.29 takes in the arena's frame; the ring's walk order, which breaks ties between
+    /// equally near tiles, is the placer's: side 1's tap on its own live bottle in the 16.402 corpus (20260918-133849,
+    /// own (3500, 1500)) goes to (15500, 30500), where an arena-frame walk sends it to (13500, 30500), and client
+    /// 15.535.29's side-1 Cannons tapped on a standing Cannon land where the placer-frame walk puts them. The walk
+    /// order read the snap key until the 2026-09-28 placement batch; plant ring_walks_the_snap_frame restores that.
+    fn ring_candidate(&self, team: Team, snapped: Vec2, step: Vec2) -> Vec2 {
         let arena = &self.cfg.arena;
+        #[cfg(clash_plant = "ring_walks_the_snap_frame")]
+        if self.cfg.calib.placement_snap_even == PlacementSnapEven::Absolute {
+            return snapped.add(step); // PLANT: the ring walks the arena's frame under absolute.
+        }
+        arena.from_frame(team, arena.to_frame(team, snapped).add(step))
+    }
+
+    fn ring_nearest_fit(&self, team: Team, snapped: Vec2, tap: Vec2, fits: impl Fn(Vec2) -> bool) -> Option<Vec2> {
         let tile = crate::fixed::tiles(1);
         let mut best: Option<(i64, Vec2)> = None;
         for r in 1..=PLACEMENT_SEARCH_RINGS {
             let ring = (-r..=r).flat_map(|dx| (-r..=r).map(move |dy| (dx, dy))).filter(|&(dx, dy)| dx.abs().max(dy.abs()) == r);
             for (dx, dy) in ring {
                 let step = Vec2::new(dx * tile, dy * tile);
-                let c = match self.cfg.calib.placement_snap_even {
-                    PlacementSnapEven::PlacerFrame => arena.from_frame(team, arena.to_frame(team, snapped).add(step)),
-                    PlacementSnapEven::Absolute => snapped.add(step),
-                };
+                let c = self.ring_candidate(team, snapped, step);
                 if !fits(c) {
                     continue;
                 }
@@ -16367,10 +16379,7 @@ impl BattleState {
         for r in 1..=PLACEMENT_SEARCH_RINGS {
             for (dx, dy) in ring_offsets(r) {
                 let step = Vec2::new(dx * tile, dy * tile);
-                let candidate = match self.cfg.calib.placement_snap_even {
-                    PlacementSnapEven::PlacerFrame => arena.from_frame(team, arena.to_frame(team, snapped).add(step)),
-                    PlacementSnapEven::Absolute => snapped.add(step),
-                };
+                let candidate = self.ring_candidate(team, snapped, step);
                 if !fits(candidate) {
                     continue;
                 }
@@ -19638,7 +19647,9 @@ mod tests {
         // A slot deploy spends elixir and cycles exactly that slot.
         let before = s.hand(Team::Blue).iter().map(|x| x.to_string()).collect::<Vec<_>>();
         let next = s.next_card(Team::Blue).map(|x| x.to_string());
-        let knight_spot = Vec2::new(princess.x, princess.y - 3 * a.cell);
+        // A tile centre in open ground below the princess's box (three cells down was the box's edge, which the
+        // shipped tile-centre snap takes into the box).
+        let knight_spot = Vec2::new(princess.x, princess.y - 4 * a.cell);
         s.deploy_slot(Team::Blue, 1, knight_spot).unwrap();
         let after = s.hand(Team::Blue);
         assert_eq!((after[0], after[2], after[3]), (before[0].as_str(), before[2].as_str(), before[3].as_str()));
