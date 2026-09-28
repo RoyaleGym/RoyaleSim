@@ -24,7 +24,8 @@
 //!   6. `a_press_under_a_freeze_waits_for_the_thaw` (S7);
 //!   7. `the_storm_outlives_the_golem` (S10);
 //!   8. `the_hero_card_cycles_and_replays_while_she_lives` (S1, S5, S9);
-//!   9. `the_turret_goes_down_in_the_river_and_across_the_bridge` (S4).
+//!   9. `the_turret_goes_down_in_the_river_and_across_the_bridge` (S4);
+//!  10. `the_turret_is_at_the_heros_level` (S2 ABILITY_OBJECT_LEVEL).
 //!
 //! A battle with no forms hashes as it did before the forms: tests/hash_continuity.rs.
 //!
@@ -479,5 +480,31 @@ fn the_turret_goes_down_in_the_river_and_across_the_bridge() {
     for (x, y) in [(3274, 13054), (3269, 15514)] {
         let (hero, turret) = turret_from(x, y);
         assert_eq!(turret, hero.add(native(0, 2500)), "from ({x}, {y})");
+    }
+}
+
+#[test]
+fn the_turret_is_at_the_heros_level() {
+    // S2 ABILITY_OBJECT_LEVEL (sp-h2, sp-h2l9): the turret's max_hp is 1536 in a level-11 battle and 1272 in a level-9.
+    for (level, hp) in [(11, 1536), (9, 1272)] {
+        let mut cfg = config();
+        let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+        cfg.decks = [deck.clone(), deck];
+        cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+        cfg.card_level = [level, level];
+        let mut s = BattleState::try_new(7, cfg).unwrap();
+        let lockout = s.config().calib.deploy_lockout_ticks as u32;
+        s.scenario_set_tick(lockout);
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
+        s.deploy(Team::Blue, "Musketeer", t(900, 800)).expect("the play");
+        s.tick();
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        let got = (0..40)
+            .find_map(|_| {
+                s.tick();
+                find_live(&s, Team::Blue, "MusketeerTurret").first().map(|e| e.max_hp)
+            })
+            .expect("the turret");
+        assert_eq!(got, hp, "the turret's max_hp at level {level}");
     }
 }
