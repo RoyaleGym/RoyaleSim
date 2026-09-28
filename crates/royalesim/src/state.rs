@@ -4538,6 +4538,13 @@ calib_enum!(
         /// every building (`delay_acquisition`). Area damage still lands on the unit meanwhile,
         /// because it is not a target scan; that is the engine's reading, not a measurement.
         Client8thFrame = "client_8th_frame",
+        /// client_8th_frame, and a BUILDING an action makes waits too: the unit a hero's button puts down (the Hero
+        /// Musketeer's turret, whose PendingSpawn carries `action_made`) is nobody's target before F + 7. A played
+        /// building and a death-spawned one stay exempt. Measured on client 15.535.29: in the 4 hero scenes where an
+        /// enemy targets a turret, its first targeting is on F + 7 (4 of 4), where a played Cannon, Inferno Tower, Bomb
+        /// Tower, Tombstone, Goblin Cage, Goblin Hut and Barbarian Hut are first targeted on F + 0 (a Tesla, which comes
+        /// up out of its hide, on F + 9) in the client and the engine alike.
+        Client8thFrameActionBuildings = "client_8th_frame_action_buildings",
     }
 );
 calib_enum!(
@@ -5702,8 +5709,9 @@ struct PendingSpawn {
     #[serde(default)]
     slide_ticks: u8,
     /// A release the enemy target scan waits for (targeting.SPAWNED_UNIT_ACQUIRE_DELAY): true
-    /// on every death-spawn member, false on everything else. It says what KIND of spawn this
-    /// is, nothing more: the arm and the unit's kind are decided once, when the unit is
+    /// on every death-spawn member, a Goblin Hut's wave and the unit a hero's button puts down
+    /// (`fire_ability`, which also sets `action_made`), false on everything else. It says what
+    /// KIND of spawn this is, nothing more: the arm and the unit's kind are decided once, when the unit is
     /// created, by `BattleState::delay_acquisition`, which every creation site calls for an
     /// entry that carries it. A later release path the rule reaches (a Goblin Hut's waves, a
     /// Graveyard, a Suspicious Bush) sets it here and changes nothing else; a container whose
@@ -5743,7 +5751,8 @@ struct PendingSpawn {
     /// A UNIT AN ACTION MAKES, NOT A PLAY: the unit a hero's button puts down (`fire_ability`, AbilityEffect::SpawnAhead,
     /// the Hero Musketeer's turret, which the client makes through a 50 ms dummy building's OnStartingAction). Set by
     /// `fire_ability` alone; false on every other spawn. It says what KIND of spawn this is, nothing more: what it
-    /// changes is decided in `phase_spawn` by spawner.ABILITY_UNIT_FIRST_UPDATE. It is pushed in a tick's Status phase
+    /// changes is decided in `phase_spawn` by spawner.ABILITY_UNIT_FIRST_UPDATE and in `delay_acquisition` by
+    /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings. It is pushed in a tick's Status phase
     /// and created in the same tick's Spawn phase, so no queue saved between ticks holds it set. Added after
     /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
@@ -6961,7 +6970,7 @@ impl BattleState {
         }
         self.lifetime_acc[i] = 0;
         #[cfg(clash_plant = "acquire_delay_every_unit")]
-        self.delay_acquisition(i); // PLANT: every new troop waits, hand-played and periodic included.
+        self.delay_acquisition(i, false); // PLANT: every new troop waits, hand-played and periodic included.
         // A card's deploy projectile is not cast here: it belongs to the PLAY (`deploy_blow`, from `phase_spawn`).
         // spawner.SPAWN_AREA_OBJECT_SCOPE = every_row: a unit whose row sets SpawnAreaObject (card.rs
         // `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal) puts that area effect down
@@ -7203,7 +7212,7 @@ impl BattleState {
                 self.ents.facing[id.index as usize] = f;
             }
             if p.acquire_delay {
-                self.delay_acquisition(id.index as usize);
+                self.delay_acquisition(id.index as usize, p.action_made);
             }
             // A copy's death spawn (spells.CLONE_DEATH_SPAWNS): a copy too.
             if p.cloned {
@@ -7623,7 +7632,8 @@ impl BattleState {
     /// THE ONE SETTER of targeting.SPAWNED_UNIT_ACQUIRE_DELAY: entity `i`, created this tick
     /// from a release that carries `PendingSpawn::acquire_delay`, becomes acquirable on its own
     /// first tick + `target::ACQUIRE_DELAY_TICKS` -- F + 7, its 8th frame -- when the arm is
-    /// client_8th_frame and the unit is a TROOP. target.rs `can_target` refuses it to every
+    /// client_8th_frame (or client_8th_frame_action_buildings) and the unit is a TROOP, or a building an action made
+    /// under client_8th_frame_action_buildings (below). target.rs `can_target` refuses it to every
     /// enemy before then. Nothing else is held: it walks, takes targets and attacks as it
     /// would, and area damage lands on it.
     ///
@@ -7654,16 +7664,28 @@ impl BattleState {
     /// are independent columns set on the same creation: the slide keeps the member from
     /// TAKING a target until it reaches DeathSpawnRadius (a Golemite's last slide step is on
     /// F + 5), this keeps every enemy from taking IT until F + 7. Neither reads the other.
-    fn delay_acquisition(&mut self, i: usize) {
+    ///
+    /// A BUILDING AN ACTION MAKES (`action_made`: the turret a hero's button puts down, `fire_ability`, which flags its
+    /// release too) waits as a troop does under client_8th_frame_action_buildings, and is exempt with every other
+    /// building under client_8th_frame. Measured on client 15.535.29: the turret's first targeting is on F + 7 in the
+    /// 4 hero scenes where an enemy targets one, while a played building is targeted on F + 0 (a Tesla, out of its
+    /// hide, on F + 9) in the client and the engine alike, and never comes through here.
+    fn delay_acquisition(&mut self, i: usize, action_made: bool) {
+        let arm = self.cfg.calib.spawned_unit_acquire_delay;
         #[cfg(not(clash_plant = "acquire_delay_ignores_arm"))]
-        let on = self.cfg.calib.spawned_unit_acquire_delay == SpawnedUnitAcquireDelay::Client8thFrame;
+        let on = arm != SpawnedUnitAcquireDelay::None;
         #[cfg(clash_plant = "acquire_delay_ignores_arm")]
         let on = true; // PLANT: the delay runs under `none` as well.
         #[cfg(not(clash_plant = "acquire_delay_on_buildings"))]
         let troop = self.ents.kind[i] == EntityKind::Troop;
         #[cfg(clash_plant = "acquire_delay_on_buildings")]
         let troop = true; // PLANT: a death-spawned building waits too.
-        if on && troop {
+        // targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings: an action's building waits too.
+        #[cfg(not(clash_plant = "action_building_acquired_at_once"))]
+        let action_building = action_made && arm == SpawnedUnitAcquireDelay::Client8thFrameActionBuildings;
+        #[cfg(clash_plant = "action_building_acquired_at_once")]
+        let action_building = false; // PLANT (regression): the new arm exempts the turret, as client_8th_frame does.
+        if on && (troop || action_building) {
             self.ents.acquirable_from[i] = self.ents.spawn_tick[i] + target::ACQUIRE_DELAY_TICKS;
         }
     }
@@ -8645,7 +8667,7 @@ impl BattleState {
             // unmeasured. A Goblin Hut's waves will carry it when that card loads, and then this
             // line is their setter call.
             if p.acquire_delay {
-                self.delay_acquisition(i);
+                self.delay_acquisition(i, p.action_made);
             }
             if let Some(d) = p.deploy_ms {
                 self.ents.deploy_ms[i] = d;
@@ -9823,7 +9845,7 @@ impl BattleState {
             // tick is this one, and the delay counts from it.
             #[cfg(not(clash_plant = "acquire_delay_dropped_in_queue"))]
             if p.acquire_delay {
-                self.delay_acquisition(id.index as usize);
+                self.delay_acquisition(id.index as usize, p.action_made);
             }
             // A copy's death spawn (spells.CLONE_DEATH_SPAWNS): a copy too.
             if p.cloned {
@@ -16160,8 +16182,8 @@ impl BattleState {
     ///     RelativeY along the owner's forward), clamped into the arena and off water as a scheduled spawn's point is
     ///     (`scheduled_point`), at the hero's level on the unit's own ladder, with its own DeployTime. It is created in
     ///     this tick's Spawn phase, marked as an action's unit (`action_made`: spawner.ABILITY_UNIT_FIRST_UPDATE decides
-    ///     whether it takes that tick's deploy countdown), and its OnStartingAction's projectile is its deploy blow
-    ///     (`deploy_blow`).
+    ///     whether it takes that tick's deploy countdown, and targeting.SPAWNED_UNIT_ACQUIRE_DELAY whether an enemy
+    ///     may target it before F + 7), and its OnStartingAction's projectile is its deploy blow (`deploy_blow`).
     ///   - `Areas` (the Hero Ice Golem's storm): each starting area is made on the hero now and acts from the NEXT
     ///     tick, as an area another area makes does (spell.rs `SpellMotion::Attached`, `SpellOut::born`): its life and
     ///     its first hit start one tick on (ABILITY_AREA_FIRST_UPDATE_TICKS).
@@ -16184,7 +16206,7 @@ impl BattleState {
                 let flying = self.cfg.cards.get(unit).is_flying();
                 let at = self.scheduled_point(team, pos, crate::card::SpawnOffset::Relative { x: relative_x, y: relative_y }, flying);
                 let lvl = self.cfg.cards.unit_level(card, unit, None, level).expect("the ability unit's level is validated at try_new");
-                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: true, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
             }
             crate::card::AbilityEffect::Areas { start, .. } => {
                 for part in start {
@@ -17403,9 +17425,9 @@ impl BattleState {
                     }
                 }
                 // The flag is set on every queued death spawn whatever the arm, and acted on
-                // only under client_8th_frame (`delay_acquisition`): hashed under that arm
-                // alone, like `stagger_ms` under its own.
-                if self.cfg.calib.spawned_unit_acquire_delay == SpawnedUnitAcquireDelay::Client8thFrame {
+                // only under client_8th_frame and client_8th_frame_action_buildings
+                // (`delay_acquisition`): hashed under those arms alone, like `stagger_ms` under its own.
+                if self.cfg.calib.spawned_unit_acquire_delay != SpawnedUnitAcquireDelay::None {
                     h.bool(s.acquire_delay);
                 }
                 // The same for spawner.SPAWNED_FIRST_STEP's flag, acted on only under
