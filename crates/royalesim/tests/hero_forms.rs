@@ -22,7 +22,9 @@
 //!   5. `a_hero_killed_before_her_turret_gets_the_elixir_back` and `the_ice_golem_storm_is_not_refunded_once_made`
 //!      (S6);
 //!   6. `a_press_under_a_freeze_waits_for_the_thaw` (S7);
-//!   7. `the_storm_outlives_the_golem` (S10).
+//!   7. `the_storm_outlives_the_golem` (S10);
+//!   8. `the_hero_card_cycles_and_replays_while_she_lives` (S1, S5, S9);
+//!   9. `the_turret_goes_down_in_the_river_and_across_the_bridge` (S4).
 //!
 //! A battle with no forms hashes as it did before the forms: tests/hash_continuity.rs.
 //!
@@ -423,4 +425,59 @@ fn the_storm_outlives_the_golem() {
     let gone = gone.expect("the scene drifted: the Rocket did not kill the golem");
     assert!(gone < 61, "the golem died at {gone}");
     assert_eq!(drops.last(), Some(&61), "the last wave lands after the golem's death: {drops:?}");
+}
+
+#[test]
+fn the_hero_card_cycles_and_replays_while_she_lives() {
+    // S1 (every play of a form-2 entry is the hero), S9 (the card cycles as any card, not as a champion) and S5 (a
+    // replay with the first hero alive is taken; sp-h5b: played 100, replayed 394 with the first alive).
+    let mut s = battle(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]);
+    s.deploy(Team::Blue, "Musketeer", t(900, 800)).expect("the first play");
+    s.tick();
+    let first = find_live(&s, Team::Blue, "Musketeer_hero")[0].id;
+    // Four fillers bring the Musketeer back: the hand card went to the back of the queue.
+    for card in ["Knight", "Archer", "Giant", "Valkyrie"] {
+        assert!(!s.hand(Team::Blue).contains(&"Musketeer"), "back in hand before {card}");
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
+        s.deploy(Team::Blue, card, t(300, 500)).unwrap_or_else(|e| panic!("{card}: {e:?}"));
+        for _ in 0..4 {
+            s.tick();
+        }
+    }
+    assert!(s.hand(Team::Blue).contains(&"Musketeer"), "the hero card is back after four plays");
+    assert!(s.entity(first).is_some(), "the first hero lives");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Musketeer", t(1500, 800)).expect("a replay with the first hero alive");
+    s.tick();
+    let heroes = find_live(&s, Team::Blue, "Musketeer_hero");
+    assert_eq!(heroes.len(), 2, "both heroes, the replay the hero form too");
+    let second = heroes.iter().map(|e| e.id).find(|id| *id != first).unwrap();
+    assert_eq!(s.ability_buttons(Team::Blue)[0].hero, Some(second), "the button presses the newest hero");
+}
+
+/// A Blue Hero Musketeer put down at native (x, y), pressed on her first frame: her point when the turret comes, and
+/// the turret's.
+fn turret_from(x: i32, y: i32) -> (Vec2, Vec2) {
+    let mut s = battle(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]);
+    s.spawn_unit(Team::Blue, "Musketeer_hero", native(x, y), None).unwrap();
+    s.tick();
+    let hid = find_live(&s, Team::Blue, "Musketeer_hero")[0].id;
+    s.press_ability_button(Team::Blue, 0).expect("the press is never refused for its point");
+    for _ in 0..40 {
+        let at = s.entity(hid).unwrap().pos;
+        s.tick();
+        if let Some(t) = find_live(&s, Team::Blue, "MusketeerTurret").first() {
+            return (at, t.pos);
+        }
+    }
+    panic!("no turret from ({x}, {y})");
+}
+
+#[test]
+fn the_turret_goes_down_in_the_river_and_across_the_bridge() {
+    // S4 (sp-h4river, sp-h4enemy): hero (3274, 13054) gives (3274, 15554); (3269, 15514) gives (3269, 18014).
+    for (x, y) in [(3274, 13054), (3269, 15514)] {
+        let (hero, turret) = turret_from(x, y);
+        assert_eq!(turret, hero.add(native(0, 2500)), "from ({x}, {y})");
+    }
 }
