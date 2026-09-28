@@ -1122,14 +1122,15 @@ pub struct SpellDef {
 
 /// A HERO FORM'S BUTTON (characters/hero_form [ABILITY.*]; cards.json `hero_forms[].ability`, tools/extract_cards.py
 /// `ability_block`). One charge per hero unit (MaxCharges 1, no Cooldown: the loader refuses any other), paid at the
-/// press, usable once the hero's deploy has ended (state.rs `check_ability_button`).
+/// press, usable from the hero's first frame (state.rs `check_ability_button`); the press starts on the hero's first
+/// free tick after it (state.rs `fire_scheduled`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AbilityDef {
     /// ManaCost: the elixir a press costs.
     pub cost: i32,
-    /// CastTime, ms: the hero is held this long from the press (state.rs `press_ability_button`).
+    /// CastTime, ms: the hero is held this long from the press's start (state.rs `start_ability`).
     pub cast_ms: i32,
-    /// TriggerDelay, ms: the effect comes this long after the press.
+    /// TriggerDelay, ms: the effect comes this long after the press's start (state.rs ABILITY_START_TICKS).
     pub trigger_ms: i32,
     /// KeepCurrentTarget: the hero keeps its target through the cast.
     pub keep_target: bool,
@@ -1149,12 +1150,19 @@ pub enum AbilityEffect {
     Areas { areas: Vec<AttachedArea>, start: Vec<u8> },
 }
 
+/// AN ABILITY AREA'S DAMAGE SCALES WITH THE HERO'S LEVEL even when its damage type says EnableLevelScaling = false
+/// (`AttachedArea::level_scaled`). Measured on client 15.535.29: the Hero Ice Golem's storm (Damage 27, damage type
+/// IceGolemiteHero_AEO_Damage with EnableLevelScaling = false) hit for 69 a wave at level 11, 27 on the card's ladder.
+/// Only level 11 was measured.
+pub const ABILITY_AREA_DAMAGE_ALWAYS_SCALES: bool = true;
+
 /// ONE AREA A HERO'S BUTTON MAKES (spell.rs `SpellMotion::Attached`): its hit, its clock and whether it rides on
 /// the hero.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AttachedArea {
     pub hit: SpellHit,
-    /// The damage type's EnableLevelScaling: false keeps `hit.damage` at every level.
+    /// The damage on the card's level ladder: the damage type's EnableLevelScaling, overruled by
+    /// ABILITY_AREA_DAMAGE_ALWAYS_SCALES.
     pub level_scaled: bool,
     /// LifeDuration, ms.
     pub life_ms: i32,
@@ -3615,7 +3623,7 @@ fn push_hero_area(r: &RawHeroArea, areas: &mut Vec<AttachedArea>, buffs: &mut Bu
     let first_ms = (hit_speed_ms - r.hit_speed_offset_ms.unwrap_or(0)).max(0);
     areas.push(AttachedArea {
         hit,
-        level_scaled: r.damage_level_scaling,
+        level_scaled: r.damage_level_scaling || ABILITY_AREA_DAMAGE_ALWAYS_SCALES,
         life_ms,
         hit_speed_ms,
         first_ms,

@@ -42,8 +42,9 @@
 //!     A command slot in [HAND_SIZE, HAND_SIZE + ABILITY_BUTTONS) presses ability
 //!     button slot - HAND_SIZE: the hero of that team's k-th deck entry marked form 2
 //!     in `reset(..., forms=)`. Its x and y are not read. The verdict is
-//!     TOO_EARLY, GAME_OVER and NOT_ENOUGH_ELIXIR as for a deploy, then NO_HERO,
-//!     ABILITY_NOT_READY and ABILITY_SPENT (state.rs `check_ability_button`). One
+//!     TOO_EARLY, GAME_OVER and NOT_ENOUGH_ELIXIR as for a deploy, then NO_HERO and
+//!     ABILITY_SPENT (state.rs `check_ability_button`); ABILITY_NOT_READY keeps its
+//!     index but is no longer given (a deploying hero may press). One
 //!     command per team per step still holds, so a press and a deploy of one team
 //!     never share a step.
 //!
@@ -204,7 +205,7 @@ pub const DEPLOY_REASONS: [&str; 18] = [
     // (state.rs `resolve_play`, match.MIRROR_RECORD).
     "NOTHING_TO_MIRROR",
     // An ability button's own reasons (state.rs `check_ability_button`), 15 to 17: no living hero behind the button,
-    // its hero still deploying, its hero's one charge used.
+    // (16, no longer given: a deploying hero may press, measured on client 15.535.29), its hero's one charge used.
     "NO_HERO",
     "ABILITY_NOT_READY",
     "ABILITY_SPENT",

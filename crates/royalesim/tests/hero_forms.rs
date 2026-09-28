@@ -3,15 +3,26 @@
 //!
 //! A deck entry marked form 2 (`BattleConfig::forms`) plays its hero form on every play, and is one of its side's
 //! ability buttons. Button k presses the one charge of the newest living hero of the k-th form-2 entry, for the
-//! ability's ManaCost, once that hero has deployed.
+//! ability's ManaCost, from that hero's first frame; the press starts on the hero's first free tick after it (not
+//! deploying, not held) and the effect comes TriggerDelay after that start. Every tick below is measured on client
+//! 15.535.29 (the oracle's sp-h* scenes), as offsets from the press.
 //!
 //! THE CHECKS:
 //!   1. `the_forms_load_after_every_other_slot`: every card, unit and buff of the table loads where it does without
 //!      the forms; the forms and their units come after them;
-//!   2. `hero_musketeer_plays_and_puts_her_turret_down`: the form every play, the button's refusals and its cost,
-//!      the turret 200 ms after the press, 2500 ahead of her, with its hitpoints and its blow;
-//!   3. `hero_ice_golem_storm_rides_on_the_golem`: the storm's three flat waves of 27, its slow every tick, the centre
-//!      on the golem, the last slow at its end, and a save taken mid-storm that resumes the same battle.
+//!   2. `hero_musketeer_plays_and_puts_her_turret_down`: the form every play, the button's refusals and its cost (a
+//!      refused second press debits nothing, S3), the turret on P + 5 (S2), 2500 ahead of her in Blue's arena y,
+//!      with its hitpoints and its blow;
+//!   3. `hero_ice_golem_storm_rides_on_the_golem`: the storm made on P + 1, its three waves of 27 on the golem's
+//!      ladder (69 at level 11) on P + 2, P + 32 and P + 62, on a Minion and on a Knight 4258 away (S10), its slow
+//!      every tick, the centre on the golem, the last slow at its end, and a save taken mid-storm that resumes the
+//!      same battle;
+//!   4. `a_press_while_she_deploys_waits_for_her_deploy_end`: taken and paid on her first frame, the turret 4 ticks
+//!      after her deploy end (sp-h4tower);
+//!   5. `a_hero_killed_before_her_turret_gets_the_elixir_back` and `the_ice_golem_storm_is_not_refunded_once_made`
+//!      (S6);
+//!   6. `a_press_under_a_freeze_waits_for_the_thaw` (S7);
+//!   7. `the_storm_outlives_the_golem` (S10).
 //!
 //! A battle with no forms hashes as it did before the forms: tests/hash_continuity.rs.
 //!
@@ -27,7 +38,7 @@ use royalesim::card::{CardDb, CardSource, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::py::{apply_commands, ids_of_indices, state_json_text};
 use royalesim::state::{BattleState, DeployError, HAND_SIZE};
-use royalesim::Team;
+use royalesim::{EntityId as EntityIdOf, Team};
 use std::collections::BTreeMap;
 
 /// Both decks; the first four start in hand (unshuffled).
@@ -120,22 +131,26 @@ fn hero_musketeer_plays_and_puts_her_turret_down() {
     let (hid, level) = (hero[0].id, s.config().card_level[0]);
     assert_eq!(hero[0].max_hp, db.scaled(form, level, db.get(form).hitpoints).unwrap());
     assert_eq!(hero[0].status_flags & 16, 16, "status bit 4: a hero unit");
-    // While she deploys the button is not ready; once her deploy ends, it is.
-    assert_eq!(press(&mut s, HAND_SIZE as i64), reason("ABILITY_NOT_READY"));
+    // A press while she deploys is taken (`a_press_while_she_deploys_waits_for_her_deploy_end`); this one waits.
     run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
     let at = s.entity(hid).unwrap().pos;
     let before = elixir_milli(&s, Team::Blue);
     assert_eq!(press(&mut s, HAND_SIZE as i64), 0, "the press is taken");
     assert_eq!(before - elixir_milli(&s, Team::Blue), 3000, "the press pays its ManaCost at once");
+    // S3 ABILITY_CHARGES: a second press is refused and costs nothing.
+    let paid = elixir_milli(&s, Team::Blue);
     assert_eq!(press(&mut s, HAND_SIZE as i64), reason("ABILITY_SPENT"), "one charge");
+    assert_eq!(elixir_milli(&s, Team::Blue), paid, "a refused press debits nothing");
     // A Red Knight 1000 in front of where the turret goes, deploying when the blow lands.
     let spot = at.add(native(0, 2500));
     s.spawn_unit(Team::Red, "Knight", spot.add(native(0, 1000)), None).unwrap();
-    // THE TURRET: 200 ms after the press (4 ticks), 2500 ahead of her along Blue's forward, at her level.
-    for k in 1..=4 {
+    // THE TURRET (S2, sp-h2: press issued on 174, paid on 175, turret 179): the press starts on the next tick and
+    // the turret comes 200 ms (4 ticks) after that, 5 ticks after the press; 2500 ahead of her in Blue's arena y, at
+    // her level.
+    for k in 1..=5 {
         s.tick();
         let there = find_live(&s, Team::Blue, "MusketeerTurret");
-        assert_eq!(there.len(), usize::from(k == 4), "the turret on tick {k} after the press");
+        assert_eq!(there.len(), usize::from(k == 5), "the turret on tick {k} after the press");
         assert_eq!(s.entity(hid).unwrap().pos, at, "the cast holds her");
     }
     let (tpos, tmax, tdeploy) = find_live(&s, Team::Blue, "MusketeerTurret").iter().map(|e| (e.pos, e.max_hp, e.deploy_ms)).next().unwrap();
@@ -164,11 +179,19 @@ fn hero_ice_golem_storm_rides_on_the_golem() {
     s.tick();
     let gid = find_live(&s, Team::Blue, "IceGolemite_hero")[0].id;
     run_until(&mut s, 40, |s| s.entity(gid).is_some_and(|e| e.deploy_ms == 0));
-    // A Red Knight 2500 from the golem, inside the storm's 4000.
+    // A Red Knight 2500 from the golem, inside the storm's 4000; a Red Minion near it (the storm hits air) and a
+    // second Red Knight 4258 from it, centre to centre (the oracle's Knight at 4258 was hit on the first wave: the
+    // storm reaches the victim's edge).
     let g = s.entity(gid).unwrap().pos;
     s.spawn_unit(Team::Red, "Knight", g.add(native(2500, 0)), None).unwrap();
+    s.spawn_unit(Team::Red, "Minions", g.add(native(0, -1500)), None).unwrap();
+    s.spawn_unit(Team::Red, "Knight", g.add(native(-4258, 0)), None).unwrap();
     s.tick();
-    let knight = find_live(&s, Team::Red, "Knight")[0].id;
+    let knights: Vec<(EntityIdOf, i32)> = find_live(&s, Team::Red, "Knight").iter().map(|e| (e.id, e.pos.x)).collect();
+    let knight = knights.iter().max_by_key(|k| k.1).unwrap().0;
+    let far = knights.iter().min_by_key(|k| k.1).unwrap().0;
+    let minion = s.entities().filter(|e| e.team == Team::Red && e.flying).map(|e| e.id).next().expect("a Minion");
+    let (m0, f0) = (s.entity(minion).unwrap().hp, s.entity(far).unwrap().hp);
     let before = elixir_milli(&s, Team::Blue);
     s.press_ability_button(Team::Blue, 0).expect("the press");
     assert_eq!(before - elixir_milli(&s, Team::Blue), 2000);
@@ -176,12 +199,15 @@ fn hero_ice_golem_storm_rides_on_the_golem() {
         let e = s.entity(knight).unwrap();
         e.buffs.iter().filter(|b| b.id > 0 && db.buff_names[b.id as usize - 1].contains("IceGolemiteHero_Slow")).map(|b| b.ms).max().unwrap_or(0)
     };
-    // L = the first tick after the press (TriggerDelay 0). Three waves of 27, flat at every level, on L, L + 30 and
-    // L + 60; the slow on every tick; the centre on the golem.
+    // P = the press. The storm is made on P + 1 (k = 0) and acts from P + 2 (k = 1). Three waves of 27 on the golem's
+    // ladder (69 at level 11: sp-h10, press 378, waves 380, 410, 440) on k = 1, 31 and 61; the slow on every tick
+    // from k = 1; the centre on the golem.
+    let wave = db.scaled(form, s.config().card_level[0], 27).unwrap();
+    assert_eq!(wave, 69, "a wave at level 11");
     let mut drops: Vec<(u32, i32)> = Vec::new();
     let mut ms_after: Vec<i32> = Vec::new();
     let mut saved: Option<Vec<u8>> = None;
-    for k in 0..=61u32 {
+    for k in 0..=62u32 {
         let hp = s.entity(knight).unwrap().hp;
         s.tick();
         let now = s.entity(knight).unwrap().hp;
@@ -189,6 +215,10 @@ fn hero_ice_golem_storm_rides_on_the_golem() {
             drops.push((k, hp - now));
         }
         ms_after.push(slowed(&s));
+        if k == 1 {
+            assert_eq!(m0 - s.entity(minion).unwrap().hp, wave, "the first wave hits the Minion");
+            assert_eq!(f0 - s.entity(far).unwrap().hp, wave, "the first wave hits the Knight 4258 away");
+        }
         if k < 60 {
             let areas: Vec<Vec2> = s
                 .spells()
@@ -207,14 +237,15 @@ fn hero_ice_golem_storm_rides_on_the_golem() {
             saved = Some(s.save());
         }
     }
-    assert_eq!(drops, vec![(0, 27), (30, 27), (60, 27)], "the storm's waves on the Knight");
-    assert!(ms_after[..61].iter().all(|ms| *ms > 0), "the Knight is slowed on every tick of the storm");
-    assert_eq!(ms_after[61], ms_after[60], "the final area puts the slow on again when the storm ends");
+    assert_eq!(drops, vec![(1, wave), (31, wave), (61, wave)], "the storm's waves on the Knight");
+    assert_eq!(ms_after[0], 0, "the storm acts from the tick after it is made");
+    assert!(ms_after[1..62].iter().all(|ms| *ms > 0), "the Knight is slowed on every tick of the storm");
+    assert_eq!(ms_after[62], ms_after[61], "the final area puts the slow on again when the storm ends");
     // A save taken mid-storm resumes the same battle.
     let saved = saved.unwrap();
     let mut resumed = BattleState::load(&saved).expect("the mid-storm save loads");
     let mut again = BattleState::load(&saved).expect("the mid-storm save loads");
-    for _ in 0..16 {
+    for _ in 0..17 {
         resumed.tick();
         again.tick();
     }
@@ -222,4 +253,174 @@ fn hero_ice_golem_storm_rides_on_the_golem() {
     assert_eq!(resumed.tick_count(), s.tick_count());
     assert_eq!(resumed.state_hash(), s.state_hash(), "the resumed battle is the one that ran on");
     assert_eq!(s.press_ability_button(Team::Blue, 0), Err(DeployError::AbilitySpent));
+}
+
+/// A Blue hero of `card`'s form, played at `at` and ticked once: the battle and the hero, on her first frame.
+fn hero_on_first_frame(forms: Vec<u8>, card: &str, form: &str, at: Vec2) -> (BattleState, EntityIdOf) {
+    let mut s = battle(forms);
+    s.deploy(Team::Blue, card, at).expect("the play");
+    s.tick();
+    let hid = find_live(&s, Team::Blue, form)[0].id;
+    (s, hid)
+}
+
+/// The ticks until `id` is gone, read on a copy of `s`.
+fn ticks_until_gone(s: &BattleState, id: EntityIdOf) -> u32 {
+    let mut probe = BattleState::load(&s.save()).unwrap();
+    for k in 1..=300u32 {
+        probe.tick();
+        if probe.entity(id).is_none() {
+            return k;
+        }
+    }
+    panic!("the scene drifted: it never died");
+}
+
+#[test]
+fn a_press_while_she_deploys_waits_for_her_deploy_end() {
+    // sp-h4tower: her first frame 101, the press issued on 101 and paid at once, her deploy end 121, the turret 125.
+    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    assert!(s.entity(hid).unwrap().deploy_ms > 0, "she is deploying");
+    let b = s.ability_buttons(Team::Blue)[0];
+    assert!(b.available && !b.spent, "the button is available from her first frame");
+    let before = elixir_milli(&s, Team::Blue);
+    s.press_ability_button(Team::Blue, 0).expect("a press while she deploys is taken");
+    assert_eq!(before - elixir_milli(&s, Team::Blue), 3000, "and paid at once");
+    let (mut deployed, mut turret) = (None, None);
+    for k in 1..=40u32 {
+        s.tick();
+        if deployed.is_none() && s.entity(hid).unwrap().deploy_ms == 0 {
+            deployed = Some(k);
+        }
+        if turret.is_none() && !find_live(&s, Team::Blue, "MusketeerTurret").is_empty() {
+            turret = Some(k);
+        }
+    }
+    // Her deploy timer reads 0 after 19 ticks, so the first Status phase that finds her deployed is the 20th tick's
+    // (the oracle's deploy end, 121 - 101); the press starts there and the turret comes 4 ticks later (125 - 101).
+    assert_eq!((deployed, turret), (Some(19), Some(24)), "her deploy end and the turret, from her first frame");
+}
+
+#[test]
+fn a_hero_killed_before_her_turret_gets_the_elixir_back() {
+    // S6 (sp-h6b): pressed 2 ticks before a Rocket kills her (press 186, gone 189): -3 on the press, +3 on the tick
+    // after her death (190), no turret.
+    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
+    let at = s.entity(hid).unwrap().pos;
+    s.spawn_unit(Team::Red, "Rocket", at, None).expect("the Rocket");
+    let dies = ticks_until_gone(&s, hid);
+    assert!(dies > 3, "the Rocket is too quick for the scene ({dies})");
+    for _ in 0..dies - 3 {
+        s.tick();
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 5000);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut el = vec![elixir_milli(&s, Team::Blue)];
+    for _ in 0..3 {
+        s.tick();
+        el.push(elixir_milli(&s, Team::Blue));
+    }
+    assert!(s.entity(hid).is_none(), "she dies on the third tick after the press");
+    s.tick();
+    el.push(elixir_milli(&s, Team::Blue));
+    let regen = el[3] - el[2];
+    assert!((regen - (el[2] - el[1])).abs() <= 1, "no refund on the tick she dies: {el:?}");
+    assert!((el[4] - el[3] - regen - 3000).abs() <= 1, "the 3 back on the tick after her death: {el:?}");
+    for _ in 0..10 {
+        s.tick();
+        assert!(find_live(&s, Team::Blue, "MusketeerTurret").is_empty(), "no turret");
+    }
+}
+
+#[test]
+fn the_ice_golem_storm_is_not_refunded_once_made() {
+    // S6 (sp-h6ib): pressed 1 tick before its death (press 189, gone 191): -2, not refunded: the storm was made on
+    // the tick after the press, before the death.
+    let (mut s, gid) = hero_on_first_frame(vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0], "IceGolemite", "IceGolemite_hero", t(900, 1200));
+    let form = s.cards().index("IceGolemite_hero").unwrap();
+    run_until(&mut s, 40, |s| s.entity(gid).is_some_and(|e| e.deploy_ms == 0));
+    let at = s.entity(gid).unwrap().pos;
+    s.spawn_unit(Team::Red, "Rocket", at, None).expect("the Rocket");
+    let dies = ticks_until_gone(&s, gid);
+    assert!(dies > 2, "the Rocket is too quick for the scene ({dies})");
+    for _ in 0..dies - 2 {
+        s.tick();
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 5000);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut el = vec![elixir_milli(&s, Team::Blue)];
+    s.tick();
+    el.push(elixir_milli(&s, Team::Blue));
+    assert!(s.spells().iter().any(|sp| sp.card == form), "the storm is made on the tick after the press");
+    s.tick();
+    el.push(elixir_milli(&s, Team::Blue));
+    assert!(s.entity(gid).is_none(), "the golem dies on the second tick after the press");
+    s.tick();
+    el.push(elixir_milli(&s, Team::Blue));
+    let regen = el[1] - el[0];
+    assert!(el.windows(2).all(|w| (w[1] - w[0] - regen).abs() <= 1), "no refund: {el:?}");
+}
+
+#[test]
+fn a_press_under_a_freeze_waits_for_the_thaw() {
+    // S7 (sp-h7): pressed under a Freeze, taken and paid at once; the turret comes 4 ticks after her first free tick
+    // (thaw 183, turret 187).
+    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
+    let at = s.entity(hid).unwrap().pos;
+    s.spawn_unit(Team::Red, "Freeze", at, None).expect("the Freeze");
+    run_until(&mut s, 60, |s| s.entity(hid).is_some_and(|e| e.stun_ms > 0));
+    assert!(s.entity(hid).unwrap().stun_ms > 0, "the scene drifted: the Freeze never held her");
+    let before = elixir_milli(&s, Team::Blue);
+    s.press_ability_button(Team::Blue, 0).expect("a frozen hero may press");
+    assert_eq!(before - elixir_milli(&s, Team::Blue), 3000, "paid at once");
+    let (mut free, mut turret) = (None, None);
+    for k in 1..=200u32 {
+        let held = s.entity(hid).unwrap().stun_ms > 0;
+        s.tick();
+        // Her first free tick: the first whose Status phase found her unheld (the hold she carried into it is over).
+        if free.is_none() && !held {
+            free = Some(k);
+        }
+        if !find_live(&s, Team::Blue, "MusketeerTurret").is_empty() {
+            turret = Some(k);
+            break;
+        }
+    }
+    let (free, turret) = (free.expect("she thaws"), turret.expect("the turret comes"));
+    assert!(free > 10, "the scene drifted: she was free at once ({free})");
+    assert_eq!(turret, free + 4, "the turret 4 ticks after her first free tick");
+}
+
+#[test]
+fn the_storm_outlives_the_golem() {
+    // S10 (sp-h10k): the golem died on P + 52 and the P + 62 wave still landed.
+    let (mut s, gid) = hero_on_first_frame(vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0], "IceGolemite", "IceGolemite_hero", t(900, 1200));
+    run_until(&mut s, 40, |s| s.entity(gid).is_some_and(|e| e.deploy_ms == 0));
+    let g = s.entity(gid).unwrap().pos;
+    // A Red Knight 3000 to the golem's side: in the storm, out of a Rocket's reach on the golem.
+    s.spawn_unit(Team::Red, "Knight", g.add(native(-3000, 0)), None).unwrap();
+    s.tick();
+    let knight = find_live(&s, Team::Red, "Knight")[0].id;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut drops: Vec<u32> = Vec::new();
+    let mut gone = None;
+    for k in 0..=61u32 {
+        if k == 10 {
+            let at = s.entity(gid).unwrap().pos;
+            s.spawn_unit(Team::Red, "Rocket", at, None).expect("the Rocket");
+        }
+        let hp = s.entity(knight).unwrap().hp;
+        s.tick();
+        if s.entity(knight).unwrap().hp < hp {
+            drops.push(k);
+        }
+        if gone.is_none() && s.entity(gid).is_none() {
+            gone = Some(k);
+        }
+    }
+    let gone = gone.expect("the scene drifted: the Rocket did not kill the golem");
+    assert!(gone < 61, "the golem died at {gone}");
+    assert_eq!(drops.last(), Some(&61), "the last wave lands after the golem's death: {drops:?}");
 }

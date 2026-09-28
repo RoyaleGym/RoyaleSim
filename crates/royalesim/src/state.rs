@@ -1181,6 +1181,19 @@ fn corpse_switch_reach_default() -> CorpseSwitchReach {
     CorpseSwitchReach::KeepsAny
 }
 
+/// `ScheduledAction::Ability`'s `team` on an entry saved before the field.
+fn team_blue() -> Team {
+    Team::Blue
+}
+
+/// IS HERO `i` FREE to start a press (`fire_scheduled`)? Not while it deploys, and not while it is held (a stun
+/// timer, or buffs that stop it: the Freeze). A press that has started runs its clock whatever holds the hero after,
+/// its own cast hold included. Measured on client 15.535.29 for the deploy and the Freeze only; any other hold is
+/// read the same way, unmeasured.
+fn hero_free(ents: &Entities, buffs: &[crate::status::BuffDef], i: usize) -> bool {
+    ents.deploy_ms[i] <= 0 && ents.stun_ms[i] <= 0 && ents.buffed(buffs, i, Sel::Speed, 100) != 0
+}
+
 fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
     LeapingUnitTargetability::Ground
 }
@@ -5334,6 +5347,18 @@ pub const HAND_SIZE: usize = 4;
 /// hero slot and a flex slot). The Python layer's command slots HAND_SIZE .. HAND_SIZE + ABILITY_BUTTONS press them.
 pub const ABILITY_BUTTONS: usize = 2;
 
+/// THE TICKS A PRESS TAKES TO START, before its TriggerDelay runs (`press_ability_button`), counted on the hero's
+/// free ticks (`fire_scheduled`). Measured on client 15.535.29: a free Hero Musketeer pressed on tick P is casting on
+/// P + 1 and her turret's first frame is P + 5 (TriggerDelay 200 ms = 4 ticks), and the Hero Ice Golem's storm
+/// (TriggerDelay 0) is made on P + 1 and its first wave lands on P + 2 (`fire_ability`).
+pub const ABILITY_START_TICKS: i32 = 1;
+
+/// THE TICKS A STARTING ABILITY AREA WAITS before its first update (`fire_ability`): made in the Status phase, it is
+/// stepped from the next tick's Projectile phase, as an area made by another area's end is. Measured on client
+/// 15.535.29 through its victims: the Hero Ice Golem's storm, made on P + 1, lands its waves on P + 2, P + 32 and
+/// P + 62 (HitSpeed 1500, HitSpeedOffset 1450), the last one after a golem that died on P + 52.
+pub const ABILITY_AREA_FIRST_UPDATE_TICKS: i32 = 1;
+
 /// Why a deploy was refused.
 ///
 /// The position variants say WHY, in the order `check_deploy` tests them, and
@@ -5369,7 +5394,8 @@ pub enum DeployError {
     NothingToMirror,
     /// An ability button with no living hero behind it (or no form-2 deck entry at all).
     NoHero,
-    /// The button's hero is still deploying.
+    /// No longer given (`check_ability_button`: a deploying hero may press, measured on client 15.535.29); kept so
+    /// the Python layer's reason indices stay where they are.
     AbilityNotReady,
     /// The button's hero has used its one charge.
     AbilitySpent,
@@ -5621,9 +5647,21 @@ pub enum ScheduledAction {
     /// when the target is gone by then. The Ronin's own stun is never scheduled: its 50 ms is the next tick, which the
     /// effect buffer gives at once (`parry_pass`).
     Buff { target: EntityId, buff: u16, time_ms: i32 },
-    /// A hero's button taking effect (card.rs `AbilityEffect`), TriggerDelay after the press (`fire_ability`). Dropped
-    /// when the hero is gone by then; the elixir paid at the press is not given back.
-    Ability { hero: EntityId },
+    /// A hero's button taking effect (card.rs `AbilityEffect`), one tick plus TriggerDelay after the press, the clock
+    /// running only while the hero is free (`fire_scheduled`, `fire_ability`). When the hero is gone first, the entry
+    /// is dropped and `team` gets `cost` back (measured on client 15.535.29). `team` and `cost` were added after the
+    /// entry; `default` Blue and 0, so an entry saved before them refunds nothing, as it did.
+    Ability {
+        hero: EntityId,
+        #[serde(default = "team_blue")]
+        team: Team,
+        #[serde(default)]
+        cost: i32,
+        /// The press has started: its hero was free on a tick after the press, took its cast hold then, and the
+        /// clock has run since (`fire_scheduled`). `default` false.
+        #[serde(default)]
+        started: bool,
+    },
 }
 
 /// The one death spawn's ring, as `BattleState::death_spawn_points` needs it: the
@@ -9037,6 +9075,14 @@ impl BattleState {
     /// ones at or below 0 fire, in the order they were written. A transformation whose entity is gone (dead, its slot
     /// reused: the generation says) is dropped. Also empties this tick's switched list (`Scratch::switched_reset`)
     /// before anything can fill it.
+    ///
+    /// A HERO'S PRESS (`ScheduledAction::Ability`) is read first: its hero gone (it died after the press, before the
+    /// effect), the entry is dropped and the press's elixir given back, here, on the tick after the death; not yet
+    /// started and its hero deploying or held (`hero_free`), its clock does not run; else it starts now, if it had
+    /// not, and the hero takes its cast hold (`start_ability`). Measured on client 15.535.29: a Hero
+    /// Musketeer pressed 2 ticks before a Rocket killed her got her 3 back on the tick after her death and no turret;
+    /// a press on her first frame, while she deployed, put the turret down 4 ticks after her first free tick, and so
+    /// did a press under a Freeze after the Freeze ended.
     fn fire_scheduled(&mut self) {
         self.scratch.switched_reset.clear();
         if self.scheduled.is_empty() {
@@ -9044,7 +9090,23 @@ impl BattleState {
         }
         let dt = self.cfg.calib.tick_ms;
         let mut due: Vec<ScheduledAction> = Vec::new();
+        let mut refunds: Vec<(Team, i32)> = Vec::new();
+        let mut starts: Vec<EntityId> = Vec::new();
+        let (ents, buffs) = (&self.ents, &self.cfg.cards.buffs);
         self.scheduled.retain_mut(|s| {
+            if let ScheduledAction::Ability { hero, team, cost, started } = &mut s.action {
+                if !ents.is_alive(*hero) {
+                    refunds.push((*team, *cost));
+                    return false;
+                }
+                if !*started {
+                    if !hero_free(ents, buffs, hero.index as usize) {
+                        return true;
+                    }
+                    *started = true;
+                    starts.push(*hero);
+                }
+            }
             s.ms -= dt;
             if s.ms <= 0 {
                 due.push(s.action);
@@ -9053,6 +9115,9 @@ impl BattleState {
                 true
             }
         });
+        for hero in starts {
+            self.start_ability(hero);
+        }
         for a in due {
             match a {
                 ScheduledAction::Transform { entity, into, reset_target } => {
@@ -9072,12 +9137,17 @@ impl BattleState {
                         self.effects.buffs.push(crate::status::BuffHit::plain(target, buff, time_ms, 0));
                     }
                 }
-                ScheduledAction::Ability { hero } => {
+                ScheduledAction::Ability { hero, .. } => {
                     if self.ents.is_alive(hero) {
                         self.fire_ability(hero);
                     }
                 }
             }
+        }
+        for (team, cost) in refunds {
+            let cap = (self.cfg.calib.max_mana as i64) * self.mana_unit;
+            let p = &mut self.players[team as usize];
+            p.mana = (p.mana + cost as i64 * self.mana_unit).min(cap);
         }
     }
 
@@ -15609,7 +15679,7 @@ impl BattleState {
     //
     // A side's ABILITY BUTTONS are its form-2 deck entries, in deck order (`PlayerState::heroes`). Button k presses
     // the ability of its NEWEST living hero unit (the last created of the button's hero form on that side); each
-    // hero unit has one charge (`HeroUnit`), usable once its deploy has ended, paid at the press.
+    // hero unit has one charge (`HeroUnit`), usable from its first frame, paid at the press.
 
     /// The (base card, hero form) of `team`'s button `k`, or None.
     fn button_form(&self, team: Team, k: usize) -> Option<(u16, u16)> {
@@ -15632,17 +15702,17 @@ impl BattleState {
                 let (base, form) = self.button_form(team, k)?;
                 let cost = self.cfg.cards.get(form).ability.as_ref().map_or(0, |a| a.cost);
                 let hu = self.newest_hero(team, form).map(|h| self.hero_units[h]);
-                let deployed = hu.is_some_and(|u| self.ents.deploy_ms[u.id.index as usize] <= 0);
                 let spent = hu.is_some_and(|u| u.spent);
-                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: deployed && !spent, spent, cost })
+                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !spent, spent, cost })
             })
             .collect()
     }
 
     /// PURE: the verdict a press of `team`'s button `k` gets now, in the deploy verdict's order for what the two share
-    /// -- the opening lockout, game over, the elixir -- then NoHero (no form-2 entry k, or no living hero of it),
-    /// AbilityNotReady (the hero is deploying) and AbilitySpent (its charge is used). A stunned or frozen hero may
-    /// press: both hero rows set IsChampion, and the table's LOGIC_CHAMPION_CAN_EXECUTE_ABILITY_FROZEN is TRUE.
+    /// -- the opening lockout, game over, the elixir -- then NoHero (no form-2 entry k, or no living hero of it) and
+    /// AbilitySpent (its charge is used). A deploying, stunned or frozen hero may press, and its press waits for it to
+    /// be free (`fire_scheduled`): measured on client 15.535.29, the button is available from the hero's first frame,
+    /// and presses on that frame and under a Freeze were taken and debited. AbilityNotReady is no longer given.
     pub fn check_ability_button(&self, team: Team, k: usize) -> Result<(), DeployError> {
         let until = self.cfg.calib.deploy_lockout_ticks.max(0) as u32;
         if self.tick < until {
@@ -15656,9 +15726,6 @@ impl BattleState {
         self.check_elixir(team, a.cost)?;
         let h = self.newest_hero(team, form).ok_or(DeployError::NoHero)?;
         let u = self.hero_units[h];
-        if self.ents.deploy_ms[u.id.index as usize] > 0 {
-            return Err(DeployError::AbilityNotReady);
-        }
         if u.spent {
             return Err(DeployError::AbilitySpent);
         }
@@ -15666,16 +15733,16 @@ impl BattleState {
     }
 
     /// PRESS `team`'s button `k` (`check_ability_button` first, so the two cannot disagree). The press pays the
-    /// ability's ManaCost now and spends the hero's charge; a CastTime holds the hero from now for that long, as the
-    /// Clone's hold does (no walk, no attack, the attack clock paused), and without KeepCurrentTarget its target is let
-    /// go for a rescan when the hold ends; the effect comes TriggerDelay later (`ScheduledAction::Ability`: the top of
-    /// the Status phase of the tick TriggerDelay / TICK_MS after this one, so a 0 comes on the next tick). Returns the
-    /// hero pressed.
+    /// ability's ManaCost now and spends the hero's charge; the press starts on the hero's first free tick after it
+    /// (`start_ability`: its cast hold), and the effect comes TriggerDelay after that start (`ScheduledAction::Ability`,
+    /// at the top of the Status phase: a free press on tick P starts on P + 1 and fires on P + 1 + TriggerDelay /
+    /// TICK_MS). Returns the hero pressed.
     ///
-    /// Unmeasured, each read the plainest way until a scene measures it (a press with the hero's attack state, position
-    /// and the side's elixir read every tick): that the elixir goes at the press and not at the trigger; that the cast
-    /// holds the hero (KeepCurrentTarget only means something if it does); the tick the trigger lands on; that a press
-    /// becomes possible on the tick the hero's deploy ends.
+    /// Measured on client 15.535.29: the elixir goes at the press (a press issued on tick P shows on P + 1, as a
+    /// play's does), not at the trigger; a free Hero Musketeer's turret's first frame is P + 5 (the start on P + 1, then
+    /// her 200 ms); one pressed on her first frame (P = 101) waited for her deploy end (121) and put it down on 125;
+    /// the hero's death before the effect gives the elixir back (`fire_scheduled`). Unmeasured: that the cast holds the
+    /// hero (KeepCurrentTarget only means something if it does).
     pub fn press_ability_button(&mut self, team: Team, k: usize) -> Result<EntityId, DeployError> {
         self.check_ability_button(team, k)?;
         let (_, form) = self.button_form(team, k).expect("checked");
@@ -15684,7 +15751,19 @@ impl BattleState {
         self.players[team as usize].mana -= (a.cost as i64) * self.mana_unit;
         self.hero_units[h].spent = true;
         let id = self.hero_units[h].id;
-        let i = id.index as usize;
+        // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay.
+        let ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + a.trigger_ms;
+        self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false } });
+        Ok(id)
+    }
+
+    /// A PRESS STARTS (`fire_scheduled`, on the hero's first free tick after the press): a CastTime holds the hero
+    /// from now for that long, as the Clone's hold does (no walk, no attack, the attack clock paused), and without
+    /// KeepCurrentTarget its target is let go for a rescan when the hold ends. Measured on client 15.535.29: the Hero
+    /// Musketeer is casting from the tick after a free press, and from the tick after the thaw under a Freeze.
+    fn start_ability(&mut self, hero: EntityId) {
+        let i = hero.index as usize;
+        let Some(a) = self.cfg.cards.get(self.ents.card[i]).ability.clone() else { return };
         if a.cast_ms > 0 {
             self.ents.stun_ms[i] = self.ents.stun_ms[i].max(a.cast_ms);
             if !a.keep_target {
@@ -15692,8 +15771,6 @@ impl BattleState {
                 self.ents.retarget_on_resume[i] = true;
             }
         }
-        self.scheduled.push(Scheduled { ms: a.trigger_ms, action: ScheduledAction::Ability { hero: id } });
-        Ok(id)
     }
 
     /// A HERO'S BUTTON TAKES EFFECT (card.rs `AbilityEffect`), at the top of the Status phase:
@@ -15702,13 +15779,16 @@ impl BattleState {
     ///     RelativeY along the owner's forward), clamped into the arena and off water as a scheduled spawn's point is
     ///     (`scheduled_point`), at the hero's level on the unit's own ladder, with its own DeployTime. It is created in
     ///     this tick's Spawn phase, and its OnStartingAction's projectile is its deploy blow (`deploy_blow`).
-    ///   - `Areas` (the Hero Ice Golem's storm): each starting area is made on the hero now and acts from this tick's
-    ///     Projectile phase (spell.rs `SpellMotion::Attached`).
+    ///   - `Areas` (the Hero Ice Golem's storm): each starting area is made on the hero now and acts from the NEXT
+    ///     tick, as an area another area makes does (spell.rs `SpellMotion::Attached`, `SpellOut::born`): its life and
+    ///     its first hit start one tick on (ABILITY_AREA_FIRST_UPDATE_TICKS).
     ///
-    /// Unmeasured (a press scene reading the turret's first frame and point, and the victims' hp, would measure them):
-    /// RelativeY's direction (no other row sets it); what ValidatePlacementAsBuilding does with a point on water or a
-    /// building; the tick the turret's blow lands (it lands as the Mega Knight's deploy projectile does, 6 ticks after
-    /// the turret appears, combat.rs DEPLOY_PROJECTILE_DELAY_TICKS).
+    /// Measured on client 15.535.29: the turret's first frame is at the hero + (0, 2500) in Blue's arena y whatever
+    /// her facing (Red: -2500, read as the team frame, unmeasured), in the river and across the bridge alike; the
+    /// storm's waves land on P + 2, P + 32 and P + 62. Unmeasured or open: a turret point on the side's own princess
+    /// tower is moved behind the hero on the client (hero (3499, 3500) gives (3481, 2000)), which `scheduled_point`
+    /// does not do; the tick the turret's blow lands (it lands as the Mega Knight's deploy projectile does, 6 ticks
+    /// after the turret appears, combat.rs DEPLOY_PROJECTILE_DELAY_TICKS).
     fn fire_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
@@ -15722,7 +15802,12 @@ impl BattleState {
             }
             crate::card::AbilityEffect::Areas { start, .. } => {
                 for part in start {
-                    let sp = spell::attached_area(&self.cfg.cards, &self.cfg.calib, team, card, level, hero, pos, part).expect("the ability's areas load with their card");
+                    let mut sp = spell::attached_area(&self.cfg.cards, &self.cfg.calib, team, card, level, hero, pos, part).expect("the ability's areas load with their card");
+                    if let spell::SpellMotion::Attached { life_ms, next_ms, .. } = &mut sp.motion {
+                        let late = ABILITY_AREA_FIRST_UPDATE_TICKS * self.cfg.calib.tick_ms;
+                        *life_ms += late;
+                        *next_ms += late;
+                    }
                     self.spells.push(sp);
                 }
             }
@@ -17001,9 +17086,12 @@ impl BattleState {
                         h.i32(amount);
                         h.i32(crown_pct);
                     }
-                    ScheduledAction::Ability { hero } => {
+                    ScheduledAction::Ability { hero, team, cost, started } => {
                         h.u32(0x4142_4c54);
                         h.id(hero);
+                        h.u32(team as u32);
+                        h.i32(cost);
+                        h.bool(started);
                     }
                     ScheduledAction::Buff { target, buff, time_ms } => {
                         h.u32(0x4255_4646);
@@ -18257,7 +18345,7 @@ impl BattleState {
                 }
                 // A delayed hit or buff names an entity of the table, and a buff a row of this card data's table.
                 ScheduledAction::Damage { target, .. } => (target.index as usize) >= n,
-                ScheduledAction::Ability { hero } => (hero.index as usize) >= n,
+                ScheduledAction::Ability { hero, .. } => (hero.index as usize) >= n,
                 ScheduledAction::Buff { target, buff, .. } => (target.index as usize) >= n || (buff as usize) >= cards.buffs.len(),
             })
         {
