@@ -2410,9 +2410,10 @@ calib_enum!(
     /// targeting.DOOMED_TARGET_DROP, combat.rs `doomed_by_shots_in_flight`) is still the tower a unit walks to (target.rs
     /// `default_tower`, `lane_fallen`, `can_target`). A doomed king is kept under every arm: it has no next tower.
     DoomedLaneTower {
-        /// Today's engine: a princess tower is the lane tower while it stands, doomed or not. A unit the doom drop makes
-        /// let go of it (DOOMED_TARGET_DROP) walks on to it with no target.
+        /// The engine before the 2026-09-28 round 9 flip: a princess tower is the lane tower while it stands, doomed or
+        /// not. A unit the doom drop makes let go of it (DOOMED_TARGET_DROP) walks on to it with no target.
         Standing = "standing",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// A unit that DOOMED_TARGET_DROP makes let go of a doomed princess tower, or not take it (a card that fires a
         /// projectile and has not launched at it), treats it as fallen: its default tower is the next one, the king,
         /// wherever it stands. A unit with no projectile keeps it, walking or attacking. Read off client 15.535.29 and
@@ -4721,6 +4722,7 @@ calib_enum!(
         /// every building (`delay_acquisition`). Area damage still lands on the unit meanwhile,
         /// because it is not a target scan; that is the engine's reading, not a measurement.
         Client8thFrame = "client_8th_frame",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// client_8th_frame, and a BUILDING an action makes waits too: the unit a hero's button puts down (the Hero
         /// Musketeer's turret, whose PendingSpawn carries `action_made`) is nobody's target before F + 7. A played
         /// building and a death-spawned one stay exempt. Measured on client 15.535.29: in the 4 hero scenes where an

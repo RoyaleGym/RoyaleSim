@@ -553,7 +553,8 @@ fn only_the_arm_that_reaches_every_bomb_pushes_from_the_giant_skeletons() {
 
 #[test]
 fn an_enemy_first_targets_a_ring_skeleton_on_t_plus_19() {
-    // Shipped (targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame). Plant container_members_acquire_at_once
+    // Shipped (targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings, whose death-spawn half this
+    // is). Plant container_members_acquire_at_once
     // (the Cannon takes one on T + 13).
     let mut s = BattleState::new(5, shipped());
     let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 22500)), None).expect("a Red Cannon");

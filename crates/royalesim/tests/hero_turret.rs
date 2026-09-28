@@ -1,7 +1,8 @@
 //! THE TURRET A HERO'S BUTTON PUTS DOWN, read off the engine: spawner.ABILITY_UNIT_FIRST_UPDATE (state.rs
 //! `phase_spawn`) and targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings (`delay_acquisition`),
-//! both reading the release's `action_made`, which `fire_ability` alone sets. Both ship at their old arms,
-//! creation_tick and client_8th_frame; every scene names its arms.
+//! both reading the release's `action_made`, which `fire_ability` alone sets. spawner.ABILITY_UNIT_FIRST_UPDATE ships
+//! its old arm creation_tick; targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client_8th_frame_action_buildings since the
+//! 2026-09-28 round 9 flip. Every scene names its arms.
 //!
 //! THE EVIDENCE, measured on client 15.535.29 over the hero scenes (Parity's round 8 item 9; the ledger has the rows).
 //! The Hero Musketeer's turret, first seen on frame c, leaves its deploy on c + 20 and first loses lifetime hp on c + 21
@@ -30,7 +31,7 @@
 //!      Cannon first targets the turret on c + 7, whichever arm spawner.ABILITY_UNIT_FIRST_UPDATE is at; under
 //!      client_8th_frame on c + 0; a played Cannon on F + 0 under both
 //!      -- action_building_acquired_at_once (the new arm exempts the turret as client_8th_frame does);
-//!   3. `both_keys_ship_their_old_arms`;
+//!   3. `the_shipped_arms`;
 //!   4. `the_turrets_blow_lands_on_c2_under_client_on_landing_action_at_2`: combat.DEPLOY_PROJECTILE's action arm
 //!      lands the turret's deploy blow on a red Knight 1500 ahead of it on c + 2, the old arm client_on_landing on
 //!      c + 6, the same damage under both (read on client 15.535.29: every enemy hp drop within 2,600 of a new
@@ -272,10 +273,11 @@ fn the_turrets_blow_lands_on_c2_under_client_on_landing_action_at_2() {
 }
 
 #[test]
-fn both_keys_ship_their_old_arms() {
+fn the_shipped_arms() {
     let c = Calib::shipped();
     assert_eq!(c.ability_unit_first_update, OLD_UPDATE, "spawner.ABILITY_UNIT_FIRST_UPDATE ships creation_tick");
-    assert_eq!(c.spawned_unit_acquire_delay, OLD_DELAY, "targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client_8th_frame");
+    assert_eq!(c.spawned_unit_acquire_delay, NEW_DELAY, "targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client_8th_frame_action_buildings");
     assert_eq!(config().calib.ability_unit_first_update, OLD_UPDATE);
+    assert_eq!(config().calib.spawned_unit_acquire_delay, NEW_DELAY);
     assert_eq!(c.deploy_projectile, DeployProjectile::ClientOnLanding, "combat.DEPLOY_PROJECTILE ships client_on_landing");
 }
