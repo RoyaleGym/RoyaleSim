@@ -577,15 +577,28 @@ fn sight_toward(ctx: &TargetCtx, a: usize, c: usize) -> i32 {
 /// of 21 acquisitions). centre_minus_target_radius (today's engine): the centre distance less the candidate's radius,
 /// which counts a princess tower 1000 nearer than it stands, so a walker keeps its tower against a nearer troop or
 /// building (20260918-124946 tick 941: a Goblin 6,578.4 from a Cannon and 6,840.8 from its tower keeps the tower).
+///
+/// client16402_centre ranks by the EXACT centre distance, compared as its square: the integer root ties two enemies
+/// whose distances differ by less than a subtile, and the client does not. 20260918-124946 tick 1923: a Tombstone's
+/// Skeleton at (4151, 10363) comes off its post-kill wait between two Goblins 2,503.95 and 2,503.99 away, (2022, 9045)
+/// and (4338, 7866); their subtile distances both root to 45,071, the next component (x in the attacker's frame)
+/// picked the farther, and the client took the nearer.
 #[inline]
-fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i32, i32, i32, u32) {
+fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i64, i32, i32, u32) {
     let e = ctx.ents;
-    let centre = isqrt(e.pos[a].dist2(e.pos[c])) as i32;
+    let d2 = e.pos[a].dist2(e.pos[c]);
+    let centre = isqrt(d2) as i32;
     #[cfg(not(clash_plant = "rank_centre_minus_radius"))]
     let by_centre = ctx.calib.target_rank_distance == crate::state::TargetRankDistance::Client16402Centre;
     #[cfg(clash_plant = "rank_centre_minus_radius")]
     let by_centre = false; // PLANT (regression): client16402_centre still ranks by centre minus the candidate's radius.
-    let edge = if !by_centre && ctx.calib.add_character_range_to_radius { centre - e.radius[c] } else { centre };
+    let edge = if by_centre {
+        d2
+    } else if ctx.calib.add_character_range_to_radius {
+        (centre - e.radius[c]) as i64
+    } else {
+        centre as i64
+    };
     let f = ctx.arena.to_frame(e.team[a], e.pos[c]);
     #[cfg(clash_plant = "id_tiebreak")]
     {
@@ -597,7 +610,7 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i32, i32, i32, u32) {
 }
 
 /// A candidate's rank in `scan_with`: (deprioritized, `key`), lowest first.
-type ScanKey = (bool, (i32, i32, i32, u32));
+type ScanKey = (bool, (i64, i32, i32, u32));
 
 /// Nearest valid enemy in sight, or None.
 pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityId> {
@@ -941,7 +954,7 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         return live(ctx.towers[enemy][slot]).or_else(|| live(ctx.towers[enemy][0]));
     }
 
-    let mut best: Option<((i32, i32, i32, u32), EntityId)> = None;
+    let mut best: Option<((i64, i32, i32, u32), EntityId)> = None;
     for t in ctx.towers[enemy].iter().filter_map(|t| live(*t)) {
         let k = key(ctx, a, t.index as usize);
         if best.as_ref().map_or(true, |(bk, _)| k < *bk) {

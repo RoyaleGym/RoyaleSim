@@ -170,3 +170,31 @@ fn an_enemy_in_sight_but_farther_than_the_tower_is_not_taken() {
 fn the_shipped_value_is_client16402_centre() {
     assert_eq!(Calib::shipped().target_rank_distance, NEW);
 }
+
+
+/// 20260918-124946 tick 1923: a Tombstone's Skeleton at (4151, 10363) between two Goblins 2,503.95 and 2,503.99 away,
+/// (2022, 9045) and (4338, 7866). Their subtile distances both root to 45,071; the client takes the nearer. Here a red
+/// Knight between two blue Knights on those points, on the first tick it takes one of them.
+#[test]
+fn of_two_enemies_whose_integer_distances_tie_the_nearer_is_taken() {
+    const RED: (i32, i32) = (4151, 10363);
+    const NEAR: (i32, i32) = (2022, 9045);
+    const FAR: (i32, i32) = (4338, 7866);
+    let mut s = BattleState::new(0, with_arm(NEW));
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Knight", at(RED), None), (Team::Blue, "Knight", at(NEAR), None), (Team::Blue, "Knight", at(FAR), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let (red, near, far) = (ids[0], ids[1], ids[2]);
+    for _ in 0..TICKS {
+        let (Some(r), Some(n), Some(f)) = (s.entity(red), s.entity(near), s.entity(far)) else { panic!("a Knight died") };
+        let (dn2, df2) = (r.pos.dist2(n.pos), r.pos.dist2(f.pos));
+        s.tick();
+        let target = s.entity(red).and_then(|r| r.target);
+        if target == Some(near) || target == Some(far) {
+            assert!(isqrt(dn2) == isqrt(df2) && dn2 < df2, "the scene drifted: the two distances ({dn2}, {df2}) do not tie at their root");
+            assert_eq!(target, Some(near), "the Knight took the farther of two enemies whose integer distances tie");
+            return;
+        }
+    }
+    panic!("the red Knight took neither blue Knight");
+}
