@@ -561,6 +561,10 @@ pub struct Calib {
     /// before it ran.
     #[serde(default = "life_state_first_look_aim_default")]
     pub life_state_first_look_aim: LifeStateFirstLookAim,
+    /// spawner.LIFE_STATE_AIM_REPICK (`life_state_pass`, `life_repick_lost_aim`): when a Goblin Hut re-picks the aim
+    /// its waves hold. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "life_state_aim_repick_default")]
+    pub life_state_aim_repick: LifeStateAimRepick,
     /// targeting.INVISIBILITY (target.rs `invisible`). Added after SNAPSHOT_FORMAT 20; no battle saved before it held
     /// an invisible unit.
     #[serde(default = "invisibility_default")]
@@ -1514,6 +1518,10 @@ fn life_state_wave_point_default() -> LifeStateWavePoint {
 
 fn life_state_first_look_aim_default() -> LifeStateFirstLookAim {
     LifeStateFirstLookAim::PostMove
+}
+
+fn life_state_aim_repick_default() -> LifeStateAimRepick {
+    LifeStateAimRepick::OnWave
 }
 
 fn invisibility_default() -> Invisibility {
@@ -3875,6 +3883,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.LIFE_STATE_AIM_REPICK -- when a Goblin Hut re-picks the aim its waves hold (`life_state_pass`,
+    /// `life_wave`). Which enemy a pick takes (the nearest waker by edge, a tie to the earliest created) and where the
+    /// aim is read are not this key's.
+    LifeStateAimRepick {
+        /// Today's engine (shipped): the aim is re-picked only when a wave is due: the last wave's aim while it still
+        /// wakes the hut, else the nearest waker then.
+        OnWave = "on_wave",
+        /// The hut re-picks on the tick its aim dies or leaves its reach (the nearest waker on that tick, or none), and
+        /// its waves hold that aim while it wakes the hut (`life_repick_lost_aim`). Read off the 16.402 corpus: one hut
+        /// in one battle, whose next three waves only this arm puts on their client points.
+        OnAimLost = "on_aim_lost",
+    }
+);
+calib_enum!(
     /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
     RollFirstStep {
         /// On the tick the airborne projectile lands: today's engine.
@@ -4968,6 +4990,7 @@ impl Calib {
             life_state_first_update: pick(&v, &["spawner", "LIFE_STATE_FIRST_UPDATE", "value"], LifeStateFirstUpdate::from_calibration_name)?,
             life_state_wave_point: pick(&v, &["spawner", "LIFE_STATE_WAVE_POINT", "value"], LifeStateWavePoint::from_calibration_name)?,
             life_state_first_look_aim: pick(&v, &["spawner", "LIFE_STATE_FIRST_LOOK_AIM", "value"], LifeStateFirstLookAim::from_calibration_name)?,
+            life_state_aim_repick: pick(&v, &["spawner", "LIFE_STATE_AIM_REPICK", "value"], LifeStateAimRepick::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             production_rate: pick(&v, &["economy", "PRODUCTION_RATE_IN_DOUBLE_ELIXIR", "value"], ProductionRate::from_calibration_name)?,
             stun_pauses_production: boolean(&v, &["economy", "STUN_PAUSES_PRODUCTION", "value"])?,
@@ -8019,6 +8042,15 @@ impl BattleState {
                 self.ents.life_state[i] = DELAY;
                 self.ents.life_ms[i] = ls.action_delay_ms;
             }
+            // spawner.LIFE_STATE_AIM_REPICK = on_aim_lost: an aim that died or left the hut's reach is re-picked on
+            // this tick, whatever the clock says.
+            #[cfg(not(clash_plant = "life_repick_on_wave_only"))]
+            let repick = self.cfg.calib.life_state_aim_repick == LifeStateAimRepick::OnAimLost;
+            #[cfg(clash_plant = "life_repick_on_wave_only")]
+            let repick = false; // PLANT (regression): the new arm re-picks only when a wave is due.
+            if repick {
+                self.life_repick_lost_aim(i);
+            }
             match self.ents.life_state[i] {
                 DELAY => {
                     if self.ents.life_ms[i] > 0 {
@@ -8125,43 +8157,58 @@ impl BattleState {
     /// index), the edge being the centre distance less the enemy's CollisionRadius, native. Measured on client 15.535.29:
     /// enemy troops and buildings, air and ground, deploying ones too; not the filter the table names.
     fn life_wakers(&self, i: usize) -> Vec<(i64, u32, usize)> {
+        (0..self.ents.capacity()).filter_map(|v| self.life_waker_edge(i, v).map(|edge| (edge, self.ents.team_seq[v], v))).collect()
+    }
+
+    /// The edge of entity `v` from hut `i` when `v` wakes the hut (`life_wakers`), else None.
+    fn life_waker_edge(&self, i: usize, v: usize) -> Option<i64> {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let e = &self.ents;
-        let card = self.cfg.cards.get(e.card[i]);
-        let troop_bound = ((card.range + e.radius[i]) / K) as i64;
-        let building_bound = troop_bound
-            + match self.cfg.calib.life_state_wake_reach {
-                LifeWakeReach::BuildingsFurther => LIFE_WAKE_BUILDING_EXTRA,
-                LifeWakeReach::Same => 0,
-            };
-        let mut out = Vec::new();
         // movement.SPAWN_PATHFIND_BODY = untouchable: a unit under ground wakes nothing, and no wave aims at it.
         let untouchable = self.cfg.calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable;
-        for v in 0..e.capacity() {
-            if !e.alive[v] || e.hp[v] <= 0 || e.team[v] == e.team[i] || (untouchable && e.underground(v)) {
-                continue;
-            }
-            // An attached rider nothing may target (rider.TARGETABLE_WHILE_ATTACHED) wakes nothing
-            // and is never a wave's aim: its mount stands on the same point and does.
-            if target::rider_untouchable(&self.cfg.calib, e, v) {
-                continue;
-            }
-            let bound = match e.kind[v] {
-                EntityKind::Troop => troop_bound,
-                EntityKind::Building if self.cfg.calib.life_state_wake_targets == LifeWakeTargets::TroopsAndBuildings => building_bound,
-                _ => continue,
-            };
-            #[cfg(clash_plant = "life_ground_only")]
-            if e.flying[v] {
-                continue; // PLANT: an air troop wakes nothing.
-            }
-            let (dx, dy) = ((e.pos[v].x / K - e.pos[i].x / K) as i64, (e.pos[v].y / K - e.pos[i].y / K) as i64);
-            let edge = isqrt(dx * dx + dy * dy) - (e.radius[v] / K) as i64;
-            if edge <= bound {
-                out.push((edge, e.team_seq[v], v));
-            }
+        if !e.alive[v] || e.hp[v] <= 0 || e.team[v] == e.team[i] || (untouchable && e.underground(v)) {
+            return None;
         }
-        out
+        // An attached rider nothing may target (rider.TARGETABLE_WHILE_ATTACHED) wakes nothing
+        // and is never a wave's aim: its mount stands on the same point and does.
+        if target::rider_untouchable(&self.cfg.calib, e, v) {
+            return None;
+        }
+        let card = self.cfg.cards.get(e.card[i]);
+        let troop_bound = ((card.range + e.radius[i]) / K) as i64;
+        let bound = match e.kind[v] {
+            EntityKind::Troop => troop_bound,
+            EntityKind::Building if self.cfg.calib.life_state_wake_targets == LifeWakeTargets::TroopsAndBuildings => {
+                troop_bound
+                    + match self.cfg.calib.life_state_wake_reach {
+                        LifeWakeReach::BuildingsFurther => LIFE_WAKE_BUILDING_EXTRA,
+                        LifeWakeReach::Same => 0,
+                    }
+            }
+            _ => return None,
+        };
+        #[cfg(clash_plant = "life_ground_only")]
+        if e.flying[v] {
+            return None; // PLANT: an air troop wakes nothing.
+        }
+        let (dx, dy) = ((e.pos[v].x / K - e.pos[i].x / K) as i64, (e.pos[v].y / K - e.pos[i].y / K) as i64);
+        let edge = isqrt(dx * dx + dy * dy) - (e.radius[v] / K) as i64;
+        (edge <= bound).then_some(edge)
+    }
+
+    /// spawner.LIFE_STATE_AIM_REPICK = on_aim_lost: when the aim hut `i`'s waves hold has died or no longer wakes the
+    /// hut, the hut re-picks now, on this pass's positions: the nearest waker by edge (a tie to the earliest created),
+    /// or none. `life_wave` then holds the new aim while it wakes the hut, as it holds any aim. Read off the 16.402
+    /// corpus, 20260918-115249.b1: hut 25's aim, a Minion, dies on t865, when the nearest enemy is a Bomber (edge about
+    /// 6,860; a Valkyrie about 7,230); by the wave of t887 the Valkyrie is nearer (6,122 against 6,830), and the
+    /// client's wave stands on the odd-side point for the Bomber, as do its waves of t931 and t975.
+    fn life_repick_lost_aim(&mut self, i: usize) {
+        let Some(t) = self.ents.life_target[i] else { return };
+        if self.ents.is_alive(t) && self.life_waker_edge(i, t.index as usize).is_some() {
+            return;
+        }
+        let nearest = self.life_wakers(i).into_iter().min_by_key(|w| (w.0, w.1)).map(|w| w.2);
+        self.ents.life_target[i] = nearest.map(|v| self.ents.id_of(v));
     }
 
     /// ONE WAVE of hut `i`, or None when no enemy is in reach. The aim is the enemy the last wave aimed at while it still
@@ -17809,6 +17856,9 @@ impl BattleState {
 ///    arm, post_move), no new state (the new arm's start-of-tick positions are scratch, taken and read inside one
 ///    tick), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
 ///    arm.
+/// 20, unchanged, spawner.LIFE_STATE_AIM_REPICK: Calib gained life_state_aim_repick (serde default the old arm,
+///    on_wave), no new state (the new arm writes the saved and hashed life_target on other ticks), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18259,6 +18309,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("life_state_wave_point".into(), serde_json::to_value(LifeStateWavePoint::OneDivision).map_err(|e| e.to_string())?);
     // spawner.LIFE_STATE_FIRST_LOOK_AIM: the same (a format-3 battle held no Goblin Hut).
     sh.insert("life_state_first_look_aim".into(), serde_json::to_value(LifeStateFirstLookAim::PostMove).map_err(|e| e.to_string())?);
+    // spawner.LIFE_STATE_AIM_REPICK: the same.
+    sh.insert("life_state_aim_repick".into(), serde_json::to_value(LifeStateAimRepick::OnWave).map_err(|e| e.to_string())?);
     // The underground walk and the listed death ring: a format-3 battle ran no tunneller and laid every death
     // spawn by the layout key; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_ring".into(), serde_json::to_value(DeathRingArm::None).map_err(|e| e.to_string())?);
