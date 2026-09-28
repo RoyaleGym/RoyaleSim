@@ -325,6 +325,7 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.deploy_area_effect.as_ref())
         .or(def.spawn_area_effect.as_ref())
         .or(def.projectile_area.as_ref())
+        .or(def.evo.as_ref().and_then(|v| v.barrage.as_ref()).map(|b| &b.shot))
 }
 
 /// The shape `depth` steps down `root`'s chain (`SpellShape::child`), or None past its end.
@@ -785,10 +786,22 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
     // the impact centre, which is the unit a projectile's TargetBuff would have been
     // locked to. Tracked as (distance^2, victim) so the loop stays one pass.
     let mut primary: Option<(i64, EntityId)> = None;
+    // THE EVO CANNON'S BARRAGE (card.rs `BarrageDef`): its buff lands as a mark, and a bomb passes a unit that carries
+    // it or took it from another bomb this tick, so no unit is hit twice (measured on client 15.535.29: one hit of 281
+    // at level 11 per unit, none twice). On a crown tower a bomb deals the buff's CrownTowerDamagePerHit, level-scaled
+    // (unmeasured).
+    let barrage = ctx.cards.get(card).evo.as_ref().and_then(|v| v.barrage.as_ref());
+    let mark = barrage.and(hit.buff).map(|b| b.buff);
     for &v in nb.iter() {
         let v = v as usize;
         if !eligible(e, v, team, hit, ctx.calib) {
             continue;
+        }
+        if let Some(m) = mark {
+            let id = e.id_of(v);
+            if e.buff_slots(v).iter().any(|s| s.id == m + 1) || fx.buffs.iter().any(|h| h.target == id && h.buff == m) {
+                continue;
+            }
         }
         // PLANT invisible_area_immune (tests/invisibility.rs): a unit invisible when idle (the Royal Ghost) is out of
         // every area, where the client lands area damage on it (AllowAreaDmgWhenInvisible).
@@ -809,7 +822,12 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
             continue;
         }
         let id = e.id_of(v);
-        if damage > 0 {
+        if let (Some(b), true) = (barrage, e.kind[v].is_crown_tower()) {
+            let amount = ctx.cards.scaled(card, level, b.crown_damage).unwrap_or(b.crown_damage);
+            if amount > 0 {
+                dmg.hits.push(Hit { target: id, amount, ignores_hide: false });
+            }
+        } else if damage > 0 {
             #[cfg(not(clash_plant = "crown_pct_ignored"))]
             let pct = hit.crown_pct;
             #[cfg(clash_plant = "crown_pct_ignored")]

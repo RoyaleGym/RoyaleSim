@@ -79,6 +79,14 @@
 //!     effect; (x, y) the current centre; aim the landing point (flight, airborne) or
 //!     the roll's end point (rolling) or the centre (area); distances in subtiles.
 //!
+//! EVOLVED FORMS
+//!     `reset(..., forms=None)` marks deck entries evolved: two lists (blue, red) parallel to `decks`, 0 the base card
+//!     and 1 its evolution; None plays every card as itself. The catalogue lists base cards only: a form is never a
+//!     card of its own (`card_names` naming one raises), and its units, spells and shots report under the base card's
+//!     id. `state_json` gives each player an "evo" list, one row per evolved deck card in deck order:
+//!         [card_id, plays since its last evolved play, 1 when its next play from the hand is evolved else 0]
+//!     and each evolved unit's `status_flags` bit 3 (8).
+//!
 //! WHAT IT CANNOT DO (raises instead of guessing)
 //!     `crowns_from_destroyed_towers = false` (crowns are derived from destroyed
 //!     towers every tick) is refused in rust_engine.py.
@@ -212,7 +220,7 @@ pub const ENTITY_FIELDS: [&str; 21] = [
     "shield",
     "buffs",
     // added 2026-09-25: the engine's own status bits (entity.rs `Entities::status_flags`):
-    // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide
+    // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit
     "status_flags",
 ];
 
@@ -557,6 +565,12 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
         next.clear();
         frontier = next;
     }
+    // AN EVOLVED FORM reports under its base card's id: its units, the barrage's bombs, the snipe's shots.
+    for &(base, _, form) in &cards.forms {
+        if id_of_idx.get(form as usize) == Some(&-1) {
+            id_of_idx[form as usize] = id_of_idx[base as usize];
+        }
+    }
     id_of_idx
 }
 
@@ -696,6 +710,16 @@ pub fn state_json_text(
         let hc = s.hand_costs(team);
         let mirror_target = s.mirror_target(team).map_or(-1, |i| id_of_idx.get(i as usize).copied().unwrap_or(-1));
         let _ = write!(o, "],\"hand_costs\":[{},{},{},{}],\"mirror_target\":{mirror_target}", hc[0], hc[1], hc[2], hc[3]);
+        // THE EVOLVED DECK CARDS (module doc, EVOLVED FORMS): [card id, plays, next play evolved], keyed like the two above.
+        o.push_str(",\"evo\":[");
+        for (k, c) in s.evo_counters(team).iter().enumerate() {
+            if k > 0 {
+                o.push(',');
+            }
+            let id = id_of_idx.get(c.card as usize).copied().unwrap_or(-1);
+            let _ = write!(o, "[{id},{},{}]", c.plays, u8::from(c.next_evolved()));
+        }
+        o.push(']');
         let _ = write!(
             o,
             ",\"next_card\":{next},\"crowns\":{},\"tower_hp\":[{},{},{}],\"tower_max_hp\":[{},{},{}],\"king_active\":{}}}",
@@ -1016,6 +1040,9 @@ impl Battle {
                     if db.get(i).summon_only {
                         return Err(PyValueError::new_err(format!("{n:?} is a unit a spell releases, not a card")));
                     }
+                    if db.is_form(i) {
+                        return Err(PyValueError::new_err(format!("{n:?} is an evolved form: list its base card and mark it in reset's forms")));
+                    }
                     Ok(i)
                 })
                 .collect::<PyResult<_>>()?,
@@ -1033,6 +1060,7 @@ impl Battle {
                     let c = db.get(*i);
                     !is_tower(&c.name)
                         && !c.summon_only
+                        && c.evo.is_none()
                         && !c.is_mirror()
                         && c.spawn_pathfind.is_none()
                         && db.index(&c.name) == Some(*i)
@@ -1166,7 +1194,9 @@ impl Battle {
     /// (team, card_id, x, y, hp or -1), materialised in the canonical order
     /// (team, own-frame y, own-frame x, card name, starting hp), never list order
     /// (state.rs `scenario_spawn_batch`). A bad spec is reported by its list entry.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns))]
+    /// `forms`: [blue, red], each parallel to its deck, 0 the base card and 1 its evolution (module doc, EVOLVED
+    /// FORMS); None plays every card as itself.
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -1177,9 +1207,20 @@ impl Battle {
         elixir_milli: Option<Vec<i64>>,
         tower_hp: Option<Vec<Vec<i32>>>,
         spawns: Vec<(i64, i64, i32, i32, i32)>,
+        forms: Option<Vec<Vec<u8>>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
+        }
+        let mut forms: [Vec<u8>; 2] = match forms {
+            None => [Vec::new(), Vec::new()],
+            Some(f) if f.len() == 2 => [f[0].clone(), f[1].clone()],
+            Some(_) => return Err(PyValueError::new_err("forms must be [blue, red]")),
+        };
+        for (t, f) in forms.iter().enumerate() {
+            if !f.is_empty() && f.len() != decks[t].len() {
+                return Err(PyValueError::new_err(format!("forms[{t}] has {} entries for a deck of {}", f.len(), decks[t].len())));
+            }
         }
         let name_of = |cid: i64| -> PyResult<String> {
             usize::try_from(cid)
@@ -1219,11 +1260,16 @@ impl Battle {
                 for d in named.iter_mut() {
                     *d = perm.iter().map(|k| d[*k].clone()).collect();
                 }
+                // A form travels with its card.
+                for f in forms.iter_mut().filter(|f| !f.is_empty()) {
+                    *f = perm.iter().map(|k| f[*k]).collect();
+                }
                 cfg.shuffle_decks = false;
             }
             other => return Err(PyValueError::new_err(format!("unknown shuffle mode {other}"))),
         }
         cfg.decks = named;
+        cfg.forms = forms;
         let mut s = BattleState::try_new(seed, cfg).map_err(PyValueError::new_err)?;
         if start_tick > 0 {
             s.scenario_set_tick(start_tick);
@@ -2207,5 +2253,45 @@ mod tests {
         cfg.calib.knock_stacking = KnockStacking::VectorSum;
         let Err(e) = BattleState::try_new(0, cfg) else { panic!("a battle ran the recoil ladder under fixed_distance") };
         assert!(e.contains("ATTACK_PUSHBACK"), "the battle refused it for another reason: {e}");
+    }
+
+    /// AN EVOLVED CARD IN THE BINDING: the default catalogue lists base cards only and a named form is refused; the
+    /// counter reaches `state_json` ("evo": [card id, plays, next play evolved]); the form's unit and its bombs report
+    /// under the base card's id, the unit with status bit 3.
+    #[test]
+    fn an_evolved_cannon_reports_under_its_base_card() {
+        let Ok(b) = Battle::new(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None) else { panic!("the default Battle was refused") };
+        assert!(b.catalogue.iter().all(|i| b.cards.get(*i).evo.is_none()), "a form in the default catalogue");
+        assert!(Battle::new(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None).is_err(), "a named form was taken");
+        let db = b.cards.clone();
+        let ids = ids_of_indices(&db, &b.catalogue);
+        let (cannon, form) = (db.index("Cannon").unwrap(), db.index("Cannon_EV1").unwrap());
+        let id = ids[cannon as usize];
+        assert!(id >= 0);
+        assert_eq!(ids[form as usize], id, "the form reports under its base card");
+        let mut cfg = BattleConfig::with_cards(CardDb::clone(&db));
+        cfg.cards = db.clone();
+        cfg.decks = [vec!["Cannon".into()], vec!["Knight".into()]];
+        cfg.forms = [vec![1], Vec::new()];
+        let mut s = BattleState::new(7, cfg);
+        while s.tick_count() < s.config().calib.deploy_lockout_ticks.max(0) as u32 {
+            s.tick();
+        }
+        let json = |s: &BattleState| -> serde_json::Value { serde_json::from_str(&state_json_text(s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap() };
+        for (k, x) in [6, 9, 12].into_iter().enumerate() {
+            assert_eq!(json(&s)["players"][0]["evo"], serde_json::json!([[id, k, u8::from(k == 2)]]), "before play {}", k + 1);
+            s.scenario_set_elixir_milli(Team::Blue, 10000);
+            s.deploy_slot(Team::Blue, 0, Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(10))).unwrap();
+            s.tick();
+        }
+        let v = json(&s);
+        assert_eq!(v["players"][0]["evo"], serde_json::json!([[id, 0, 0]]));
+        assert_eq!(v["players"][1]["evo"], serde_json::json!([]));
+        let flags = ENTITY_FIELDS.iter().position(|f| *f == "status_flags").unwrap();
+        let evolved: Vec<_> = v["entities"].as_array().unwrap().iter().filter(|r| r[flags].as_i64().unwrap() & 8 != 0).collect();
+        assert_eq!(evolved.len(), 1, "one evolved unit");
+        assert_eq!(evolved[0][3], id);
+        assert_eq!(v["spells"].as_array().unwrap().iter().filter(|r| r[1] == id).count(), 9, "the nine bombs under the Cannon's id");
+        assert_eq!(catalogue_violation(&reload(&db, &s), &ids), Ok(()));
     }
 }

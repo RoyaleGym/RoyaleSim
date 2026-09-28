@@ -372,11 +372,12 @@ struct Census {
 /// `census` writes to card_census.json. REJECTED: `CardDb::rejected` with each reason
 /// cut to its first clause, sorted; a row refused twice is listed twice.
 fn census(db: &CardDb) -> Census {
+    // The evolved forms (cards.json `evolutions`) are not rows of `cards`: tests/evolution.rs holds them.
     let loadable = db
         .cards
         .iter()
         .enumerate()
-        .filter(|(i, c)| !c.summon_only && db.index(&c.name) == Some(*i as u16))
+        .filter(|(i, c)| !c.summon_only && c.evo.is_none() && db.index(&c.name) == Some(*i as u16))
         .map(|(_, c)| c.name.clone())
         .collect();
     let mut rejected: Vec<(String, String)> = db.rejected.iter().map(|(n, why)| (n.clone(), first_clause(why).to_string())).collect();

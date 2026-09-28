@@ -1475,6 +1475,84 @@ pub struct ManaDef {
     pub on_death_for_opponent: i32,
 }
 
+/// THE FORM NUMBER OF AN EVOLUTION in a deck's forms (state.rs `BattleConfig::forms`): 0 is the base card, 1 its
+/// evolution, 2 its hero form.
+pub const FORM_EVOLUTION: u8 = 1;
+
+/// AN EVOLVED FORM (spells_evolved; cards.json `evolutions`). It loads as a card of its own, after every card of the
+/// `cards` list, so no index of a battle without forms moves. A deck marks its base card evolved (state.rs
+/// `BattleConfig::forms`), and every third play of that card from the hand puts this card down instead
+/// (state.rs `resolve_play`). Its stats are its own row's, which extends the base card's row.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EvoDef {
+    /// The base card's index.
+    pub base: u16,
+    /// Evo Cannon: the barrage the unit drops when it is created.
+    pub barrage: Option<BarrageDef>,
+    /// Evo Skeletons: a copy for every two hits of the play's group.
+    pub duplication: Option<DuplicationDef>,
+    /// Evo Musketeer: the long shots she holds.
+    pub snipe: Option<SnipeDef>,
+    /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
+    /// row names none.
+    pub cloned_as: Option<u16>,
+}
+
+/// One bomb of the barrage: its point and when it lands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BarrageBomb {
+    /// x, SUBTILES, absolute (not mirrored for side 1).
+    pub x: i32,
+    /// How far ahead of the cannon, SUBTILES, toward the enemy.
+    pub ahead: i32,
+    /// The area object's LifeDuration, ms: the bomb's clock.
+    pub life_ms: i32,
+}
+
+/// THE EVO CANNON'S BARRAGE (cannon_ev1.toml: ActionCannonBarrage and its bombs). Every bomb is an ordinary spell
+/// object of the form card (spell.rs `shape_of` names `shot`), so it is saved, hashed and drawn like any other.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BarrageDef {
+    pub bombs: Vec<BarrageBomb>,
+    /// The bomb's impact: `shot.shape` is a `SpellShape::Projectile` whose hit is the bomb projectile's radius, air and
+    /// ground filters and push, with the one-hit buff's DamagePerSecond as its damage.
+    pub shot: SpellDef,
+    /// The buff's CrownTowerDamagePerHit, level 1: what a bomb deals a crown tower.
+    pub crown_damage: i32,
+}
+
+/// THE EVO SKELETONS' DUPLICATION (characters_evo.toml Skeleton_EV1, its SkeletonDuplication_EV1 buff).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DuplicationDef {
+    /// GroupMaxSize: the most living skeletons one play's group holds.
+    pub group_max: i32,
+    /// SpawnerAliveRequired: a hitter that died on its hit tick makes no copy.
+    pub alive_required: bool,
+}
+
+/// THE EVO MUSKETEER'S SNIPE (musketeer_ev1.toml: ActionMusketeerSnipe and AttackSequenceList entry 1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SnipeDef {
+    /// AmmoCount: the snipes she holds from her creation.
+    pub ammo: u8,
+    /// SnipeMinRange / SnipeMaxRange, SUBTILES: how far ahead of her a snipe target stands.
+    pub min: i32,
+    pub max: i32,
+    /// SnipeSideClip / LockedTargetSnipeSideClip, SUBTILES: how far to the side a new / a kept target may stand.
+    pub clip: i32,
+    pub locked_clip: i32,
+    /// IgnorePendingDamageTargets: a target the shots in flight will kill is not taken.
+    pub skip_pending: bool,
+    /// The filter's FilterTowers: a crown tower is never a snipe target.
+    pub skip_towers: bool,
+    /// The entry's CustomRange, SUBTILES: her attack reach while she aims a snipe.
+    pub reach: i32,
+    /// The snipe projectile's Speed (raw) and Damage (level 1) and its crown-tower percent.
+    pub speed: i32,
+    pub damage: i32,
+    pub crown_pct: i32,
+}
+
 /// One card, in engine units. Distances are SUBTILES; times are ms.
 #[derive(Clone, Debug)]
 pub struct CardDef {
@@ -1830,6 +1908,9 @@ pub struct CardDef {
     /// combat.PROJECTILE_Y_OFFSET = client_forward_y (the King Tower's 400; measured on the 16.402 corpus, every
     /// king shot's first frame). Read by combat.rs `launch_point`; ignored under the old arm.
     pub projectile_y_offset: i32,
+    /// AN EVOLVED FORM (`EvoDef`; cards.json `evolutions`): the base card it evolves and the mechanic it adds. None on
+    /// every card of the `cards` list; only a form loaded from `evolutions` carries one.
+    pub evo: Option<EvoDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -3201,6 +3282,153 @@ struct RawCardsFile {
     /// fallback set, which then load no card that needs one.
     #[serde(default)]
     globals: BTreeMap<String, serde_json::Value>,
+    /// cards.json `evolutions` (15.535 only): the evolved forms, each a card record with its base card (`form_of`) and
+    /// the block of its mechanic (`RawEvolution`). Loaded after every other card (`CardDb::load_evolution`).
+    #[serde(default)]
+    evolutions: Vec<serde_json::Value>,
+}
+
+/// What an `evolutions` record carries beside its card columns (tools/extract_cards.py `evolution_records`).
+#[derive(Deserialize)]
+struct RawEvolution {
+    form_of: String,
+    evo_barrage: Option<RawBarrage>,
+    evo_duplication: Option<RawDuplication>,
+    evo_snipe: Option<RawSnipe>,
+    cloned_version: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawBarrageBomb {
+    h: i32,
+    v: i32,
+    life_ms: i32,
+}
+
+#[derive(Deserialize)]
+struct RawBarrage {
+    bombs: Vec<RawBarrageBomb>,
+    radius_milli: Option<i32>,
+    pushback_milli: Option<i32>,
+    hits_air: Option<bool>,
+    hits_ground: Option<bool>,
+    only_enemies: Option<bool>,
+    buff: Option<String>,
+    buff_time_ms: Option<i32>,
+    buff_damage_per_second: Option<i32>,
+    buff_crown_tower_damage_per_hit: Option<i32>,
+    buff_hit_frequency_ms: Option<i32>,
+}
+
+#[derive(Deserialize)]
+struct RawDuplication {
+    group_max: Option<i32>,
+    spawner_alive_required: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct RawSnipeShot {
+    speed: Option<i32>,
+    damage: Option<i32>,
+    crown_tower_damage_percent: Option<i32>,
+}
+
+#[derive(Deserialize)]
+struct RawSnipe {
+    ammo: Option<i32>,
+    min_range_milli: Option<i32>,
+    max_range_milli: Option<i32>,
+    side_clip_milli: Option<i32>,
+    locked_side_clip_milli: Option<i32>,
+    skip_pending_damage: Option<bool>,
+    filter_towers: Option<bool>,
+    shot_range_milli: Option<i32>,
+    shot: Option<RawSnipeShot>,
+}
+
+/// THE BARRAGE'S BOMB OFFSET UNIT, native: BombAbsoluteHorizontalOffsets and BombVerticalOffsets count half tiles.
+/// Measured on client 15.535.29: the nine bombs stood at x 1500, 6500, 11500, 16500 and 1000, 5000, 9000, 13000,
+/// 17000, and 1500 and 8500 ahead of the cannon.
+pub const BARRAGE_OFFSET_UNIT: i32 = 500;
+
+/// THE BARRAGE'S REACH beyond a victim's own radius, native: the bomb projectile's Radius. Measured on client
+/// 15.535.29 on Barbarians (radius 500): hit at centre distances up to 2452, missed from 2555, so a bomb reaches
+/// 2000 from its centre to the victim's edge (not the area object's Radius 1000).
+pub const BARRAGE_REACH_MILLI: i32 = 2000;
+
+fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, String> {
+    if b.bombs.is_empty() {
+        return Err("a barrage with no bombs".into());
+    }
+    // The damage is one hit of the buff's DamagePerSecond (HitFrequency -1: once, as it lands). Any other frequency
+    // would be a buff that pulses, which a barrage is not read as.
+    if b.buff_hit_frequency_ms != Some(-1) {
+        return Err(format!("a barrage buff with HitFrequency {:?}, not the one hit (-1) this loader reads", b.buff_hit_frequency_ms));
+    }
+    let damage = b.buff_damage_per_second.filter(|d| *d > 0).ok_or("a barrage buff with no DamagePerSecond")?;
+    let radius = b.radius_milli.filter(|r| *r > 0).ok_or("a barrage projectile with no Radius")?;
+    if radius != BARRAGE_REACH_MILLI {
+        return Err(format!("a barrage projectile of Radius {radius}; the measured reach is {BARRAGE_REACH_MILLI}"));
+    }
+    let time_ms = b.buff_time_ms.filter(|t| *t > 0).ok_or("a barrage buff with no BuffTime")?;
+    // THE BUFF LANDS AS A MARK: it carries none of its row's columns here (its damage is the impact's), and a unit
+    // that carries it is not hit by another bomb of the barrage (spell.rs `impact`). Its own row in the table, after
+    // every buff a card of the `cards` list interned.
+    let mark = buffs.push_own(BuffDef::default(), b.buff.as_deref().unwrap_or(""))?;
+    let hit = SpellHit {
+        damage,
+        crown_pct: 100,
+        radius: milli(radius),
+        hits_air: b.hits_air.unwrap_or(false),
+        hits_ground: b.hits_ground.unwrap_or(false),
+        only_enemies: b.only_enemies.unwrap_or(true),
+        only_own_troops: false,
+        ignore_buildings: false,
+        no_effect_to_crown_towers: false,
+        // AlwaysApplyPushback: the push lands with the hit although the projectile's own Damage is 0.
+        knockback: knockback(b.pushback_milli, Some(false)),
+        buff: Some(BuffApply { buff: mark, time_ms }),
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    let bombs = b
+        .bombs
+        .iter()
+        .map(|x| {
+            if x.life_ms <= 0 {
+                return Err(format!("a barrage bomb with LifeDuration {}", x.life_ms));
+            }
+            Ok(BarrageBomb { x: milli(x.h * BARRAGE_OFFSET_UNIT), ahead: milli(x.v * BARRAGE_OFFSET_UNIT), life_ms: x.life_ms })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(BarrageDef {
+        bombs,
+        shot: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
+        crown_damage: b.buff_crown_tower_damage_per_hit.unwrap_or(0).max(0),
+    })
+}
+
+fn snipe_of(sn: &RawSnipe) -> Result<SnipeDef, String> {
+    let need = |v: Option<i32>, what: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a snipe with no {what}"));
+    let shot = sn.shot.as_ref().ok_or("a snipe with no shot")?;
+    let (min, max) = (need(sn.min_range_milli, "SnipeMinRange")?, need(sn.max_range_milli, "SnipeMaxRange")?);
+    if min >= max {
+        return Err(format!("a snipe reach of {min} to {max}"));
+    }
+    Ok(SnipeDef {
+        ammo: u8::try_from(need(sn.ammo, "AmmoCount")?).map_err(|_| "a snipe AmmoCount past 255")?,
+        min: milli(min),
+        max: milli(max),
+        clip: milli(need(sn.side_clip_milli, "SnipeSideClip")?),
+        locked_clip: milli(need(sn.locked_side_clip_milli, "LockedTargetSnipeSideClip")?),
+        skip_pending: sn.skip_pending_damage.unwrap_or(false),
+        skip_towers: sn.filter_towers.unwrap_or(false),
+        reach: milli(need(sn.shot_range_milli, "CustomRange")?),
+        speed: need(shot.speed, "shot Speed")?,
+        damage: need(shot.damage, "shot Damage")?,
+        crown_pct: shot.crown_tower_damage_percent.unwrap_or(100),
+    })
 }
 
 /// THE TABLE'S OWN GLOBALS THE LOADER READS (cards.json `globals`), typed. Part of the card fingerprint
@@ -3542,6 +3770,18 @@ impl BuffTable {
         self.defs.push(def);
         self.names.push(if name.is_empty() { Vec::new() } else { vec![name.to_string()] });
         self.death_names.push(death.map(str::to_string));
+        Ok((self.defs.len() - 1) as u16)
+    }
+
+    /// A row of its own, never merged with another by value (`intern` would merge an effect-free row with any other
+    /// such row, and a later one into it): the barrage's mark, which is told apart by its index.
+    fn push_own(&mut self, def: BuffDef, name: &str) -> Result<u16, String> {
+        if self.defs.len() >= u16::MAX as usize {
+            return Err("more distinct buffs than the table can index".into());
+        }
+        self.defs.push(def);
+        self.names.push(if name.is_empty() { Vec::new() } else { vec![name.to_string()] });
+        self.death_names.push(None);
         Ok((self.defs.len() - 1) as u16)
     }
 
@@ -3978,6 +4218,11 @@ pub struct CardDb {
     pub version: String,
     /// The file's own globals the loader reads (`CardGlobals`; cards.json `globals`).
     pub globals: CardGlobals,
+    /// THE FORMS THAT LOADED, as (base card, form number, form card): `form_card` reads it. Empty on a table
+    /// with no `evolutions`.
+    pub forms: Vec<(u16, u8, u16)>,
+    /// The `evolutions` records that did not load, with why. Apart from `rejected`, which lists the `cards` list.
+    pub rejected_evolutions: Vec<(String, String)>,
 }
 
 pub const KING_TOWER: &str = "KingTower";
@@ -4074,6 +4319,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_pushback: 0,
         ignore_clone: false,
         projectile_y_offset: 0,
+        evo: None,
     }
 }
 
@@ -5995,6 +6241,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         projectile_y_offset: milli(raw.projectile_y_offset_milli.unwrap_or(0)),
         #[cfg(clash_plant = "projectile_y_offset_unread")]
         projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
+        evo: None,
     }, display, units))
 }
 
@@ -6167,6 +6414,8 @@ impl CardDb {
             rarities,
             version: file.version.clone(),
             globals: globals.clone(),
+            forms: Vec::new(),
+            rejected_evolutions: Vec::new(),
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
@@ -6243,6 +6492,14 @@ impl CardDb {
         // its weakest link: after the worklist, every record that reaches a record that could
         // not load, at any depth, is refused too (the fixpoint below), so no playable card
         // keeps a block whose unit lost its own.
+        // PLANT forms_load_first (tests/evolution.rs): the forms load before the spawned units, whose slots move.
+        #[cfg(clash_plant = "forms_load_first")]
+        for v in file.evolutions {
+            let name = v.get("name").and_then(serde_json::Value::as_str).unwrap_or("?").to_string();
+            if let Err(why) = db.load_evolution(v, &mut buffs, &ctx) {
+                db.rejected_evolutions.push((name, why));
+            }
+        }
         let mut unit_idx: BTreeMap<String, Result<u16, String>> = BTreeMap::new();
         // A VARIANT CARD'S FORMS ARE CARDS, NOT UNITS: they never enter the worklist, and are resolved by card name
         // after it and its cleanup (below), so no summon-only record is ever made for one.
@@ -6850,6 +7107,16 @@ impl CardDb {
             db.by_name.retain(|_, i| *i != vidx);
             db.rejected.push((name, why));
         }
+        // THE EVOLVED FORMS (cards.json `evolutions`), after every card, unit and buff of the lists above, so each of
+        // those keeps its index and a battle without forms runs and hashes as before they loaded. A form that does not
+        // load is listed in `rejected_evolutions`, and its base card plays as itself.
+        #[cfg(not(clash_plant = "forms_load_first"))]
+        for v in file.evolutions {
+            let name = v.get("name").and_then(serde_json::Value::as_str).unwrap_or("?").to_string();
+            if let Err(why) = db.load_evolution(v, &mut buffs, &ctx) {
+                db.rejected_evolutions.push((name, why));
+            }
+        }
         if db.index(KING_TOWER).is_none() || db.index(PRINCESS_TOWER).is_none() {
             let fb: RawCardsFile = serde_json::from_str(FALLBACK_TOWERS_JSON).expect("fallback towers parse");
             let fb_globals = CardGlobals::default();
@@ -6867,6 +7134,90 @@ impl CardDb {
         db.buffs = defs;
         db.buff_names = names;
         Ok(db)
+    }
+
+    /// ONE EVOLVED FORM (an `evolutions` record): converted as a card of the `cards` list is, then held to its base
+    /// card (the same kind, cost and rarity) and given its mechanic (`EvoDef`). The action graph a form's row runs is
+    /// read by its block alone: Cannon_EV1's barrage group, Musketeer_EV1's snipe group. A form whose row needs units
+    /// loaded of its own, or that carries no block, is refused.
+    fn load_evolution(&mut self, v: serde_json::Value, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(), String> {
+        let extra: RawEvolution = serde_json::from_value(v.clone()).map_err(|e| format!("evolutions: {e}"))?;
+        let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("evolutions: {e}"))?;
+        let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of).ok_or_else(|| format!("its base card {} does not load", extra.form_of))?;
+        let bc = self.get(base).clone();
+        if bc.summon_only || bc.spell.is_some() || bc.evo.is_some() || bc.kind == CardKind::Spell {
+            return Err(format!("its base card {} is not a troop or building card", bc.name));
+        }
+        let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some()];
+        if blocks.iter().filter(|b| **b).count() != 1 {
+            return Err("a form carries exactly one mechanic block here".into());
+        }
+        let reads: &[&str] = if extra.evo_barrage.is_some() {
+            &["ActionCannonBarrage", "ActionGroup"]
+        } else if extra.evo_snipe.is_some() {
+            &["ActionGroup", "ActionMusketeerSnipe", "ActionPlayEffect"]
+        } else {
+            &[]
+        };
+        if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
+            if !g.spawns.is_empty() || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+                return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
+            }
+        }
+        raw.action_graph = None;
+        let (mut c, _, needs) = convert(raw, buffs, ctx)?;
+        if let Some((_, u)) = needs.first() {
+            return Err(format!("needs unit {u} loaded; a form with units of its own is not simulated"));
+        }
+        if c.kind != bc.kind || c.elixir != bc.elixir || c.rarity != bc.rarity {
+            return Err(format!("a {:?} of {} elixir ({}) against its base's {:?} of {} ({})", c.kind, c.elixir, c.rarity, bc.kind, bc.elixir, bc.rarity));
+        }
+        let shapes = [&c.spell, &c.death_area_effect, &c.deploy_projectile, &c.death_projectile, &c.deploy_area_effect, &c.spawn_area_effect, &c.projectile_area];
+        if extra.evo_barrage.is_some() && shapes.iter().any(|d| d.is_some()) {
+            return Err("a barrage on a row that carries another spell object; one spell object names one shape".into());
+        }
+        let mut evo = EvoDef { base, barrage: None, duplication: None, snipe: None, cloned_as: None };
+        if let Some(b) = &extra.evo_barrage {
+            evo.barrage = Some(barrage_of(b, buffs)?);
+        }
+        if let Some(d) = &extra.evo_duplication {
+            let group_max = d.group_max.filter(|g| *g >= c.count.max(1)).ok_or("a duplication with no GroupMaxSize of at least the play's members")?;
+            evo.duplication = Some(DuplicationDef { group_max, alive_required: d.spawner_alive_required.unwrap_or(false) });
+        }
+        if let Some(sn) = &extra.evo_snipe {
+            if c.projectile.is_none() {
+                return Err("a snipe on a row with no shot of its own".into());
+            }
+            evo.snipe = Some(snipe_of(sn)?);
+        }
+        // ClonedVersion names the base card's own unit row: the Clone copies the base card.
+        if let Some(cv) = extra.cloned_version.as_deref() {
+            if bc.unit_name != cv {
+                return Err(format!("ClonedVersion {cv} is not its base card's unit {}", bc.unit_name));
+            }
+            evo.cloned_as = Some(base);
+        }
+        if !self.rarities.iter().any(|r| r.name == c.rarity) {
+            return Err(format!("rarity {} not in rarities.csv", c.rarity));
+        }
+        c.evo = Some(evo);
+        self.push(c, None)?;
+        self.forms.push((base, FORM_EVOLUTION, (self.cards.len() - 1) as u16));
+        Ok(())
+    }
+
+    /// THE CARD A DECK ENTRY PLAYS AS `form` of base card `base` (`FORM_EVOLUTION`, ...): the form card, or None when
+    /// the table loads no such form. Form 0 is the base card itself.
+    pub fn form_card(&self, base: u16, form: u8) -> Option<u16> {
+        if form == 0 {
+            return Some(base);
+        }
+        self.forms.iter().find(|(b, f, _)| *b == base && *f == form).map(|(_, _, c)| *c)
+    }
+
+    /// Is card `idx` a form (an `evolutions` record), never dealt or named in a deck itself?
+    pub fn is_form(&self, idx: u16) -> bool {
+        self.cards.get(idx as usize).is_some_and(|c| c.evo.is_some())
     }
 
     /// THE ENCHANT'S MULTIPLIERS AND EXCLUSIONS, resolved against the loaded cards (`EnchantDef::per_attacker`,

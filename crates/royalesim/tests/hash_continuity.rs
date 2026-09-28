@@ -385,9 +385,11 @@ fn db_without(doc: &Value, removed: &[&str], what: &str) -> CardDb {
 }
 
 /// The CardDb's slot names in index order: cards, crown towers, summon-only units, and
-/// the rows refused after their push, which keep their slot.
+/// the rows refused after their push, which keep their slot. The evolved forms (cards.json
+/// `evolutions`) are left out: they load after every other slot, where no battle here
+/// reaches them, and tests/evolution.rs holds them there.
 fn slots(db: &CardDb) -> Vec<String> {
-    db.cards.iter().map(|c| c.name.clone()).collect()
+    db.cards.iter().filter(|c| c.evo.is_none()).map(|c| c.name.clone()).collect()
 }
 
 /// One shipped table, read.

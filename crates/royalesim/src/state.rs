@@ -57,7 +57,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, FootprintModel, Lane, Rect, Shape, Territory, TerritoryModel};
-use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpawnerSource, SpellPlacement, SpellShape, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardDef, CardKind, ChargeDef, SpawnerDef, SpawnerSource, SpellPlacement, SpellShape, FORM_EVOLUTION, KING_TOWER, PRINCESS_TOWER};
 use crate::collide::{self, CollideScratch};
 use crate::combat::{self, CrownRounding, DamageBuffer, Hit, Projectile};
 use crate::spell::{self, EffectBuffer, Spell};
@@ -5266,6 +5266,10 @@ pub struct BattleConfig {
     pub shuffle_decks: bool,
     /// Spatial hash bucket, subtiles.
     pub bucket_subtiles: i32,
+    /// THE FORM OF EACH DECK ENTRY per team, parallel to `decks`: 0 the base card, 1 its evolution (card.rs
+    /// `FORM_EVOLUTION`). Empty (the default) plays every card as itself. A form travels with its card through the
+    /// shuffle: the counter of an evolved card is the card's own (`PlayerState::evo`).
+    pub forms: [Vec<u8>; 2],
 }
 
 impl BattleConfig {
@@ -5312,6 +5316,7 @@ impl BattleConfig {
             tower_level: [level, level],
             shuffle_decks: false,
             bucket_subtiles: SUBTILE,
+            forms: [Vec::new(), Vec::new()],
         }
     }
 }
@@ -5374,6 +5379,79 @@ pub enum Outcome {
     Draw,
 }
 
+/// THE BASIC PLAYS OF AN EVOLVED CARD BEFORE ITS EVOLVED ONE. Measured on client 15.535.29 on Evo Skeletons, Evo
+/// Cannon and Evo Musketeer: counting only that card's own plays from the battle's start, plays 1 and 2 put the base
+/// card down and play 3 the evolved form, and the count starts again, so plays 3, 6, 9 ... are evolved. Other cards'
+/// plays do not count, and the first play from the opening hand is basic (the count starts at 0).
+pub const EVO_BASIC_PLAYS: u8 = 2;
+
+/// THE COUNTER OF ONE EVOLVED DECK CARD (`PlayerState::evo`): the base card, its form, and its plays since its last
+/// evolved play (since the battle's start before the first).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvoCounter {
+    pub card: u16,
+    pub form: u16,
+    pub plays: u8,
+}
+
+impl EvoCounter {
+    /// Is this card's next play from the hand its evolved one?
+    pub fn next_evolved(&self) -> bool {
+        self.plays >= EVO_BASIC_PLAYS
+    }
+}
+
+/// THE EVOLVED UNITS' OWN STATE: Evo Skeletons' groups and Evo Musketeer's snipes. Saved with the battle and hashed only
+/// when it holds something, so a battle without evolved units hashes as before it existed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvoBoard {
+    /// Each evolved skeleton and its group: the members of one play, and every copy they make.
+    pub members: Vec<(EntityId, u32)>,
+    /// Each group's hits so far (the copies' own hits count).
+    pub hits: Vec<(u32, u32)>,
+    /// The last group number given out.
+    pub next_group: u32,
+    /// Each Evo Musketeer: her snipes left, and the target she aims one at.
+    pub snipers: Vec<(EntityId, u8, Option<EntityId>)>,
+}
+
+impl EvoBoard {
+    fn is_empty(&self) -> bool {
+        self.members.is_empty() && self.hits.is_empty() && self.next_group == 0 && self.snipers.is_empty()
+    }
+
+    /// Is entity `id` an Evo Musketeer aiming a snipe (a snipe left and a target kept)?
+    fn aiming(&self, id: EntityId) -> bool {
+        self.snipers.iter().any(|(m, ammo, t)| *m == id && *ammo > 0 && t.is_some())
+    }
+}
+
+/// A COPY AN EVO SKELETON'S GROUP HAS EARNED THIS TICK (`evo_after_fire`), made at the end of the tick's Reap
+/// (`evo_copies`).
+#[derive(Clone, Copy, Debug)]
+struct EvoCopy {
+    hitter: EntityId,
+    group: u32,
+    team: Team,
+    card: u16,
+    level: i32,
+    pos: Vec2,
+}
+
+/// WHERE AN EVO SKELETONS COPY APPEARS, native: this far ahead of the skeleton whose hit earned it, toward the enemy
+/// in the arena's y (+ for side 0, - for side 1), whatever it faces. Measured on client 15.535.29, both sides.
+pub const EVO_COPY_AHEAD_MILLI: i32 = 1000;
+
+/// THE GROUP HITS PER EVO SKELETONS COPY. Measured on client 15.535.29 (both sides): the play's group counts its hits
+/// together, a copy's included, and every second one (2, 4, 6 ...) makes one copy; a tick with two hits made one.
+/// The table's BuffAfterHitsCount 1 is not this count.
+pub const EVO_HITS_PER_COPY: u32 = 2;
+
+/// THE BARRAGE'S LANDING, ticks past the area object's LifeDuration, from the cannon's first frame. Measured on client
+/// 15.535.29 (3 runs): the play issued on tick I, the cannon's first frame I + 1, the bombs on I + 2, and the damage on
+/// I + 26 for the 1100 ms bombs, I + 28 for the 1200 ms and I + 30 for the 1300 ms.
+pub const BARRAGE_LAND_EXTRA_TICKS: i32 = 3;
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PlayerState {
     /// Elixir in units of 1/mana_unit elixir.
@@ -5387,6 +5465,10 @@ pub struct PlayerState {
     /// deck holds a Mirror (`hash_state`), so a battle without one hashes as it did before the field.
     #[serde(default)]
     pub last_played: Option<u16>,
+    /// THE EVOLVED DECK CARDS' COUNTERS (`EvoCounter`), in deck order; empty on a side with no evolved card. Hashed only
+    /// when present.
+    #[serde(default)]
+    pub evo: Vec<EvoCounter>,
 }
 
 /// WHAT PLAYING ONE HAND SLOT PUTS DOWN (`BattleState::resolve_play`): the card in the slot, the card the play
@@ -5861,6 +5943,9 @@ struct Scratch {
     /// THE CLONE'S ORDERS (spell.rs `CloneOrder`): written in the Projectile phase (`phase_projectile`) and carried out in
     /// the Reap of the same tick (`materialise_clones`), so it is empty between ticks: not saved, not hashed.
     clone_orders: Vec<spell::CloneOrder>,
+    /// THE EVO SKELETONS COPIES this Attack phase earned (`evo_after_fire`), made in the Reap of the same tick
+    /// (`evo_copies`), so it is empty between ticks: not saved, not hashed.
+    evo_copies: Vec<EvoCopy>,
 }
 
 /// THE UNDERGROUND WALK'S SEARCH (movement.SPAWN_PATHFIND_STATES): the 16.402 terrain and path finder, priced
@@ -6186,6 +6271,8 @@ pub struct BattleState {
     /// Actions scheduled for a later tick (`Scheduled`: a delayed transformation), in the order they were written.
     /// Empty in every battle without one, which hashes as it did before the field.
     scheduled: Vec<Scheduled>,
+    /// The evolved units' own state (`EvoBoard`). Empty in every battle without one.
+    evo: EvoBoard,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -6422,8 +6509,31 @@ impl BattleState {
         let mut players: Vec<PlayerState> = Vec::with_capacity(2);
         for t in 0..2 {
             let mut deck: Vec<u16> = Vec::new();
-            for name in &config.decks[t] {
+            let mut evo: Vec<EvoCounter> = Vec::new();
+            let forms = &config.forms[t];
+            if !forms.is_empty() && forms.len() != config.decks[t].len() {
+                return Err(format!("forms for side {t}: {} entries for a deck of {}", forms.len(), config.decks[t].len()));
+            }
+            for (k, name) in config.decks[t].iter().enumerate() {
                 let idx = cards.index(name).ok_or_else(|| format!("deck card {name} unknown"))?;
+                // AN EVOLVED FORM IS NEVER DEALT: its base card is, marked in `forms`.
+                if cards.is_form(idx) {
+                    return Err(format!("{name} is an evolved form: put its base card in the deck and mark it in forms"));
+                }
+                match forms.get(k).copied().unwrap_or(0) {
+                    0 => {}
+                    FORM_EVOLUTION => {
+                        let form = cards.form_card(idx, FORM_EVOLUTION).ok_or_else(|| {
+                            let why: Vec<String> = cards.rejected_evolutions.iter().map(|(n, w)| format!("{n}: {w}")).collect();
+                            format!("{name} has no evolution that loads{}", if why.is_empty() { String::new() } else { format!(" (refused: {})", why.join("; ")) })
+                        })?;
+                        cards.check_levels(form, config.card_level[t])?;
+                        if !evo.iter().any(|e| e.card == idx) {
+                            evo.push(EvoCounter { card: idx, form, plays: 0 });
+                        }
+                    }
+                    other => return Err(format!("{name}: form {other} is not simulated in this build")),
+                }
                 // The card's own level and every unit it can release, spawn or leave
                 // behind: nothing on the tick path may fail on a level.
                 cards.check_levels(idx, config.card_level[t])?;
@@ -6465,7 +6575,7 @@ impl BattleState {
             }
             let hand: Vec<u16> = deck.iter().take(HAND_SIZE).copied().collect();
             let queue: VecDeque<u16> = deck.iter().skip(HAND_SIZE).copied().collect();
-            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None });
+            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None, evo });
         }
         let players: [PlayerState; 2] = [players.remove(0), players.remove(0)];
 
@@ -6494,6 +6604,7 @@ impl BattleState {
             lifetime_ms: Vec::new(),
             lifetime_acc: Vec::new(),
             scheduled: Vec::new(),
+            evo: EvoBoard::default(),
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -6928,6 +7039,223 @@ impl BattleState {
         self.ents.cloned[i] = true;
     }
 
+    /// AN EVOLVED UNIT'S START, on its creation from a play (a hand play, a Mirror's copy, `spawn_unit`; `phase_spawn`):
+    ///   - Evo Cannon: its barrage, nine bombs as spell objects of the form card (`barrage_spells`);
+    ///   - Evo Skeletons: the play's members join one group per side (`groups`), which counts their hits;
+    ///   - Evo Musketeer: her snipes (AmmoCount), from her creation (the action group's delay 0; unmeasured).
+    ///
+    /// A unit the scenario setup puts down stands as if played earlier and starts none of these.
+    fn evo_created(&mut self, id: EntityId, groups: &mut [Option<u32>; 2]) {
+        let i = id.index as usize;
+        let cards = self.cfg.cards.clone();
+        let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
+        let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+        if let Some(b) = evo.barrage.as_ref() {
+            let bombs = barrage_spells(&cards, &self.cfg.calib, b, team, card, level, pos);
+            self.spells.extend(bombs);
+        }
+        if evo.duplication.is_some() {
+            let g = *groups[team as usize].get_or_insert_with(|| {
+                self.evo.next_group += 1;
+                self.evo.next_group
+            });
+            self.evo.members.push((id, g));
+        }
+        if let Some(sn) = evo.snipe {
+            self.evo.snipers.push((id, sn.ammo, None));
+        }
+    }
+
+    /// AN EVOLVED UNIT'S FIRE (`phase_attack_for`, right after `combat::fire`), `shots_from` the projectile list's
+    /// length before it:
+    ///   - Evo Skeletons: the hit counts for the hitter's group, and every `EVO_HITS_PER_COPY`-th earns a copy
+    ///     (`EvoCopy`), made in this tick's Reap (`evo_copies`). Every hit counts, a hit on a building or a crown
+    ///     tower too (unmeasured: the tables name no filter);
+    ///   - Evo Musketeer: a shot at the target she aims a snipe at is the snipe (AttackSequenceList entry 1): its speed
+    ///     and damage are the snipe projectile's, and it spends one snipe.
+    fn evo_after_fire(&mut self, i: usize, shots_from: usize) {
+        let cards = self.cfg.cards.clone();
+        let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
+        let id = self.ents.id_of(i);
+        if evo.duplication.is_some() {
+            if let Some(&(_, g)) = self.evo.members.iter().find(|(m, _)| *m == id) {
+                let n = match self.evo.hits.iter_mut().find(|(k, _)| *k == g) {
+                    Some((_, n)) => {
+                        *n += 1;
+                        *n
+                    }
+                    None => {
+                        self.evo.hits.push((g, 1));
+                        1
+                    }
+                };
+                if n % EVO_HITS_PER_COPY == 0 {
+                    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                    let team = self.ents.team[i];
+                    let ahead = if team == Team::Blue { EVO_COPY_AHEAD_MILLI } else { -EVO_COPY_AHEAD_MILLI };
+                    let at = self.ents.pos[i];
+                    let pos = Vec2::new(at.x, at.y + ahead * K);
+                    self.scratch.evo_copies.push(EvoCopy { hitter: id, group: g, team, card: self.ents.card[i], level: self.ents.level[i], pos });
+                }
+            }
+        }
+        if let Some(sn) = evo.snipe {
+            if self.ents.attack_seq[i] == 1 {
+                let damage = cards.scaled(self.ents.card[i], self.ents.level[i], sn.damage).expect("level validated at spawn");
+                let speed = sn.speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick;
+                let from = shots_from.min(self.projectiles.len());
+                for p in self.projectiles[from..].iter_mut() {
+                    p.speed = speed;
+                    p.damage = damage;
+                    p.crown_pct = sn.crown_pct;
+                }
+                if let Some(s) = self.evo.snipers.iter_mut().find(|(m, _, _)| *m == id) {
+                    s.1 = s.1.saturating_sub(1);
+                    if s.1 == 0 {
+                        s.2 = None;
+                        self.ents.attack_seq[i] = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    /// THE EVO SKELETONS COPIES this tick earned (`evo_after_fire`), in hit order, at the end of Reap: each a Skeleton_EV1
+    /// of its hitter's card and level at full hitpoints, `EVO_COPY_AHEAD_MILLI` ahead of the hitter's position at its
+    /// hit, already deployed, with a target on its first frame and no step taken, in its hitter's group.
+    /// Measured on client 15.535.29: the copy exists on the hit's own frame, with a target, at full hp. A copy is made
+    /// while the group holds fewer than GroupMaxSize living skeletons (8 alive: measured that copying stopped at 8;
+    /// whether dead members still count is not separated) and, under SpawnerAliveRequired, while its hitter lives.
+    /// Then the board forgets the dead.
+    fn evo_copies(&mut self) {
+        let copies = std::mem::take(&mut self.scratch.evo_copies);
+        let mut fresh: Vec<usize> = Vec::new();
+        for c in copies {
+            let Some(d) = self.cfg.cards.get(c.card).evo.as_ref().and_then(|v| v.duplication) else { continue };
+            if d.alive_required && !self.ents.is_alive(c.hitter) {
+                continue;
+            }
+            let alive = self.evo.members.iter().filter(|(m, g)| *g == c.group && self.ents.is_alive(*m)).count() as i32;
+            if alive >= d.group_max {
+                continue;
+            }
+            let kind = if self.cfg.cards.get(c.card).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
+            let Ok(id) = self.spawn_now(c.team, c.card, c.level, c.pos, kind) else { continue };
+            let j = id.index as usize;
+            self.ents.deploy_ms[j] = 0;
+            self.on_deployed(j);
+            self.evo.members.push((id, c.group));
+            fresh.push(j);
+        }
+        // A target on its first frame, and no step: it stands where it was made (measured).
+        if !fresh.is_empty() {
+            self.hash.rebuild(&self.ents);
+            self.phase_target_for(Some(&fresh));
+        }
+        let ents = &self.ents;
+        self.evo.members.retain(|(m, _)| ents.is_alive(*m));
+        let live: Vec<u32> = self.evo.members.iter().map(|(_, g)| *g).collect();
+        self.evo.hits.retain(|(g, _)| live.contains(g));
+        self.evo.snipers.retain(|(m, _, _)| ents.is_alive(*m));
+    }
+
+    /// THE EVO MUSKETEER'S SNIPE TARGETS, after the Target phase's ordinary decisions, for each one with a snipe left and
+    /// past her deploy. The reading of musketeer_ev1.toml's ActionMusketeerSnipe (unmeasured):
+    ///   - when she aims at nothing, an ordinary target within her attack reach comes first: she shoots it as the plain
+    ///     Musketeer does;
+    ///   - else a SNIPE TARGET: an enemy she can target (target.rs `can_target`), not a crown tower (FilterTowers), not
+    ///     one the shots in flight will kill (IgnorePendingDamageTargets), standing SnipeMinRange to SnipeMaxRange ahead
+    ///     of her toward the enemy and within SnipeSideClip of her x (centre distances, her owner's frame: the deploy
+    ///     preview is the Log's lane rectangle), the nearest ahead first, ties to the earliest created;
+    ///   - a target she already aims at is kept while it stays in that reach within LockedTargetSnipeSideClip (she takes
+    ///     no ordinary decision meanwhile, `phase_target_with`);
+    ///   - while she aims, her attack reaches the entry's CustomRange (combat.rs `attack_reach`), so she stands and
+    ///     shoots, and `evo_after_fire` makes the shot the snipe.
+    fn snipe_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step);
+        let mut snipers = std::mem::take(&mut self.evo.snipers);
+        for s in snipers.iter_mut() {
+            let (id, ammo, kept) = *s;
+            if !self.ents.is_alive(id) {
+                continue;
+            }
+            let a = id.index as usize;
+            let card = self.cfg.cards.get(self.ents.card[a]);
+            let Some(sn) = card.evo.as_ref().and_then(|v| v.snipe) else { continue };
+            let stop_aiming = |st: &mut BattleState| {
+                st.ents.attack_seq[a] = 0;
+                if kept.is_some() && st.ents.target[a] == kept {
+                    st.ents.target[a] = None;
+                    st.ents.attack_phase[a] = AttackPhase::Idle;
+                    st.ents.attack_ms[a] = 0;
+                    st.ents.target_locked[a] = false;
+                }
+            };
+            if ammo == 0 || self.ents.deploy_ms[a] > 0 {
+                s.2 = None;
+                stop_aiming(self);
+                continue;
+            }
+            let ctx = TargetCtx {
+                ents: &self.ents,
+                hash: &self.hash,
+                cards: &self.cfg.cards,
+                arena: &self.cfg.arena,
+                calib: &self.cfg.calib,
+                reading: self.cfg.tower_sight_reading,
+                towers: &self.towers,
+                king_active: self.king_active,
+                tick: self.tick,
+                doomed: &[],
+            };
+            let e = &self.ents;
+            let fwd = spell::forward_dy(e.team[a]);
+            // (ahead, side) of `c` from her, native, in her owner's frame.
+            let place = |c: usize| (((e.pos[c].y - e.pos[a].y) / K) * fwd, ((e.pos[c].x - e.pos[a].x) / K).abs());
+            let fits = |c: usize, clip: i32| {
+                let (ahead, side) = place(c);
+                target::can_target(&ctx, a, c, false)
+                    && !(sn.skip_towers && e.kind[c].is_crown_tower())
+                    && ahead >= sn.min / K
+                    && ahead <= sn.max / K
+                    && side <= clip / K
+            };
+            // An ordinary target within her reach comes first.
+            let ordinary = e.target[a].filter(|t| e.is_alive(*t) && Some(*t) != kept).is_some_and(|t| {
+                let ti = t.index as usize;
+                target::in_attack_range(&self.cfg.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti])
+            });
+            let keep = kept.filter(|t| !ordinary && e.is_alive(*t) && fits(t.index as usize, sn.locked_clip));
+            let pick = keep.or_else(|| {
+                if ordinary {
+                    return None;
+                }
+                (0..e.capacity())
+                    .filter(|&c| fits(c, sn.clip) && !(sn.skip_pending && doomed.get(c).copied().unwrap_or(false)))
+                    .min_by_key(|&c| (place(c).0, e.team_seq[c], c))
+                    .map(|c| e.id_of(c))
+            });
+            match pick {
+                Some(t) => {
+                    if self.ents.target[a] != Some(t) {
+                        self.ents.attack_phase[a] = AttackPhase::Idle;
+                        self.ents.attack_ms[a] = 0;
+                        self.ents.fired_at[a] = None;
+                    }
+                    self.ents.target[a] = Some(t);
+                    self.ents.attack_seq[a] = 1;
+                    s.2 = Some(t);
+                }
+                None => {
+                    s.2 = None;
+                    stop_aiming(self);
+                }
+            }
+        }
+        self.evo.snipers = snipers;
+    }
+
     /// THE CLONE'S COPIES (spell.rs `CloneOrder`, written in this tick's Projectile phase), made in this Reap after the
     /// dead are gone and before the released units, in the orders' (team_seq) order. Measured on client 15.535.29 (32
     /// runs, 25 copies, level 11, C the cast tick):
@@ -6956,6 +7284,8 @@ impl BattleState {
             let i = o.src.index as usize;
             let Some(SpellShape::Clone { hold, rules, .. }) = self.cfg.cards.get(o.card).spell.as_ref().map(|d| d.shape.clone()) else { continue };
             let (team, card, kind, pos, facing, own_level) = (self.ents.team[i], self.ents.card[i], self.ents.kind[i], self.ents.pos[i], self.ents.facing[i], self.ents.level[i]);
+            // AN EVOLVED UNIT IS COPIED AS ITS ClonedVersion, its base card (unmeasured; the table's reading).
+            let card = self.cfg.cards.get(card).evo.as_ref().and_then(|v| v.cloned_as).unwrap_or(card);
             #[cfg(not(clash_plant = "clone_level_from_original"))]
             let level = match self.cfg.calib.clone_level {
                 CloneLevel::SpellLevel => o.level,
@@ -9027,6 +9357,8 @@ impl BattleState {
             let q = queue.clone();
             queue = order.into_iter().map(|k| q[k]).collect();
         }
+        // One group per side for the Evo Skeletons this phase creates from a play (a side plays one card a tick).
+        let mut groups: [Option<u32>; 2] = [None, None];
         for p in queue {
             // A PLAY OF A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): its unit is born at its owner's King
             // and walks under ground to `p.pos` (`spawn_tunneller`).
@@ -9049,6 +9381,10 @@ impl BattleState {
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
             // combat.DEPLOY_PROJECTILE: the play's blow, on the tick its unit is created (`deploy_blow`).
             self.deploy_blow(p.team, p.card, p.level, p.pos);
+            // AN EVOLVED UNIT'S OWN START (`evo_created`): the barrage, the group, the snipes.
+            if self.cfg.cards.get(p.card).evo.is_some() {
+                self.evo_created(id, &mut groups);
+            }
             // targeting.FIRST_TOWER_PICK = client_spawn_lane: a summon member's lane, flipped against its deploy point.
             if let Some(ax) = p.summon_x {
                 self.summon_lane_flip(id.index as usize, ax);
@@ -9518,6 +9854,10 @@ impl BattleState {
         } else {
             self.phase_target_for(None);
         }
+        // THE EVO MUSKETEER'S SNIPE TARGETS (`snipe_pass`), after every ordinary decision.
+        if !self.evo.snipers.is_empty() {
+            self.snipe_pass();
+        }
     }
 
     /// The Target phase, for every unit (`only` None) or for a first update's fresh units alone
@@ -9578,6 +9918,8 @@ impl BattleState {
                     && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0
                     && only.map_or(true, |o| o.contains(&i))
                     && !switched.contains(&self.ents.id_of(i))
+                    // An Evo Musketeer aiming a snipe keeps it: `snipe_pass` judges it.
+                    && !self.evo.aiming(self.ents.id_of(i))
                 {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
@@ -12297,6 +12639,7 @@ impl BattleState {
                 let melee = select.is_some_and(|sel| combat::melee_chosen(&self.ents, i, t.index as usize, sel));
                 let shot = self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee;
                 let strike_from = self.dmg.hits.len();
+                let shots_from = self.projectiles.len();
                 // enchant.BONUS_ATTACKS: every fire of an enchanted unit counts toward its bonus, a shot that hits nothing
                 // included (measured on client 15.535.29); `combat::enchant_bonus` reads the count inside `fire`.
                 #[cfg(not(clash_plant = "enchant_shots_uncounted"))]
@@ -12321,6 +12664,10 @@ impl BattleState {
                     &bolts,
                     self.tick,
                 );
+                // AN EVOLVED UNIT'S HIT (`evo_after_fire`): the group's count, the snipe.
+                if self.cfg.cards.get(self.ents.card[i]).evo.is_some() {
+                    self.evo_after_fire(i, shots_from);
+                }
                 // enchant.BONUS_ATTACKS = first_three_attacks (refuted, kept runnable): the enchant ends with its
                 // AttackAmount-th attack.
                 if self.cfg.calib.enchant_bonus_attacks == EnchantBonusAttacks::FirstThree {
@@ -14057,6 +14404,10 @@ impl BattleState {
         // are despawned, so a freed slot can be reused without any later read of it, and
         // before the rebuild, so the hash holds them.
         self.materialise_released();
+        // THE EVO SKELETONS COPIES this tick's hits earned, after the released units (`evo_copies`).
+        if !self.scratch.evo_copies.is_empty() || !self.evo.is_empty() {
+            self.evo_copies();
+        }
         self.hash.rebuild(&self.ents);
     }
 
@@ -15064,6 +15415,10 @@ impl BattleState {
             let cost = c.elixir; // PLANT: the card's cost whatever the form.
             return Ok(Play { in_slot: idx, card: o.card, level, cost });
         }
+        // AN EVOLVED CARD'S THIRD PLAY (`EVO_BASIC_PLAYS`) puts its form down, at the base card's cost.
+        if let Some(k) = self.players[t].evo.iter().find(|k| k.card == idx && k.next_evolved()) {
+            return Ok(Play { in_slot: idx, card: k.form, level, cost: c.elixir });
+        }
         if c.is_mirror() {
             let last = self.players[t].last_played.ok_or(DeployError::NothingToMirror)?;
             let offset = cards.globals.mirror_level_offset.expect("the loader refuses a Mirror without MIRROR_LEVEL_OFFSET");
@@ -15095,6 +15450,11 @@ impl BattleState {
             }
         }
         out
+    }
+
+    /// `team`'s evolved deck cards' counters (`PlayerState::evo`), in deck order; empty on a side with none.
+    pub fn evo_counters(&self, team: Team) -> &[EvoCounter] {
+        &self.players[team as usize].evo
     }
 
     /// The card a Mirror played by `team` now would copy (`PlayerState::last_played`), or None.
@@ -15185,8 +15545,13 @@ impl BattleState {
         let t = team as usize;
         let need = (play.cost as i64) * self.mana_unit;
         let mirror = self.cfg.cards.get(play.in_slot).is_mirror();
+        let evolved = play.card != play.in_slot && self.cfg.cards.is_form(play.card);
         let p = &mut self.players[t];
         p.mana -= need;
+        // THE HAND CARD'S EVOLUTION COUNTER: a basic play adds one, the evolved play starts the count again.
+        if let Some(k) = p.evo.iter_mut().find(|k| k.card == play.in_slot) {
+            k.plays = if evolved { 0 } else { k.plays.saturating_add(1) };
+        }
         // THE HAND CARD cycles (a Mirror, a variant card), not the card it put down.
         p.queue.push_back(play.in_slot);
         match p.queue.pop_front() {
@@ -15202,6 +15567,9 @@ impl BattleState {
             let record = play.card;
             #[cfg(clash_plant = "mirror_copies_root_variant")]
             let record = play.in_slot; // PLANT: the hand card is recorded, so a Mirror replays the variant card itself.
+            // An evolved play is recorded as its base card: a Mirror after it copies the base card (the tables name
+            // nothing a Mirror copies; the plain reading, unmeasured).
+            let record = if evolved { play.in_slot } else { record };
             p.last_played = Some(record);
         }
         self.enqueue(team, play.card, play.level, pos);
@@ -15566,7 +15934,9 @@ impl BattleState {
             // Bit 1 is the targeting predicate itself, asked for the tick the next targeting runs on (`self.tick`
             // already counts the tick just run).
             status_flags: e.status_flags(i)
-                | if crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, i) { 2 } else { 0 },
+                | if crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, i) { 2 } else { 0 }
+                // Bit 3: an evolved unit (its card is an evolved form).
+                | if self.cfg.cards.get(e.card[i]).evo.is_some() { 8 } else { 0 },
             spawn_ms: e.spawn_ms[i],
             spawn_wave_left: e.spawn_wave_left[i],
             spawned_by: e.spawned_by[i],
@@ -15714,6 +16084,15 @@ impl BattleState {
                     }
                 }
             }
+            // THE EVOLUTION COUNTERS, only on a side with an evolved card: a battle without one hashes as before.
+            if !legacy_v3 && !p.evo.is_empty() {
+                h.u32(p.evo.len() as u32);
+                for k in &p.evo {
+                    h.u32(k.card as u32);
+                    h.u32(k.form as u32);
+                    h.u32(k.plays as u32);
+                }
+            }
         }
         let e = &self.ents;
         let (free, counters, created) = e.allocator_state();
@@ -15829,8 +16208,9 @@ impl BattleState {
                     h.id(m);
                     h.vec(e.attach_offset[i]);
                 }
-                // The attack selector's entry for the swing under way, only on a card that carries one.
-                if self.cfg.cards.get(e.card[i]).attack_select.is_some() {
+                // The attack selector's entry for the swing under way, only on a card that carries one (or a snipe, whose
+                // entry 1 is the snipe).
+                if self.cfg.cards.get(e.card[i]).attack_select.is_some() || self.cfg.cards.get(e.card[i]).evo.as_ref().is_some_and(|v| v.snipe.is_some()) {
                     h.u32(e.attack_seq[i] as u32);
                 }
                 // The Rune Giant's look, only on a card that carries the enchant, and an enchant a unit carries, only when
@@ -16277,6 +16657,33 @@ impl BattleState {
         h.u32(self.death_queue.len() as u32);
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
         // pending transformation -- hashes as it did before the list.
+        // The evolved units' state, only when there is some. PLANT evo_hashed_when_absent (tests/evolution.rs): in every
+        // battle, so tests/hash_continuity.rs sees every battle move.
+        #[cfg(not(clash_plant = "evo_hashed_when_absent"))]
+        let evo_here = !self.evo.is_empty();
+        #[cfg(clash_plant = "evo_hashed_when_absent")]
+        let evo_here = true;
+        if !legacy_v3 && evo_here {
+            let b = &self.evo;
+            h.u32(0x4556_4f31);
+            h.u32(b.members.len() as u32);
+            for (id, g) in &b.members {
+                h.id(*id);
+                h.u32(*g);
+            }
+            h.u32(b.hits.len() as u32);
+            for (g, n) in &b.hits {
+                h.u32(*g);
+                h.u32(*n);
+            }
+            h.u32(b.next_group);
+            h.u32(b.snipers.len() as u32);
+            for (id, ammo, t) in &b.snipers {
+                h.id(*id);
+                h.u32(*ammo as u32);
+                h.opt_id(*t);
+            }
+        }
         #[cfg(not(clash_plant = "hash_skips_scheduled"))]
         if !legacy_v3 && !self.scheduled.is_empty() {
             h.u32(self.scheduled.len() as u32);
@@ -16694,6 +17101,11 @@ impl BattleState {
 /// 20, unchanged, movement.SPAWN_PATHFIND_STEP: Calib gained spawn_pathfind_step (serde default the old arm,
 ///    one_step), no new state (the sub-steps are taken inside one tick's `tunnel_step`), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, the evolved forms (Evo Skeletons, Evo Cannon, Evo Musketeer): BattleConfig and the snapshot gained
+///    `forms`, PlayerState `evo` and the battle `EvoBoard` (serde default empty, each hashed only when present), so a
+///    blob saved before them deserializes and hashes as it did. CardDef gained `evo`, so the card fingerprint moves:
+///    a snapshot saved by an earlier build is refused as saved against other card data. The forms take card and buff
+///    slots after every existing one. migrate_v3 strips `evo` with the rest of the post-format-3 tail.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -16786,6 +17198,12 @@ struct Snapshot {
     /// snapshot saved before it, which held none.
     #[serde(default)]
     scheduled: Vec<Scheduled>,
+    /// The deck forms (`BattleConfig::forms`) and the evolved units' state (`EvoBoard`). Added after SNAPSHOT_FORMAT
+    /// 20; `default` (none) for a snapshot saved before them, which held none.
+    #[serde(default)]
+    forms: [Vec<u8>; 2],
+    #[serde(default)]
+    evo: EvoBoard,
     state_hash: u64,
 }
 
@@ -16799,6 +17217,25 @@ fn fingerprint_debug<T: std::fmt::Debug>(v: &T) -> u64 {
     let mut h = Fnv::new();
     h.bytes(format!("{v:?}").as_bytes());
     h.finish()
+}
+
+/// THE EVO CANNON'S BARRAGE for a cannon of `card` at unified `level` standing at `at` for `team`: one spell object per
+/// bomb, a zero-length flight of the form card (spell.rs `shape_of` names the barrage's shot) at x = the bomb's absolute
+/// x (not mirrored for side 1) and y = the cannon's y plus the bomb's offset toward the enemy (minus for side 1),
+/// landing LifeDuration / TICK_MS + `BARRAGE_LAND_EXTRA_TICKS` ticks after the cannon's first frame. Measured on client
+/// 15.535.29 (3 runs, both sides). Its damage is the one-hit buff's, level-scaled (281 at level 11, measured).
+pub fn barrage_spells(cards: &CardDb, calib: &Calib, b: &crate::card::BarrageDef, team: Team, card: u16, level: i32, at: Vec2) -> Vec<Spell> {
+    let Some(SpellShape::Projectile { hit: Some(h), .. }) = Some(&b.shot.shape) else { return Vec::new() };
+    let damage = cards.scaled(card, level, h.damage).expect("the cannon's level is validated at the play");
+    let fwd = spell::forward_dy(team);
+    b.bombs
+        .iter()
+        .map(|k| {
+            let pos = Vec2::new(k.x, at.y + fwd * k.ahead);
+            let ticks = k.life_ms / calib.tick_ms.max(1) + BARRAGE_LAND_EXTRA_TICKS;
+            Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * calib.tick_ms }, depth: 0 }
+        })
+        .collect()
 }
 
 /// The card fingerprint a snapshot carries: the cards, the buff table they index, and the
@@ -16845,7 +17282,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // Format 3's loader also refused every card without a Range column -- the
     // non-attacking spawner buildings (Tombstone, GoblinHut, BarbarianHut,
     // FirespiritHut), now loaded with range 0 and no damage source.
-    let refused_by_v3 = |c: &CardDef| c.spell.is_some() || c.summon_only || (c.kind == CardKind::Building && c.range == 0 && c.damage == 0 && c.projectile.is_none());
+    let refused_by_v3 = |c: &CardDef| c.spell.is_some() || c.summon_only || c.evo.is_some() || (c.kind == CardKind::Building && c.range == 0 && c.damage == 0 && c.projectile.is_none());
     let old: Vec<usize> = (0..cards.cards.len()).filter(|&i| !refused_by_v3(&cards.cards[i])).collect();
     let debug_v3: String = {
         let items: Vec<String> = old
@@ -16905,12 +17342,13 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... parry~~ -- the Clone (still format 20) added `ignore_clone` after it.
                 // ~~... parry~~ -- combat.PROJECTILE_Y_OFFSET (still format 20) added `projectile_y_offset`
                 // after it.
+                // ~~... ignore_clone~~ -- the evolved forms (still format 20) added `evo` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -16966,7 +17404,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.kamikaze_time_ms,
                     c.death_pushback,
                     c.ignore_clone,
-                    c.projectile_y_offset
+                    c.projectile_y_offset,
+                    c.evo
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -17311,6 +17750,8 @@ impl BattleState {
             scheduled: self.scheduled.clone(),
             #[cfg(clash_plant = "scheduled_dropped_on_save")]
             scheduled: Vec::new(), // PLANT: a pending transformation is lost across a save.
+            forms: c.forms.clone(),
+            evo: self.evo.clone(),
             state_hash: self.state_hash(),
         };
         #[cfg(clash_plant = "save_drops_path_grid")]
@@ -17482,6 +17923,8 @@ impl BattleState {
             || snap.spells.iter().any(|s| cards.cards.get(s.card as usize).is_some_and(played_only))
             || snap.spawn_queue.iter().any(|p| cards.cards.get(p.card as usize).is_some_and(played_only))
             || snap.players.iter().filter_map(|p| p.last_played).any(|c| cards.cards.get(c as usize).map_or(true, played_only))
+            // An evolution counter names a card of this data and that card's own form.
+            || snap.players.iter().flat_map(|p| p.evo.iter()).any(|k| cards.form_card(k.card, FORM_EVOLUTION) != Some(k.form))
             // An enchant, a pending launch or a Rune Giant's projectile names a card that carries the enchant.
             || snap.ents.enchant.iter().flatten().any(|sl| cards.cards.get(sl.card as usize).map_or(true, |c| c.enchant.is_none()))
             || snap.projectiles.iter().filter_map(|p| p.enchant).any(|en| cards.cards.get(en.card as usize).map_or(true, |c| c.enchant.is_none()))
@@ -17517,6 +17960,7 @@ impl BattleState {
             tower_level: snap.tower_level,
             shuffle_decks: snap.shuffle_decks,
             bucket_subtiles: snap.bucket_subtiles,
+            forms: snap.forms,
         };
         let mut s = BattleState {
             cfg,
@@ -17542,6 +17986,7 @@ impl BattleState {
             lifetime_ms: snap.lifetime_ms,
             lifetime_acc: snap.lifetime_acc,
             scheduled: snap.scheduled,
+            evo: snap.evo,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),
