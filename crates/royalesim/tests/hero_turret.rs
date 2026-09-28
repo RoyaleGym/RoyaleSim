@@ -31,6 +31,7 @@
 //!      client_8th_frame on c + 0; a played Cannon on F + 0 under both
 //!      -- action_building_acquired_at_once (the new arm exempts the turret as client_8th_frame does);
 //!   3. `both_keys_ship_their_old_arms`.
+//!
 //! The plant acquire_delay_on_buildings (tests/spawn_acquire_delay.rs) makes every flagged building wait under
 //! client_8th_frame too, the turret included: (2)'s old arm goes red under it as well.
 #![allow(unexpected_cfgs)]
