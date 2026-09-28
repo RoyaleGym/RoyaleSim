@@ -4123,7 +4123,7 @@
       "plant": "tests/jump16402.rs (8): jumper_pays_blocked (a jumper priced like a walker) red on 5, jump_never_hops (the cost-7 walk, no leap) red on 3, jump_never_lands (the reached flag decides, as for a walk) red on 4; goal_ignores_flying_target (the global passed unconditionally) red on the flying-target case and green on every oracle2026.rs gate"
     },
     "DYING_UNIT_VISIBILITY": {
-      "value": "creation_order_before_victim",
+      "value": "whole_tick",
       "status": "measured",
       "confidence": "MEDIUM",
       "provenance": "MEASURED on the live 16.402 captures: a unit that dies during tick t (gone in frame t) is still counted by the separation / avoidance scans of the movers BEFORE it in creation order and no longer by the movers AFTER it -- 99 : 5 versus 35 : 0 decidable cases; a building that dies during tick t is counted by every mover (3 / 3). INFERRED, the mechanism not observable in the frames: the death takes effect at the victim's own place in the creation-ordered move pass, and a building has no place in that pass.",
