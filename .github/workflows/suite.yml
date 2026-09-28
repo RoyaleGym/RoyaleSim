@@ -117,10 +117,15 @@ jobs:
       # So the first clippy run in this repo's life was its fifth attempt, and it found a real
       # lint that had been there the whole time. `if: always()` is gym's repair for the same
       # defect in the integrator's downstream job, arrived at from the other direction.
+      #
+      # THE GATE PROFILE (Cargo.toml [profile.gate]): the release optimisation and overflow checks without the fat link.
+      # `--release` linked every test binary with fat LTO and one codegen unit, which took this job past two hours on a
+      # two-core runner; the engine is integer-only, so how it is linked cannot move a result, and
+      # tests/hash_continuity.rs would show it if it did. The wheel (stage 4) keeps the release profile.
       - name: the Rust suite
         if: always()
         working-directory: RoyaleSim/crates/royalesim
-        run: cargo test --release --no-fail-fast
+        run: cargo test --profile gate --no-fail-fast
 
       - name: the Python suite
         shell: pwsh
@@ -167,7 +172,7 @@ jobs:
       - name: the engine's own card census
         if: always()
         working-directory: RoyaleSim/crates/royalesim
-        run: cargo run --release --example replay_parity -- --census
+        run: cargo run --profile gate --example replay_parity -- --census
 
       - name: record what this run was, and what it could not be
         if: always()
