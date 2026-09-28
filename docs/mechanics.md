@@ -27,7 +27,7 @@ Three things are worth stating up front, because they bound everything below:
 |---|---|---|
 | Arena from the shipped 36x64 bitmask | `arena.rs` | water hard-blocks ground and is free for air under the earlier arm; priced rather than refused under the 16.402 arm (`pathfinding.md`) |
 | Troop territory | `arena.rs::deploy_zone`, `tests/territory.rs` | a troop may not be placed inside the closed rect of any **alive enemy** crown tower. That rect is King 18x16 tiles and Princess 11x21 tiles, centred on the tower (`arena.TERRITORY_MODEL`). The pocket after a princess falls is 8 half-rows past the far bank |
-| Troop taps at your own crown towers | `arena.rs::deploy_zone_king_half_open`, `state.rs::resolve_point` | the own king's no-deploy block is half-open in arena coordinates. A troop tapped on an own crown tower is moved off it to a free tile; where it lands is `placement.TOWER_TAP_PUSH`'s ring search, whose tie order misses 12 of 36 princess-box taps. Side 1's single ground unit tapped behind its column's back bound stands on it (`placement.TROOP_TOWER_TAPS = client16402_half_open_relocate`, measured on client 15.535.29). A troop tapped on your own building, and a Heal cast there, still stand where tapped. The game moves them off it the same way, and that rule is in the engine but not switched on (`placement.TROOP_BUILDING_TAPS`, `placement.SPELL_AS_DEPLOY_TAPS`, measured on client 15.535.29) |
+| Troop taps at your own crown towers | `arena.rs::deploy_zone_king_half_open`, `state.rs::resolve_point` | the own king's no-deploy block is half-open in arena coordinates. A tap is taken at its tile's centre (`placement.TAP_SNAP`). A troop tapped on an own crown tower is moved off it to a free tile; where it lands is `placement.TOWER_TAP_PUSH`'s axis push from the raw tap, which lands all 42 measured princess-box taps and the king's 3 ties. Side 1's single ground unit tapped behind its column's back bound stands on it (`placement.TROOP_TOWER_TAPS = client16402_half_open_relocate`, measured on client 15.535.29). A troop tapped on your own building, and a Heal cast there, are moved off it the same way (`placement.TROOP_BUILDING_TAPS`, `placement.SPELL_AS_DEPLOY_TAPS`, measured on client 15.535.29 on the Cannon). An even-sized building's tap takes the arena's tile corner, not the placer's (`placement.SNAP_EVEN_CORNER`, measured on side 1's Teslas) |
 | Entity storage, generational ids, spatial hash | `entity.rs` | the hash is verified against brute force |
 | Card loading and level scaling | `card.rs` | per-rarity multipliers from `rarities.csv`; projectile damage is authoritative over the character row |
 | Targeting | `target.rs` | edge-to-edge range, target lock once windup starts, keep-target hysteresis, lane/x default tower, building-only targeters, sight range |
@@ -266,8 +266,8 @@ toward the caster. Measured on client 15.535.29, in the log-behind scenarios: Kn
 1000 native units (half a tile and a tile) behind the tap were pushed back by the full ladder, on
 both sides, and a Knight 1500 (a tile and a half) behind was not touched. This corrects an
 earlier observation that the Log never pushes backward. Off the roll axis, the angle of the push
-depends on the tap being snapped to its tile centre, and the shipped build does not snap it yet
-(`placement.TAP_SNAP = none`).
+depends on the tap being snapped to its tile centre, which the shipped build does
+(`placement.TAP_SNAP = client16402_tile_centre`).
 
 ## Open questions
 
