@@ -18,6 +18,10 @@
 //!      sends the tap to the next fitting tile of the ring, own (3500, 2500), both seats);
 //!   5. client16402_relocate: the other side's bottle is not read (the measured scope is the placer's own);
 //!   6. the shipped value is client16402_relocate (the 2026-09-28 bottle flip).
+//!
+//! PLANT ring_walks_the_snap_frame (state.rs `ring_candidate`: the ring walks the arena's frame under the shipped
+//! placement.SNAP_EVEN_CORNER = absolute) turns (1) and (4) red on side 1, whose ring order is the placer's. It also
+//! turns placement.rs's rotation check of the Cannon under absolute and tower_tap_push.rs's ring_nearest table red.
 mod common;
 
 use common::*;

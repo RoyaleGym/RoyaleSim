@@ -19,6 +19,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test tower_tap_push`):
 //!   * `tower_tap_push_x_first` -- a tie takes x first (-x, -y, +x, +y): (1) and (4) go red.
 //!   * `tower_tap_push_snapped_tile` -- the push reads the snapped tile centre, not the raw tap: (3) goes red.
+//!   * `ring_walks_the_snap_frame` (aimed at tests/live_bottle_taps.rs) -- the ring walks the arena's frame under
+//!     SNAP_EVEN_CORNER = absolute: (5) goes red, ring_nearest's misses move.
 mod common;
 
 use common::*;
