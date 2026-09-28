@@ -541,7 +541,11 @@ Not modelled yet, in plain words:
 - Morph, air units beyond flying straight at their target, evolutions, champions' abilities
   and tower troops.
 - The Monk's two damages. They come with no times, so the engine does not load them, and the Monk
-  hits for its first damage only. (The Inferno Tower's and Inferno Dragon's growing damage and the
+  hits for its first damage only.
+- The Monk's Deflect ability, and two of the Tri Wizards' three wizards. The card table does not
+  carry the Monk's ability, so the Monk plays without it. The Tri Wizards play as one Electro
+  Wizard, where the game puts down three. Both cards stay in the default card list, so the list
+  keeps its size and order. (The Inferno Tower's and Inferno Dragon's growing damage and the
   Mortar's minimum range run since `126992a`, measured on the 16.402 corpus. The 2018 table carries
   no ramp columns, so on it the Infernos keep their first damage.)
 - One known collision defect: a unit overlapping several obstacles gets the push-outs summed
