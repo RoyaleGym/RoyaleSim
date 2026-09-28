@@ -98,6 +98,16 @@ pub fn symmetric_config() -> BattleConfig {
     // client's taps are tile indices and never on a boundary. none, the old arm, takes the raw tap for both seats.
     // Battle::new's `tap_snap` kwarg is the Python selector (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
     c.calib.placement_tap_snap = royalesim::state::TapSnap::None;
+    // An even-footprint building's snap (placement.SNAP_EVEN_CORNER): the shipped absolute floors the tap in the ARENA's
+    // frame, as client 15.535.29 does, so a 2x2 box tapped at a point takes one corner for Blue and the other for its
+    // rotated twin. placer_frame, the old arm, floors in each placer's own frame. No kwarg: calibration_overrides
+    // {"placement.SNAP_EVEN_CORNER": "placer_frame"} reaches it.
+    c.calib.placement_snap_even = royalesim::state::PlacementSnapEven::PlacerFrame;
+    // A troop tap on an own building (placement.TROOP_BUILDING_TAPS): the shipped as_tower_tap moves it off the box as
+    // a tap on an own crown tower is moved, by placement.TOWER_TAP_PUSH's measured axis push, which reads arena
+    // coordinates. not_relocated, the old arm, judges the tap where it is for both seats. No kwarg:
+    // {"placement.TROOP_BUILDING_TAPS": "not_relocated"}.
+    c.calib.placement_troop_building_taps = royalesim::state::TroopBuildingTaps::NotRelocated;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }
@@ -919,15 +929,18 @@ pub fn run_scripted_with(cfg: BattleConfig, seed: u64, invariants: bool, perturb
             // undone on the same tick by the separation scan of a unit it overlaps
             // (a Skeleton Army member inside the spiral, the first troop of the
             // scripted battle at tick 300, walks back onto the unperturbed point
-            // within one tick).
+            // within one tick). Of those, the one with the MOST hp: a nudged unit that dies before the next hash takes
+            // the nudge with it (dead units are not hashed), which is what the first free troop of the scripted battle
+            // at tick 300 did once the 2026-09-28 placement batch moved its plays (a Knight on 46 hp, killed on 301).
             let all: Vec<(EntityId, Vec2, i32)> = s.entities().map(|e| (e.id, e.pos, e.radius)).collect();
             let id = s
                 .entities()
-                .find(|e| {
+                .filter(|e| {
                     e.kind == royalesim::entity::EntityKind::Troop
                         && !e.deploying
                         && all.iter().all(|(oid, opos, orad)| *oid == e.id || opos.dist2(e.pos) > ((e.radius + orad + 2 * royalesim::fixed::SUBTILE_PER_MILLITILE) as i64).pow(2))
                 })
+                .max_by_key(|e| (e.hp, std::cmp::Reverse(e.id.index)))
                 .map(|e| (e.id, e.pos));
             if let Some((id, pos)) = id {
                 let before = s.state_hash();

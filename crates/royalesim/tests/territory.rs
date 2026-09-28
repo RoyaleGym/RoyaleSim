@@ -45,6 +45,11 @@ fn board(down: &[(Team, usize)]) -> BattleState {
     let mut cfg = config();
     // The closed block, the rule this file writes out (THE OWN TOWERS, above).
     cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
+    // The RAW tap, the point this file's model judges: placement.TAP_SNAP's old arm, none, by name. Under the shipped
+    // client16402_tile_centre a troop's footprint is judged at its tap's tile centre whenever a relocation is on
+    // (placement.LIVE_BOTTLE_TAPS and TROOP_BUILDING_TAPS ship one), and the probes include tile corners, which a
+    // client tap never is.
+    cfg.calib.placement_tap_snap = royalesim::state::TapSnap::None;
     let deck: Vec<String> = ["Knight", "Archer", "Giant", "Minions", "Knight", "Archer", "Giant", "Minions"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     let mut s = BattleState::new(3, cfg);

@@ -20,6 +20,10 @@ fn check_deploy_never_mutates_and_agrees_with_deploy() {
     // shipped tile-centre snap takes it to a tile centre 707 off the Cannon's centre, outside its footprint).
     let mut cfg = scripted_config();
     cfg.calib.placement_tap_snap = royalesim::state::TapSnap::None;
+    // An own building's footprint REFUSES the tap under placement.TROOP_BUILDING_TAPS's old arm, not_relocated, by name:
+    // the shipped as_tower_tap moves a tap on an own building's box off it (measured; tests/own_building_taps.rs), so
+    // no footprint refusal would be reachable here.
+    cfg.calib.placement_troop_building_taps = royalesim::state::TroopBuildingTaps::NotRelocated;
     let mut s = BattleState::new(4, cfg);
     // Put a building down so a footprint rejection is reachable.
     s.spawn_unit(Team::Blue, "Cannon", t(900, 1000), None).unwrap();

@@ -71,7 +71,18 @@ fn an_observed_single_troop_behind_its_own_king_keeps_its_point() {
     for snap in [TapSnap::None, TapSnap::TileCentre] {
         assert_eq!(laid_by(Team::Red, snap, "Giant", at, true), at, "the observed point moved");
     }
-    assert_eq!(laid_by(Team::Red, TapSnap::None, "Giant", at, false), native(8500, 31000), "vacuous: the tap on that point is not relocated");
+    // Not vacuous under the placement arms of the capture's reading, by name (placement.TOWER_TAP_PUSH = ring_nearest,
+    // SNAP_EVEN_CORNER = placer_frame, whose frame decides the tile of a tap on the tile edge y 31000): the tap on that
+    // point is moved there. (Under the arms shipped since the 2026-09-28 placement batch the tap on that point lands
+    // where the client created the Giant, so the two paths agree on it.)
+    let mut cfg = config();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    cfg.calib.placement_tower_tap_push = royalesim::state::TowerTapPush::RingNearest;
+    cfg.calib.placement_snap_even = royalesim::state::PlacementSnapEven::PlacerFrame;
+    let mut s = BattleState::new(1, cfg);
+    s.spawn_unit(Team::Red, "Giant", at, None).expect("the tap is taken");
+    let tapped = s.pending_spawns().into_iter().find(|(t, c, _)| *t == Team::Red && s.cards().get(*c).name == "Giant").map(|(_, _, p)| p);
+    assert_eq!(tapped, Some(native(8500, 31000)), "vacuous: the tap on that point is not relocated");
 }
 
 #[test]
@@ -146,7 +157,13 @@ fn an_observed_single_troops_point_is_not_resolved_on_the_board() {
         // Not vacuous: the same point as a tap is moved.
         assert_ne!(s.resolve_point(Team::Red, idx, at), at, "vacuous: {card}'s tap on that point is not relocated");
     }
-    // A group's observed point is a centroid, not a creation point, and still resolves as a tap does (bar the snap).
+    // A group's observed point is a centroid, not a creation point, and still resolves as a tap does (bar the snap):
+    // on side 1's own princess box, (14500, 25500), a Skeletons centroid is moved off the box where a single Bomber's
+    // creation point stays. (At (9500, 31000) the shipped axis push leaves a group where it is, so that point cannot
+    // show it.)
     let skel = s.cards().index("Skeletons").expect("Skeletons load");
-    assert_ne!(s.resolve_observed_point(Team::Red, skel, at), at, "a group's observed point went unresolved");
+    let bomber = s.cards().index("Bomber").expect("Bomber loads");
+    let on_box = native(14500, 25500);
+    assert_ne!(s.resolve_observed_point(Team::Red, skel, on_box), on_box, "a group's observed point went unresolved");
+    assert_eq!(s.resolve_observed_point(Team::Red, bomber, on_box), on_box, "a single's observed point was resolved there");
 }

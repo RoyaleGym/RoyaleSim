@@ -868,6 +868,10 @@ fn a_hidden_footprint_still_refuses_a_deploy_on_it() {
     // snap takes it to a tile centre 707 off the Tesla's centre, outside its footprint).
     let mut cfg = scripted_config(); // decks dealt, so Blue has a hand
     cfg.calib.placement_tap_snap = TapSnap::None;
+    // An own building's footprint REFUSES the tap under placement.TROOP_BUILDING_TAPS's old arm, not_relocated, by name:
+    // the shipped as_tower_tap moves a tap on an own building's box off it (measured; tests/own_building_taps.rs), so
+    // no footprint refusal would be reachable here.
+    cfg.calib.placement_troop_building_taps = royalesim::state::TroopBuildingTaps::NotRelocated;
     let mut s = bare(cfg);
     past_deploy_lockout(&mut s); // or every check_deploy below answers TooEarly
     let at = t(900, 1200);

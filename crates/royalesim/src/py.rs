@@ -163,6 +163,12 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // BOUNDARY up for one seat and down for the other, so a scene's boundary tap is not the rotation of its twin;
     // none, the raw tap, is the seat-symmetric old arm.
     "placement_tap_snap",
+    // No kwarg: {"placement.SNAP_EVEN_CORNER": "placer_frame"}. The shipped absolute floors an even box's tap in the
+    // arena's frame (client 15.535.29), so a 2x2 building is not the rotation of its twin; placer_frame is symmetric.
+    "placement_snap_even",
+    // No kwarg: {"placement.TROOP_BUILDING_TAPS": "not_relocated"}. The shipped as_tower_tap moves a tap off an own
+    // building by the axis push, measured in arena coordinates; not_relocated is symmetric.
+    "placement_troop_building_taps",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

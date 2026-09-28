@@ -24,9 +24,9 @@
 //!   2. SPELL_AS_DEPLOY_TAPS = troop_relocation (with as_tower_tap): a Heal on the Cannon releases its Heal Spirit on
 //!      the two measured landings; spell_point leaves it on the tap; the Log, which may stand on buildings, is not read;
 //!   3. `spawn_unit_tapped`: the two Cannons' and the Drill's measured points under both placement.SNAP_EVEN_CORNER
-//!      arms, the Tesla's under absolute (the shipped placer_frame puts it on (6000, 21000), the placer's corner, not
-//!      the client's); `spawn_unit` puts each where it was tapped;
-//!   4. the shipped values are the old arms.
+//!      arms, the Tesla's under absolute, the shipped arm since the 2026-09-28 placement batch (placer_frame puts it
+//!      on (6000, 21000), the placer's corner, not the client's); `spawn_unit` puts each where it was tapped;
+//!   4. the shipped values are the measured arms, as_tower_tap and troop_relocation (the 2026-09-28 placement batch).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! own_building_taps`), each reddening exactly its test:
@@ -181,8 +181,9 @@ fn a_heal_cast_on_an_own_cannon_releases_its_spirit_where_the_troops_go() {
 fn a_scenario_building_is_laid_where_a_play_tapped_there_lands() {
     // (seat, standing, card, tap, where it stands under placement.SNAP_EVEN_CORNER = placer_frame, under absolute).
     // The Cannons (3x3) take a tile centre under both. Side 1's Tesla (2x2) takes a tile corner: the client's is
-    // (5000, 20000), the arena's lower-left corner of the tapped tile, which only the absolute arm takes; the shipped
-    // placer_frame takes the placer's lower-left, (6000, 21000). The ledger's promotion case for that key.
+    // (5000, 20000), the arena's lower-left corner of the tapped tile, which only the absolute arm takes (shipped since
+    // the 2026-09-28 placement batch); placer_frame takes the placer's lower-left, (6000, 21000). That key's promotion
+    // case.
     let rows: [BuildingRow; 4] = [
         (Team::Blue, vec![cannon(Team::Blue, (15500, 2500))], "Cannon", (15500, 2500), (12500, 2500), (12500, 2500)),
         (Team::Blue, vec![], "Cannon_EV1", (9000, 14500), (8500, 13500), (8500, 13500)),
@@ -216,8 +217,8 @@ fn a_scenario_building_is_laid_where_a_play_tapped_there_lands() {
 }
 
 #[test]
-fn the_shipped_values_are_the_old_arms() {
+fn the_shipped_values_are_the_measured_arms() {
     let c = Calib::shipped();
-    assert_eq!(c.placement_troop_building_taps, TroopBuildingTaps::NotRelocated);
-    assert_eq!(c.placement_spell_as_deploy_taps, SpellAsDeployTaps::SpellPoint);
+    assert_eq!(c.placement_troop_building_taps, TroopBuildingTaps::AsTowerTap);
+    assert_eq!(c.placement_spell_as_deploy_taps, SpellAsDeployTaps::TroopRelocation);
 }

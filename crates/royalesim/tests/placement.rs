@@ -117,15 +117,29 @@ fn flush_against_a_tower_is_legal_and_one_tile_in_is_not() {
 
 /// Catches a placement decided in engine coordinates. The two seats must answer
 /// rotations of each other, or a shared policy learns a seat-dependent offset.
+///
+/// EXCEPT WHERE THE CLIENT DOES NOT: placement.SNAP_EVEN_CORNER = absolute (shipped since the 2026-09-28 placement
+/// batch) floors an EVEN box's tap in the arena's frame, as client 15.535.29 stands side 1's Teslas, so an even box is
+/// not the rotation of its twin there. The whole property is checked under the old arm, placer_frame, by name, and the
+/// odd box (the Cannon, whose tile-centre snap is the same in both frames, and whose relocation ring walks the
+/// placer's frame under both arms) under the shipped one.
 #[test]
 fn both_seats_place_a_rotated_tap_the_same_way() {
-    let s = board();
+    use royalesim::state::PlacementSnapEven;
+    for (even, cards) in [(PlacementSnapEven::PlacerFrame, &["Cannon", "Tesla", "Tombstone"][..]), (PlacementSnapEven::Absolute, &["Cannon"][..])] {
+        let mut cfg = config();
+        cfg.calib.placement_snap_even = even;
+        both_seats_rotate(&BattleState::new(7, cfg), cards);
+    }
+}
+
+fn both_seats_rotate(s: &BattleState, cards: &[&str]) {
     let arena = &s.config().arena;
-    for card in ["Cannon", "Tesla", "Tombstone"] {
+    for &card in cards {
         for (x, y) in [(9, 0), (0, 8), (9, 14), (6, 8), (5, 6), (3, 6), (17, 1)] {
             let tap = tile_centre(x, y);
-            let blue = place(&s, Team::Blue, card, tap);
-            let red = place(&s, Team::Red, card, arena.rotate(tap));
+            let blue = place(s, Team::Blue, card, tap);
+            let red = place(s, Team::Red, card, arena.rotate(tap));
             match (blue, red) {
                 (Some((bc, _)), Some((rc, _))) => {
                     assert_eq!(arena.rotate(bc), rc, "{card} at tile ({x}, {y})");
@@ -173,8 +187,10 @@ fn a_troop_may_stand_inside_a_building_box() {
     s.spawn_unit(Team::Blue, "Cannon", centre, None).expect("the Cannon goes down");
     s.tick();
     let b = Arena::placement_box(centre, 3);
-    // A Knight placed inside the box is accepted, and lands inside it.
-    s.spawn_unit(Team::Blue, "Knight", Vec2::new(centre.x + tiles(1), centre.y), None)
+    // A Knight standing inside the box stays inside it. It is put down where it stands (scenario_spawn_now): a TAP on
+    // an own building's box is moved off it (placement.TROOP_BUILDING_TAPS = as_tower_tap, measured; tests/
+    // own_building_taps.rs), which is where the tap goes, not what the box does to a unit already on it.
+    s.scenario_spawn_now(Team::Blue, "Knight", Vec2::new(centre.x + tiles(1), centre.y), None)
         .expect("a troop inside a building's box is not refused");
     s.tick();
     let knights = find_live(&s, Team::Blue, "Knight");

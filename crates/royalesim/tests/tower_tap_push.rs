@@ -14,7 +14,7 @@
 //!   4. client16402_axis_push: the king's three ties, in arena coordinates;
 //!   5. ring_nearest lands exactly the 12 box taps the client puts elsewhere on another tile (the table separates the
 //!      values, so (1) can fail);
-//!   6. the shipped value is ring_nearest.
+//!   6. the shipped value is client16402_axis_push (the 2026-09-28 placement batch, with placement.TAP_SNAP).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test tower_tap_push`):
 //!   * `tower_tap_push_x_first` -- a tie takes x first (-x, -y, +x, +y): (1) and (4) go red.
@@ -193,6 +193,6 @@ fn the_old_value_is_the_ring_search() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().placement_tower_tap_push, OLD);
+fn the_shipped_value_is_the_axis_push() {
+    assert_eq!(Calib::shipped().placement_tower_tap_push, NEW);
 }
