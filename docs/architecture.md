@@ -70,7 +70,7 @@ Nothing in the crate hardcodes a number that belongs to data:
 
 | Source | Holds | Loaded by |
 |---|---|---|
-| `data/calibration.json` | every physics constant, with its evidence, and five measured card values that replace the 15.535 table's (`cards.CLIENT16402_VALUES`) | compiled in with `include_str!`; parsed in `state.rs` into `Calib` |
+| `data/calibration.json` | every physics constant, with its evidence, and ten measured card values that replace the 15.535 table's (`cards.CLIENT16402_VALUES`) | compiled in with `include_str!`; parsed in `state.rs` into `Calib` |
 | `data/derived/cards.json` | card stats, generated from `data/raw/` | read by `card.rs` (through the env layer for Python callers) |
 | `data/derived/arena.json` | the arena grid and tower geometry | compiled in with `include_str!`; `arena.rs` |
 
