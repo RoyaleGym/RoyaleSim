@@ -11,12 +11,17 @@
 //!   - a Knight 12 tiles ahead and 1000 to her side: three snipes at +15, +34, +53, at 11986, 11106 and 9928;
 //!   - a Knight 12 tiles ahead and 2000 to her side: no snipe target until its offset fell to SnipeSideClip plus its
 //!     radius (1767 refused, 1727 taken), then three snipes from +45;
-//!   - a Knight at 5 tiles and a Giant at 15: plain shots at the Knight until it died, then three snipes at the Giant.
+//!   - a Knight at 5 tiles and a Giant at 15: plain shots at the Knight until it died, then three snipes at the Giant;
+//!   - Goblins at 9 tiles and a Knight at 13, with her own Fireball cast on the Goblins (sp-m6d): her second snipe
+//!     took a goblin 1815 from the Fireball's centre while the Fireball was in flight (it landed 13 ticks later, and
+//!     the recorded pending damage of the units it killed stayed 0): a spell in flight is not pending damage to
+//!     IgnorePendingDamageTargets, only shots are.
 //!
-//! Not pinned here: IgnorePendingDamageTargets (run sp-m6d; its Fireball's landing tick was not settled), and the tick
-//! after an ordinary target dies (sp-m6c: she stands through it, TryToFinishAttackAnimation, which the engine does not
-//! read; there she walks one step, so her three snipes at the Giant leave about 57 closer than the recorded 10139,
-//! 9164 and 8228, and her first plain shot after them one tick early).
+//! Not pinned here: the tick after an ordinary target dies (sp-m6c: she stands through it, TryToFinishAttackAnimation,
+//! which the engine does not read; there she walks one step, so her three snipes at the Giant leave about 57 closer
+//! than the recorded 10139, 9164 and 8228, and her first plain shot after them one tick early); and in sp-m6d the
+//! Fireball put down 39 ticks after her lands on the 46th tick after her deploy end here, the 47th in the run, so her
+//! third snipe, at the Knight, leaves at +61 here and at +62 there.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -185,4 +190,55 @@ fn c_the_knight_in_reach_first_then_three_snipes_at_the_giant() {
     let knight: Vec<(i32, i32, &str)> = (0..7).map(|k| (14 + 20 * k, 217, "Knight")).collect();
     let giant = [(153, 391, "Giant"), (172, 391, "Giant"), (191, 391, "Giant")];
     assert_eq!(seen, [knight.as_slice(), giant.as_slice()].concat(), "{shots:?}");
+}
+
+#[test]
+fn d_a_spell_in_flight_is_not_pending_damage() {
+    // sp-m6d: she stands at (3499, 9500); Goblins played at (3500, 18500) and a Knight at (3500, 22500) 20 ticks after
+    // her; her side's Fireball cast at (3753, 18245) 39 ticks after her. Snipes at +15 and +34 at goblins, the second
+    // at the goblin then at (3015, 16587), inside the Fireball's area while it flies; then the Knight, 1078 hp after
+    // the Fireball's 688.
+    let mut cfg: BattleConfig = config();
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
+    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    s.spawn_unit(Team::Blue, "Musketeer_EV1", n(3499, 9500), None).unwrap();
+    let mut deploy_end: Option<u32> = None;
+    // At each snipe: its tick, its target's card and position, the Knight's hp, the goblins alive.
+    #[derive(Debug)]
+    struct Snipe(i32, String, (i32, i32), i32, usize);
+    let mut snipes: Vec<Snipe> = Vec::new();
+    for k in 0..110u32 {
+        if k == 20 {
+            s.spawn_unit(Team::Red, "Goblins", n(3500, 18500), None).unwrap();
+            s.spawn_unit(Team::Red, "Knight", n(3500, 22500), None).unwrap();
+        }
+        if k == 39 {
+            s.spawn_unit(Team::Blue, "Fireball", n(3753, 18245), None).unwrap();
+        }
+        s.tick();
+        let Some(m) = s.entities().find(|e| e.card_idx == form) else { continue };
+        if m.deploying {
+            continue;
+        }
+        let de = *deploy_end.get_or_insert(s.tick_count());
+        let tick = (s.tick_count() - de) as i32;
+        if m.attack_phase == AttackPhase::Cooldown {
+            let p = s.projectiles().iter().rev().find(|p| p.firer_card == Some(form)).expect("her shot");
+            assert_eq!(p.speed / mult, 2650, "a plain shot at +{tick}");
+            let t = s.entity(p.target).expect("a shot's target lives as it leaves");
+            let knight = s.entities().find(|e| e.team == Team::Red && e.card == "Knight").map_or(0, |e| e.hp);
+            let goblins = s.entities().filter(|e| e.team == Team::Red && e.card == "Goblins").count();
+            snipes.push(Snipe(tick, t.card.to_string(), native(t.pos), knight, goblins));
+        }
+    }
+    assert_eq!(snipes.len(), 3, "{snipes:?}");
+    assert_eq!((snipes[0].0, snipes[0].1.as_str()), (15, "Goblins"), "{snipes:?}");
+    assert_eq!((snipes[1].0, snipes[1].1.as_str(), snipes[1].2), (34, "Goblins", (3015, 16587)), "{snipes:?}");
+    // The Fireball had not landed at the second snipe (three goblins alive: her target and the two it killed), and had
+    // by the third (no goblin left, 688 off the Knight).
+    assert_eq!((snipes[1].4, snipes[2].4, snipes[2].1.as_str(), snipes[2].3), (3, 0, "Knight", 1078), "{snipes:?}");
 }

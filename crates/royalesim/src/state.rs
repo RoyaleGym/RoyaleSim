@@ -7239,9 +7239,10 @@ impl BattleState {
     ///   - when she aims at nothing, an ordinary target within her attack reach comes first: she shoots it as the plain
     ///     Musketeer does;
     ///   - else a SNIPE TARGET: an enemy she can target (target.rs `can_target`), not a crown tower (FilterTowers), not
-    ///     one the shots in flight will kill (IgnorePendingDamageTargets, unmeasured), standing SnipeMinRange to
-    ///     SnipeMaxRange ahead of her toward the enemy and within SnipeSideClip plus its own collision radius of her x
-    ///     (centre distances, her owner's frame), the nearest ahead first, ties to the earliest created;
+    ///     one the shots in flight will kill (IgnorePendingDamageTargets: shots only, a spell in flight is not counted,
+    ///     measured), standing SnipeMinRange to SnipeMaxRange ahead of her toward the enemy and within SnipeSideClip
+    ///     plus its own collision radius of her x (centre distances, her owner's frame), the nearest ahead first, ties
+    ///     to the earliest created;
     ///   - a target she already aims at is kept while it stays in that reach within LockedTargetSnipeSideClip plus its
     ///     radius (she takes no ordinary decision meanwhile, `phase_target_with`);
     ///   - while she aims, her attack reaches the entry's CustomRange (combat.rs `attack_reach`), so she stands and
