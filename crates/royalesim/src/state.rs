@@ -16054,10 +16054,28 @@ impl BattleState {
 
     /// `resolve_point` for a troop at an OBSERVED creation point (`spawn_unit_resolved`): everything but the
     /// placement.TAP_SNAP snap, which the point already carries. A building or a spell resolves as `resolve_point`.
-    /// (`spawn_unit_resolved` itself leaves a SINGLE troop's observed point unresolved: `spawn_unit_with`.)
+    ///
+    /// A troop that lays ONE unit (`lays_one_unit`) keeps its observed point, as `spawn_unit_with` keeps it: the capture's
+    /// creation point already carries every relocation the client applied. The replay harness resolves a corpus row
+    /// on its tap tick's board through this (harness.rs `resolve_on_board`), and relocating it here moved side 1's
+    /// Bombers, Musketeers and Knights created on (9500, 31000), behind their King, to (9500, 31500) off the King's
+    /// box; the single-unit clamp had put them back until an observed single skipped it (placement.TROOP_TOWER_TAPS).
+    /// Plant: observed_single_resolved_on_board.
     pub fn resolve_observed_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
+        #[cfg(not(clash_plant = "observed_single_resolved_on_board"))]
+        if self.lays_one_unit(idx) {
+            return pos;
+        }
         let troop = self.cfg.cards.get(idx).kind == CardKind::Troop;
         self.resolve_point_with(team, idx, pos, !troop)
+    }
+
+    /// A TROOP CARD WHOSE PLAY LAYS ONE UNIT: one member, no second summon and no summon members. `spawn_unit_with` and
+    /// `resolve_observed_point` leave such a troop's observed point unresolved.
+    fn lays_one_unit(&self, idx: u16) -> bool {
+        let card = self.cfg.cards.get(idx);
+        let second = card.formation.second_summon.filter(|d| d.unit != u16::MAX).map_or(0, |d| d.count.max(0));
+        card.kind == CardKind::Troop && card.count.max(1) == 1 && second == 0 && card.summon_members.is_none()
     }
 
     /// `resolve_point`, with `snap` false leaving out placement.TAP_SNAP (`spawn_unit_resolved`'s troops).
@@ -16834,8 +16852,7 @@ impl BattleState {
         // its one-tile box is on the King's, so it was relocated to the tile (8500, 31500) and the single-unit clamp
         // returned it to (8500, 31000), one unit off. A group's point is a tile or a centroid, not a creation point, and
         // still resolves.
-        let second = card.formation.second_summon.filter(|d| d.unit != u16::MAX).map_or(0, |d| d.count.max(0));
-        let single = observed && card.count.max(1) == 1 && second == 0 && card.summon_members.is_none();
+        let single = observed && self.lays_one_unit(idx);
         let pos = if kind == CardKind::Building || single { pos } else { self.resolve_point_with(team, idx, pos, !observed) };
         if kind == CardKind::Spell {
             // A cast, at any in-bounds point (tests aim spells where no player could).

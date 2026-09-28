@@ -131,3 +131,22 @@ fn an_observed_single_troop_behind_its_column_back_bound_is_not_clamped() {
     // Not vacuous: the same point played as a tap under the same arm is resolved off it.
     assert_ne!(laid_under_taps(Team::Red, TroopTowerTaps::HalfOpenRelocate, "Bomber", at, false), at, "vacuous: the tap on that point is not moved");
 }
+
+/// AN OBSERVED SINGLE TROOP'S POINT IS NOT RESOLVED ON THE BOARD EITHER (`resolve_observed_point`, which the replay
+/// harness's `resolve_on_board` takes for a corpus row): side 1's Bomber of the 16.402 capture 20260920-005517-A,
+/// created on (9500, 31000) behind its King, keeps that point, where the same point played as a tap is relocated off
+/// the King's box. A group's observed point still resolves as before. Plant: observed_single_resolved_on_board.
+#[test]
+fn an_observed_single_troops_point_is_not_resolved_on_the_board() {
+    let s = BattleState::new(1, config());
+    let at = native(9500, 31000);
+    for card in ["Bomber", "Knight", "Musketeer"] {
+        let idx = s.cards().index(card).unwrap_or_else(|| panic!("{card} does not load"));
+        assert_eq!(s.resolve_observed_point(Team::Red, idx, at), at, "{card}: the observed point was resolved again");
+        // Not vacuous: the same point as a tap is moved.
+        assert_ne!(s.resolve_point(Team::Red, idx, at), at, "vacuous: {card}'s tap on that point is not relocated");
+    }
+    // A group's observed point is a centroid, not a creation point, and still resolves as a tap does (bar the snap).
+    let skel = s.cards().index("Skeletons").expect("Skeletons load");
+    assert_ne!(s.resolve_observed_point(Team::Red, skel, at), at, "a group's observed point went unresolved");
+}
