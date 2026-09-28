@@ -1386,6 +1386,14 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let ids = s.tower_ids(e.team);
                 tower_slot = ids.iter().position(|t| *t == Some(e.id));
                 (e.card.to_string(), "tower")
+            } else if e.cloned && cfg!(not(clash_plant = "replay_roots_a_copy_as_its_unit")) {
+                // A CLONE'S COPY (state.rs `make_copy`; a copy's death spawn is one too, spells.CLONE_DEATH_SPAWNS) is rooted
+                // to the Clone card. The recording names every copy by the Clone card's id (28000013), whatever unit it
+                // copies, so the maker labels it "Clone", and rooted as its unit it had no counterpart: sweep-Clone's
+                // copied Knight, sp-h8's copied hero Musketeer and sp-m5-clone's three copies were each an unmatched pair
+                // (a truth "Clone" and a sim Knight or Musketeer), and none of their rows was scored.
+                // PLANT replay_roots_a_copy_as_its_unit: a copy roots as the unit it copies.
+                ("Clone".to_string(), "clone")
             } else if let Some(k) = emitted_by {
                 #[cfg(not(clash_plant = "replay_roots_an_emitted_card_as_deployed"))]
                 let root = (sim[k].root.clone(), "spawner");
