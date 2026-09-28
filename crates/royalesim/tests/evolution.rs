@@ -16,6 +16,8 @@
 //!   forms_load_first        the forms load before the spawned units: forms_take_slots_after_every_existing_card
 //!                           goes red (and so does tests/hash_continuity.rs).
 //!   evo_hashed_when_absent  the evolved units' state is hashed in every battle: tests/hash_continuity.rs goes red.
+//!   barrage_lands_after_the_move  an Evo Cannon bomb lands after the move pass and only its survivors step:
+//!                           a_barrage_bomb_lands_before_the_move_pass goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -209,6 +211,53 @@ fn evo_cannon_drops_its_barrage() {
     assert_eq!(moves[0][0].0, 28, "the push's first step: {:?}", moves[0]);
     // The missed one is not pushed: it stands through its deploy and then walks toward side 0 (-y), never away.
     assert!(moves[1].iter().all(|(t, (_, dy))| *t > 30 && *dy <= 0), "the missed Knight was pushed: {:?}", moves[1]);
+}
+
+#[test]
+fn a_barrage_bomb_lands_before_the_move_pass() {
+    // sp-m3-radius-s0 in miniature (client 15.535.29, t986). Deploying skeletons inside the reach of the 9000 bomb (lands
+    // I + 26) are killed by it. A Knight created after them, just clear of the farthest one and outside the reach, is
+    // pushed straight out of that skeleton's stepped position on the landing tick: the skeleton took its first push
+    // step in the tick's move pass, dying or not. The plant barrage_lands_after_the_move (the bomb lands after the move
+    // pass, and only its survivors step) leaves the Knight where it stood.
+    let mut s = battle(config());
+    let play = s.tick_count();
+    s.spawn_unit(Team::Blue, "Cannon_EV1", n(9000, 9500), None).unwrap();
+    let bomb = n(9000, 18000);
+    while s.tick_count() < play + 10 {
+        s.tick();
+    }
+    s.spawn_unit(Team::Red, "Skeletons", n(9000, 19900), None).unwrap();
+    // The formation settles in its first ticks; the Knight goes down after that, beside the settled skeletons.
+    while s.tick_count() < play + 20 {
+        s.tick();
+    }
+    let skeletons: Vec<_> = s.entities().filter(|e| e.team == Team::Red && e.card == "Skeleton").map(|e| (e.id, e.pos)).collect();
+    assert_eq!(skeletons.len(), 3, "the scene drifted: {skeletons:?}");
+    let (far, at) = *skeletons.iter().max_by_key(|(_, p)| p.dist2(bomb)).unwrap();
+    let (dx, dy) = ((at.x - bomb.x) / K, (at.y - bomb.y) / K);
+    let len = ((dx as f64).powi(2) + (dy as f64).powi(2)).sqrt();
+    assert!(len > 1500.0 && len < 2400.0, "the scene drifted: the far skeleton stands {len} from its bomb");
+    // 1010 beyond it along the bomb's line: clear of it (radii 500 + 500), and more than 2500 from the bomb.
+    let spot = Vec2::new(at.x + ((dx as f64) * 1010.0 / len).round() as i32 * K, at.y + ((dy as f64) * 1010.0 / len).round() as i32 * K);
+    s.spawn_unit_resolved(Team::Red, "Knight", spot, None).unwrap();
+    s.tick();
+    let knight = s.entities().filter(|e| e.team == Team::Red && e.card == "Knight").map(|e| e.id).next().expect("the Knight");
+    let mut before = None;
+    while s.tick_count() < play + 26 {
+        if s.tick_count() == play + 25 {
+            before = Some(s.entity(knight).unwrap().pos);
+            assert!(s.entity(far).is_some_and(|e| e.pos == at && e.deploying), "the scene drifted: the far skeleton moved or deployed");
+        }
+        s.tick();
+    }
+    let before = before.expect("the tick before the landing");
+    let k = s.entity(knight).expect("the Knight lives");
+    assert!(k.deploying && k.hp == k.max_hp, "the scene drifted: the Knight walked or the bomb reached it");
+    assert!(s.entity(far).is_none(), "the scene drifted: the bomb did not kill the far skeleton");
+    let (mx, my) = ((k.pos.x - before.x) / K, (k.pos.y - before.y) / K);
+    assert!(mx * dx + my * dy > 0, "the Knight is pushed out of the dying skeleton's stepped position on the landing tick, away from the bomb: moved ({mx}, {my})");
+    assert!(mx * mx + my * my <= 150 * 150 + 2, "a contact push, at most the 150 cap: moved ({mx}, {my})");
 }
 
 #[test]

@@ -9321,16 +9321,20 @@ impl BattleState {
                 Phase::Status => self.phase_status(),
                 Phase::Spawn => self.phase_spawn(),
                 Phase::Target => self.phase_target(),
-                Phase::Path => match self.cfg.path_model {
-                    // The measured 2026 model has its own per-tick loop: a
-                    // goal-first route, event-driven replans and a locomotion law
-                    // with no fractional carry (path2026.rs); under the measured
-                    // 16.402 search the whole movement update is the one
-                    // measured there (phase_path16402).
-                    PathModel::Oracle2026 if self.cfg.calib.path_search == PathSearch::Client16402 => self.phase_path16402(),
-                    PathModel::Oracle2026 => self.phase_path_2026(),
-                    _ => self.phase_path(),
-                },
+                Phase::Path => {
+                    // An Evo Cannon bomb due this tick lands before anything moves (`land_barrage_early`).
+                    self.land_barrage_early();
+                    match self.cfg.path_model {
+                        // The measured 2026 model has its own per-tick loop: a
+                        // goal-first route, event-driven replans and a locomotion law
+                        // with no fractional carry (path2026.rs); under the measured
+                        // 16.402 search the whole movement update is the one
+                        // measured there (phase_path16402).
+                        PathModel::Oracle2026 if self.cfg.calib.path_search == PathSearch::Client16402 => self.phase_path16402(),
+                        PathModel::Oracle2026 => self.phase_path_2026(),
+                        _ => self.phase_path(),
+                    }
+                }
                 Phase::Move => self.phase_move(),
                 Phase::Attack => self.phase_attack(),
                 Phase::Projectile => self.phase_projectile(),
@@ -14306,11 +14310,86 @@ impl BattleState {
         }
     }
 
+    /// AN EVO CANNON BOMB LANDS BEFORE THE MOVE PASS (card.rs `BarrageDef`), at the top of the Path phase. A bomb due
+    /// this tick (its clock ran out on an earlier tick, so `step_spells` would land it in this tick's Projectile phase)
+    /// is stepped here, so its reach reads the positions the tick started from. Its damage joins the tick's hits, which
+    /// Resolve lands. Its mark joins the tick's effects. Its pushes are ARMED here (`apply_effects` on them alone), so the
+    /// move pass takes each victim's first ladder step as that victim's move: in place of its walk, with its separation
+    /// scan. A victim the bomb kills steps too, since its hp falls only at Resolve, and under
+    /// movement.DYING_UNIT_VISIBILITY = whole_tick every mover after it meets it where that step left it.
+    ///
+    /// Measured on client 15.535.29:
+    ///   - the reach reads the tick's start: sp-scene-a-s0-spot2 t1048, a Goblin 2,452 from its bomb at the start of the
+    ///     tick is hit and dies, where a Goblin that has walked first stands 2,534 away and is missed;
+    ///   - the step replaces the walk: walking Barbarians hit on the landing tick step exactly the 199 straight away
+    ///     from their bomb (sp-scene-a-s0 and -s1 t1072: (151, 130) and (151, -129); spot2 t1048: (120, -158)), where
+    ///     a walk and then the step gives (151, 67), (152, -66) and (136, -217);
+    ///   - the victims the bomb kills step, and later movers meet them there: sp-m3-radius-s0 t986, six deploying
+    ///     skeletons killed by the 9000 bomb, and two survivors outside its reach, each created after a victim it
+    ///     touched, pushed straight out of that victim's stepped position by the contact law: skeleton 30 by 150 (the
+    ///     cap; overlap 191), skeleton 26 by 33 (overlap 32, plus 1). The push runs on through the survivors on t987:
+    ///     19 by 33 out of 26, then 20 by 4 out of 19. A survivor created BEFORE a victim meets it where it started
+    ///     and is not pushed (31 beside victim 33).
+    ///
+    /// A barrage bomb releases nothing (its shot spawns no unit and leaves no area), so what `step_spells` hands on here
+    /// stays empty.
+    fn land_barrage_early(&mut self) {
+        #[cfg(not(clash_plant = "barrage_lands_after_the_move"))]
+        let due = |cards: &CardDb, s: &Spell| {
+            matches!(s.motion, spell::SpellMotion::Flight { delay_ms, .. } if delay_ms <= 0) && cards.get(s.card).evo.as_ref().is_some_and(|v| v.barrage.is_some())
+        };
+        // PLANT (regression): the earlier reading, the bomb lands in the Projectile phase after the move pass, and only
+        // its survivors take their first step (`ladder_step_now`), meeting no one.
+        #[cfg(clash_plant = "barrage_lands_after_the_move")]
+        let due = |_: &CardDb, _: &Spell| false;
+        if !self.spells.iter().any(|s| due(&self.cfg.cards, s)) {
+            return;
+        }
+        let mut fx = EffectBuffer::default();
+        let mut out = spell::SpellOut::default();
+        let mut k = 0;
+        while k < self.spells.len() {
+            if !due(&self.cfg.cards, &self.spells[k]) {
+                k += 1;
+                continue;
+            }
+            // One bomb at a time, in the list's order; one that did not land goes back where it was.
+            let mut one = vec![self.spells.remove(k)];
+            {
+                let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
+                spell::step_spells(&ctx, &mut one, &mut self.dmg, &mut fx, &mut out, &mut self.scratch.nb);
+            }
+            if let Some(s) = one.pop() {
+                self.spells.insert(k, s);
+                k += 1;
+            }
+        }
+        // The pushes are armed now, and the move pass takes their first step (not `ladder_step_now`). Everything else the
+        // bombs buffered lands at Resolve with the tick's other effects. Destructured without `..`, so a field added to
+        // the buffer does not compile until it has a place here.
+        let EffectBuffer { mut knocks, mut stuns, mut buffs, mut hooks, mut enchants, mut grounds } = fx;
+        for kn in knocks.iter_mut() {
+            if let spell::Knock::Push { now, .. } = kn {
+                *now = false;
+            }
+        }
+        self.effects.stuns.append(&mut stuns);
+        self.effects.buffs.append(&mut buffs);
+        self.effects.hooks.append(&mut hooks);
+        self.effects.enchants.append(&mut enchants);
+        self.effects.grounds.append(&mut grounds);
+        let later = std::mem::replace(&mut self.effects, EffectBuffer { knocks, ..Default::default() });
+        self.apply_effects();
+        self.effects = later;
+    }
+
     /// A LADDER'S FIRST STEP ON ITS HIT'S OWN TICK (`Knock::Push::now`, an Evo Cannon bomb's push): one step of the
     /// ladder `arm_ladder` just armed on `i`, taken as `step_pushback_ladders` takes one (move16402.rs `pushback_step`,
     /// no contact, through spell.rs `settle`); the Move phase takes the rest from the next tick. Measured on client
     /// 15.535.29 (oracle's frames of sp-m3-radius-s0, parity's kb_onset): every barrage push stepped 199 on the frame
-    /// its 281 landed, where a Fireball's push steps one tick after, on 15.535.29 and in the 16.402 corpus.
+    /// its 281 landed, where a Fireball's push steps one tick after, on 15.535.29 and in the 16.402 corpus. Reached only
+    /// by a bomb that lands in the Projectile phase: under the plant barrage_lands_after_the_move, since
+    /// `land_barrage_early` lands every due bomb before the move pass and arms its pushes with `now` cleared.
     fn ladder_step_now(&mut self, i: usize) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let arena = &self.cfg.arena;
