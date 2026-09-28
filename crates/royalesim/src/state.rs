@@ -271,6 +271,10 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// spawner.SCHEDULED_UNIT_FIRST_UPDATE (`phase_projectile`, the scheduled area's units): whether a Graveyard's Skeleton
+    /// takes an update on the tick it is created. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "scheduled_unit_first_update_default")]
+    pub scheduled_unit_first_update: ScheduledUnitFirstUpdate,
     /// spells.ILLEGAL_SPELL_TAP. Added after SNAPSHOT_FORMAT 20; the `default` is `Refuse`,
     /// what a battle saved before it actually ran.
     #[serde(default = "illegal_spell_tap_default")]
@@ -1152,6 +1156,10 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn scheduled_unit_first_update_default() -> ScheduledUnitFirstUpdate {
+    ScheduledUnitFirstUpdate::NextTick
 }
 
 fn illegal_spell_tap_default() -> IllegalSpellTap {
@@ -2970,6 +2978,22 @@ calib_enum!(
     }
 );
 
+calib_enum!(
+    /// spawner.SCHEDULED_UNIT_FIRST_UPDATE -- whether a unit a scheduled area puts down (`SpellShape::ScheduledArea`: the
+    /// Graveyard's Skeletons, and the Suspicious Bush's goblins by the same path) takes an update on the tick it is created
+    /// (`phase_projectile` releases it; `materialise_released` runs `first_update`), as a death spawn and a spawner's
+    /// emission do under spawner.SPAWNED_FIRST_STEP.
+    ScheduledUnitFirstUpdate {
+        /// Today's engine: the unit stands on its point on its first frame and takes its first update, the contact push
+        /// included, on the next tick.
+        NextTick = "next_tick",
+        /// The unit takes its first update on its creation tick (`first_update`): a deploying Skeleton does not walk, but
+        /// a neighbour's contact push moves it there. Read off client 15.535.29's sweep-Graveyard: of 12 Skeletons, the
+        /// one created on t318 beside a Knight 290 away appears pushed (139, -55) off its slot, and the other 11, with no
+        /// neighbour, appear on their slots under either arm.
+        ClientCreationTick = "client_creation_tick",
+    }
+);
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
 /// that no other hook holds. The rule a special starts by (`BattleState::special_step`) and the one a landing hook
 /// drags by (`BattleState::apply_effects`), so a target that stopped being one while the hook flew (a Cannon Cart
@@ -5127,6 +5151,7 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            scheduled_unit_first_update: pick(&v, &["spawner", "SCHEDULED_UNIT_FIRST_UPDATE", "value"], ScheduledUnitFirstUpdate::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
@@ -14077,6 +14102,13 @@ impl BattleState {
         // (`scheduled_point`), deploying the action's DeployTime or its own, and released like a death spawn: measured
         // on client 15.535.29, an enemy first targets one on its 8th frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), and
         // a Graveyard Skeleton deploys 10 ticks and takes its first step on the 12th.
+        // spawner.SCHEDULED_UNIT_FIRST_UPDATE = client_creation_tick: each takes its first update on this tick, at the end
+        // of the tick's Reap with the death spawns (`materialise_released`, `first_update`); next_tick leaves it to the
+        // next tick.
+        #[cfg(not(clash_plant = "scheduled_first_update_unread"))]
+        let first_update = self.cfg.calib.scheduled_unit_first_update == ScheduledUnitFirstUpdate::ClientCreationTick;
+        #[cfg(clash_plant = "scheduled_first_update_unread")]
+        let first_update = false; // PLANT (regression): the new arm's units take their first update on the next tick.
         for r in scheduled {
             let flying = self.cfg.cards.get(r.unit).is_flying();
             let pos = self.scheduled_point(r.team, r.centre, r.offset, flying);
@@ -14088,7 +14120,7 @@ impl BattleState {
             let acquire_delay = true;
             #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
             let acquire_delay = false; // PLANT: a target from its first frame.
-            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
@@ -18481,6 +18513,10 @@ impl BattleState {
 ///    `damage_reduction` and CardDef `idle_buff` and `idle_area`, so the card fingerprint moves: a snapshot saved by an
 ///    earlier build is refused as saved against other card data. migrate_v3 strips `idle_buff` and `idle_area` with
 ///    the rest of the post-format-3 tail and runs a migrated battle at both old arms.
+/// 20, unchanged, spawner.SCHEDULED_UNIT_FIRST_UPDATE: Calib gained scheduled_unit_first_update (serde default the old
+///    arm, next_tick), no new state (the new arm sets the release's existing `first_update` flag, which no queue saved
+///    between ticks holds), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18985,6 +19021,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a format-3 battle's scheduled units took their first update on the next tick;
+    // it keeps that whatever the ledger ships (the same rule).
+    sh.insert("scheduled_unit_first_update".into(), serde_json::to_value(ScheduledUnitFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

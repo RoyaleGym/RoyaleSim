@@ -3505,6 +3505,17 @@
       "promotion_rules": "SETTLED 2026-09-26 at client16402_same_tick (see provenance). none, the engine before it, is the old arm.",
       "engine": "state.rs spawner_pass (the emissions) and the death-spawn step: the new units take one move step on creation"
     },
+    "SCHEDULED_UNIT_FIRST_UPDATE": {
+      "value": "next_tick",
+      "candidates": ["next_tick", "client_creation_tick"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm next_tick, which is today's engine: a Graveyard's Skeleton stands on its slot on its first frame and takes its first update, a neighbour's contact push included, on the next tick; the one Skeleton that separates the arms fits only client_creation_tick. LOW for client_creation_tick as well: that is one Skeleton in one scene.",
+      "provenance": "READ OFF client 15.535.29's sweep-Graveyard (the 2026-09-28 round 9 reading, replay_parity --trace with cards.CLIENT16402_VALUES at none): 12 Skeletons of one cast. 11 appear on their slots in the client and in the engine under either arm, with no neighbour to push them. The one created on t318 appears on (14639, 8945) in the client: its slot (14500, 9000) plus one contact push, 149, from a Knight standing 290 away. Today's engine puts it on the slot and gives it the same push a tick later ((138, -59) on t319), and it stays a tick behind; under client_creation_tick it appears on (14638, 8941), 4 from the client, and follows it within 18 through t322. Scored alone on that scene: within 250 4,029 -> 4,089, both alive 4,769 -> 4,774, hp exact 4,758 -> 4,766. The Skeleton's later loss (the tower arrow of t386 kills it in the client only) is not this key's: its target already differs by then. It is the rule a death spawn and a spawner's emission follow (spawner.SPAWNED_FIRST_STEP = client16402_same_tick); the 16.402 corpus casts no Graveyard.",
+      "meaning": "client_creation_tick: a unit a scheduled area puts down (the Graveyard's Skeletons; the Suspicious Bush's goblins take the same path) takes its first update on the tick it is created, at the end of that tick's Reap with the death spawns (state.rs materialise_released, first_update): a deploying unit does not walk there, but a neighbour's contact push moves it. next_tick: today's engine, the unit's first update is on the next tick.",
+      "open": "One Skeleton in one scene. The Suspicious Bush's goblins and a Graveyard Skeleton that is not deploying on its creation tick (none is: DeployTime 500) are not measured.",
+      "promotion_rules": "The test file (crates/royalesim/tests/scheduled_first_update.rs) passes. Switch on when parity's score is positive (replay_parity --calibration-override spawner.SCHEDULED_UNIT_FIRST_UPDATE=\"client_creation_tick\", every other key at its shipped value). Registered prediction: sweep-Graveyard's t318 Skeleton stands within 10 of (14639, 8945) on its first frame; no 16.402 corpus report moves (no Graveyard is cast there).",
+      "engine": "state.rs phase_projectile (the scheduled area's units set PendingSpawn::first_update), materialise_released and first_update, gated as a death spawn's is by spawner.SPAWNED_FIRST_STEP. Plant scheduled_first_update_unread. Test: crates/royalesim/tests/scheduled_first_update.rs."
+    },
     "FIRST_STEP_DYING_BODIES": {
       "value": "client16402_seen",
       "candidates": ["hidden", "client16402_seen"],
