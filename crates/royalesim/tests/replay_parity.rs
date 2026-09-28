@@ -415,6 +415,44 @@ fn a_tunnelling_deploy_is_played_at_its_destination() {
     assert_eq!(play_point(&deploy("")), [9235, 1777], "a corpus deploy with no destination is played at pos");
 }
 
+/// A SCENARIO BUILDING ROW IS LAID FROM ITS RAW TAP, resolved as a play's (`scenario_building_tap`, `issue_row`,
+/// `BattleState::spawn_unit_tapped`): client 15.535.29's Cannon tapped at (9000, 14500), its box over the river, stood on
+/// (8500, 13500), where the row's snapped `pos` (9500, 14500) through `spawn_unit` stands it as put. A corpus building
+/// row, a scenario troop row and a tunnel row with a `destination` are not scenario building taps. Plant:
+/// replay_stacks_scenario_buildings.
+#[test]
+fn a_scenario_building_row_is_laid_from_its_raw_tap() {
+    use royalesim::state::BattleState;
+    use royalesim::Team;
+    let row = |card: &str, kind: &str, extra: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 961, "side": 0, "card": "{card}", "card_id": 27000000, "kind": "{kind}", "level": 11, "count": 1,
+                "pos": [9500, 14500], "source": "tap_tile"{extra}}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let db = common::cards();
+    let scenario = row("Cannon", "building", r#", "tap": [9000, 14500], "pos_source": "snapped_tap""#);
+    assert_eq!(scenario_building_tap(&scenario, &db), Some([9000, 14500]), "the raw tap, not the snapped pos");
+    assert_eq!(scenario_building_tap(&row("Cannon", "building", r#", "tap": {"tick": 940, "native": [9000, 14500]}"#), &db), None, "a corpus building row");
+    assert_eq!(scenario_building_tap(&row("Knight", "troop", r#", "tap": [9000, 14500]"#), &db), None, "a scenario troop row");
+    assert_eq!(scenario_building_tap(&row("Cannon", "building", r#", "tap": [9000, 14500], "destination": [9500, 14500]"#), &db), None, "a tunnel row");
+    let k = royalesim::fixed::SUBTILE_PER_MILLITILE;
+    let laid = |issue: &dyn Fn(&mut BattleState) -> Result<(), royalesim::state::DeployError>| -> Vec<Vec2> {
+        let mut s = BattleState::new(1, common::config());
+        issue(&mut s).expect("the Cannon is laid");
+        s.pending_spawns().iter().map(|&(_, _, p)| p).collect()
+    };
+    let pos = from_native(play_point(&scenario)[0], play_point(&scenario)[1]);
+    let issued = laid(&|s| issue_row(s, &db, &scenario, Team::Blue, "Cannon", pos));
+    let tapped = laid(&|s| s.spawn_unit_tapped(Team::Blue, "Cannon", Vec2::new(9000 * k, 14500 * k), None));
+    assert_eq!(issued, tapped, "the row is not laid as spawn_unit_tapped lays its raw tap");
+    // Not vacuous: through spawn_unit at its play point the row stands where it was put.
+    let put = laid(&|s| s.spawn_unit(Team::Blue, "Cannon", pos, None));
+    assert_eq!(put, vec![Vec2::new(9500 * k, 14500 * k)]);
+    assert_ne!(issued, put, "vacuous: the row is laid where spawn_unit puts it");
+}
+
 /// A MIRROR play, as tools/make_replay_fixture.py `mirror_plays` publishes it (card Mirror, kind "mirror", the copy
 /// under `mirrored`), is played as the copied card at the row's level; every other row as its own card; a mirror row
 /// that names no copy as the Mirror itself, which the engine then refuses by name.
