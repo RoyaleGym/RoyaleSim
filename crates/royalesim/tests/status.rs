@@ -54,9 +54,10 @@
 //!      Healer's spawn heal pulses 50 at a 256% multiplier, where the old order
 //!      (per_second_times_frequency, shipped until flip wave 2) gives 48, and a
 //!      once-a-second Poison is the same under both, so (5) and (10) hold under either;
-//!  13. under spells.PULSING_AREA_EFFECT = hit_speed_offset (not shipped) a pulsing area's first application waits
-//!      the value the ledger lists for its card, not one HitSpeed: a Poison listed at 100 applies on L + 1 and one
-//!      listed at 500 on L + 9, where its HitSpeed 250 gives L + 4.
+//!  13. under spells.PULSING_AREA_EFFECT = hit_speed_offset (shipped since parity scored its flip; every scene
+//!      above runs under it) a pulsing area's first application waits the value the ledger lists for its card, not
+//!      one HitSpeed: a Poison listed at 100 applies on L + 1 and one listed at 500 on L + 9, where its HitSpeed 250
+//!      gives L + 4; the old arm hit_speed_period_from_landing, the control, applies on L.
 //!
 //! PLANTS (regression):
 //!   * `buff_speed_unfloored` rounds the composition instead of truncating it: (1)
@@ -109,7 +110,7 @@ fn assert_shipped_arms() {
     assert_eq!(c.buff_pulse_amount, PulseAmount::ScaledPerSecondTimesFrequency, "the shipped arm this file pins");
     assert_eq!(c.buff_pulse_timing, PulseTiming::AfterFirstPeriod, "the shipped arm this file pins");
     assert_eq!(c.target_buff_on_splash, TargetBuffScope::WholeSplash, "the shipped arm this file pins");
-    assert_eq!(c.pulsing_area_effect, PulsingArea::FromLanding, "the shipped arm this file pins");
+    assert_eq!(c.pulsing_area_effect, PulsingArea::HitSpeedOffset, "the shipped arm this file pins");
     assert_eq!(c.buff_expiry, BuffExpiry::CeilFromNextTick, "the shipped alignment this file pins");
     assert_eq!(c.same_buff_reapply, BuffReapply::RefreshMax, "the shipped reapply rule this file pins");
 }
