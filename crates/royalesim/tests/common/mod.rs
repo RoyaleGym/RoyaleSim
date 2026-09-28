@@ -77,12 +77,11 @@ pub fn symmetric_config() -> BattleConfig {
     // rather than the system under test. `none` lays the ring on the tap itself,
     // which is what a flying summon measures on both seats.
     c.calib.formation_ground_deploy_point = royalesim::state::GroundDeployPoint::None;
-    // The death-spawn slide (spawner.DEATH_SPAWN_PUSHBACK): client_ring_slide lays its ring
-    // in the ABSOLUTE frame for both seats (side 1 is unmeasured), so a Red death is not the
-    // rotation of a Blue one. not_read is the shipped arm today, so this overrides nothing
-    // yet. Battle::new's `death_spawn_pushback` kwarg is the Python selector; the day the ledger
-    // flips, the name joins py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS (mirror.rs
-    // `every_asymmetric_calib_key_is_selectable_from_python` asks for it).
+    // The death-spawn slide (spawner.DEATH_SPAWN_PUSHBACK): client_ring_slide, the shipped arm
+    // since the round-6 flip, lays its ring in the ABSOLUTE frame for both seats, so a Red death
+    // is not the rotation of a Blue one. This selects the old arm, not_read. Battle::new's
+    // `death_spawn_pushback` kwarg is the Python selector, and the name is in py.rs
+    // SYMMETRY_SELECTABLE_CALIB_FIELDS (mirror.rs `every_asymmetric_calib_key_is_selectable_from_python`).
     c.calib.death_spawn_pushback = royalesim::state::DeathSpawnPushback::NotRead;
     // A summon member's first tower (targeting.FIRST_TOWER_PICK): client_spawn_lane flips a member's lane
     // against its deploy point in ABSOLUTE coordinates, as measured, so a member between x 9005 and 9495 of a

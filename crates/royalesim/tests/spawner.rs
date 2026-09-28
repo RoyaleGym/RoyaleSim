@@ -69,7 +69,8 @@ use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
-    BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnRadius, FirstWave, PauseAnchor,
+    BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnPushback, DeathSpawnRadius,
+    FirstWave, PauseAnchor,
     ReleaseTiming, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
 };
 use royalesim::{EntityId, Team};
@@ -83,6 +84,10 @@ use std::collections::BTreeSet;
 fn config() -> BattleConfig {
     let mut cfg = common::config();
     cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    // The Golem's and the Lava Hound's scenes here pin the facing ring at DeathSpawnRadius, the
+    // old arm of spawner.DEATH_SPAWN_PUSHBACK. The shipped slide (client_ring_slide) is
+    // tests/death_spawn_pushback.rs's.
+    cfg.calib.death_spawn_pushback = DeathSpawnPushback::NotRead;
     cfg
 }
 

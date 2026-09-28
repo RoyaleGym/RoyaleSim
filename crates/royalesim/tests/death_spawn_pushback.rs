@@ -9,8 +9,8 @@
 //! the members then slide straight out 250 a tick, neither walking nor attacking, to exactly
 //! DeathSpawnRadius. The Golemites' radius per tick: 250, 650, 900, 1150, 1400, 1500 and 250,
 //! 601, 851, 1101, 1351, 1500. The Battle Ram, which leaves the column blank, keeps the
-//! facing ring (its Barbarians at 600 on its axis, no slide). The key SHIPS at not_read,
-//! today's engine, so every scene here selects its arm explicitly.
+//! facing ring (its Barbarians at 600 on its axis, no slide). The key ships at client_ring_slide
+//! since the round-6 flip (not_read before), and every scene here selects its arm explicitly.
 //!
 //! WHAT IS PINNED, and the plant that turns each gate red (each one compiled in with
 //! `--cfg clash_plant="..."`, docs/contributing.md):
@@ -29,9 +29,9 @@
 //!      -- death_slide_targets;
 //!   6. the control: the Battle Ram's Barbarians keep the facing ring at 600 under the new
 //!      arm -- death_ring_slide_ignores_flag;
-//!   7. the control: the old arm is today's engine (and it is the shipped one), the
-//!      Golemites and the Pups at DeathSpawnRadius on the facing ring, no slide
-//!      -- death_ring_slide_ignores_arm. That plant changes the shipped arm, so it also
+//!   7. the control: the old arm, the engine before the round-6 flip (client_ring_slide
+//!      ships since), the Golemites and the Pups at DeathSpawnRadius on the facing ring, no
+//!      slide -- death_ring_slide_ignores_arm. That plant changes the old arm, so it also
 //!      reddens tests/spawner.rs `golem_killed_leaves_two_golemites_on_the_radius_and_its_death_damage_lands`
 //!      and `lava_hound_killed_leaves_six_flying_pups`, which pin the same shipped
 //!      behaviour (expected, not a leak), and may redden that file's
@@ -399,13 +399,18 @@ fn the_battle_rams_barbarians_keep_the_facing_ring_under_the_new_arm() {
 }
 
 #[test]
-fn the_old_arm_is_todays_engine_and_ships() {
+fn the_old_arm_is_the_pre_flip_engine_and_the_measured_arm_ships() {
     // Plant death_ring_slide_ignores_arm: the Golemites and the Pups take the small ring and
     // slide under not_read too.
-    assert_eq!(Calib::shipped().death_spawn_pushback, DeathSpawnPushback::NotRead, "the ledger ships the old arm, today's engine");
-    assert_eq!(config().calib.death_spawn_pushback, DeathSpawnPushback::NotRead);
+    assert_eq!(Calib::shipped().death_spawn_pushback, DeathSpawnPushback::ClientRingSlide, "the ledger ships the measured arm since the round-6 flip");
+    assert_eq!(config().calib.death_spawn_pushback, DeathSpawnPushback::ClientRingSlide);
+    let old_arm = || {
+        let mut c = config();
+        c.calib.death_spawn_pushback = DeathSpawnPushback::NotRead;
+        c
+    };
     for card in ["Golem", "LavaHound"] {
-        let (mut s, ids) = kill(config(), card, &[]);
+        let (mut s, ids) = kill(old_arm(), card, &[]);
         let (_, _, r) = death_spawn(&s, card);
         let c = centre_of(&s, &ids);
         let tol = (r / 100).max(4);

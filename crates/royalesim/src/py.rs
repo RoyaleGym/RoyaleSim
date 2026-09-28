@@ -135,6 +135,10 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // No kwarg either: {"placement.TROOP_TOWER_TAPS": "closed_block"} (SYMMETRIC_ARMS names it too). The shipped
     // half-open king block is judged in absolute coordinates.
     "placement_troop_tower_taps",
+    // Battle::new's `death_spawn_pushback` kwarg. The measured slide (client_ring_slide, shipped since the round-6 flip)
+    // lays its ring in the ABSOLUTE frame for both seats (client 15.535.29, 8 runs), so a Red death is not the rotation
+    // of a Blue one; not_read is its seat-symmetric old arm.
+    "death_spawn_pushback",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

@@ -4,16 +4,16 @@ WHAT THIS PINS. On the live 16.402 corpus every Golem and LavaHound death (both 
 its children at radius 250 from the death point, at the fixed angles -(k+1) x 360 / n in the native frame (0 = +x),
 whatever the parent's heading. The children then slide straight outward, about 250 a tick, and stop at exactly
 DeathSpawnRadius (Golem 1500, LavaHound 2500). The Battle Ram (DeathSpawnPushback blank) is different: its Barbarians
-appear at 600 on its heading on the first frame and do not slide, which the engine already does. Today's engine places
-every death spawn at DeathSpawnRadius on the parent's facing on the first frame.
+appear at 600 on its heading on the first frame and do not slide, which the engine already did. The old arm (not_read,
+shipped until the round-6 flip) places every death spawn at DeathSpawnRadius on the parent's facing on the first frame.
 
 WHY THE CONTROLS ARE HERE. A parent whose heading is a multiple of 360 / n cannot tell a fixed ring from one that
 turns with it, so each scenario asserts that the heading is at least 15 degrees from every such multiple. The client
 15.535.29 death-layout scenarios (a Golem and a Lava Hound of each side, the side-1 runs rotated 180 degrees) settle
 the two questions the corpus left open: the ring does not turn with the owner either, and member k in CREATION order
 sits at -(k+1) x 360 / n. So both sides are tested and the angles are checked member by member, in uid order. The
-Battle Ram test holds the new arm to leaving a blank-DeathSpawnPushback row alone, and the old-arm test is today's
-engine.
+Battle Ram test holds the new arm to leaving a blank-DeathSpawnPushback row alone, and the old-arm test is the engine
+before the flip.
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ def test_the_battle_ram_keeps_its_facing_ring():
     assert all(gap(a, heading, 180) <= 5 for _, a in firsts), (heading, firsts)
 
 
-def test_the_old_arm_is_todays_engine():
+def test_the_old_arm_is_the_pre_flip_engine():
     """Checked on the shared build of 2026-09-25 15:10 with the key dropped: the Golemites appear at 1505 on the Golem's
     heading (121) on the first frame, and the Pups at 2501 on the Hound's heading (91) plus k x 60."""
     cases = (("Golem", "Knight", 12700, 2, 1500), ("LavaHound", "Musketeer", 14000, 6, 2500))
