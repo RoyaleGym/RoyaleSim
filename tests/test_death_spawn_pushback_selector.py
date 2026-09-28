@@ -8,7 +8,7 @@ the day the ledger ships the measured arm).
 WHAT IS PINNED:
   1. both arms construct a battle, by keyword;
   2. a name with no engine implementation is refused, naming the argument;
-  3. the argument is the LAST one: the five leading arguments still go by position, as callers pass them.
+  3. the five leading arguments still go by position, as callers pass them.
 """
 
 import pytest

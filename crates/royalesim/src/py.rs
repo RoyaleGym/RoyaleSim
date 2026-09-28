@@ -377,6 +377,10 @@ pub struct Battle {
     /// An override of calibration spawner.DEATH_SPAWN_PUSHBACK for every battle this object starts (None = the
     /// ledger's value).
     death_spawn_pushback: Option<crate::state::DeathSpawnPushback>,
+    /// The unified card level and the tower level every battle this object starts runs (`level` / `tower_level`;
+    /// None = the lowest level valid for every rarity, and the tower level = the card level).
+    level: Option<i32>,
+    tower_level: Option<i32>,
     /// An EXPERIMENT's whole calibration (`calibration_overrides`), in place of the
     /// ledger's for every battle this object starts. None = the ledger.
     calib: Option<Calib>,
@@ -946,7 +950,11 @@ impl Battle {
     }
 
     fn level(&self) -> i32 {
-        self.cards.lowest_level_valid_for_every_rarity()
+        self.level.unwrap_or_else(|| self.cards.lowest_level_valid_for_every_rarity())
+    }
+
+    fn tower_lvl(&self) -> i32 {
+        self.tower_level.unwrap_or_else(|| self.level())
     }
 
     /// The calibration every battle this object starts runs (`selected_calib`).
@@ -1047,9 +1055,15 @@ impl Battle {
     /// `death_spawn_pushback`: None = the ledger's spawner.DEATH_SPAWN_PUSHBACK. Its measured arm,
     /// "client_ring_slide", lays the slide's ring in the ARENA's frame for both seats (measured on side 0),
     /// so a Red death is not the rotation of a Blue one. "not_read" is the rotation-symmetric arm a rotation
-    /// gate wants. It is the LAST argument: callers pass the first five by position.
+    /// gate wants. Callers pass the first five by position.
+    ///
+    /// `level`: the unified card level of both sides, for every battle this object starts; None = the lowest level
+    /// valid for every rarity (11 on 15.535.29). `tower_level`: the crown towers' level; None = `level`. Checked
+    /// here against every catalogue card (and the units it makes) and the two towers, so a level a card's ladder
+    /// lacks is refused now, not at a spawn. These two are the LAST arguments.
     #[new]
-    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None, death_spawn_pushback = None))]
+    #[pyo3(signature = (card_names, slot_of_k, path_search = None, ground_y_clamp = None, ground_deploy_point = None, calibration_overrides = None, death_spawn_pushback = None, level = None, tower_level = None))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         card_names: Option<Vec<String>>,
         slot_of_k: [[i32; 3]; 2],
@@ -1058,6 +1072,8 @@ impl Battle {
         ground_deploy_point: Option<String>,
         calibration_overrides: Option<BTreeMap<String, String>>,
         death_spawn_pushback: Option<String>,
+        level: Option<i32>,
+        tower_level: Option<i32>,
     ) -> PyResult<Self> {
         let (calib, calib_overrides) = match calibration_overrides {
             Some(m) if !m.is_empty() => {
@@ -1146,8 +1162,17 @@ impl Battle {
                 return Err(PyValueError::new_err(format!("card {:?} listed twice", db.get(*idx).name)));
             }
         }
+        let card_lvl = level.unwrap_or_else(|| db.lowest_level_valid_for_every_rarity());
+        for idx in &catalogue {
+            db.check_levels(*idx, card_lvl).map_err(|e| PyValueError::new_err(format!("level {card_lvl}: {e}")))?;
+        }
+        let tower_lvl = tower_level.unwrap_or(card_lvl);
+        for name in [KING_TOWER, PRINCESS_TOWER] {
+            let idx = db.index(name).ok_or_else(|| PyRuntimeError::new_err(format!("cards.json has no {name}")))?;
+            db.check_levels(idx, tower_lvl).map_err(|e| PyValueError::new_err(format!("tower_level {tower_lvl}: {e}")))?;
+        }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, calib, calib_overrides, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, level, tower_level, calib, calib_overrides, state: None })
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -1164,9 +1189,14 @@ impl Battle {
         catalogue_rows(&cards, &calib, &self.catalogue, self.level()).map_err(PyValueError::new_err)
     }
 
-    /// The unified card and tower level every battle from this object uses.
+    /// The unified card level every battle from this object uses (the constructor's `level`).
     fn card_level(&self) -> i32 {
         self.level()
+    }
+
+    /// The crown towers' level every battle from this object uses (the constructor's `tower_level`, else `level`).
+    fn tower_level(&self) -> i32 {
+        self.tower_lvl()
     }
 
     /// WHICH SOURCE THIS EXTENSION WAS BUILT FROM: `(commit, tree)`, where `tree`
@@ -1304,6 +1334,8 @@ impl Battle {
         }
         let mut cfg = BattleConfig::with_cards(CardDb::clone(&self.cards));
         cfg.cards = self.cards.clone();
+        cfg.card_level = [self.level(); 2];
+        cfg.tower_level = [self.tower_lvl(); 2];
         // THE EXPERIMENT'S CALIBRATION with the keywords' arms on top (set_calib carries the model fields with it).
         cfg.set_calib(self.battle_calib().map_err(PyValueError::new_err)?);
         match shuffle {
@@ -2243,7 +2275,7 @@ mod tests {
     fn battle_with(names: &[&str], overrides: &[(&str, &str)]) -> Battle {
         let m: BTreeMap<String, String> = overrides.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let names = Some(names.iter().map(|n| n.to_string()).collect());
-        let Ok(b) = Battle::new(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None) else { panic!("the Battle was refused") };
+        let Ok(b) = Battle::new(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None, None, None) else { panic!("the Battle was refused") };
         b
     }
 
@@ -2330,9 +2362,9 @@ mod tests {
     /// under the base card's id, the unit with status bit 3.
     #[test]
     fn an_evolved_cannon_reports_under_its_base_card() {
-        let Ok(b) = Battle::new(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None) else { panic!("the default Battle was refused") };
+        let Ok(b) = Battle::new(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None) else { panic!("the default Battle was refused") };
         assert!(b.catalogue.iter().all(|i| b.cards.get(*i).evo.is_none()), "a form in the default catalogue");
-        assert!(Battle::new(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None).is_err(), "a named form was taken");
+        assert!(Battle::new(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None).is_err(), "a named form was taken");
         let db = b.cards.clone();
         let ids = ids_of_indices(&db, &b.catalogue);
         let (cannon, form) = (db.index("Cannon").unwrap(), db.index("Cannon_EV1").unwrap());
