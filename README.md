@@ -67,9 +67,9 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 124 of the 144 cards in the 15.535 client's card table and refuses 20, with a reason for each. Counted by the loader itself (its census at `010d670`, `cards.json` FNV-1a 64 23b032626fe91432). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 132 of the 144 cards in the 15.535 client's card table and refuses 12, with a reason for each. Counted by the loader itself (its census at `ab2e520`, `cards.json` FNV-1a 64 5ac5d59ed353c443). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 296 carry a status from guess to measured, and 178 are measured (RoyaleSim 010d670). 242 also name the rivals they were chosen against, and 250 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 327 carry a status from guess to measured, and 200 are measured (RoyaleSim ab2e520). 272 also name the rivals they were chosen against, and 281 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
 </table>
 
@@ -491,19 +491,17 @@ Working:
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime, the
   3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. **Of the card table's 144 rows the engine loads 124 and refuses 20**, with a reason for
-  each refusal. The engine's own census reports **126 loadable, 20 rejected and 28 summon-only**,
-  and those do not sum to 144 for a reason worth stating: the 126 is the 124 plus the King and
-  Princess towers, and the 28 summon-only are unit definitions that are not rows of the card table
+- Cards. **Of the card table's 144 rows the engine loads 132 and refuses 12**, with a reason for
+  each refusal. The engine's own census reports **134 loadable, 12 rejected and 32 summon-only**,
+  and those do not sum to 144 for a reason worth stating: the 134 is the 132 plus the King and
+  Princess towers, and the 32 summon-only are unit definitions that are not rows of the card table
   at all - a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon*
-  drops, and no hand can play either. The three lists are disjoint and their union is 174: the 144
-  rows plus the 2 towers plus those 28. Counts from the census at `010d670`, against `cards.json`
-  FNV-1a 64 23b032626fe91432. The loadable and refused lists are pinned row by row in
-  `crates/royalesim/tests/loadable_census.rs`, which CI runs. The 16 rows that moved from refused
-  to loadable since `126992a` are the Three Musketeers, Miner, Ram Rider, Cannon Cart
-  (MovingCannon), Elixir Golem, Mother Witch, Goblin Demolisher, Rune Giant (GiantBuffer), Ronin,
-  Elixir Collector, Furnace (FirespiritHut), Goblin Drill, Mirror, Royal Delivery, Goblin Curse
-  and Spirit Empress (MergeMaiden). The Miner, the Goblin Drill and the Mirror load, but the default
+  drops, and no hand can play either. The three lists are disjoint and their union is 178: the 144
+  rows plus the 2 towers plus those 32. Counts from the census at `ab2e520`, against `cards.json`
+  FNV-1a 64 5ac5d59ed353c443. The loadable and refused lists are pinned row by row in
+  `crates/royalesim/tests/loadable_census.rs`, which CI runs. The 8 rows that moved from refused
+  to loadable since `1d661b0` are the Skeleton Barrel (SkeletonBalloon), Graveyard, Suspicious
+  Bush, Lumberjack (RageBarbarian), Goblin Giant, Clone, Vines and Void (DarkMagic). The Miner, the Goblin Drill and the Mirror load, but the default
   card list leaves them out: name them in `card_names` to play them.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
