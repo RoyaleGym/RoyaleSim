@@ -2609,6 +2609,12 @@ calib_enum!(
         /// first frame the projectile lands at the unit's position as an area impact, through the
         /// spell impact and knockback path.
         ClientOnLanding = "client_on_landing",
+        /// client_on_landing, and the blow of a unit an ACTION makes (the Hero Musketeer's turret, whose PendingSpawn
+        /// carries `action_made`) lands on the 2nd tick after its creation (combat.rs
+        /// ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), not the 6th. Read on client 15.535.29's hero scenes: every enemy hp
+        /// drop within 2,600 of a new turret falls on its c + 2 (two Knights at -204; three Goblins it kills vanish on
+        /// c + 2), where the engine lands it on c + 6.
+        ClientOnLandingActionAt2 = "client_on_landing_action_at_2",
     }
 );
 calib_enum!(
@@ -9824,7 +9830,7 @@ impl BattleState {
             };
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
             // combat.DEPLOY_PROJECTILE: the play's blow, on the tick its unit is created (`deploy_blow`).
-            self.deploy_blow(p.team, p.card, p.level, p.pos);
+            self.deploy_blow(p.team, p.card, p.level, p.pos, p.action_made);
             // AN EVOLVED UNIT'S OWN START (`evo_created`): the barrage, the group, the snipes.
             if self.cfg.cards.get(p.card).evo.is_some() {
                 self.evo_created(id, &mut groups);
@@ -9932,14 +9938,25 @@ impl BattleState {
     /// THE PLAY'S, as spells.DEPLOY_AREA_EFFECT is: `phase_spawn` casts it as a queued play's unit is created (a play
     /// from the hand, a Mirror's copy, `spawn_unit`). A unit the scenario setup puts down (`setup_spawn_place`) stands
     /// as if it had been played earlier and lands none, and neither does a Clone's copy.
-    fn deploy_blow(&mut self, team: Team, card: u16, level: i32, pos: Vec2) {
+    ///
+    /// A unit an ACTION makes (`action_made`: the Hero Musketeer's turret) lands its blow on the 2nd tick under
+    /// client_on_landing_action_at_2 (combat.rs ACTION_DEPLOY_PROJECTILE_DELAY_TICKS); every other arm and unit keeps
+    /// the 6th.
+    fn deploy_blow(&mut self, team: Team, card: u16, level: i32, pos: Vec2, action_made: bool) {
+        let arm = self.cfg.calib.deploy_projectile;
         #[cfg(not(clash_plant = "deploy_projectile_unfired"))]
-        let blows = self.cfg.calib.deploy_projectile == DeployProjectile::ClientOnLanding;
+        let blows = arm != DeployProjectile::NotRead;
         #[cfg(clash_plant = "deploy_projectile_unfired")]
         let blows = false; // PLANT (regression): the new arm fires nothing, as not_read.
         if !blows {
             return;
         }
+        #[cfg(not(clash_plant = "action_blow_at_play_delay"))]
+        let action_early = action_made && arm == DeployProjectile::ClientOnLandingActionAt2;
+        #[cfg(clash_plant = "action_blow_at_play_delay")]
+        let action_early = false; // PLANT: an action-made unit's blow keeps the play's 6 ticks.
+        let _ = action_made;
+        let ticks = if action_early { combat::ACTION_DEPLOY_PROJECTILE_DELAY_TICKS } else { combat::DEPLOY_PROJECTILE_DELAY_TICKS };
         let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|d| &d.shape) else { return };
         let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the deploy projectile's level is validated at the play");
         self.spells.push(Spell {
@@ -9948,7 +9965,7 @@ impl BattleState {
             level,
             damage,
             pulse: 0,
-            motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: combat::DEPLOY_PROJECTILE_DELAY_TICKS * self.cfg.calib.tick_ms },
+            motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * self.cfg.calib.tick_ms },
             depth: 0,
         });
     }
@@ -16502,7 +16519,7 @@ impl BattleState {
         #[cfg(clash_plant = "setup_spawn_skips_spawn_area")]
         let id = self.spawn_with(team, idx, level, pos, kind, false).map_err(DeployError::InvalidLevel)?; // PLANT: no spawn area either.
         #[cfg(clash_plant = "setup_spawn_lands_deploy_blow")]
-        self.deploy_blow(team, idx, level, pos); // PLANT: the setup spawn lands its card's deploy projectile.
+        self.deploy_blow(team, idx, level, pos, false); // PLANT: the setup spawn lands its card's deploy projectile.
         let i = id.index as usize;
         self.ents.deploy_ms[i] = 0;
         self.on_deployed(i);

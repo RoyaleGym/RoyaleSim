@@ -468,6 +468,9 @@ fn release_hold(rng: &mut Rng, random_delay_ms: i32, tick_ms: i32) -> i32 {
 /// first frame 259, the blow on 265). Whether it is a flight time (the row's Speed is 1000) or
 /// a fixed delay is open; one card carries a deploy projectile.
 pub const DEPLOY_PROJECTILE_DELAY_TICKS: i32 = 6;
+/// combat.DEPLOY_PROJECTILE = client_on_landing_action_at_2: the deploy blow of a unit an ACTION makes (the Hero
+/// Musketeer's turret, `fire_ability`) lands on the 2nd tick after its creation, measured on client 15.535.29.
+pub const ACTION_DEPLOY_PROJECTILE_DELAY_TICKS: i32 = 2;
 
 /// combat.SPAWN_PROJECTILE = client_spark_fan: the angle between neighbouring sparks of one landing,
 /// degrees; the fan is centred on the carrier's flight line (`release_sparks`). Measured on client
