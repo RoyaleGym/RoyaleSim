@@ -15054,7 +15054,8 @@ impl BattleState {
     }
 
     /// `formation_members`, with `observed` a point that is already the unit's creation point: a single ground
-    /// unit then takes no placement.TAP_SNAP deploy point, being on it already.
+    /// unit then takes neither the placement.TAP_SNAP deploy point nor the placement.TROOP_TOWER_TAPS clamp to its
+    /// column's back bound, its creation point carrying both already.
     fn formation_members_with(&self, team: Team, idx: u16, level: i32, pos: Vec2, observed: bool) -> Vec<PendingSpawn> {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let cards = &self.cfg.cards;
@@ -15124,7 +15125,9 @@ impl BattleState {
                     // side 1, a Knight at own (8500, 500) stands on own 1000). Nothing else moves a
                     // single unit: the column's front bound and the passable-ground ejection were
                     // never measured for one, and a scenario unit placed in the enemy half
-                    // (spawn_unit) keeps its exact point.
+                    // (spawn_unit) keeps its exact point. An OBSERVED single (`spawn_unit_resolved`) takes neither
+                    // the deploy point nor the clamp: side 1's Bomber of the 16.402 capture 20260920-005517 t2084 was
+                    // created on own (8526, 464), behind its column's back bound, and the clamp moved it to own 1000.
                     // A BUILDING keeps its own placement (its footprint's even corner) and takes no ground deploy
                     // point: the corpus stands every Goblin Hut and Tombstone exactly on its tile (parity, the
                     // TAP_SNAP residue: 112215 t187, 130203.b2 t339, 143305-A t304, 122757.b2 t504).
@@ -15136,7 +15139,7 @@ impl BattleState {
                         && troop
                         && calib.placement_tap_snap == TapSnap::TileCentre
                         && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
-                    let single_clamp = calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
+                    let single_clamp = !observed && calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
                     if cards.get(unit_of(0)).is_flying() || !(single_point || single_clamp) {
                         return vec![member(0, pos)];
                     }

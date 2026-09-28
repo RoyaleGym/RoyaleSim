@@ -7,7 +7,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, TapSnap};
+use royalesim::state::{BattleState, TapSnap, TroopTowerTaps};
 use royalesim::Team;
 
 fn native(x: i32, y: i32) -> Vec2 {
@@ -102,4 +102,32 @@ fn a_lone_building_keeps_its_own_point_under_the_tap_snap() {
     assert_eq!(laid_as(Team::Red, "Tombstone", red), red, "a side-1 building took the ground y offset");
     assert_eq!(laid_as(Team::Blue, "Knight", left), native(3499, 10500), "vacuous: the troop on that tile took no offset");
     assert_eq!(laid_as(Team::Red, "Knight", red), native(14500, 19499), "vacuous: the side-1 troop took no offset");
+}
+
+/// Where `card` played by `team` at `at` is laid under `taps` (the shipped TAP_SNAP), through `spawn_unit_resolved`
+/// when `observed`, else `spawn_unit`.
+fn laid_under_taps(team: Team, taps: TroopTowerTaps, card: &str, at: Vec2, observed: bool) -> Vec2 {
+    let mut cfg = config();
+    cfg.calib.placement_troop_tower_taps = taps;
+    let mut s = BattleState::new(1, cfg);
+    if observed {
+        s.spawn_unit_resolved(team, card, at, None).expect("the observed point is taken");
+    } else {
+        s.spawn_unit(team, card, at, None).expect("the tap is taken");
+    }
+    s.pending_spawns().into_iter().find(|(t, c, _)| *t == team && s.cards().get(*c).name == card).map(|(_, _, p)| p).expect("nothing was laid")
+}
+
+#[test]
+fn an_observed_single_troop_behind_its_column_back_bound_is_not_clamped() {
+    // Capture 20260920-005517-A t2084: side 1's Bomber created on (9474, 31536), own (8526, 464), behind its column's
+    // back bound (own 1000), where the client's tower-tap relocation put it. The single-unit clamp of
+    // placement.TROOP_TOWER_TAPS = client16402_half_open_relocate raised it to own 1000, absolute (9474, 31000).
+    let at = native(9474, 31536);
+    for card in ["Bomber", "Knight"] {
+        assert_eq!(laid_under_taps(Team::Red, TroopTowerTaps::HalfOpenRelocate, card, at, true), at, "{card}: the observed point moved");
+        assert_eq!(laid_under_taps(Team::Red, TroopTowerTaps::ClosedBlock, card, at, true), at, "{card}: closed_block moved the observed point");
+    }
+    // Not vacuous: the same point played as a tap under the same arm is resolved off it.
+    assert_ne!(laid_under_taps(Team::Red, TroopTowerTaps::HalfOpenRelocate, "Bomber", at, false), at, "vacuous: the tap on that point is not moved");
 }
