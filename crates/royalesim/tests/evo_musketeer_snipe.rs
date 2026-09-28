@@ -41,8 +41,13 @@ fn native(p: Vec2) -> (i32, i32) {
     (p.x / K, p.y / K)
 }
 
+/// The centre distance, native, rounded to the nearest unit (the engine is integer-only, tests included).
 fn dist(a: (i32, i32), b: (i32, i32)) -> i32 {
-    ((b.0 - a.0) as f64).hypot((b.1 - a.1) as f64).round() as i32
+    let (dx, dy) = (i64::from(b.0 - a.0), i64::from(b.1 - a.1));
+    let n = dx * dx + dy * dy;
+    let r = royalesim::fixed::isqrt(n);
+    // up when n passes (r + 1/2)^2 = r^2 + r + 1/4
+    (if n > r * r + r { r + 1 } else { r }) as i32
 }
 
 /// One shot of hers: the tick it left (from her deploy end), its speed (raw) and damage, its target's card, her
