@@ -770,9 +770,9 @@ REKEY_STEP_PER_TICK = 100
 
 
 #: A truth unit seen again after a gap farther than this (native per elapsed tick) from where it was last seen is
-#: another unit under the same key: no walk, charge, dash, knockback or hook-drag step comes near it (the Fisherman's drag, the
-#: fastest, takes 510 a tick; the reused key of 005517-A jumped 1,307 a tick). A gap is a tick the key is not seen
-#: on (a frame without it, or a frame the capture missed).
+#: another unit under the same key: no walk, charge, dash, knockback or hook-drag step comes near it (the Fisherman's
+#: drag, the fastest, takes 510 a tick; the reused key of 005517-A jumped 1,307 a tick). A gap is a tick the key is not
+#: seen on (a frame without it, or a frame the capture missed).
 REUSE_REACH_PER_TICK = 1000
 
 
