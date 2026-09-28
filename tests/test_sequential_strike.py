@@ -48,8 +48,9 @@ TOWARD = math.cos(math.radians(25))
 
 
 def overrides(arm) -> dict:
-    """The battle's calibration pinning `arm` BY NAME."""
-    return {KEY: json.dumps(arm)}
+    """The battle's calibration pinning `arm` BY NAME. The striker is played on a tile boundary and found again on its
+    exact play point, so the scene runs placement.TAP_SNAP's old arm, none (the shipped tile-centre snap moves it)."""
+    return {KEY: json.dumps(arm), "placement.TAP_SNAP": json.dumps("none")}
 
 
 def play(arm, striker_first):

@@ -38,7 +38,10 @@ START = (9 * TILE, 10 * TILE)
 
 
 def battle_with_a_knight_in_the_tornado():
-    b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+    # CAST is a tile corner and every distance is read from it, an exact point: placement.TAP_SNAP's old arm, none
+    # (the shipped tile-centre snap takes the cast to the tile's centre, 707 native away).
+    overrides = {"placement.TAP_SNAP": json.dumps("none")}
+    b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
     ids = list(range(len(DECK)))
     # start_tick past match.DEPLOY_LOCKOUT_TICKS, or the cast is refused for its timing
     b.reset(0, [ids, ids], 0, 200, [10_000, 10_000], None, [(1, KNIGHT, *START, -1)])
