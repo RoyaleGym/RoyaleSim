@@ -690,7 +690,7 @@
       "engine_contract": "crates/royalesim/src/arena.rs snap_placement, selected by state.rs Calib::placement_snap_even."
     },
     "TAP_SNAP": {
-      "value": "none",
+      "value": "client16402_tile_centre",
       "candidates": ["none", "client16402_tile_centre"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm none, which is today's engine. HIGH for client16402_tile_centre: both clients, every tap that separates the rules",
