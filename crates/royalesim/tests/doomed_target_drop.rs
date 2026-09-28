@@ -20,7 +20,10 @@
 //!      does not doom is taken back under both (client 15.535.29: 4 of 4 such launches were followed by a drop);
 //!   6. projectile_attackers_walk_drop: a Skeleton Dragon that spat from beyond its keep reach and walks after the
 //!      Knight drops it on the tick after a tower arrow dooms it, while projectile_attackers_rescan keeps it and a
-//!      Knight the shots do not doom is kept (client 15.535.29, the Skeleton Dragons sweep scene);
+//!      Knight the shots do not doom is kept (client 15.535.29, the Skeleton Dragons sweep scene). The scene selects
+//!      targeting.PROJECTILE_HOLD_SCOPE = every_tick, the hold it was measured under, by name: under the shipped
+//!      client_troop_in_attack a walking dragon holds nothing past its keep reach, and its rescan takes no doomed unit
+//!      under either arm, so both arms drop the Knight and the plant `doomed_walker_keeps_fired` cannot turn (6) red;
 //!   7. a Skeleton Dragon still in its attack keeps a doomed Knight it has shot at from beyond its keep reach, under
 //!      projectile_attackers_walk_drop and projectile_attackers_rescan (1,007 of 1,007 such keeps on client 15.535.29).
 //!
@@ -37,7 +40,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, DoomedTargetDrop};
+use royalesim::state::{BattleState, Calib, DoomedTargetDrop, ProjectileHoldScope};
 use royalesim::{EntityId, Team};
 
 const TICK_MS: usize = 50;
@@ -58,8 +61,14 @@ type Spawn = (Team, &'static str, (i32, i32), Option<i32>);
 /// Spawn (team, card, native point, hp) from tick 200 under `arm` and run `ticks` ticks; returns the ids and the state
 /// after each tick (index 0 is before the first).
 fn play(arm: DoomedTargetDrop, spawns: &[Spawn], ticks: u32) -> (Vec<EntityId>, Vec<Tick>) {
+    play_hold(arm, Calib::shipped().projectile_hold_scope, spawns, ticks)
+}
+
+/// `play` under targeting.PROJECTILE_HOLD_SCOPE = `hold`.
+fn play_hold(arm: DoomedTargetDrop, hold: ProjectileHoldScope, spawns: &[Spawn], ticks: u32) -> (Vec<EntityId>, Vec<Tick>) {
     let mut cfg = config();
     cfg.calib.doomed_target_drop = arm;
+    cfg.calib.projectile_hold_scope = hold;
     let mut s = BattleState::new(0, cfg);
     s.scenario_set_tick(200);
     let specs: Vec<(Team, &str, Vec2, Option<i32>)> = spawns.iter().map(|&(t, c, p, h)| (t, c, Vec2::new(p.0 * K, p.1 * K), h)).collect();
@@ -242,20 +251,22 @@ fn realised_doom(run: &[Tick]) -> (usize, usize) {
     (d, k)
 }
 
+/// Case 6, under targeting.PROJECTILE_HOLD_SCOPE = every_tick by name (the header says why).
 #[test]
 fn a_walking_attacker_drops_a_doomed_target_it_has_shot_at() {
-    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersWalkDrop, &walk_scene(248), 45);
+    const HOLD: ProjectileHoldScope = ProjectileHoldScope::EveryTick;
+    let (ids, run) = play_hold(DoomedTargetDrop::ProjectileAttackersWalkDrop, HOLD, &walk_scene(248), 45);
     let (_, arrow) = walk_preconditions(&run, &ids);
     let (d, k) = realised_doom(&run);
     assert_eq!(d, arrow, "precondition: the Knight was doomed on {d}, not on the arrow's tick {arrow}");
     let held = targeting(&run, &ids, &[1], 0, d + 1..k);
     assert!(held.is_empty(), "the walking dragon kept (or took back) the doomed Knight, (spawn, tick) with D={d}, K={k}: {held:?}");
     // projectile_attackers_rescan, the old arm: its fired-at exemption covers every keep, so the dragon keeps it on D+1
-    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersRescan, &walk_scene(248), 45);
+    let (ids, run) = play_hold(DoomedTargetDrop::ProjectileAttackersRescan, HOLD, &walk_scene(248), 45);
     let (_, d) = walk_preconditions(&run, &ids);
     assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "projectile_attackers_rescan: let go of the Knight on D+1={}", d + 1);
     // control: a Knight the spit and the arrow do not doom is kept by the walking dragon under the new arm
-    let (ids, run) = play(DoomedTargetDrop::ProjectileAttackersWalkDrop, &walk_scene(400), 45);
+    let (ids, run) = play_hold(DoomedTargetDrop::ProjectileAttackersWalkDrop, HOLD, &walk_scene(400), 45);
     let (_, d) = walk_preconditions(&run, &ids);
     assert!(not_targeting(&run, &ids, &[1], 0, d + 1..d + 2).is_empty(), "control: let go of a Knight that was not doomed on {}", d + 1);
 }
