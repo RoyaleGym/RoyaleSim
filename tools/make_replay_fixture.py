@@ -1333,14 +1333,14 @@ def projectile_target(eff: dict) -> tuple[int, int]:
 
 
 def launch_tick(frame: dict, side: int, cid: int) -> tuple[int, str] | None:
-    """(ticks already flown, evidence) for a cast whose first sighting is `frame`, when its object left from its caster's
-    king tower (a Fireball, a Rocket, a Snowball: every such cast the corpus sees on its launch tick stands one step
-    from the king, its previous point on the king's centre) and is already past its first step: its point is a whole
-    number k of steps (point minus previous point) from the king, on the line from it, so it was launched on the first
-    frame's tick minus k plus 1. None for every other object (a volley, a roll, a strike, one seen on its launch tick).
-    20260920-071744-B: a Fireball first seen on 475, after the frames of 473 and 474 were lost, on (9678, 27335) with
-    its previous point (9452, 27890): 1798 from the king (9000, 29000), three steps of 599, launched on 473, the tick
-    the other seat's capture first shows it."""
+    """(ticks already flown, evidence) for a cast whose first sighting is `frame`, when its object left from its
+    caster's king tower (a Fireball, a Rocket, a Snowball: every such cast the corpus sees on its launch tick stands one
+    step from the king, its previous point on the king's centre) and is already past its first step: its point is a
+    whole number k of steps (point minus previous point) from the king, on the line from it, so it was launched on the
+    first frame's tick minus k plus 1. None for every other object (a volley, a roll, a strike, one seen on its launch
+    tick). 20260920-071744-B: a Fireball first seen on 475, after the frames of 473 and 474 were lost, on (9678, 27335)
+    with its previous point (9452, 27890): 1798 from the king (9000, 29000), three steps of 599, launched on 473, the
+    tick the other seat's capture first shows it."""
     effs = [e for e in frame.get("effects") or [] if e.get("card_id") == cid and e.get("side") == side]
     kings = [(e["x"], e["y"]) for e in frame.get("entities") or [] if e.get("kind") == 12 and e.get("side") == side]
     if len(effs) != 1 or len(kings) != 1 or effs[0].get("x2") is None:
