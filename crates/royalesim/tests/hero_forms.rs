@@ -32,6 +32,9 @@
 //! PLANTS: `RUSTFLAGS='--cfg clash_plant="hero_forms_in_first_pass"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! hero_forms` -> 1 red (the forms load among the table's rows, so the towers and units after them move).
 //! `--cfg clash_plant="hash_heroes_always"` -> tests/hash_continuity.rs red (the button list hashed in every battle).
+//! `--cfg clash_plant="cast_releases_target"` -> `a_cast_keeps_her_target_and_restarts_her_attack_clock` red (the
+//! cast lets her target go for a rescan at its end). `--cfg clash_plant="cast_blinds_target_search"` ->
+//! `a_cast_does_not_stop_her_target_search` red (the cast holds her search as a stun does).
 #![allow(unexpected_cfgs)]
 
 mod common;
@@ -438,6 +441,42 @@ fn a_cast_keeps_her_target_and_restarts_her_attack_clock() {
     assert!(held > 0, "the scene drifted: the cast never held her");
     assert_eq!(first_attack, Some((350, 300)), "a fresh cycle on the kept target, as the client's");
     assert!(dist(&s, near) < dist(&s, far), "the near Knight was the nearer all along");
+}
+
+#[test]
+fn a_cast_does_not_stop_her_target_search() {
+    // sp-scene-d in miniature (client 15.535.29): her target is lost mid-cast (there on t154, to her turret's blow)
+    // and she takes the enemy left in her sight on the next tick (t155), while the cast still holds her, not when the
+    // cast ends. The plant cast_blinds_target_search (the cast holds her search as a stun does) turns this red.
+    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
+    let p = s.entity(hid).unwrap().pos;
+    let lost = s.scenario_spawn_now(Team::Red, "Knight", p.add(native(-1500, 4000)), Some(1)).expect("the Knight she loses");
+    run_until(&mut s, 20, |s| s.entity(hid).is_some_and(|e| e.target == Some(lost)));
+    assert_eq!(s.entity(hid).unwrap().target, Some(lost), "the scene drifted: she never took the first Knight");
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let left = s.scenario_spawn_now(Team::Red, "Knight", p.add(native(2500, 5000)), None).expect("the Knight left in her sight");
+    run_until(&mut s, 5, |s| s.entity(hid).is_some_and(|e| e.stun_ms > 0));
+    assert!(s.entity(hid).unwrap().stun_ms > 0, "the scene drifted: the cast never held her");
+    let at = s.entity(lost).expect("the scene drifted: the first Knight fell before the cast").pos;
+    s.spawn_unit(Team::Blue, "Zap", at, None).expect("the Zap on the first Knight alone");
+    let (mut gone, mut taken) = (None, None);
+    for k in 1..=30u32 {
+        s.tick();
+        let h = s.entity(hid).unwrap();
+        if h.stun_ms == 0 {
+            break;
+        }
+        if gone.is_none() && s.entity(lost).is_none() {
+            gone = Some(k);
+        }
+        if gone.is_some() && taken.is_none() && h.target == Some(left) {
+            taken = Some(k);
+        }
+    }
+    let gone = gone.expect("the scene drifted: the first Knight outlived the cast");
+    assert!(s.entity(left).is_some(), "the scene drifted: the Zap reached the other Knight");
+    assert_eq!(taken, Some(gone + 1), "she takes the Knight left in her sight on the tick after the loss, still casting");
 }
 
 #[test]

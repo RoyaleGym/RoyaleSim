@@ -5835,6 +5835,10 @@ pub struct PlayerState {
 pub struct HeroUnit {
     pub id: EntityId,
     pub spent: bool,
+    /// Held by her own cast (`start_ability`) until that hold runs out (`casting_heroes`). `false` for an entry saved
+    /// before the field.
+    #[serde(default)]
+    pub casting: bool,
 }
 
 /// ONE ABILITY BUTTON as a side sees it (`BattleState::ability_buttons`).
@@ -7276,7 +7280,7 @@ impl BattleState {
         }
         // A HERO UNIT'S ONE CHARGE (`HeroUnit`), for every creation of a card with an ability but a Clone's copy.
         if appearance && c.ability.is_some() {
-            self.hero_units.push(HeroUnit { id, spent: false });
+            self.hero_units.push(HeroUnit { id, spent: false, casting: false });
         }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
@@ -10626,6 +10630,25 @@ impl BattleState {
         self.phase_target_with(only, shots);
     }
 
+    /// The heroes their own cast holds now (`start_ability`), with their hold timers: the entries marked casting whose
+    /// hold has not run out. An entry whose hold has run out (or whose hero is gone) is unmarked here. Empty under the
+    /// plant cast_blinds_target_search.
+    fn casting_heroes(&mut self) -> Vec<(usize, i32)> {
+        let mut out = Vec::new();
+        for u in self.hero_units.iter_mut().filter(|u| u.casting) {
+            let i = u.id.index as usize;
+            if self.ents.is_alive(u.id) && self.ents.stun_ms[i] > 0 {
+                out.push((i, self.ents.stun_ms[i]));
+            } else {
+                u.casting = false;
+            }
+        }
+        // PLANT (regression): the earlier reading, the cast holds her target search as a stun does.
+        #[cfg(clash_plant = "cast_blinds_target_search")]
+        out.clear();
+        out
+    }
+
     /// `phase_target_for`, with the doom readings (targeting.DOOMED_TARGET_DROP and the
     /// attack-finish doomed test of combat.POST_KILL_RETARGET_WAIT) taken over the first `shots`
     /// projectiles only. Every other caller passes the whole list. Under match.TICK_ORDER =
@@ -10647,6 +10670,7 @@ impl BattleState {
         if only.is_none() {
             self.hide_pass(&mut nb);
         }
+        let casting = self.casting_heroes();
         let in_flight = &self.projectiles[..shots.min(self.projectiles.len())];
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
         // the tick's start, before any decision reads it. targeting.DOOMED_LANE_TOWER's new arms read the same set, here
@@ -10659,6 +10683,12 @@ impl BattleState {
         };
         if lane {
             self.scratch.lane_doomed.clone_from(&doomed_drop);
+        }
+        // A HERO'S CAST holds her walk and her attack clock, not her target search (`start_ability`): for the
+        // decisions below her hold timer reads 0, so target.rs `decide` runs for her as for a free unit, and it is put
+        // back before anything else reads it.
+        for &(i, _) in &casting {
+            self.ents.stun_ms[i] = 0;
         }
         {
             let ctx = TargetCtx {
@@ -10689,6 +10719,9 @@ impl BattleState {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
             }
+        }
+        for &(i, ms) in &casting {
+            self.ents.stun_ms[i] = ms;
         }
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
@@ -16645,11 +16678,21 @@ impl BattleState {
     /// progress 350 and load 300 (4 of 4), as a fresh entry does. Her row has no KeepCurrentTarget; the heroes whose
     /// rows set it are unmeasured and take the same. She is casting from the tick after a free press, and from the
     /// tick after the thaw under a Freeze.
+    ///
+    /// The hold stops her walk and her attack, NOT her target search (`casting_heroes`, `phase_target_with`): she keeps
+    /// a live target as any unit does, and takes a new one when it is lost. Measured on client 15.535.29: sp-scene-d,
+    /// her Goblin gone on t154, mid-cast (the tick her turret's blow lands), and the nearest enemy (a Knight 4,883
+    /// away, a Goblin 5,035) her target on t155; sp-h2d, walking at a princess tower when pressed, the Knight her
+    /// target on t162, mid-cast, the first Target phase that finds it within her sight (6000 and both radii).
+    /// Unmeasured: a stun that lands on her mid-cast. Her search runs on for as long as it holds her.
     fn start_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let Some(a) = self.cfg.cards.get(self.ents.card[i]).ability.clone() else { return };
         if a.cast_ms > 0 {
             self.ents.stun_ms[i] = self.ents.stun_ms[i].max(a.cast_ms);
+            if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == hero) {
+                u.casting = true;
+            }
             #[cfg(not(clash_plant = "cast_releases_target"))]
             {
                 self.ents.target_locked[i] = false;
@@ -18029,6 +18072,7 @@ impl BattleState {
             for u in &self.hero_units {
                 h.id(u.id);
                 h.bool(u.spent);
+                h.bool(u.casting);
             }
         }
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
