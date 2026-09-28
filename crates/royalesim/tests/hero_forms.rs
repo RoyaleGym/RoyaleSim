@@ -401,6 +401,46 @@ fn a_press_under_a_freeze_waits_for_the_thaw() {
 }
 
 #[test]
+fn a_cast_keeps_her_target_and_restarts_her_attack_clock() {
+    // sp-h2 in miniature (client 15.535.29): she holds a far Knight when pressed and a nearer Knight stands in sight;
+    // she comes out of the 950 ms cast still on the far Knight, her attack progress and load timer 0 through the cast,
+    // and enters a fresh cycle on it (progress LoadTime + 50 = 350, load 300). The plant cast_releases_target (the lock
+    // let go for a rescan at the hold's end) turns this red.
+    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
+    let p = s.entity(hid).unwrap().pos;
+    s.spawn_unit(Team::Red, "Knight", p.add(native(0, 5500)), None).expect("the far Knight");
+    s.tick();
+    let far = find_live(&s, Team::Red, "Knight")[0].id;
+    run_until(&mut s, 60, |s| s.entity(hid).is_some_and(|e| e.target == Some(far)));
+    assert_eq!(s.entity(hid).unwrap().target, Some(far), "the scene drifted: she never took the far Knight");
+    s.spawn_unit(Team::Red, "Knight", p.add(native(-2000, 2500)), None).expect("the near Knight");
+    s.tick();
+    let near = find_live(&s, Team::Red, "Knight").iter().map(|e| e.id).find(|id| *id != far).expect("the near Knight");
+    run_until(&mut s, 40, |s| s.entity(near).is_some_and(|e| e.deploy_ms == 0));
+    let dist = |s: &BattleState, id| s.entity(hid).unwrap().pos.dist2(s.entity(id).unwrap().pos);
+    assert!(dist(&s, near) < dist(&s, far), "the scene drifted: the near Knight is not the nearer");
+    assert_eq!(s.entity(hid).unwrap().target, Some(far), "the scene drifted: she left the far Knight before the press");
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut held, mut first_attack) = (0, None);
+    for _ in 0..60 {
+        s.tick();
+        let h = s.entity(hid).unwrap();
+        assert_eq!(h.target, Some(far), "she keeps the far Knight through the cast and after it");
+        if h.stun_ms > 0 {
+            held += 1;
+            assert_eq!((h.attack_ms, h.attack_load_ms), (0, 0), "the cast restarts her attack clock");
+        } else if held > 0 && h.attack_ms > 0 {
+            first_attack = Some((h.attack_ms, h.attack_load_ms));
+            break;
+        }
+    }
+    assert!(held > 0, "the scene drifted: the cast never held her");
+    assert_eq!(first_attack, Some((350, 300)), "a fresh cycle on the kept target, as the client's");
+    assert!(dist(&s, near) < dist(&s, far), "the near Knight was the nearer all along");
+}
+
+#[test]
 fn the_storm_outlives_the_golem() {
     // S10 (sp-h10k): the golem died on P + 52 and the P + 62 wave still landed.
     // The Rocket is aimed at the golem's exact point and the Knight stands 3000 to its side, exact points:

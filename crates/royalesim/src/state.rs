@@ -16635,14 +16635,30 @@ impl BattleState {
     }
 
     /// A PRESS STARTS (`fire_scheduled`, on the hero's first free tick after the press): a CastTime holds the hero
-    /// from now for that long, as the Clone's hold does (no walk, no attack, the attack clock paused), and without
-    /// KeepCurrentTarget its target is let go for a rescan when the hold ends. Measured on client 15.535.29: the Hero
-    /// Musketeer is casting from the tick after a free press, and from the tick after the thaw under a Freeze.
+    /// from now for that long, as the Clone's hold does (no walk, no attack). She KEEPS her target, and her attack
+    /// cycle restarts: progress and load timer 0 for the whole hold, so her first attacking tick after it enters a
+    /// fresh cycle on the target she kept (combat.ATTACK_CYCLE: progress LoadTime + 50, load LoadTime).
+    ///
+    /// Measured on client 15.535.29, every Hero Musketeer cast in the scenes: the progress reads 0 through the cast
+    /// (9 of 9); a target still alive at the cast's end is kept (7 of 7), though a nearer enemy stood in sight
+    /// (sp-h2 and sp-h2l9: a Minion 3,556 away, the kept Knight 4,361); the first attacking tick after it reads
+    /// progress 350 and load 300 (4 of 4), as a fresh entry does. Her row has no KeepCurrentTarget; the heroes whose
+    /// rows set it are unmeasured and take the same. She is casting from the tick after a free press, and from the
+    /// tick after the thaw under a Freeze.
     fn start_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let Some(a) = self.cfg.cards.get(self.ents.card[i]).ability.clone() else { return };
         if a.cast_ms > 0 {
             self.ents.stun_ms[i] = self.ents.stun_ms[i].max(a.cast_ms);
+            #[cfg(not(clash_plant = "cast_releases_target"))]
+            {
+                self.ents.target_locked[i] = false;
+                self.ents.attack_phase[i] = AttackPhase::Idle;
+                self.ents.attack_ms[i] = 0;
+                self.ents.attack_load_ms[i] = 0;
+            }
+            // PLANT (regression): the earlier reading, the lock let go for a rescan at the hold's end, the clock paused.
+            #[cfg(clash_plant = "cast_releases_target")]
             if !a.keep_target {
                 self.ents.target_locked[i] = false;
                 self.ents.retarget_on_resume[i] = true;
