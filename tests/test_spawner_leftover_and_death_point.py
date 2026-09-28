@@ -128,7 +128,7 @@ def test_the_old_leftover_arm_is_todays_engine():
 # ---- 2. the death point
 
 
-@pytest.mark.parametrize(("card", "n"), [(TS, 4), (BH, 1)], ids=["Tombstone", "BarbarianHut"])
+@pytest.mark.parametrize(("card", "n"), [(TS, 4)], ids=["Tombstone"])
 def test_a_dying_spawner_building_spawns_at_its_emission_point(card, n):
     """Every death-spawn member appears on the point its spawner emits at, all together. The tolerance is one
     unit step. spawner.SPAWNED_FIRST_STEP is held at none: both the periodic unit and the death spawn are read on
@@ -140,6 +140,20 @@ def test_a_dying_spawner_building_spawns_at_its_emission_point(card, n):
     assert half_width(dead) == 0, f"the death spawn is not on one point: {dead}"
     off = math.hypot(dead[0][0] - periodic[0], dead[0][1] - periodic[1])
     assert off <= 100, f"the death spawn stands {off:.0f} from the emission point {periodic}: {dead}"
+
+
+def test_the_barbarian_hut_is_not_listed_and_its_death_barbarian_stands_on_the_hut():
+    """The list holds the Tombstone alone since the 2026-09-28 round 7 correction: the Barbarian Hut's entry had been
+    read off its periodic Barbarian, and the corpus's one Barbarian Hut death (20260920-071056) puts the death's
+    Barbarian 59 from the hut's centre, as the Goblin Hut's and the Goblin Cage's death spawns stand. Here it stands on
+    the hut's centre, 1500 back from where the hut emits."""
+    periodic, dead = death_spawn({DEATH: death_arm("client16402_measured_list"),
+                                  "spawner.SPAWNED_FIRST_STEP": json.dumps("none")}, BH)
+    assert len(dead) == 1, f"expected one death Barbarian: {dead}"
+    off_hut = math.hypot(dead[0][0] - AT[0], dead[0][1] - AT[1])
+    assert off_hut <= 100, f"the death Barbarian stands {off_hut:.0f} from the hut's centre {AT}: {dead}"
+    off_emit = math.hypot(dead[0][0] - periodic[0], dead[0][1] - periodic[1])
+    assert off_emit > 1000, f"vacuous: the emission point {periodic} is where the hut stands: {dead}"
 
 
 def test_an_unlisted_golem_is_unchanged():

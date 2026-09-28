@@ -34,7 +34,7 @@ UID, TEAM, SLOT, X, Y = 0, 1, 4, 5, 6
 START_R, SLIDE_STEP = 250, 250
 
 
-def run(card: str, killer: str, killer_y: int, arm: str | None, ticks: int = 140, side: int = 0):
+def run(card: str, killer: str, killer_y: int, arm: str | None, ticks: int = 140, side: int = 0, extra=None):
     """`side`'s `card` at 1 hp at (5000, 11000) and the other side's `killer` at (5000, killer_y), both rotated 180
     degrees about the arena centre for side 1: the killer's first hit kills it while it walks, so its heading is well
     off the x axis. Returns (parent heading in degrees, the death centre, and per child, in creation (uid) order, the
@@ -45,6 +45,7 @@ def run(card: str, killer: str, killer_y: int, arm: str | None, ticks: int = 140
     overrides = {"spawner.SPAWNED_FIRST_STEP": json.dumps("none")}
     if arm is not None:
         overrides[KEY] = json.dumps(arm)
+    overrides.update(extra or {})
     b = royalesim.Battle([card, killer], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
 
     def at(x, y):
@@ -140,8 +141,11 @@ def test_the_old_arm_is_the_pre_flip_engine():
     """Checked on the shared build of 2026-09-25 15:10 with the key dropped: the Golemites appear at 1505 on the Golem's
     heading (121) on the first frame, and the Pups at 2501 on the Hound's heading (91) plus k x 60."""
     cases = (("Golem", "Knight", 12700, 2, 1500), ("LavaHound", "Musketeer", 14000, 6, 2500))
+    # The pre-flip engine also had movement.DYING_UNIT_VISIBILITY = creation_order_before_victim (whole_tick ships
+    # since the 2026-09-28 round 7 flip), so both old arms, by name.
+    pre = {"movement.DYING_UNIT_VISIBILITY": json.dumps("creation_order_before_victim")}
     for card, killer, killer_y, n, radius in cases:
-        heading, centre, kids = run(card, killer, killer_y, OLD_ARM)
+        heading, centre, kids = run(card, killer, killer_y, OLD_ARM, extra=pre)
         firsts = [polar(tr[0], centre) for tr in kids]
         assert len(kids) == n
         assert all(abs(r - radius) <= 10 for r, _ in firsts), (card, firsts)

@@ -121,7 +121,10 @@ def test_the_old_arm_steps_as_if_the_dying_unit_were_gone():
 def emission_scene(arm, knight=BLUE_KNIGHT):
     """(the tick the Blue Knight died or None, the tick the Tombstone's second Skeleton came out, its first-frame point,
     the Blue Knight's last position)."""
-    b = royalesim.Battle(["Tombstone", "Knight"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=overrides(arm))
+    # Under movement.DYING_UNIT_VISIBILITY = creation_order_before_victim BY NAME: the two arms part only where the
+    # dying unit is hidden from a later mover, which the shipped whole_tick (the 2026-09-28 round 7 flip) never does.
+    ov = {**overrides(arm), "movement.DYING_UNIT_VISIBILITY": json.dumps("creation_order_before_victim")}
+    b = royalesim.Battle(["Tombstone", "Knight"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=ov)
     spawns = [
         (0, 0, TOMB[0] * SUB, TOMB[1] * SUB, -1),
         (0, 1, knight[0] * SUB, knight[1] * SUB, 1),
