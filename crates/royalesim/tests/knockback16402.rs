@@ -45,12 +45,21 @@ use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
 use royalesim::move16402::{ladder_speed, PUSHBACK_DECEL};
-use royalesim::state::{BattleConfig, BattleState, Calib, KnockLaw, KnockZeroVector, RollDirection};
+use royalesim::state::{BattleConfig, BattleState, Calib, KnockLaw, KnockZeroVector, RollDirection, TapSnap};
 use royalesim::{EntityId, Team};
 use serde_json::Value;
 
 fn calib() -> Calib {
     Calib::shipped()
+}
+
+/// `common::config` with placement.TAP_SNAP's old arm, none: every scene here puts a spell's tap and its victims on
+/// exact points (a subtile off the impact, on it, a measured offset off the Log's axis), which the shipped tile-centre
+/// snap would move apart.
+fn config() -> BattleConfig {
+    let mut cfg = common::config();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    cfg
 }
 
 /// The Fireball's Pushback, NATIVE units, from cards.json.
@@ -505,8 +514,8 @@ fn each_log_arm_pushes_an_off_axis_knight_from_its_own_source_where_a_fireball_p
     //   is pinned per axis to within the per-step truncation the Fireball diagonal below
     //   allows. A wrong source point that still gives a diagonal is red. This pins the
     //   engine's law on the tap as given: the angles measured on client 15.535.29 need
-    //   the tap snapped to its tile centre, which the shipped build does not do
-    //   (placement.TAP_SNAP = none).
+    //   the tap snapped to its tile centre, which the shipped build does
+    //   (placement.TAP_SNAP = client16402_tile_centre) and this file's `config` does not.
     // A Fireball landing on the axis beside it gives the radial ladder, with a sideways
     // component of the same sign as the offset and a length of the carry to within the
     // per-step truncation.

@@ -102,7 +102,7 @@ mod common;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardColumn;
-use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, TroopTowerTaps};
+use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, TapSnap, TroopTowerTaps};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -193,7 +193,11 @@ fn assert_registry(key: &str, got: String, want: &str) {
 // ---------------------------------------------------------------------------
 // scenario machinery
 
-fn bare(cfg: BattleConfig) -> BattleState {
+/// Every scene here is laid out on exact points (a tap, and victims at measured offsets from it, found again by their
+/// exact point), so every battle runs placement.TAP_SNAP's old arm, none: the shipped tile-centre snap would move the
+/// taps and the single victims off those points.
+fn bare(mut cfg: BattleConfig) -> BattleState {
+    cfg.calib.placement_tap_snap = TapSnap::None;
     BattleState::new(1, cfg)
 }
 
@@ -1342,8 +1346,9 @@ fn log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat() {
     // The push points from the Log's centre where it touched the Knight, which on the
     // landing tick is the tap, so on the roll axis it is straight back: exactly
     // (0, -own-forward carry), no tolerance. The measured off-axis angles need the tap
-    // snapped to its tile centre, and the shipped build does not snap
-    // (placement.TAP_SNAP = none), so every Knight here stands on the axis.
+    // snapped to its tile centre, which the shipped build does (placement.TAP_SNAP =
+    // client16402_tile_centre); this scene runs the old arm, none (`bare`), so every
+    // Knight here stands on the axis, 500 and 1000 behind the tap.
     // One more axis case, not from the measurement: a Knight half a roll step AHEAD of
     // the tap goes forward. The source is where the Log's centre was when it first
     // touched the Knight (the contact point in spell.rs `roll`), not where the centre
@@ -1351,7 +1356,7 @@ fn log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat() {
     // Plants: rolling_push_travel_direction (the Knights behind go forward),
     // rolling_push_from_tick_end (the Knight ahead goes back).
     assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "RadialFromCentre");
-    assert_registry("placement.TAP_SNAP", format!("{:?}", calib().placement_tap_snap), "None");
+    assert_registry("placement.TAP_SNAP", format!("{:?}", calib().placement_tap_snap), "TileCentre");
     let cfg = config();
     let s0 = bare(cfg.clone());
     let push = knock_carry(&cfg.calib, milli(int(&log_roll()["pushback_milli"])));

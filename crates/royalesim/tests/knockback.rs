@@ -56,7 +56,7 @@ use royalesim::arena::Lane;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{milli, Vec2, SUBTILE};
 use royalesim::path::Obstacle;
-use royalesim::state::{footprint_of, BattleConfig, BattleState, KnockLaw, TroopTowerTaps};
+use royalesim::state::{footprint_of, BattleConfig, BattleState, KnockLaw, TapSnap, TroopTowerTaps};
 use royalesim::{EntityId, Team};
 use common::*;
 
@@ -151,6 +151,9 @@ fn run_item(item: &Item, cfg: &BattleConfig) -> (bool, bool) {
     // diagonals at all three towers, the Giant's at the king), away from the point the Fireball is aimed from.
     let mut own = cfg.clone();
     own.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
+    // So do the victim and the Fireball's impact: placement.TAP_SNAP's shipped tile-centre snap would take both to their
+    // tiles' centres, off the bank and footprint-edge points the items lay out.
+    own.calib.placement_tap_snap = TapSnap::None;
     let cfg = &own;
     let mut s = BattleState::new(1, cfg.clone());
     let push = knock_carry(&cfg.calib, pushbacks()[0]);
