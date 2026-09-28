@@ -15128,8 +15128,12 @@ impl BattleState {
                     // A BUILDING keeps its own placement (its footprint's even corner) and takes no ground deploy
                     // point: the corpus stands every Goblin Hut and Tombstone exactly on its tile (parity, the
                     // TAP_SNAP residue: 112215 t187, 130203.b2 t339, 143305-A t304, 122757.b2 t504).
+                    #[cfg(not(clash_plant = "tap_snap_offsets_buildings"))]
+                    let troop = card.kind != CardKind::Building;
+                    #[cfg(clash_plant = "tap_snap_offsets_buildings")]
+                    let troop = true; // PLANT: a lone building takes the ground offset.
                     let single_point = !observed
-                        && card.kind != CardKind::Building
+                        && troop
                         && calib.placement_tap_snap == TapSnap::TileCentre
                         && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
                     let single_clamp = calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
