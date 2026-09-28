@@ -349,12 +349,13 @@ fn a_melee_unit_without_a_dash_walks_into_range_under_both_values() {
 
 /// Plant: dash_first_sight_walks.
 #[test]
-fn a_mega_knight_put_down_inside_its_trigger_stands_from_its_first_tick_and_jumps_on_the_eighteenth() {
+fn a_mega_knight_put_down_inside_its_trigger_stands_from_its_first_tick_and_jumps_on_the_seventeenth() {
     let (_, _, _, rows) = scene(DashAttack::ClientDash, "MegaKnight", (9500, 11500), "Knight", (13126, 14653), 40);
     assert!(rows[0].start < MK_TRIGGER && rows[0].start > 3500 + 750 + 500, "the scene drifted: the Mega Knight started {} away", rows[0].start);
     let first = rows.iter().position(|r| r.step > 0).expect("the Mega Knight never moved");
-    // first sight on tick 0 (it stands), the trigger on tick 1, the entry DashCooldown 900 / 50 - 1 = 17 later
-    assert_eq!(rows[first].t, 1 + MK_ENTRY, "the Mega Knight first moved on {}", rows[first].t);
+    // first sight on tick 0 (it stands), and under the shipped combat.DASH_FIRST_SIGHT_TRIGGER = first_sight_tick the
+    // trigger on that same tick; the entry DashCooldown 900 / 50 - 1 = 17 later
+    assert_eq!(rows[first].t, MK_ENTRY, "the Mega Knight first moved on {}", rows[first].t);
     assert!(rows[first].step > 200, "its first move is not the jump: {}", rows[first].step);
 }
 
