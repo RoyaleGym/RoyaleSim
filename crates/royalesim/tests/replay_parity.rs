@@ -586,7 +586,10 @@ fn a_spawners_emission_whose_unit_is_a_card_is_rooted_through_its_spawner() {
 /// evolution, a hero play (form "hero") the hero form. The truth names both by their base card, and so does the harness
 /// (`base_of_form`): the evolved Cannon pairs as "Cannon", the hero as "Musketeer". The deck entry is marked with the form
 /// its rows play (`deck_form`), which gives the hero her button, and a row of kind "ability" presses it: the turret it
-/// puts down roots to "Musketeer" too. A row whose form does not load plays its base card.
+/// puts down roots to "Musketeer" too. A row whose form does not load plays its base card. A VARIANT row (a "base"
+/// row of a variant card whose form_row is one of its forms: the Merge Maiden) plays its form_row; a variant row naming
+/// no form of it, a Mirror row whose form_row names a card, and a plain card's row do not (plant:
+/// replay_refuses_a_variant_row).
 #[test]
 fn a_form_row_spawns_its_form_and_its_units_score_as_the_base_card() {
     let db = common::cards();
@@ -601,6 +604,14 @@ fn a_form_row_spawns_its_form_and_its_units_score_as_the_base_card() {
     assert_eq!(deploy_play(&row("Musketeer", "hero", "Musketeer_hero"), &db), "Musketeer_hero");
     assert_eq!(deploy_play(&row("Musketeer", "base", "Musketeer"), &db), "Musketeer");
     assert_eq!(deploy_play(&row("Witch", "ev1", "Witch_EV1"), &db), "Witch", "a form the engine does not load plays its base card");
+    let mm = db.index("MergeMaiden").expect("the Merge Maiden loads");
+    assert!(db.get(mm).variant().is_some(), "vacuous: the Merge Maiden is not a variant card");
+    for form in ["MergeMaiden_Mounted", "MergeMaiden_Normal"] {
+        assert_eq!(deploy_play(&row("MergeMaiden", "base", form), &db), form, "a variant row plays its form");
+    }
+    assert_eq!(deploy_play(&row("MergeMaiden", "base", "Knight"), &db), "MergeMaiden", "a form_row that is no form of the card");
+    assert_eq!(deploy_play(&row("Mirror", "base", "Cannon"), &db), "Mirror", "a Mirror's copy is never read off form_row");
+    assert_eq!(deploy_play(&row("Knight", "base", "Musketeer"), &db), "Knight", "a loadable card's row plays its own card");
     for (form, base) in [("Cannon_EV1", "Cannon"), ("Skeletons_EV1", "Skeletons"), ("Musketeer_hero", "Musketeer"), ("Knight", "Knight")] {
         assert_eq!(base_of_form(&db, form), base);
     }

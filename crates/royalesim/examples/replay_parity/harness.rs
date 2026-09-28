@@ -211,7 +211,8 @@ pub struct Deploy {
     /// before forms were read, whose rows all play their base card.
     #[serde(default)]
     pub form: Option<String>,
-    /// The form's own card (Cannon_EV1, Musketeer_hero), which an "ev1" or "hero" row spawns (`deploy_play`).
+    /// The form's own card (Cannon_EV1, Musketeer_hero), which an "ev1" or "hero" row spawns (`deploy_play`). On a
+    /// "base" row of a VARIANT card, the unit card the play put down (MergeMaiden_Mounted), which it spawns too.
     #[serde(default)]
     pub form_row: Option<String>,
 }
@@ -236,9 +237,10 @@ pub fn mirror_play(d: &Deploy) -> String {
     }
 }
 
-/// A row's `form` for an evolved play and for a hero play (`Deploy::form`).
+/// A row's `form` for an evolved play, for a hero play and for a play of the card itself (`Deploy::form`).
 pub const ROW_FORM_EVOLVED: &str = "ev1";
 pub const ROW_FORM_HERO: &str = "hero";
+pub const ROW_FORM_BASE: &str = "base";
 /// A PRESS OF A HERO'S BUTTON is a row of its own: `kind` "ability", `card` the hero's base card, issued at `tick - 1`
 /// as a deploy is. The press takes the side's button of that card (`BattleState::press_ability_button`), which exists
 /// when the deck marks the card a hero (`deck_form`).
@@ -247,11 +249,28 @@ pub const KIND_ABILITY: &str = "ability";
 /// WHAT A ROW SPAWNS: an evolved or hero row its form's own card, which loads as a card of its own (a hero play has
 /// no counter to wait on, and `spawn_unit` has no play history for the evolution counter to read); every other row
 /// `mirror_play`. A row whose form the engine does not load plays its base card (`config_for_with` notes it).
+///
+/// A VARIANT ROW plays the form its `form_row` names: a "base" row of a VARIANT card (card.rs `variant`: the Merge
+/// Maiden, whose form is chosen by the elixir at the play) whose `form_row` is one of that card's forms. `spawn_unit`
+/// has no elixir to choose by and refuses the variant card itself, naming its forms to place instead
+/// (`refuse_unplaced_play`); the scenario maker names the form the truth shows (MergeMaiden_Mounted), which is also
+/// the card the truth labels its unit by. A form_row naming anything else, and a Mirror row (its copy named by
+/// `mirrored`, read by `mirror_play`), play as before. Plant: replay_refuses_a_variant_row.
 pub fn deploy_play(d: &Deploy, db: &CardDb) -> String {
     match (d.form.as_deref(), d.form_row.as_deref()) {
         (Some(ROW_FORM_EVOLVED | ROW_FORM_HERO), Some(row)) if db.index(row).is_some() => row.to_string(),
+        #[cfg(not(clash_plant = "replay_refuses_a_variant_row"))]
+        (Some(ROW_FORM_BASE), Some(row)) if is_variant_row(d, row, db) => row.to_string(),
         _ => mirror_play(d),
     }
+}
+
+/// A row of a variant card whose `form_row` is one of the card's forms (`deploy_play`).
+fn is_variant_row(d: &Deploy, row: &str, db: &CardDb) -> bool {
+    let Some(own) = d.card.as_deref().and_then(|c| db.index(c)) else {
+        return false;
+    };
+    db.get(own).variant().is_some_and(|opts| opts.iter().any(|o| db.get(o.card).name == row))
 }
 
 /// THE CARD A FORM'S UNITS ARE SCORED AS: the truth names an evolved or hero unit by its base card (its card id is
