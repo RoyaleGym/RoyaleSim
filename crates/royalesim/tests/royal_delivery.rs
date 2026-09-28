@@ -43,7 +43,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, SpellPlacement, SpellShape, StrikePick};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{AreaProjectileIgnoreBuildings, BattleConfig, BattleState, StrikeDue};
+use royalesim::state::{AreaProjectileIgnoreBuildings, BattleConfig, BattleState, StrikeDue, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -251,8 +251,12 @@ fn it_hits_by_the_edge_air_and_ground_and_not_its_own_side() {
         ((Team::Blue, "Knight", (tx, ty - 500)), false),
     ];
     let victims: Vec<Victim> = cases.iter().map(|c| c.0).collect();
-    let (cast, ids) = scene(shipped(), true, &victims);
-    let (control, ids_c) = scene(shipped(), false, &victims);
+    // The victims stand at the measured centre distances from the tap, exact points: placement.TAP_SNAP's old arm,
+    // none, keeps them and the tap there (the shipped tile-centre snap moves both).
+    let mut cfg = shipped();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    let (cast, ids) = scene(cfg.clone(), true, &victims);
+    let (control, ids_c) = scene(cfg, false, &victims);
     assert_eq!(ids, ids_c, "the scene drifted: the two battles numbered their victims apart");
     let dmg = delivery_damage(&cast, cast.config().card_level[0]);
     let centre = at(TAP);
@@ -346,7 +350,11 @@ fn one_recruit_for_the_caster_on_the_landing_point() {
     let blue = recruit_track(shipped(), Team::Blue, at(TAP));
     let (pos0, _, hp0, max0, facing0, team0) = blue[0];
     assert_eq!(team0, Team::Blue, "the Recruit is the caster's");
-    assert_eq!(pos0, at(TAP), "the Recruit stands on the tap");
+    // The tap is taken at its tile's centre (placement.TAP_SNAP = client16402_tile_centre), where the crate lands.
+    assert_eq!(s.config().calib.placement_tap_snap, TapSnap::TileCentre, "the shipped placement.TAP_SNAP this pins");
+    let tile = 1000 * K;
+    let landing = Vec2::new(at(TAP).x / tile * tile + tile / 2, at(TAP).y / tile * tile + tile / 2);
+    assert_eq!(pos0, landing, "the Recruit stands on the tap's tile centre");
     assert_eq!((hp0, max0), (hp, hp), "the Recruit at the cast's level");
     assert_eq!(facing0, Vec2::new(0, 256), "facing the Blue side's forward");
     let deploying: Vec<bool> = blue.iter().map(|b| b.1).collect();
