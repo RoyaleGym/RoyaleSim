@@ -7654,12 +7654,26 @@ impl BattleState {
     }
 
     /// THE EVO SKELETONS COPIES this tick earned (`evo_after_fire`), in hit order, at the end of Reap: each a Skeleton_EV1
-    /// of its hitter's card and level at full hitpoints, `EVO_COPY_AHEAD_MILLI` ahead of the hitter's position at its
-    /// hit, already deployed, with a target on its first frame and no step taken, in its hitter's group.
+    /// of its hitter's card and level at full hitpoints, `EVO_COPY_AHEAD_MILLI` ahead of where its hitter stands AFTER
+    /// the tick's move pass (at its hit, should the hitter be gone), already deployed, in its hitter's group. It takes
+    /// its whole first update on this tick (`first_update`, spawner.SPAWNED_FIRST_STEP): it acquires, enters its attack
+    /// on a target in reach or else takes one walk step, and the contact law pushes it out of what it overlaps. The
+    /// copies of one tick meet each other in it.
     /// Measured on client 15.535.29: the copy exists on the hit's own frame, with a target, at full hp. A copy is made
     /// while the group holds fewer than GroupMaxSize living skeletons (8 alive: measured that copying stopped at 8;
     /// whether dead members still count is not separated) and, under SpawnerAliveRequired, while its hitter lives.
-    /// Then the board forgets the dead.
+    /// Then the board forgets the dead. Its first frame, over the copies of the five scenes with Evo Skeletons
+    /// (sp-scene-b-s0 and -s1, sp-m4-towerhit, sp-m5-clone; sp-m4-zapcap repeats scene-b-s0), from the hitter's
+    /// post-move point + 1000:
+    ///   - every copy attacking on its first frame stands within one contact push of it (at most the 150 cap): 150 out
+    ///     of a Giant 524 away (scene-b-s0 t796), 1 straight away from its own hitter touching it at exactly 1000;
+    ///   - the hitter's point AT ITS HIT does not fit: that reading leaves an attacking copy 169, 228 and 294 away
+    ///     (scene-b-s0 t796, -s1 t796, m5-clone t837), past any one push;
+    ///   - a copy walking on its first frame stands one Skeleton step (88 to 90) away, plus any push; with both
+    ///     together, up to 172.
+    /// Unmeasured: a point past the arena's end. sp-m4-towerhit t1331's hitter stands at y 31071, so its point is at y
+    /// 32071, and the copy's first frame is (937, -1062) from it. `spawn_now` puts it where it puts any point off the
+    /// board.
     fn evo_copies(&mut self) {
         let copies = std::mem::take(&mut self.scratch.evo_copies);
         let mut fresh: Vec<usize> = Vec::new();
@@ -7673,17 +7687,39 @@ impl BattleState {
                 continue;
             }
             let kind = if self.cfg.cards.get(c.card).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
-            let Ok(id) = self.spawn_now(c.team, c.card, c.level, c.pos, kind) else { continue };
+            // Ahead of the hitter where the move pass left it.
+            #[cfg(not(clash_plant = "evo_copy_stands"))]
+            let pos = if self.ents.is_alive(c.hitter) {
+                use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                let ahead = if c.team == Team::Blue { EVO_COPY_AHEAD_MILLI } else { -EVO_COPY_AHEAD_MILLI };
+                let at = self.ents.pos[c.hitter.index as usize];
+                Vec2::new(at.x, at.y + ahead * K)
+            } else {
+                c.pos
+            };
+            // PLANT (regression): the earlier reading, ahead of the hitter's point at its hit.
+            #[cfg(clash_plant = "evo_copy_stands")]
+            let pos = c.pos;
+            let Ok(id) = self.spawn_now(c.team, c.card, c.level, pos, kind) else { continue };
             let j = id.index as usize;
             self.ents.deploy_ms[j] = 0;
             self.on_deployed(j);
             self.evo.members.push((id, c.group));
             fresh.push(j);
         }
-        // A target on its first frame, and no step: it stands where it was made (measured).
+        // Its whole first update now, the tick's copies together; a target alone where no first update runs.
         if !fresh.is_empty() {
             self.hash.rebuild(&self.ents);
-            self.phase_target_for(Some(&fresh));
+            #[cfg(not(clash_plant = "evo_copy_stands"))]
+            let steps = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick && self.arm16402() && self.tick_order() != TickOrder::LegacyMoveBeforeAttack;
+            // PLANT (regression): the earlier reading, a target and no step.
+            #[cfg(clash_plant = "evo_copy_stands")]
+            let steps = false;
+            if steps {
+                self.first_update(&fresh, false, &[], &[]);
+            } else {
+                self.phase_target_for(Some(&fresh));
+            }
         }
         let ents = &self.ents;
         self.evo.members.retain(|(m, _)| ents.is_alive(*m));

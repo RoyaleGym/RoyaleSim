@@ -18,6 +18,8 @@
 //!   evo_hashed_when_absent  the evolved units' state is hashed in every battle: tests/hash_continuity.rs goes red.
 //!   barrage_lands_after_the_move  an Evo Cannon bomb lands after the move pass and only its survivors step:
 //!                           a_barrage_bomb_lands_before_the_move_pass goes red.
+//!   evo_copy_stands         an Evo Skeletons copy is made ahead of its hitter's point at its hit and takes no first
+//!                           update: evo_skeletons_copy_on_every_group_hit goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -268,7 +270,7 @@ fn evo_skeletons_copy_on_every_group_hit() {
     s.spawn_unit(Team::Blue, "Skeletons_EV1", n(9000, 12000), None).unwrap();
     let skeletons = |s: &BattleState| s.entities().filter(|e| e.team == Team::Blue && e.card_idx == form).count() as u32;
     let mut hits = 0u32;
-    let mut first_copy: Option<(Vec2, Vec<Vec2>)> = None;
+    let mut first_copy: Option<(Vec2, Vec<Vec2>, Vec<Vec2>)> = None;
     let mut capped_hits = 0;
     for _ in 0..400 {
         let before: Vec<_> = s.entities().filter(|e| e.card_idx == form).map(|e| (e.id, e.pos)).collect();
@@ -283,8 +285,9 @@ fn evo_skeletons_copy_on_every_group_hit() {
                 assert_eq!(e.hp, e.max_hp, "a copy starts at full hp");
                 assert!(e.target.is_some(), "a copy has a target on its first frame");
                 if first_copy.is_none() {
-                    let from: Vec<Vec2> = before.iter().filter(|(id, _)| hitters.contains(id)).map(|(_, p)| *p).collect();
-                    first_copy = Some((e.pos, from));
+                    let at_hit: Vec<Vec2> = before.iter().filter(|(id, _)| hitters.contains(id)).map(|(_, p)| *p).collect();
+                    let moved: Vec<Vec2> = hitters.iter().filter_map(|id| s.entity(*id)).map(|h| h.pos).collect();
+                    first_copy = Some((e.pos, at_hit, moved));
                 }
             }
         }
@@ -296,9 +299,16 @@ fn evo_skeletons_copy_on_every_group_hit() {
         }
     }
     assert!(capped_hits >= 4, "the group never held 8 through four more hits ({hits} hits)");
-    // The first copy stands 1000 ahead (toward side 1) of the skeleton whose hit made it.
-    let (at, from) = first_copy.expect("a copy was made");
-    assert!(from.iter().any(|p| *p == Vec2::new(at.x, at.y - 1000 * K)), "copy at {at:?}, hitters at {from:?}");
+    // The first copy is made 1000 ahead (toward side 1) of the skeleton whose hit made it, where that skeleton stands
+    // after the tick's move pass, and takes its first update on its creation tick: attacking the Giant, it is pushed by
+    // the contact law, at most the 150 cap (sp-scene-b-s0 t796: 150 out of a Giant 524 away). So it stands within one
+    // push of that point and off the point 1000 ahead of the hitter at its hit. The plant evo_copy_stands (the earlier
+    // reading: at the hitter's point at its hit, and no step) turns this red.
+    let (at, at_hit, moved) = first_copy.expect("a copy was made");
+    let made = moved.iter().map(|p| Vec2::new(p.x, p.y + 1000 * K)).min_by_key(|m| m.dist2(at)).expect("a hitter");
+    let (dx, dy) = ((at.x - made.x) / K, (at.y - made.y) / K);
+    assert!(dx * dx + dy * dy <= 150 * 150 + 2, "copy at {at:?}, made at {made:?}: its first update moved it ({dx}, {dy})");
+    assert!(at_hit.iter().all(|p| *p != Vec2::new(at.x, at.y - 1000 * K)), "the copy stands where the hitter was at its hit plus 1000: {at:?}, {at_hit:?}");
 }
 
 #[test]
