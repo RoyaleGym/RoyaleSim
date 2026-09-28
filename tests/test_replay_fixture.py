@@ -1573,12 +1573,14 @@ def test_replay_formations_reads_a_recovered_group_at_its_centroid():
 
 
 def _pushed_single_battle():
-    """(header towers, frames) of a battle with three single Knights, frames 0..30 with 11 missed.
+    """(header towers, frames) of a battle with five single Knights, frames 0..30 with 11 missed.
 
     Key 50, side 0: created on 5 at (3499, 14500) and pushed 150 on that tick, so its first frame stands at
     (3589, 14380) (client 16.402, 20260918-112751 t1202). Key 51, side 0: first seen on 12, after the missed 11, at
     (9394, 5394), its x2, y2 at (9500, 5500): it may have been created on 11. Key 52, side 1: on the board from the
-    first frame, walking."""
+    first frame, walking. Key 53, side 1: created on the missed 11 on (5499, 25499) and pushed on 11 and 12, first seen
+    on (5660, 25656), its x2, y2 (5610, 25601) (client 16.402, 20260918-122757.b1's Bomber of t588). Key 54, side 1,
+    a Giant: first seen on 12 on the king's back row at (9500, 31000), where a tower tap puts a troop, unpushed."""
     tower_rows = [
         (1, 0, 9000, 3000, 4824),
         (2, 0, 3500, 6500, 3052),
@@ -1601,6 +1603,9 @@ def _pushed_single_battle():
             ents.append(ent(50, 0, KNIGHT, (3589, 14380), (3499, 14500) if t == 5 else (3589, 14380), 1766, 14, 4))
         if t >= 12:
             ents.append(ent(51, 0, KNIGHT, (9394, 5394), (9500, 5500) if t == 12 else (9394, 5394), 1766, 14, 4))
+            ents.append(ent(53, 1, KNIGHT, (5660, 25656), (5610, 25601) if t == 12 else (5660, 25656), 1766, 14, 4))
+            # a Giant (26000003, 3968 hp at level 11), so it is its own group beside key 53
+            ents.append(ent(54, 1, 26000003, (9500, 31000), (9500, 31000), 3968, 14, 4))
         ents.append(ent(52, 1, KNIGHT, (6000, 20000 - 10 * t), (6000, 20010 - 10 * t), 1766, 15, 1))
         frames.append({"tick": t, "entities": ents, "effects": [], "elixir_raw": [50000 + 178 * t, 50000 + 178 * t]})
     return header, frames
@@ -1609,8 +1614,9 @@ def _pushed_single_battle():
 @needs_modern_cards
 def test_a_single_unit_pushed_on_its_creation_tick_is_played_where_it_was_created(m, maker_inputs, tmp_path):
     """A single unit's first frame carries its first tick's contact push; its x2, y2 is where it was created. It is
-    played there when the capture saw its creation tick, and keeps its first frame when a missed frame leaves that tick
-    unseen or it was not deploying."""
+    played there when the capture saw its creation tick; when a missed frame leaves that tick unseen it is played on its
+    tile's laid point (LATE SINGLE, `test_a_single_created_on_a_missed_tick_is_played_on_its_tiles_laid_point`), and a
+    unit that was not deploying keeps its first frame."""
     _skip_without_the_id_table(m)
     header, frames = _pushed_single_battle()
     path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
@@ -1622,8 +1628,36 @@ def test_a_single_unit_pushed_on_its_creation_tick_is_played_where_it_was_create
         f"the Knight pushed on its creation tick is played at {pushed['pos']} ({pushed['source']}), its first frame"
     )
     assert pushed["centroid"] == [3589, 14380], pushed
-    assert (unseen["pos"], unseen["source"]) == ([9394, 5394], "centroid"), unseen
+    assert unseen["tick"] < unseen["first_seen"], f"the scene drifted: key 51 is dated on its first frame {unseen}"
+    assert (unseen["pos"], unseen["source"]) == ([9500, 5500], "laid_point"), unseen
     assert (walking["pos"], walking["source"]) == (walking["centroid"], "centroid"), walking
+
+
+@needs_modern_cards
+def test_a_single_created_on_a_missed_tick_is_played_on_its_tiles_laid_point(m, maker_inputs, tmp_path):
+    """A single unit created on a tick the capture missed was pushed before its first frame, so that frame's x2, y2
+    is already off its creation point. It is played on the laid point of the tile its x2, y2 lies in (one unit lower
+    in x on the left half and in y for side 1), when that point is off its first frame and within a push's reach of
+    x2, y2; a unit that stands where no tile's laid point is (the king's back row a tower tap puts a troop on) keeps
+    its first frame. Not vacuous: the old reading played key 53 on its first frame, 161 and 157 off."""
+    _skip_without_the_id_table(m)
+    header, frames = _pushed_single_battle()
+    path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    rows = {d["keys"][0]: d for d in fx["deploys"] if d["keys"]}
+    late, back_row = rows[53], rows[54]
+    assert late["tick"] < late["first_seen"], f"the scene drifted: key 53 is dated on its first frame {late}"
+    assert late["centroid"] == [5660, 25656], late
+    assert (late["pos"], late["source"]) == ([5499, 25499], "laid_point"), late
+    assert "(5610, 25601)" in late["recovery"] and "(5499, 25499)" in late["recovery"], late["recovery"]
+    assert (back_row["pos"], back_row["source"]) == ([9500, 31000], "centroid"), back_row
+    # the rule itself: the tile's laid point by side, half and layer, and the reach
+    assert m.late_single_point((5610, 25601), 1, False, 1)[0] == [5499, 25499]
+    assert m.late_single_point((5610, 25601), 1, True, 1)[0] == [5500, 25500]
+    assert m.late_single_point((9394, 5394), 0, False, 1)[0] == [9500, 5500]
+    assert m.late_single_point((9500, 31000), 1, False, 1)[0] is None
+    assert m.late_single_point((9500, 31000), 1, False, 4)[0] == [9500, 31499]
 
 
 @needs_cards

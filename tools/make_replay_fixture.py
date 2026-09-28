@@ -168,7 +168,9 @@ DEPLOY POSITION AND TICK
     the units went, not where the player tapped; the engine is charged with that
     difference). A single unit is placed where it appeared (its centroid, which is the
     tap snapped to the game's grid), or where it was created when its first tick pushed
-    it (CREATION POINT below). Without a tap the centroid is used, except where
+    it (CREATION POINT below), or on its tile's laid point when the capture missed its
+    creation tick and a push moved it off that point (LATE SINGLE below). Without a tap
+    the centroid is used, except where
     the group's members agree on the tile centre it was laid around (RECOVERED TILE
     below). `source` says which. A matched tap is kept on the row as `tap` (`tick`,
     `native`, `cycled`): the harness resolves a tapped troop's point on the board of
@@ -271,9 +273,31 @@ CREATION POINT
     when the two differ (`source` `creation_point`). Its creation tick is its first frame
     when `first_seen` = `tick` and either no frame was missed before it
     (`first_seen_gap` 1) or its deploy end pins the spawn there (`tick_evidence` exact).
-    Otherwise the unit keeps its first frame: its x2, y2 may be a tick after its creation,
-    already pushed. A unit that travels under ground keeps its row (it is played at its
-    `destination`).
+    Otherwise the unit keeps its first frame (but see LATE SINGLE): its x2, y2 may be a tick
+    after its creation, already pushed. A unit that travels under ground keeps its row (it
+    is played at its `destination`).
+
+LATE SINGLE
+    A single troop whose creation tick comes before its first frame (`tick` <
+    `first_seen`: a missed frame, or a unit shown late) was pushed on the ticks the capture
+    did not show, so its first frame's x2, y2 is already off the point it was created on,
+    and playing it there moves it twice (the engine pushes it again from there). Such a
+    unit is played on the LAID POINT of the tile its first frame's x2, y2 lies in (`source`
+    `laid_point`, and `recovery` says so): the tile centre one native unit lower in x on the
+    arena's left half and in y for side 1 for a ground unit (formation.GROUND_DEPLOY_POINT,
+    as `laid_tile` reads a ring), the tile centre for a flyer. Only when that point is off
+    the first frame's centroid (a unit that stood still is left as it is), the capture shows
+    it deploying (behavior_state 4 or 11) on its first frame, and x2, y2 lies within
+    LATE_SINGLE_PUSH_PER_TICK per missed tick of the laid point on both axes (a unit a tower
+    tap put on the king's back row at y 31000, for one, is not on a tile's laid point and
+    keeps its centroid). Measured on the 16.402 corpus: a Bomber of 20260918-122757.b1
+    deployed on t588 and first seen on t589 at (5660, 25656), 161 and 157 off the laid point
+    (5499, 25499) of its tile; played there, the engine puts it on the client's point on
+    t589 and on every frame after, where from its first frame it stood 97 off. The same holds
+    for the seven such units of the corpus's playable fixtures whose first frame is off their
+    laid point (20260918-134739-B t1935, 20260918-164953-A t2288, 20260919-145440-A t202,
+    20260919-181741-A t262, 20260919-183504-B t1253, 20260920-005517-A t2084 and the Bomber
+    above): each first frame lands on the client's to the unit.
 
 SPELL OBJECTS
     A cast from the effects stream also publishes every object of the run, in the fixture's
@@ -490,6 +514,10 @@ NOMINAL_CENTRED_NATIVE = 60
 #: native per axis. The measured offsets are first-frame positions after the first tick's contact push, so two siblings
 #: that overlap at creation stand a few units off their ring (the Minions' 577 ring, 2 apart).
 RECOVER_TOLERANCE = 3
+#: How far one tick's contact push can move a unit, native per axis: the contact law's cap on the push it adds a tick
+#: (150, move16402.rs `collision_mean`). A single first seen late is played on its tile's laid point only when its first
+#: frame's creation point lies within this many units per missed tick of it (module doc, LATE SINGLE).
+LATE_SINGLE_PUSH_PER_TICK = 150
 # Spell casts: the effects stream lists every projectile OBJECT on every frame it
 # exists (a Fireball 15 frames, a Log's airborne object then its rolling object, Arrows
 # 9-30 objects on one tick). A cast is the run of objects of one (side, card) with no
@@ -1274,6 +1302,23 @@ def laid_tile(points: list[tuple[int, int]], side: int, flying: bool) -> tuple[l
             if abs(mx - lx) <= RECOVER_TOLERANCE and abs(my - ly) <= RECOVER_TOLERANCE:
                 return [tx, ty], f"the members' mean ({mx:g}, {my:g}) is the laid point ({lx}, {ly}) of this tile"
     return None, f"the members' mean ({mx:g}, {my:g}) is no tile centre's laid point"
+
+
+def late_single_point(c0: tuple[int, int], side: int, flying: bool, late_ticks: int) -> tuple[list[int] | None, str]:
+    """The laid point a single unit first seen `late_ticks` after its creation tick was created on, read from its first
+    frame's creation point `c0`, and why; or None and why not (module doc, LATE SINGLE). The point is the laid point of
+    the tile `c0` lies in: the tile centre one native unit lower in x on the arena's left half and in y for side 1 for a
+    ground unit (formation.GROUND_DEPLOY_POINT), the tile centre for a flyer. It is taken when `c0` lies within
+    LATE_SINGLE_PUSH_PER_TICK x `late_ticks` of it on both axes."""
+    tx = int(c0[0]) // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2
+    ty = int(c0[1]) // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2
+    lx = tx - (1 if tx < ARENA_W_NATIVE // 2 and not flying else 0)
+    ly = ty - (1 if side == 1 and not flying else 0)
+    reach = LATE_SINGLE_PUSH_PER_TICK * max(1, late_ticks)
+    dx, dy = int(c0[0]) - lx, int(c0[1]) - ly
+    if abs(dx) <= reach and abs(dy) <= reach:
+        return [lx, ly], f"created {late_ticks} tick(s) before its first frame; its creation point there ({c0[0]}, {c0[1]}) is ({dx}, {dy}) off the laid point ({lx}, {ly}) of its tile"
+    return None, f"its first frame's creation point ({c0[0]}, {c0[1]}) is ({dx}, {dy}) off its tile's laid point ({lx}, {ly}), beyond {reach}"
 
 
 def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
@@ -2188,6 +2233,18 @@ def build(
                 # a single unit the capture saw deploying on its creation tick and pushed on it: played where it was
                 # created (module doc, CREATION POINT)
                 d["pos"], d["source"] = list(members[0]["c0"]), "creation_point"
+            elif (
+                first_seen > tick
+                and members[0].get("c0") is not None
+                and (members[0].get("states") or [(0, None)])[0][1] in (4, STATE_STAGGER_WAIT)
+                and not card.get("spawn_pathfind")
+                and card.get("kind", "troop") == "troop"
+            ):
+                # a single unit created before its first frame, pushed on the ticks the capture missed: played on its
+                # tile's laid point (module doc, LATE SINGLE)
+                laid, why = late_single_point(tuple(members[0]["c0"]), side, bool(card.get("flying_height")), first_seen - tick)
+                if laid is not None and laid != [cx, cy]:
+                    d["pos"], d["source"], d["recovery"] = laid, "laid_point", why
         deploys.append(d)
 
     # spawned and unknown-object groups: truth only, cross-checked against the taps.
