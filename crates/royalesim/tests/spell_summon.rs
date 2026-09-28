@@ -12,7 +12,9 @@
 //!     (spells.CHILD_AREA_BIRTH; 5 of 5);
 //!   - the Rage buffs the caster's side only (OnlyOwnTroops);
 //!   - a unit that stays inside to the end takes its last raged step 105 ticks after the cast, where the full BuffTime
-//!     gives 114 (6 of 6; CapBuffTimeToAreaEffectTime, status.AREA_BUFF_SOURCE_BINDING);
+//!     gives 114 (CapBuffTimeToAreaEffectTime, status.AREA_BUFF_SOURCE_BINDING: the area's last application, on
+//!     C + 94, lasts its life left after that tick, 250 ms, plus one HitSpeed, 300 ms). The 2026-09-28 round 9 reading:
+//!     8 units over 4 casts (three in 20260919-182539, one in 20260918-134739 read in both seats), every one on C + 105;
 //!   - the Heal Spirit card deploys its unit like a one-unit troop, and the spirit's shot leaves a one-shot heal
 //!     area on its own side; each heal pulse is +100 at level 11 (status.BUFF_PULSE_AMOUNT =
 //!     scaled_per_second_times_frequency; 11 of 11).
@@ -23,8 +25,10 @@
 //!   2. the Rage's first raged step is the step into C + 11;
 //!   3. the Rage's damage lands on C + 11, not C + 10;
 //!   4. an enemy inside the Rage takes no buff;
-//!   5. under status.AREA_BUFF_SOURCE_BINDING = client_source_bound the Rage buff on an own building standing inside
-//!      to the end ends sooner than under not_read;
+//!   5. a Blue Knight that walks into the Rage and is still inside when the area ends takes its last raged step on
+//!      C + 105 under status.AREA_BUFF_SOURCE_BINDING = client_source_bound, and on C + 114 (the full BuffTime) under
+//!      not_read. The rule the engine ran before the round 9 fix, the life left this tick included plus one tick, gave
+//!      C + 101, the step the old assertion (bound before unbound) let through;
 //!   6. the Heal Spirit is on the board after the cast tick and first moves DeployTime later;
 //!   7. an own damaged Knight next to the spirit's target is healed in pulses of exactly the amount
 //!      status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency gives (+100 at level 11), and the enemy is not;
@@ -34,7 +38,8 @@
 //!   * `fuse_counts_from_next_tick` -- the bottle releases one tick late: (2) goes red.
 //!   * `child_area_with_parent` -- the child is born with its parent: (3) goes red.
 //!   * `own_area_hits_both_sides` -- OnlyOwnTroops read as no team filter: (4) goes red.
-//!   * `area_cap_unread` (status.rs's cap plant) -- CapBuffTimeToAreaEffectTime not read: (5) goes red.
+//!   * `area_cap_unread` (spell.rs's cap plant) -- CapBuffTimeToAreaEffectTime not read: (5) goes red.
+//!   * `area_cap_one_tick` (spell.rs) -- the cap is the life left plus one tick, the Earthquake-only fit: (5) goes red.
 //!   * `summon_released_late` -- the summoned unit is created at the end of the tick: (6) goes red.
 //!   * `projectile_area_dropped` -- the shot's area is dropped: (7) goes red.
 //!   * `pulse_share_scaled` (status.rs's pulse plant) -- the share first, then the level: (7) goes red.
@@ -162,33 +167,46 @@ fn the_rage_buffs_the_casters_side_only() {
     assert!(!enemy, "the enemy Knight took the Rage buff");
 }
 
-/// The last tick (k after the cast) on which a Blue Cannon standing at the Rage's centre carries the Rage buff.
-fn last_raged_tick(binding: AreaBuffSourceBinding) -> u32 {
+/// A Blue Knight walking up the left lane into a Rage cast 5,500 ahead of it, and per tick after the cast (k = 0 is
+/// the cast tick C) its step: it enters the area about 35 ticks in and is still inside, raged, when the area ends.
+fn late_raged_walk(binding: AreaBuffSourceBinding) -> Vec<i64> {
     let mut cfg: BattleConfig = config();
     cfg.calib.area_buff_source_binding = binding;
     let mut s = BattleState::new(0, cfg);
-    let c = s.scenario_spawn_now(Team::Blue, "Cannon", at((4500, 9500)), None).expect("spawn");
-    s.tick();
-    s.spawn_unit(Team::Blue, "Rage", at((4500, 9500)), None).expect("cast Rage");
-    let buff = rage_buff(&s);
-    let mut last = 0;
-    for k in 0..140u32 {
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 9000)), None).expect("spawn");
+    for _ in 0..3 {
         s.tick();
-        if has_buff(&s, c, buff) {
-            last = k;
-        }
     }
-    assert!(last > 0, "the scene drifted: the Cannon was never raged");
+    let p = s.entity(k).unwrap().pos;
+    s.spawn_unit(Team::Blue, "Rage", Vec2::new(p.x, p.y + 5500 * K), None).expect("cast Rage");
+    let mut steps = Vec::new();
+    for _ in 0..130 {
+        let a = s.entity(k).unwrap().pos;
+        s.tick();
+        steps.push(step(a, s.entity(k).unwrap().pos));
+    }
+    steps
+}
+
+/// The last k whose step is raged (74..=79; a Knight walks 55..=61), after checking that every later step is an
+/// unraged walk.
+fn last_raged_step(binding: AreaBuffSourceBinding) -> usize {
+    let steps = late_raged_walk(binding);
+    let last = steps.iter().rposition(|x| (74..=79).contains(x)).unwrap_or_else(|| panic!("the scene drifted: the Knight was never raged: {steps:?}"));
+    assert!(steps[..30].iter().all(|x| (55..=61).contains(x)), "the scene drifted: the Knight was raged before it reached the area: {steps:?}");
+    assert!(steps[last + 1..].iter().all(|x| (55..=61).contains(x)), "the scene drifted: the Knight's steps after its last raged one: {steps:?}");
     last
 }
 
-/// Plant: area_cap_unread.
+/// Plants: area_cap_unread, area_cap_one_tick.
 #[test]
 fn the_rage_buff_ends_sooner_when_bound_to_its_area() {
-    let bound = last_raged_tick(AreaBuffSourceBinding::ClientSourceBound);
-    let unbound = last_raged_tick(AreaBuffSourceBinding::NotRead);
-    // The last update runs with 300 ms of life left and the full buff is 1000 ms: the bound buff ends sooner.
-    assert!(bound < unbound, "client_source_bound {bound}, not_read {unbound}");
+    let bound = last_raged_step(AreaBuffSourceBinding::ClientSourceBound);
+    let unbound = last_raged_step(AreaBuffSourceBinding::NotRead);
+    // The area's last application is on C + 94 with 300 ms of life left this tick included: bound, it lasts 250 + 300
+    // ms and the last raged step is C + 105; unbound, its 1,000 ms BuffTime gives C + 114.
+    assert_eq!(bound, 105, "client_source_bound: the last raged step (not_read {unbound})");
+    assert_eq!(unbound, 114, "not_read: the last raged step, the full BuffTime");
 }
 
 /// Plant: summon_released_late.

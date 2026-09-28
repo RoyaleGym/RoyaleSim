@@ -728,13 +728,15 @@ pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &
 }
 
 /// A PULSING AREA'S CLOCK at one application (status.AREA_BUFF_SOURCE_BINDING): where it stands,
-/// its age -- TICK_MS on its landing tick, one TICK_MS more every tick after -- and the life it has
-/// left, this tick included.
+/// its age -- TICK_MS on its landing tick, one TICK_MS more every tick after -- the life it has
+/// left, this tick included, and its HitSpeed, the period between two of its applications (0 for
+/// an area that applies once).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AreaClock {
     pub pos: Vec2,
     pub age_ms: i32,
     pub left_ms: i32,
+    pub hit_speed_ms: i32,
 }
 
 /// HOW A BUFF THE PULSING AREA `area` HANGS IS BOUND TO IT (status.AREA_BUFF_SOURCE_BINDING =
@@ -747,12 +749,21 @@ pub struct AreaClock {
 /// HitFrequency -- so the Earthquake, first applied on L + 1 (age 100), pulses on L + 19,
 /// L + 39 and L + 59, not a period after the application (L + 20, L + 40, L + 60).
 ///
-/// CapBuffTimeToAreaEffectTime (the Earthquake's area): an application lasts no longer than
-/// the area's life left at it, this tick included, plus one tick. The last application, on
-/// the area's final tick, then holds the two ticks after it under
-/// status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick: the measured last slowed step is
-/// L + 61, where the bare remaining life gives L + 60 and BuffTime L + 78. The one-tick
-/// margin is fitted to that step; the rule it stands for is not measured further.
+/// CapBuffTimeToAreaEffectTime (the Earthquake's and the Rage's areas): an application lasts no
+/// longer than the area's life left AFTER this tick plus one HitSpeed, the time at which the
+/// area's next application would fall. Buffs expire under status.BUFF_EXPIRY_TICK_ALIGNMENT =
+/// ceil_from_next_tick. Measured on two areas:
+///   - the Earthquake (HitSpeed 100, client 15.535.29): its last application, on the area's
+///     final tick (no life left after it), lasts 100 ms, and the last slowed step is L + 61,
+///     where the bare remaining life gives L + 60 and BuffTime L + 78;
+///   - the Rage (HitSpeed 300, client 16.402, 7 units over 5 casts): its last application, on
+///     the cast + 94, has 250 ms left after that tick and lasts 550 ms, so a unit that stays
+///     inside takes its last raged step on the cast + 105 (BuffTime would give 114).
+/// The earlier rule, the life left this tick included plus one tick, was fitted to the
+/// Earthquake alone: it gives the same 100 ms there and 350 ms on the Rage, whose last raged
+/// step then fell on the cast + 101. The two rules part only where HitSpeed is not 100: the
+/// Rage-type areas (HitSpeed 300) run four ticks longer, and an area pulsing every tick
+/// (HitSpeed 50) one tick shorter, which no capture has measured.
 ///
 /// ControlsBuff / ControlledByParent: the slot is bound to the area (`BuffSlot::source`) and
 /// taken away when the area ends (state.rs `release_orphaned_buffs`).
@@ -762,8 +773,10 @@ fn area_bound(ctx: &SpellCtx, hit: &SpellHit, b: BuffApply, area: Option<AreaClo
         return (b.time_ms, None, None);
     }
     let Some(def) = ctx.cards.buffs.get(b.buff as usize).copied() else { return (b.time_ms, None, None) };
-    #[cfg(not(clash_plant = "area_cap_unread"))]
-    let time_ms = if hit.caps_buff_time { b.time_ms.min(a.left_ms + ctx.calib.tick_ms) } else { b.time_ms };
+    #[cfg(not(any(clash_plant = "area_cap_unread", clash_plant = "area_cap_one_tick")))]
+    let time_ms = if hit.caps_buff_time { b.time_ms.min(a.left_ms - ctx.calib.tick_ms + a.hit_speed_ms.max(ctx.calib.tick_ms)) } else { b.time_ms };
+    #[cfg(clash_plant = "area_cap_one_tick")]
+    let time_ms = if hit.caps_buff_time { b.time_ms.min(a.left_ms + ctx.calib.tick_ms) } else { b.time_ms }; // PLANT (regression): the cap is the life left plus one tick, the Earthquake-only fit.
     #[cfg(clash_plant = "area_cap_unread")]
     let time_ms = b.time_ms; // PLANT (regression): CapBuffTimeToAreaEffectTime unread, the buff lives BuffTime.
     #[cfg(not(clash_plant = "hit_tick_own_clock"))]
@@ -1422,7 +1435,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 *pos = ctx.ents.pos[parent.index as usize];
             }
             while *next_ms <= 0 && *life_ms > 0 {
-                let clock = AreaClock { pos: *pos, age_ms: a.life_ms - *life_ms + tick, left_ms: *life_ms };
+                let clock = AreaClock { pos: *pos, age_ms: a.life_ms - *life_ms + tick, left_ms: *life_ms, hit_speed_ms: a.hit_speed_ms };
                 impact(ctx, s.team, s.card, s.level, *pos, &a.hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
                 // HitSpeed 0: one hit, on the first update, and the area is gone.
                 if a.hit_speed_ms == 0 {
@@ -1617,7 +1630,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     }
                 }
                 while p.next_ms <= 0 && p.life_ms > 0 {
-                    let clock = AreaClock { pos: p.pos, age_ms: *total_ms - p.life_ms + tick, left_ms: p.life_ms };
+                    let clock = AreaClock { pos: p.pos, age_ms: *total_ms - p.life_ms + tick, left_ms: p.life_ms, hit_speed_ms: *hit_speed_ms };
                     impact(ctx, s.team, s.card, s.level, p.pos, hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
                     p.next_ms += (*hit_speed_ms).max(tick);
                 }
