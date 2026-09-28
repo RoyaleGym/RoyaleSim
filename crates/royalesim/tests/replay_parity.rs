@@ -18,6 +18,8 @@
 //!                are consistent (nested tolerances, parts summing to the total, the
 //!                per-card rows summing to the battle); the group pairing keeps a
 //!                spawner's extra wave from shifting its death spawn (synthetic); a
+//!                scenario troop row is played at its RAW tap under the tile-centre snap
+//!                (plant: replay_plays_the_snapped_tap); a
 //!                Clone's copy is rooted as "Clone", the card the recording names every
 //!                copy by (plant: replay_roots_a_copy_as_its_unit).
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
@@ -503,6 +505,34 @@ fn a_clones_copy_is_rooted_as_clone() {
     let roots: Vec<&str> = r.unmatched_sim.iter().map(|(_, _, root)| root.as_str()).collect();
     assert!(roots.contains(&"Knight"), "vacuous: the Knight never stood on the board: {roots:?}");
     assert!(roots.contains(&"Clone"), "no copy is rooted as Clone: {roots:?}");
+}
+
+/// A SCENARIO TROOP ROW IS PLAYED AT ITS RAW TAP under placement.TAP_SNAP = client16402_tile_centre
+/// (`scenario_troop_tap`): the engine snaps it to the tile the maker's `pos` names, and the relocation off an own crown
+/// tower reads the raw tap (placement.TOWER_TAP_PUSH). Oracle's line tap (4500, 7000) on side 0's princess box, whose
+/// maker `pos` is the floor-snapped (4500, 7500), lands on (5500, 6500) as the client's Knight does
+/// (tests/tower_tap_push.rs's line taps); played at `pos`, the push reads (4500, 7500), a tie, and goes the other way.
+/// Under placement.TAP_SNAP = none the row plays its `pos` as before. Plant: replay_plays_the_snapped_tap.
+#[test]
+fn a_scenario_troop_row_is_played_at_its_raw_tap_under_the_snap() {
+    let db = common::cards();
+    let row: Deploy = serde_json::from_str(
+        r#"{"tick": 200, "side": 0, "card": "Knight", "card_id": 26000000, "kind": "troop", "level": 11, "count": 1,
+            "pos": [4500, 7500], "tap": [4500, 7000], "pos_source": "snapped_tap", "source": "tap_tile"}"#,
+    )
+    .expect("a deploy parses");
+    let native = |x: i32, y: i32| Vec2::new(x * royalesim::fixed::SUBTILE_PER_MILLITILE, y * royalesim::fixed::SUBTILE_PER_MILLITILE);
+    let s = royalesim::state::BattleState::new(0, common::config());
+    assert_eq!(scenario_troop_tap(&s, &db, &row), Some([4500, 7000]), "the shipped snap plays the raw tap");
+    assert_eq!(resolve_on_board(&s, &db, &row), Some(native(5500, 6500)), "the line tap does not land on the client's tile");
+    // Not vacuous: the maker's pos, played as the tap, lands elsewhere.
+    let knight = db.index("Knight").expect("Knight loads");
+    assert_ne!(s.resolve_point(royalesim::Team::Blue, knight, native(4500, 7500)), native(5500, 6500), "vacuous: pos and tap land alike");
+    // Under TAP_SNAP none the row plays its pos, as before.
+    let mut cfg = common::config();
+    cfg.calib.placement_tap_snap = royalesim::state::TapSnap::None;
+    let none = royalesim::state::BattleState::new(0, cfg);
+    assert_eq!(scenario_troop_tap(&none, &db, &row), None);
 }
 
 /// A corpus troop row is resolved on the board of its TAP tick when that tick is before its issue tick: its
