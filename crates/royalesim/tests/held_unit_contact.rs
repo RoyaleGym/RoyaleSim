@@ -14,7 +14,10 @@
 //!   * The freeze: two Blue Knights on the left lane, the rear one at (3500, 7500) created first and the front one at
 //!     (3500, 13000); a Red Freeze on (3500, 13500) holds the front Knight for 80 ticks and misses the rear one (5,500
 //!     away), which walks up the lane into the held Knight's back. Under out_of_the_pass the rear Knight walks into the
-//!     held one's circle (the radii sum to 1000) and the held Knight does not move until the hold ends.
+//!     held one's circle (the radii sum to 1000) and the held Knight does not move until the hold ends. The 80 ticks
+//!     are the tables' Freeze BuffTime 4000, which the scene selects by name (`freeze_with`): the shipped
+//!     cards.CLIENT16402_VALUES lists the 16.402 Freeze's 3500, a 70-tick hold that ends before the rear Knight
+//!     reaches the held one.
 //!   * The stun (the client 15.535.29 Electro Giant scenario's spots): a red Knight at (13945, 15507) and a blue
 //!     Electro Giant at (9500, 11500), set down together. The Giant walks up the Knight's line, the Knight attacks it and
 //!     the reflect stuns it on each hit; from the second stun on, the Giant walks through it. Under out_of_the_pass the
@@ -44,6 +47,7 @@
 mod common;
 
 use common::*;
+use royalesim::card::CardColumn;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{BattleConfig, BattleState, Calib, HeldUnitContact};
 use royalesim::Team;
@@ -56,6 +60,17 @@ const OVERLAP: i64 = 5;
 fn with(arm: HeldUnitContact) -> BattleConfig {
     let mut cfg = config();
     cfg.calib.held_unit_contact = arm;
+    cfg
+}
+
+/// `with(arm)` with the Freeze at the tables' BuffTime 4000, an 80-tick hold: the freeze scene's rear Knight needs
+/// more than the shipped 16.402 value's 70 ticks (cards.CLIENT16402_VALUES lists the Freeze's AreaBuffTime 3500) to
+/// reach the held one, so the scene drops that row by name.
+fn freeze_with(arm: HeldUnitContact) -> BattleConfig {
+    let mut cfg = with(arm);
+    let before = cfg.calib.card_value_overrides.len();
+    cfg.calib.card_value_overrides.retain(|v| !(v.card == "Freeze" && v.column == CardColumn::AreaBuffTime));
+    assert_eq!(cfg.calib.card_value_overrides.len() + 1, before, "the shipped values no longer list the Freeze's AreaBuffTime");
     cfg
 }
 
@@ -84,7 +99,7 @@ struct Row {
 
 /// Per tick after the tick: the front Knight's position and hold timer, the rear Knight's (if any).
 fn freeze_scene(arm: HeldUnitContact, with_rear: bool) -> Vec<Row> {
-    let mut s = BattleState::new(5, with(arm));
+    let mut s = BattleState::new(5, freeze_with(arm));
     // the rear Knight first: it is the earlier-created unit, so it moves before the front one in the pass
     let rear = if with_rear { Some(s.scenario_spawn_now(Team::Blue, "Knight", t(350, 750), None).expect("the rear Knight")) } else { None };
     let front = s.scenario_spawn_now(Team::Blue, "Knight", t(350, 1300), None).expect("the front Knight");
