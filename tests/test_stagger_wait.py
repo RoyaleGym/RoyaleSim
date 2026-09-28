@@ -47,8 +47,14 @@ def goblins_frames(arm: str, spawns: list, ticks: int = 30) -> list:
     """Each tick's entity rows, from the tick after the tap resolves. `spawns` is reset's list of
     (team, card, x, y, hp) in native units. TAP is a tile corner and the members' landing points are read
     from it, exact points, so the scene runs placement.TAP_SNAP's old arm, none (the shipped tile-centre
-    snap moves the ring by half a tile on both axes)."""
-    overrides = {KEY: json.dumps(arm), "placement.TAP_SNAP": json.dumps("none")}
+    snap moves the ring by half a tile on both axes). And placement.TROOP_BUILDING_TAPS's old arm, not_relocated: the
+    Cannon scene stands a Cannon on member 0's landing point, and the shipped as_tower_tap moves a tap on an own
+    building's box off it, so the member would never land on the Cannon."""
+    overrides = {
+        KEY: json.dumps(arm),
+        "placement.TAP_SNAP": json.dumps("none"),
+        "placement.TROOP_BUILDING_TAPS": json.dumps("not_relocated"),
+    }
     b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
     units = [(t, c, x * SUB, y * SUB, hp) for t, c, x, y, hp in spawns]
     b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, units)

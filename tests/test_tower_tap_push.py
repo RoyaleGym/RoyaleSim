@@ -157,7 +157,8 @@ def test_the_old_arm_is_todays_ring_search():
     assert off == RING_MISSES, f"ring_nearest now misses {sorted(off)}"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_axis_push():
+    # Switched on at the 2026-09-28 placement batch, with placement.TAP_SNAP.
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["placement"]["TOWER_TAP_PUSH"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]

@@ -120,6 +120,15 @@ def test_a_troop_tap_is_unaffected(battle):
 
 
 def test_the_two_seats_agree_on_rotated_taps(battle):
+    # Under placement.SNAP_EVEN_CORNER's old arm, placer_frame, by name: the shipped absolute (since the 2026-09-28
+    # placement batch) floors an EVEN box's tap in the arena's frame, as client 15.535.29 stands side 1's Teslas, so the
+    # Tesla is not the rotation of its twin there. The odd Cannon agrees under both arms.
+    battle = royalesim.Battle(
+        card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]],
+        calibration_overrides={"placement.SNAP_EVEN_CORNER": json.dumps("placer_frame")},
+    )
+    ids = list(range(len(DECK)))
+    battle.reset(0, [ids, ids], 0, 0, [10000, 10000], None, [])
     w, h = 18 * TILE, 32 * TILE
     for card in ("Cannon", "Tesla"):
         for tile in [(9, 0), (0, 8), (9, 14), (6, 8), (3, 6)]:

@@ -43,11 +43,14 @@ TEAM, SLOT, X, Y = 1, 4, 5, 6
 #: Where a relocated tap lands is placement.TOWER_TAP_PUSH's. Every cast is played under both of its values.
 PUSH_KEY = "placement.TOWER_TAP_PUSH"
 PUSH_NEW, PUSH_OLD = "client16402_axis_push", "ring_nearest"
-#: The six side-1 casts at own (7500, 1500) and (10500, 1500) are ties. Under ring_nearest (the shipped value) the
-#: engine breaks the tie column-major in the placer's frame and lands them on another tile. The client takes the first
-#: outward direction in the order -y, -x, +y, +x in arena coordinates (42 of 42 princess-box taps and the king's 3 ties,
-#: measured on client 15.535.29), which is client16402_axis_push. Strict, so a change to ring_nearest shows as XPASS.
-TIE_CASTS = {(1, (7500, 1500)), (1, (10500, 1500))}
+#: The six side-1 casts at own (7500, 1500) and (10500, 1500) are ties. Under ring_nearest (the old value; the
+#: shipped one is client16402_axis_push since the 2026-09-28 placement batch) the engine breaks the tie column-major in
+#: the placer's frame and lands them on another tile. So do side 0's three casts at own (7500, 1499): the shipped
+#: placement.TAP_SNAP takes that tap onto the tie tile's centre, (7500, 1500), where under TAP_SNAP none it stood a
+#: unit short of it. The client takes the first outward direction in the order -y, -x, +y, +x in arena coordinates (42
+#: of 42 princess-box taps and the king's 3 ties, measured on client 15.535.29), which is client16402_axis_push. Strict,
+#: so a change to ring_nearest shows as XPASS.
+TIE_CASTS = {(1, (7500, 1500)), (1, (10500, 1500)), (0, (7500, 1499))}
 TIE_ORDER = pytest.mark.xfail(
     strict=True,
     reason="ring_nearest's tie order: the engine's column-major placer frame, not the client's arena -y, -x, +y, +x",
@@ -129,7 +132,7 @@ def play(side: int, card: str, tile: tuple, arm: str, push: str | None = None) -
 
 
 def cases():
-    """Every cast under both TOWER_TAP_PUSH values; the six ties are strict xfail under ring_nearest only."""
+    """Every cast under both TOWER_TAP_PUSH values; the nine tie casts are strict xfail under ring_nearest only."""
     for push in (PUSH_NEW, PUSH_OLD):
         for side, card, tile, accepted, members in CASTS_15535:
             marks = [TIE_ORDER] if push == PUSH_OLD and (side, tile) in TIE_CASTS else []
