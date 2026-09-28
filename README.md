@@ -33,7 +33,7 @@ deploys, walking, targeting, fighting, spells, towers, overtime and the crowns.*
 > x_engine = x_recording * SUBTILES_PER_MILLITILE
 > ```
 
-<p align="center"><img src="docs/media/battle-page.gif" width="100%" alt="The busiest stretch of an engine battle in RoyaleViser, 19 units on the board, one frame per tick"></p>
+<p align="center"><img src="docs/media/battle-page.gif" width="100%" alt="The busiest stretch of an engine battle in RoyaleViser, 16 units on the board, one frame per tick"></p>
 
 If you are training a bot, this is the thing your bot plays in. There is no game to run and nothing
 to connect to. You install a Python module, `royalesim`, and call it.
