@@ -28,5 +28,17 @@ panic = "abort"
 [profile.release.package.royalesim]
 overflow-checks = true
 
+# The TEST GATE's profile (`cargo test --profile gate`): the release optimisation and the overflow checks, without the
+# fat link. Fat LTO with one codegen unit is for the shipped wheel and exe; every test binary paying for it made the
+# full suite take 45 to 87 minutes. An integer engine's results do not depend on how it is linked, and the gate's own
+# hash_continuity check would show it if they did.
+[profile.gate]
+inherits = "release"
+lto = false
+codegen-units = 16
+
+[profile.gate.package.royalesim]
+overflow-checks = true
+
 [profile.bench]
 inherits = "release"

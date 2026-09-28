@@ -75,13 +75,11 @@ fn freeze_hold(cfg: BattleConfig) -> (i32, u32) {
     }
     assert!(held, "the scene drifted: the Freeze never held the Knight");
     let held_at = s.entity(knight).unwrap().pos;
-    let mut still = 0;
-    for _ in 0..200 {
+    for still in 0..200 {
         s.tick();
         if s.entity(knight).expect("the scene drifted: the Knight died").pos != held_at {
             return (buff, still);
         }
-        still += 1;
     }
     panic!("the scene drifted: the Knight never walked again");
 }

@@ -84,9 +84,12 @@ fn scene(arm: AvoidanceDropSegment, goblins: bool) -> Vec<Row> {
     rows
 }
 
+/// One lost waypoint, as `pops` returns it (its doc names the fields).
+type Pop = (usize, (i32, i32), Class, (i32, i32), (i32, i32));
+
 /// (row index, the waypoint lost, the class, segment before, segment after) for every tick whose route lost its next
 /// waypoint and nothing else.
-fn pops(rows: &[Row]) -> Vec<(usize, (i32, i32), Class, (i32, i32), (i32, i32))> {
+fn pops(rows: &[Row]) -> Vec<Pop> {
     let mut out = Vec::new();
     for (k, pair) in rows.windows(2).enumerate() {
         let (i, before, after) = (k + 1, &pair[0], &pair[1]);
