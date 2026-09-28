@@ -1316,9 +1316,11 @@ def late_single_point(c0: tuple[int, int], side: int, flying: bool, late_ticks: 
     ly = ty - (1 if side == 1 and not flying else 0)
     reach = LATE_SINGLE_PUSH_PER_TICK * max(1, late_ticks)
     dx, dy = int(c0[0]) - lx, int(c0[1]) - ly
+    where = f"({c0[0]}, {c0[1]}) is ({dx}, {dy}) off"
     if abs(dx) <= reach and abs(dy) <= reach:
-        return [lx, ly], f"created {late_ticks} tick(s) before its first frame; its creation point there ({c0[0]}, {c0[1]}) is ({dx}, {dy}) off the laid point ({lx}, {ly}) of its tile"
-    return None, f"its first frame's creation point ({c0[0]}, {c0[1]}) is ({dx}, {dy}) off its tile's laid point ({lx}, {ly}), beyond {reach}"
+        why = f"created {late_ticks} tick(s) before its first frame; its creation point there {where} the laid point"
+        return [lx, ly], f"{why} ({lx}, {ly}) of its tile"
+    return None, f"its first frame's creation point {where} its tile's laid point ({lx}, {ly}), beyond {reach}"
 
 
 def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
@@ -2242,7 +2244,8 @@ def build(
             ):
                 # a single unit created before its first frame, pushed on the ticks the capture missed: played on its
                 # tile's laid point (module doc, LATE SINGLE)
-                laid, why = late_single_point(tuple(members[0]["c0"]), side, bool(card.get("flying_height")), first_seen - tick)
+                flying = bool(card.get("flying_height"))
+                laid, why = late_single_point(tuple(members[0]["c0"]), side, flying, first_seen - tick)
                 if laid is not None and laid != [cx, cy]:
                     d["pos"], d["source"], d["recovery"] = laid, "laid_point", why
         deploys.append(d)

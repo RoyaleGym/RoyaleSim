@@ -1650,7 +1650,8 @@ def test_a_single_created_on_a_missed_tick_is_played_on_its_tiles_laid_point(m, 
     assert late["tick"] < late["first_seen"], f"the scene drifted: key 53 is dated on its first frame {late}"
     assert late["centroid"] == [5660, 25656], late
     assert (late["pos"], late["source"]) == ([5499, 25499], "laid_point"), late
-    assert "(5610, 25601)" in late["recovery"] and "(5499, 25499)" in late["recovery"], late["recovery"]
+    assert "(5610, 25601)" in late["recovery"], late["recovery"]
+    assert "(5499, 25499)" in late["recovery"], late["recovery"]
     assert (back_row["pos"], back_row["source"]) == ([9500, 31000], "centroid"), back_row
     # the rule itself: the tile's laid point by side, half and layer, and the reach
     assert m.late_single_point((5610, 25601), 1, False, 1)[0] == [5499, 25499]
