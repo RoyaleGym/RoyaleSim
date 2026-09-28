@@ -1819,16 +1819,7 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 /// is skipped too. A shot's enchant bonus (`Projectile::bonus`) is part of what it deals.
 pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep) -> Vec<bool> {
     let cap = ents.capacity();
-    let mut pending = vec![0i64; cap];
-    let mut last_ms = vec![0i32; cap];
-    for p in projectiles {
-        if p.straight.is_some() || p.hook.is_some() || p.carrier.is_some() || p.enchant.is_some() || !ents.is_alive(p.target) {
-            continue;
-        }
-        let t = p.target.index as usize;
-        pending[t] += (damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) + Bonus { hit: p.bonus, crown: p.bonus_crown }.on(ents.kind[t])) as i64;
-        last_ms[t] = last_ms[t].max(ticks_to_land(ents, p, step) * tick_ms);
-    }
+    let (pending, last_ms) = shots_in_flight_at(ents, projectiles, rounding, tick_ms, step);
     #[cfg(not(clash_plant = "doomed_eta_ignored"))]
     let within = |t: usize| last_ms[t] <= limit_ms;
     #[cfg(clash_plant = "doomed_eta_ignored")]
@@ -1839,6 +1830,25 @@ pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], ro
     (0..cap)
         .map(|t| pending[t] > 0 && pending[t] >= (ents.hp[t].max(0) + ents.shield[t].max(0)) as i64 && within(t))
         .collect()
+}
+
+/// The two quantities `doomed_by_shots_in_flight` weighs, per slot: the summed damage of the shots in flight at the
+/// unit (against its kind, crown-tower arrows and enchant bonuses included; straight shots, hooks, spark carriers and
+/// the Rune Giant's projectile skipped, as there), and the ETA in ms of the one of them that lands last (0 when none
+/// flies at it).
+pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, step: ProjectileStep) -> (Vec<i64>, Vec<i32>) {
+    let cap = ents.capacity();
+    let mut pending = vec![0i64; cap];
+    let mut last_ms = vec![0i32; cap];
+    for p in projectiles {
+        if p.straight.is_some() || p.hook.is_some() || p.carrier.is_some() || p.enchant.is_some() || !ents.is_alive(p.target) {
+            continue;
+        }
+        let t = p.target.index as usize;
+        pending[t] += (damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) + Bonus { hit: p.bonus, crown: p.bonus_crown }.on(ents.kind[t])) as i64;
+        last_ms[t] = last_ms[t].max(ticks_to_land(ents, p, step) * tick_ms);
+    }
+    (pending, last_ms)
 }
 
 /// Result of applying the buffer.

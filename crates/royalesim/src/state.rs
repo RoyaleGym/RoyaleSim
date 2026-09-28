@@ -357,6 +357,11 @@ pub struct Calib {
     /// `decide`, `dropped_for_doom`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "doomed_drop_swing_default")]
     pub doomed_drop_swing: DoomedDropSwing,
+    /// targeting.DOOMED_LANE_TOWER: whether a doomed princess tower is still the tower a unit walks to (target.rs
+    /// `default_tower`, `lane_fallen`, `can_target`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// what a battle saved before it ran.
+    #[serde(default = "doomed_lane_tower_default")]
+    pub doomed_lane_tower: DoomedLaneTower,
     /// targeting.CHASE_DROP_RANGE: how far a walking troop keeps a troop it chases out of its attack reach
     /// (target.rs `decide`, `scan`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle
     /// saved before it actually ran.
@@ -1189,6 +1194,10 @@ fn doomed_target_drop_default() -> DoomedTargetDrop {
 
 fn doomed_drop_swing_default() -> DoomedDropSwing {
     DoomedDropSwing::Cancel
+}
+
+fn doomed_lane_tower_default() -> DoomedLaneTower {
+    DoomedLaneTower::Standing
 }
 
 fn chase_drop_range_default() -> ChaseDropRange {
@@ -2317,6 +2326,30 @@ calib_enum!(
         /// progress and fires on the old cycle (57 of 57 corpus switches, 19 of them crown towers; 31 of 31 in the
         /// client 15.535.29 battery), and one whose new target is out of reach walks with progress 0 (44 of 44).
         ClientKeepInReach = "client_keep_in_reach",
+    }
+);
+calib_enum!(
+    /// targeting.DOOMED_LANE_TOWER -- whether a princess tower the shots in flight will kill (the doomed set of
+    /// targeting.DOOMED_TARGET_DROP, combat.rs `doomed_by_shots_in_flight`) is still the tower a unit walks to (target.rs
+    /// `default_tower`, `lane_fallen`, `can_target`). A doomed king is kept under every arm: it has no next tower.
+    DoomedLaneTower {
+        /// Today's engine: a princess tower is the lane tower while it stands, doomed or not. A unit the doom drop makes
+        /// let go of it (DOOMED_TARGET_DROP) walks on to it with no target.
+        Standing = "standing",
+        /// A unit that DOOMED_TARGET_DROP makes let go of a doomed princess tower, or not take it (a card that fires a
+        /// projectile and has not launched at it), treats it as fallen: its default tower is the next one, the king,
+        /// wherever it stands. A unit with no projectile keeps it, walking or attacking. Read off client 15.535.29 and
+        /// the 16.402 corpus with the engine's doomed set: every walker with a projectile at a doomed princess took the
+        /// king on the tick after the engine's set held it (scene-c, m6, m6d, the Evo Royal Giant, the Evo Minion Horde;
+        /// 16.402: a Goblin Hut's two Spear Goblins, and a Bomber one tick after the capture's doom, when the shot's
+        /// ETA reached 600), and every walker without one kept it (16.402: two Tombstone Skeletons for ten ticks, two
+        /// Skeletons; 15.535.29: the Evo Goblin Giant). Inert under DOOMED_TARGET_DROP = keep.
+        ProjectileWalkersTakeKing = "projectile_walkers_take_king",
+        /// Parity's proposal as written: every WALKING troop (not in its attack) neither keeps nor takes a doomed
+        /// princess tower, and its default tower is the king. Refuted by the same records: the walkers without a
+        /// projectile kept the doomed princess (16.402: 112751 tick 3186, 081819 tick 2885; 15.535.29: the Evo Goblin
+        /// Giant, tick 592).
+        WalkersTakeKing = "walkers_take_king",
     }
 );
 calib_enum!(
@@ -4968,6 +5001,7 @@ impl Calib {
             non_homing_aim: pick(&v, &["combat", "NON_HOMING_AIM", "value"], NonHomingAim::from_calibration_name)?,
             doomed_target_drop: pick(&v, &["targeting", "DOOMED_TARGET_DROP", "value"], DoomedTargetDrop::from_calibration_name)?,
             doomed_drop_swing: pick(&v, &["targeting", "DOOMED_DROP_SWING", "value"], DoomedDropSwing::from_calibration_name)?,
+            doomed_lane_tower: pick(&v, &["targeting", "DOOMED_LANE_TOWER", "value"], DoomedLaneTower::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
@@ -5961,6 +5995,19 @@ fn frame_planned_slide(e: &Entities, i: usize) -> (Vec2, bool) {
     (Vec2::new(x, y).sub(p), done)
 }
 
+/// `BattleState::doom_reading`: what the doomed set weighs for one unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DoomReading {
+    /// The summed damage of the shots in flight at it (combat.rs `shots_in_flight_at`).
+    pub pending: i64,
+    /// The ETA in ms of the shot of those that lands last; 0 when none flies at it.
+    pub last_ms: i32,
+    /// Its hitpoints plus shield.
+    pub hp: i32,
+    /// In the doomed set: `pending` covers `hp` and `last_ms` is within `target::DOOMED_ETA_LIMIT_MS`.
+    pub doomed: bool,
+}
+
 /// A read-only view of one entity, for observation builders.
 #[derive(Clone, Copy, Debug)]
 pub struct EntityView<'a> {
@@ -6139,6 +6186,11 @@ struct Scratch {
     /// (`doomed_mask`). A read-only derivation, rebuilt every tick; nothing
     /// writes hp from it.
     doomed: Vec<bool>,
+    /// targeting.DOOMED_LANE_TOWER, the new arms: the doomed set (targeting.DOOMED_TARGET_DROP's, the shots in flight
+    /// at a Target pass's start) that the latest Target pass read, for the Path phase's `default_tower` on the same
+    /// tick (target.rs `TargetCtx::lane_doomed`). Written by every Target pass under those arms before anything reads it,
+    /// so it never carries a reading into the next tick; empty under standing.
+    lane_doomed: Vec<bool>,
     /// spawner.SPAWNED_FIRST_STEP: the units (buildings and troops) that died in this Reap and left a death spawn
     /// that takes its first update, native (x, y, radius, side, flying): `first_update`'s avoidance-only blockers.
     /// Filled and drained inside one `phase_reap`, so it never outlives the phase.
@@ -7495,6 +7547,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &[],
+                lane_doomed: &[],
             };
             let e = &self.ents;
             let fwd = spell::forward_dy(e.team[a]);
@@ -10261,6 +10314,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &[],
+                lane_doomed: &[],
             };
             let e = &self.ents;
             for i in 0..e.capacity() {
@@ -10365,12 +10419,17 @@ impl BattleState {
         }
         let in_flight = &self.projectiles[..shots.min(self.projectiles.len())];
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
-        // the tick's start, before any decision reads it.
-        let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() {
+        // the tick's start, before any decision reads it. targeting.DOOMED_LANE_TOWER's new arms read the same set, here
+        // and in the Path phase (`Scratch::lane_doomed`, target.rs `lane_fallen`).
+        let lane = self.cfg.calib.doomed_lane_tower != DoomedLaneTower::Standing;
+        let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() || lane {
             combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step)
         } else {
             Vec::new()
         };
+        if lane {
+            self.scratch.lane_doomed.clone_from(&doomed_drop);
+        }
         {
             let ctx = TargetCtx {
                 ents: &self.ents,
@@ -10383,6 +10442,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &doomed_drop,
+                lane_doomed: &[],
             };
             // transform.ATTACK_STATE: a unit whose transformation reset its target on this tick makes no target
             // decision until the next (measured on client 15.535.29: no target on the Goblin Demolisher's switch tick,
@@ -10995,6 +11055,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &[],
+                lane_doomed: &self.scratch.lane_doomed,
             };
             // EVERY ENTITY AS THE CONTACT LAW SEES IT: every alive entity, troops and
             // buildings and towers, in native units. Positions are updated in place as
@@ -12080,6 +12141,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &[],
+                lane_doomed: &self.scratch.lane_doomed,
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -12260,6 +12322,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &[],
+                lane_doomed: &self.scratch.lane_doomed,
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -12489,6 +12552,7 @@ impl BattleState {
                 king_active: self.king_active,
                 tick: self.tick,
                 doomed: &[],
+                lane_doomed: &self.scratch.lane_doomed,
             };
             // None = the measured "no periodic replan" (calibration
             // pathfinding.REPATH_INTERVAL_TICKS). For these pre-2026 models that
@@ -12954,6 +13018,7 @@ impl BattleState {
             king_active: self.king_active,
             tick: self.tick,
             doomed: &[],
+            lane_doomed: &[],
         };
         let e = &self.ents;
         let ti = target.index as usize;
@@ -16669,6 +16734,21 @@ impl BattleState {
     pub fn projectiles(&self) -> &[Projectile] {
         &self.projectiles
     }
+    /// THE DOOMED SET'S READING of unit `id` on the state as it stands between ticks, which the next tick's Target phase
+    /// reads (targeting.DOOMED_TARGET_DROP; combat.rs `doomed_by_shots_in_flight`): the damage the shots in flight at it
+    /// deal, the ETA in ms of the one that lands last, its hitpoints plus shield, and whether it is doomed (the damage
+    /// covers them and lands within `target::DOOMED_ETA_LIMIT_MS`). A read-only instrument, whatever the ledger ships;
+    /// None for a dead id.
+    pub fn doom_reading(&self, id: EntityId) -> Option<DoomReading> {
+        if !self.ents.is_alive(id) {
+            return None;
+        }
+        let c = &self.cfg.calib;
+        let i = id.index as usize;
+        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step);
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step);
+        Some(DoomReading { pending: pending[i], last_ms: last_ms[i], hp: self.ents.hp[i].max(0) + self.ents.shield[i].max(0), doomed: doomed[i] })
+    }
     /// Live spell objects (in flight, rolling, or an area effect about to apply).
     pub fn spells(&self) -> &[Spell] {
         &self.spells
@@ -17966,6 +18046,10 @@ impl BattleState {
 ///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
 ///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_LANE_TOWER: Calib gained doomed_lane_tower (serde default the old arm, standing),
+///    no new state (the new arms' doomed set, `Scratch::lane_doomed`, is taken by a Target pass and read by the same
+///    tick's Path phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18434,6 +18518,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // targeting.DOOMED_DROP_SWING: a format-3 battle dropped no doomed target, so it cancelled no swing for one; it runs
     // the old arm whatever the ledger ships (the same rule).
     sh.insert("doomed_drop_swing".into(), serde_json::to_value(DoomedDropSwing::Cancel).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_LANE_TOWER: a format-3 battle walked every unit on to a doomed princess tower; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("doomed_lane_tower".into(), serde_json::to_value(DoomedLaneTower::Standing).map_err(|e| e.to_string())?);
     // pathfinding.AVOIDANCE_DROP_SEGMENT: a format-3 battle refroze the segment after a drop; it keeps that whatever
     // the ledger ships (the same rule).
     sh.insert("avoidance_drop_segment".into(), serde_json::to_value(AvoidanceDropSegment::Refrozen).map_err(|e| e.to_string())?);

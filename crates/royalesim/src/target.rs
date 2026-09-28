@@ -76,6 +76,10 @@ pub struct TargetCtx<'a> {
     /// shots in flight at the tick's start (combat.rs `doomed_by_shots_in_flight`). Empty under keep and
     /// outside the Target phase.
     pub doomed: &'a [bool],
+    /// targeting.DOOMED_LANE_TOWER, the new arms: per slot, the doomed set the latest Target pass read (state.rs
+    /// `Scratch::lane_doomed`), handed to the Path phase for `default_tower` (`lane_fallen`). Empty under standing and
+    /// in every other ctx.
+    pub lane_doomed: &'a [bool],
 }
 
 /// targeting.DOOMED_TARGET_DROP: damage that lands later than this does not doom its target. The client
@@ -368,27 +372,13 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
         return false;
     }
     let card = ctx.cards.get(e.card[a]);
-    // targeting.DOOMED_TARGET_DROP = projectile_attackers: an attacker whose card fires a projectile
-    // neither keeps nor takes a unit the shots already in flight will kill (`ctx.doomed`), unless it has
-    // launched a shot at that unit since acquiring it (entity.rs `fired_at`). So it drops the target on
-    // the tick after the doom and does not take it back while it lives. Under
-    // projectile_attackers_rescan that exemption covers KEEPING only: a scan never takes a doomed unit,
-    // the one the attacker has just shot at included (client 15.535.29: 4 of 4 launches beyond reach
-    // at a doomed target were followed by a drop, none retaken). Under projectile_attackers_walk_drop
-    // `decide` passes `keeping` only while the attacker may still keep a unit it has shot at
-    // (`keeps_fired`: in its attack, or the target within its keep reach).
-    #[cfg(clash_plant = "doomed_rescan_takes_fired")]
-    let keeping = true; // PLANT (regression): a rescan takes back a doomed unit the attacker has shot at.
-    #[cfg(not(clash_plant = "doomed_drop_every_attacker"))]
-    let applies = card.projectile.is_some();
-    #[cfg(clash_plant = "doomed_drop_every_attacker")]
-    let applies = true; // PLANT (regression): an attacker with no projectile drops it too.
-    #[cfg(not(clash_plant = "doomed_drop_ignores_fired"))]
-    let exempt = e.fired_at[a] == Some(e.id_of(c))
-        && (keeping || ctx.calib.doomed_target_drop == crate::state::DoomedTargetDrop::ProjectileAttackers);
-    #[cfg(clash_plant = "doomed_drop_ignores_fired")]
-    let exempt = false; // PLANT (regression): an attacker that has fired drops it too.
-    if applies && !exempt && ctx.doomed.get(c).copied().unwrap_or(false) {
+    // targeting.DOOMED_TARGET_DROP: a projectile attacker neither keeps nor takes a unit the shots already in flight
+    // will kill (`ctx.doomed`) unless it has shot at it (`drops_when_doomed`).
+    if drops_when_doomed(ctx, a, c, keeping) && ctx.doomed.get(c).copied().unwrap_or(false) {
+        return false;
+    }
+    // targeting.DOOMED_LANE_TOWER = walkers_take_king: nor does a walking troop keep or take a doomed princess tower.
+    if walker_refuses_doomed_princess(ctx, a, c) {
         return false;
     }
     #[cfg(not(clash_plant = "giant_hits_troops"))]
@@ -413,6 +403,80 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
         card.attacks_air
     } else {
         card.attacks_ground
+    }
+}
+
+/// targeting.DOOMED_TARGET_DROP: is attacker `a` one that lets go of `c`, and does not take it, while the shots in
+/// flight doom it? Under projectile_attackers, an attacker whose card fires a projectile, unless it has launched a shot at
+/// `c` since acquiring it (entity.rs `fired_at`). So it drops the target on the tick after the doom and does not take it
+/// back while it lives. Under projectile_attackers_rescan that exemption covers KEEPING only: a scan never takes a doomed
+/// unit, the one the attacker has just shot at included (client 15.535.29: 4 of 4 launches beyond reach at a doomed
+/// target were followed by a drop, none retaken). Under projectile_attackers_walk_drop `decide` passes `keeping` only
+/// while the attacker may still keep a unit it has shot at (`keeps_fired`: in its attack, or the target within its keep
+/// reach). False under keep. Whether `c` IS doomed is the caller's reading (`can_target`, `lane_fallen`).
+#[inline]
+fn drops_when_doomed(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
+    let e = ctx.ents;
+    let card = ctx.cards.get(e.card[a]);
+    #[cfg(clash_plant = "doomed_rescan_takes_fired")]
+    let keeping = true; // PLANT (regression): a rescan takes back a doomed unit the attacker has shot at.
+    #[cfg(not(clash_plant = "doomed_drop_every_attacker"))]
+    let applies = card.projectile.is_some();
+    #[cfg(clash_plant = "doomed_drop_every_attacker")]
+    let applies = true; // PLANT (regression): an attacker with no projectile drops it too.
+    #[cfg(not(clash_plant = "doomed_drop_ignores_fired"))]
+    let exempt = e.fired_at[a] == Some(e.id_of(c))
+        && (keeping || ctx.calib.doomed_target_drop == crate::state::DoomedTargetDrop::ProjectileAttackers);
+    #[cfg(clash_plant = "doomed_drop_ignores_fired")]
+    let exempt = false; // PLANT (regression): an attacker that has fired drops it too.
+    ctx.calib.doomed_target_drop.drops() && applies && !exempt
+}
+
+/// targeting.DOOMED_LANE_TOWER = walkers_take_king, parity's proposal as written: does WALKING troop `a` (not in its
+/// attack: its attack phase, which the previous tick's Attack phase left, is Idle, as `keeps_fired` reads it) refuse
+/// `c`, a princess tower in the doomed set (`ctx.doomed`)? Its scan then finds the king or nothing in sight, and its
+/// default tower is the king (`lane_fallen`). An attacker keeps it, as targeting.DOOMED_TARGET_DROP says. False under
+/// every other arm: under projectile_walkers_take_king the walkers that let go of a doomed princess are the ones
+/// DOOMED_TARGET_DROP already makes (`drops_when_doomed`), and a walker without a projectile keeps it.
+#[inline]
+fn walker_refuses_doomed_princess(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    #[cfg(not(clash_plant = "doomed_lane_walker_keeps"))]
+    let arm = ctx.calib.doomed_lane_tower == crate::state::DoomedLaneTower::WalkersTakeKing;
+    #[cfg(clash_plant = "doomed_lane_walker_keeps")]
+    let arm = false; // PLANT (regression): under walkers_take_king a walking troop still keeps a doomed princess tower.
+    let e = ctx.ents;
+    arm && e.kind[c] == EntityKind::PrincessTower
+        && e.kind[a] == EntityKind::Troop
+        && e.attack_phase[a] == crate::entity::AttackPhase::Idle
+        && ctx.doomed.get(c).copied().unwrap_or(false)
+}
+
+/// targeting.DOOMED_LANE_TOWER: is princess tower `t`, standing, fallen to unit `a` as the tower it walks to
+/// (`default_tower`)? Under projectile_walkers_take_king, when `t` is in the doomed set the latest Target pass read
+/// (`ctx.lane_doomed`) and `a` is one DOOMED_TARGET_DROP makes let go of it (`drops_when_doomed`); under
+/// walkers_take_king, when `t` is in that set (every unit that walks to a default tower is walking). Then its default
+/// tower is the next one, the king. A king is never fallen here: it has no next tower. Always false under standing.
+///
+/// Read off client 15.535.29 and the 16.402 corpus with the engine's doomed set (the ledger's provenance): every walker
+/// with a projectile at a doomed princess took the king on the tick after the engine's set first held it, even where
+/// the other princess stood nearer (scene-c's and m6's far spirits), and every walker without one kept the princess
+/// (16.402: 20260918-112751's two Tombstone Skeletons for the ten ticks to its fall).
+#[inline]
+fn lane_fallen(ctx: &TargetCtx, a: usize, t: EntityId) -> bool {
+    use crate::state::DoomedLaneTower;
+    #[cfg(not(clash_plant = "doomed_lane_tower_standing"))]
+    let arm = ctx.calib.doomed_lane_tower;
+    #[cfg(clash_plant = "doomed_lane_tower_standing")]
+    let arm = DoomedLaneTower::Standing; // PLANT (regression): the new arms still walk on to a doomed princess tower.
+    let e = ctx.ents;
+    let c = t.index as usize;
+    if arm == DoomedLaneTower::Standing || e.kind[c] != EntityKind::PrincessTower || !ctx.lane_doomed.get(c).copied().unwrap_or(false) {
+        return false;
+    }
+    match arm {
+        DoomedLaneTower::ProjectileWalkersTakeKing => drops_when_doomed(ctx, a, c, false),
+        DoomedLaneTower::WalkersTakeKing => true,
+        DoomedLaneTower::Standing => false,
     }
 }
 
@@ -844,11 +908,14 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
 
 /// Where a unit with no target walks: the enemy crown tower chosen by x
 /// (LOGIC_XPOS_BASED_TOWER_TARGETING), falling back to the king once that lane's
-/// princess tower is down. With the global off, the nearest enemy crown tower.
+/// princess tower is down (or, under targeting.DOOMED_LANE_TOWER's new arms, doomed: `lane_fallen`). With the global
+/// off, the nearest enemy crown tower.
 pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
     let e = ctx.ents;
     let enemy = e.team[a].other() as usize;
-    let live = |t: Option<EntityId>| t.filter(|id| e.is_alive(*id));
+    // targeting.DOOMED_LANE_TOWER: under its new arms a princess tower the shots in flight doom is fallen to the units
+    // `lane_fallen` names, in every pick below, as a destroyed one is (never under standing, never the king).
+    let live = |t: Option<EntityId>| t.filter(|id| e.is_alive(*id) && !lane_fallen(ctx, a, *id));
     #[cfg(not(clash_plant = "default_tower_nearest"))]
     let by_x = ctx.calib.xpos_based_tower_targeting;
     #[cfg(clash_plant = "default_tower_nearest")]
