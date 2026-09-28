@@ -1706,10 +1706,13 @@ def test_a_key_the_capture_reused_for_another_unit_is_split(m):
     assert splits == [[22, 32, 953]], splits
     assert (ents[22]["first_index"], ents[22]["last_index"], ents[22]["frames"]) == (0, 2, 3)
     assert (ents[32]["first_index"], ents[32]["last_index"], ents[32]["frames"], ents[32]["c0"]) == (3, 4, 2, None)
-    assert 22 not in per_tick_rows[3] and per_tick_rows[3][32][:2] == (12457, 28019)
+    assert 22 not in per_tick_rows[3]
+    assert per_tick_rows[3][32][:2] == (12457, 28019)
     t = m.TRUTH_COLUMNS.index("target")
-    assert per_tick_rows[2][30][t] == 22 and per_tick_rows[3][30][t] == 32, "targets follow the unit they meant"
-    assert 31 in ents and ents[31]["last_index"] == 7, "a short gap near the same point stays one unit"
+    assert per_tick_rows[2][30][t] == 22, "targets follow the unit they meant"
+    assert per_tick_rows[3][30][t] == 32, "targets follow the unit they meant"
+    assert 31 in ents, "a short gap near the same point stays one unit"
+    assert ents[31]["last_index"] == 7, "a short gap near the same point stays one unit"
 
 
 def test_a_pair_with_no_measured_ring_is_played_on_the_tile_its_laid_point_names(m):
@@ -1724,4 +1727,5 @@ def test_a_pair_with_no_measured_ring_is_played_on_the_tile_its_laid_point_names
     assert m.laid_tile([(10000, 30499), (9000, 30499)], 1, False)[0] == [9500, 30500]
     assert m.laid_tile([(9000, 30500), (8000, 30500)], 1, True)[0] == [8500, 30500]
     tile, why = m.laid_tile([(13701, 10828), (4280, 11616)], 0, False)
-    assert tile is None and why.startswith("the members' mean (8990.5, 11222) is no tile"), why
+    assert tile is None, why
+    assert why.startswith("the members' mean (8990.5, 11222) is no tile"), why
