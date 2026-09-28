@@ -17,7 +17,7 @@
 //!   4. client16402_relocate: a candidate on another own live bottle does not fit (a second Rage on own (2500, 1500)
 //!      sends the tap to the next fitting tile of the ring, own (3500, 2500), both seats);
 //!   5. client16402_relocate: the other side's bottle is not read (the measured scope is the placer's own);
-//!   6. the shipped value is not_blocked.
+//!   6. the shipped value is client16402_relocate (the 2026-09-28 bottle flip).
 mod common;
 
 use common::*;
@@ -142,6 +142,6 @@ fn the_other_sides_bottle_is_not_read() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().placement_live_bottle_taps, OLD);
+fn the_shipped_value_is_the_new_one() {
+    assert_eq!(Calib::shipped().placement_live_bottle_taps, NEW, "client16402_relocate ships since the 2026-09-28 bottle flip");
 }
