@@ -271,6 +271,10 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// combat.HOOK_BUILDINGS (`special_step`, `apply_effects`, `step_hook_drags`): whether a hook takes a building and
+    /// pulls its thrower to it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "hook_buildings_default")]
+    pub hook_buildings: HookBuildings,
     /// combat.HOOK_LANDING (`apply_effects`, a landed hook): where the hook's victim stands on the landing tick. Added
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "hook_landing_default")]
@@ -1176,6 +1180,10 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn hook_buildings_default() -> HookBuildings {
+    HookBuildings::TroopsOnly
 }
 
 fn hook_landing_default() -> HookLanding {
@@ -3105,13 +3113,50 @@ calib_enum!(
         ClientHookPoint = "client_hook_point",
     }
 );
+calib_enum!(
+    /// combat.HOOK_BUILDINGS -- whether a unit whose row sets SpecialRange (combat.SPECIAL_HOOK; the Fisherman) hooks an
+    /// enemy BUILDING, a crown tower included, and what the hook then does (`special_step`, `apply_effects`,
+    /// `step_hook_drags`).
+    HookBuildings {
+        /// Today's engine: the special takes enemy ground troops only, and the Fisherman walks to a building to melee it.
+        TroopsOnly = "troops_only",
+        /// An enemy building is a hook target too, by the troop trigger (centre within SpecialRange plus the target's
+        /// radius, outside SpecialMinRange plus it). The hook does not move the building: from the tick after it lands
+        /// the thrower is dragged to it, HOOK_SELF_DRAG_STEP a tick, straight, until the edges are DragMargin apart; the
+        /// drag's last step stops on that point. Read off the 16.402 corpus's 20260920-081051 (both seats): a Fisherman
+        /// 7,989 from a princess tower's centre stops (8,000 = 7,000 + the tower's 1,000), throws 26 ticks later, is
+        /// pulled from 11 ticks after the throw at 449-450 a tick, lands 1,699 from the centre (1,000 + 500 + 200) and
+        /// hits the tower on the tick after he stops.
+        ClientPullSelf = "client_pull_self",
+    }
+);
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
-/// that no other hook holds. The rule a special starts by (`BattleState::special_step`) and the one a landing hook
-/// drags by (`BattleState::apply_effects`), so a target that stopped being one while the hook flew (a Cannon Cart
-/// that became its building) is a miss.
-fn hookable(e: &Entities, by: usize, t: usize) -> bool {
-    e.kind[t] == EntityKind::Troop && !e.flying[t] && e.team[t] != e.team[by] && e.hooked_by[t].is_none()
+/// that no other hook holds, or under combat.HOOK_BUILDINGS = client_pull_self an enemy building (`pulls_self`).
+/// The rule a special starts by (`BattleState::special_step`) and the one a landing hook drags by
+/// (`BattleState::apply_effects`), so a target that stopped being one while the hook flew (a Cannon Cart that became
+/// its building, under the old arm) is a miss.
+fn hookable(e: &Entities, calib: &Calib, by: usize, t: usize) -> bool {
+    e.team[t] != e.team[by] && ((e.kind[t] == EntityKind::Troop && !e.flying[t] && e.hooked_by[t].is_none()) || pulls_self(e, calib, t))
 }
+
+/// combat.HOOK_BUILDINGS = client_pull_self: is `t` a target a hook pulls its thrower to (a building, crown towers
+/// included), rather than one it drags?
+fn pulls_self(e: &Entities, calib: &Calib, t: usize) -> bool {
+    #[cfg(not(clash_plant = "hook_buildings_unread"))]
+    let on = calib.hook_buildings == HookBuildings::ClientPullSelf;
+    #[cfg(clash_plant = "hook_buildings_unread")]
+    let on = {
+        let _ = calib;
+        false // PLANT (regression): the new arm hooks troops only.
+    };
+    on && e.kind[t].is_building()
+}
+
+/// combat.HOOK_BUILDINGS = client_pull_self: the thrower's own step toward the building its hook took, NATIVE units
+/// per tick (`BattleState::step_hook_drags`). Measured on the 16.402 corpus, 20260920-081051 (both seats): 12 steps of
+/// 449 and two of 450, the special projectile's DragSelfSpeed 450 (not carried into cards.json). A constant of the
+/// measured law, like HOOK_DRAG_STEP.
+const HOOK_SELF_DRAG_STEP: i32 = 450;
 
 /// combat.SPECIAL_HOOK = client_hook_drag: the drag's step, NATIVE units per tick
 /// (`BattleState::step_hook_drags`). Measured on client 15.535.29, 5 of 5 drags of a Knight:
@@ -5262,6 +5307,7 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            hook_buildings: pick(&v, &["combat", "HOOK_BUILDINGS", "value"], HookBuildings::from_calibration_name)?,
             hook_landing: pick(&v, &["combat", "HOOK_LANDING", "value"], HookLanding::from_calibration_name)?,
             attract_onset: pick(&v, &["status", "ATTRACT_ONSET", "value"], AttractOnset::from_calibration_name)?,
             retarget_wait_while_held: pick(&v, &["combat", "RETARGET_WAIT_WHILE_HELD", "value"], RetargetWaitWhileHeld::from_calibration_name)?,
@@ -14080,7 +14126,7 @@ impl BattleState {
         let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return false };
         let ti = t.index as usize;
         #[cfg(not(clash_plant = "special_hook_unread"))]
-        let hooks = hookable(e, i, ti);
+        let hooks = hookable(e, &self.cfg.calib, i, ti);
         #[cfg(clash_plant = "special_hook_unread")]
         let hooks = false; // PLANT (regression): the special never starts; the Fisherman walks to melee range.
         let (from, to, rt) = (e.pos[i], e.pos[ti], e.radius[ti]);
@@ -14165,6 +14211,37 @@ impl BattleState {
                 continue;
             }
             let bi = by.index as usize;
+            // combat.HOOK_BUILDINGS = client_pull_self: `i` is a thrower its hook's building pulls (`hooked_by` names the
+            // building, `special_on` the same). It steps HOOK_SELF_DRAG_STEP straight at the building, the last step
+            // stopping where the edges are DragMargin apart, and on the tick it stands there the pull is over: its
+            // special ends and its first hit lands on the next tick (`prime_after_release`). A building gone ends the
+            // pull where the thrower stands.
+            if self.ents.special_on[i] == Some(by) && self.ents.kind[bi].is_building() {
+                let Some(sp) = self.cfg.cards.get(self.ents.card[i]).special.filter(|_| self.ents.is_alive(by)) else {
+                    self.ents.hooked_by[i] = None;
+                    self.end_special(i);
+                    continue;
+                };
+                // A knockback on the pulled thrower runs first while the pull waits, as a victim's drag does.
+                if self.ents.push_active[i] || self.ents.knock_ms[i] > 0 {
+                    continue;
+                }
+                let (p, q) = (self.ents.pos[i], self.ents.pos[bi]);
+                let d = q.sub(p);
+                let len = isqrt(d.len2()) as i32;
+                let left = len - (sp.drag_margin + self.ents.radius[i] + self.ents.radius[bi]);
+                if left <= 0 {
+                    self.ents.hooked_by[i] = None;
+                    self.end_special(i);
+                    self.prime_after_release(i);
+                    continue;
+                }
+                let step = (HOOK_SELF_DRAG_STEP * K).min(left);
+                let np = Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32);
+                self.ents.pos[i] = Vec2::new(np.x.clamp(0, width), np.y.clamp(0, height));
+                moved = true;
+                continue;
+            }
             let special = if self.ents.is_alive(by) { self.cfg.cards.get(self.ents.card[bi]).special } else { None };
             let Some(sp) = special else {
                 self.ents.hooked_by[i] = None;
@@ -14816,11 +14893,17 @@ impl BattleState {
             // here: left running, it would stand on a live victim it can never pull (two hooks on one
             // victim are not measured; an engine choice).
             #[cfg(not(clash_plant = "hook_lands_on_any_kind"))]
-            let takes = survivor(&self.ents, v) && hookable(&self.ents, bi, vi);
+            let takes = survivor(&self.ents, v) && hookable(&self.ents, &self.cfg.calib, bi, vi);
             #[cfg(clash_plant = "hook_lands_on_any_kind")]
             let takes = survivor(&self.ents, v) && self.ents.hooked_by[vi].is_none(); // PLANT (regression): it drags whatever it lands on.
             if !takes {
                 self.end_special(bi);
+                continue;
+            }
+            // combat.HOOK_BUILDINGS = client_pull_self: a hook that lands on a building pulls its thrower, from the next
+            // tick (`step_hook_drags`); the thrower is held by the building it hooked.
+            if pulls_self(&self.ents, &self.cfg.calib, vi) {
+                self.ents.hooked_by[bi] = Some(v);
                 continue;
             }
             #[cfg(not(clash_plant = "hook_drag_unread"))]
@@ -18765,6 +18848,9 @@ impl BattleState {
 ///    hook's entry in the effect buffer (`EffectBuffer::hooks`) gained the hook's start-of-tick point: the buffer is
 ///    drained in the tick that fills it, so no blob saved between ticks holds one, and a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_BUILDINGS: Calib gained hook_buildings (serde default the old arm, troops_only), no new
+///    state (the new arm holds the pulled thrower through the saved and hashed `hooked_by`, naming the building), so a
+///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19269,6 +19355,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // combat.HOOK_BUILDINGS: a format-3 battle's hooks took troops only; it keeps that whatever the ledger ships (the same
+    // rule).
+    sh.insert("hook_buildings".into(), serde_json::to_value(HookBuildings::TroopsOnly).map_err(|e| e.to_string())?);
     // combat.HOOK_LANDING: a format-3 battle's hooks landed on their victims; it keeps that whatever the ledger ships (the
     // same rule).
     sh.insert("hook_landing".into(), serde_json::to_value(HookLanding::OnVictim).map_err(|e| e.to_string())?);
