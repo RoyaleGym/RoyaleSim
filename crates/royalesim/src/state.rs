@@ -254,6 +254,10 @@ pub struct Calib {
     /// tower (`relocate_off_own_crown_tower`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "tower_tap_push_default")]
     pub placement_tower_tap_push: TowerTapPush,
+    /// placement.LIVE_BOTTLE_TAPS: a troop tap on the placer's own live bottle
+    /// (`relocate_off_own_live_bottle`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "live_bottle_taps_default")]
+    pub placement_live_bottle_taps: LiveBottleTaps,
     /// spells.ILLEGAL_SPELL_TAP. Added after SNAPSHOT_FORMAT 20; the `default` is `Refuse`,
     /// what a battle saved before it actually ran.
     #[serde(default = "illegal_spell_tap_default")]
@@ -1091,6 +1095,10 @@ fn troop_tower_taps_default() -> TroopTowerTaps {
 
 fn tower_tap_push_default() -> TowerTapPush {
     TowerTapPush::RingNearest
+}
+
+fn live_bottle_taps_default() -> LiveBottleTaps {
+    LiveBottleTaps::NotBlocked
 }
 
 fn illegal_spell_tap_default() -> IllegalSpellTap {
@@ -1932,6 +1940,18 @@ calib_enum!(
         /// direction in the fixed ARENA order -y, -x, +y, +x; land on the first tile centre beyond
         /// the tower's box, on the tapped tile's row or column.
         Client16402AxisPush = "client16402_axis_push",
+    }
+);
+calib_enum!(
+    /// placement.LIVE_BOTTLE_TAPS -- a troop tap on a live bottle of the placer's own side (a Rage's, standing
+    /// from its cast until its release; `SpellMotion::Fuse`). Seat-symmetric: the relocation is in the placer's frame.
+    LiveBottleTaps {
+        /// Today's engine (shipped): the bottle is a spell object nothing collides with, so the tap is
+        /// laid on the bottle's tile.
+        NotBlocked = "not_blocked",
+        /// Read off the client 16.402 corpus (3 battles, both seats): the tap is relocated as off an own
+        /// crown tower by the ring search (`relocate_off_own_live_bottle`).
+        Client16402Relocate = "client16402_relocate",
     }
 );
 calib_enum!(
@@ -4841,6 +4861,7 @@ impl Calib {
             placement_tap_snap: pick(&v, &["placement", "TAP_SNAP", "value"], TapSnap::from_calibration_name)?,
             placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
             placement_tower_tap_push: pick(&v, &["placement", "TOWER_TAP_PUSH", "value"], TowerTapPush::from_calibration_name)?,
+            placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
@@ -15401,9 +15422,10 @@ impl BattleState {
         }
         // A troop or a spell-released unit: no extra radius, because only a
         // building carried one and a building no longer takes this path.
-        // Under placement.TROOP_TOWER_TAPS a tap on an own crown tower is MOVED off it, so the
-        // footprint is judged where the troop will stand.
-        let at = if half_open { self.resolve_point(team, idx, pos) } else { pos };
+        // Under placement.TROOP_TOWER_TAPS a tap on an own crown tower is MOVED off it, and under
+        // placement.LIVE_BOTTLE_TAPS one on an own live bottle, so the footprint is judged where the troop will stand.
+        let off_bottle = card.kind == CardKind::Troop && self.cfg.calib.placement_live_bottle_taps == LiveBottleTaps::Client16402Relocate;
+        let at = if half_open || off_bottle { self.resolve_point(team, idx, pos) } else { pos };
         if footprint_rule && self.footprint_covers(at, 0) {
             return Err(DeployError::Occupied);
         }
@@ -15427,7 +15449,8 @@ impl BattleState {
     /// WHERE A PLAY GOES DOWN (pure; the play path and `spawn_unit` share it). A building:
     /// `building_placement`. A spell outside its territory under spells.ILLEGAL_SPELL_TAP =
     /// clamp: clamped back along its column. Then, under placement.TAP_SNAP, the plain tile
-    /// centre. Then a troop under placement.TROOP_TOWER_TAPS: moved off an own crown tower.
+    /// centre. Then a troop under placement.TROOP_TOWER_TAPS: moved off an own crown tower. Then a
+    /// troop under placement.LIVE_BOTTLE_TAPS: moved off an own live bottle.
     pub fn resolve_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
         self.resolve_point_with(team, idx, pos, true)
     }
@@ -15463,6 +15486,9 @@ impl BattleState {
         }
         if card.kind == CardKind::Troop && calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
             p = self.relocate_off_own_crown_tower(team, idx, p, pos);
+        }
+        if card.kind == CardKind::Troop && calib.placement_live_bottle_taps == LiveBottleTaps::Client16402Relocate {
+            p = self.relocate_off_own_live_bottle(team, idx, p);
         }
         p
     }
@@ -15531,14 +15557,73 @@ impl BattleState {
                 return c;
             }
         }
-        // placement.TOWER_TAP_PUSH = ring_nearest (today's engine): the candidates are
-        // `building_placement`'s ring, and a TIE between two equally near tiles goes to the first
-        // in COLUMN-MAJOR order in the placer's frame (columns from its low x, each from its low y).
-        // This order was fitted to three king-area ties whose side-1 rows were read in the
-        // 180-degree rotation; they were recorded in the y-reflection (x, 32000 - y). In arena
-        // coordinates side 0's (10500, 1500) went -y, side 1's (7500, 30500) -x and side 1's
-        // (10500, 30500) +y (client 15.535.29): this order fits 1 of the 3 and misses 12 of the 36
-        // princess-box taps. client16402_axis_push (`axis_push`, above) fits all of them.
+        // placement.TOWER_TAP_PUSH = ring_nearest (today's engine): `ring_nearest_fit`. Its tie order
+        // was fitted to three king-area ties whose side-1 rows were read in the 180-degree rotation;
+        // they were recorded in the y-reflection (x, 32000 - y). In arena coordinates side 0's
+        // (10500, 1500) went -y, side 1's (7500, 30500) -x and side 1's (10500, 30500) +y (client
+        // 15.535.29): this order fits 1 of the 3 and misses 12 of the 36 princess-box taps.
+        // client16402_axis_push (`axis_push`, above) fits all of them.
+        self.ring_nearest_fit(team, snapped, tap, fits).unwrap_or(tap)
+    }
+
+    /// placement.LIVE_BOTTLE_TAPS = client16402_relocate: a troop tap whose SNAPPED one-tile box shares positive area
+    /// with the tile of a LIVE BOTTLE OF THE PLACER'S OWN SIDE is moved as `relocate_off_own_crown_tower` moves a tap
+    /// off an own crown tower under placement.TOWER_TAP_PUSH = ring_nearest: `ring_nearest_fit` from the snapped tile
+    /// (placement.SNAP_EVEN_CORNER's frame), the fitting tile centre nearest the tap, a tie to the first in
+    /// column-major order in the placer's frame. A candidate fits as there (the troop's territory, which is off water
+    /// and off no-deploy cells, and off every building's box, the towers' among them) and must not be on an own live
+    /// bottle's tile either. Under placement.ILLEGAL_TAP = refuse nothing is moved, as there. Otherwise the tap.
+    ///
+    /// A LIVE BOTTLE is a spell object standing out a fuse: `SpellMotion::Fuse` whose shape is a `SpellShape::Fuse`
+    /// with a positive fuse (the Rage's bottle; the Lumberjack's death bottle is one too, unmeasured). It is on the
+    /// board from its cast until its release (spells.SUMMON_FUSE_START: a Rage cast on tick C releases on C + 9). An
+    /// area that makes an area (a zero fuse, the Goblin Curse's) is not a bottle. Its tile is the tile its point is on.
+    ///
+    /// Read off the client 16.402 corpus: own (3500, 1500) tapped on the tile of the side's own Rage cast 1 to 4 ticks
+    /// earlier is laid on own (2500, 1500), 3 battles, both seats; the same tile tapped 27 or more ticks after the
+    /// cast is laid as tapped. The OTHER side's bottle is not read: no measured tap was on one.
+    fn relocate_off_own_live_bottle(&self, team: Team, idx: u16, tap: Vec2) -> Vec2 {
+        let arena = &self.cfg.arena;
+        let tile_of = |p: Vec2| match self.cfg.calib.placement_snap_even {
+            PlacementSnapEven::PlacerFrame => arena.snap_placement(team, p, 1),
+            PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, p, 1),
+        };
+        let cards = &self.cfg.cards;
+        let bottles: Vec<Rect> = self
+            .spells
+            .iter()
+            .filter(|s| s.team == team)
+            .filter_map(|s| match s.motion {
+                spell::SpellMotion::Fuse { pos, .. } => {
+                    let shape = spell::shape_of(cards.get(s.card)).and_then(|d| spell::shape_at(&d.shape, s.depth));
+                    matches!(shape, Some(SpellShape::Fuse { fuse_ms, .. }) if *fuse_ms > 0).then(|| Arena::placement_box(tile_of(pos), 1))
+                }
+                _ => None,
+            })
+            .collect();
+        let on_a_bottle = |c: Vec2| {
+            let b = Arena::placement_box(c, 1);
+            bottles.iter().any(|t| b.overlaps_open(t))
+        };
+        let snapped = tile_of(tap);
+        if bottles.is_empty() || !on_a_bottle(snapped) || self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
+            return tap;
+        }
+        let (territory, _) = deploy_rule(&self.cfg.calib, cards.get(idx));
+        let fits = |c: Vec2| {
+            let b = Arena::placement_box(c, 1);
+            arena.box_zone(b, team, territory).is_ok() && !self.box_hits_a_building(b) && !on_a_bottle(c)
+        };
+        self.ring_nearest_fit(team, snapped, tap, fits).unwrap_or(tap)
+    }
+
+    /// THE RING SEARCH a relocated troop tap takes (placement.TOWER_TAP_PUSH = ring_nearest, placement.LIVE_BOTTLE_TAPS):
+    /// `building_placement`'s rings around the snapped tile `snapped`, the tile centre nearest `tap` that `fits`
+    /// accepts, and a TIE between two equally near tiles to the first in COLUMN-MAJOR order in the placer's frame
+    /// (columns from its low x, each from its low y). Under placement.ILLEGAL_TAP = relocate_first_fitting_ring the
+    /// first ring holding a fit ends the search. None when nothing within PLACEMENT_SEARCH_RINGS fits.
+    fn ring_nearest_fit(&self, team: Team, snapped: Vec2, tap: Vec2, fits: impl Fn(Vec2) -> bool) -> Option<Vec2> {
+        let arena = &self.cfg.arena;
         let tile = crate::fixed::tiles(1);
         let mut best: Option<(i64, Vec2)> = None;
         for r in 1..=PLACEMENT_SEARCH_RINGS {
@@ -15561,7 +15646,7 @@ impl BattleState {
                 break;
             }
         }
-        best.map_or(tap, |(_, c)| c)
+        best.map(|(_, c)| c)
     }
 
     pub fn building_placement(&self, team: Team, idx: u16, tap: Vec2) -> Option<(Vec2, Rect)> {
@@ -17621,6 +17706,9 @@ impl BattleState {
 /// 20, unchanged, spawner.SPAWN_SPAWNER_SPAWN_SPEED: Calib gained spawn_spawner_spawn_speed (serde default the old arm,
 ///    tick_ms), no new state (the new arm reads the spawner's buff slots, already saved), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, placement.LIVE_BOTTLE_TAPS: Calib gained placement_live_bottle_taps (serde default the old arm,
+///    not_blocked), no new state (the new arm reads the saved spell list's bottles), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18098,6 +18186,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spawner.SPAWN_SPAWNER_SPAWN_SPEED: a format-3 battle ran a Spawn* spawner's clock at TICK_MS whatever its buffs; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("spawn_spawner_spawn_speed".into(), serde_json::to_value(SpawnSpawnerSpawnSpeed::TickMs).map_err(|e| e.to_string())?);
+    // placement.LIVE_BOTTLE_TAPS: a format-3 battle laid a troop tap on a live bottle's tile; it keeps the old arm
+    // whatever the ledger ships (the same rule).
+    sh.insert("placement_live_bottle_taps".into(), serde_json::to_value(LiveBottleTaps::NotBlocked).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
