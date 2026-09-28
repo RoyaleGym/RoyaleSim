@@ -56,7 +56,8 @@ def tunnel(rs, overrides, slot: int, at: tuple[int, int], ticks: int) -> list:
 
 
 def test_the_old_arm_is_the_engine_before_the_key(royalesim):
-    got = tunnel(royalesim, None, MINER, (3500, 1500), 8)
+    # By name: client_250_substeps ships since the 2026-09-28 flip.
+    got = tunnel(royalesim, {KEY: '"one_step"'}, MINER, (3500, 1500), 8)
     assert got[:2] == [(8101, 3249), (7451, 3249)], got
     assert got[6] != (3500, 1500), f"one_step is still under ground on the seventh frame: {got}"
     assert got[7] == (3500, 1500), f"one_step comes up on the eighth frame: {got}"

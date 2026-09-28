@@ -65,10 +65,21 @@ def overrides(arm) -> dict:
     return {KEY: json.dumps(arm)} if arm is not None else {}
 
 
+def tables_freeze(ov: dict) -> dict:
+    """`ov` with the Freeze on the tables' BuffTime (80 ticks), which the freeze scene is laid out for: the shipped
+    cards.CLIENT16402_VALUES lists its 16.402 AreaBuffTime 3500 (70 ticks) since the 2026-09-28 flip, and a 70-tick hold
+    ends before the rear Knight arrives (tests/held_unit_contact.rs `freeze_with` does the same)."""
+    value = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)["cards"]["CLIENT16402_VALUES"]["value"]
+    assert value["values"]["Freeze"] == {"AreaBuffTime": 3500}, "the shipped overlay no longer lists the Freeze"
+    values = {card: cols for card, cols in value["values"].items() if card != "Freeze"}
+    return {**ov, "cards.CLIENT16402_VALUES": json.dumps({**value, "values": values})}
+
+
 def freeze_scene(arm, rear=True, ticks=95):
     """Per tick: (tick, the front Knight's position, its stun ticks, the rear Knight's position or None, its stun
     ticks). `rear` False leaves the rear Knight out."""
-    b = royalesim.Battle(["Knight", "Freeze"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=overrides(arm))
+    ov = tables_freeze(overrides(arm))
+    b = royalesim.Battle(["Knight", "Freeze"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=ov)
     spawns = [(0, 0, FRONT[0] * SUB, FRONT[1] * SUB, -1)] + ([(0, 0, REAR[0] * SUB, REAR[1] * SUB, -1)] if rear else [])
     b.reset(2, [[0] * 8, [1] * 8], 0, 100, [10_000, 10_000], None, spawns)
 

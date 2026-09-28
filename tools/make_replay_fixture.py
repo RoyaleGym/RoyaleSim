@@ -1349,9 +1349,10 @@ def spell_levels_from_damage(
     troops: 20260918-112751's side-0 Fireball of tick 583 took 357 from a Goblin Hut on 607 (358 with the hut's decay
     tick), its ladder's level 4, where the side mode 3 plays 325. The spell's HIT is the first frame, from its row's
     tick on, on which an enemy that is not a tower (card id >= 0) and stood within the spell's radius +
-    SPELL_VICTIM_MARGIN of its point loses at least the spell's least damage and lives. A level fits when every such drop is its damage at that level
-    up to SPELL_HIT_SLACK more. One fitting level replaces the side mode (`level_source` "damage"); several are settled
-    by the one nearest the side mode; none keep the side mode. The drops are in `level_evidence` either way."""
+    SPELL_VICTIM_MARGIN of its point loses at least the spell's least damage and lives. A level fits when every such
+    drop is its damage at that level up to SPELL_HIT_SLACK more. One fitting level replaces the side mode
+    (`level_source` "damage"); several are settled by the one nearest the side mode; none keep the side mode. The drops
+    are in `level_evidence` either way."""
     ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
     index_of = {t: i for i, t in enumerate(ticks)}
     for d in deploys:

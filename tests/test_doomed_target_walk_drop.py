@@ -37,6 +37,7 @@ royalesim = pytest.importorskip("royalesim")
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.DOOMED_TARGET_DROP"
 SHIPPED_ARM, NEW_ARM = "projectile_attackers_rescan", "projectile_attackers_walk_drop"
+HOLD_KEY = "targeting.PROJECTILE_HOLD_SCOPE"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 P = {name: i for i, name in enumerate(royalesim.PROJECTILE_FIELDS)}
 CARDS = ("Knight", "SkeletonDragons")
@@ -50,8 +51,11 @@ ETA_TICKS = 12
 TICKS = 45
 
 
-def play(arm, knight, dragon, knight_hp):
-    b = royalesim.Battle(list(CARDS), [[0, 1, 2], [0, 1, 2]], calibration_overrides={KEY: json.dumps(arm)})
+def play(arm, knight, dragon, knight_hp, hold=None):
+    ov = {KEY: json.dumps(arm)}
+    if hold is not None:
+        ov[HOLD_KEY] = json.dumps(hold)
+    b = royalesim.Battle(list(CARDS), [[0, 1, 2], [0, 1, 2]], calibration_overrides=ov)
     b.reset(
         0,
         [[0] * 8, [0] * 8],
@@ -99,9 +103,10 @@ def realised_doom(states, knight):
     return d, k
 
 
-def walking_scene(arm, knight_hp):
-    """The walking scenario, with its preconditions checked: (L, D, K, states, knight, dragon)."""
-    states, knight, dragon = play(arm, WALK_KNIGHT, WALK_DRAGON, knight_hp)
+def walking_scene(arm, knight_hp, hold=None):
+    """The walking scenario, with its preconditions checked: (L, D, K, states, knight, dragon). `hold`: a
+    targeting.PROJECTILE_HOLD_SCOPE arm by name, None the shipped one."""
+    states, knight, dragon = play(arm, WALK_KNIGHT, WALK_DRAGON, knight_hp, hold)
     fired = fire_ticks(states, dragon)
     assert fired, "the dragon never fired: the scenario drifted"
     lt = fired[0]
@@ -139,8 +144,11 @@ def test_a_walking_attacker_drops_a_doomed_target_it_has_shot_at():
 
 
 def test_the_shipped_arm_keeps_the_doomed_target():
-    """projectile_attackers_rescan: the dragon has fired at the Knight, so it keeps it while it walks."""
-    _, dt, states, knight, dragon = walking_scene(SHIPPED_ARM, 248)
+    """projectile_attackers_rescan: the dragon has fired at the Knight, so it keeps it while it walks. Under the hold
+    scope every_tick, by name: the shipped client_troop_in_attack (the 2026-09-28 flip) holds nothing for a walking
+    dragon past its keep reach, so both arms of this key drop the Knight there (tests/doomed_target_drop.rs case 6
+    selects the same)."""
+    _, dt, states, knight, dragon = walking_scene(SHIPPED_ARM, 248, hold="every_tick")
     assert states[dt + 1][0][dragon][F["target_uid"]] == knight
 
 
