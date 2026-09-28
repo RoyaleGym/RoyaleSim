@@ -137,7 +137,7 @@ def test_the_one_division_arm_puts_the_unpushed_wave_on_its_point():
     assert p0 == lower_y_point(False), f"one_division: the first wave stands at {p0}, not {lower_y_point(False)}"
 
 
-def test_both_keys_ship_at_their_old_arms():
+def test_both_keys_ship_at_their_new_arms():
     spawner = json.loads(LEDGER.read_text(encoding="utf-8"))["spawner"]
-    assert spawner["LIFE_STATE_FIRST_UPDATE"]["value"] == FIRST_OLD
-    assert spawner["LIFE_STATE_WAVE_POINT"]["value"] == POINT_OLD
+    assert spawner["LIFE_STATE_FIRST_UPDATE"]["value"] == FIRST_NEW
+    assert spawner["LIFE_STATE_WAVE_POINT"]["value"] == POINT_NEW

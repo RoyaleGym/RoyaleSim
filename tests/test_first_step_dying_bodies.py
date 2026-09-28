@@ -171,7 +171,7 @@ def test_with_nobody_dying_beside_it_both_arms_step_alike():
     )
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
-    assert ledger["spawner"]["FIRST_STEP_DYING_BODIES"]["value"] == OLD_ARM
-    assert death_scene(None) == death_scene(OLD_ARM), "the build's own value is not hidden"
+    assert ledger["spawner"]["FIRST_STEP_DYING_BODIES"]["value"] == NEW_ARM
+    assert death_scene(None) == death_scene(NEW_ARM), "the build's own value is not client16402_seen"

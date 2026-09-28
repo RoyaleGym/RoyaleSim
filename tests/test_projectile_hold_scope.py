@@ -260,7 +260,7 @@ def test_a_troop_in_its_attack_holds_a_leaving_target(arm):
     assert not lost, f"{arm}: the Musketeer in its attack let the leaving Hog go inside its hold: {lost}"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["PROJECTILE_HOLD_SCOPE"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]

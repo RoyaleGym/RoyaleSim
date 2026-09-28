@@ -137,7 +137,7 @@ def test_a_baby_dragon_stops_inside_both_radii(arm):
     assert SHORT < d <= LONG, f"{arm}: on {t} the Baby Dragon stopped {d:.1f} from the Knight, not in ({SHORT}, {LONG}]"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["VARIABLE_DAMAGE_WALK_REACH"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]

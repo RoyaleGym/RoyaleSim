@@ -150,7 +150,7 @@ def test_the_old_arm_is_todays_engine():
     assert not hits, f"the Cannon was hit under the old arm: {hits}"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["combat"]["NON_HOMING_AIM"]
-    assert entry["value"] == OLD_ARM, entry["value"]
+    assert entry["value"] == NEW_ARM, entry["value"]
     assert set(entry["candidates"]) == {OLD_ARM, NEW_ARM}, entry["candidates"]

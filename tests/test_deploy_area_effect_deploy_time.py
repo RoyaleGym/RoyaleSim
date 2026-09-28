@@ -90,7 +90,7 @@ def test_a_knight_and_a_scenario_wizard_are_the_same_under_both_arms():
     )
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
-    assert ledger["spells"]["DEPLOY_AREA_EFFECT_DEPLOY_TIME"]["value"] == OLD_ARM
-    assert first_move("IceWizard", None) == first_move("IceWizard", OLD_ARM), "the build's own value is not the old arm"
+    assert ledger["spells"]["DEPLOY_AREA_EFFECT_DEPLOY_TIME"]["value"] == NEW_ARM
+    assert first_move("IceWizard", None) == first_move("IceWizard", NEW_ARM), "the build's own value is not the new arm"

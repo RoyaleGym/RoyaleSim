@@ -126,7 +126,7 @@ def test_an_enemy_in_sight_but_farther_than_the_tower_is_not_taken(arm):
     assert not taken, f"{arm}: the Knight took a Cannon in sight but farther than its tower: {taken[:3]}"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry_ = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["TARGET_RANK_DISTANCE"]
-    assert entry_["value"] == OLD_ARM
+    assert entry_["value"] == NEW_ARM
     assert entry_["candidates"] == [OLD_ARM, NEW_ARM]

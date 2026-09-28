@@ -130,8 +130,8 @@ def test_a_knight_that_attacks_after_the_drag_runs_the_same_under_both_arms():
     assert track(new) == track(old), "a Knight dragged and then attacking walked differently under the two arms"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["combat"]["HOOK_DRAG_ROUTE"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]
-    assert entry["status"] == "hypothesis"
+    assert entry["status"] == "measured"

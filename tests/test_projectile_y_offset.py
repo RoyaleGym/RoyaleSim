@@ -151,8 +151,8 @@ def test_the_moved_start_lands_the_first_hit_a_tick_earlier():
     )
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     ledger = json.loads(LEDGER.read_text(encoding="utf-8"))
     entry = ledger["combat"]["PROJECTILE_Y_OFFSET"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert set(entry["candidates"]) == {OLD_ARM, NEW_ARM}

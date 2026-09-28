@@ -141,6 +141,6 @@ def test_without_a_drop_the_two_arms_walk_the_same_track():
     assert not parted, f"the arms part with nothing dropped: {parted[:3]}"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
-    assert ledger["pathfinding"]["AVOIDANCE_DROP_SEGMENT"]["value"] == OLD_ARM
+    assert ledger["pathfinding"]["AVOIDANCE_DROP_SEGMENT"]["value"] == NEW_ARM

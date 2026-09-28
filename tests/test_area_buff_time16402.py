@@ -3,11 +3,12 @@
 WHAT THIS PINS. On the 16.402 corpus a Freeze holds what it hits for 70 ticks, where the 15.535.29 tables' BuffTime
 4000 holds it 80: the walking Knights of 20260920-005517 (cast on 703) and 20260920-010218 (cast on 312, both seats)
 stand still through the cast + 70 and walk again (the engine: through + 80), and the Tombstone of 20260920-070448,
-frozen on 3120 with a Skeleton due, releases it on 3191 (the engine: 3201). 3500 ms is 70 ticks. The column is not
-listed in the shipped value.values: this key ships client16402, and each test lists it itself, as an override would.
+frozen on 3120 with a Skeleton due, releases it on 3191 (the engine: 3201). 3500 ms is 70 ticks. The shipped
+value.values lists Freeze 3500 and IceGolemite 2500 (the 2026-09-28 flip); each scene starts from that list WITHOUT its
+AreaBuffTime rows, so "unlisted" means the tables' BuffTime, and lists its own, as an override would.
 
 THE CHECKS. A Blue Knight walks up the left lane and a Red Freeze lands on it. With Freeze AreaBuffTime 3500 listed it
-stands still for 70 ticks; under the shipped list, and under the old arm, for 80. An Ice Golem's death area takes the
+stands still for 70 ticks, and so under the shipped list; under the old arm, for 80. An Ice Golem's death area takes the
 column too: listed at 2500, the slow it hangs on a Tombstone beside it starts at 2500 ms (the tables: 2000).
 
 PLANTS. Each is a cfg in the engine source, aimed at the tests named. Prove one on a plant build of the module in a
@@ -38,7 +39,8 @@ def overrides(arm, listed):
         return {}
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
     value = ledger["cards"]["CLIENT16402_VALUES"]["value"]
-    values = {card: dict(cols) for card, cols in value["values"].items()}
+    values = {card: {c: v for c, v in cols.items() if c != "AreaBuffTime"} for card, cols in value["values"].items()}
+    values = {card: cols for card, cols in values.items() if cols}
     for card, cols in listed.items():
         values.setdefault(card, {}).update(cols)
     return {KEY: json.dumps({**value, "arm": arm, "values": values})}
@@ -83,12 +85,16 @@ def test_a_listed_freeze_holds_for_its_16402_buff_time():
     )
 
 
-def test_the_shipped_list_and_the_old_arm_hold_for_the_tables_buff_time():
+def test_the_shipped_list_holds_the_16402_buff_time_and_the_old_arm_the_tables():
     shipped = freeze_hold(None, {})
+    listed = freeze_hold("client16402", {"Freeze": {"AreaBuffTime": FREEZE_16402}})
     old_arm = freeze_hold("none", {"Freeze": {"AreaBuffTime": FREEZE_16402}})
-    assert shipped == old_arm, f"the shipped list held the Knight {shipped} ticks and the old arm {old_arm}"
+    assert shipped == listed, f"the shipped list held the Knight {shipped} ticks and the listed Freeze {listed}"
+    assert old_arm == listed + 10, f"the old arm held the Knight {old_arm} ticks, not the tables' {listed + 10}"
     ledger = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
-    assert "Freeze" not in ledger["cards"]["CLIENT16402_VALUES"]["value"]["values"], "the shipped list names the Freeze"
+    values = ledger["cards"]["CLIENT16402_VALUES"]["value"]["values"]
+    rows = {card: cols["AreaBuffTime"] for card, cols in values.items() if "AreaBuffTime" in cols}
+    assert rows == {"Freeze": FREEZE_16402, "IceGolemite": GOLEM_SLOW_16402}, rows
 
 
 def golem_slow_ms(arm, listed):

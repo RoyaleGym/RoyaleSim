@@ -209,7 +209,7 @@ def test_the_old_arm_demotes_boxed_cells_for_a_flyer(arm):
     assert off(rows, demoted=True) == [], "old arm: a Mega Minion goal off the demoted scan"
 
 
-def test_the_shipped_value_is_the_old_arm():
+def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["pathfinding"]["FLYER_GOAL_BUILDINGS"]
-    assert entry["value"] == OLD_ARM
+    assert entry["value"] == NEW_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM]
