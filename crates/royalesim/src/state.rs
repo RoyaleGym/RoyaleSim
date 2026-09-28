@@ -271,6 +271,10 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// status.ATTRACT_ONSET (`phase_path16402`'s attract pre-pass; spell.rs `step_spells`): the tick a pulling area's first
+    /// pull moves a unit. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "attract_onset_default")]
+    pub attract_onset: AttractOnset,
     /// combat.RETARGET_WAIT_WHILE_HELD (`phase_target`): whether a stun or freeze pauses the post-kill wait. Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "retarget_wait_while_held_default")]
@@ -1168,6 +1172,10 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn attract_onset_default() -> AttractOnset {
+    AttractOnset::AreaFirstTick
 }
 
 fn retarget_wait_while_held_default() -> RetargetWaitWhileHeld {
@@ -3059,6 +3067,21 @@ calib_enum!(
         /// frozen t317..t338, reads progress 0 on t343 and takes its next target on t344, the loss + 6 in unfrozen
         /// ticks; the engine took it on t340, the first tick after the freeze.
         ClientPaused = "client_paused",
+    }
+);
+calib_enum!(
+    /// status.ATTRACT_ONSET -- on which ticks a pulling area effect (status.ATTRACT_LAW; the Tornado) moves its victims:
+    /// the ticks of its own life, or each one a tick later (`phase_path16402`'s attract pre-pass; spell.rs `step_spells`,
+    /// which keeps such an area one more tick, applying nothing, so its last pull still moves).
+    AttractOnset {
+        /// Today's engine: a unit is pulled on every tick the area lives, from the area's first tick (its cast tick D):
+        /// 21 moves, D..D + 20.
+        AreaFirstTick = "area_first_tick",
+        /// The pull is written on one tick and moves the unit on the next: each of the area's ticks moves its victims one
+        /// tick later, D + 1..D + 21, the same 21 moves. Read off client 15.535.29's sweep-Tornado (a Knight pulled on
+        /// D + 1..D + 21, damage on D + 11 in both engines) and the two casts of the 16.402 corpus's 20260920-081819,
+        /// where the client's collision accumulator holds the pull a tick before the unit moves by it.
+        ClientNextTick = "client_next_tick",
     }
 );
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
@@ -5218,6 +5241,7 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            attract_onset: pick(&v, &["status", "ATTRACT_ONSET", "value"], AttractOnset::from_calibration_name)?,
             retarget_wait_while_held: pick(&v, &["combat", "RETARGET_WAIT_WHILE_HELD", "value"], RetargetWaitWhileHeld::from_calibration_name)?,
             retarget_wait_reach_loss: pick(&v, &["combat", "RETARGET_WAIT_REACH_LOSS", "value"], RetargetWaitReachLoss::from_calibration_name)?,
             clone_copy_deploy: pick(&v, &["spells", "CLONE_COPY_DEPLOY", "value"], CloneCopyDeploy::from_calibration_name)?,
@@ -11270,20 +11294,29 @@ impl BattleState {
         // THE SOURCE IS THE LIVE AREA EFFECT, NEVER THE BUFF SLOT. With BuffTime 500 ms
         // and CapBuffTimeToAreaEffectTime false, the last application outlives the area
         // by ten ticks -- and the Giant's displacement is exactly (0, 0) on two of them.
+        // status.ATTRACT_ONSET = client_next_tick: an area pulls on the tick AFTER each of its updates, so the pre-pass
+        // takes an area once it has updated (its life below the whole) and still on the tick after its last update,
+        // when spell.rs `step_spells` has kept it with its life at 0 (`attract_lags`). area_first_tick (today's engine)
+        // takes it from its first tick through its last.
+        #[cfg(not(clash_plant = "attract_onset_area_first_tick"))]
+        let lag = self.cfg.calib.attract_onset == AttractOnset::ClientNextTick;
+        #[cfg(clash_plant = "attract_onset_area_first_tick")]
+        let lag = false; // PLANT (regression): the new arm pulls from the area's first tick.
         let attract: Vec<(i32, i32)> = {
             let sources: Vec<AttractSource> = self
                 .spells
                 .iter()
                 .filter_map(|s| {
                     let crate::spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
-                    if p.life_ms <= 0 {
-                        return None;
-                    }
-                    let Some(crate::card::SpellShape::PulsingAreaEffect { hit, .. }) =
+                    let Some(crate::card::SpellShape::PulsingAreaEffect { hit, life_ms: whole, .. }) =
                         crate::spell::shape_of(self.cfg.cards.get(s.card)).and_then(|d| crate::spell::shape_at(&d.shape, s.depth))
                     else {
                         return None;
                     };
+                    let live = if lag { p.life_ms < *whole && p.life_ms > -self.cfg.calib.tick_ms } else { p.life_ms > 0 };
+                    if !live {
+                        return None;
+                    }
                     // `buff` or `buff2`, whichever pulls (the loader's second buff never does today).
                     let pct = [hit.buff, hit.buff2].into_iter().flatten().map(|b| self.cfg.cards.buffs[b.buff as usize].attract_pct).find(|p| *p != 0).unwrap_or(0);
                     if pct == 0 {
@@ -14996,6 +15029,11 @@ impl BattleState {
             .iter()
             .filter_map(|s| {
                 let spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
+                // An area kept one tick past its life for its last pull (status.ATTRACT_ONSET = client_next_tick) has
+                // ended: its bound buffs go as they did before that key.
+                if p.life_ms <= 0 {
+                    return None;
+                }
                 let def = spell::shape_of(self.cfg.cards.get(s.card))?;
                 let crate::card::SpellShape::PulsingAreaEffect { hit, .. } = &def.shape else { return None };
                 Some([hit.buff, hit.buff2].into_iter().flatten().map(|b| (p.pos, b.buff + 1)).collect::<Vec<_>>())
@@ -18656,6 +18694,9 @@ impl BattleState {
 /// 20, unchanged, combat.RETARGET_WAIT_WHILE_HELD: Calib gained retarget_wait_while_held (serde default the old arm,
 ///    runs_through), no new state (the new arm holds the saved and hashed retarget_wait on held ticks), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.ATTRACT_ONSET: Calib gained attract_onset (serde default the old arm, area_first_tick), no new
+///    state (under the new arm a pulling area stays in the saved and hashed spell list one more tick, with its life at 0),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19160,6 +19201,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // status.ATTRACT_ONSET: a format-3 battle pulled from the area's first tick; it keeps that whatever the ledger ships
+    // (the same rule).
+    sh.insert("attract_onset".into(), serde_json::to_value(AttractOnset::AreaFirstTick).map_err(|e| e.to_string())?);
     // combat.RETARGET_WAIT_WHILE_HELD: a format-3 battle's wait counted every tick; it keeps that whatever the ledger ships
     // (the same rule).
     sh.insert("retarget_wait_while_held".into(), serde_json::to_value(RetargetWaitWhileHeld::RunsThrough).map_err(|e| e.to_string())?);

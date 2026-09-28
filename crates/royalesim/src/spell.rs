@@ -727,6 +727,13 @@ pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &
     }
 }
 
+/// status.ATTRACT_ONSET = client_next_tick, and `hit` pulls (one of its buffs carries an AttractPercentage): the area is
+/// kept one tick past its life for its last pull (`step_spells`). False under area_first_tick and for every other area.
+fn attract_lags(ctx: &SpellCtx, hit: &SpellHit) -> bool {
+    ctx.calib.attract_onset == crate::state::AttractOnset::ClientNextTick
+        && [hit.buff, hit.buff2].into_iter().flatten().any(|b| ctx.cards.buffs.get(b.buff as usize).is_some_and(|d| d.attract_pct != 0))
+}
+
 /// A PULSING AREA'S CLOCK at one application (status.AREA_BUFF_SOURCE_BINDING): where it stands,
 /// its age -- TICK_MS on its landing tick, one TICK_MS more every tick after -- the life it has
 /// left, this tick included, and its HitSpeed, the period between two of its applications (0 for
@@ -1636,7 +1643,10 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 }
                 p.next_ms -= tick;
                 p.life_ms -= tick;
-                p.life_ms > 0
+                // status.ATTRACT_ONSET = client_next_tick: a pulling area stays one tick past its life, applying nothing
+                // (the loop above needs life left), so that its last update's pull moves its victims on the next tick
+                // (state.rs `phase_path16402`); it goes on that tick's update.
+                p.life_ms > 0 || (attract_lags(ctx, hit) && p.life_ms > -tick)
             }
             (SpellMotion::Airborne { pos, aim, frac, roll_start, roll_len }, SpellShape::Rolling { airborne_speed, .. }) => {
                 let (np, _) = advance(*pos, *aim, airborne_speed * mult, frac);
