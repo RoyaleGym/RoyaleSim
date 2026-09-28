@@ -116,21 +116,7 @@ const ROW: usize = 8;
 /// The rows this change makes loadable that its parent refused while converting them,
 /// as (table file, card name). Empty in a change that loads no card. The rule is in the
 /// header (LOADED_SINCE_PARENT): never a row the parent refused after pushing it.
-const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
-    // the Skeleton Barrel: refused in `convert` at the parent (its container's action graph)
-    ("cards.json", "SkeletonBalloon"),
-    // the scheduled areas: the Graveyard refused in `convert_spell`, the Suspicious Bush in `convert` (its blank idle
-    // time), both at the parent. The Lumberjack is not listed: the parent refused it after its push, by its death
-    // area, so it kept its slot, and its bottle loads no record of its own.
-    ("cards.json", "SuspiciousBush"),
-    ("cards.json", "Graveyard"),
-    // the riders off their mount's centre: refused in `convert` (`convert_attach`, its SpawnRadius) at the parent
-    ("cards.json", "GoblinGiant"),
-    // the Clone, the Vines and the Void: refused in `convert_spell` at the parent
-    ("cards.json", "Clone"),
-    ("cards.json", "DarkMagic"),
-    ("cards.json", "Vines"),
-];
+const LOADED_SINCE_PARENT: &[(&str, &str)] = &[];
 
 /// The battles a table may refuse to set up, as (table version, battle name, why that is
 /// accepted). Any other refusal fails the run that meets it, recording or checking: a
