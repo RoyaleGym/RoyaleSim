@@ -1044,10 +1044,11 @@ pub struct TraceRow {
     pub radius: Option<i32>,
     pub dist: Option<i32>,
     /// THE SIM'S HEADING AND AVOIDANCE OFFSET after this tick: facing x, y (length 256, the HEADING_LAW's integer
-    /// normalize) and the avoidance offset (-200..200). The recording carries the client's (`movement_direction`,
-    /// `avoidance_offset`), so a reader can tell which way each engine steered round the same blocker from the same
-    /// position. 20260918-124946's Ice Golem on t2302 and 20260918-122757.b2's Goblins on t1168 turn the other way from
-    /// identical positions, and the trace could not say why. Its own field, like `push`: absent is not zero.
+    /// normalize) and the avoidance offset (`EntityView::avoid_offset`). The recording carries the client's
+    /// (`movement_direction`, `avoidance_offset`), so a reader can tell which way each engine steered round the same
+    /// blocker from the same position. 20260918-124946's Ice Golem on t2302 and 20260918-122757.b2's Goblins on t1168
+    /// turn the other way from identical positions, and the trace could not say why. Its own field, like `push`: absent
+    /// is not zero.
     pub heading: Option<[i64; 3]>,
 }
 
