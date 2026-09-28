@@ -542,31 +542,35 @@ def test_the_committed_sample_is_what_the_maker_builds_from_its_capture(m, tmp_p
     assert "STALE" in run.stdout, run.stdout + run.stderr
 
 
-def test_a_hero_deploy_is_read_off_its_units_card_class_and_nothing_else_is_guessed(m):
-    """A DEPLOY'S FORM: class 203 names the hero row; a plain card id is not read as the base form (an
-    evolved play's units may carry it), and a class-203 id with no row is not guessed."""
-    rows = {203000014: "Musketeer_hero"}
-    assert m.deploy_form(203000014, rows) == {"form": "hero", "form_row": "Musketeer_hero"}
-    assert m.deploy_form(26000014, rows) == {}
-    assert m.deploy_form(203000099, rows) == {}
-    assert m.FORMS_READ["hero"]
-    assert m.FORMS_READ["ev1"] is None
-    assert m.FORMS_READ["base"] is None
+def test_a_deploy_s_form_is_read_off_its_units_card_class(m):
+    """A DEPLOY'S FORM: class 13 names the evolved row, class 203 the hero row, a plain id the base card; a form id
+    with no row is not guessed."""
+    rows = {13000010: "Skeletons_EV1", 203000014: "Musketeer_hero"}
+    assert m.deploy_form(13000010, rows, "Skeletons") == {"form": "ev1", "form_row": "Skeletons_EV1"}
+    assert m.deploy_form(203000014, rows, "Musketeer") == {"form": "hero", "form_row": "Musketeer_hero"}
+    assert m.deploy_form(26000010, rows, "Skeletons") == {"form": "base", "form_row": "Skeletons"}
+    assert m.deploy_form(13000099, rows, "Skeletons") == {}
+    assert m.deploy_form(203000099, rows, "Musketeer") == {}
+    assert set(m.FORMS_READ) == {"ev1", "hero", "base"}
 
 
-def test_the_hero_rows_are_named_by_their_class_203_ids(m):
-    """203000014 is the hero Musketeer on client 16.402; the rows count as the id table's do."""
+def test_the_form_rows_are_named_by_their_class_13_and_203_ids(m):
+    """The ids oracle's scenes and the live captures saw; the id table names a form unit by its base card."""
     if m.missing_id_files():
-        pytest.skip("SKIPPED, NOT PASSED: the 15.535.29 pack is absent, so the hero rows cannot be read")
-    rows = m.load_hero_rows()
+        pytest.skip("SKIPPED, NOT PASSED: the 15.535.29 pack is absent, so the form rows cannot be read")
+    rows = m.load_form_rows()
+    assert rows[13000010] == "Skeletons_EV1"
+    assert rows[13000014] == "Musketeer_EV1"
+    assert rows[13000096] == "Cannon_EV1"
     assert rows[203000014] == "Musketeer_hero"
     assert rows[203000038] == "IceGolemite_hero"
-    assert m.load_id_table()[203000014] == "Musketeer"
+    table = m.load_id_table()
+    assert (table[13000010], table[13000096], table[203000014]) == ("Skeletons", "Cannon", "Musketeer")
 
 
 def test_the_corpus_hero_musketeer_is_published_as_a_hero(m, tmp_path):
     """20260918-122757.b2: side 0's Musketeer slot is the hero form (the reader's forms[] = 2) and its two plays
-    (1348, 3432) put units of 203000014 on the board; side 1's two Musketeers are plain and carry no `form`.
+    (1348, 3432) put units of 203000014 on the board; side 1's two Musketeers are plain (base).
     SKIPS, LOUDLY, without ROYALELIVE_REPORTS or the 15.535.29 pack: a skip here is not a pass."""
     reports = os.environ.get("ROYALELIVE_REPORTS")
     if not reports or m.missing_id_files() or m.capture_named("20260918-122757.b2", reports) is None:
@@ -587,7 +591,7 @@ def test_the_corpus_hero_musketeer_is_published_as_a_hero(m, tmp_path):
     ]
     hero = [(1348, 0, "hero", "Musketeer_hero"), (3432, 0, "hero", "Musketeer_hero")]
     assert [x for x in musketeers if x[1] == 0] == hero
-    assert [x for x in musketeers if x[1] == 1] == [(1518, 1, None, None), (2732, 1, None, None)]
+    assert [x for x in musketeers if x[1] == 1] == [(1518, 1, "base", "Musketeer"), (2732, 1, "base", "Musketeer")]
     assert fx["forms_read"] == m.FORMS_READ
 
 
@@ -1050,7 +1054,7 @@ def maker_inputs(m):
     # load_id_table refuses without the pack; the tests that need it skip (_skip_without_the_id_table)
     id_table = {} if m.missing_id_files() else m.load_id_table()
     card_names = {c["name"] for c in doc["cards"]}
-    name_to_id = {n: c for c, n in sorted(id_table.items(), reverse=True) if n in card_names}
+    name_to_id = m.base_ids(id_table, card_names)
     return id_table, doc, name_to_id, card_names
 
 

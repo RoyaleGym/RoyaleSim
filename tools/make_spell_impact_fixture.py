@@ -85,6 +85,7 @@ from make_replay_fixture import (  # noqa: E402
     CAST_GAP_TICKS,
     TAP_MAX,
     TAP_MIN,
+    base_ids,
     load_id_table,
     missing_id_files,
     placement_files_for,
@@ -285,9 +286,7 @@ def tap_casts(path: str, casts: list[dict], names: dict[int, str]) -> list[dict]
         return []
     with open(CARDS, encoding="utf-8") as fh:
         card_names = {c["name"] for c in json.load(fh)["cards"]}
-    name_to_id = {}
-    for cid, n in names.items():
-        name_to_id.setdefault(n, cid)
+    name_to_id = base_ids(names, card_names)
     taps, _ = read_placements(files, card_names, name_to_id)
     out = []
     for t in taps:

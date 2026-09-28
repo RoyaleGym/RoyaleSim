@@ -67,13 +67,17 @@ THE SIDE CONVENTION (written into every fixture as `frame`)
     tie-break than the game ran.
 
 A DEPLOY'S FORM (`form`, `form_row`, and the fixture's `forms_read`)
-    A hero play's units carry the hero row's own card id, class 203 (203000014, the hero
-    Musketeer: every play of a hero-form slot in five battles on client 16.402), so such a
-    deploy is published with `form` "hero" and `form_row` the spells_hero_form.csv row
-    (Musketeer_hero). No other form is read: what an evolved play's units carry has never
-    been recorded, and which cards can evolve differs between clients. So every other
-    deploy carries no `form`, and `forms_read` lists what was read ({"hero": how,
-    "ev1": null, "base": null}). An absent `form` means "not read", never "base".
+    A play's units carry its form's own card id: class 13 for an evolved play (the
+    spells_evolved.csv row: Skeletons_EV1 13000010, Musketeer_EV1 13000014, Cannon_EV1
+    13000096, measured on client 15.535.29 in scripted scenes), class 203 for a hero play
+    (spells_hero_form.csv: 203000014 the hero Musketeer on every play of a hero-form slot in
+    five battles on client 16.402), and the plain card id for a base play. So each deploy is
+    published with `form` "ev1", "hero" or "base" and `form_row` the form's row
+    (Skeletons_EV1, Musketeer_hero, Skeletons), and the id table names a class-13 unit by its
+    base card, as it does a class-203 one. `forms_read` says how each form was read. No
+    evolved play is recorded on client 16.402 yet. OPEN: the copies an evolved unit makes
+    (Skeleton_EV1's SkeletonDuplication) carry the evolved id and the card's own hp, so they
+    would be taken for untapped deploys; no 16.402 capture holds one to measure the rule.
 
 DEPLOYS VERSUS SPAWNS
     A truth entity carries its CARD's id even when it was not deployed: Tombstone
@@ -371,23 +375,29 @@ KIND_TROOP_DEPLOYING = 14
 # Spell cards are class 28 of Supercell's global ids (class x 1_000_000 + row); the id
 # table is the row order of the 15.535 spells_*.csv files per class.
 SPELL_CLASS = 28
+EVO_CLASS = 13
 HERO_CLASS = 203
-ID_CLASSES = {
+ID_CLASSES = {  # base classes first: a reader that keeps the first id per name keeps the base card's
     26: "spells_characters.csv",
     27: "spells_buildings.csv",
     28: "spells_other.csv",
+    EVO_CLASS: "spells_evolved.csv",
     HERO_CLASS: "spells_hero_form.csv",
 }
-# A DEPLOY'S FORM. A hero play's units carry the hero row's own card id (class 203): measured on
-# client 16.402 on the Musketeer, 203000014 on every play of a hero-form slot in five battles. What
-# card id an evolved play's units carry has never been recorded, and which cards can evolve differs
-# between clients (16.402's tables add evolutions 15.535.29's lack), so neither "ev1" nor "base" is
-# read: a deploy is marked "hero" from its units' class, and any other deploy carries no `form`. The
-# fixture's `forms_read` says which forms were read. An absent `form` means "not read", never "base".
+# the suffix a form's row adds to its base card's name, per form class
+FORM_SUFFIX = {EVO_CLASS: "_EV1", HERO_CLASS: "_hero"}
+# A DEPLOY'S FORM. A play's units carry its form's own card id: an evolved play's are of class 13
+# (the spells_evolved.csv row: Skeletons_EV1 13000010, Musketeer_EV1 13000014, Cannon_EV1 13000096,
+# measured on client 15.535.29 in scripted scenes), a hero play's of class 203 (the
+# spells_hero_form.csv row: 203000014 on every play of a hero-form slot in five battles on client
+# 16.402, and 203000038 the hero Ice Golem on 15.535.29), and a base play's the plain card id. So a
+# deploy is published with `form` "ev1", "hero" or "base" read off its units' class, and
+# `form_row` the form's row. No evolved play is recorded on client 16.402 yet; the fixture's
+# `forms_read` says how each form is read.
 FORMS_READ = {
+    "ev1": "the units' card id is of class 13 (measured on client 15.535.29)",
     "hero": "the units' card id is of class 203",
-    "ev1": None,
-    "base": None,
+    "base": "the units carry the plain card id (class 26, 27 or 28)",
 }
 # Tap window: a group first seen in [tap + TAP_MIN, tap + TAP_MAX] belongs to that tap
 # (measured latency 23-38 ticks over the corpus; the game also refuses the
@@ -473,28 +483,46 @@ def load_id_table() -> dict[int, str]:
         with open(path, encoding="utf-8-sig") as fh:
             rows = [r[0].strip() for r in list(csv.reader(fh))[2:] if r and r[0].strip()]
         for ix, name in enumerate(rows):
-            base = name[: -len("_hero")] if cls == HERO_CLASS and name.endswith("_hero") else name
+            suffix = FORM_SUFFIX.get(cls)
+            base = name[: -len(suffix)] if suffix and name.endswith(suffix) else name
             table.setdefault(cls * 1_000_000 + ix, base)
     return table
 
 
-def load_hero_rows() -> dict[int, str]:
-    """The hero row's name (spells_hero_form.csv, e.g. Musketeer_hero) by its class-203 card id, counting
-    rows as `load_id_table` does. Refuses when the file is absent."""
-    path = os.path.join(RAW, ID_CLASSES[HERO_CLASS])
-    if not os.path.exists(path):
-        raise SystemExit(f"the 15.535.29 pack lacks {path}: deploy forms cannot be read")
-    with open(path, encoding="utf-8-sig") as fh:
-        names = [r[0].strip() for r in list(csv.reader(fh))[2:] if r and r[0].strip()]
-    return {HERO_CLASS * 1_000_000 + ix: name for ix, name in enumerate(names)}
+def load_form_rows() -> dict[int, str]:
+    """The form row's name (spells_evolved.csv Musketeer_EV1, spells_hero_form.csv Musketeer_hero) by its
+    class-13 or class-203 card id, counting rows as `load_id_table` does. Refuses when a file is absent."""
+    rows: dict[int, str] = {}
+    for cls in FORM_SUFFIX:
+        path = os.path.join(RAW, ID_CLASSES[cls])
+        if not os.path.exists(path):
+            raise SystemExit(f"the 15.535.29 pack lacks {path}: deploy forms cannot be read")
+        with open(path, encoding="utf-8-sig") as fh:
+            names = [r[0].strip() for r in list(csv.reader(fh))[2:] if r and r[0].strip()]
+        rows.update({cls * 1_000_000 + ix: name for ix, name in enumerate(names)})
+    return rows
 
 
-def deploy_form(card_id: int, hero: dict[int, str]) -> dict:
-    """The `form` and `form_row` of a deploy whose units carry `card_id`: a hero's from its class-203 id,
-    and {} for every other deploy, whose form is not read (FORMS_READ)."""
-    if card_id // 1_000_000 == HERO_CLASS and card_id in hero:
-        return {"form": "hero", "form_row": hero[card_id]}
-    return {}
+def deploy_form(card_id: int, form_rows: dict[int, str], base_name: str | None = None) -> dict:
+    """The `form` and `form_row` of a deploy whose units carry `card_id` (A DEPLOY'S FORM): "ev1" for
+    class 13, "hero" for class 203, "base" for a plain card id (its row is the card itself); {} for a
+    form id with no row, which is not guessed."""
+    cls = card_id // 1_000_000
+    if cls in FORM_SUFFIX:
+        if card_id not in form_rows:
+            return {}
+        return {"form": "ev1" if cls == EVO_CLASS else "hero", "form_row": form_rows[card_id]}
+    return {"form": "base", "form_row": base_name} if base_name else {}
+
+
+def base_ids(id_table: dict[int, str], card_names: set[str]) -> dict[str, int]:
+    """Card name -> its base card id (class 26, 27 or 28). A form's id (class 13 evolved, 203 hero) names the
+    same card and is never its base id: a tap log records the base id, and a play of any form answers it."""
+    return {
+        name: cid
+        for cid, name in sorted(id_table.items(), reverse=True)
+        if name in card_names and cid // 1_000_000 not in FORM_SUFFIX
+    }
 
 
 def display_names(cards: list[dict]) -> dict[str, str]:
@@ -1396,14 +1424,14 @@ def build(
     card_names: set[str],
     seats: dict[str, str] | None = None,
     nominal: dict[tuple[str, int], list[tuple[int, int]]] | None = None,
-    hero_rows: dict[int, str] | None = None,
+    form_rows: dict[int, str] | None = None,
 ) -> dict:
     # the nominal offsets of a recovered tile (RECOVERED TILE): the committed measurement unless the caller hands some
     if nominal is None:
         nominal = load_nominal_offsets()
-    # the hero rows (A DEPLOY'S FORM); without the 15.535 pack no deploy's form is read
-    if hero_rows is None and not missing_id_files():
-        hero_rows = load_hero_rows()
+    # the evolved and hero rows (A DEPLOY'S FORM); without the 15.535 pack no deploy's form is read
+    if form_rows is None and not missing_id_files():
+        form_rows = load_form_rows()
     header, raw_frames = read_capture(capture)
     frames, dup, back = dedupe(raw_frames)
     if until_tick is not None:
@@ -1636,7 +1664,7 @@ def build(
         cy = sum(e["y0"] for e in members) // len(members)
         tap_ix = None
         for ix, t in enumerate(taps):
-            if ix in used_taps or t["kind"] != "deploy" or t["side"] != side or t["id"] != cid:
+            if ix in used_taps or t["kind"] != "deploy" or t["side"] != side or t["id"] != name_to_id.get(name0, cid):
                 continue
             if t["tick"] + TAP_MIN <= first_seen <= t["tick"] + TAP_MAX:
                 tap_ix = ix
@@ -1660,7 +1688,7 @@ def build(
             "families": sorted(
                 (register.get("cards", {}).get(name) or {}).get("families", {}).keys()
             ),
-            **(deploy_form(cid, hero_rows) if hero_rows is not None else {}),
+            **(deploy_form(cid, form_rows, name) if form_rows is not None else {}),
         }
         if tap_ix is not None:
             t = taps[tap_ix]
@@ -1718,7 +1746,7 @@ def build(
             if ix not in used_taps
             and t["kind"] == "deploy"
             and t["side"] == side
-            and t["id"] == cid
+            and t["id"] == name_to_id.get(members[0]["card"], cid)
             and t["tick"] + TAP_MIN <= tick <= t["tick"] + TAP_MAX
         ]
         name = members[0]["card"]
@@ -2090,7 +2118,7 @@ def build(
             "tower_level": {str(s): tower_level[s] for s in (0, 1)},
             "card_levels": card_levels,
             "decks": script_decks,
-            "forms_read": FORMS_READ if hero_rows is not None else {},
+            "forms_read": FORMS_READ if form_rows is not None else {},
             "deploys": deploys,
             "spawned_groups": spawned_groups,
             "unresolved": unresolved,
@@ -2201,9 +2229,7 @@ def main() -> int:
     id_table = load_id_table()
     card_names = {c["name"] for c in doc["cards"]}
     # the base class id per card name (a hero-form id, class 203, names the same card)
-    name_to_id = {
-        name: cid for cid, name in sorted(id_table.items(), reverse=True) if name in card_names
-    }
+    name_to_id = base_ids(id_table, card_names)
     census = load_census(args.out)
     nominal = load_nominal_offsets()
     captures = (
