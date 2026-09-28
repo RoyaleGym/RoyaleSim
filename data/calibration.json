@@ -229,7 +229,7 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> attack_range_rule); target.rs in_attack_range takes the attacker's radius and adds it under the shipped arm (every caller: combat.rs attack_step, the Path phase's attacking test, the sight scan, keep-target, the lock hold, the wake trigger); the goal reach was already Range + own R. The old arm stays runnable as range_plus_target_radius (the regression plant reach_without_own_radius forces it). tests/reach.rs pins the stop distances from the card data."
     },
     "VARIABLE_DAMAGE_WALK_REACH": {
-      "value": "range_plus_both_radii",
+      "value": "client16402_no_own_radius_walking",
       "candidates": ["range_plus_both_radii", "client16402_no_own_radius_walking"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm range_plus_both_radii, which is today's engine: its Inferno Dragon stops and starts to burn with the target 500 farther than the client's, on 31 of 31 corpus ticks and 16 of 16 client 15.535.29 ticks that separate the arms. HIGH that a walking Inferno Dragon's reach adds no radius of its own: 0 of 47 such ticks against it, and its goal cells stay within Range of the target (25 of 25 choices within 23). The arm is scoped to what was measured: it reads a flying row that sets VariableDamage2, which in the 15.535.29 tables is the Inferno Dragon's alone. That column is the one that separates the Inferno Dragon from every other attacker the records hold, but no other card with the column walks in any record: the Mighty Miner, a ground row that sets it, keeps its own radius under both arms, and a flying row added later with the column (the Inferno Dragon's evolution is not in these tables) would be reached by inference, not by measurement.",
@@ -267,7 +267,7 @@
       "provenance": "globals.csv"
     },
     "TARGET_RANK_DISTANCE": {
-      "value": "centre_minus_target_radius",
+      "value": "client16402_centre",
       "candidates": ["centre_minus_target_radius", "client16402_centre"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm centre_minus_target_radius, which is today's engine: a scan ranks its candidates by centre distance minus the candidate's collision radius, so a princess tower (radius 1000) or a king tower (1400) wins against a nearer troop or building, and it misses 18 of 578 walking switches of the 16.402 corpus. HIGH for client16402_centre: 577 of 578 walking switches, 3 of 9,249 non-switch ticks against it (each ending with no target because the enemy died on that tick), 21 of 21 acquisitions and 92 of 95 walking ticks where the two rankings name different enemies (the other 3 took neither), and 1 of 1 walker whose two rankings name different crown towers",
@@ -399,7 +399,7 @@
       "supersedes_globals": {"key": "LOGIC_PRESERVE_TARGET_IF_HIT_STARTED", "value": true, "why": "globals.csv's switch is on, for every attacker; measured on client 15.535.29 the hold covers projectile attackers only, so the value names that scope (see the provenance)"}
     },
     "PROJECTILE_HOLD_SCOPE": {
-      "value": "every_tick",
+      "value": "client_troop_in_attack",
       "candidates": ["every_tick", "client_troop_in_attack"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm every_tick, which is today's engine: a projectile troop walking to a target that stands past its keep reach but inside its hold (Range + both radii + 500) keeps it against a nearer enemy in sight; on the 16.402 corpus the client took the nearer enemy on 8 of 8 such samples. MEDIUM for client_troop_in_attack: no sample of either client contradicts it (16.402: walking, 8 of 8 took the nearer enemy; in its attack, 13 of 14 kept the target and the 14th had launched at it from beyond its reach; client 15.535.29: one walking event took the nearer enemy, 118 of 120 in-attack ticks kept the target), but the walking samples are 7 events in 4 battles, 4 of them a Goblin Hut wave member on its 8th frame, and the in-attack ones are 2 runs on 16.402 and, on client 15.535.29, mostly timing variants of two reach-loss scenes. The measured split is the client's behaviour state (attacking against walking); the arm reads the engine's attack phase (Calib::attack_holds) as its stand-in, and the two can part on the tick after a shot, when the engine's attacker with its target past reach goes idle: no sample on either client has that tick inside the hold. OPEN: a troop that has attacked its target and then walks after it inside the hold with a nearer enemy in sight (no sample on either client)",
@@ -1231,7 +1231,7 @@
       "engine": "path16402.rs choose_goal_cell's `water_demoted` argument: false only for a flying chaser under not_demoted (state.rs phase_path16402); a path search, which is a ground mover's, always passes true. Pinned by crates/royalesim/tests/goal_target.rs and tests/test_flyer_goal_water.py."
     },
     "FLYER_GOAL_BUILDINGS": {
-      "value": "demoted",
+      "value": "not_demoted",
       "candidates": ["demoted", "not_demoted"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm demoted, which is today's engine: a flying chaser's goal choice ranks every cell inside a building's box below the free cells in reach, as a ground chaser's does, and it fits 0 of the 4 client 16.402 goal choices (20 walk ticks) that separate the arms. MEDIUM for not_demoted: it fits all 4, all 20 walk ticks, and all 291 fresh flyer goal choices of the corpus. Only two flyers, in two battles, separate the arms, so the measured arm rests on two units.",
@@ -1299,7 +1299,7 @@
       "engine": "state.rs phase_path16402, the segment freeze and the reached-test pop of the walk step"
     },
     "AVOIDANCE_DROP_SEGMENT": {
-      "value": "refrozen",
+      "value": "client16402_kept",
       "candidates": ["refrozen", "client16402_kept"],
       "status": "measured",
       "confidence": "HIGH for client16402_kept on client 16.402 and client 15.535.29: every waypoint the avoidance scan dropped left the segment direction as it was, 11 of 11 drop records on 16.402 and 2 of 2 on 15.535.29, and every waypoint the reached test popped refroze it from the end-of-tick position, 42314 of 42314 and 21282 of 21282. The drops are few: the 11 records are 8 independent moments in 7 battles (two deploys give two members each, and one unit drops on two ticks), 10 with 15.535.29's. The pops are the null: on 23678 of the 16.402 pops and 8318 of the 15.535.29 ones only the end-of-tick refreeze fits; on the rest the kept or the start-of-tick direction is the same vector. refrozen is the engine before this key.",
@@ -1411,7 +1411,7 @@
       "engine": "the target and attack passes (the special state and its load), a drag state in the move pass, and the card extractor must carry SpecialRange, SpecialMinRange, SpecialLoadTime and the special projectile row"
     },
     "HOOK_DRAG_ROUTE": {
-      "value": "kept",
+      "value": "client16402_dropped",
       "candidates": ["kept", "client16402_dropped"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm kept, which is today's engine: a unit the hook dragged keeps the route it had before the drag, so it walks back to the waypoint it was heading for when the hook landed, which the drag left behind it. It fits 0 of the 2 client 16.402 drags of a unit that walks on. MEDIUM for client16402_dropped: it fits both, in both seats, and the route is gone on the frame after the drag on all 9 recorded drags whose victim held one (2 on client 16.402, 7 on client 15.535.29). Only the 2 drags of one Giant in one battle separate the arms in the engine, so the measured arm's effect rests on one unit.",
@@ -1630,7 +1630,7 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json -> projectile_launch); combat.rs fire places the projectile (CardDef::projectile_start_radius from cards.json projectile_start_radius_milli) and marks it fresh, step_projectiles skips a fresh projectile's first phase. The old arm stays runnable as attacker_centre_same_tick."
     },
     "PROJECTILE_Y_OFFSET": {
-      "value": "not_read",
+      "value": "client_forward_y",
       "candidates": ["not_read", "client_forward_y"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm not_read, which is today's engine: a King Tower's shot is born ProjectileStartRadius (750) from its centre toward the target and nowhere else, 400 short of where the client puts it on every king shot of the 16.402 corpus, so 58 of 251 followed flights land late. HIGH for client_forward_y on the King Tower: 413 of 413 first frames and 251 of 251 landings (one seat per battle, 41 battles), and the one number is the row's own ProjectileYOffset column. Other rows that set the column (tower troops, hero forms) are not measured",
@@ -1653,7 +1653,7 @@
       "engine": "combat.rs `fire` (the carrier), `step_projectiles` (its fixed aim, its landing) and `release_sparks`; card.rs SparkDef read by `spark_of` from cards.json projectile.spawn_projectile (spawn_count and scatter newly written by tools/extract_cards.py on the 15.535 rows)"
     },
     "NON_HOMING_AIM": {
-      "value": "follows_target",
+      "value": "fixed_at_fire",
       "candidates": ["follows_target", "fixed_at_fire"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm follows_target, which is today's engine: every shot is re-aimed at its target each tick and a splash is centred on the target where it lands. It fits none of the 67 client 16.402 non-homing shots whose target moved in flight, and 40 of the 43 Princess splash observations, missing all 3 that separate the arms. MEDIUM for fixed_at_fire: it fits all 67 end points and all 43 splash observations. The end point law rests on 13 battles; the splash centre on 3 volleys of the one battle with a Princess.",
@@ -2320,7 +2320,7 @@
       "engine": "tools/extract_cards.py (read the card's area effect when its OnStartingAction spawns the character) and the deploy path (apply the area effect on the character's first tick)"
     },
     "DEPLOY_AREA_EFFECT_DEPLOY_TIME": {
-      "value": "unit_deploy_time",
+      "value": "client_one_tick_longer",
       "candidates": ["unit_deploy_time", "client_one_tick_longer"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm unit_deploy_time, which is today's engine: the Ice Wizard and the Electro Wizard deploy as any troop, and act a tick before the client on every corpus deploy recorded from its first frame. HIGH for client_one_tick_longer on the two cards: 4 of 4 Ice Wizard deploys (3 battles) and the Electro Wizard of one battle on client 16.402, and both Wizards on client 15.535.29, against 153 of 153 other single-unit troops on F + 19. OPEN on why (the character is spawned by its card's area effect, which is the shape the two cards share).",
@@ -2331,7 +2331,7 @@
       "engine": "state.rs phase_spawn: under client_one_tick_longer a played card whose row carries an area effect that spawns its character (card.rs `deploy_area_effect`) gets one TICK_MS more on the character's deploy timer, which deploy_countdown runs down as before. No new state. Plant area_character_deploy_unread."
     },
     "PULSING_AREA_EFFECT": {
-      "value": "hit_speed_period_from_landing",
+      "value": "hit_speed_offset",
       "status": "guess",
       "confidence": "LOW for the shipped arm hit_speed_period_from_landing: the 16.402 corpus refutes it on the one Poison that reached a unit (its first pulse falls 4 ticks later), and client 15.535.29 refutes it on the Poison and the Earthquake sweep scenarios and on the Rage onset (the Tornado applies on L under every arm, so it refutes none). hit_speed_period_delayed is the client 15.535.29 law (Poison, Earthquake and Tornado sweep scenarios; the Rage onset fits it too) and the 16.402 corpus refutes it on the Rage, and on the Earthquake only under status.AREA_BUFF_SOURCE_BINDING = not_read (under the shipped client_source_bound every arm pulses the Earthquake on L+19 and L+39). hit_speed_offset fits every cast in the 16.402 corpus that reached a unit, but the Poison and the Earthquake are one cast each",
       "provenance": "An AreaEffectObject with HitSpeed set (Poison LifeDuration 8000 / HitSpeed 250, Earthquake 3000 / 100, Rage 4500 / 300, Tornado 1050 / 50) stands where it landed and applies to everything inside it, repeatedly. L is the landing tick, the first tick the area stands on the board, and the landing tick counts as the area's first 50 ms. hit_speed_period_from_landing: the first application falls on L. hit_speed_period_delayed: on L + HitSpeed / 50 - 1. MEASURED on client 15.535.29 (the sweep scenarios, a Knight walking through the area): Poison slows from L+5 and pulses on L+24 and L+44, the Earthquake slows from L+2, the Tornado acts on L; and in two client 15.535.29 recordings a Rage's first raged step is 16 ticks after the cast (C+16). All four are what hit_speed_period_delayed says. MEASURED on the 16.402 corpus (casts that reached a unit): the Rage buffs on its landing, the first raged step C+11 in 5 of 5 casts (9 units), which is L with the bottle's release on C+9 (spells.SUMMON_FUSE_START); the Earthquake (one cast, on a building) pulses in (L+18, L+20] and (L+38, L+40]: under the shipped status.AREA_BUFF_SOURCE_BINDING = client_source_bound every arm pulses it on L+19 and L+39, and under not_read hit_speed_offset pulses it on L+20 and L+40 and hit_speed_period_delayed on L+21 and L+41; the Poison (one cast, on a Knight) pulses first in (L+22, L+24], so not on L+20. hit_speed_offset reads the wait from each area's HitSpeedOffset, which client 16.402's data carries and the client 15.535.29 extraction does not: Poison 250, Tornado 50, and none on the Rage and the Earthquake. It gives the Rage L, the Earthquake L+20 and L+40 under not_read (L+19 and L+39 under client_source_bound, as every arm does), and the Poison L+24: all three 16.402 observations. The Tornado applies on L under every arm. The schedule matters only through when the area first hangs and then refreshes its buff, because the damage is the buff's (status.BUFF_PULSE_TIMING, status.BUFF_PULSE_AMOUNT).",
@@ -3420,7 +3420,7 @@
       "engine": "state.rs spawner_pass (the emissions) and the death-spawn step: the new units take one move step on creation"
     },
     "FIRST_STEP_DYING_BODIES": {
-      "value": "hidden",
+      "value": "client16402_seen",
       "candidates": ["hidden", "client16402_seen"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm hidden, which is today's engine: a unit's creation-tick first update (spawner.SPAWNED_FIRST_STEP) meets no unit dying on that tick, and it misses both corpus births beside such a unit. MEDIUM for client16402_seen: 2 of 2 events in 2 battles, each reproduced to the native unit by the ordinary contact law with the dying unit as a body. Nothing else in the corpus separates the arms.",
@@ -3458,7 +3458,7 @@
       "engine": "state.rs life_state_pass, and spawner_pass for an interval spawner"
     },
     "LIFE_STATE_FIRST_UPDATE": {
-      "value": "creation_tick",
+      "value": "client16402_next_tick",
       "candidates": ["creation_tick", "client16402_next_tick"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm creation_tick, which is today's engine: under spawner.SPAWNED_FIRST_STEP = client16402_same_tick a Goblin Hut's wave takes its first update on its creation tick, so the engine pushes it out of the hut's circle and runs its avoidance scan one tick before both clients do. HIGH for client16402_next_tick: 169 of 169 client 15.535.29 waves, and all 79 16.402 corpus rows whose creation tick is recorded (a row is one seat's recording; the 79 are about 66 distinct waves in 10 battles)",
@@ -3469,7 +3469,7 @@
       "engine": "state.rs life_state_pass (the flag it passes to create_emissions) and create_emissions"
     },
     "LIFE_STATE_WAVE_POINT": {
-      "value": "one_division",
+      "value": "client16402_normalise_then_rotate",
       "candidates": ["one_division", "client16402_normalise_then_rotate"],
       "status": "hypothesis",
       "confidence": "LOW for the shipped arm one_division, which is today's engine: 43 of 169 client 15.535.29 waves and 20 of 79 16.402 corpus rows (both seats' recordings, about 66 distinct waves) stand on its point. HIGH for client16402_normalise_then_rotate: 169 of 169 and 76 of 79 rows",
@@ -4138,7 +4138,7 @@
       "engine": "state.rs spawn_tunneller, tunnel_step"
     },
     "SPAWN_PATHFIND_STEP": {
-      "value": "one_step",
+      "value": "client_250_substeps",
       "candidates": ["one_step", "client_250_substeps"],
       "status": "measured",
       "confidence": "HIGH for client_250_substeps on client 16.402 and client 15.535.29: it reproduces every recorded tunnel position exactly, 1956 of 1956 frames over 42 tunnels, every creation point (42 of 42) and every surfacing tick seen (41 of 41). The 42 are 5 plays on client 16.402 (capture 20260920-083112, one seat per play) and 37 client 15.535.29 runs over 20 distinct routes (8 of the dig, 12 of the Miner), so the independent routes are 22. The reach test's +1 is bracketed, not pinned: every node dropped stood within 298 (the dig) and 651 (the Miner) of the sub-step's end and every node kept at 306 and 654 or more, so the reach is speed + 1 to speed + 3 for the Miner and speed - 2 to speed + 5 for the dig; + 1 is the smallest offset both brackets hold. one_step, the engine before this key, reproduces 0 of the frames exactly (537 within 3), 21 of the creation points and 23 of the surfacing ticks.",
@@ -4556,7 +4556,8 @@
             "Hitpoints": 84
           },
           "IceGolemite": {
-            "Hitpoints": 480
+            "Hitpoints": 480,
+            "AreaBuffTime": 2500
           },
           "GoblinBrawler": {
             "Hitpoints": 438
@@ -4573,6 +4574,9 @@
           },
           "Fireball": {
             "CrownTowerDamagePercent": -77
+          },
+          "Freeze": {
+            "AreaBuffTime": 3500
           }
         }
       },
