@@ -501,8 +501,8 @@ Working:
   plus the 3 evolved forms plus those 35. Counts from the census at `238274a`, against `cards.json`
   FNV-1a 64 273d1ed8ad8b97e3. The loadable and refused lists are pinned row by row in
   `crates/royalesim/tests/loadable_census.rs`, which CI runs. No row of the 144 moved since
-  `ab2e520`. The Miner, the Goblin Drill and the Mirror load, but the default
-  card list leaves them out: name them in `card_names` to play them.
+  `ab2e520`. The default card list holds every card that loads, the Miner, the Goblin Drill
+  and the Mirror included.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
 - Evolved and hero forms for the five special cards of one deck: Evo Cannon, Evo Skeletons, Evo
