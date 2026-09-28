@@ -354,6 +354,14 @@ pub struct Entities {
     /// `default` and sized on load like `death_slide_radius`.
     #[serde(default)]
     pub death_slide_until: Vec<u32>,
+    /// THE SLIDE'S FIXED END POINT (calibration spawner.DEATH_SLIDE_AIM = fixed_end_point; state.rs
+    /// `slide_end_points`, move16402.rs `death_slide_toward`), WORLD subtiles: the death point + the member's ring
+    /// direction x DeathSpawnRadius, fixed at birth, which each slide step aims at wherever a push has put the
+    /// member. Set from PendingSpawn when the member is created, and only under that arm: (0, 0) under the shipped
+    /// current_ray, which never reads it, and on every unit that is not sliding. Cleared with the slide. Hashed
+    /// only while a slide runs under fixed_end_point. `default` and sized on load like `death_slide_until`.
+    #[serde(default)]
+    pub death_slide_end: Vec<Vec2>,
     /// THE DELAYED KAMIKAZE (card.rs `CardDef::kamikaze_time_ms`, calibration combat.KAMIKAZE_TIME;
     /// state.rs `kamikaze_drain`): the tick after the unit's first fire, the first tick of its drain in
     /// the Status phase (the fire's own tick drains in the attack pass). 0 before the fire and on every
@@ -834,6 +842,7 @@ impl Entities {
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
             self.death_slide_until[i] = 0;
+            self.death_slide_end[i] = Vec2::default();
             self.kamikaze_from[i] = 0;
             self.acquirable_from[i] = 0;
             self.dash_state[i] = DashState::None;
@@ -930,6 +939,7 @@ impl Entities {
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);
             self.death_slide_until.push(0);
+            self.death_slide_end.push(Vec2::default());
             self.kamikaze_from.push(0);
             self.acquirable_from.push(0);
             self.dash_state.push(DashState::None);
@@ -1045,6 +1055,7 @@ impl Entities {
         self.death_slide_centre[i] = Vec2::default();
         self.death_slide_radius[i] = 0;
         self.death_slide_until[i] = 0;
+        self.death_slide_end[i] = Vec2::default();
         self.kamikaze_from[i] = 0;
         self.mana_ms[i] = 0;
         self.enchant_state[i] = 0;

@@ -534,7 +534,9 @@ pub const CONTAINER_SLIDE_TICKS: u8 = 4;
 /// whether that point is AT `radius`, which is the slide's last tick. Unit-free: the 16.402
 /// move pass calls it in native units (`death_slide_step`), the frame-planned path arms in
 /// subtiles. The ray is the member's CURRENT direction from the death point, so a contact
-/// push that turned it is kept. A point on the centre has no ray: it stays, and the slide
+/// push that turned it is kept (spawner.DEATH_SLIDE_AIM = current_ray, shipped; its candidate
+/// fixed_end_point steps toward the member's end point instead, `death_slide_toward`, which the
+/// captures fit). A point on the centre has no ray: it stays, and the slide
 /// ends. A point already AT OR PAST `radius` (a push carried it out mid-slide) also stays
 /// where it is, and the slide ends: nothing measured puts a member past the radius
 /// mid-slide, and this reading moves it nowhere rather than pull it back in by any
@@ -559,8 +561,32 @@ pub fn death_slide_to(p: (i32, i32), centre: (i32, i32), radius: i32, step: i32)
     ((centre.0 + (vx * r / d) as i32, centre.1 + (vy * r / d) as i32), reach >= radius as i64)
 }
 
+/// THE SLIDE'S STEP TOWARD ITS FIXED END POINT (calibration spawner.DEATH_SLIDE_AIM = fixed_end_point), native:
+/// at most `step` straight toward `end`, each axis through the 1/256 direction and the truncation the walk's step
+/// uses (`tunnel_step`, `move_towards`), and whether this step reaches it (the end within `step`), which is the
+/// slide's last tick. Where the member stands does not turn the aim: a contact push that took it off its ring line
+/// is walked back onto the line on the way out. On the last step the truncation can leave the member a unit short
+/// of `end` on an axis that is not zero (a Pup on the 300-degree line lands on (1249, -2164) from the death point
+/// for its end (1250, -2165)), and the slide ends there all the same. A member already on `end` stays and ends.
+///
+/// Read off client 16.402 and 15.535.29 (every Lava Pup ring in the corpus and the scenario fixtures): from its 3rd
+/// frame on, a Pup's step is this step toward the death point + its ring direction x DeathSpawnRadius, to the unit,
+/// on 185 of 199 steps off the ring line, where `death_slide_to`'s current ray gives none of them. The 1/256 reading
+/// is what makes (125, -215), (-141, -205) and (105, -177): exact v x 250 / d gives (126, -216), (-142, -205) and a
+/// landing on the end point itself.
+pub fn death_slide_toward(p: (i32, i32), end: (i32, i32), step: i32) -> ((i32, i32), bool) {
+    let dist = distance(p.0, p.1, end.0, end.1);
+    if dist == 0 {
+        return (p, true);
+    }
+    let (q, _) = tunnel_step(p, end, step);
+    (q, dist <= step)
+}
+
 /// ONE TICK OF THE DEATH-SPAWN SLIDE in the 16.402 move pass (state.rs `phase_path16402`):
-/// `death_slide_to`'s radial step of DEATH_SLIDE_STEP, plus the collision mean of `con` (the
+/// the slide's step of DEATH_SLIDE_STEP -- `death_slide_to`'s radial step along the current ray,
+/// or, given the member's fixed `end` point (spawner.DEATH_SLIDE_AIM = fixed_end_point),
+/// `death_slide_toward`'s step toward it -- plus the collision mean of `con` (the
 /// separation scan the caller ran for this member, capped at 150 as in the walk) and `extra`
 /// (the Tornado's pull), in ONE position write through `grid_move`. No heading, no avoidance
 /// rotation, no reached test. Returns what moved (`dir` None) and whether this was the
@@ -576,6 +602,7 @@ pub fn death_slide_step(
     u: (i32, i32),
     centre: (i32, i32),
     radius: i32,
+    end: Option<(i32, i32)>,
     con: &mut Contact,
     state4_ground: bool,
     is_water: impl Fn(i32, i32) -> bool,
@@ -583,7 +610,16 @@ pub fn death_slide_step(
     height_cells: i32,
     extra: (i32, i32),
 ) -> (Moved, bool) {
-    let ((tx, ty), done) = death_slide_to(u, centre, radius, DEATH_SLIDE_STEP);
+    // PLANT death_slide_aim_ray (tests/death_slide_aim.rs): the fixed_end_point arm steps along the current ray.
+    #[cfg(clash_plant = "death_slide_aim_ray")]
+    let end: Option<(i32, i32)> = {
+        let _ = end;
+        None
+    };
+    let ((tx, ty), done) = match end {
+        Some(e) => death_slide_toward(u, e, DEATH_SLIDE_STEP),
+        None => death_slide_to(u, centre, radius, DEATH_SLIDE_STEP),
+    };
     let (push, push_count) = collision_mean(con);
     let sx = tx - u.0 + push.0 + extra.0;
     let sy = ty - u.1 + push.1 + extra.1;
