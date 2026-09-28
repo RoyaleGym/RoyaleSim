@@ -16,8 +16,9 @@
 //!   3. a princess tower's shot is born at the plain point under both arms (the null);
 //!   4. flown from the moved point the first king shot at the walking Knight lands one tick earlier, the Knight
 //!      having walked the same ticks under both arms;
-//!   5. the shipped value is the old arm, and the King Tower is the only loaded row outside the hero pass that sets
-//!      the column; the hero pass's rows that set it are the Hero Musketeer and her turret;
+//!   5. the shipped value is client_forward_y (not_read, the old arm, shipped until parity scored the flip), and the
+//!      King Tower is the only loaded row outside the hero pass that sets the column; the hero pass's rows that set it
+//!      are the Hero Musketeer and her turret;
 //!   6. a row the hero pass loaded applies its offset under both arms, once: the Hero Musketeer's first shot is born
 //!      300 past her plain point along Blue's forward y, and the base Musketeer's on the plain point (the null).
 //!
@@ -182,8 +183,8 @@ fn the_moved_start_lands_the_first_hit_a_tick_earlier() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm_and_the_king_tower_is_the_only_loaded_row_with_the_column() {
-    assert_eq!(Calib::shipped().projectile_y_offset, ProjectileYOffset::NotRead);
+fn the_shipped_value_is_client_forward_y_and_the_king_tower_is_the_only_loaded_row_with_the_column() {
+    assert_eq!(Calib::shipped().projectile_y_offset, ProjectileYOffset::ClientForwardY);
     let s = BattleState::new(7, config());
     assert_eq!(card_stat(&s, "KingTower").projectile_y_offset, 400 * K, "the King Tower row's ProjectileYOffset");
     assert_eq!(card_stat(&s, "PrincessTower").projectile_y_offset, 0);

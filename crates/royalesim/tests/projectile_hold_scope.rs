@@ -18,7 +18,7 @@
 //!      rescan returns the same target);
 //!   4. both values: a red Musketeer in its attack keeps a blue Hog Rider that runs out of its reach, against a nearer
 //!      blue Cannon, while the Hog stands inside the hold (tests/reach_loss_switch.rs's projectile scene);
-//!   5. the shipped value is every_tick.
+//!   5. the shipped value is client_troop_in_attack (every_tick, the old arm, shipped until parity scored the flip).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test projectile_hold_scope`):
 //!   * `projectile_hold_while_walking` -- client_troop_in_attack still holds a walking troop's target past its keep
@@ -214,6 +214,6 @@ fn a_troop_in_its_attack_holds_a_leaving_target() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().projectile_hold_scope, OLD);
+fn the_shipped_value_is_client_troop_in_attack() {
+    assert_eq!(Calib::shipped().projectile_hold_scope, NEW);
 }

@@ -5,8 +5,9 @@
 //! their parent, the dying unit stood in the first update's scans as a body at its current position. A Tombstone's
 //! four death Skeletons were pushed 150 off one of its Skeletons that the same bomb killed; a Tombstone's periodic
 //! Skeleton was turned and pushed off another that a Knight's hit killed on its creation tick. Under the old value,
-//! hidden (today's engine), Reap despawns the tick's dead before a death spawn steps, and the doomed mask
-//! (movement.DYING_UNIT_VISIBILITY) hides a unit an Attack-phase hit kills from an emission's step.
+//! hidden (the engine before this key), Reap despawns the tick's dead before a death spawn steps, and the doomed mask
+//! (movement.DYING_UNIT_VISIBILITY) hides a unit an Attack-phase hit kills from an emission's step. client16402_seen
+//! ships since parity scored its flip; the tests name both values through `with_arm`.
 //!
 //! WHAT IS PINNED, each with the precondition that makes it bite:
 //!   1. a dying Tombstone's four Skeletons, born on the tick its first Skeleton dies beside the emission point: under
@@ -16,7 +17,7 @@
 //!      emission point: under client16402_seen at least 80 further from that Knight than under hidden;
 //!   3. with nothing dying beside it, the second Skeleton's first frame is the same under both values (the control);
 //!   4. a snapshot taken under client16402_seen resumes hash for hash (the dying bodies are scratch, not state);
-//!   5. the shipped value is hidden.
+//!   5. the shipped value is client16402_seen.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test first_step_dying_bodies`):
 //!   * `first_step_dying_hidden` -- client16402_seen still hides the dying units from a first update: (1) and (2) go
@@ -188,6 +189,6 @@ fn a_snapshot_under_the_new_value_resumes_hash_for_hash() {
 }
 
 #[test]
-fn the_shipped_value_is_hidden() {
-    assert_eq!(Calib::shipped().first_step_dying, FirstStepDying::Hidden);
+fn the_shipped_value_is_seen() {
+    assert_eq!(Calib::shipped().first_step_dying, FirstStepDying::Seen);
 }

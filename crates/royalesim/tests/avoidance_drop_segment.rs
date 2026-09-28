@@ -5,8 +5,9 @@
 //! the next waypoint's centre, the scan drops it and the segment direction stays as it was, the direction toward the
 //! node just dropped (11 of 11 drops, 8 moments, on 16.402; 2 of 2 on 15.535.29). Only a reached pop refreezes it, from the
 //! end-of-tick position (42314 of 42314 and 21282 of 21282). The reached test measures the new waypoint along that
-//! direction, so it decides the tick the unit takes its next node. refrozen (today's engine) clears the segment on the
-//! drop, and the step refreezes it from the start of the tick toward the new waypoint.
+//! direction, so it decides the tick the unit takes its next node. refrozen, the old arm (the engine before this key),
+//! clears the segment on the drop, and the step refreezes it from the start of the tick toward the new waypoint.
+//! client16402_kept ships since parity scored its flip; the old arm's test selects refrozen by name.
 //!
 //! THE SCENE: a Blue Knight put down at (5250, 9250) walks up and to the left toward the left lane; Blue Goblins
 //! played at (3750, 11250) six ticks later lay their members in front of it, and they wait out the deploy stagger as
@@ -17,9 +18,9 @@
 //! after the tick ('end': refrozen from the end-of-tick position, a reached pop; 'kept': the one of the tick before;
 //! 'start': refrozen from the start-of-tick position):
 //!   1. under client16402_kept a drop keeps the segment, and no pop is 'start';
-//!   2. under refrozen (today's engine) a drop is 'start', and no pop is 'kept';
+//!   2. under refrozen (the old arm) a drop is 'start', and no pop is 'kept';
 //!   3. under both arms, without the Goblins, every pop is 'end' and the two arms walk the same track;
-//!   4. the shipped value is refrozen.
+//!   4. the shipped value is client16402_kept.
 //!
 //! PLANT (regression):
 //!   * `avoidance_drop_refreezes` refreezes the segment on a drop under either arm: (1) goes red.
@@ -149,6 +150,6 @@ fn without_a_drop_the_two_arms_walk_the_same_track() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm() {
-    assert_eq!(Calib::shipped().avoidance_drop_segment, AvoidanceDropSegment::Refrozen);
+fn the_shipped_value_is_the_kept_segment() {
+    assert_eq!(Calib::shipped().avoidance_drop_segment, AvoidanceDropSegment::Client16402Kept);
 }

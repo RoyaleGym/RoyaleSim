@@ -5,14 +5,15 @@
 //! THE LAW, measured on client 16.402 and client 15.535.29: a Wizard recorded from its first frame F leaves its deploy
 //! on F + 20 and first acts on F + 21; every other single-unit troop played by hand leaves on F + 19 (153 of 153 on the
 //! 16.402 corpus but the Princess and the Golem, which have rules of their own; 40 cards and 95 Knights in the
-//! 15.535.29 sweep). Under the old value, unit_deploy_time (today's engine), the Wizards deploy as any troop.
+//! 15.535.29 sweep). Under the old value, unit_deploy_time (the engine before this key), the Wizards deploy as any
+//! troop. client_one_tick_longer ships since parity scored its flip; the tests name both values through `cfg`.
 //!
 //! WHAT IS PINNED, each with the precondition that makes it bite:
 //!   1. a played Ice Wizard and a played Electro Wizard first move one tick later under client_one_tick_longer than
 //!      under unit_deploy_time, and a played Knight moves on the same tick under both (so the Wizard's first step is
 //!      one tick after a Knight's played the same way);
 //!   2. a scenario spawn of the Ice Wizard (the character put down, not the card) is the same under both values;
-//!   3. the shipped value is unit_deploy_time.
+//!   3. the shipped value is client_one_tick_longer.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test deploy_area_effect_deploy_time`):
 //!   * `area_character_deploy_unread` -- client_one_tick_longer deploys the character in its DeployTime: (1) goes red.
@@ -91,6 +92,6 @@ fn a_scenario_wizard_is_the_same_under_both_values() {
 }
 
 #[test]
-fn the_shipped_value_is_unit_deploy_time() {
-    assert_eq!(Calib::shipped().deploy_area_effect_deploy_time, DeployAreaEffectDeployTime::UnitDeployTime);
+fn the_shipped_value_is_client_one_tick_longer() {
+    assert_eq!(Calib::shipped().deploy_area_effect_deploy_time, DeployAreaEffectDeployTime::OneTickLonger);
 }

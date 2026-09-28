@@ -4,7 +4,7 @@
 //! THE LAW, measured on the 16.402 corpus: a troop walking to its crown tower takes the nearest enemy in sight on the
 //! first tick that enemy's start-of-tick CENTRE distance is below the tower's (577 of 578 walking switches). In
 //! 20260918-124946, on tick 941, a Goblin 6,578.4 from a Cannon and 6,840.8 from its princess tower took the Cannon.
-//! Ranked by centre minus the candidate's radius (today's engine) the tower scores 5,840.8 and the Cannon 5,978.4, and
+//! Ranked by centre minus the candidate's radius (the old arm) the tower scores 5,840.8 and the Cannon 5,978.4, and
 //! the Goblin walks on.
 //!
 //! The scenes are tests/test_target_rank_distance.py's: the Cannon where it stood in that battle, (9500, 9500), and a
@@ -15,7 +15,8 @@
 //!   2. centre_minus_target_radius: on every tick the tower's key is the smaller, the Knight keeps the tower;
 //!   3. both values: from x 3500 the Knight sees the Cannon while the tower is nearer by centre, and never takes it (an
 //!      implementation where any enemy in sight beats the tower is refused);
-//!   4. the shipped value is centre_minus_target_radius.
+//!   4. the shipped value is client16402_centre (centre_minus_target_radius, the old arm, shipped until parity scored
+//!      the flip).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test target_rank_distance`):
 //!   * `rank_centre_minus_radius` -- client16402_centre still ranks by centre minus the candidate's radius: (1) goes
@@ -73,7 +74,7 @@ impl Row {
     fn centre_takes_cannon(&self) -> bool {
         self.dc2 < self.dt2
     }
-    /// The tower's centre - radius is the smaller (today's key keeps the tower).
+    /// The tower's centre - radius is the smaller (the old arm keeps the tower).
     fn edge_keeps_tower(&self) -> bool {
         isqrt(self.dt2) - TOWER_R * (K as i64) < isqrt(self.dc2) - CANNON_R * (K as i64)
     }
@@ -166,6 +167,6 @@ fn an_enemy_in_sight_but_farther_than_the_tower_is_not_taken() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_one() {
-    assert_eq!(Calib::shipped().target_rank_distance, OLD);
+fn the_shipped_value_is_client16402_centre() {
+    assert_eq!(Calib::shipped().target_rank_distance, NEW);
 }

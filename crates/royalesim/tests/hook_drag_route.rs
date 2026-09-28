@@ -5,8 +5,9 @@
 //! tick, until the next step would bring the centres within DragMargin plus both radii. When the drag ends there the
 //! victim drops its route, and the next path request plans a fresh one from where it stands. Measured on the 16.402
 //! corpus: both drags of the red Giant of 20260920-081819 (both seats) hold the route unchanged through the stop, show
-//! no route on the frame after it and a fresh route from the end point on the frame after that. Today's engine
-//! (`kept`) keeps the old route, whose next waypoint the drag left behind the victim, and walks back to it.
+//! no route on the frame after it and a fresh route from the end point on the frame after that. The old arm (`kept`,
+//! the engine before this key) keeps the old route, whose next waypoint the drag left behind the victim, and walks back
+//! to it. client16402_dropped ships since parity scored its flip; the tests name both arms through their config.
 //!
 //! THE SCENE: a Blue Fisherman at (3500, 12000) and a Red Giant at (3500, 22000) on the left lane. The Giant walks
 //! south toward the Blue princess tower; the Fisherman stops, hooks it and drags it about 4,600 south across the
@@ -19,7 +20,7 @@
 //!   3. kept (the old arm): the Giant's first step after the drag goes north, back toward the held node;
 //!   4. the null: a Red Knight in the Giant's place attacks the Fisherman after the drag, which drops its route on that
 //!      transition under either arm, so it walks the same track under both arms;
-//!   5. the shipped value is kept.
+//!   5. the shipped value is client16402_dropped.
 //!
 //! PLANTS (regression):
 //!   * `hook_drag_route_kept` keeps the pre-drag route under the new arm: (2) goes red.
@@ -131,6 +132,6 @@ fn a_knight_that_attacks_after_the_drag_runs_the_same_under_both_arms() {
 }
 
 #[test]
-fn the_shipped_value_is_kept() {
-    assert_eq!(Calib::shipped().hook_drag_route, OLD);
+fn the_shipped_value_is_dropped() {
+    assert_eq!(Calib::shipped().hook_drag_route, NEW);
 }
