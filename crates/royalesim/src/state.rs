@@ -6282,6 +6282,11 @@ impl BattleState {
             if heroes.len() > ABILITY_BUTTONS {
                 return Err(format!("forms[{t}] marks {} heroes; a side has at most {ABILITY_BUTTONS} ability buttons", heroes.len()));
             }
+            // A hero card is known by its card alone (`resolve_play`), so a second copy of it in the deck would play the
+            // form too, whatever its own entry says.
+            if let Some(h) = heroes.iter().find(|h| deck.iter().filter(|c| c == h).count() > 1) {
+                return Err(format!("{} is marked a hero and is in the deck more than once", cards.get(*h).name));
+            }
             if config.shuffle_decks {
                 for i in (1..deck.len()).rev() {
                     let j = rng.below((i + 1) as u32) as usize;
