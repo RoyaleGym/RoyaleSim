@@ -65,6 +65,10 @@ THE 15.535 FILES ARE A CSV PLUS TOML OVERLAYS
     the hero characters are [EXT.*] sections extending the base character in
     characters/hero_form/*.toml).  Both are recorded under `excluded_tables`.  The
     *_EV1 units ARE in `units` (they are character rows); nothing releases them.
+    The evolved rows the engine runs (EVOLUTIONS: Skeletons_EV1, Cannon_EV1,
+    Musketeer_EV1) are written under the top-level list `evolutions`, each a card
+    record with its base card (`form_of`) and its mechanic's block
+    (`evolution_records`); 15.535 only.
 
 CONTINUATION ROWS
     Supercell's CSVs express per-level arrays as rows with a blank Name that
@@ -228,7 +232,8 @@ VINTAGES = {
             "live 2026 one (Boss Bandit, Merge Maiden, Ronin, Goblinstein, Berserker, Suspicious Bush "
             "all present)."
         ),
-        sources=SOURCES_2018,
+        # spells_evolved.csv joins for the three evolved rows it extracts (`EVOLUTIONS`); its rows never enter `cards`.
+        sources={**SOURCES_2018, "spells_evolved": "spells_evolved.csv"},
         overlays={
             "characters": ["characters.toml", "characters_evo.toml"],
             "buildings": ["buildings.toml", "buildings_evo.toml"],
@@ -286,7 +291,8 @@ SKIP_SECTIONS = (mr.SKIP_SECTIONS - {"EXT"}) | {"SPELL_EVOLVED", "SPELL_HERO", "
 EXCLUDED_TABLES = {
     "spells_evolved.csv": (
         "evolutions: every row summons a distinct *_EV1 character (characters_evo.toml / "
-        "buildings_evo.toml); 68 of 109 rows are NotInUse. Not a base card; not in `cards`."
+        "buildings_evo.toml); 68 of 109 rows are NotInUse. Not a base card; not in `cards`. "
+        "The rows in EVOLUTIONS are written under `evolutions`, each with the base card it evolves (`form_of`)."
     ),
     "spells_hero_form.csv": (
         "hero forms: each *_hero row is the base card's row with the _hero suffix (69 of the 77 "
@@ -3249,6 +3255,191 @@ def globals_block(v: Vintage) -> dict:
     return out
 
 
+# THE EVOLVED FORMS THIS BUILD LOADS (15.535 only), each a spells_evolved row: the evolved form of the base card
+# whose EvolvedSpells names it. Only these three: the engine runs their mechanics (card.rs `EvoDef`), and a form
+# nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
+EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1")
+
+
+def col_list(tb, name: str, col: str) -> list:
+    """A column of one row as a list: the overlay's list when it wrote one, else the single value (or [])."""
+    arr = tb.arrays.get(name, {}).get(col)
+    if arr is not None:
+        return list(arr)
+    row = tb.get(name)
+    if row is None or row[col] is None:
+        return []
+    return [row[col]]
+
+
+def group_subactions(t: dict, group: str | None, what: str) -> list[tuple[str, int]]:
+    """An ActionGroup's (sub action, delay ms) pairs, in order. Refused unless the row is an ActionGroup whose two
+    lists agree in length."""
+    acts = t["actions"]
+    g = acts.get(group) if group else None
+    if g is None or g["ClassType"] != "ActionGroup":
+        raise SystemExit(f"{what}: {group!r} is not an ActionGroup")
+    subs = col_list(acts, group, "SubActions")
+    delays = col_list(acts, group, "SubActionsDelay")
+    if len(subs) != len(delays) or not subs:
+        raise SystemExit(f"{what}: {group} SubActions {subs} and SubActionsDelay {delays} do not pair up")
+    return list(zip(subs, delays))
+
+
+def barrage_block(t: dict, unit: str) -> dict:
+    """Cannon_EV1's barrage: OnStartingAction -> an ActionGroup -> one ActionCannonBarrage, whose three lists name
+    the bombs (offsets in the table's half-tile unit, and the area object whose LifeDuration times the bomb), and the
+    projectile each bomb drops (its radius, push and filters) with the one-hit buff it carries (its damage)."""
+    acts = t["actions"]
+    _, row = unit_record(t, unit)
+    subs = group_subactions(t, row["OnStartingAction"], f"{unit} barrage")
+    if len(subs) != 1 or subs[0][1] != 0:
+        raise SystemExit(f"{unit}: expected one barrage action at delay 0, got {subs}")
+    name = subs[0][0]
+    a = acts.get(name)
+    if a is None or a["ClassType"] != "ActionCannonBarrage":
+        raise SystemExit(f"{unit}: {name} is not an ActionCannonBarrage")
+    hs = col_list(acts, name, "BombHorizontalOffsets")
+    habs = col_list(acts, name, "BombAbsoluteHorizontalOffsets")
+    vs = col_list(acts, name, "BombVerticalOffsets")
+    aeos = col_list(acts, name, "BombAreaEffectObjects")
+    if not (len(hs) == len(vs) == len(aeos) == len(habs)) or hs != habs:
+        raise SystemExit(f"{unit}: barrage lists do not agree ({hs}, {habs}, {vs}, {aeos})")
+    bombs, shot = [], None
+    for h, v, aeo in zip(habs, vs, aeos):
+        area = t["area_effect_objects"].get(aeo)
+        if area is None or area["LifeDuration"] is None:
+            raise SystemExit(f"{unit}: barrage area {aeo} has no LifeDuration")
+        spawn = acts.get(area["OnStartingAction"])
+        if spawn is None or spawn["ClassType"] != "ActionCannonProjectileSpawn":
+            raise SystemExit(f"{unit}: barrage area {aeo} drops no ActionCannonProjectileSpawn")
+        if shot not in (None, spawn["BombProjectile"]):
+            raise SystemExit(f"{unit}: barrage bombs drop different projectiles")
+        shot = spawn["BombProjectile"]
+        bombs.append({"h": h, "v": v, "life_ms": area["LifeDuration"], "area": aeo})
+    p = t["projectiles"].get(shot)
+    b = t["character_buffs"].get(p["TargetBuff"]) if p is not None else None
+    if p is None or b is None:
+        raise SystemExit(f"{unit}: barrage projectile {shot} or its TargetBuff does not resolve")
+    return {
+        "bombs": bombs,
+        "projectile": shot,
+        "radius_milli": p["Radius"],
+        "pushback_milli": p["Pushback"],
+        "always_apply_pushback": flag(p, "AlwaysApplyPushback"),
+        "hits_air": flag(p, "AoeToAir"),
+        "hits_ground": flag(p, "AoeToGround"),
+        "only_enemies": flag(p, "OnlyEnemies"),
+        "projectile_damage": p["Damage"],
+        "buff": p["TargetBuff"],
+        "buff_time_ms": p["BuffTime"],
+        "buff_damage_per_second": b["DamagePerSecond"],
+        "buff_crown_tower_damage_per_hit": b["CrownTowerDamagePerHit"],
+        "buff_hit_frequency_ms": b["HitFrequency"],
+    }
+
+
+def duplication_block(t: dict, unit: str) -> dict:
+    """Skeleton_EV1's duplication: BuffAfterHits* (single entries) naming a buff whose Spawn* columns spawn the unit's
+    own row, and the unit's GroupMaxSize."""
+    tb, row = unit_record(t, unit)
+    counts = col_list(t[tb], unit, "BuffAfterHitsCount")
+    times = col_list(t[tb], unit, "BuffAfterHitsTime")
+    names = col_list(t[tb], unit, "BuffAfterHits")
+    if not (len(counts) == len(times) == len(names) == 1):
+        raise SystemExit(f"{unit}: BuffAfterHits* are not single entries ({counts}, {times}, {names})")
+    b = t["character_buffs"].get(names[0])
+    if b is None or b["SpawnObject"] != unit:
+        raise SystemExit(f"{unit}: its BuffAfterHits {names[0]} does not spawn the unit's own row")
+    return {
+        "hits": counts[0],
+        "buff_ms": times[0],
+        "buff": names[0],
+        "spawn_number": b["SpawnNumber"],
+        "spawn_interval_ms": b["SpawnInterval"],
+        "spawn_limit": b["SpawnLimit"],
+        "spawner_alive_required": bool(b["SpawnerAliveRequired"]),
+        "group_max": row["GroupMaxSize"],
+    }
+
+
+def snipe_block(t: dict, unit: str, u: dict) -> dict:
+    """Musketeer_EV1's snipe: OnStartingAction -> an ActionGroup whose ActionMusketeerSnipe holds the ammo, the
+    reach and the target filter, and the unit's AttackSequenceList entry 1, the snipe shot with its CustomRange."""
+    acts = t["actions"]
+    _, row = unit_record(t, unit)
+    subs = group_subactions(t, row["OnStartingAction"], f"{unit} snipe")
+    kinds = [(n, d, (acts.get(n) or {}).get("ClassType")) for n, d in subs]
+    snipes = [(n, d) for n, d, k in kinds if k == "ActionMusketeerSnipe"]
+    others = [n for n, _, k in kinds if k not in ("ActionMusketeerSnipe", "ActionPlayEffect")]
+    if len(snipes) != 1 or others:
+        raise SystemExit(f"{unit}: expected one ActionMusketeerSnipe beside effects, got {subs}")
+    name, delay = snipes[0]
+    s = acts.get(name)
+    seq = (u.get("list_columns") or {}).get("AttackSequenceList") or []
+    if len(seq) != 2 or seq[0].get("Projectile") is None or seq[1].get("Projectile") is None:
+        raise SystemExit(f"{unit}: AttackSequenceList is not the two entries a snipe needs ({seq})")
+    base = norm_projectile(t, seq[0]["Projectile"])
+    if u["projectile"] is None or base is None or base["damage"] != u["projectile"]["damage"] or base["speed"] != u["projectile"]["speed"]:
+        raise SystemExit(f"{unit}: AttackSequenceList entry 0 is not the row's own shot")
+    filt = t.filters.get(s["SnipeTargetFilter"])
+    if filt is None:
+        raise SystemExit(f"{unit}: snipe filter {s['SnipeTargetFilter']!r} not in game_object_filters.toml")
+    return {
+        "delay_ms": delay,
+        "ammo": s["AmmoCount"],
+        "min_range_milli": s["SnipeMinRange"],
+        "max_range_milli": s["SnipeMaxRange"],
+        "side_clip_milli": s["SnipeSideClip"],
+        "locked_side_clip_milli": s["LockedTargetSnipeSideClip"],
+        "skip_pending_damage": bool(s["IgnorePendingDamageTargets"]),
+        "filter": s["SnipeTargetFilter"],
+        "filter_towers": bool(filt.get("FilterTowers")),
+        "shot_range_milli": seq[1].get("CustomRange"),
+        "shot": norm_projectile(t, seq[1]["Projectile"]),
+    }
+
+
+def evolution_records(t: Tables, rarities: dict) -> list[dict]:
+    """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
+    (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
+    out = []
+    ev = t["spells_evolved"]
+    for name in EVOLUTIONS:
+        s = ev.get(name)
+        if s is None or s["NotInUse"]:
+            raise SystemExit(f"spells_evolved.{name}: absent or NotInUse")
+        bases = [
+            (key, kind, b)
+            for key, kind in (("spells_characters", "troop"), ("spells_buildings", "building"))
+            for b in t[key].records.values()
+            if b["EvolvedSpells"] == name and not b["NotInUse"]
+        ]
+        if len(bases) != 1:
+            raise SystemExit(f"spells_evolved.{name}: {len(bases)} base cards name it in EvolvedSpells")
+        key, kind, b = bases[0]
+        card = summon_card(t, rarities, kind, "spells_evolved", s)
+        # The form's kind is its base card's: Cannon_EV1 is an [EXT] of CHARACTER.Cannon, filed under characters,
+        # with IsBuilding inherited true.
+        _, urow = unit_record(t, card["summon_character"])
+        card["kind"] = "building" if urow["IsBuilding"] else kind
+        card.pop("card_table_kind", None)
+        card["form_of"] = b["Name"]
+        card["spells_evolved_row"] = list(ev.records).index(name)
+        unit = card["summon_character"]
+        u = norm_unit(t, unit, with_raw=True)
+        if name == "Cannon_EV1":
+            card["evo_barrage"] = barrage_block(t, unit)
+        elif name == "Skeletons_EV1":
+            card["evo_duplication"] = duplication_block(t, unit)
+            card["is_a_group"] = bool(s["IsAGroup"])
+        elif name == "Musketeer_EV1":
+            card["evo_snipe"] = snipe_block(t, unit, u)
+        card["cloned_version"] = urow["ClonedVersion"]
+        out.append(card)
+    return out
+
+
 def build(t: Tables) -> dict:
     v = t.vintage
     rarities = rarity_table(t)
@@ -3439,6 +3630,8 @@ def build(t: Tables) -> dict:
         # The globals the loader reads, by name (`globals_block`). 15.535 only: the 2018 Mirror row
         # carries no `spell.mirror` and stays refused, so that file needs none.
         doc["globals"] = globals_block(v)
+        # The evolved forms the engine loads (`evolution_records`), after every other list, 15.535 only.
+        doc["evolutions"] = evolution_records(t, rarities)
     return doc
 
 
