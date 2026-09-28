@@ -1120,6 +1120,57 @@ pub struct SpellDef {
     pub placement: SpellPlacement,
 }
 
+/// A HERO FORM'S BUTTON (characters/hero_form [ABILITY.*]; cards.json `hero_forms[].ability`, tools/extract_cards.py
+/// `ability_block`). One charge per hero unit (MaxCharges 1, no Cooldown: the loader refuses any other), paid at the
+/// press, usable once the hero's deploy has ended (state.rs `check_ability_button`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AbilityDef {
+    /// ManaCost: the elixir a press costs.
+    pub cost: i32,
+    /// CastTime, ms: the hero is held this long from the press (state.rs `press_ability_button`).
+    pub cast_ms: i32,
+    /// TriggerDelay, ms: the effect comes this long after the press.
+    pub trigger_ms: i32,
+    /// KeepCurrentTarget: the hero keeps its target through the cast.
+    pub keep_target: bool,
+    pub effect: AbilityEffect,
+}
+
+/// What a hero's button does.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AbilityEffect {
+    /// A UNIT PUT DOWN AHEAD OF THE HERO (the Hero Musketeer's turret): `unit` (a summon-only record) at the
+    /// ActionSpawnToLocation's RelativeX / RelativeY from the hero, read as a scheduled area's relative offset is
+    /// (state.rs `scheduled_point`), deploying its own DeployTime. The table's 50 ms placeholder building, whose only
+    /// job is to spawn the unit on its own point, is not made.
+    SpawnAhead { unit: u16, relative_x: i32, relative_y: i32 },
+    /// AREAS RIDING ON THE HERO (the Hero Ice Golem's storm): `start` are made at the trigger, each an index into
+    /// `areas`; an area's `end` is made where it stands when its life runs out.
+    Areas { areas: Vec<AttachedArea>, start: Vec<u8> },
+}
+
+/// ONE AREA A HERO'S BUTTON MAKES (spell.rs `SpellMotion::Attached`): its hit, its clock and whether it rides on
+/// the hero.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AttachedArea {
+    pub hit: SpellHit,
+    /// The damage type's EnableLevelScaling: false keeps `hit.damage` at every level.
+    pub level_scaled: bool,
+    /// LifeDuration, ms.
+    pub life_ms: i32,
+    /// HitSpeed, ms; 0: the area hits once, on its first update, and is gone.
+    pub hit_speed_ms: i32,
+    /// The ms before the first hit: HitSpeed - HitSpeedOffset (the Ice Golem storm's 1500 - 1450, so its three
+    /// waves fall at 50, 1550 and 3050 of a 3050 life), 0 without an offset.
+    pub first_ms: i32,
+    /// FollowBehaviour FollowParent: the centre is the hero's, every tick.
+    pub follow: bool,
+    /// StayAfterParentDies: the area outlives the hero where it died; else it goes with the hero.
+    pub stay: bool,
+    /// OnLifeTimeEndAction: the index in `AbilityEffect::Areas::areas` of the area made when this one's life ends.
+    pub end: Option<u8>,
+}
+
 /// A building that hides when it is not attacking (buildings.csv
 /// HidesWhenNotAttacking / HideTimeMs / UpTimeMs; 2018 and 15.535 both: Tesla
 /// 800 / 800). The state machine is entity.rs `HideState`, driven by state.rs
@@ -1904,20 +1955,27 @@ pub struct CardDef {
     /// Clone spell never copies this unit (spell.rs `step_spells`). False on a blank.
     pub ignore_clone: bool,
     /// ProjectileYOffset, SUBTILES (0 = blank): a projectile is born this much further along its attacker's OWN
-    /// forward y (Blue +y, Red -y) than ProjectileStartRadius alone puts it, under calibration
-    /// combat.PROJECTILE_Y_OFFSET = client_forward_y (the King Tower's 400; measured on the 16.402 corpus, every
-    /// king shot's first frame). Read by combat.rs `launch_point`; ignored under the old arm.
+    /// forward y (Blue +y, Red -y) than ProjectileStartRadius alone puts it (combat.rs `launch_point`). A record the
+    /// hero pass loads (`CardDb::is_hero_record`: the Hero Musketeer 300, her turret 300; measured on client 16.402)
+    /// applies it always. Every other record applies it only under calibration combat.PROJECTILE_Y_OFFSET =
+    /// client_forward_y (the King Tower's 400; measured on the 16.402 corpus, every king shot's first frame), and
+    /// ignores it under the old arm.
     pub projectile_y_offset: i32,
     /// AN EVOLVED FORM (`EvoDef`; cards.json `evolutions`): the base card it evolves and the mechanic it adds. None on
     /// every card of the `cards` list; only a form loaded from `evolutions` carries one.
     pub evo: Option<EvoDef>,
+    /// ON A HERO FORM (cards.json `hero_forms`, loaded after every other record): its base card's index. None on
+    /// every other card. The base finds its form through `CardDb::form_card`, so no base record changes.
+    pub form_of: Option<u16>,
+    /// ON A HERO FORM: its button (`AbilityDef`). None on every other card.
+    pub ability: Option<AbilityDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
     // struct's Debug text, so a new field anywhere but after the last one, or a changed
     // value in a field format 3 also printed, puts that rebuild permanently out of reach
     // of a format-3 snapshot's saved hash. A new
-    // field goes HERE, after `projectile_y_offset`, and onto the end of that tail
+    // field goes HERE, after `ability`, and onto the end of that tail
     // string. The in-repo fixture that used to prove the rebuild was retired on
     // 2026-09-21 for exactly that (tests/stacked_tie.rs says what went with it); the
     // discipline is kept for any format-3 snapshot a caller still holds, and nothing in
@@ -2213,8 +2271,9 @@ struct RawCard {
     spawn_max_angle_deg: Option<i32>,
     /// characters.csv ProjectileStartRadius, millitiles (the tower arrows 300).
     projectile_start_radius_milli: Option<i32>,
-    /// characters / buildings ProjectileYOffset, millitiles (the King Tower 400): `CardDef::projectile_y_offset`.
-    /// Written on the 15.535 rows that set it only, so absent (a blank, 0) everywhere else and in the 2018 file.
+    /// characters / buildings ProjectileYOffset, millitiles (the King Tower 400, the hero rows 300):
+    /// `CardDef::projectile_y_offset`. Written on the 15.535 rows that set it only, so absent (a blank, 0) everywhere
+    /// else and in the 2018 file.
     projectile_y_offset_milli: Option<i32>,
     /// characters.csv Kamikaze / KamikazeTime.
     kamikaze: Option<bool>,
@@ -3220,6 +3279,8 @@ pub enum UnitRef {
     /// Entry k of a scheduled area (`SpellShape::ScheduledArea`) in the card's spell, death area or projectile area:
     /// the Graveyard's Skeletons, the Suspicious Bush's goblins.
     Scheduled(u8),
+    /// The unit a hero's button puts down (`AbilityEffect::SpawnAhead`, the Hero Musketeer's turret).
+    AbilityUnit,
 }
 
 impl UnitRef {
@@ -3240,6 +3301,7 @@ impl UnitRef {
             UnitRef::BuffDeathSpawn => "a buff's death spawn",
             UnitRef::Transform => "a transformation",
             UnitRef::Scheduled(_) => "a scheduled spawn",
+            UnitRef::AbilityUnit => "a hero ability's unit",
         }
     }
 }
@@ -3286,6 +3348,11 @@ struct RawCardsFile {
     /// the block of its mechanic (`RawEvolution`). Loaded after every other card (`CardDb::load_evolution`).
     #[serde(default)]
     evolutions: Vec<serde_json::Value>,
+    /// cards.json `hero_forms` (15.535 only; tools/extract_cards.py `hero_form_records`): each a card record plus
+    /// `form_of`, `ability` and `tables` (`RawHeroForm`). Loaded after every other record
+    /// (`CardDb::load_hero_forms`). Absent: none.
+    #[serde(default)]
+    hero_forms: Vec<serde_json::Value>,
 }
 
 /// What an `evolutions` record carries beside its card columns (tools/extract_cards.py `evolution_records`).
@@ -3429,6 +3496,124 @@ fn snipe_of(sn: &RawSnipe) -> Result<SnipeDef, String> {
         damage: need(shot.damage, "shot Damage")?,
         crown_pct: shot.crown_tower_damage_percent.unwrap_or(100),
     })
+}
+
+/// A `hero_forms` entry's own keys (the rest of the entry is a card record, read as a `RawCard`).
+#[derive(Deserialize)]
+struct RawHeroForm {
+    form_of: String,
+    ability: RawAbility,
+    #[serde(default)]
+    tables: RawHeroTables,
+}
+
+/// The rows a hero form names that the file's top-level maps do not carry: its unit and its ability's unit
+/// (`units` shape), its death area (`area_effect_objects` shape).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawHeroTables {
+    units: BTreeMap<String, serde_json::Value>,
+    area_effect_objects: BTreeMap<String, RawAreaEffect>,
+}
+
+/// A hero form's `ability` block (tools/extract_cards.py `ability_block`).
+#[derive(Deserialize)]
+struct RawAbility {
+    name: String,
+    mana_cost: i32,
+    max_charges: Option<i32>,
+    cooldown_ms: Option<i32>,
+    cast_ms: i32,
+    trigger_delay_ms: i32,
+    keep_current_target: bool,
+    effect: RawAbilityEffect,
+}
+
+/// The ability's `effect`: `spawn_ahead` (relative_x, relative_y, unit, use_deploy) or `parent_areas` (areas).
+#[derive(Deserialize)]
+struct RawAbilityEffect {
+    kind: String,
+    relative_x: Option<i32>,
+    relative_y: Option<i32>,
+    unit: Option<String>,
+    use_deploy: Option<bool>,
+    areas: Option<Vec<RawHeroArea>>,
+}
+
+/// One area of a `parent_areas` effect (tools/extract_cards.py `hero_area`).
+#[derive(Deserialize)]
+struct RawHeroArea {
+    name: String,
+    life_ms: Option<i32>,
+    hit_speed_ms: Option<i32>,
+    hit_speed_offset_ms: Option<i32>,
+    damage: Option<i32>,
+    damage_level_scaling: bool,
+    crown_tower_damage_percent: Option<i32>,
+    radius_milli: i32,
+    hits_ground: Option<bool>,
+    hits_air: Option<bool>,
+    only_enemies: bool,
+    pushback_milli: Option<i32>,
+    follow_parent: bool,
+    stay_after_parent_dies: Option<bool>,
+    buff: Option<RawBuff>,
+    buff_time_ms: Option<i32>,
+    end_area: Option<Box<RawHeroArea>>,
+}
+
+/// One hero area into `areas` (its end area first), or None for an area that lands nothing: no damage, no buff, no
+/// push and no end area (the Ice Golem storm's 1500 "knockback" area, Pushback 0). Returns its index.
+fn push_hero_area(r: &RawHeroArea, areas: &mut Vec<AttachedArea>, buffs: &mut BuffTable) -> Result<Option<u8>, String> {
+    let what = format!("hero area {}", r.name);
+    let knock = knockback(r.pushback_milli, None);
+    if r.damage.unwrap_or(0) == 0 && r.buff.is_none() && knock.is_none() && r.end_area.is_none() {
+        return Ok(None);
+    }
+    let end = match &r.end_area {
+        Some(e) => push_hero_area(e, areas, buffs)?,
+        None => None,
+    };
+    let buff = match &r.buff {
+        Some(b) => Some(buffs.apply(b, r.buff_time_ms, &what)?),
+        None => None,
+    };
+    let life_ms = r.life_ms.filter(|l| *l > 0).ok_or_else(|| format!("{what} without LifeDuration"))?;
+    let hit_speed_ms = r.hit_speed_ms.unwrap_or(0);
+    if hit_speed_ms < 0 || r.radius_milli <= 0 {
+        return Err(format!("{what}: HitSpeed {hit_speed_ms} or radius {} is not simulated", r.radius_milli));
+    }
+    let hit = SpellHit {
+        damage: r.damage.unwrap_or(0),
+        crown_pct: crown(r.crown_tower_damage_percent),
+        radius: milli(r.radius_milli),
+        hits_air: r.hits_air.unwrap_or(false),
+        hits_ground: r.hits_ground.unwrap_or(false),
+        only_enemies: r.only_enemies,
+        only_own_troops: false,
+        ignore_buildings: false,
+        no_effect_to_crown_towers: false,
+        knockback: knock,
+        buff,
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    // THE FIRST HIT at HitSpeed - HitSpeedOffset ms of the area's age (its first update is 50 ms old): the offset
+    // starts the hit clock that far along. The storm's 1500 - 1450 hits at 50, 1550 and 3050 of its 3050 ms life,
+    // the three waves its stats row names; the 50 ms slow area, with no offset, on every update.
+    let first_ms = (hit_speed_ms - r.hit_speed_offset_ms.unwrap_or(0)).max(0);
+    areas.push(AttachedArea {
+        hit,
+        level_scaled: r.damage_level_scaling,
+        life_ms,
+        hit_speed_ms,
+        first_ms,
+        follow: r.follow_parent,
+        stay: r.stay_after_parent_dies.unwrap_or(false),
+        end,
+    });
+    u8::try_from(areas.len() - 1).map(Some).map_err(|_| format!("{what}: too many areas"))
 }
 
 /// THE TABLE'S OWN GLOBALS THE LOADER READS (cards.json `globals`), typed. Part of the card fingerprint
@@ -4218,12 +4403,23 @@ pub struct CardDb {
     pub version: String,
     /// The file's own globals the loader reads (`CardGlobals`; cards.json `globals`).
     pub globals: CardGlobals,
-    /// THE FORMS THAT LOADED, as (base card, form number, form card): `form_card` reads it. Empty on a table
-    /// with no `evolutions`.
+    /// THE EVOLVED FORMS THAT LOADED, as (base card, form number, form card): `form_card` reads it. Empty on a table
+    /// with no `evolutions`. The hero forms are in `hero_forms`.
     pub forms: Vec<(u16, u8, u16)>,
     /// The `evolutions` records that did not load, with why. Apart from `rejected`, which lists the `cards` list.
     pub rejected_evolutions: Vec<(String, String)>,
+    /// THE HERO FORMS LOADED, as (base card, form card) (`load_hero_forms`; `form_card` reads it). Empty without any.
+    pub hero_forms: Vec<(u16, u16)>,
+    /// The `hero_forms` entries the loader refused, with why. Kept apart from `rejected`, which lists the rows of the
+    /// file's `cards` and `towers`.
+    pub rejected_forms: Vec<(String, String)>,
+    /// THE FIRST SLOT THE HERO PASS LOADED (`load_hero_forms`): every record from here on is a hero form or its
+    /// ability's unit (`is_hero_record`). u16::MAX when no hero pass ran.
+    pub hero_start: u16,
 }
+
+/// A DECK ENTRY'S FORM (`BattleConfig::forms`): 0 the base card, 1 its evolution, 2 its hero form.
+pub const FORM_HERO: u8 = 2;
 
 pub const KING_TOWER: &str = "KingTower";
 pub const PRINCESS_TOWER: &str = "PrincessTower";
@@ -4320,6 +4516,8 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         ignore_clone: false,
         projectile_y_offset: 0,
         evo: None,
+        form_of: None,
+        ability: None,
     }
 }
 
@@ -6242,6 +6440,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         #[cfg(clash_plant = "projectile_y_offset_unread")]
         projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
         evo: None,
+        // A hero form's links and button are set by its own pass (`CardDb::load_hero_forms`).
+        form_of: None,
+        ability: None,
     }, display, units))
 }
 
@@ -6378,7 +6579,12 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
 impl CardDb {
     /// Parse a cards.json document (schema at the bottom of this file).
     pub fn from_json_str(s: &str, source: CardSource) -> Result<CardDb, String> {
-        let file: RawCardsFile = serde_json::from_str(s).map_err(|e| format!("cards.json: {e}"))?;
+        let mut file: RawCardsFile = serde_json::from_str(s).map_err(|e| format!("cards.json: {e}"))?;
+        let hero_forms = std::mem::take(&mut file.hero_forms);
+        // PLANT hero_forms_in_first_pass (tests/hero_forms.rs): the forms load as ordinary rows of `cards`, ahead of
+        // the towers and every summon-only unit, so those slots move.
+        #[cfg(clash_plant = "hero_forms_in_first_pass")]
+        file.cards.extend(hero_forms.iter().filter_map(|v| serde_json::from_value::<RawCard>(v.clone()).ok()));
         // THE FILE'S OWN RARITIES when it carries them (15.535: Champion exists, a
         // Rare has 14 levels), else the shipped 2018 table. Never mixed.
         let rarities = if file.rarities.is_empty() {
@@ -6416,6 +6622,9 @@ impl CardDb {
             globals: globals.clone(),
             forms: Vec::new(),
             rejected_evolutions: Vec::new(),
+            hero_forms: Vec::new(),
+            rejected_forms: Vec::new(),
+            hero_start: u16::MAX,
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
@@ -7130,6 +7339,8 @@ impl CardDb {
             db.towers_from_fallback = true;
         }
         db.resolve_enchants(&ctx);
+        // THE HERO FORMS, after every other record, unit and buff, so no index of a battle without one moves.
+        db.load_hero_forms(hero_forms, &mut buffs, &ctx);
         let (defs, names) = buffs.into_parts();
         db.buffs = defs;
         db.buff_names = names;
@@ -7206,18 +7417,148 @@ impl CardDb {
         Ok(())
     }
 
-    /// THE CARD A DECK ENTRY PLAYS AS `form` of base card `base` (`FORM_EVOLUTION`, ...): the form card, or None when
-    /// the table loads no such form. Form 0 is the base card itself.
-    pub fn form_card(&self, base: u16, form: u8) -> Option<u16> {
-        if form == 0 {
-            return Some(base);
+    /// THE HERO FORMS (cards.json `hero_forms`), each a card of its own appended after every record the file's other
+    /// lists load, then its ability's unit after it; a buff one interns takes a new index after every other. A form
+    /// that does not load goes to `rejected_forms` with why and takes no slot: nothing of a battle without it moves.
+    /// Every slot from `hero_start` on is the pass's own (`is_hero_record`).
+    fn load_hero_forms(&mut self, forms: Vec<serde_json::Value>, buffs: &mut BuffTable, ctx: &LoadCtx) {
+        self.hero_start = u16::try_from(self.cards.len()).unwrap_or(u16::MAX);
+        for v in forms {
+            let name = v.get("name").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+            if let Err(why) = self.load_hero_form(v, buffs, ctx) {
+                self.rejected_forms.push((name, why));
+            }
         }
-        self.forms.iter().find(|(b, f, _)| *b == base && *f == form).map(|(_, _, c)| *c)
     }
 
-    /// Is card `idx` a form (an `evolutions` record), never dealt or named in a deck itself?
+    /// One hero form (`load_hero_forms`). Everything is converted before anything is pushed. The form must name a
+    /// loaded troop or building card as its base, carry that card's kind, elixir and rarity, and read whole: its unit's
+    /// needs (its death area, from its own `tables` or the file's) and its button (one charge, no cooldown, one of the
+    /// two effects). The form and its ability's unit load as summon-only records: a deck names the base card with form
+    /// 2 (state.rs `BattleConfig::forms`), never the form.
+    fn load_hero_form(&mut self, v: serde_json::Value, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(), String> {
+        let extra: RawHeroForm = serde_json::from_value(v.clone()).map_err(|e| format!("hero form: {e}"))?;
+        let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("hero form: {e}"))?;
+        let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of && !self.get(b).summon_only && self.get(b).evo.is_none());
+        let base = base.ok_or_else(|| format!("base card {} is not a loaded card", extra.form_of))?;
+        if self.form_card(base, FORM_HERO).is_some() {
+            return Err(format!("{} already has a hero form", extra.form_of));
+        }
+        if raw.ignore_buffs.as_ref().is_some_and(|l| !l.is_empty()) {
+            return Err("a hero form whose row lists IgnoreBuff is not simulated".into());
+        }
+        // The form's own rows (its unit, its ability's unit) beside the file's projectiles and areas.
+        let fctx = LoadCtx { aeos: ctx.aeos, units: &extra.tables.units, projectiles: ctx.projectiles, globals: ctx.globals };
+        // The ability's unit's OnStartingAction projectile arrives as its deploy projectile (tools/extract_cards.py
+        // `ability_block`), so it lands where the unit appears as every deploy blow does (state.rs `deploy_blow`).
+        let (mut c, _, needs) = convert(raw, buffs, &fctx)?;
+        let b = self.get(base);
+        if c.kind != b.kind || c.elixir != b.elixir || c.rarity != b.rarity || c.spell.is_some() {
+            return Err(format!("its kind, elixir or rarity is not its base card's ({:?} {} {})", c.kind, c.elixir, c.rarity));
+        }
+        for (which, name) in needs {
+            if which != UnitUse::DeathAreaEffect {
+                return Err(format!("its unit needs {name} ({which:?}), which is not loaded for a hero form"));
+            }
+            let aeo = extra.tables.area_effect_objects.get(&name).or_else(|| ctx.aeos.get(&name)).ok_or_else(|| format!("death area effect {name}: no record"))?;
+            let (shape, more) = convert_area_effect(aeo, buffs, &fctx).map_err(|e| format!("death area effect {name}: {e}"))?;
+            if !more.is_empty() {
+                return Err(format!("death area effect {name} releases units; not simulated on a hero form"));
+            }
+            c.death_area_effect = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+        }
+        // THE BUTTON.
+        let a = &extra.ability;
+        let what = format!("ability {}", a.name);
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() {
+            return Err(format!("{what}: {:?} charges and cooldown {:?}; only one charge and no cooldown is simulated", a.max_charges, a.cooldown_ms));
+        }
+        if a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a negative cost or time"));
+        }
+        let mut unit: Option<CardDef> = None;
+        let effect = match a.effect.kind.as_str() {
+            "spawn_ahead" => {
+                let name = a.effect.unit.clone().ok_or_else(|| format!("{what}: spawn_ahead without a unit"))?;
+                if a.effect.use_deploy != Some(true) {
+                    return Err(format!("{what}: a unit put down without its deploy is not simulated"));
+                }
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                let kind = if uv.get("source_table").and_then(serde_json::Value::as_str) == Some("buildings") { "building" } else { "troop" };
+                let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String(kind.into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on an ability's unit"));
+                }
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                u.summon_only = true;
+                unit = Some(u);
+                AbilityEffect::SpawnAhead { unit: u16::MAX, relative_x: a.effect.relative_x.unwrap_or(0), relative_y: a.effect.relative_y.unwrap_or(0) }
+            }
+            "parent_areas" => {
+                let mut areas = Vec::new();
+                let mut start = Vec::new();
+                for r in a.effect.areas.as_deref().unwrap_or_default() {
+                    if let Some(k) = push_hero_area(r, &mut areas, buffs)? {
+                        start.push(k);
+                    }
+                }
+                if start.is_empty() {
+                    return Err(format!("{what}: no area lands anything"));
+                }
+                AbilityEffect::Areas { areas, start }
+            }
+            other => return Err(format!("{what}: effect {other} is not simulated")),
+        };
+        c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
+        c.form_of = Some(base);
+        c.summon_only = true;
+        if !self.rarities.iter().any(|r| r.name == c.rarity) {
+            return Err(format!("rarity {} not in rarities.csv", c.rarity));
+        }
+        let (form_name, unit_name) = (c.name.clone(), unit.as_ref().map(|u| u.name.clone()));
+        if self.index(&form_name).is_some() || unit_name.as_ref().is_some_and(|n| self.index(n).is_some()) {
+            return Err("a name already loaded".into());
+        }
+        self.push(c, None)?;
+        let form = (self.cards.len() - 1) as u16;
+        if let Some(u) = unit {
+            self.push(u, None)?;
+            let ui = (self.cards.len() - 1) as u16;
+            if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. }, .. }) = self.cards[form as usize].ability.as_mut() {
+                *unit = ui;
+            }
+        }
+        self.hero_forms.push((base, form));
+        Ok(())
+    }
+
+    /// THE CARD A DECK ENTRY OF `base` WITH FORM `form` PLAYS (`BattleConfig::forms`): the base itself for 0, its
+    /// evolution for FORM_EVOLUTION (`forms`), its hero form for FORM_HERO (`hero_forms`); None when the table loads no
+    /// such form.
+    pub fn form_card(&self, base: u16, form: u8) -> Option<u16> {
+        match form {
+            0 => Some(base),
+            FORM_HERO => self.hero_forms.iter().find(|(b, _)| *b == base).map(|(_, f)| *f),
+            f => self.forms.iter().find(|(b, k, _)| *b == base && *k == f).map(|(_, _, c)| *c),
+        }
+    }
+
+    /// Is card `idx` an evolved form (an `evolutions` record), never dealt or named in a deck itself? A hero form is
+    /// not one here: it carries `form_of` and loads summon-only (`is_hero_record`).
     pub fn is_form(&self, idx: u16) -> bool {
         self.cards.get(idx as usize).is_some_and(|c| c.evo.is_some())
+    }
+
+    /// Did the hero pass load record `idx` (`load_hero_forms`: a hero form or its ability's unit)? Such a record
+    /// applies its ProjectileYOffset always (combat.rs `launch_point`).
+    pub fn is_hero_record(&self, idx: u16) -> bool {
+        idx >= self.hero_start && (idx as usize) < self.cards.len()
     }
 
     /// THE ENCHANT'S MULTIPLIERS AND EXCLUSIONS, resolved against the loaded cards (`EnchantDef::per_attacker`,
@@ -7378,7 +7719,8 @@ impl CardDb {
                 | UnitRef::SummonMember(_)
                 | UnitRef::BuffDeathSpawn
                 | UnitRef::Transform
-                | UnitRef::Scheduled(_) => self.unit_level(idx, unit, level_index, level)?,
+                | UnitRef::Scheduled(_)
+                | UnitRef::AbilityUnit => self.unit_level(idx, unit, level_index, level)?,
                 // A variant's form is a card of its own, played at the same unified level: checked whole (its own
                 // units included) by the walk below, at that level. A form is never itself a variant (the loader
                 // refuses one).
@@ -7497,6 +7839,12 @@ impl CardDb {
                 }
             }
         }
+        // After them, so no earlier block's place moves: the unit a hero's button puts down (loaded after every other
+        // record, `load_hero_forms`). A base card's hero form is not a block of the base: a form-2 deck entry plays it
+        // (state.rs `try_new` checks its levels, py.rs `ids_of_indices` reports it under the base).
+        if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, *unit, None));
+        }
         out
     }
 
@@ -7539,6 +7887,8 @@ impl CardDb {
                 UnitRef::Transform => card.transform_at_hp = None,
                 // A spell whose schedule lost a unit goes whole (a death or projectile area goes below).
                 UnitRef::Scheduled(_) => card.spell = None,
+                // Never reached: the forms load after every cleanup.
+                UnitRef::AbilityUnit => card.ability = None,
             }
         }
         let card = &mut self.cards[idx as usize];

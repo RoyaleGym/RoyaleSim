@@ -1134,7 +1134,11 @@ pub fn fire(
             Some(cf) => (cf.speed, cards.scaled(ents.card[a], ents.level[a], cf.damage).expect("level validated at spawn"), cf.radius, cf.hits_air, cf.hits_ground, cf.crown_pct),
             None => (p.speed, amount, splash_r, card.attacks_air, card.attacks_ground, pct),
         };
-        let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, card.projectile_y_offset, a, ti);
+        // ProjectileYOffset (`CardDef::projectile_y_offset`): always on a record the hero pass loaded (measured on client
+        // 16.402: the Hero Musketeer's shots first appear at 1800 x the aim + 300 x her side's forward, 100 launches over
+        // five captures; the base Musketeer's at 450 x the aim), under combat.PROJECTILE_Y_OFFSET on every other.
+        let always = cards.is_hero_record(ents.card[a]);
+        let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, card.projectile_y_offset, always, a, ti);
         // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
         // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
         // start-of-tick centre and flown there whatever the target does (measured on client
@@ -1297,12 +1301,14 @@ fn stage_damage(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> i32
 ///
 /// combat.PROJECTILE_Y_OFFSET = client_forward_y adds the row's ProjectileYOffset (`y_offset`,
 /// subtiles; the King Tower's 400) along the attacker's OWN forward y to that point: Blue +y,
-/// Red -y, whatever the bearing to the target. Measured on the 16.402 corpus on every king-tower
+/// Red -y, whatever the bearing to the target. `always` adds it whatever the key says: a record
+/// the hero pass loaded (card.rs `CardDb::is_hero_record`; the Hero Musketeer's 300 and her
+/// turret's, measured on client 16.402), whose offset was never under the key. Measured on the 16.402 corpus on every king-tower
 /// shot's first frame (413 of 413, one seat per battle): the shot sits exactly 400 past the plain
 /// point toward the enemy side, and it flies from there. Only this point moves: the bearing is
 /// still read from the attacker's centre, and the other launch paths (a straight shot's, a fan's)
 /// do not read the column, which no loaded row that sets it fires.
-fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32, a: usize, ti: usize) -> (Vec2, bool) {
+fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32, always: bool, a: usize, ti: usize) -> (Vec2, bool) {
     match calib.projectile_launch {
         ProjectileLaunch::StartRadiusNextTick => {
             let d = ents.pos[ti].sub(ents.pos[a]);
@@ -1323,7 +1329,7 @@ fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32
             } else {
                 ents.pos[a]
             };
-            if calib.projectile_y_offset == ProjectileYOffset::ClientForwardY && y_offset != 0 {
+            if (always || calib.projectile_y_offset == ProjectileYOffset::ClientForwardY) && y_offset != 0 {
                 #[cfg(not(clash_plant = "projectile_y_offset_arena_frame"))]
                 let forward = forward_dy(ents.team[a]);
                 #[cfg(clash_plant = "projectile_y_offset_arena_frame")]
@@ -1346,7 +1352,7 @@ fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32
 pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, target: EntityId, speed_raw: i32, projectiles: &mut Vec<Projectile>) {
     let ti = target.index as usize;
     let thrower = cards.get(ents.card[a]);
-    let (pos, fresh) = launch_point(ents, calib, thrower.projectile_start_radius, thrower.projectile_y_offset, a, ti);
+    let (pos, fresh) = launch_point(ents, calib, thrower.projectile_start_radius, thrower.projectile_y_offset, cards.is_hero_record(ents.card[a]), a, ti);
     projectiles.push(Projectile {
         team: ents.team[a],
         pos,

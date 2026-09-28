@@ -38,6 +38,15 @@
 //!     never in the order of the command list, so `step([blue, red])` and
 //!     `step([red, blue])` are the same battle (state_hash included).
 //!
+//! ABILITY BUTTONS
+//!     A command slot in [HAND_SIZE, HAND_SIZE + ABILITY_BUTTONS) presses ability
+//!     button slot - HAND_SIZE: the hero of that team's k-th deck entry marked form 2
+//!     in `reset(..., forms=)`. Its x and y are not read. The verdict is
+//!     TOO_EARLY, GAME_OVER and NOT_ENOUGH_ELIXIR as for a deploy, then NO_HERO,
+//!     ABILITY_NOT_READY and ABILITY_SPENT (state.rs `check_ability_button`). One
+//!     command per team per step still holds, so a press and a deploy of one team
+//!     never share a step.
+//!
 //! SPELLS
 //!     The catalogue carries every simulable spell (the thin slice's Fireball, Arrows,
 //!     Zap, The Log, Goblin Barrel; Rocket and Freeze load too because their data has an
@@ -79,13 +88,18 @@
 //!     effect; (x, y) the current centre; aim the landing point (flight, airborne) or
 //!     the roll's end point (rolling) or the centre (area); distances in subtiles.
 //!
-//! EVOLVED FORMS
-//!     `reset(..., forms=None)` marks deck entries evolved: two lists (blue, red) parallel to `decks`, 0 the base card
-//!     and 1 its evolution; None plays every card as itself. The catalogue lists base cards only: a form is never a
-//!     card of its own (`card_names` naming one raises), and its units, spells and shots report under the base card's
-//!     id. `state_json` gives each player an "evo" list, one row per evolved deck card in deck order:
+//! EVOLVED AND HERO FORMS
+//!     `reset(..., forms=None)` gives each deck entry a form: two lists (blue, red) parallel to `decks`, 0 the base
+//!     card, 1 its evolution, 2 its hero form; None plays every card as itself. The catalogue lists base cards only: a
+//!     form is never a card of its own (`card_names` naming one raises), and its units, spells and shots report under
+//!     the base card's id.
+//!     An evolved entry puts its evolution down on every third play of the card. `state_json` gives each player an
+//!     "evo" list, one row per evolved deck card in deck order:
 //!         [card_id, plays since its last evolved play, 1 when its next play from the hand is evolved else 0]
 //!     and each evolved unit's `status_flags` bit 3 (8).
+//!     A hero entry puts its hero form down on every play and is one of its side's ability buttons (ABILITY
+//!     BUTTONS). `state_json` gives each player an "abilities" list, one row per button, and each hero unit's
+//!     `status_flags` bit 4 (16). The catalogue's `hero` column is the button's elixir.
 //!
 //! WHAT IT CANNOT DO (raises instead of guessing)
 //!     `crowns_from_destroyed_towers = false` (crowns are derived from destroyed
@@ -103,7 +117,7 @@ use crate::card::{CardDb, CardKind, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
-use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, Outcome, SpawnPathfindDestination, HAND_SIZE};
+use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, Outcome, SpawnPathfindDestination, ABILITY_BUTTONS, HAND_SIZE};
 use crate::{Rng, Team};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -166,7 +180,7 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
-pub const DEPLOY_REASONS: [&str; 15] = [
+pub const DEPLOY_REASONS: [&str; 18] = [
     "OK",
     "BAD_TEAM",
     "BAD_SLOT",
@@ -189,6 +203,11 @@ pub const DEPLOY_REASONS: [&str; 15] = [
     // NOTHING_TO_MIRROR, index 14: a Mirror played before its side has played anything it could copy
     // (state.rs `resolve_play`, match.MIRROR_RECORD).
     "NOTHING_TO_MIRROR",
+    // An ability button's own reasons (state.rs `check_ability_button`), 15 to 17: no living hero behind the button,
+    // its hero still deploying, its hero's one charge used.
+    "NO_HERO",
+    "ABILITY_NOT_READY",
+    "ABILITY_SPENT",
 ];
 
 /// THE ENTITY ROW'S FIELDS, in exactly the order `state_json` writes them, named as
@@ -220,7 +239,8 @@ pub const ENTITY_FIELDS: [&str; 21] = [
     "shield",
     "buffs",
     // added 2026-09-25: the engine's own status bits (entity.rs `Entities::status_flags`):
-    // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit
+    // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit;
+    // bit 4 a hero unit
     "status_flags",
 ];
 
@@ -250,9 +270,10 @@ const MOTION_SCHEDULED: u8 = 7;
 /// THE CATALOGUE ROW'S FIELDS, in `catalogue_json`'s order, named as protocol.py `CardInfo`
 /// names them where it has the field (`placement` is the kind code, the card's deploy rule;
 /// `card_kind` is a name from CARD_KINDS; `variants` a variant card's forms, null on every other
-/// card). A variant card (the Spirit Empress) shows its first form's row with its own elixir. A
-/// catalogue row may grow at its end; a decoder takes the columns it knows by position.
-pub const CATALOGUE_FIELDS: [&str; 10] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants"];
+/// card). A variant card (the Spirit Empress) shows its first form's row with its own elixir. `hero`: the elixir its
+/// hero form's button costs, null on a card without a loaded hero form. A catalogue row may grow at its end; a decoder
+/// takes the columns it knows by position.
+pub const CATALOGUE_FIELDS: [&str; 11] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants", "hero"];
 
 /// WHAT A CARD IS, by name (card.rs `CardKind`), the catalogue's `card_kind` column. The
 /// `placement` code says where a card may be played; it does not say what the card is, and
@@ -313,6 +334,9 @@ fn reason_of(r: &Result<(), DeployError>) -> u8 {
             DeployError::TooEarly { .. } => 13,
             // 14: a Mirror with nothing to copy is refused until its side plays, a reason a caller acts on.
             DeployError::NothingToMirror => 14,
+            DeployError::NoHero => 15,
+            DeployError::AbilityNotReady => 16,
+            DeployError::AbilitySpent => 17,
             DeployError::UnknownCard(_)
             | DeployError::UnsupportedCard(..)
             | DeployError::NotInHand
@@ -429,7 +453,9 @@ pub fn apply_commands(
     id_of_idx: &[i32],
 ) -> Result<Vec<CommandOutcome>, String> {
     let tick = s.tick_count();
+    // A button slot reports its deck entry's base card.
     let card_id = |s: &BattleState, team: i64, slot: i64| match (team_of(team), usize::try_from(slot)) {
+        (Some(t), Ok(k)) if button_of(k).is_some() => s.ability_buttons(t).get(k - HAND_SIZE).map_or(-1, |b| id_of_idx[b.base as usize]),
         (Some(t), Ok(k)) => s.hand_card(t, k).map(|i| id_of_idx[i as usize]).unwrap_or(-1),
         _ => -1,
     };
@@ -461,6 +487,14 @@ pub fn apply_commands(
     accepted.sort_by_key(|&(_, team, slot, _, _)| (team, slot));
     for (k, team, slot, x, y) in accepted {
         let t = team_of(team).expect("validated");
+        // AN ABILITY BUTTON (`button_of`): the press, reported at the hero's position.
+        if let Some(b) = button_of(slot as usize) {
+            let hero = s.press_ability_button(t, b).map_err(|e| format!("press validated OK was then refused: {e:?}"))?;
+            let at = s.entity(hero).map_or(Vec2::new(x, y), |e| e.pos);
+            out[k].3 = at.x;
+            out[k].4 = at.y;
+            continue;
+        }
         // Resolved IN THE ORDER THE DEPLOYS HAPPEN, because one team's building changes
         // where the other team's tap in the same step can fit.
         let landed = s
@@ -472,6 +506,12 @@ pub fn apply_commands(
     Ok(out)
 }
 
+/// THE ABILITY BUTTON a command slot presses: slot HAND_SIZE + k is button k for k < ABILITY_BUTTONS (state.rs
+/// `press_ability_button`; its x and y are not read). None for a hand slot and past the buttons.
+fn button_of(slot: usize) -> Option<usize> {
+    (HAND_SIZE..HAND_SIZE + ABILITY_BUTTONS).contains(&slot).then(|| slot - HAND_SIZE)
+}
+
 /// The reason code a single command gets against `s` (protocol.py's order:
 /// GAME_OVER before BAD_TEAM).
 fn check_command(s: &BattleState, team: i64, slot: i64, x: i32, y: i32) -> u8 {
@@ -481,6 +521,9 @@ fn check_command(s: &BattleState, team: i64, slot: i64, x: i32, y: i32) -> u8 {
     let Some(team) = team_of(team) else { return R_BAD_TEAM };
     if slot < 0 {
         return reason_of(&Err(DeployError::BadSlot));
+    }
+    if let Some(b) = button_of(slot as usize) {
+        return reason_of(&s.check_ability_button(team, b));
     }
     reason_of(&s.check_deploy_slot(team, slot as usize, Vec2::new(x, y)))
 }
@@ -541,6 +584,16 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
     // that comes back on itself ends), and a catalogue card reached as a unit keeps its own id
     // and is not walked through: its own units are its own.
     let mut frontier: Vec<(i32, u16)> = catalogue.iter().enumerate().map(|(cid, idx)| (cid as i32, *idx)).collect();
+    // A HERO FORM reports under its base card's id (a form-2 deck entry of the base plays it), and its units with it:
+    // the forms join the first level after the catalogue's own cards, so no id reached before them moves.
+    for &(base, form) in &cards.hero_forms {
+        if let Some(cid) = catalogue.iter().position(|i| *i == base) {
+            if id_of_idx[form as usize] == -1 {
+                id_of_idx[form as usize] = cid as i32;
+            }
+            frontier.push((cid as i32, form));
+        }
+    }
     let mut walked: Vec<bool> = vec![false; cards.cards.len()];
     while !frontier.is_empty() {
         let mut next: Vec<(i32, u16)> = Vec::new();
@@ -628,7 +681,10 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
                 format!("[{}]", rows.join(","))
             }
         };
-        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants}]", c.elixir);
+        // The 11th element: the elixir the card's hero form's button costs (a form-2 deck entry plays that form), null
+        // on every card without one.
+        let hero = cards.form_card(*idx, crate::card::FORM_HERO).and_then(|f| cards.get(f).ability.as_ref()).map_or("null".to_string(), |a| a.cost.to_string());
+        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants},{hero}]", c.elixir);
     }
     out.push(']');
     Ok(out)
@@ -710,7 +766,8 @@ pub fn state_json_text(
         let hc = s.hand_costs(team);
         let mirror_target = s.mirror_target(team).map_or(-1, |i| id_of_idx.get(i as usize).copied().unwrap_or(-1));
         let _ = write!(o, "],\"hand_costs\":[{},{},{},{}],\"mirror_target\":{mirror_target}", hc[0], hc[1], hc[2], hc[3]);
-        // THE EVOLVED DECK CARDS (module doc, EVOLVED FORMS): [card id, plays, next play evolved], keyed like the two above.
+        // THE EVOLVED DECK CARDS (module doc, EVOLVED AND HERO FORMS): [card id, plays, next play evolved], keyed like the
+        // two above.
         o.push_str(",\"evo\":[");
         for (k, c) in s.evo_counters(team).iter().enumerate() {
             if k > 0 {
@@ -718,6 +775,17 @@ pub fn state_json_text(
             }
             let id = id_of_idx.get(c.card as usize).copied().unwrap_or(-1);
             let _ = write!(o, "[{id},{},{}]", c.plays, u8::from(c.next_evolved()));
+        }
+        o.push(']');
+        // THE SIDE'S ABILITY BUTTONS (state.rs `ability_buttons`), one row per form-2 deck entry in deck order:
+        // [available, spent, cost] -- available 1 when its newest living hero has deployed and not used its charge,
+        // spent 1 when that hero has used it, cost the press's elixir. Keyed, so a decoder that does not know it drops it.
+        o.push_str(",\"abilities\":[");
+        for (k, b) in s.ability_buttons(team).iter().enumerate() {
+            if k > 0 {
+                o.push(',');
+            }
+            let _ = write!(o, "[{},{},{}]", u8::from(b.available), u8::from(b.spent), b.cost);
         }
         o.push(']');
         let _ = write!(
@@ -818,6 +886,8 @@ pub fn state_json_text(
             SpellMotion::Strikes { pos, next_ms, k, struck, .. } => (MOTION_STRIKES, *pos, *pos, *next_ms, *k as i32, 0, struck.len()),
             // a scheduled area (the Graveyard): its travelled is the number of entries it has put down
             SpellMotion::Scheduled { pos, fired, .. } => (MOTION_SCHEDULED, *pos, *pos, 0, fired.count_ones() as i32, 0, 0),
+            // an area riding on a unit (a hero's button): a pulsing area whose centre moves, its delay its life left
+            SpellMotion::Attached { pos, life_ms, .. } => (MOTION_PULSING, *pos, *pos, *life_ms, 0, 0, 0),
         };
         let _ = write!(
             o,
@@ -1037,6 +1107,9 @@ impl Battle {
                     if is_tower(&db.get(i).name) {
                         return Err(PyValueError::new_err(format!("{n:?} is a crown tower, not a card")));
                     }
+                    if db.get(i).form_of.is_some() {
+                        return Err(PyValueError::new_err(format!("{n:?} is a hero form: name its base card and mark it with form 2 in reset's forms")));
+                    }
                     if db.get(i).summon_only {
                         return Err(PyValueError::new_err(format!("{n:?} is a unit a spell releases, not a card")));
                     }
@@ -1194,8 +1267,9 @@ impl Battle {
     /// (team, card_id, x, y, hp or -1), materialised in the canonical order
     /// (team, own-frame y, own-frame x, card name, starting hp), never list order
     /// (state.rs `scenario_spawn_batch`). A bad spec is reported by its list entry.
-    /// `forms`: [blue, red], each parallel to its deck, 0 the base card and 1 its evolution (module doc, EVOLVED
-    /// FORMS); None plays every card as itself.
+    /// `forms`: [blue, red], each empty or parallel to its deck: 0 the base card, 1 its evolution, 2 its hero form
+    /// (module doc, EVOLVED AND HERO FORMS; state.rs `BattleConfig::forms`, which checks them). None plays every card
+    /// as itself.
     #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
@@ -1217,11 +1291,6 @@ impl Battle {
             Some(f) if f.len() == 2 => [f[0].clone(), f[1].clone()],
             Some(_) => return Err(PyValueError::new_err("forms must be [blue, red]")),
         };
-        for (t, f) in forms.iter().enumerate() {
-            if !f.is_empty() && f.len() != decks[t].len() {
-                return Err(PyValueError::new_err(format!("forms[{t}] has {} entries for a deck of {}", f.len(), decks[t].len())));
-            }
-        }
         let name_of = |cid: i64| -> PyResult<String> {
             usize::try_from(cid)
                 .ok()
@@ -1260,8 +1329,8 @@ impl Battle {
                 for d in named.iter_mut() {
                     *d = perm.iter().map(|k| d[*k].clone()).collect();
                 }
-                // A form travels with its card.
-                for f in forms.iter_mut().filter(|f| !f.is_empty()) {
+                // Each entry's form travels with its card.
+                for f in forms.iter_mut().filter(|f| f.len() == n) {
                     *f = perm.iter().map(|k| f[*k]).collect();
                 }
                 cfg.shuffle_decks = false;
@@ -1751,6 +1820,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EMBEDDED_GLOBALS_CSV", EMBEDDED_GLOBALS_CSV)?;
     m.add("SNAPSHOT_FORMAT", crate::state::SNAPSHOT_FORMAT)?;
     m.add("HAND_SIZE", HAND_SIZE)?;
+    m.add("ABILITY_BUTTONS", ABILITY_BUTTONS)?;
     // The troop territory rule this build deploys with (calibration.json
     // arena.TERRITORY_MODEL); Battle.tower_no_deploy_rects() gives its numbers.
     m.add("TERRITORY_MODEL", Battle::territory_model())?;

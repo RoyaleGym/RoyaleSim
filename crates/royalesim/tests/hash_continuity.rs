@@ -385,11 +385,12 @@ fn db_without(doc: &Value, removed: &[&str], what: &str) -> CardDb {
 }
 
 /// The CardDb's slot names in index order: cards, crown towers, summon-only units, and
-/// the rows refused after their push, which keep their slot. The evolved forms (cards.json
-/// `evolutions`) are left out: they load after every other slot, where no battle here
-/// reaches them, and tests/evolution.rs holds them there.
+/// the rows refused after their push, which keep their slot. It stops at the first form record of either kind: the
+/// evolved forms (cards.json `evolutions`) load after every other slot, the hero forms (card.rs `load_hero_forms`) and
+/// their units after them, and no battle here plays one (tests/evolution.rs and tests/hero_forms.rs hold them there).
+/// A form that loaded among the other slots ends the list early, so the slots after it show as moved.
 fn slots(db: &CardDb) -> Vec<String> {
-    db.cards.iter().filter(|c| c.evo.is_none()).map(|c| c.name.clone()).collect()
+    db.cards.iter().take_while(|c| c.evo.is_none() && c.form_of.is_none()).map(|c| c.name.clone()).collect()
 }
 
 /// One shipped table, read.

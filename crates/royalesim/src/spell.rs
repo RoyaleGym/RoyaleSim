@@ -56,7 +56,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Rect, Shape};
-use crate::card::{CardDb, KnockbackDef, SelectorDef, SpawnDef, SpawnOffset, SpellHit, SpellShape, StrikeDef, StrikePick};
+use crate::card::{AbilityEffect, AttachedArea, CardDb, KnockbackDef, SelectorDef, SpawnDef, SpawnOffset, SpellHit, SpellShape, StrikeDef, StrikePick};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
@@ -95,6 +95,10 @@ pub enum SpellMotion {
     /// the tick it was created on, which its entries' delays count from, and `fired` one bit per entry already
     /// released (bit k for entry k).
     Scheduled { pos: Vec2, born: u32, fired: u32 },
+    /// AN AREA RIDING ON A UNIT (card.rs `AttachedArea`: a hero's button, the Hero Ice Golem's storm): area `part` of
+    /// the card's ability, centred on `pos`, which is `parent`'s position on every update while the parent lives and
+    /// the area follows it. `life_ms` left and `next_ms` to its next hit, as a pulsing area's clocks.
+    Attached { parent: EntityId, pos: Vec2, part: u8, life_ms: i32, next_ms: i32 },
 }
 
 /// One live spell object.
@@ -361,6 +365,29 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
         }
     };
     Ok(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 }, depth: 0 })
+}
+
+/// Area `part` of card `card`'s ability (card.rs `AbilityEffect::Areas`), or None.
+pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&AttachedArea> {
+    match cards.cards.get(card as usize).and_then(|c| c.ability.as_ref()).map(|a| &a.effect) {
+        Some(AbilityEffect::Areas { areas, .. }) => areas.get(part as usize),
+        _ => None,
+    }
+}
+
+/// AREA `part` OF CARD `card`'S ABILITY, made at `pos` on `parent` for `team` at unified `level` (`SpellMotion::Attached`):
+/// its damage fixed now, on the card's ladder only when its damage type scales with level, and its first hit
+/// `first_ms` of its age away (its first update is TICK_MS old).
+#[allow(clippy::too_many_arguments)]
+pub fn attached_area(cards: &CardDb, calib: &Calib, team: Team, card: u16, level: i32, parent: EntityId, pos: Vec2, part: u8) -> Result<Spell, String> {
+    let a = attached_def(cards, card, part).ok_or_else(|| format!("{} has no ability area {part}", cards.get(card).name))?;
+    let damage = if a.level_scaled { cards.scaled(card, level, a.hit.damage)? } else { a.hit.damage };
+    let pulse = match a.hit.buff {
+        None => 0,
+        Some(b) => cards.buffs[b.buff as usize].pulse_amount(calib.buff_pulse_amount, |m| cards.scaled(card, level, m))?,
+    };
+    let motion = SpellMotion::Attached { parent, pos, part, life_ms: a.life_ms, next_ms: a.first_ms - calib.tick_ms };
+    Ok(Spell { team, card, level, damage, pulse, motion, depth: 0 })
 }
 
 /// Turn one accepted cast -- or one death that releases an area effect -- into its
@@ -1370,6 +1397,39 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
     let tick = ctx.calib.tick_ms;
     let mult = ctx.calib.projectile_speed_to_subtiles_per_tick;
     spells.retain_mut(|s| {
+        // AN AREA RIDING ON A UNIT (a hero's button): its own def, not the card's spell shape. It follows its parent
+        // (post-Move), stays where the parent died when its row says so, hits like a pulsing area, and makes its end
+        // area where it stands on the update its life runs out (that area acts from the next tick).
+        if let SpellMotion::Attached { parent, pos, part, life_ms, next_ms } = &mut s.motion {
+            let Some(a) = attached_def(ctx.cards, s.card, *part) else { return false };
+            let alive = ctx.ents.is_alive(*parent);
+            if !alive && !a.stay {
+                return false;
+            }
+            if alive && a.follow {
+                *pos = ctx.ents.pos[parent.index as usize];
+            }
+            while *next_ms <= 0 && *life_ms > 0 {
+                let clock = AreaClock { pos: *pos, age_ms: a.life_ms - *life_ms + tick, left_ms: *life_ms };
+                impact(ctx, s.team, s.card, s.level, *pos, &a.hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
+                // HitSpeed 0: one hit, on the first update, and the area is gone.
+                if a.hit_speed_ms == 0 {
+                    return false;
+                }
+                *next_ms += a.hit_speed_ms.max(tick);
+            }
+            *next_ms -= tick;
+            *life_ms -= tick;
+            if *life_ms > 0 {
+                return true;
+            }
+            if let Some(end) = a.end {
+                if let Ok(v) = attached_area(ctx.cards, ctx.calib, s.team, s.card, s.level, *parent, *pos, end) {
+                    out.born.push(v);
+                }
+            }
+            return false;
+        }
         let def = ctx.cards.get(s.card);
         let Some(shape) = shape_of(def).and_then(|d| shape_at(&d.shape, s.depth)) else { return false };
         match (&mut s.motion, shape) {

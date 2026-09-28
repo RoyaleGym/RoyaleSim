@@ -530,6 +530,7 @@ pub fn canon_spells(s: &BattleState, team: Team) -> Vec<CanonSpell> {
                 SpellMotion::Fuse { pos, ms } => (5, [frame(s, team, *pos), (0, 0), (0, 0), (0, 0)], [*ms, sp.depth as i32, 0], 0),
                 SpellMotion::Strikes { pos, life_ms, next_ms, k, struck } => (6, [frame(s, team, *pos), (0, 0), (0, 0), (0, 0)], [*life_ms, *next_ms, *k as i32], struck.len()),
                 SpellMotion::Scheduled { pos, born, fired } => (7, [frame(s, team, *pos), (0, 0), (0, 0), (0, 0)], [*born as i32, *fired as i32, 0], 0),
+                SpellMotion::Attached { pos, part, life_ms, next_ms, .. } => (8, [frame(s, team, *pos), (0, 0), (0, 0), (0, 0)], [*life_ms, *next_ms, *part as i32], 0),
             };
             (name, sp.level, sp.damage, kind, pts, nums, hits)
         })
