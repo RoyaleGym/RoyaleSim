@@ -5433,9 +5433,10 @@ impl EvoBoard {
         self.members.is_empty() && self.hits.is_empty() && self.next_group == 0 && self.snipers.is_empty()
     }
 
-    /// Is entity `id` an Evo Musketeer aiming a snipe (a snipe left and a target kept)?
+    /// Is entity `id` an Evo Musketeer aiming a snipe (a target kept: a snipe left, or her last one just gone and its
+    /// target still held, `snipe_pass`)?
     fn aiming(&self, id: EntityId) -> bool {
-        self.snipers.iter().any(|(m, ammo, t)| *m == id && *ammo > 0 && t.is_some())
+        self.snipers.iter().any(|(m, _, t)| *m == id && t.is_some())
     }
 }
 
@@ -7186,12 +7187,9 @@ impl BattleState {
                     p.damage = damage;
                     p.crown_pct = sn.crown_pct;
                 }
+                // She keeps aiming at its target until `snipe_pass` lets it go, the tick after this one.
                 if let Some(s) = self.evo.snipers.iter_mut().find(|(m, _, _)| *m == id) {
                     s.1 = s.1.saturating_sub(1);
-                    if s.1 == 0 {
-                        s.2 = None;
-                        self.ents.attack_seq[i] = 0;
-                    }
                 }
             }
         }
@@ -7236,18 +7234,25 @@ impl BattleState {
         self.evo.snipers.retain(|(m, _, _)| ents.is_alive(*m));
     }
 
-    /// THE EVO MUSKETEER'S SNIPE TARGETS, after the Target phase's ordinary decisions, for each one with a snipe left and
-    /// past her deploy. The reading of musketeer_ev1.toml's ActionMusketeerSnipe (unmeasured):
+    /// THE EVO MUSKETEER'S SNIPE TARGETS, in the Move phase after the move pass and before the deploy countdown, for
+    /// each one with a snipe left and past her deploy. The reading of musketeer_ev1.toml's ActionMusketeerSnipe:
     ///   - when she aims at nothing, an ordinary target within her attack reach comes first: she shoots it as the plain
     ///     Musketeer does;
     ///   - else a SNIPE TARGET: an enemy she can target (target.rs `can_target`), not a crown tower (FilterTowers), not
-    ///     one the shots in flight will kill (IgnorePendingDamageTargets), standing SnipeMinRange to SnipeMaxRange ahead
-    ///     of her toward the enemy and within SnipeSideClip of her x (centre distances, her owner's frame: the deploy
-    ///     preview is the Log's lane rectangle), the nearest ahead first, ties to the earliest created;
-    ///   - a target she already aims at is kept while it stays in that reach within LockedTargetSnipeSideClip (she takes
-    ///     no ordinary decision meanwhile, `phase_target_with`);
+    ///     one the shots in flight will kill (IgnorePendingDamageTargets, unmeasured), standing SnipeMinRange to
+    ///     SnipeMaxRange ahead of her toward the enemy and within SnipeSideClip plus its own collision radius of her x
+    ///     (centre distances, her owner's frame), the nearest ahead first, ties to the earliest created;
+    ///   - a target she already aims at is kept while it stays in that reach within LockedTargetSnipeSideClip plus its
+    ///     radius (she takes no ordinary decision meanwhile, `phase_target_with`);
     ///   - while she aims, her attack reaches the entry's CustomRange (combat.rs `attack_reach`), so she stands and
-    ///     shoots, and `evo_after_fire` makes the shot the snipe.
+    ///     shoots from the next tick's attack pass, and `evo_after_fire` makes the shot the snipe;
+    ///   - after a snipe leaves she holds its target, standing, through the tick after the hit, then lets it go.
+    ///
+    /// Measured on client 15.535.29 (level 11, tests/evo_musketeer_snipe.rs): the target is taken on the positions after
+    /// the move (a Knight 2000 to her side was taken on the tick its offset fell from 1767 to 1727, a Giant at 2006 and
+    /// 1981: SnipeSideClip 1250 plus radius 500 or 750), and she steps on that tick; the first snipe leaves 15 ticks
+    /// after her deploy ends; she stands on the tick after each snipe and takes her next target the tick after that, so
+    /// each next snipe leaves 19 ticks after the last (the load timer's rest shortens the new windup).
     fn snipe_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step);
@@ -7269,6 +7274,21 @@ impl BattleState {
                     st.ents.target_locked[a] = false;
                 }
             };
+            // A SNIPE THAT HAS LEFT (her progress past a HitSpeed, which only a fire puts it: a snipe's windup starts
+            // from 0 on its target): she holds its target through the hit tick and the tick after, standing, then lets
+            // it go. Her next target, a snipe target or an ordinary one, is taken from the tick after that, so the next
+            // snipe's windup starts over on what is left of the load timer.
+            if kept.is_some() && self.ents.target[a] == kept && card.hit_speed_ms > 0 && self.ents.attack_ms[a] >= card.hit_speed_ms {
+                if self.ents.attack_phase[a] != AttackPhase::Cooldown {
+                    s.2 = None;
+                    self.ents.attack_seq[a] = 0;
+                    self.ents.target[a] = None;
+                    self.ents.attack_phase[a] = AttackPhase::Idle;
+                    self.ents.attack_ms[a] = 0;
+                    self.ents.target_locked[a] = false;
+                }
+                continue;
+            }
             if ammo == 0 || self.ents.deploy_ms[a] > 0 {
                 s.2 = None;
                 stop_aiming(self);
@@ -7296,7 +7316,7 @@ impl BattleState {
                     && !(sn.skip_towers && e.kind[c].is_crown_tower())
                     && ahead >= sn.min / K
                     && ahead <= sn.max / K
-                    && side <= clip / K
+                    && side <= (clip + e.radius[c]) / K
             };
             // An ordinary target within her reach comes first.
             let ordinary = e.target[a].filter(|t| e.is_alive(*t) && Some(*t) != kept).is_some_and(|t| {
@@ -9940,10 +9960,6 @@ impl BattleState {
         } else {
             self.phase_target_for(None);
         }
-        // THE EVO MUSKETEER'S SNIPE TARGETS (`snipe_pass`), after every ordinary decision.
-        if !self.evo.snipers.is_empty() {
-            self.snipe_pass();
-        }
     }
 
     /// The Target phase, for every unit (`only` None) or for a first update's fresh units alone
@@ -12427,6 +12443,11 @@ impl BattleState {
         #[cfg(clash_plant = "rider_copies_post_move")]
         self.carry_riders();
         self.charge_pass();
+        // THE EVO MUSKETEER'S SNIPE TARGETS (`snipe_pass`), on the positions after the move and before the deploy
+        // countdown: a snipe target taken here is shot at from the next tick's attack pass.
+        if !self.evo.snipers.is_empty() {
+            self.snipe_pass();
+        }
         if self.tick_order() != TickOrder::LegacyMoveBeforeAttack {
             // the deploy countdown after the move pass, as measured (client16402, and
             // client_sequential_strike, which changes nothing after the attack pass)

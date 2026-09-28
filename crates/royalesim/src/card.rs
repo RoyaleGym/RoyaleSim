@@ -1591,7 +1591,8 @@ pub struct SnipeDef {
     /// SnipeMinRange / SnipeMaxRange, SUBTILES: how far ahead of her a snipe target stands.
     pub min: i32,
     pub max: i32,
-    /// SnipeSideClip / LockedTargetSnipeSideClip, SUBTILES: how far to the side a new / a kept target may stand.
+    /// SnipeSideClip / LockedTargetSnipeSideClip, SUBTILES: how far to the side a new / a kept target may stand, beyond
+    /// its own collision radius (state.rs `snipe_pass`, measured).
     pub clip: i32,
     pub locked_clip: i32,
     /// IgnorePendingDamageTargets: a target the shots in flight will kill is not taken.
