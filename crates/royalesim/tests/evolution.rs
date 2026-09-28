@@ -233,17 +233,22 @@ fn evo_musketeer_spends_three_snipes() {
     assert_eq!((shots[3].0, shots[3].1), (1000, 217));
 }
 
-/// The table with its `evolutions` list removed: every card of the parent build, and nothing else.
-fn without_forms() -> CardDb {
+/// The table with the top-level lists `lists` removed.
+fn without(lists: &[&str]) -> CardDb {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json");
     let mut doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    doc.as_object_mut().unwrap().remove("evolutions");
+    for list in lists {
+        doc.as_object_mut().unwrap().remove(*list);
+    }
     CardDb::from_json_str(&doc.to_string(), CardSource::DerivedJson).unwrap()
 }
 
 #[test]
 fn forms_take_slots_after_every_existing_card() {
-    let (db, db0) = (cards(), without_forms());
+    // The table with its evolved forms against the table without them, both without the hero forms: every card of
+    // the parent build, and nothing else. The hero pass loads after the evolved forms (tests/hero_forms.rs holds it),
+    // and may add its row's name to a buff the table already has, which is why it is left out here.
+    let (db, db0) = (without(&["hero_forms"]), without(&["evolutions", "hero_forms"]));
     assert_eq!(db.rejected_evolutions, Vec::<(String, String)>::new());
     assert_eq!(db0.forms.len(), 0);
     let n0 = db0.cards.len();
@@ -258,4 +263,11 @@ fn forms_take_slots_after_every_existing_card() {
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
     assert_eq!(db.cards.len(), n0 + 3);
+    // The whole table: the hero pass leaves every one of those slots where it was, the forms included, and loads only
+    // after them.
+    let full = cards();
+    let n = db.cards.len();
+    assert_eq!(names(&full, n), names(&db, n), "the hero pass moved a slot");
+    assert_eq!(full.forms, db.forms);
+    assert!((n..full.cards.len()).all(|k| full.is_hero_record(k as u16)), "a slot after the evolved forms that the hero pass did not load");
 }
