@@ -764,9 +764,10 @@ pub struct AreaClock {
 ///   - the Earthquake (HitSpeed 100, client 15.535.29): its last application, on the area's
 ///     final tick (no life left after it), lasts 100 ms, and the last slowed step is L + 61,
 ///     where the bare remaining life gives L + 60 and BuffTime L + 78;
-///   - the Rage (HitSpeed 300, client 16.402, 7 units over 5 casts): its last application, on
+///   - the Rage (HitSpeed 300, client 16.402, 8 units over 4 casts): its last application, on
 ///     the cast + 94, has 250 ms left after that tick and lasts 550 ms, so a unit that stays
 ///     inside takes its last raged step on the cast + 105 (BuffTime would give 114).
+///
 /// The earlier rule, the life left this tick included plus one tick, was fitted to the
 /// Earthquake alone: it gives the same 100 ms there and 350 ms on the Rage, whose last raged
 /// step then fell on the cast + 101. The two rules part only where HitSpeed is not 100: the
