@@ -258,6 +258,14 @@ pub struct Calib {
     /// (`relocate_off_own_live_bottle`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "live_bottle_taps_default")]
     pub placement_live_bottle_taps: LiveBottleTaps,
+    /// placement.TROOP_BUILDING_TAPS: a troop tap on an alive building of the placer's own side
+    /// (`relocate_off_own_crown_tower`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "troop_building_taps_default")]
+    pub placement_troop_building_taps: TroopBuildingTaps,
+    /// placement.SPELL_AS_DEPLOY_TAPS: whether a spell the footprint rule keeps off buildings (the Heal) takes the
+    /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "spell_as_deploy_taps_default")]
+    pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
     /// spells.ILLEGAL_SPELL_TAP. Added after SNAPSHOT_FORMAT 20; the `default` is `Refuse`,
     /// what a battle saved before it actually ran.
     #[serde(default = "illegal_spell_tap_default")]
@@ -1120,6 +1128,14 @@ fn live_bottle_taps_default() -> LiveBottleTaps {
     LiveBottleTaps::NotBlocked
 }
 
+fn troop_building_taps_default() -> TroopBuildingTaps {
+    TroopBuildingTaps::NotRelocated
+}
+
+fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
+    SpellAsDeployTaps::SpellPoint
+}
+
 fn illegal_spell_tap_default() -> IllegalSpellTap {
     IllegalSpellTap::Refuse
 }
@@ -1963,7 +1979,8 @@ calib_enum!(
 );
 calib_enum!(
     /// placement.TOWER_TAP_PUSH -- where a troop tap whose tile overlaps an alive own crown tower goes
-    /// under placement.TROOP_TOWER_TAPS = client16402_half_open_relocate. Nothing else reads it.
+    /// under placement.TROOP_TOWER_TAPS = client16402_half_open_relocate, and one on an alive own
+    /// building under placement.TROOP_BUILDING_TAPS = as_tower_tap. Nothing else reads it.
     TowerTapPush {
         /// Today's engine: `building_placement`'s ring search from the snapped tile, the fitting
         /// tile centre nearest the tap, a tie going to the first in column-major order in the
@@ -1987,6 +2004,32 @@ calib_enum!(
         /// Read off the client 16.402 corpus (3 battles, both seats): the tap is relocated as off an own
         /// crown tower by the ring search (`relocate_off_own_live_bottle`).
         Client16402Relocate = "client16402_relocate",
+    }
+);
+calib_enum!(
+    /// placement.TROOP_BUILDING_TAPS -- a troop tap whose snapped tile shares area with the box of an alive building of
+    /// the placer's own side (a Cannon's). Where the tap then goes is placement.TOWER_TAP_PUSH's, as for a crown tower.
+    TroopBuildingTaps {
+        /// Today's engine (shipped): the tap is laid where tapped, inside the building's box; the play path refuses it
+        /// only on the building's collision footprint.
+        NotRelocated = "not_relocated",
+        /// Measured on client 15.535.29 (86 of 86 scenario taps on an own Cannon, side 0 and side 1): the tap is
+        /// relocated as one on an own crown tower is (`relocate_off_own_crown_tower`), whatever
+        /// placement.TROOP_TOWER_TAPS ships.
+        AsTowerTap = "as_tower_tap",
+    }
+);
+calib_enum!(
+    /// placement.SPELL_AS_DEPLOY_TAPS -- a spell placed as a troop that may not stand on a building (SpellAsDeploy, no
+    /// CanDeployOnEnemySide, no CanPlaceOnBuildings: `SpellPlacement::TroopTerritory { on_buildings: false }`, the Heal
+    /// alone in the tables).
+    SpellAsDeployTaps {
+        /// Today's engine (shipped): the spell's point is snapped (placement.TAP_SNAP) and clamped
+        /// (spells.ILLEGAL_SPELL_TAP) and never relocated.
+        SpellPoint = "spell_point",
+        /// Measured on client 15.535.29 (15 of 15 Heal casts on an own Cannon): the spell takes the relocations a troop
+        /// tap takes (`places_as_troop`).
+        TroopRelocation = "troop_relocation",
     }
 );
 calib_enum!(
@@ -4980,6 +5023,8 @@ impl Calib {
             placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
             placement_tower_tap_push: pick(&v, &["placement", "TOWER_TAP_PUSH", "value"], TowerTapPush::from_calibration_name)?,
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
+            placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
+            placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
@@ -15723,10 +15768,11 @@ impl BattleState {
         }
         // A troop or a spell-released unit: no extra radius, because only a
         // building carried one and a building no longer takes this path.
-        // Under placement.TROOP_TOWER_TAPS a tap on an own crown tower is MOVED off it, and under
-        // placement.LIVE_BOTTLE_TAPS one on an own live bottle, so the footprint is judged where the troop will stand.
-        let off_bottle = card.kind == CardKind::Troop && self.cfg.calib.placement_live_bottle_taps == LiveBottleTaps::Client16402Relocate;
-        let at = if half_open || off_bottle { self.resolve_point(team, idx, pos) } else { pos };
+        // Under placement.TROOP_TOWER_TAPS a tap on an own crown tower is MOVED off it, under
+        // placement.TROOP_BUILDING_TAPS one on an own building and under placement.LIVE_BOTTLE_TAPS one on an own live
+        // bottle, so the footprint is judged where the troop (or a spell placed as one, placement.SPELL_AS_DEPLOY_TAPS)
+        // will stand.
+        let at = if self.relocates_taps(card) { self.resolve_point(team, idx, pos) } else { pos };
         if footprint_rule && self.footprint_covers(at, 0) {
             return Err(DeployError::Occupied);
         }
@@ -15750,8 +15796,10 @@ impl BattleState {
     /// WHERE A PLAY GOES DOWN (pure; the play path and `spawn_unit` share it). A building:
     /// `building_placement`. A spell outside its territory under spells.ILLEGAL_SPELL_TAP =
     /// clamp: clamped back along its column. Then, under placement.TAP_SNAP, the plain tile
-    /// centre. Then a troop under placement.TROOP_TOWER_TAPS: moved off an own crown tower. Then a
-    /// troop under placement.LIVE_BOTTLE_TAPS: moved off an own live bottle.
+    /// centre. Then a troop under placement.TROOP_TOWER_TAPS: moved off an own crown tower, and
+    /// under placement.TROOP_BUILDING_TAPS off an own building. Then a troop under
+    /// placement.LIVE_BOTTLE_TAPS: moved off an own live bottle. A spell placed as a troop (the Heal)
+    /// takes the troop's relocations under placement.SPELL_AS_DEPLOY_TAPS (`places_as_troop`).
     pub fn resolve_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
         self.resolve_point_with(team, idx, pos, true)
     }
@@ -15785,13 +15833,42 @@ impl BattleState {
             let t = self.cfg.arena.cell * 2;
             p = Vec2::new(p.x.div_euclid(t) * t + t / 2, p.y.div_euclid(t) * t + t / 2);
         }
-        if card.kind == CardKind::Troop && calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
+        let troop = self.places_as_troop(card);
+        if troop && (calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate || calib.placement_troop_building_taps == TroopBuildingTaps::AsTowerTap) {
             p = self.relocate_off_own_crown_tower(team, idx, p, pos);
         }
-        if card.kind == CardKind::Troop && calib.placement_live_bottle_taps == LiveBottleTaps::Client16402Relocate {
+        if troop && calib.placement_live_bottle_taps == LiveBottleTaps::Client16402Relocate {
             p = self.relocate_off_own_live_bottle(team, idx, p);
         }
         p
+    }
+
+    /// WHETHER A TAP OF `card` IS PLACED AS A TROOP'S: every relocation a troop tap takes (placement.TROOP_TOWER_TAPS,
+    /// placement.TROOP_BUILDING_TAPS, placement.LIVE_BOTTLE_TAPS) reads this, not the card kind. A troop is. Under
+    /// placement.SPELL_AS_DEPLOY_TAPS = troop_relocation so is a spell placed as a troop that may not stand on a
+    /// building (`SpellPlacement::TroopTerritory { on_buildings: false }`: SpellAsDeploy, no CanDeployOnEnemySide, no
+    /// CanPlaceOnBuildings), which in the tables is the Heal alone; the play path refuses such a spell on a building's
+    /// footprint as it refuses a troop. Measured on client 15.535.29: 15 of 15 Heal casts tapped on an own Cannon's box
+    /// were moved where the troops tapped there went (parity, round 8). The Log, the Barbarian Barrel and the Royal
+    /// Delivery may stand on buildings and are not read.
+    fn places_as_troop(&self, card: &CardDef) -> bool {
+        #[cfg(not(clash_plant = "spell_as_deploy_taps_troops_only"))]
+        let spell = self.cfg.calib.placement_spell_as_deploy_taps == SpellAsDeployTaps::TroopRelocation
+            && card.kind == CardKind::Spell
+            && matches!(card.spell.as_ref().map(|s| s.placement), Some(crate::card::SpellPlacement::TroopTerritory { on_buildings: false }));
+        #[cfg(clash_plant = "spell_as_deploy_taps_troops_only")]
+        let spell = false; // PLANT (regression): a spell is never placed as a troop, whatever the arm.
+        card.kind == CardKind::Troop || spell
+    }
+
+    /// Whether any relocation a tap of `card` may take is switched on (`places_as_troop`, and one of the three keys at
+    /// its relocating arm): the play path then judges the footprint at `resolve_point`'s point, not at the tap.
+    fn relocates_taps(&self, card: &CardDef) -> bool {
+        let c = &self.cfg.calib;
+        self.places_as_troop(card)
+            && (c.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate
+                || c.placement_troop_building_taps == TroopBuildingTaps::AsTowerTap
+                || c.placement_live_bottle_taps == LiveBottleTaps::Client16402Relocate)
     }
 
     /// spells.ILLEGAL_SPELL_TAP = clamp: the first tile centre, stepping back along the tap's
@@ -15817,25 +15894,43 @@ impl BattleState {
     ///
     /// Under placement.TOWER_TAP_PUSH = client16402_axis_push the tap goes where `axis_push` says,
     /// from the RAW tap `raw` (before placement.TAP_SNAP): the same tile goes different ways on the
-    /// two sides of its diagonal. The ring search is left for a landing that does not fit, which no
-    /// measurement has reached.
+    /// two sides of its diagonal. The ring search is left for a landing that does not fit.
+    ///
+    /// WHAT BLOCKS A TAP. The own crown towers under placement.TROOP_TOWER_TAPS =
+    /// client16402_half_open_relocate; under placement.TROOP_BUILDING_TAPS = as_tower_tap also every alive
+    /// building of the placer's own side, by its placement box (`placement_tiles` of its CollisionRadius), relocated
+    /// exactly as off a tower: pushed from the building's centre and box, and where the pushed tile does not fit, the
+    /// ring search. Measured on client 15.535.29 (parity, round 8, 86 of 86 scenario taps on an own Cannon, both
+    /// seats): a tap on (14500, 2500) with a Cannon on (15500, 2500) lands on (13500, 2500), and with a second Cannon
+    /// on (12500, 2500) covering that tile, on (14500, 4500), under either placement.TOWER_TAP_PUSH arm; a tap on the
+    /// tile flush above the box, (14500, 4500), stays. Only a Cannon was tapped on there; the 16.402 corpus holds one
+    /// tap on an own Tesla (20260919-144043: a Golem on (3500, 1500), the Tesla on (3000, 2000)), laid on (4500, 1500)
+    /// as this puts it.
     fn relocate_off_own_crown_tower(&self, team: Team, idx: u16, tap: Vec2, raw: Vec2) -> Vec2 {
         let arena = &self.cfg.arena;
         let e = &self.ents;
-        let own: Vec<(Vec2, Rect)> = self.towers[team as usize]
-            .iter()
-            .flatten()
-            .filter(|id| e.is_alive(**id))
-            .map(|id| {
-                let i = id.index as usize;
-                (e.pos[i], Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i])))
-            })
-            .collect();
+        let calib = &self.cfg.calib;
+        // (centre, placement box, a building rather than a crown tower)
+        let block = |i: usize, building: bool| (e.pos[i], Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i])), building);
+        let mut own: Vec<(Vec2, Rect, bool)> = Vec::new();
+        if calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
+            own.extend(self.towers[team as usize].iter().flatten().filter(|id| e.is_alive(**id)).map(|id| block(id.index as usize, false)));
+        }
+        if calib.placement_troop_building_taps == TroopBuildingTaps::AsTowerTap {
+            own.extend(e.live_indices().filter(|&i| e.kind[i] == EntityKind::Building && e.team[i] == team).map(|i| block(i, true)));
+        }
         let snapped = match self.cfg.calib.placement_snap_even {
             PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, 1),
             PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, tap, 1),
         };
-        let on_own_tower = own.iter().find(|(_, t)| Arena::placement_box(snapped, 1).overlaps_open(t)).copied();
+        let tapped = Arena::placement_box(snapped, 1);
+        // A tile blocks when it shares POSITIVE AREA with the box: a tile flush with it is not on it.
+        #[cfg(not(clash_plant = "troop_building_taps_touching"))]
+        let on = |t: &Rect, _building: bool| tapped.overlaps_open(t);
+        // PLANT (regression): an own building's box blocks a tile that only touches it.
+        #[cfg(clash_plant = "troop_building_taps_touching")]
+        let on = |t: &Rect, building: bool| tapped.overlaps_open(t) || (building && tapped.min.x <= t.max.x && t.min.x <= tapped.max.x && tapped.min.y <= t.max.y && t.min.y <= tapped.max.y);
+        let on_own_tower = own.iter().find(|(_, t, b)| on(t, *b)).map(|&(c, t, _)| (c, t));
         let Some((centre, tower)) = on_own_tower else { return tap };
         if self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
             return tap;
@@ -18050,6 +18145,10 @@ impl BattleState {
 ///    no new state (the new arms' doomed set, `Scratch::lane_doomed`, is taken by a Target pass and read by the same
 ///    tick's Path phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, placement.TROOP_BUILDING_TAPS and placement.SPELL_AS_DEPLOY_TAPS: Calib gained
+///    placement_troop_building_taps and placement_spell_as_deploy_taps (serde defaults the old arms, not_relocated and
+///    spell_point), no new state (the new arms read the saved buildings and the card's placement), so a blob saved
+///    before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18539,6 +18638,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // placement.LIVE_BOTTLE_TAPS: a format-3 battle laid a troop tap on a live bottle's tile; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("placement_live_bottle_taps".into(), serde_json::to_value(LiveBottleTaps::NotBlocked).map_err(|e| e.to_string())?);
+    // placement.TROOP_BUILDING_TAPS and placement.SPELL_AS_DEPLOY_TAPS: a format-3 battle laid a troop tap on an own
+    // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
+    sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
+    sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
