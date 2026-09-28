@@ -42,6 +42,8 @@
 //!   * `dash_keeps_the_cycle` -- the load timer is not reset after the dash: (5) goes red.
 //!   * `dash_first_sight_walks` -- a unit put down inside its trigger walks its first tick: (9) goes red.
 //!   * `dash_stand_keeps_walk_heading` -- a standing dasher keeps its walking heading: (10) goes red.
+//!   * `dash_step_direct_rescale` -- a dash step rescales straight to its length and lands on the goal:
+//!     `every_dash_step_is_the_walks_arithmetic_with_no_snap` and (7)'s rest go red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -322,13 +324,53 @@ fn a_mega_knight_jumps_to_its_goal_cell_and_lands_its_blow_on_the_constant_time(
     let cell = ((px.div_euclid(500) * 500 + 250) as i32, (py.div_euclid(500) * 500 + 250) as i32);
     let moves: Vec<(u32, i64)> = rows[onset..].iter().take(20).filter(|r| r.step > 0).map(|r| (r.t, r.step)).collect();
     assert!(moves[..moves.len() - 1].iter().all(|&(_, x)| (240..=250).contains(&x)), "the jump's moves: {moves:?}");
-    let rest = rows.iter().find(|r| r.t == moves.last().unwrap().0).unwrap().pos;
-    assert_eq!((rest.x / K, rest.y / K), cell, "the jump came to rest off the goal cell's centre");
+    let last = rows.iter().position(|r| r.t == moves.last().unwrap().0).unwrap();
+    let (rest, before) = (rows[last].pos, rows[last - 1].pos);
+    // It rests where the arrival step leaves it, which the truncation can put a native short of the centre (measured
+    // on client 15.535.29: (11749, 13249) and (14249, 23750) for the cells (11750, 13250) and (14250, 23750)).
+    let (arrival, arrived) = royalesim::move16402::dash_half_step((before.x / K, before.y / K), cell, 250);
+    assert!(arrived, "the scene drifted: the last move was not the arrival");
+    assert_eq!((rest.x / K, rest.y / K), arrival, "the jump came to rest off its arrival step onto the goal cell {cell:?}");
     let blow = scaled(&s, "MegaKnight", 210);
     let hit = rows[onset + MK_BLOW as usize];
     assert!(hit.target_loss == blow || hit.target_loss - blow == ARROW, "the Giant lost {} on the onset + {MK_BLOW}, not DashDamage {blow}", hit.target_loss);
     let early: Vec<(u32, i32)> = rows[onset..onset + MK_BLOW as usize].iter().filter(|r| r.target_loss != 0 && r.target_loss != ARROW).map(|r| (r.t, r.target_loss)).collect();
     assert!(early.is_empty(), "the Giant lost hp before the blow: {early:?}");
+}
+
+/// Plant: dash_step_direct_rescale.
+#[test]
+fn every_dash_step_is_the_walks_arithmetic_with_no_snap() {
+    use royalesim::move16402::dash_half_step;
+    // Runs `n` steps of `len` from `from` toward `goal`, keeping every `every`-th point and the arrival flag of the last.
+    let run = |from: (i32, i32), goal: (i32, i32), len: i32, n: usize, every: usize| {
+        let (mut p, mut arrived, mut out) = (from, false, Vec::new());
+        for k in 1..=n {
+            (p, arrived) = dash_half_step(p, goal, len);
+            if k % every == 0 || k == n {
+                out.push(p);
+            }
+        }
+        (out, arrived)
+    };
+    // Client 15.535.29, sweep-Assassin: the Bandit's first dash, two half-steps of 250 a tick; the direct rescale puts
+    // the last at (11076, 12724).
+    let (bandit1, _) = run((9500, 11500), (11750, 13250), 250, 8, 2);
+    assert_eq!(bandit1, [(9894, 11806), (10288, 12112), (10682, 12418), (11075, 12724)]);
+    // Its second dash, at a princess tower: nine ticks and the first half of the tenth (the Range test stops it).
+    let (bandit2, _) = run((14211, 18587), (14250, 23750), 250, 19, 2);
+    assert_eq!(
+        bandit2,
+        [(14212, 19087), (14214, 19587), (14216, 20087), (14218, 20587), (14220, 21087), (14223, 21587), (14227, 22087), (14231, 22587), (14237, 23087), (14241, 23337)]
+    );
+    // sweep-MegaKnight: the jumps, 250 a tick, each resting a native short of its cell's centre on the arrival step.
+    let (mk2, arrived) = run((14225, 19528), (14250, 23750), 250, 17, 1);
+    assert_eq!(&mk2[12..], [(14235, 22778), (14237, 23028), (14240, 23278), (14244, 23528), (14249, 23750)]);
+    assert!(arrived, "the 17th step is the arrival");
+    let (mk1, arrived) = run((9500, 11500), (11750, 13250), 250, 12, 1);
+    assert_eq!((mk1[7], *mk1.last().unwrap(), arrived), ((11075, 12724), (11749, 13249), true));
+    // After the arrival the goal is where it rests (state.rs), and a step onto it holds it there.
+    assert_eq!(dash_half_step((11749, 13249), (11749, 13249), 250), ((11749, 13249), true));
 }
 
 #[test]

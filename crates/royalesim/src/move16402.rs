@@ -500,6 +500,31 @@ pub fn tunnel_step(u: (i32, i32), aim: (i32, i32), speed: i32) -> ((i32, i32), O
     ((x + sx, y + sy), dir)
 }
 
+/// ONE STEP OF A DASH (combat.DASH_ATTACK = client_dash; state.rs `phase_path16402`), native: at most `len` toward
+/// `goal` through `tunnel_step`'s arithmetic (the walk's 1/256 direction, then the truncated step). There is no snap
+/// onto the goal. With `true` when this step was the arrival (the goal was within `len`): the dash moves no further
+/// after it, though the truncation can leave it a native short. Measured on client 15.535.29, exact on every step:
+///   - the Bandit's two dashes in sweep-Assassin, 8 and 19 half-steps of 250; the direct rescale to 250 took the
+///     8th as (197, 153) against the client's (196, 153), and drifted the second dash by up to 6;
+///   - the Mega Knight's two jumps in sweep-MegaKnight, 250 a tick. Each rests one native short of its goal cell's
+///     centre, (11749, 13249) and (14249, 23750), and stays there.
+pub fn dash_half_step(p: (i32, i32), goal: (i32, i32), len: i32) -> ((i32, i32), bool) {
+    let arrived = distance(p.0, p.1, goal.0, goal.1) <= len;
+    #[cfg(not(clash_plant = "dash_step_direct_rescale"))]
+    let q = tunnel_step(p, goal, len).0;
+    // PLANT (regression): the earlier reading, the vector to the goal rescaled to `len` directly, landing on the goal.
+    #[cfg(clash_plant = "dash_step_direct_rescale")]
+    let q = {
+        let mut v = (goal.0 - p.0, goal.1 - p.1);
+        if arrived || normalize_to(&mut v, len) == 0 {
+            goal
+        } else {
+            (p.0 + v.0, p.1 + v.1)
+        }
+    };
+    (q, arrived)
+}
+
 /// THE COLLISION MEAN a separation scan left in `con`: the accumulator over its count,
 /// scaled back to 150 when it is longer (`len_sq >= 22501`), with the count; `con` is
 /// drained. (0, 0) and 0 when nothing overlapped (the accumulator is then untouched). The

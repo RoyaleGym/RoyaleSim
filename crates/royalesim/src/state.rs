@@ -11835,15 +11835,9 @@ impl BattleState {
                         // over DashRadius (537 on the Giant at level 11 in both jumps; the radius is open, and the
                         // DashPushBack is combat.DASH_PUSHBACK's, `land_dash_blows`), and the end
                         // DASH_BLOW_TO_END_TICKS after the blow.
+                        // Each step is the walk's arithmetic toward the goal, with no snap onto it (move16402.rs
+                        // `dash_half_step`): the arrival can rest a native short of the goal.
                         let goal = (dash_goal[i].x / K, dash_goal[i].y / K);
-                        let step = |p: (i32, i32), len: i32| {
-                            let mut v = (goal.0 - p.0, goal.1 - p.1);
-                            if move16402::normalize_to(&mut v, len) <= len {
-                                goal
-                            } else {
-                                (p.0 + v.0, p.1 + v.1)
-                            }
-                        };
                         let mut p = actor;
                         let mut ended = false;
                         match d.constant_time_ms {
@@ -11856,14 +11850,15 @@ impl BattleState {
                                     #[cfg(clash_plant = "dash_whole_steps")]
                                     let (parts, len) = (1, d.speed); // PLANT: one whole step a tick, one Range test.
                                     for _ in 0..parts {
-                                        p = step(p, len);
+                                        let (q, arrived) = move16402::dash_half_step(p, goal, len);
+                                        p = q;
                                         let at = Vec2::new(p.0 * K, p.1 * K);
                                         if target::in_attack_range(calib, at, card.range, e.radius[i], e.pos[ti], e.radius[ti]) {
                                             dash_blows.push((i, Some(t), at));
                                             ended = true;
                                             break;
                                         }
-                                        if p == goal {
+                                        if arrived {
                                             ended = true;
                                             break;
                                         }
@@ -11871,7 +11866,13 @@ impl BattleState {
                                 }
                             },
                             Some(ct) => {
-                                p = step(p, d.speed);
+                                // The arrival step ends the jump's motion: the goal becomes where it came to rest, so the
+                                // later ticks hold there (measured: both jumps stay a native short of the cell centre).
+                                let (q, arrived) = move16402::dash_half_step(p, goal, d.speed);
+                                p = q;
+                                if arrived {
+                                    dash_goal[i] = Vec2::new(q.0 * K, q.1 * K);
+                                }
                                 let blow = dash_mark[i] + (ct / tk) as u32;
                                 if self.tick == blow {
                                     dash_blows.push((i, live(dash_target[i]), Vec2::new(p.0 * K, p.1 * K)));
