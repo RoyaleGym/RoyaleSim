@@ -1746,3 +1746,168 @@ def test_a_king_launched_cast_seen_after_a_frame_gap_is_dated_by_its_steps(m):
     assert m.launch_tick(frame(9226, 28445, 9000, 29000), 1, fb) is None, "seen on its launch tick"
     assert m.launch_tick(frame(9678, 27335, 9452, 27990), 1, fb) is None, "off the line from the king"
     assert m.launch_tick(frame(9678, 27335, 9452, 27890), 0, fb) is None, "no king of that side on the frame"
+
+
+# PAIR DATING (make_replay_fixture.py module doc): a row's window is (the frame before its first sighting, that
+# sighting]; the battle's other seat's row for the same deploy pins it where the two windows share exactly one tick.
+#: One seat's frames: 101 and 103 missed.
+PAIR_TICKS = [100, 102, 104, 105, 106, 110]
+PARTNER = "20260920-000000-B"
+
+
+def _pair_row(card, tick, first_seen, side=0, evidence="alone"):
+    return {"card": card, "side": side, "tick": tick, "first_seen": first_seen, "tick_evidence": evidence}
+
+
+def _offer(card, tick, window, side=0):
+    return {"card": card, "side": side, "tick": tick, "window": window}
+
+
+def test_pair_dating_takes_the_one_tick_both_seats_windows_share(m):
+    """A row first seen on 102 after a missed 101 could be 101 or 102; the other seat saw it on 101 with no gap, so it
+    is 101. A cast dated by its elixir drop on 104 (103 missed) against the other seat's [102, 103] is 103. A row
+    already on the shared tick keeps it, and all three say they were pair-dated."""
+    knight = _pair_row("Knight", 102, 102, evidence="first-seen tick: the deploy-end transition contradicts")
+    rage = _pair_row("Rage", 104, None, evidence="elixir drop of 2 on side 0 at 104")
+    goblins = _pair_row("Goblins", 101, 102, side=1, evidence="range [101, 102] (frame gap), earliest used")
+    offer = [_offer("Knight", 101, (101, 101)), _offer("Rage", 103, (102, 103)), _offer("Goblins", 101, (100, 101), 1)]
+    moved = m.pair_date([knight, rage, goblins], PAIR_TICKS, [(PARTNER, offer)])
+    assert moved == 2
+    assert (knight["tick"], rage["tick"], goblins["tick"]) == (101, 103, 101)
+    assert knight["tick_evidence"] == (
+        f"exact (pair-dated with {PARTNER}: its window [101, 101] and this row's [101, 102] share only 101; this"
+        " capture alone gave 102: first-seen tick: the deploy-end transition contradicts)"
+    )
+    assert rage["tick_evidence"].startswith(f"exact (pair-dated with {PARTNER}: its window [102, 103] and this row's")
+    alone = "this capture alone gave 101: range [101, 102] (frame gap), earliest used)"
+    assert goblins["tick_evidence"].endswith(alone), goblins
+
+
+def test_pair_dating_keeps_a_row_whose_windows_share_two_ticks_or_none(m):
+    """Two shared ticks leave the choice where it was, and so do windows that share none (the seats disagree)."""
+    two = _pair_row("Knight", 103, 104, evidence="range [103, 104], earliest used")
+    none = _pair_row("Arrows", 102, 102, side=1, evidence="first frame of the projectile (frame gap 2)")
+    offer = [_offer("Knight", 103, (102, 104)), _offer("Arrows", 104, (103, 104), 1)]
+    before = [dict(two), dict(none)]
+    assert m.pair_date([two, none], PAIR_TICKS, [(PARTNER, offer)]) == 0
+    assert [two, none] == before
+
+
+def test_pair_dating_keeps_a_row_with_no_partner_row(m):
+    """No partner capture, a partner row of another card or side or dated more than PAIR_MATCH_TICKS away, and two
+    candidate rows: none of them dates the row. A one-tick window is never re-dated."""
+    row = _pair_row("Knight", 102, 102)
+    before = dict(row)
+    assert m.pair_date([row], PAIR_TICKS, []) == 0
+    far = 102 + m.PAIR_MATCH_TICKS + 1
+    others = [_offer("Giant", 101, (101, 101)), _offer("Knight", 101, (101, 101), 1), _offer("Knight", far, (far, far))]
+    assert m.pair_date([row], PAIR_TICKS, [(PARTNER, others)]) == 0
+    twice = [_offer("Knight", 101, (101, 101)), _offer("Knight", 102, (102, 102))]
+    assert m.pair_date([row], PAIR_TICKS, [(PARTNER, twice)]) == 0
+    assert row == before
+    single = _pair_row("Knight", 105, 105)
+    assert m.pair_date([single], PAIR_TICKS, [(PARTNER, [_offer("Knight", 104, (103, 104))])]) == 0
+    assert single["tick"] == 105
+
+
+def test_a_rows_window_follows_its_first_sighting(m):
+    """The window is (frame before the first sighting, the sighting]; a cast with no sighting is sighted on its tick;
+    a row dated outside its window (shown late) offers its own tick; a row on the first frame offers nothing."""
+    rows = [
+        _pair_row("Knight", 102, 102),
+        _pair_row("Rage", 104, None),
+        _pair_row("Goblins", 98, 102),
+        _pair_row("Tesla", 100, 100),
+    ]
+    offer = m.seat_offer(rows, PAIR_TICKS)
+    assert [(o["card"], o["tick"], o["window"]) for o in offer] == [
+        ("Knight", 102, (101, 102)),
+        ("Rage", 104, (103, 104)),
+        ("Goblins", 98, (98, 98)),
+    ]
+
+
+def test_a_captures_partners_are_the_other_seat_of_its_battle(m):
+    """Same stamp, other seat; a twin stamped a few seconds apart; every part of a split capture; never the same
+    seat's other part, another battle, or a capture without a seat tag."""
+    s = m.CAPTURE_SUFFIX
+    pool = [
+        f"frames-auto-20260920-005517-21503{s}",
+        f"frames-auto-20260920-005517-21513{s}",
+        f"frames-auto-20260918-164951-21513{s}",
+        f"frames-auto-20260918-164953-21503{s}",
+        f"frames-auto-20260920-010218-21503.b1{s}",
+        f"frames-auto-20260920-010218-21503.b2{s}",
+        f"frames-auto-20260920-010218-21513{s}",
+        f"frames-auto-20260920-010240-21513{s}",
+        f"frames-20260918-122757.b1{s}",
+        f"frames-20260918-122757.b2{s}",
+    ]
+    assert m.battle_partners(pool[0], pool) == [pool[1]]
+    assert m.battle_partners(pool[2], pool) == [pool[3]]
+    assert m.battle_partners(pool[6], pool) == [pool[4], pool[5]]
+    assert m.battle_partners(pool[4], pool) == [pool[6]]
+    assert m.battle_partners(pool[8], pool) == []
+
+
+def _seat_battle(frame_ticks):
+    """(header towers, frames) of one seat of a battle: six towers and a side-0 Knight created on 12 and deploying,
+    on the frames `frame_ticks`."""
+    tower_rows = [
+        (1, 0, 9000, 3000, 4824),
+        (2, 0, 3500, 6500, 3052),
+        (3, 0, 14500, 6500, 3052),
+        (4, 1, 9000, 29000, 4824),
+        (5, 1, 3500, 25500, 3052),
+        (6, 1, 14500, 25500, 3052),
+    ]
+    header = [{"side": s, "x": x, "y": y} for _, s, x, y, _ in tower_rows]
+
+    def ent(key, side, cid, x, y, hp, kind, state):
+        return {"id": f"p{key}", "generation_key": key, "side": side, "x": x, "y": y, "x2": x, "y2": y,
+                "card_id": cid, "level": 11, "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": state,
+                "target": None, "path_nodes": []}
+
+    frames = []
+    for t in frame_ticks:
+        ents = [ent(k, s, -1, x, y, hp, 13, 0) for k, s, x, y, hp in tower_rows]
+        if t >= 12:
+            ents.append(ent(51, 0, KNIGHT, 9500, 5500, 1766, 14, 4))
+        frames.append({"tick": t, "entities": ents, "effects": []})
+    return header, frames
+
+
+@needs_modern_cards
+def test_a_battle_recorded_from_both_seats_dates_a_row_by_the_other_seat(m, tmp_path):
+    """End to end through the command line: seat A missed frame 11 and first sees the Knight on 12, so alone it
+    dates it 11 (the earliest of [11, 12]); seat B saw 11 without it and 12 with it, so it is 12. `--all` writes A
+    on 12, pair-dated with B, and B unchanged; `--check` of A alone rebuilds B to reach the same fixture."""
+    _skip_without_the_id_table(m)
+    reports = tmp_path / "reports"
+    seat_a = reports / ("frames-auto-20260920-120000-21503" + m.CAPTURE_SUFFIX)
+    seat_b = reports / ("frames-auto-20260920-120000-21513" + m.CAPTURE_SUFFIX)
+    _write_capture(seat_a, *_seat_battle([t for t in range(31) if t != 11]))
+    _write_capture(seat_b, *_seat_battle(list(range(31))))
+    out = tmp_path / "out"
+    tool = os.path.join(ROOT, "tools", "make_replay_fixture.py")
+    run = subprocess.run([sys.executable, tool, "--all", "--reports", str(reports), "--out", str(out)],
+                         capture_output=True, text=True, timeout=600, cwd=ROOT)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+    def knight(name):
+        with open(out / f"{name}.replay.json", encoding="utf-8") as fh:
+            return next(d for d in json.load(fh)["deploys"] if d["card"] == "Knight")
+
+    a, b = knight("20260920-120000-A"), knight("20260920-120000-B")
+    assert (a["first_seen"], a["tick"]) == (12, 12), a
+    assert a["tick_evidence"].startswith(
+        "exact (pair-dated with 20260920-120000-B: its window [12, 12] and this row's [11, 12] share only 12;"
+        " this capture alone gave 11: range [11, 12]"
+    ), a["tick_evidence"]
+    assert (b["tick"], b["tick_evidence"]) == (12, "exact"), b
+    check = subprocess.run(
+        [sys.executable, tool, str(seat_a), "--check", str(out / "20260920-120000-A.replay.json")],
+        capture_output=True, text=True, timeout=600, cwd=ROOT,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
+    assert "is current" in check.stdout, check.stdout

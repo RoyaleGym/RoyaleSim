@@ -186,6 +186,36 @@ DEPLOY POSITION AND TICK
     from the tap plus this capture's median tap latency, flagged `timing: estimated`; a spell tap
     with no latency measurement is listed under `unresolved` instead of guessed.
 
+PAIR DATING
+    A battle recorded from both seats shows each deploy twice. In each capture a row could have
+    appeared on any tick of its WINDOW, (the frame before its first sighting, its first
+    sighting]; a cast dated by its elixir drop is sighted on the drop's frame, and a row the
+    rules above dated outside its window (a group shown late, a tunnel's count, a Barbarian
+    Barrel's flight) has the one tick they gave it. Where the other seat's capture holds the
+    same deploy (exactly one row of the same card and side, dated within PAIR_MATCH_TICKS) and
+    the two windows share exactly one tick, that tick is the row's, whatever the rules above
+    chose: each of them chooses inside the one window its own capture shows. `tick_evidence`
+    then reads "exact (pair-dated with <partner>: ...; this capture alone gave <tick>: <its
+    evidence>)". A row whose windows share two ticks or none, or with no partner row, keeps its
+    tick. Both seats' fixtures carry the game's sides and positions in one frame (THE SIDE
+    CONVENTION), so the same deploy has the same card and side in both; its position is not
+    compared (083112's Miner of t1203, first seen under ground by seat B and already surfaced by
+    seat A, is published 1,277 apart on one axis).
+
+    The partner is the other seat's capture of the same battle (`battle_partners`): another
+    seat tag, a stamp within BATTLE_STAMP_SECONDS (164951 and 164953 are one battle), and
+    every part of a capture split into parts (.b1, .b2). A capture without a seat tag has
+    none. Wherever a capture is built -- alone, with --all or for --check -- the maker also
+    builds its partners from their own captures and logs, as each is dated alone (no pair
+    dating of its own), and takes only their rows' windows (`seat_offer`). So a fixture does
+    not depend on which captures a run was handed, and --check of one capture is complete.
+
+    On the 16.402 corpus (73 fixtures, 2026-09-28), 428 rows have a window of two or more
+    ticks. 314 are pinned by a partner: 288 were already on the shared tick and 26 move by one
+    tick (20 casts dated by their elixir drop, 2 Arrows volleys, 4 unit groups, among them
+    005517-A's Ice Wizard 641 -> 640, which its deploy-end transition had dated). 82 rows share
+    two ticks, 3 share none, 8 have no partner row and 21 no partner capture.
+
 RECOVERED TILE
     A group of several members with no tap is played at its centroid, and the centroid is
     not where the game put the group when a member was clamped. The game snaps a troop tap
@@ -479,6 +509,12 @@ EFFECT_DROP_SLACK = 3
 #: the landing on the caster's forward axis, moving 360 a tick. Where a capture missed its first
 #: frame it is first seen a step or more in, and the cast tick is that many steps earlier.
 BARBLOG_AIRBORNE_START, BARBLOG_AIRBORNE_STEP = 3000, 360
+#: Two seats' captures of one battle carry stamps at most this many seconds apart (placement_files_for's rule for a
+#: battle's logs): 20260918-164951/164953 and 20260920-004657/004658 are one battle each (PAIR DATING).
+BATTLE_STAMP_SECONDS = 10
+#: How far apart two seats may date the same deploy for their rows to be matched, ticks (PAIR DATING). On the
+#: 16.402 corpus no row with a window of two or more ticks matches two partner rows within this.
+PAIR_MATCH_TICKS = 3
 #: The per-entity truth columns, in the order `truth.columns` lists them and every row holds
 #: them. The attack timers (module doc, ATTACK TIMERS) follow the seven the harness reads.
 TRUTH_COLUMNS = (
@@ -1688,6 +1724,103 @@ def departures(records: list[dict]) -> list[list]:
 
 
 # ---------------------------------------------------------------------------
+# pair dating (module doc, PAIR DATING)
+
+
+def capture_stamp(path: str) -> tuple[str, int] | None:
+    """(day, second of the day) a capture's file name was stamped with, or None for a name without a stamp."""
+    base = os.path.basename(path)
+    if not base.startswith("frames-"):
+        return None
+    stamp = SEAT_TAG.sub("", base)[len("frames-") :].split(".")[0]
+    stamp = stamp[len("auto-") :] if stamp.startswith("auto-") else stamp
+    hms = stamp[9:15]
+    if len(stamp) < 15 or not hms.isdigit():
+        return None
+    return stamp[:8], int(hms[:2]) * 3600 + int(hms[2:4]) * 60 + int(hms[4:6])
+
+
+def battle_partners(capture: str, pool: list[str]) -> list[str]:
+    """The captures in `pool` that recorded the battle of `capture` from the OTHER seat: another seat tag, a stamp
+    within BATTLE_STAMP_SECONDS (the rule placement_files_for pairs a battle's logs by), and every part of a capture
+    split into parts (.b1, .b2). A capture without a seat tag has no partner."""
+    tag, stamp = SEAT_TAG.search(os.path.basename(capture)), capture_stamp(capture)
+    if tag is None or stamp is None:
+        return []
+    out = []
+    for p in pool:
+        t2, s2 = SEAT_TAG.search(os.path.basename(p)), capture_stamp(p)
+        if t2 is None or s2 is None or t2.group(1) == tag.group(1):
+            continue
+        if s2[0] == stamp[0] and abs(s2[1] - stamp[1]) <= BATTLE_STAMP_SECONDS:
+            out.append(p)
+    return sorted(out)
+
+
+def deploy_window(d: dict, index: dict[int, int], ticks: list[int]) -> tuple[int, int] | None:
+    """(lo, hi): the ticks a deploy row could have appeared on, given the capture's frames: (the frame before its
+    first sighting, its first sighting]. A row with no sighting of its own (a cast dated by its elixir drop) is
+    sighted on its tick. A row dated OUTSIDE that window by other evidence (a group shown late, a tunnel's steps, a
+    Barbarian Barrel's flight) has the one tick it was dated on. None for a row first seen on the capture's first
+    frame, or off its frames. `index` maps each of `ticks` to its position."""
+    seen = d["first_seen"] if d.get("first_seen") is not None else d["tick"]
+    i = index.get(seen)
+    if not i:
+        return None
+    lo, hi = ticks[i - 1] + 1, ticks[i]
+    if not lo <= d["tick"] <= hi:
+        return d["tick"], d["tick"]
+    return lo, hi
+
+
+def seat_offer(deploys: list[dict], ticks: list[int]) -> list[dict]:
+    """What a capture's rows give the battle's other seat: each row's card, side, tick and window (`deploy_window`),
+    for every row that has a window. `ticks` are the capture's frame ticks (a stride-1 fixture's `truth.ticks`)."""
+    index = {t: i for i, t in enumerate(ticks)}
+    out = []
+    for d in deploys:
+        w = deploy_window(d, index, ticks)
+        if w is not None:
+            out.append({"card": d["card"], "side": d["side"], "tick": d["tick"], "window": w})
+    return out
+
+
+def pair_date(deploys: list[dict], ticks: list[int], partners: list[tuple[str, list[dict]]]) -> int:
+    """Date a row by the battle's other seat: a row whose window (`deploy_window`) holds several ticks, matched to
+    exactly one row of the partners' offers (`seat_offer`: the same card and side, dated within PAIR_MATCH_TICKS),
+    takes the one tick the two windows share, and `tick_evidence` becomes "exact (pair-dated with ...)", keeping what
+    the capture alone gave. A row whose windows share two ticks or none, or with no partner row, keeps its tick.
+    `partners` = [(the partner fixture's name, its offer), ...]. Returns the number of rows that moved."""
+    index = {t: i for i, t in enumerate(ticks)}
+    moved = 0
+    for d in deploys:
+        w = deploy_window(d, index, ticks)
+        if w is None or w[0] == w[1]:
+            continue
+        match = [
+            (name, r)
+            for name, offer in partners
+            for r in offer
+            if r["card"] == d["card"] and r["side"] == d["side"] and abs(r["tick"] - d["tick"]) <= PAIR_MATCH_TICKS
+        ]
+        if len(match) != 1:
+            continue
+        name, r = match[0]
+        lo, hi = max(w[0], r["window"][0]), min(w[1], r["window"][1])
+        if lo != hi:
+            continue
+        # "exact" first, as for every other pinned row: readers take a row whose evidence starts so as dated to the tick
+        d["tick_evidence"] = (
+            f"exact (pair-dated with {name}: its window [{r['window'][0]}, {r['window'][1]}] and this row's"
+            f" [{w[0]}, {w[1]}] share only {lo}; this capture alone gave {d['tick']}: {d['tick_evidence']})"
+        )
+        if lo != d["tick"]:
+            d["tick"] = lo
+            moved += 1
+    return moved
+
+
+# ---------------------------------------------------------------------------
 # the fixture
 
 
@@ -1705,6 +1838,7 @@ def build(
     seats: dict[str, str] | None = None,
     nominal: dict[tuple[str, int], list[tuple[int, int]]] | None = None,
     form_rows: dict[int, str] | None = None,
+    partners: list[tuple[str, list[dict]]] | None = None,
 ) -> dict:
     # the nominal offsets of a recovered tile (RECOVERED TILE): the committed measurement unless the caller hands some
     if nominal is None:
@@ -2302,6 +2436,12 @@ def build(
                 d["level"] = side_level
                 d["level_source"] = "side mode"
     spell_levels_from_damage(deploys, doc, cards_by_name, ents, per_tick_rows, ticks)
+    tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
+    tunnel_spawn_ticks(deploys, ents, ticks, towers, cards_by_name)
+    # the battle's other seat dates the rows its own frames pin (module doc, PAIR DATING); after every other tick
+    # rule, and before the decks read the play order
+    if partners and pair_date(deploys, ticks, partners):
+        deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))
 
     # -- decks and levels per side
     script_decks = {}
@@ -2345,9 +2485,6 @@ def build(
             "absent: engine loadability not checked here"
             " (cargo run --example replay_parity -- --census)"
         )
-
-    tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
-    tunnel_spawn_ticks(deploys, ents, ticks, towers, cards_by_name)
 
     # -- truth: RLE per entity column over its contiguous frame run
     sel = list(range(0, len(frames), max(stride, 1)))
@@ -2543,11 +2680,42 @@ def main() -> int:
         )
         for cap in captures
     ]
+    # the other seat's captures of each job's battle, from the job's own folder (PAIR DATING)
+    folders: dict[str, list[str]] = {}
+    partners_of: dict[str, list[str]] = {}
+    for cap, _ in jobs:
+        folder = os.path.dirname(os.path.abspath(cap))
+        if folder not in folders:
+            folders[folder] = distinct_captures(glob.glob(os.path.join(folder, "*" + CAPTURE_SUFFIX)))
+        partners_of[cap] = battle_partners(cap, folders[folder])
     # ONE seat map for the run, the captures folder's (tools/capture_names.py folder_seats),
     # so a capture's letter is the same whether it is built alone, with --all, or by another
     # maker. The jobs' own names go in too, in case a capture was handed in from elsewhere.
-    pool = [c for c, _ in jobs] + [p for _, ps in jobs for p in ps]
+    pool = [c for c, _ in jobs] + [p for _, ps in jobs for p in ps] + [p for ps in partners_of.values() for p in ps]
     seats = folder_seats(args.reports, CAPTURE_SUFFIX, pool)
+    offers: dict[str, list[dict]] = {}
+
+    def offer_of(partner: str) -> list[dict]:
+        # a partner's rows as it dates them ALONE (no pair dating of its own), from its whole capture and its own
+        # logs, at stride 1 so that its truth ticks are its frames; once per capture per run
+        if partner not in offers:
+            pfx = build(
+                partner,
+                placement_files_for(partner, os.path.dirname(os.path.abspath(partner))),
+                1,
+                None,
+                census,
+                id_table,
+                doc,
+                register,
+                name_to_id,
+                card_names,
+                seats,
+                nominal,
+            )
+            offers[partner] = seat_offer(pfx.get("deploys", []), pfx["truth"]["ticks"] if "truth" in pfx else [])
+        return offers[partner]
+
     manifest = []
     written: dict[str, str] = {}
     for cap, placements in jobs:
@@ -2564,6 +2732,7 @@ def main() -> int:
             card_names,
             seats,
             nominal,
+            partners=[(public_name(p, seats), offer_of(p)) for p in partners_of[cap]],
         )
         if args.check:
             with open(args.check, encoding="utf-8") as fh:
