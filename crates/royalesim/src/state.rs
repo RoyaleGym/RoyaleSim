@@ -13552,6 +13552,25 @@ impl BattleState {
         }
     }
 
+    /// A LADDER'S FIRST STEP ON ITS HIT'S OWN TICK (`Knock::Push::now`, an Evo Cannon bomb's push): one step of the
+    /// ladder `arm_ladder` just armed on `i`, taken as `step_pushback_ladders` takes one (move16402.rs `pushback_step`,
+    /// no contact, through spell.rs `settle`); the Move phase takes the rest from the next tick. Measured on client
+    /// 15.535.29 (oracle's frames of sp-m3-radius-s0, parity's kb_onset): every barrage push stepped 199 on the frame
+    /// its 281 landed, where a Fireball's push steps one tick after, on 15.535.29 and in the 16.402 corpus.
+    fn ladder_step_now(&mut self, i: usize) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let arena = &self.cfg.arena;
+        let e = &mut self.ents;
+        let mut con = move16402::Contact::default();
+        let mut rem = e.push_speed[i];
+        let old = e.pos[i];
+        let tgt = (e.push_target[i].x, e.push_target[i].y);
+        let m = move16402::pushback_step((old.x / K, old.y / K), tgt, &mut rem, &mut con, (0, 0), false, |_, _| false, arena.cols, arena.rows);
+        e.pos[i] = spell::settle(arena, &self.scratch.obstacles[0], e.team[i], e.radius[i], e.flying[i], old, Vec2::new(m.x * K, m.y * K));
+        e.push_speed[i] = rem;
+        e.push_active[i] = rem >= 0;
+    }
+
     /// Advance every knockback slide (knockback.DURATION_MS > 0) by one tick: an even
     /// share of the remaining displacement, the last tick taking the remainder.
     fn step_knock_slides(&mut self) {
@@ -13721,6 +13740,7 @@ impl BattleState {
         // client16402: arm the ladder on the first push per unit (the
         // `Some(None)` of `sum`: landed, no displacement to apply here).
         let mut sum = vec![None::<Option<Vec2>>; cap];
+        let mut step_now: Vec<usize> = Vec::new();
         for k in &fx.knocks {
             let id = k.id();
             if !survivor(&self.ents, id) {
@@ -13740,9 +13760,12 @@ impl BattleState {
                         *s = d; // PLANT: the last buffered push replaces the others (buffer order matters).
                     }
                 }
-                spell::Knock::Push { src, strength, caster, .. } => {
+                spell::Knock::Push { src, strength, caster, now, .. } => {
                     if self.arm_ladder(i, src, strength, caster, sum[i].is_some()) {
                         sum[i] = Some(None);
+                        if now {
+                            step_now.push(i);
+                        }
                     }
                 }
             }
@@ -13821,6 +13844,10 @@ impl BattleState {
                 e.pos[i] = spell::settle(&self.cfg.arena, &self.scratch.obstacles[0], team, e.radius[i], e.flying[i], old, old.add(d));
                 moved = true;
             }
+        }
+        for i in step_now {
+            self.ladder_step_now(i);
+            moved = true;
         }
         if moved {
             self.hash.rebuild(&self.ents);
@@ -16798,7 +16825,7 @@ impl BattleState {
             for k in &self.effects.knocks {
                 let (id, d, extra) = match *k {
                     spell::Knock::Displacement(id, d) => (id, d, (0, 0)),
-                    spell::Knock::Push { id, src, strength, caster } => (id, src, (strength, 1 + caster as i32)),
+                    spell::Knock::Push { id, src, strength, caster, now } => (id, src, (strength, 1 + caster as i32 + if now { 2 } else { 0 })),
                 };
                 h.i32(extra.0);
                 h.i32(extra.1);

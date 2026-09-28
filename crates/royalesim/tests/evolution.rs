@@ -197,12 +197,12 @@ fn evo_cannon_drops_its_barrage() {
     // THE PUSH: the Knight hit 2400 behind its bomb is pushed straight away from it by the knockback ladder of the
     // bomb's Pushback 1000, 200 - 25k a tick for 8 ticks, though it stands in deploy state (measured on client
     // 15.535.29: 199, 174 ... 24 on diagonals, 900 in all, for Barbarians, an Ice Golem and standing and walking
-    // units alike; the Giant, whose row sets IgnorePushback, not at all). The missed one stays put.
+    // units alike, the first step on the hit's own tick; the Giant, whose row sets IgnorePushback, not at all). The
+    // missed one stays put.
     let steps: Vec<(i32, i32)> = moves[0].iter().map(|(_, d)| *d).collect();
     assert_eq!(steps, (0..8).map(|k| (0, 200 - 25 * k)).collect::<Vec<_>>(), "the pushed Knight's moves {:?}", moves[0]);
-    // The ladder arms on the hit (I + 28) and steps from the next tick, as every knockback does
-    // (knockback.DISPLACEMENT_LAW). Whether the client's first step shares the damage frame is open.
-    assert_eq!(moves[0][0].0, 29, "the push's first step: {:?}", moves[0]);
+    // The first step on the hit's own tick (I + 28), where every other push steps from the next tick (measured).
+    assert_eq!(moves[0][0].0, 28, "the push's first step: {:?}", moves[0]);
     // The missed one is not pushed: it stands through its deploy and then walks toward side 0 (-y), never away.
     assert!(moves[1].iter().all(|(t, (_, dy))| *t > 30 && *dy <= 0), "the missed Knight was pushed: {:?}", moves[1]);
 }

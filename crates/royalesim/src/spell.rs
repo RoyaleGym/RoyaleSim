@@ -249,8 +249,17 @@ pub enum Knock {
     /// the Log's centre where it first touched the victim, under travel_direction the
     /// point one unit behind the victim on the roll axis, so the source-to-victim line
     /// IS the travel direction), the strength (Pushback, native) and the caster (the
-    /// forward axis of the zero-vector fallback).
-    Push { id: EntityId, src: Vec2, strength: i32, caster: Team },
+    /// forward axis of the zero-vector fallback). `now`: the ladder's first step is taken on the hit's own tick
+    /// (state.rs `ladder_step_now`), which only an Evo Cannon bomb does (measured on client 15.535.29: all 6 barrage
+    /// pushes step on their damage tick, a Fireball's one tick after, as every other push here).
+    Push {
+        id: EntityId,
+        src: Vec2,
+        strength: i32,
+        caster: Team,
+        #[serde(default)]
+        now: bool,
+    },
 }
 
 impl Knock {
@@ -713,7 +722,7 @@ pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &
                 fx.knocks.push(Knock::Displacement(id, d));
             }
         }
-        KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team }),
+        KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team, now: false }),
     }
 }
 
@@ -910,7 +919,7 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
                     // the projectile's hit arms the ladder from the impact point with
                     // Pushback; the zero-vector direction is resolved where the ladder
                     // is armed
-                    KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team }),
+                    KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team, now: barrage.is_some() }),
                 }
             }
         }
@@ -1317,7 +1326,7 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                             Vec2::new(contact.x / K, vn.y - fwd * (ctx.calib.knock_rolling_contact_radius + e.radius[v] / K))
                         }
                     };
-                    fx.knocks.push(Knock::Push { id, src, strength: k.distance / K, caster: team });
+                    fx.knocks.push(Knock::Push { id, src, strength: k.distance / K, caster: team, now: false });
                     continue;
                 }
                 let d = match ctx.calib.knock_direction_rolling {
