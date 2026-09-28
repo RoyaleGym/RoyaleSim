@@ -55,10 +55,10 @@
 #![allow(dead_code)]
 #![allow(unexpected_cfgs)]
 
-use royalesim::card::{CardDb, CardKind, UnitRef};
+use royalesim::card::{CardDb, CardKind, UnitRef, FORM_EVOLUTION, FORM_HERO};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE, SUBTILE_PER_MILLITILE};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, DeployError};
 use royalesim::{EntityId, Team};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -206,6 +206,14 @@ pub struct Deploy {
     /// harness plays (`mirror_play`). Absent on every other deploy.
     #[serde(default)]
     pub mirrored: Option<Mirrored>,
+    /// THE FORM THE ROW PUT DOWN, as the fixture maker reads it off its units' card class (tools/make_replay_fixture.py
+    /// `deploy_form`): "base", "ev1" (an evolved play: class 13) or "hero" (class 203). Absent from a fixture made
+    /// before forms were read, whose rows all play their base card.
+    #[serde(default)]
+    pub form: Option<String>,
+    /// The form's own card (Cannon_EV1, Musketeer_hero), which an "ev1" or "hero" row spawns (`deploy_play`).
+    #[serde(default)]
+    pub form_row: Option<String>,
 }
 
 /// The card a Mirror play copied, as the fixture maker names it (tools/make_replay_fixture.py `mirror_plays`).
@@ -225,6 +233,51 @@ pub fn mirror_play(d: &Deploy) -> String {
     match (d.kind.as_str(), d.mirrored.as_ref().and_then(|m| m.card.clone())) {
         ("mirror", Some(copied)) => copied,
         _ => d.card.clone().unwrap_or_default(),
+    }
+}
+
+/// A row's `form` for an evolved play and for a hero play (`Deploy::form`).
+pub const ROW_FORM_EVOLVED: &str = "ev1";
+pub const ROW_FORM_HERO: &str = "hero";
+/// A PRESS OF A HERO'S BUTTON is a row of its own: `kind` "ability", `card` the hero's base card, issued at `tick - 1`
+/// as a deploy is. The press takes the side's button of that card (`BattleState::press_ability_button`), which exists
+/// when the deck marks the card a hero (`deck_form`).
+pub const KIND_ABILITY: &str = "ability";
+
+/// WHAT A ROW SPAWNS: an evolved or hero row its form's own card, which loads as a card of its own (a hero play has
+/// no counter to wait on, and `spawn_unit` has no play history for the evolution counter to read); every other row
+/// `mirror_play`. A row whose form the engine does not load plays its base card (`config_for_with` notes it).
+pub fn deploy_play(d: &Deploy, db: &CardDb) -> String {
+    match (d.form.as_deref(), d.form_row.as_deref()) {
+        (Some(ROW_FORM_EVOLVED | ROW_FORM_HERO), Some(row)) if db.index(row).is_some() => row.to_string(),
+        _ => mirror_play(d),
+    }
+}
+
+/// THE CARD A FORM'S UNITS ARE SCORED AS: the truth names an evolved or hero unit by its base card (its card id is
+/// class 13 or 203, its name the base card's), so a form's card roots to its base (CardDb `forms`, `form_of`).
+pub fn base_of_form(db: &CardDb, name: &str) -> String {
+    let Some(i) = db.index(name) else {
+        return name.to_string();
+    };
+    let base = db.forms.iter().find(|(_, _, f)| *f == i).map(|(b, _, _)| *b).or(db.get(i).form_of);
+    base.map_or_else(|| name.to_string(), |b| db.get(b).name.clone())
+}
+
+/// THE FORM A DECK ENTRY IS MARKED WITH (`BattleConfig::forms`): FORM_HERO when a row of its side plays the card's hero
+/// form, else FORM_EVOLUTION when one plays its evolution, else 0; 0 as well when the engine loads no such form.
+pub fn deck_form(f: &Fixture, side: usize, name: &str, db: &CardDb) -> u8 {
+    let mut form = 0;
+    for d in f.deploys.iter().filter(|d| d.side as usize == side && d.card.as_deref() == Some(name)) {
+        match d.form.as_deref() {
+            Some(ROW_FORM_HERO) => form = FORM_HERO,
+            Some(ROW_FORM_EVOLVED) if form == 0 => form = FORM_EVOLUTION,
+            _ => {}
+        }
+    }
+    match db.index(name) {
+        Some(base) if db.form_card(base, form).is_some() => form,
+        _ => 0,
     }
 }
 
@@ -304,7 +357,7 @@ pub fn resolve_tick(d: &Deploy) -> Option<u32> {
 /// own placement resolution (state.rs `resolve_point`: the snap, the relocation off a tile the troop may not take).
 /// None for a card this CardDb does not hold.
 pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2> {
-    let idx = db.index(&mirror_play(d))?;
+    let idx = db.index(&deploy_play(d, db))?;
     let p = play_point(d);
     Some(s.resolve_point(team_of(d.side), idx, from_native(p[0], p[1])))
 }
@@ -965,6 +1018,9 @@ struct Roots {
     /// Girls): rooted to the card the harness itself deployed on that tick
     /// (card.rs `FormationDef::second_summon`).
     second_summon_of: BTreeMap<u16, Vec<u16>>,
+    /// A hero button's unit (the Hero Musketeer's turret) -> the hero forms whose button puts it down: rooted to the
+    /// hero's base card, as the truth names it.
+    ability_of: BTreeMap<u16, Vec<u16>>,
     /// A summon-only record that itself puts units on the board (the Goblin Drill's building, the
     /// Elixir Golem's ElixirGolem2) -> the playable card at the top of its chain, so a unit its death
     /// releases is rooted to that card and not to the summon-only record.
@@ -976,6 +1032,7 @@ impl Roots {
         let mut death_spawn_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut spell_release_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut second_summon_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+        let mut ability_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         // Every block card.rs `CardDb::unit_refs` names, matched without a wildcard: a
         // block added there does not compile here until it is rooted.
         for i in 0..db.cards.len() as u16 {
@@ -1013,9 +1070,9 @@ impl Roots {
                     // release is; a death area's (the Suspicious Bush's goblins) come out of a death, as a death spawn
                     UnitRef::Scheduled(_) if db.get(i).spell.is_some() => &mut spell_release_of,
                     UnitRef::Scheduled(_) => &mut death_spawn_of,
-                    // a hero button's unit (the Hero Musketeer's turret) comes from a press, which the fixtures do not
-                    // carry yet: not rooted
-                    UnitRef::AbilityUnit => continue,
+                    // a hero button's unit (the Hero Musketeer's turret) comes from a press (a row of kind "ability"):
+                    // rooted to its hero
+                    UnitRef::AbilityUnit => &mut ability_of,
                 };
                 of.entry(unit).or_default().push(i);
             }
@@ -1039,7 +1096,7 @@ impl Roots {
             }
             frontier = next;
         }
-        Roots { death_spawn_of, spell_release_of, second_summon_of, card_of }
+        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, card_of }
     }
 
     /// The playable card a record roots to: itself when it is one, else the top of its chain.
@@ -1111,6 +1168,18 @@ pub fn config_for_with(
                 names.push(n.clone());
             } else if !names.contains(n) {
                 notes.push(format!("side {side}: deck card {n} not loadable, left out of the engine deck"));
+            }
+        }
+        let forms: Vec<u8> = names.iter().map(|n| deck_form(f, side, n, &cfg.cards)).collect();
+        if forms.iter().any(|&m| m != 0) {
+            cfg.forms[side] = forms;
+        }
+        for d in f.deploys.iter().filter(|d| d.side as usize == side) {
+            if let (Some(form @ (ROW_FORM_EVOLVED | ROW_FORM_HERO)), Some(row)) = (d.form.as_deref(), d.form_row.as_deref()) {
+                let note = format!("side {side}: form {row} does not load; its {form} rows play {}", mirror_play(d));
+                if cfg.cards.index(row).is_none() && !notes.contains(&note) {
+                    notes.push(note);
+                }
             }
         }
         cfg.decks[side] = names;
@@ -1252,6 +1321,11 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 root
             } else if !card.summon_only {
                 (e.card.to_string(), "deployed")
+            } else if let Some(base) = card.form_of {
+                // a hero form loads summon-only; it is the card the row put down
+                (db.get(base).name.clone(), "deployed")
+            } else if let Some(heroes) = roots.ability_of.get(&e.card_idx) {
+                (db.get(heroes[0]).name.clone(), "ability")
             } else if let Some(mount) = e.attached_to {
                 // an attached rider: its mount's root (the mount is registered first, its team_seq
                 // being the rider's minus one)
@@ -1297,6 +1371,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     }
                 }
             };
+            let root = base_of_form(db, &root);
             sim_index_of.insert((e.id.index, e.id.generation), sim.len());
             sim.push(SimEntity { id: e.id, team: e.team, card: e.card.to_string(), root, root_how: how, first_tick: tick, first_pos: e.pos, team_seq: e.team_seq, tower_slot });
         }
@@ -1359,7 +1434,18 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         if let Some(list) = deploys_by_tick.get(&due) {
             for (i, d) in list {
                 let team = team_of(d.side);
-                let name = mirror_play(d);
+                if d.kind == KIND_ABILITY {
+                    let base = d.card.as_deref().and_then(|c| db.index(c));
+                    let k = s.ability_buttons(team).iter().position(|b| Some(b.base) == base);
+                    let r = match k {
+                        Some(k) => s.press_ability_button(team, k).map(|_| ()),
+                        None => Err(DeployError::NoHero),
+                    };
+                    let card = format!("{} ability", d.card.as_deref().unwrap_or("?"));
+                    report.deploys.push(DeployIssue { tick: d.tick, side: d.side, card, issued_at: s.tick_count(), resolved_on: None, result: r.map_err(|e| format!("{e:?}")) });
+                    continue;
+                }
+                let name = deploy_play(d, db);
                 let (resolved_on, pos) = match resolved.get(i) {
                     Some(&(t, p)) => (Some(t), p),
                     None => {

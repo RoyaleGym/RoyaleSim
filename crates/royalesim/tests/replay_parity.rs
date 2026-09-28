@@ -555,3 +555,74 @@ fn a_spawners_emission_whose_unit_is_a_card_is_rooted_through_its_spawner() {
     assert!(p.sim_first_tick.abs_diff(p.truth_first_tick) <= 2, "the spirit pairs with the engine's first emission: {p:?}");
     assert!(r.unmatched_sim.iter().all(|(_, _, root)| root != "FireSpirits"), "an engine spirit rooted as a deploy: {:?}", r.unmatched_sim);
 }
+
+/// A FORM ROW (tools/make_replay_fixture.py `deploy_form`) spawns its form's own card: an evolved play (form "ev1") the
+/// evolution, a hero play (form "hero") the hero form. The truth names both by their base card, and so does the harness
+/// (`base_of_form`): the evolved Cannon pairs as "Cannon", the hero as "Musketeer". The deck entry is marked with the form
+/// its rows play (`deck_form`), which gives the hero her button, and a row of kind "ability" presses it: the turret it
+/// puts down roots to "Musketeer" too. A row whose form does not load plays its base card.
+#[test]
+fn a_form_row_spawns_its_form_and_its_units_score_as_the_base_card() {
+    let db = common::cards();
+    let row = |card: &str, form: &str, form_row: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 20, "side": 0, "card": "{card}", "card_id": 0, "kind": "troop", "level": 11, "count": 1,
+                "pos": [3500, 5500], "source": "tap_tile", "form": "{form}", "form_row": "{form_row}"}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    assert_eq!(deploy_play(&row("Cannon", "ev1", "Cannon_EV1"), &db), "Cannon_EV1");
+    assert_eq!(deploy_play(&row("Musketeer", "hero", "Musketeer_hero"), &db), "Musketeer_hero");
+    assert_eq!(deploy_play(&row("Musketeer", "base", "Musketeer"), &db), "Musketeer");
+    assert_eq!(deploy_play(&row("Witch", "ev1", "Witch_EV1"), &db), "Witch", "a form the engine does not load plays its base card");
+    for (form, base) in [("Cannon_EV1", "Cannon"), ("Skeletons_EV1", "Skeletons"), ("Musketeer_hero", "Musketeer"), ("Knight", "Knight")] {
+        assert_eq!(base_of_form(&db, form), base);
+    }
+
+    let n = 160usize;
+    let ticks: Vec<u32> = (0..n as u32).collect();
+    let col = |v: i64, frames: usize| format!("[{v}, {frames}]");
+    let entity = |key: i64, card_id: i64, card: &str, max_hp: i64, t0: usize, x: i64, y: i64| -> String {
+        let frames = n - t0;
+        format!(
+            r#"{{"key": {key}, "side": 0, "card_id": {card_id}, "card": "{card}", "role": "troop", "unit": null,
+                "level": 11, "max_hp": {max_hp}, "t0": {t0}, "n": {frames}, "x": {}, "y": {}, "hp": {}, "target": {},
+                "path_n": {}, "state": {}}}"#,
+            col(x, frames),
+            col(y, frames),
+            col(max_hp, frames),
+            col(-1, frames),
+            col(0, frames),
+            col(4, frames)
+        )
+    };
+    let hero = entity(7, 203000014, "Musketeer", 721, 20, 3500, 5500);
+    let cannon = entity(8, 13000096, "Cannon", 824, 30, 14500, 5500);
+    let text = format!(
+        r#"{{"format": "{FORMAT}", "deploy_tick_convention": "{DEPLOY_TICK_CONVENTION}", "capture": "synthetic-forms",
+            "frame": {{"blue_native_side": 0, "transform": "identity"}}, "truth_stride": 1, "playable": true,
+            "ticks": {{"first": 0, "last": {last}, "frames": {n}}}, "tower_level": {{"0": 11, "1": 11}},
+            "decks": {{"0": {{"deploy_order": ["Musketeer", "Cannon"]}}, "1": {{"deploy_order": ["Knight"]}}}},
+            "deploys": [
+              {{"tick": 20, "side": 0, "card": "Musketeer", "card_id": 26000014, "kind": "troop", "level": 11, "count": 1,
+                "keys": [7], "pos": [3500, 5500], "source": "tap_tile", "form": "hero", "form_row": "Musketeer_hero"}},
+              {{"tick": 30, "side": 0, "card": "Cannon", "card_id": 27000000, "kind": "building", "level": 11, "count": 1,
+                "keys": [8], "pos": [14500, 5500], "source": "tap_tile", "form": "ev1", "form_row": "Cannon_EV1"}},
+              {{"tick": 121, "side": 0, "card": "Musketeer", "card_id": 26000014, "kind": "ability", "level": 11, "count": 0,
+                "pos": [0, 0], "source": "ability_press", "form": "hero", "form_row": "Musketeer_hero"}}],
+            "truth": {{"ticks": {ticks:?}, "entities": [{hero}, {cannon}]}}}}"#,
+        last = n - 1
+    );
+    let f = Fixture::from_str(&text).expect("the synthetic fixture parses");
+    assert_eq!(deck_form(&f, 0, "Musketeer", &db), royalesim::card::FORM_HERO);
+    assert_eq!(deck_form(&f, 0, "Cannon", &db), 1, "an evolution is form 1");
+    assert_eq!(deck_form(&f, 1, "Knight", &db), 0);
+    let r = replay(&f, &db, &register(), &Options::default()).expect("the synthetic fixture replays");
+    for (key, root, sim_card) in [(7, "Musketeer", "Musketeer_hero"), (8, "Cannon", "Cannon_EV1")] {
+        let p = r.pairs.iter().find(|p| p.truth_key == key).unwrap_or_else(|| panic!("key {key} did not pair: {:?} {:?}", r.pairs, r.unmatched_sim));
+        assert_eq!((p.root.as_str(), p.sim_card.as_str(), p.root_how.as_str()), (root, sim_card, "deployed"), "{p:?}");
+    }
+    let press = r.deploys.iter().find(|d| d.card == "Musketeer ability").expect("the press is issued");
+    assert!(press.result.is_ok(), "the press is taken: {press:?}");
+    assert!(r.unmatched_sim.iter().any(|(_, _, root)| root == "Musketeer"), "the turret roots to its hero: {:?}", r.unmatched_sim);
+}
