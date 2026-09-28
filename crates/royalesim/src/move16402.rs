@@ -156,6 +156,9 @@ pub struct Body {
     /// the separation scan still meets it as a troop): a member waiting out its stagger
     /// under movement.WAITING_HEADING = static_obstacle.
     pub avoid_static: bool,
+    /// The body's place in CREATION order (`Entities::creation_seq`), which breaks a tie between two bodies first
+    /// sighted in one group (`Index::query`).
+    pub seq: u32,
 }
 
 /// The order neighbours are visited in, which decides the steering: the vote below
@@ -192,8 +195,17 @@ impl Index {
     }
 
     /// The neighbours of a circle, in visit order: every collidable entity, both
-    /// sides, no class filtered out. `bodies` is in update order (which breaks ties
-    /// inside one group); returns indices.
+    /// sides, no class filtered out. Two bodies first sighted in one group are met in
+    /// UPDATE order, which is creation order (`Body::seq`; the move pass runs in it,
+    /// calibration match.TICK_ORDER), then by index; returns indices.
+    ///
+    /// The tie goes by `seq`, not by the index into `bodies`: the engine builds
+    /// `bodies` over its entity SLOTS, which a LIFO free list reuses, so once anything
+    /// has died the index is not creation order. Read on client 16.402
+    /// (20260918-130203.b2 t1568): a deploying Ice Spirit whose look circle lies in one
+    /// group with two waiting Goblins, mirror images across its heading, both created
+    /// that tick; the later-created one is met last and decides, -190, where the
+    /// slot order met the other one last and gave +190.
     pub fn query(&self, bodies: &[Body], x: i32, y: i32, r: i32, out: &mut Vec<usize>) {
         out.clear();
         let (qc0, qc1) = (((x - r) >> 10).max(0), ((x + r) >> 10).min(self.cols - 1));
@@ -201,9 +213,9 @@ impl Index {
         if qc0 > qc1 || qr0 > qr1 {
             return;
         }
-        // (first group column, first group row, update index) of every entity whose
-        // circle overlaps the query circle now
-        let mut hits: Vec<(i32, i32, usize)> = Vec::new();
+        // (first group column, first group row, creation order, index) of every entity
+        // whose circle overlaps the query circle now
+        let mut hits: Vec<(i32, i32, u32, usize)> = Vec::new();
         for (i, b) in bodies.iter().enumerate() {
             let Some((c0, c1, r0, r1)) = self.span(b) else { continue };
             let (fc, lc) = (c0.max(qc0), c1.min(qc1));
@@ -213,11 +225,14 @@ impl Index {
             }
             let rr = b.r + r;
             if len_sq(x - b.x, y - b.y) < rr * rr {
-                hits.push((fc, fr, i));
+                #[cfg(not(clash_plant = "slot_order_group_tie"))]
+                hits.push((fc, fr, b.seq, i));
+                #[cfg(clash_plant = "slot_order_group_tie")]
+                hits.push((fc, fr, 0, i)); // PLANT (regression): a tie inside one group goes by slot, as before the fix.
             }
         }
         hits.sort_unstable();
-        out.extend(hits.into_iter().map(|h| h.2));
+        out.extend(hits.into_iter().map(|h| h.3));
     }
 }
 
@@ -879,7 +894,7 @@ mod tests {
     use super::*;
 
     fn body(x: i32, y: i32, r: i32, mass: i32, mover: bool, side: u8) -> Body {
-        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false }
+        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false, seq: 0 }
     }
 
     #[test]

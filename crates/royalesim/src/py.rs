@@ -1747,7 +1747,7 @@ fn knock_ticks_left(e: &crate::state::EntityView<'_>, tick_ms: i64) -> i64 {
 fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402::Body>> {
     use crate::move16402 as ml;
     let mut out = Vec::with_capacity(bodies.len());
-    for b in bodies {
+    for (k, b) in bodies.iter().enumerate() {
         if b.len() != 15 && b.len() != 16 {
             return Err(PyValueError::new_err("each body needs 15 fields, or 16 with avoid_static"));
         }
@@ -1767,6 +1767,8 @@ fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402:
             dir: (b[12] as i32, b[13] as i32),
             heading_counts: b[14] != 0,
             avoid_static: b.get(15).is_some_and(|v| *v != 0),
+            // the array is given in update order, which is creation order: its position is the tie-break
+            seq: k as u32,
         });
     }
     if me >= out.len() {
