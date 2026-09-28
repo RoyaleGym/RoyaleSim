@@ -14587,12 +14587,16 @@ impl BattleState {
         }
         // spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the tick's dead that released nothing, as the contact law
         // meets them, taken before the despawn below for the released units' first update (`materialise_released`).
-        // Under hidden the list stays empty, so today's engine is untouched.
+        // Under hidden the list stays empty, so today's engine is untouched. A MOUNT whose riders' death spawns fired
+        // this tick released those units through them (the Goblin Giant's dismounting Spear Goblins), so its body is
+        // not seen either: the key's "a unit whose death released a unit on that tick", and the dismount law measured on
+        // client 15.535.29 puts each Goblin at the Giant plus its offset, unpushed (tests/goblin_giant.rs).
         self.scratch.dying_bodies.clear();
         if self.cfg.calib.first_step_dying == FirstStepDying::Seen {
+            let mounts: Vec<EntityId> = parents.iter().filter_map(|&p| self.ents.attached_to[p]).collect();
             for id in &deaths {
                 let i = id.index as usize;
-                if self.ents.alive[i] && !parents.contains(&i) {
+                if self.ents.alive[i] && !parents.contains(&i) && !mounts.contains(id) {
                     let b = self.dying_body(i);
                     self.scratch.dying_bodies.push(b);
                 }
