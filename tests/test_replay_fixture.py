@@ -1911,3 +1911,20 @@ def test_a_battle_recorded_from_both_seats_dates_a_row_by_the_other_seat(m, tmp_
     )
     assert check.returncode == 0, check.stdout + check.stderr
     assert "is current" in check.stdout, check.stdout
+
+
+def test_a_frame_read_a_tick_late_takes_the_tick_its_contents_show(m):
+    """20260918-134739-B's frame 253 carries tick 254's positions: its walkers step two ticks' worth into it and one
+    out of it to frame 255. It is relabelled 254; a frame whose walkers step one tick's worth in and two out stays."""
+
+    def frame(tick, ys):
+        return {"tick": tick, "entities": [{"id": k, "x": 1000 * k, "y": y} for k, y in enumerate(ys)]}
+
+    late = [frame(252, [0, 0, 0]), frame(253, [180, 180, 180]), frame(255, [270, 270, 270])]
+    assert m.relabel_late_reads(late) == [[253, 254]]
+    assert [f["tick"] for f in late] == [252, 254, 255]
+    right = [frame(252, [0, 0, 0]), frame(253, [90, 90, 90]), frame(255, [270, 270, 270])]
+    assert m.relabel_late_reads(right) == []
+    assert [f["tick"] for f in right] == [252, 253, 255]
+    few = [frame(252, [0, 0]), frame(253, [180, 180]), frame(255, [270, 270])]
+    assert m.relabel_late_reads(few) == [], "two voters are not enough"

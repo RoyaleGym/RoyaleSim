@@ -778,6 +778,45 @@ def read_capture(path: str):
     return header, frames
 
 
+#: `relabel_late_reads`: a walking unit's step into a frame this many times its step out of it votes that the frame was
+#: read a tick late; units that step less than LATE_READ_MIN_STEP on either leg do not vote. A frame is relabelled when
+#: at least LATE_READ_MIN_VOTES units, and LATE_READ_SHARE of the voters, vote so.
+LATE_READ_RATIO = 1.6
+LATE_READ_MIN_STEP = 20
+LATE_READ_MIN_VOTES = 3
+LATE_READ_SHARE = 0.6
+
+
+def relabel_late_reads(frames: list[dict]) -> list[list[int]]:
+    """A FRAME READ A TICK LATE is relabelled to the tick its contents show; returns [[label, new tick], ...].
+
+    A capture can read a frame after the next tick's update has begun, so the frame carries tick t's label and tick
+    t + 1's positions (and any unit that tick creates). It shows as a frame one tick after the one before it whose
+    walking units have moved two ticks' worth, followed by a frame two ticks later whose units have moved one tick's
+    worth; a correctly labelled frame there gives the reverse (about 1 : 2). 20260918-134739-B, frame 253 of frames
+    252, 253, 255: its Skeletons and Goblins stepped 178-363 into it and 89-161 out of it, and its Ice Golem, first
+    seen on it, is created on 254 by the battle's other seat and by its own deploy clock. Over the 16.402 corpus 12 of
+    the 5,776 frames with that spacing are flagged. The frame keeps its contents and takes tick + 1, which the next
+    frame (two ticks on) leaves free."""
+    out: list[list[int]] = []
+    for i in range(1, len(frames) - 1):
+        t0, t1, t2 = frames[i - 1]["tick"], frames[i]["tick"], frames[i + 1]["tick"]
+        if t1 - t0 != 1 or t2 - t1 != 2:
+            continue
+        pts = [{e.get("id"): (e["x"], e["y"]) for e in (frames[j].get("entities") or [])} for j in (i - 1, i, i + 1)]
+        votes = late = 0
+        for k in set(pts[0]) & set(pts[1]) & set(pts[2]):
+            s_in, s_out = math.dist(pts[0][k], pts[1][k]), math.dist(pts[1][k], pts[2][k])
+            if s_in < LATE_READ_MIN_STEP or s_out < LATE_READ_MIN_STEP:
+                continue
+            votes += 1
+            late += s_in >= LATE_READ_RATIO * s_out
+        if late >= LATE_READ_MIN_VOTES and late >= LATE_READ_SHARE * votes:
+            frames[i]["tick"] = t1 + 1
+            out.append([t1, t1 + 1])
+    return out
+
+
 def dedupe(frames):
     """First frame per tick wins; frames must come in non-decreasing tick order."""
     out, seen, dup, back = [], set(), 0, 0
@@ -1848,6 +1887,8 @@ def build(
         form_rows = load_form_rows()
     header, raw_frames = read_capture(capture)
     frames, dup, back = dedupe(raw_frames)
+    # a frame read a tick late takes the tick its contents show (relabel_late_reads)
+    late = relabel_late_reads(frames)
     if until_tick is not None:
         frames = [f for f in frames if f["tick"] <= until_tick]
     reasons: list[str] = []
@@ -1877,6 +1918,8 @@ def build(
         "frames_duplicate": dup,
         "frames_out_of_order": back,
     }
+    if late:
+        fx["frames_relabelled_late"] = late
     if not frames:
         fx["playable"] = False
         fx["unplayable_reasons"] = ["no frames"]
