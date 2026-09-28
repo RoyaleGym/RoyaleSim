@@ -402,6 +402,11 @@ pub struct Calib {
     /// its neighbours' scans (`phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "held_unit_contact_default")]
     pub held_unit_contact: HeldUnitContact,
+    /// collision.HELD_UNIT_AVOIDANCE: whether a held unit that takes its update at speed 0 (HELD_UNIT_CONTACT =
+    /// client16402_speed_zero_update) runs the avoidance scan (`phase_path16402_for`). Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "held_unit_avoidance_default")]
+    pub held_unit_avoidance: HeldUnitAvoidance,
     /// targeting.TARGET_RANK_DISTANCE: the distance a scan ranks its candidates by (target.rs `key`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "target_rank_distance_default")]
@@ -1277,6 +1282,10 @@ fn variable_damage_walk_reach_default() -> VariableDamageWalkReach {
 
 fn held_unit_contact_default() -> HeldUnitContact {
     HeldUnitContact::OutOfThePass
+}
+
+fn held_unit_avoidance_default() -> HeldUnitAvoidance {
+    HeldUnitAvoidance::Scanned
 }
 
 fn target_rank_distance_default() -> TargetRankDistance {
@@ -2530,6 +2539,21 @@ calib_enum!(
         /// 15.535.29 a Knight stunned by an Electro Giant's reflect moved on 13 of 13 stunned ticks that began with the
         /// Giant overlapping it and on 0 of 5 that began apart.
         Client16402SpeedZeroUpdate = "client16402_speed_zero_update",
+    }
+);
+calib_enum!(
+    /// collision.HELD_UNIT_AVOIDANCE -- whether a unit held by a freeze or a stun runs the avoidance scan in the update
+    /// it takes at speed 0 under collision.HELD_UNIT_CONTACT = client16402_speed_zero_update (`phase_path16402_for`).
+    /// The offset's decay, the separation scan and what the held unit's neighbours see of it are not this key's. Inert
+    /// under out_of_the_pass, where a held unit takes no update.
+    HeldUnitAvoidance {
+        /// Today's engine: a held unit that is not attacking runs the avoidance scan as a walker does, so a neighbour
+        /// in its look circle starts or refreshes its offset.
+        Scanned = "scanned",
+        /// The held unit is masked out of the scan as an attacking one is: no start, no refresh; its offset still
+        /// decays 10 a tick. Read off the 16.402 corpus: in 2,024 held frames not one offset starts, where the walking
+        /// rate predicts about 14, and a running offset decays 10 a frame while held (105 frames).
+        Masked = "masked",
     }
 );
 calib_enum!(
@@ -5164,6 +5188,7 @@ impl Calib {
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
             variable_damage_walk_reach: pick(&v, &["targeting", "VARIABLE_DAMAGE_WALK_REACH", "value"], VariableDamageWalkReach::from_calibration_name)?,
             held_unit_contact: pick(&v, &["collision", "HELD_UNIT_CONTACT", "value"], HeldUnitContact::from_calibration_name)?,
+            held_unit_avoidance: pick(&v, &["collision", "HELD_UNIT_AVOIDANCE", "value"], HeldUnitAvoidance::from_calibration_name)?,
             target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
             fallen_lane_tower_pick: pick(&v, &["targeting", "FALLEN_LANE_TOWER_PICK", "value"], FallenLaneTowerPick::from_calibration_name)?,
@@ -12026,9 +12051,16 @@ impl BattleState {
                 // ---- 3. the contact scans
                 let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
                 let waypoint = if routes[i].len() >= 2 { routes[i].last().map(|&p| node_centre(p)) } else { None };
-                if !attacking {
+                // collision.HELD_UNIT_AVOIDANCE = masked: a held unit (`held_walk`) is masked out of the scan as an
+                // attacking one is; the decay below still runs.
+                #[cfg(not(clash_plant = "held_avoidance_scanned"))]
+                let held_masked = held_walk && calib.held_unit_avoidance == HeldUnitAvoidance::Masked;
+                #[cfg(clash_plant = "held_avoidance_scanned")]
+                let held_masked = false; // PLANT (regression): the new arm still scans a held unit.
+                if !attacking && !held_masked {
                     // The scan runs for walking and deploying units, not for an
-                    // attacking one: an attacking unit is masked out of it. A CHARGED
+                    // attacking one: an attacking unit is masked out of it (and a held
+                    // one under collision.HELD_UNIT_AVOIDANCE = masked). A CHARGED
                     // unit skips lighter movers and every mover heading its way --
                     // `charged` is exactly that flag (charge_pass sets it at 10000
                     // permille) and is false for life on every card without a charge
@@ -18502,6 +18534,9 @@ impl BattleState {
 ///    `damage_reduction` and CardDef `idle_buff` and `idle_area`, so the card fingerprint moves: a snapshot saved by an
 ///    earlier build is refused as saved against other card data. migrate_v3 strips `idle_buff` and `idle_area` with
 ///    the rest of the post-format-3 tail and runs a migrated battle at both old arms.
+/// 20, unchanged, collision.HELD_UNIT_AVOIDANCE: Calib gained held_unit_avoidance (serde default the old arm,
+///    scanned), no new state (the new arm skips a scan inside one tick; the offset is the saved `avoid_offset`), so a
+///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18928,6 +18963,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // collision.HELD_UNIT_CONTACT: a format-3 battle took a held unit out of the move pass; it keeps that whatever the
     // ledger ships (the same rule).
     sh.insert("held_unit_contact".into(), serde_json::to_value(HeldUnitContact::OutOfThePass).map_err(|e| e.to_string())?);
+    // collision.HELD_UNIT_AVOIDANCE: the same (inert under out_of_the_pass, pinned all the same).
+    sh.insert("held_unit_avoidance".into(), serde_json::to_value(HeldUnitAvoidance::Scanned).map_err(|e| e.to_string())?);
     // targeting.TARGET_RANK_DISTANCE: a format-3 battle ranked by centre minus the candidate's radius; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
