@@ -411,7 +411,7 @@ LOADED_NOT_RUN = {
     "projectile.pingpong_visual_time_ms": ("combat.RANGE_PROJECTILE", ("straight_to_range",)),
     # The card row's own deploy blow (the Mega Knight's, spells_characters Projectile) and deploy
     # area (the Electro Wizard's zap, the Ice Wizard's chill: the spells row's AreaEffectObject).
-    "deploy_projectile": ("combat.DEPLOY_PROJECTILE", ("client_on_landing",)),
+    "deploy_projectile": ("combat.DEPLOY_PROJECTILE", ("client_on_landing", "client_on_landing_action_at_2")),
     "deploy_area_effect": ("spells.DEPLOY_AREA_EFFECT", ("client_area_effect",)),
 }
 

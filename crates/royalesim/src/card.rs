@@ -1813,7 +1813,8 @@ pub struct CardDef {
     /// an ordinary `Spell` running spell.rs `impact` (its damage scaled on this card's
     /// ladder, its radius, its air/ground filter, its knockback) through spell.rs
     /// `shape_of`, as a death bomb is. Fired by state.rs `spawn_now` under calibration
-    /// combat.DEPLOY_PROJECTILE = client_on_landing (shipped); inert under the old not_read. A
+    /// combat.DEPLOY_PROJECTILE = client_on_landing or client_on_landing_action_at_2 (shipped since
+    /// the 2026-09-28 round 9 flip); inert under the old not_read. A
     /// card with both this and a death area effect is refused (`shape_of` could name only
     /// one of them).
     pub deploy_projectile: Option<SpellDef>,

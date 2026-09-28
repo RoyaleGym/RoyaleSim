@@ -2714,12 +2714,14 @@ calib_enum!(
     /// combat.DEPLOY_PROJECTILE -- whether a unit whose card carries a deploy projectile fires it
     /// (state.rs `spawn_now`).
     DeployProjectile {
-        /// Nothing fires.
+        /// Nothing fires (the engine before the 2026-09-26 flip).
         NotRead = "not_read",
+        /// The engine before the 2026-09-28 round 9 flip.
         /// Measured on client 15.535.29 (the Mega Knight, both sides): on the 6th tick after its
         /// first frame the projectile lands at the unit's position as an area impact, through the
         /// spell impact and knockback path.
         ClientOnLanding = "client_on_landing",
+        /// Shipped since the 2026-09-28 round 9 flip (a hypothesis on its action half).
         /// client_on_landing, and the blow of a unit an ACTION makes (the Hero Musketeer's turret, whose PendingSpawn
         /// carries `action_made`) lands on the 2nd tick after its creation (combat.rs
         /// ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), not the 6th. Read on client 15.535.29's hero scenes: every enemy hp
