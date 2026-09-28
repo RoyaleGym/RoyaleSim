@@ -271,6 +271,10 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// spells.CLONE_COPY_DEPLOY (`materialise_clones`): the deploy a Clone's copy is born with. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm.
+    #[serde(default = "clone_copy_deploy_default")]
+    pub clone_copy_deploy: CloneCopyDeploy,
     /// spawner.SCHEDULED_UNIT_FIRST_UPDATE (`phase_projectile`, the scheduled area's units): whether a Graveyard's Skeleton
     /// takes an update on the tick it is created. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "scheduled_unit_first_update_default")]
@@ -1156,6 +1160,10 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn clone_copy_deploy_default() -> CloneCopyDeploy {
+    CloneCopyDeploy::Deployed
 }
 
 fn scheduled_unit_first_update_default() -> ScheduledUnitFirstUpdate {
@@ -2992,6 +3000,19 @@ calib_enum!(
         /// one created on t318 beside a Knight 290 away appears pushed (139, -55) off its slot, and the other 11, with no
         /// neighbour, appear on their slots under either arm.
         ClientCreationTick = "client_creation_tick",
+    }
+);
+calib_enum!(
+    /// spells.CLONE_COPY_DEPLOY -- the deploy time a Clone's copy is born with (`materialise_clones`), which matters only
+    /// when its original is still deploying at the cast.
+    CloneCopyDeploy {
+        /// Today's engine: the copy is born deployed, so it takes a target and walks when the Clone's hold ends.
+        Deployed = "deployed",
+        /// The copy is born with its original's remaining deploy time, so a pair cloned mid-deploy acts when the
+        /// original's deploy ends. Read off client 15.535.29's sp-m5-clone-s0: three Skeletons played on t807 (deploying
+        /// to t827) are cloned on t812; all six stand without a target through t826 and walk from t827, where the engine's
+        /// copies target and walk on t823, when the hold ends.
+        ClientOriginalRemaining = "client_original_remaining",
     }
 );
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
@@ -5151,6 +5172,7 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            clone_copy_deploy: pick(&v, &["spells", "CLONE_COPY_DEPLOY", "value"], CloneCopyDeploy::from_calibration_name)?,
             scheduled_unit_first_update: pick(&v, &["spawner", "SCHEDULED_UNIT_FIRST_UPDATE", "value"], ScheduledUnitFirstUpdate::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
@@ -7855,12 +7877,24 @@ impl BattleState {
             #[cfg(clash_plant = "clone_level_from_original")]
             let level = own_level; // PLANT: the copy takes the original's level.
             let level = if self.cfg.cards.level_multiplier(card, level).is_ok() { level } else { own_level };
+            // spells.CLONE_COPY_DEPLOY = client_original_remaining: the copy is born with what is left of its original's
+            // deploy (read before the copy is spawned), and leaves it on the same tick; deployed (today's engine): born
+            // deployed.
+            #[cfg(not(clash_plant = "clone_copy_born_deployed"))]
+            let deploy_left = match self.cfg.calib.clone_copy_deploy {
+                CloneCopyDeploy::ClientOriginalRemaining => self.ents.deploy_ms[i].max(0),
+                CloneCopyDeploy::Deployed => 0,
+            };
+            #[cfg(clash_plant = "clone_copy_born_deployed")]
+            let deploy_left = 0; // PLANT (regression): the new arm's copy is born deployed.
             let Ok(id) = self.spawn_with(team, card, level, pos, kind, false) else { continue };
             let j = id.index as usize;
             self.make_copy(j);
             self.ents.facing[j] = facing;
-            self.ents.deploy_ms[j] = 0;
-            self.on_deployed(j);
+            self.ents.deploy_ms[j] = deploy_left;
+            if deploy_left == 0 {
+                self.on_deployed(j);
+            }
             // A rider the copy carries (the loader's attached riders) is a copy too.
             for r in 0..self.ents.capacity() {
                 if self.ents.alive[r] && self.ents.attached_to[r] == Some(id) {
@@ -18517,6 +18551,9 @@ impl BattleState {
 ///    arm, next_tick), no new state (the new arm sets the release's existing `first_update` flag, which no queue saved
 ///    between ticks holds), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, spells.CLONE_COPY_DEPLOY: Calib gained clone_copy_deploy (serde default the old arm, deployed), no new
+///    state (the new arm writes the saved and hashed deploy_ms of a copy on its creation tick), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19021,6 +19058,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // spells.CLONE_COPY_DEPLOY: a format-3 battle's copies were born deployed; it keeps that whatever the ledger ships (the
+    // same rule).
+    sh.insert("clone_copy_deploy".into(), serde_json::to_value(CloneCopyDeploy::Deployed).map_err(|e| e.to_string())?);
     // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a format-3 battle's scheduled units took their first update on the next tick;
     // it keeps that whatever the ledger ships (the same rule).
     sh.insert("scheduled_unit_first_update".into(), serde_json::to_value(ScheduledUnitFirstUpdate::NextTick).map_err(|e| e.to_string())?);
