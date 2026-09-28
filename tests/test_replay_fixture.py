@@ -1710,3 +1710,18 @@ def test_a_key_the_capture_reused_for_another_unit_is_split(m):
     t = m.TRUTH_COLUMNS.index("target")
     assert per_tick_rows[2][30][t] == 22 and per_tick_rows[3][30][t] == 32, "targets follow the unit they meant"
     assert 31 in ents and ents[31]["last_index"] == 7, "a short gap near the same point stays one unit"
+
+
+def test_a_pair_with_no_measured_ring_is_played_on_the_tile_its_laid_point_names(m):
+    """20260918-112751's Archer pairs: no measured group gives Archer offsets, so the tile comes from the ring's laid
+    point, the exact mean of the members' creation points. Left half: created on (8999, 500) and (7999, 500), laid on
+    (8499, 500), the tile (8500, 500). Right half: (10000, 7500) and (11000, 7500), laid on the tile (10500, 7500)
+    itself. A side-1 ground ring is laid a unit lower in y, a flying one on the tile; a mean between two laid points
+    names no tile."""
+    assert m.laid_tile([(8999, 500), (7999, 500)], 0, False)[0] == [8500, 500]
+    assert m.laid_tile([(10000, 7500), (11000, 7500)], 0, False)[0] == [10500, 7500]
+    assert m.laid_tile([(3999, 14500), (2999, 14500)], 0, False)[0] == [3500, 14500]
+    assert m.laid_tile([(10000, 30499), (9000, 30499)], 1, False)[0] == [9500, 30500]
+    assert m.laid_tile([(9000, 30500), (8000, 30500)], 1, True)[0] == [8500, 30500]
+    tile, why = m.laid_tile([(13701, 10828), (4280, 11616)], 0, False)
+    assert tile is None and why.startswith("the members' mean (8990.5, 11222) is no tile"), why

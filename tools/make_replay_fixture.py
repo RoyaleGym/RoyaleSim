@@ -217,6 +217,22 @@ RECOVERED TILE
     reports such a group at its centroid, so the formation measurement never reads a tile
     this recovery chose.
 
+    A group the nominal offsets place nowhere (no measured group of the card, as for every
+    Archer pair in the corpus) is read off its RING'S LAID POINT instead: a ring is
+    symmetric about the point the game lays it on, so the exact mean of the members'
+    creation points is that point, and a ground ring is laid one native unit lower in x
+    on the arena's left half and one lower in y for side 1 than the tile centre it was
+    tapped on (calibration formation.GROUND_DEPLOY_POINT; a flying ring on the tile
+    centre itself). The group is played on the tile centre whose laid point that mean
+    sits within RECOVER_TOLERANCE of, on both axes, when there is one (`laid_tile`; the
+    source is recovered_tile). The first frame cannot say this: two Archers are created
+    exactly touching, 1000 apart at radius 500 each, and the first tick's contact push
+    moves the first one a unit away, so the first-frame mean is half a unit off and the
+    floored centroid a whole unit off the laid point. 20260918-112751 t354: created on
+    (8999, 500) and (7999, 500), the laid point (8499, 500) of the tile (8500, 500), first
+    seen on (9000, 500) and (7999, 500), centroid (8499, 500), and the engine laid the
+    pair one unit left of both.
+
 CREATION POINT
     A single unit is played where it appeared, and its first frame's x, y already carry
     that tick's contact push: a Knight deployed onto a unit stands up to 150 off the point
@@ -434,6 +450,8 @@ TAP_MIN, TAP_MAX = 5, 80
 NEAREST_MAX_ERROR_PERCENT = 10
 #: A tile's side in native units: a troop tap snaps to the centre of one (calibration placement.TAP_SNAP).
 TILE_NATIVE = 1000
+#: The arena's width, native: a ground ring tapped left of its middle is laid a unit lower in x (`laid_tile`).
+ARENA_W_NATIVE = 18000
 #: A measured formation group gives nominal offsets only when its members' mean offset from its tap is within this on
 #: both axes. That leaves out a group laid a tile away from its logged tap (a tap the game moved off a tower) and a
 #: group with a clamped member: neither is a formation around its logged tile.
@@ -1163,6 +1181,24 @@ def recovered_tile(
     if on >= 2 or (on == 1 and clamped == n - 1):
         return [cx, cy], f"{on} of {n} members on a nominal offset from it, {clamped} clamped on one axis"
     return None, f"the best tile centre ({cx}, {cy}) has {on} of {n} members on a nominal offset, {clamped} on one axis"
+
+
+def laid_tile(points: list[tuple[int, int]], side: int, flying: bool) -> tuple[list[int] | None, str]:
+    """The tile centre a group's ring was laid around, read from its members' creation points, and why; or None and
+    why not (module doc, RECOVERED TILE, its last paragraph). The exact mean of `points` is the ring's laid point; a
+    ground ring's laid point is its tile centre one native unit lower in x on the arena's left half and in y for side 1
+    (formation.GROUND_DEPLOY_POINT), a flying ring's the tile centre. The tile is taken when the mean sits within
+    RECOVER_TOLERANCE of its laid point on both axes."""
+    n = len(points)
+    mx, my = sum(p[0] for p in points) / n, sum(p[1] for p in points) / n
+    half = ARENA_W_NATIVE // 2
+    for tx in {int(mx // TILE_NATIVE) * TILE_NATIVE + TILE_NATIVE // 2 + d for d in (-TILE_NATIVE, 0, TILE_NATIVE)}:
+        for ty in {int(my // TILE_NATIVE) * TILE_NATIVE + TILE_NATIVE // 2 + d for d in (-TILE_NATIVE, 0, TILE_NATIVE)}:
+            lx = tx - (1 if tx < half and not flying else 0)
+            ly = ty - (1 if side == 1 and not flying else 0)
+            if abs(mx - lx) <= RECOVER_TOLERANCE and abs(my - ly) <= RECOVER_TOLERANCE:
+                return [tx, ty], f"the members' mean ({mx:g}, {my:g}) is the laid point ({lx}, {ly}) of this tile"
+    return None, f"the members' mean ({mx:g}, {my:g}) is no tile centre's laid point"
 
 
 def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
@@ -1921,6 +1957,10 @@ def build(
                 if all(e.get("c0") is not None for e in members):
                     points = [tuple(e["c0"]) for e in members]
                     tile, d["recovery"] = recovered_tile(points, nominal.get((name, side), []))
+                    if tile is None and d["recovery"] == "no nominal offsets for this card and side":
+                        flying = bool((cards_by_name.get(name) or {}).get("flying_height"))
+                        tile, why = laid_tile(points, side, flying)
+                        d["recovery"] += "; " + why
                     if tile is not None:
                         d["pos"], d["source"] = tile, "recovered_tile"
                 else:
