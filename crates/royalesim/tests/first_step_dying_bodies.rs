@@ -112,7 +112,12 @@ fn a_death_spawn_is_pushed_off_a_unit_dying_with_its_parent() {
 /// test's scene). Returns (the tick the Blue Knight is gone or None, the tick the Tombstone's second Skeleton appears,
 /// that Skeleton's first-frame point, the Blue Knight's last point).
 fn emission_beside(arm: FirstStepDying, blue_knight: (i32, i32)) -> (Option<u32>, u32, (i32, i32), (i32, i32)) {
-    let mut s = BattleState::new(7, with_arm(config(), arm));
+    // Under movement.DYING_UNIT_VISIBILITY = creation_order_before_victim BY NAME: the two FIRST_STEP arms part only
+    // where the dying unit is hidden from a later mover, which the shipped whole_tick (the 2026-09-28 round 7 flip)
+    // never does.
+    let mut cfg = with_arm(config(), arm);
+    cfg.calib.dying_unit_visibility = royalesim::state::DyingUnitVisibility::CreationOrderBeforeVictim;
+    let mut s = BattleState::new(7, cfg);
     let ids = s
         .scenario_spawn_batch(&[
             (Team::Blue, "Tombstone", at(TOMB), None),

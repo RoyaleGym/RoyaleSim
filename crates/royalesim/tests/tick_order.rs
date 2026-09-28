@@ -62,7 +62,7 @@ fn assert_shipped_arms() {
     let c = calib();
     assert_eq!(c.tick_order, TickOrder::Client16402, "the shipped order this file pins");
     assert_eq!(c.path_search, PathSearch::Client16402, "the sequential move pass this file pins");
-    assert_eq!(c.dying_unit_visibility, DyingUnitVisibility::CreationOrderBeforeVictim, "the shipped visibility this file pins");
+    assert_eq!(c.dying_unit_visibility, DyingUnitVisibility::WholeTick, "the shipped visibility (the 2026-09-28 round 7 flip)");
 }
 
 /// Per post-tick frame: (position, attack phase) of `id`, for `n` ticks.
@@ -391,11 +391,13 @@ fn a_unit_dying_this_tick_is_seen_by_earlier_movers_and_not_by_later_ones() {
     // movement.DYING_UNIT_VISIBILITY. Two runs identical up to the hit tick except
     // S2's hp: at 1 the Knight's hit dooms it. S1 (before S2 in creation order) is
     // pushed by S2 in both runs; S3 (after it) is pushed by S2 only when it lives.
-    // Under `whole_tick` S3 is pushed in both.
+    // Under `whole_tick` S3 is pushed in both. The creation-order law runs under its arm BY NAME: whole_tick ships
+    // since the 2026-09-28 round 7 flip.
     assert_shipped_arms();
     let sturdy = 100 * card_stat(&bare(config()), "Knight").damage;
-    let ((s1_live, s3_live), gone_live, t_live) = crowd_around_a_landing_hit(config(), sturdy);
-    let ((s1_dead, s3_dead), gone_dead, t_dead) = crowd_around_a_landing_hit(config(), 1);
+    let order = with_calib(|c| c.dying_unit_visibility = DyingUnitVisibility::CreationOrderBeforeVictim);
+    let ((s1_live, s3_live), gone_live, t_live) = crowd_around_a_landing_hit(order.clone(), sturdy);
+    let ((s1_dead, s3_dead), gone_dead, t_dead) = crowd_around_a_landing_hit(order, 1);
     assert!(!gone_live && gone_dead, "vacuous: S2 must survive the hit when padded and die at 1 hp");
     assert_eq!(t_live, t_dead, "the two runs fire on the same tick");
     assert_eq!(s1_live, s1_dead, "S1, before the victim in creation order, still saw it");
