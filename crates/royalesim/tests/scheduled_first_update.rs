@@ -22,8 +22,9 @@
 //!   1. the null: with no neighbour both arms put the first Skeleton on its slot on its first frame, and run the same;
 //!   2. client_creation_tick, with the Knight: the first frame already carries the push, (-52, -141) off the slot, the
 //!      contact law's cap of 150;
-//!   3. next_tick (the old arm), with the Knight: the first frame is the slot, and the push of 150 comes on the second
-//!      frame, (-60, -137), 149. The two pushes are not the same vector: the Knight has taken a push of its own by then;
+//!   3. next_tick (the old arm), with the Knight: the first frame is the slot, and the push comes on the second frame,
+//!      (-60, -137), 149 off the slot. The two pushes are not the same vector: the Knight has taken a push of its own by
+//!      then;
 //!   4. the shipped value is next_tick;
 //!   5. client_creation_tick, a slot whose Skeleton overlaps the Red left princess tower: the first three frames are
 //!      the client's (ub-gy3-slot-in-tower: (2850, 25500), (2700, 25500), (2550, 25500); ub-gy1-left: (4634, 24933),
