@@ -556,6 +556,11 @@ pub struct Calib {
     pub life_state_first_update: LifeStateFirstUpdate,
     #[serde(default = "life_state_wave_point_default")]
     pub life_state_wave_point: LifeStateWavePoint,
+    /// spawner.LIFE_STATE_FIRST_LOOK_AIM (`life_state_pass`, `note_first_looks`): which position of its aim a Goblin
+    /// Hut's first look reads. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved
+    /// before it ran.
+    #[serde(default = "life_state_first_look_aim_default")]
+    pub life_state_first_look_aim: LifeStateFirstLookAim,
     /// targeting.INVISIBILITY (target.rs `invisible`). Added after SNAPSHOT_FORMAT 20; no battle saved before it held
     /// an invisible unit.
     #[serde(default = "invisibility_default")]
@@ -1505,6 +1510,10 @@ fn life_state_first_update_default() -> LifeStateFirstUpdate {
 
 fn life_state_wave_point_default() -> LifeStateWavePoint {
     LifeStateWavePoint::OneDivision
+}
+
+fn life_state_first_look_aim_default() -> LifeStateFirstLookAim {
+    LifeStateFirstLookAim::PostMove
 }
 
 fn invisibility_default() -> Invisibility {
@@ -3850,6 +3859,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.LIFE_STATE_FIRST_LOOK_AIM -- which position of its aim a Goblin Hut's FIRST LOOK reads: the look on the
+    /// tick after ActionDelay is spent, the DELAY -> first-wave transition of `life_state_pass`. Which enemy is the aim
+    /// is not this key's, and later waves, and the wave of a hut waking from sleep, read the aim's post-move position
+    /// under either arm.
+    LifeStateFirstLookAim {
+        /// Today's engine (shipped): every wave, the first look's included, reads the aim's post-move position, the
+        /// pass running after this tick's move.
+        PostMove = "post_move",
+        /// The first look reads the aim's START-OF-TICK position, where it stood on the previous frame
+        /// (`note_first_looks`). Read off the 16.402 corpus: of the first waves on ActionDelay's end, 5 fit the
+        /// start-of-tick point only, none the post-move point only and 8 both; of the waves of a hut waking from
+        /// sleep, 3 fit the post-move point only, none the start-of-tick point only and 4 both.
+        StartOfTickOnFirstWave = "start_of_tick_on_first_wave",
+    }
+);
+calib_enum!(
     /// spells.ROLL_FIRST_STEP -- when a rolling projectile takes its first step (spell.rs `step_spells`).
     RollFirstStep {
         /// On the tick the airborne projectile lands: today's engine.
@@ -4942,6 +4967,7 @@ impl Calib {
             spawn_spawner_spawn_speed: pick(&v, &["spawner", "SPAWN_SPAWNER_SPAWN_SPEED", "value"], SpawnSpawnerSpawnSpeed::from_calibration_name)?,
             life_state_first_update: pick(&v, &["spawner", "LIFE_STATE_FIRST_UPDATE", "value"], LifeStateFirstUpdate::from_calibration_name)?,
             life_state_wave_point: pick(&v, &["spawner", "LIFE_STATE_WAVE_POINT", "value"], LifeStateWavePoint::from_calibration_name)?,
+            life_state_first_look_aim: pick(&v, &["spawner", "LIFE_STATE_FIRST_LOOK_AIM", "value"], LifeStateFirstLookAim::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
             production_rate: pick(&v, &["economy", "PRODUCTION_RATE_IN_DOUBLE_ELIXIR", "value"], ProductionRate::from_calibration_name)?,
             stun_pauses_production: boolean(&v, &["economy", "STUN_PAUSES_PRODUCTION", "value"])?,
@@ -6074,6 +6100,11 @@ struct Scratch {
     /// THE EVO SKELETONS COPIES this Attack phase earned (`evo_after_fire`), made in the Reap of the same tick
     /// (`evo_copies`), so it is empty between ticks: not saved, not hashed.
     evo_copies: Vec<EvoCopy>,
+    /// spawner.LIFE_STATE_FIRST_LOOK_AIM = start_of_tick_on_first_wave: every live entity's start-of-tick position, in
+    /// ascending index order, taken at the top of a tick on which a Goblin Hut makes its first look
+    /// (`note_first_looks`) and read by that tick's life-state pass, which empties it. Empty between ticks: not saved,
+    /// not hashed.
+    first_look_pos: Vec<(EntityId, Vec2)>,
 }
 
 /// THE UNDERGROUND WALK'S SEARCH (movement.SPAWN_PATHFIND_STATES): the 16.402 terrain and path finder, priced
@@ -7994,7 +8025,7 @@ impl BattleState {
                         self.ents.life_ms[i] -= step;
                         continue;
                     }
-                    if let Some(w) = self.life_wave(i, &ls) {
+                    if let Some(w) = self.life_wave(i, &ls, true) {
                         emissions.push(w);
                         self.ents.life_state[i] = AWAKE;
                         // the first look's wave comes one tick into the interval: the next is due 43 ticks later
@@ -8011,7 +8042,7 @@ impl BattleState {
                     }
                 }
                 SLEEPING => {
-                    if let Some(w) = self.life_wave(i, &ls) {
+                    if let Some(w) = self.life_wave(i, &ls, false) {
                         emissions.push(w);
                         self.ents.life_state[i] = AWAKE;
                         self.ents.life_ms[i] = ls.interval_ms;
@@ -8022,7 +8053,7 @@ impl BattleState {
                     if self.ents.life_ms[i] > 0 {
                         continue;
                     }
-                    if let Some(w) = self.life_wave(i, &ls) {
+                    if let Some(w) = self.life_wave(i, &ls, false) {
                         emissions.push(w);
                         self.ents.life_ms[i] += ls.interval_ms;
                     } else {
@@ -8032,6 +8063,7 @@ impl BattleState {
                 }
             }
         }
+        self.scratch.first_look_pos.clear();
         // spawner.LIFE_STATE_FIRST_UPDATE = client16402_next_tick: the wave takes no update on its creation tick. On
         // its first frame it stands on its creation point with avoidance offset 0; the next tick's Move pushes it out
         // of the hut's circle and runs its first avoidance scan. Measured on client 15.535.29 (169 of 169 waves) and
@@ -8044,6 +8076,49 @@ impl BattleState {
         #[cfg(clash_plant = "life_wave_first_update")]
         let first_update = true; // PLANT (regression): the new arm still gives the wave its creation-tick update.
         self.create_emissions(emissions, first_update);
+    }
+
+    /// spawner.LIFE_STATE_FIRST_LOOK_AIM = start_of_tick_on_first_wave: at the top of a tick on which some Goblin Hut
+    /// makes its first look (in DELAY with ActionDelay spent, so this tick's life-state pass looks), every live
+    /// entity's position, before anything moves (`scratch.first_look_pos`). Nothing on any other tick, and nothing
+    /// under post_move.
+    fn note_first_looks(&mut self) {
+        self.scratch.first_look_pos.clear();
+        if self.cfg.calib.life_state_first_look_aim != LifeStateFirstLookAim::StartOfTickOnFirstWave {
+            return;
+        }
+        let due = (0..self.ents.capacity()).any(|i| {
+            self.ents.alive[i]
+                && self.cfg.cards.get(self.ents.card[i]).life_state.is_some_and(|ls| match self.ents.life_state[i] {
+                    // NOT_STARTED: a hut created after the last pass looks this tick only with no ActionDelay.
+                    0 => ls.action_delay_ms <= 0,
+                    // DELAY
+                    1 => self.ents.life_ms[i] <= 0,
+                    _ => false,
+                })
+        });
+        if due {
+            self.scratch.first_look_pos.extend(self.ents.live_indices().map(|v| (self.ents.id_of(v), self.ents.pos[v])));
+        }
+    }
+
+    /// Where a Goblin Hut's look reads aim `v` (spawner.LIFE_STATE_FIRST_LOOK_AIM): its position now, after this tick's
+    /// move, except on a first look under start_of_tick_on_first_wave, which reads its start-of-tick position
+    /// (`note_first_looks`); a unit created during this tick has none and is read where it stands.
+    fn life_aim_pos(&self, v: usize, first_look: bool) -> Vec2 {
+        #[cfg(not(clash_plant = "life_first_look_post_move"))]
+        let start_of_tick = first_look && self.cfg.calib.life_state_first_look_aim == LifeStateFirstLookAim::StartOfTickOnFirstWave;
+        #[cfg(clash_plant = "life_first_look_post_move")]
+        let start_of_tick = false && first_look; // PLANT (regression): the new arm reads the post-move position too.
+        if !start_of_tick {
+            return self.ents.pos[v];
+        }
+        let id = self.ents.id_of(v);
+        let seen = &self.scratch.first_look_pos;
+        match seen.binary_search_by_key(&id.index, |(e, _)| e.index) {
+            Ok(k) if seen[k].0 == id => seen[k].1,
+            _ => self.ents.pos[v],
+        }
     }
 
     /// THE ENEMIES THAT WAKE hut `i` (spawner.LIFE_STATE_WAKE_TARGETS / LIFE_STATE_WAKE_REACH), as (edge, team_seq,
@@ -8098,7 +8173,10 @@ impl BattleState {
     /// one with the larger x -- and its odd waves the other. The unit is created with its own DeployTime
     /// (SpearGoblin_Dummy 500) and cannot be acquired by an enemy before its F+7 (targeting.SPAWNED_UNIT_ACQUIRE_DELAY;
     /// measured on 65 waves).
-    fn life_wave(&mut self, i: usize, ls: &crate::card::LifeStateDef) -> Option<(Team, u32, u32, PendingSpawn)> {
+    ///
+    /// `first_look`: the hut's first look (the DELAY -> first-wave transition), whose aim is read where
+    /// spawner.LIFE_STATE_FIRST_LOOK_AIM says (`life_aim_pos`).
+    fn life_wave(&mut self, i: usize, ls: &crate::card::LifeStateDef, first_look: bool) -> Option<(Team, u32, u32, PendingSpawn)> {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let wakers = self.life_wakers(i);
         let nearest = wakers.iter().min_by_key(|w| (w.0, w.1)).map(|w| w.2)?;
@@ -8106,7 +8184,8 @@ impl BattleState {
         let aim = sticky.unwrap_or(nearest);
         self.ents.life_target[i] = Some(self.ents.id_of(aim));
         let (hx, hy) = ((self.ents.pos[i].x / K) as i64, (self.ents.pos[i].y / K) as i64);
-        let (dx, dy) = ((self.ents.pos[aim].x / K) as i64 - hx, (self.ents.pos[aim].y / K) as i64 - hy);
+        let aim_pos = self.life_aim_pos(aim, first_look);
+        let (dx, dy) = ((aim_pos.x / K) as i64 - hx, (aim_pos.y / K) as i64 - hy);
         let n = isqrt(dx * dx + dy * dy).max(1);
         let (c, s) = (crate::formation::sin1024(ls.offset_angle_deg + 90) as i64, crate::formation::sin1024(ls.offset_angle_deg) as i64);
         let off = (ls.offset / K) as i64;
@@ -8827,6 +8906,8 @@ impl BattleState {
         }
         // rider.OFFSET_LAW: the mounts' facings as the last tick left them, before anything turns one.
         self.note_mount_facings();
+        // spawner.LIFE_STATE_FIRST_LOOK_AIM: the positions a Goblin Hut's first look reads, before anything moves.
+        self.note_first_looks();
         let phases: &[Phase] = match self.tick_order() {
             TickOrder::Client16402 => &TICK_PHASES,
             TickOrder::LegacyMoveBeforeAttack => &LEGACY_TICK_PHASES,
@@ -17724,6 +17805,10 @@ impl BattleState {
 /// 20, unchanged, placement.LIVE_BOTTLE_TAPS: Calib gained placement_live_bottle_taps (serde default the old arm,
 ///    not_blocked), no new state (the new arm reads the saved spell list's bottles), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.LIFE_STATE_FIRST_LOOK_AIM: Calib gained life_state_first_look_aim (serde default the old
+///    arm, post_move), no new state (the new arm's start-of-tick positions are scratch, taken and read inside one
+///    tick), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
+///    arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -18172,6 +18257,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // old arms whatever the ledger ships (the same rule).
     sh.insert("life_state_first_update".into(), serde_json::to_value(LifeStateFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
     sh.insert("life_state_wave_point".into(), serde_json::to_value(LifeStateWavePoint::OneDivision).map_err(|e| e.to_string())?);
+    // spawner.LIFE_STATE_FIRST_LOOK_AIM: the same (a format-3 battle held no Goblin Hut).
+    sh.insert("life_state_first_look_aim".into(), serde_json::to_value(LifeStateFirstLookAim::PostMove).map_err(|e| e.to_string())?);
     // The underground walk and the listed death ring: a format-3 battle ran no tunneller and laid every death
     // spawn by the layout key; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_ring".into(), serde_json::to_value(DeathRingArm::None).map_err(|e| e.to_string())?);
