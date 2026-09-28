@@ -572,19 +572,25 @@ fn an_enemy_first_targets_a_ring_skeleton_on_t_plus_19() {
 
 #[test]
 fn the_ring_skeletons_deploy_ten_frames_and_first_step_on_t_plus_23() {
-    // Shipped. Plant release_deferred (every frame one tick late).
+    // Shipped (client_ring_slide: the ring slides on T + 13 .. T + 16, the_container_ring_slides_out_for_four_ticks_
+    // and_stops, then rests). Plant release_deferred (every frame one tick late).
     let mut s = BattleState::new(9, shipped());
     let (t, _) = kill_barrel(&mut s, Team::Blue, (6000, 10000));
     after(&mut s, t + 12);
     let m = members(&s, Team::Blue);
     assert_eq!(m.len(), 7, "the seven Skeletons on T + 12");
-    let born: Vec<Vec2> = m.iter().map(|id| s.entity(*id).expect("a Skeleton").pos).collect();
+    let mut born: Vec<Vec2> = Vec::new();
     for k in 12..=22 {
         after(&mut s, t + k);
+        if k == 16 {
+            born = m.iter().map(|id| s.entity(*id).expect("a Skeleton").pos).collect();
+        }
         for (j, id) in m.iter().enumerate() {
             let v = s.entity(*id).expect("a Skeleton");
             assert_eq!(v.deploying, k <= 21, "member {j}: deploying {} on T + {k} (measured T + 12 .. T + 21)", v.deploying);
-            assert_eq!(v.pos, born[j], "member {j} moved on T + {k}, before its first step");
+            if k > 16 {
+                assert_eq!(v.pos, born[j], "member {j} moved on T + {k}, after the slide and before its first step");
+            }
         }
     }
     after(&mut s, t + 23);

@@ -148,8 +148,28 @@ fn evo_cannon_drops_its_barrage() {
     let full: Vec<i32> = ids.iter().map(|id| s.entity(*id).unwrap().hp).collect();
     let mut lost: Vec<Vec<(u32, i32)>> = vec![Vec::new(); golems.len()];
     let mut last = full.clone();
+    // Two Knights (no IgnorePushback, unlike a Golem) played on I + 10, so they stand in deploy state (1000 ms)
+    // through every bomb: one 2400 behind the 5000 bomb (lands I + 28), one 2600 behind the 1000 bomb (I + 30), each
+    // clear of every Golem.
+    let knights = [n(5000, 20400), n(1000, 20600)];
+    let mut kid = Vec::new();
+    let mut at: Vec<Vec2> = Vec::new();
+    // Each Knight's moves, (tick after the play, native step).
+    let mut moves: [Vec<(u32, (i32, i32))>; 2] = [Vec::new(), Vec::new()];
     while s.tick_count() < play + 40 {
         s.tick();
+        if s.tick_count() == play + 10 {
+            for p in knights {
+                s.spawn_unit(Team::Red, "Knight", p, None).unwrap();
+            }
+        }
+        if s.tick_count() == play + 11 {
+            for p in knights {
+                let e = s.entities().filter(|e| e.card == "Knight").min_by_key(|e| e.pos.dist2(p)).expect("the Knight");
+                at.push(e.pos);
+                kid.push(e.id);
+            }
+        }
         for (k, id) in ids.iter().enumerate() {
             let e = s.entity(*id).expect("the Golem lives");
             if k == 0 && s.tick_count() == play + 26 {
@@ -160,10 +180,31 @@ fn evo_cannon_drops_its_barrage() {
                 last[k] = e.hp;
             }
         }
+        for (k, id) in kid.iter().enumerate() {
+            let e = s.entity(*id).expect("the Knight lives");
+            if s.tick_count() == play + 28 {
+                assert!(e.deploying, "the scene needs the Knights standing");
+            }
+            if e.pos != at[k] && s.tick_count() <= play + 36 {
+                moves[k].push((s.tick_count() - play, ((e.pos.x - at[k].x) / K, (e.pos.y - at[k].y) / K)));
+            }
+            at[k] = e.pos;
+        }
     }
     for (k, (_, tick)) in golems.iter().enumerate() {
         assert_eq!(lost[k], tick.map(|t| vec![(t, 281)]).unwrap_or_default(), "Golem {k}");
     }
+    // THE PUSH: the Knight hit 2400 behind its bomb is pushed straight away from it by the knockback ladder of the
+    // bomb's Pushback 1000, 200 - 25k a tick for 8 ticks, though it stands in deploy state (measured on client
+    // 15.535.29: 199, 174 ... 24 on diagonals, 900 in all, for Barbarians, an Ice Golem and standing and walking
+    // units alike; the Giant, whose row sets IgnorePushback, not at all). The missed one stays put.
+    let steps: Vec<(i32, i32)> = moves[0].iter().map(|(_, d)| *d).collect();
+    assert_eq!(steps, (0..8).map(|k| (0, 200 - 25 * k)).collect::<Vec<_>>(), "the pushed Knight's moves {:?}", moves[0]);
+    // The ladder arms on the hit (I + 28) and steps from the next tick, as every knockback does
+    // (knockback.DISPLACEMENT_LAW). Whether the client's first step shares the damage frame is open.
+    assert_eq!(moves[0][0].0, 29, "the push's first step: {:?}", moves[0]);
+    // The missed one is not pushed: it stands through its deploy and then walks toward side 0 (-y), never away.
+    assert!(moves[1].iter().all(|(t, (_, dy))| *t > 30 && *dy <= 0), "the missed Knight was pushed: {:?}", moves[1]);
 }
 
 #[test]
