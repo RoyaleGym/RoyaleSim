@@ -914,6 +914,9 @@ pub struct Report {
     pub prefix_until: Option<u32>,
     pub last_tick: u32,
     pub engine_end_tick: Option<u32>,
+    /// THE LAST TICK SCORED when the battle ended in both (`towers_down_agree`): the engine's end. None when the
+    /// engine's battle did not end, or ended where the client's did not; every frame is scored then.
+    pub score_until: Option<u32>,
     pub deploys: Vec<DeployIssue>,
     pub pairs: Vec<Pair>,
     /// Entities on each side, matched or not.
@@ -1199,6 +1202,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         prefix_until: None,
         last_tick: f.last_tick(),
         engine_end_tick: None,
+        score_until: None,
         deploys: Vec::new(),
         pairs: Vec::new(),
         truth_entities: 0,
@@ -1604,6 +1608,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     }
 
     // -- scoring
+    report.score_until = report.engine_end_tick.filter(|&e| towers_down_agree(f, &truth, &s, e));
     let families_of = |card: &str| register.get(card).cloned().unwrap_or_default();
     let mut per_card: BTreeMap<String, Score> = BTreeMap::new();
     let mut total = Score::default();
@@ -1615,6 +1620,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     let is_tower_key = |key: i64| f.towers.iter().any(|t| truth_tower_key(f, &truth, t) == Some(key));
     for (fi, &t) in truth.ticks.iter().enumerate().step_by(opts.stride.max(1)) {
         let Some(snap) = snaps.get(&t) else { continue };
+        if report.score_until.is_some_and(|u| t > u) {
+            break;
+        }
         let after_end = report.engine_end_tick.is_some_and(|e| t > e) as u64;
         // matched pairs
         for (tk, sk) in &truth_to_sim {
@@ -1877,6 +1885,27 @@ fn truth_tower_key(_f: &Fixture, truth: &TruthTable, t: &Tower) -> Option<i64> {
         }
         let r = truth.row(k, truth.first_index(k))?;
         (r.x == t.x && r.y == t.y).then_some(e.key)
+    })
+}
+
+/// DID THE CLIENT'S BATTLE END WHERE THE ENGINE'S DID? A capture runs on for 50-90 frames after its battle is over (the
+/// King Tower still shown at 0 hp, units still animating), while the engine stops ticking at its end, so those frames
+/// score as misses that no rule of the game made (the 16.402 corpus: 144043-A/B, 003751-A/B and 090825-B first
+/// "diverge" on their last tick). A battle ends on its crown towers (a King Tower down, or regulation or overtime with
+/// the crowns apart), so the client's is over on the engine's end tick when the same crown towers are down: in the
+/// engine's final state, and on the truth's first frame at or after `end` (a tower shown at 0 hp is down). When they
+/// differ, the two ends differ and nothing is cut: an engine that takes a King Tower early is scored for it.
+pub fn towers_down_agree(f: &Fixture, truth: &TruthTable, s: &BattleState, end: u32) -> bool {
+    let Some(fi) = truth.ticks.iter().position(|&t| t >= end) else {
+        return false;
+    };
+    f.towers.iter().all(|t| {
+        let engine_up = s.tower_ids(team_of(t.side)).get(t.slot).copied().flatten().and_then(|id| s.entity(id)).is_some_and(|e| e.hp > 0);
+        let truth_up = truth_tower_key(f, truth, t)
+            .and_then(|k| truth.key_to_entity.get(&k).copied())
+            .and_then(|k| truth.row(k, fi))
+            .is_some_and(|r| r.hp > 0);
+        engine_up == truth_up
     })
 }
 
@@ -2180,7 +2209,10 @@ pub fn render_fixture_markdown(r: &Report) -> String {
         out.push_str(&format!("- NOTE: {n}\n"));
     }
     if let Some(e) = r.engine_end_tick {
-        out.push_str(&format!("- engine end at tick {e}: {} unit-ticks scored after it against a frozen engine state\n", r.score.after_engine_end));
+        match r.score_until {
+            Some(u) => out.push_str(&format!("- engine end at tick {e}: the client's battle is over too (the same crown towers down); scored through tick {u}\n")),
+            None => out.push_str(&format!("- engine end at tick {e}: {} unit-ticks scored after it against a frozen engine state\n", r.score.after_engine_end)),
+        }
     }
     out
 }

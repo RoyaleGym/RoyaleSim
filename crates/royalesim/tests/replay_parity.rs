@@ -626,3 +626,31 @@ fn a_form_row_spawns_its_form_and_its_units_score_as_the_base_card() {
     assert!(press.result.is_ok(), "the press is taken: {press:?}");
     assert!(r.unmatched_sim.iter().any(|(_, _, root)| root == "Musketeer"), "the turret roots to its hero: {:?}", r.unmatched_sim);
 }
+
+
+/// THE BATTLE'S END (`towers_down_agree`): the score stops at the engine's end only when the client's battle is over on
+/// the same tick, which its crown towers decide. On the sample's first frame every tower stands in both, so they agree;
+/// a truth tower shown at 0 hp on that frame (as a capture shows a fallen King Tower after its battle) is down in the
+/// client and up in the engine, so they do not.
+#[test]
+fn the_score_stops_at_the_end_only_when_both_battles_are_over() {
+    let f = sample();
+    let mut truth = TruthTable::decode(f.truth.as_ref().expect("the sample has truth")).expect("the truth decodes");
+    let (cfg, _) = config_for(&f, common::cards()).expect("the sample configures");
+    let s = royalesim::state::BattleState::new(0, cfg);
+    let first = truth.ticks[0];
+    assert!(towers_down_agree(&f, &truth, &s, first), "every crown tower stands in both on the first frame");
+    let t = &f.towers[0];
+    let key = f.truth.as_ref().unwrap().entities.iter().find(|e| e.card_id == -1 && e.side == t.side).map(|e| e.key);
+    let k = truth.entities.iter().position(|e| e.card_id == -1 && e.side == t.side && Some(e.key) == key).expect("a tower");
+    let (t0, rows) = &mut truth.rows[k];
+    let i = 0usize.saturating_sub(*t0);
+    let mut row = rows[i].expect("the tower has a first row");
+    row.hp = 0;
+    rows[i] = Some(row);
+    let _ = t;
+    assert!(!towers_down_agree(&f, &truth, &s, first), "a tower down in the client and up in the engine: the ends differ");
+    let r = play(&f);
+    assert_eq!(r.engine_end_tick, None, "the sample's battle does not end");
+    assert_eq!(r.score_until, None, "nothing is cut when the engine's battle does not end");
+}
