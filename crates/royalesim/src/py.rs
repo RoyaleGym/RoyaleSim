@@ -358,6 +358,21 @@ fn ceil_div(a: i64, b: i64) -> i64 {
     (a + b - 1) / b
 }
 
+/// A `Battle::build` refusal: `Value` reaches Python as ValueError, `Runtime` as RuntimeError (`Battle::new`).
+enum BuildError {
+    Value(String),
+    Runtime(String),
+}
+
+impl From<BuildError> for PyErr {
+    fn from(e: BuildError) -> PyErr {
+        match e {
+            BuildError::Value(m) => PyValueError::new_err(m),
+            BuildError::Runtime(m) => PyRuntimeError::new_err(m),
+        }
+    }
+}
+
 /// One battle behind the Python `Engine` protocol.
 #[pyclass(module = "royalesim")]
 pub struct Battle {
@@ -942,6 +957,130 @@ pub fn state_json_text(
 }
 
 impl Battle {
+    /// THE CONSTRUCTOR'S BODY (`new`, whose doc says what each argument selects), with no Python type in it, so the
+    /// crate's own unit tests can build a `Battle` without linking libpython: the extension-module feature leaves those
+    /// symbols to the interpreter that loads the module, which a Linux test binary does not have.
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        card_names: Option<Vec<String>>,
+        slot_of_k: [[i32; 3]; 2],
+        path_search: Option<String>,
+        ground_y_clamp: Option<String>,
+        ground_deploy_point: Option<String>,
+        calibration_overrides: Option<BTreeMap<String, String>>,
+        death_spawn_pushback: Option<String>,
+        level: Option<i32>,
+        tower_level: Option<i32>,
+    ) -> Result<Self, BuildError> {
+        let (calib, calib_overrides) = match calibration_overrides {
+            Some(m) if !m.is_empty() => {
+                let (c, parsed) = overridden_calib(&m).map_err(BuildError::Value)?;
+                (Some(c), parsed)
+            }
+            _ => (None, BTreeMap::new()),
+        };
+        let path_search = match path_search.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::PathSearch::from_calibration_name(name)
+                    .ok_or_else(|| BuildError::Value(format!("path_search {name:?} has no engine implementation")))?,
+            ),
+        };
+        let ground_y_clamp = match ground_y_clamp.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::GroundYClamp::from_calibration_name(name)
+                    .ok_or_else(|| BuildError::Value(format!("ground_y_clamp {name:?} has no engine implementation")))?,
+            ),
+        };
+        let ground_deploy_point = match ground_deploy_point.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::GroundDeployPoint::from_calibration_name(name)
+                    .ok_or_else(|| BuildError::Value(format!("ground_deploy_point {name:?} has no engine implementation")))?,
+            ),
+        };
+        let death_spawn_pushback = match death_spawn_pushback.as_deref() {
+            None => None,
+            Some(name) => Some(
+                crate::state::DeathSpawnPushback::from_calibration_name(name)
+                    .ok_or_else(|| BuildError::Value(format!("death_spawn_pushback {name:?} has no engine implementation")))?,
+            ),
+        };
+        let db = CardDb::load_repo().map_err(|e| BuildError::Runtime(format!("cards.json: {e}")))?;
+        let is_tower = |n: &str| n == KING_TOWER || n == PRINCESS_TOWER;
+        let catalogue: Vec<u16> = match card_names {
+            Some(names) => names
+                .iter()
+                .map(|n| {
+                    let i = db.index(n).ok_or_else(|| {
+                        let why = db.rejected.iter().find(|(r, _)| r == n).map(|(_, w)| w.as_str()).unwrap_or("not in cards.json");
+                        BuildError::Value(format!("card {n:?} is not simulable: {why}"))
+                    })?;
+                    if is_tower(&db.get(i).name) {
+                        return Err(BuildError::Value(format!("{n:?} is a crown tower, not a card")));
+                    }
+                    if db.get(i).form_of.is_some() {
+                        return Err(BuildError::Value(format!("{n:?} is a hero form: name its base card and mark it with form 2 in reset's forms")));
+                    }
+                    if db.get(i).summon_only {
+                        return Err(BuildError::Value(format!("{n:?} is a unit a spell releases, not a card")));
+                    }
+                    if db.is_form(i) {
+                        return Err(BuildError::Value(format!("{n:?} is an evolved form: list its base card and mark it in reset's forms")));
+                    }
+                    Ok(i)
+                })
+                .collect::<Result<_, BuildError>>()?,
+            // Every REGISTERED non-tower, non-summon card: a card rejected after its
+            // push (its spawned unit could not load) is in `cards` but not by name.
+            // The Mirror is left out (module doc, SPELLS): its kind code 6 is one a
+            // caller's decoder may not know yet. So are the cards that travel under
+            // ground (the Miner, the Goblin Drill): they go down anywhere but water with a
+            // troop's or a building's footprint rule. Code 4 is that territory for a spell,
+            // with no footprint, and no placement code 0 to 4 describes the pair, so a mask
+            // built from codes 0 to 4 would offer only their own half (the code of their
+            // kind). Name any of them in `card_names` to play it.
+            None => (0..db.cards.len() as u16)
+                .filter(|i| {
+                    let c = db.get(*i);
+                    !is_tower(&c.name)
+                        && !c.summon_only
+                        && c.evo.is_none()
+                        && !c.is_mirror()
+                        && c.spawn_pathfind.is_none()
+                        && db.index(&c.name) == Some(*i)
+                })
+                .collect(),
+        };
+        let mut seen = vec![false; db.cards.len()];
+        for idx in &catalogue {
+            if std::mem::replace(&mut seen[*idx as usize], true) {
+                return Err(BuildError::Value(format!("card {:?} listed twice", db.get(*idx).name)));
+            }
+        }
+        let card_lvl = level.unwrap_or_else(|| db.lowest_level_valid_for_every_rarity());
+        for idx in &catalogue {
+            db.check_levels(*idx, card_lvl).map_err(|e| BuildError::Value(format!("level {card_lvl}: {e}")))?;
+        }
+        let tower_lvl = tower_level.unwrap_or(card_lvl);
+        for name in [KING_TOWER, PRINCESS_TOWER] {
+            let idx = db.index(name).ok_or_else(|| BuildError::Runtime(format!("cards.json has no {name}")))?;
+            db.check_levels(idx, tower_lvl).map_err(|e| BuildError::Value(format!("tower_level {tower_lvl}: {e}")))?;
+        }
+        let id_of_idx = ids_of_indices(&db, &catalogue);
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, level, tower_level, calib, calib_overrides, state: None })
+    }
+
+    /// `catalogue_json`'s body, with no Python type in it (`build` says why).
+    fn catalogue_text(&self) -> Result<String, String> {
+        let calib = self.battle_calib()?;
+        let cards = calib.card_data(self.cards.clone())?;
+        #[cfg(clash_plant = "catalogue_reads_shipped_calib")]
+        let calib = crate::state::Calib::shipped(); // PLANT: the rows read the shipped ledger.
+        catalogue_rows(&cards, &calib, &self.catalogue, self.level())
+    }
+
     fn s(&self) -> PyResult<&BattleState> {
         self.state.as_ref().ok_or_else(|| PyRuntimeError::new_err("Battle.reset() has not been called"))
     }
@@ -1076,104 +1215,7 @@ impl Battle {
         level: Option<i32>,
         tower_level: Option<i32>,
     ) -> PyResult<Self> {
-        let (calib, calib_overrides) = match calibration_overrides {
-            Some(m) if !m.is_empty() => {
-                let (c, parsed) = overridden_calib(&m).map_err(PyValueError::new_err)?;
-                (Some(c), parsed)
-            }
-            _ => (None, BTreeMap::new()),
-        };
-        let path_search = match path_search.as_deref() {
-            None => None,
-            Some(name) => Some(
-                crate::state::PathSearch::from_calibration_name(name)
-                    .ok_or_else(|| PyValueError::new_err(format!("path_search {name:?} has no engine implementation")))?,
-            ),
-        };
-        let ground_y_clamp = match ground_y_clamp.as_deref() {
-            None => None,
-            Some(name) => Some(
-                crate::state::GroundYClamp::from_calibration_name(name)
-                    .ok_or_else(|| PyValueError::new_err(format!("ground_y_clamp {name:?} has no engine implementation")))?,
-            ),
-        };
-        let ground_deploy_point = match ground_deploy_point.as_deref() {
-            None => None,
-            Some(name) => Some(
-                crate::state::GroundDeployPoint::from_calibration_name(name)
-                    .ok_or_else(|| PyValueError::new_err(format!("ground_deploy_point {name:?} has no engine implementation")))?,
-            ),
-        };
-        let death_spawn_pushback = match death_spawn_pushback.as_deref() {
-            None => None,
-            Some(name) => Some(
-                crate::state::DeathSpawnPushback::from_calibration_name(name)
-                    .ok_or_else(|| PyValueError::new_err(format!("death_spawn_pushback {name:?} has no engine implementation")))?,
-            ),
-        };
-        let db = CardDb::load_repo().map_err(|e| PyRuntimeError::new_err(format!("cards.json: {e}")))?;
-        let is_tower = |n: &str| n == KING_TOWER || n == PRINCESS_TOWER;
-        let catalogue: Vec<u16> = match card_names {
-            Some(names) => names
-                .iter()
-                .map(|n| {
-                    let i = db.index(n).ok_or_else(|| {
-                        let why = db.rejected.iter().find(|(r, _)| r == n).map(|(_, w)| w.as_str()).unwrap_or("not in cards.json");
-                        PyValueError::new_err(format!("card {n:?} is not simulable: {why}"))
-                    })?;
-                    if is_tower(&db.get(i).name) {
-                        return Err(PyValueError::new_err(format!("{n:?} is a crown tower, not a card")));
-                    }
-                    if db.get(i).form_of.is_some() {
-                        return Err(PyValueError::new_err(format!("{n:?} is a hero form: name its base card and mark it with form 2 in reset's forms")));
-                    }
-                    if db.get(i).summon_only {
-                        return Err(PyValueError::new_err(format!("{n:?} is a unit a spell releases, not a card")));
-                    }
-                    if db.is_form(i) {
-                        return Err(PyValueError::new_err(format!("{n:?} is an evolved form: list its base card and mark it in reset's forms")));
-                    }
-                    Ok(i)
-                })
-                .collect::<PyResult<_>>()?,
-            // Every REGISTERED non-tower, non-summon card: a card rejected after its
-            // push (its spawned unit could not load) is in `cards` but not by name.
-            // The Mirror is left out (module doc, SPELLS): its kind code 6 is one a
-            // caller's decoder may not know yet. So are the cards that travel under
-            // ground (the Miner, the Goblin Drill): they go down anywhere but water with a
-            // troop's or a building's footprint rule. Code 4 is that territory for a spell,
-            // with no footprint, and no placement code 0 to 4 describes the pair, so a mask
-            // built from codes 0 to 4 would offer only their own half (the code of their
-            // kind). Name any of them in `card_names` to play it.
-            None => (0..db.cards.len() as u16)
-                .filter(|i| {
-                    let c = db.get(*i);
-                    !is_tower(&c.name)
-                        && !c.summon_only
-                        && c.evo.is_none()
-                        && !c.is_mirror()
-                        && c.spawn_pathfind.is_none()
-                        && db.index(&c.name) == Some(*i)
-                })
-                .collect(),
-        };
-        let mut seen = vec![false; db.cards.len()];
-        for idx in &catalogue {
-            if std::mem::replace(&mut seen[*idx as usize], true) {
-                return Err(PyValueError::new_err(format!("card {:?} listed twice", db.get(*idx).name)));
-            }
-        }
-        let card_lvl = level.unwrap_or_else(|| db.lowest_level_valid_for_every_rarity());
-        for idx in &catalogue {
-            db.check_levels(*idx, card_lvl).map_err(|e| PyValueError::new_err(format!("level {card_lvl}: {e}")))?;
-        }
-        let tower_lvl = tower_level.unwrap_or(card_lvl);
-        for name in [KING_TOWER, PRINCESS_TOWER] {
-            let idx = db.index(name).ok_or_else(|| PyRuntimeError::new_err(format!("cards.json has no {name}")))?;
-            db.check_levels(idx, tower_lvl).map_err(|e| PyValueError::new_err(format!("tower_level {tower_lvl}: {e}")))?;
-        }
-        let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, level, tower_level, calib, calib_overrides, state: None })
+        Ok(Self::build(card_names, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, calibration_overrides, death_spawn_pushback, level, tower_level)?)
     }
 
     /// The catalogue as JSON rows [name, kind code, elixir, count, radius, flying,
@@ -1183,11 +1225,7 @@ impl Battle {
     /// kind codes and footprints are read under that calibration too (a Goblin Drill's
     /// footprint follows placement.SPAWN_PATHFIND_DESTINATION), overrides included.
     fn catalogue_json(&self) -> PyResult<String> {
-        let calib = self.battle_calib().map_err(PyValueError::new_err)?;
-        let cards = calib.card_data(self.cards.clone()).map_err(PyValueError::new_err)?;
-        #[cfg(clash_plant = "catalogue_reads_shipped_calib")]
-        let calib = crate::state::Calib::shipped(); // PLANT: the rows read the shipped ledger.
-        catalogue_rows(&cards, &calib, &self.catalogue, self.level()).map_err(PyValueError::new_err)
+        self.catalogue_text().map_err(PyValueError::new_err)
     }
 
     /// The unified card level every battle from this object uses (the constructor's `level`).
@@ -2276,7 +2314,7 @@ mod tests {
     fn battle_with(names: &[&str], overrides: &[(&str, &str)]) -> Battle {
         let m: BTreeMap<String, String> = overrides.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let names = Some(names.iter().map(|n| n.to_string()).collect());
-        let Ok(b) = Battle::new(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None, None, None) else { panic!("the Battle was refused") };
+        let Ok(b) = Battle::build(names, [[0, 1, 2], [0, 1, 2]], None, None, None, (!m.is_empty()).then_some(m), None, None, None) else { panic!("the Battle was refused") };
         b
     }
 
@@ -2295,7 +2333,7 @@ mod tests {
         for arm in ["client_tile_centre_morph_footprint", "ordinary_ground_deploy_point"] {
             let value = format!("\"{arm}\"");
             let b = battle_with(&["GoblinDrill", "Knight"], &[(key, value.as_str())]);
-            let Ok(text) = b.catalogue_json() else { panic!("{arm}: catalogue_json failed") };
+            let Ok(text) = b.catalogue_text() else { panic!("{arm}: catalogue_json failed") };
             let rows: serde_json::Value = serde_json::from_str(&text).unwrap();
             let reported = rows[0][fp].as_i64().expect("the Drill's row has a footprint");
             let m: BTreeMap<String, String> = [(key.to_string(), value.clone())].into_iter().collect();
@@ -2363,9 +2401,9 @@ mod tests {
     /// under the base card's id, the unit with status bit 3.
     #[test]
     fn an_evolved_cannon_reports_under_its_base_card() {
-        let Ok(b) = Battle::new(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None) else { panic!("the default Battle was refused") };
+        let Ok(b) = Battle::build(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None) else { panic!("the default Battle was refused") };
         assert!(b.catalogue.iter().all(|i| b.cards.get(*i).evo.is_none()), "a form in the default catalogue");
-        assert!(Battle::new(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None).is_err(), "a named form was taken");
+        assert!(Battle::build(Some(vec!["Cannon_EV1".into()]), [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None).is_err(), "a named form was taken");
         let db = b.cards.clone();
         let ids = ids_of_indices(&db, &b.catalogue);
         let (cannon, form) = (db.index("Cannon").unwrap(), db.index("Cannon_EV1").unwrap());
