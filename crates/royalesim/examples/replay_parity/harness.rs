@@ -760,6 +760,9 @@ pub struct SimEntity {
     pub root_how: &'static str,
     pub first_tick: u32,
     pub first_pos: Vec2,
+    /// Its hit points on the tick it was registered (its full hp but for a hit that very tick): the pairing's tie-break
+    /// between members on one point (`assign_tied`).
+    pub first_hp: i32,
     pub team_seq: u32,
     pub tower_slot: Option<usize>,
 }
@@ -1377,7 +1380,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             };
             let root = base_of_form(db, &root);
             sim_index_of.insert((e.id.index, e.id.generation), sim.len());
-            sim.push(SimEntity { id: e.id, team: e.team, card: e.card.to_string(), root, root_how: how, first_tick: tick, first_pos: e.pos, team_seq: e.team_seq, tower_slot });
+            sim.push(SimEntity { id: e.id, team: e.team, card: e.card.to_string(), root, root_how: how, first_tick: tick, first_pos: e.pos, first_hp: e.hp, team_seq: e.team_seq, tower_slot });
         }
     };
     register_new(&s, 0, &mut sim, &mut sim_index_of, &mut seen_alive, &recent_deaths, &spell_casts, &deploys_issued);
@@ -1569,7 +1572,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         }
         let tg: Vec<(u32, Vec<Option<Vec2>>)> = truth_groups_of.iter().map(|(t, v)| (*t, v.iter().map(|&tk| truth.row(tk, truth.first_index(tk)).map(|r| from_native(r.x, r.y))).collect())).collect();
         let sp: Vec<(u32, Vec<Vec2>)> = sim_pools.iter().map(|(t, v)| (*t, v.iter().map(|&sk| sim[sk].first_pos).collect())).collect();
-        for (gi, mi, pi, si) in pair_groups(&tg, &sp, PAIR_WINDOW_TICKS) {
+        let th: Vec<Vec<Option<i32>>> = truth_groups_of.iter().map(|(_, v)| v.iter().map(|&tk| truth.row(tk, truth.first_index(tk)).map(|r| r.hp)).collect()).collect();
+        let sh: Vec<Vec<i32>> = sim_pools.iter().map(|(_, v)| v.iter().map(|&sk| sim[sk].first_hp).collect()).collect();
+        for (gi, mi, pi, si) in pair_groups_hp(&tg, &sp, &th, &sh, PAIR_WINDOW_TICKS) {
             let (tk, sk) = (truth_groups_of[gi].1[mi], sim_pools[pi].1[si]);
             if matched_sim.contains(&sk) {
                 continue;
@@ -1923,6 +1928,14 @@ pub const EXACT_ASSIGNMENT_MAX: usize = 7;
 /// `EXACT_ASSIGNMENT_MAX`, greedy nearest beyond). A truth point of `None` (absent
 /// on its first frame) pairs last, by order.
 pub fn assign(truth: &[Option<Vec2>], sim: &[Vec2]) -> Vec<(usize, usize)> {
+    assign_tied(truth, sim, &|_, _| 0)
+}
+
+/// As `assign`, with a TIE cost per pair (`tie(truth index, sim index)`) that decides only between assignments of equal
+/// total distance. Members created on one point (a Ram and its Rider) are otherwise paired by order: 20260920-003751's
+/// Ram (1766 hp) and Rider (593) were paired crosswise, and neither's hp matched on any tick. Nothing that distance
+/// decides moves.
+pub fn assign_tied(truth: &[Option<Vec2>], sim: &[Vec2], tie: &dyn Fn(usize, usize) -> i64) -> Vec<(usize, usize)> {
     let n = truth.len().min(sim.len());
     if n == 0 {
         return Vec::new();
@@ -1932,30 +1945,33 @@ pub fn assign(truth: &[Option<Vec2>], sim: &[Vec2]) -> Vec<(usize, usize)> {
         // permutations of the larger side's indices, take the first n
         let (big, small, truth_big) = if truth.len() >= sim.len() { (truth.len(), sim.len(), true) } else { (sim.len(), truth.len(), false) };
         let mut perm: Vec<usize> = (0..big).collect();
-        let mut best: Option<(i64, Vec<usize>)> = None;
+        let mut best: Option<(i64, i64, Vec<usize>)> = None;
         permute(&mut perm, 0, &mut |p| {
             let mut total = 0i64;
+            let mut ties = 0i64;
             for (k, &pk) in p.iter().enumerate().take(small) {
-                total = total.saturating_add(if truth_big { d(pk, k) } else { d(k, pk) });
+                let (gi, si) = if truth_big { (pk, k) } else { (k, pk) };
+                total = total.saturating_add(d(gi, si));
+                ties += tie(gi, si);
             }
-            if best.as_ref().map_or(true, |b| total < b.0) {
-                best = Some((total, p[..small].to_vec()));
+            if best.as_ref().map_or(true, |b| (total, ties) < (b.0, b.1)) {
+                best = Some((total, ties, p[..small].to_vec()));
             }
         });
-        let (_, p) = best.expect("at least one permutation");
+        let (_, _, p) = best.expect("at least one permutation");
         return (0..small).map(|k| if truth_big { (p[k], k) } else { (k, p[k]) }).collect();
     }
-    let mut cands: Vec<(i64, usize, usize)> = Vec::new();
+    let mut cands: Vec<(i64, i64, usize, usize)> = Vec::new();
     for gi in 0..truth.len() {
         for si in 0..sim.len() {
-            cands.push((d(gi, si), gi, si));
+            cands.push((d(gi, si), tie(gi, si), gi, si));
         }
     }
     cands.sort();
     let mut used_t = BTreeSet::new();
     let mut used_s = BTreeSet::new();
     let mut out = Vec::new();
-    for (_, gi, si) in cands {
+    for (_, _, gi, si) in cands {
         if used_t.contains(&gi) || used_s.contains(&si) {
             continue;
         }
@@ -1976,6 +1992,19 @@ pub fn assign(truth: &[Option<Vec2>], sim: &[Vec2]) -> Vec<(usize, usize)> {
 /// by `assign`. Returns (truth group, member, sim pool, member). Sim members no group
 /// claims stay unmatched; so do truth members with no free sim member in the window.
 pub fn pair_groups(truth: &[(u32, Vec<Option<Vec2>>)], sim: &[(u32, Vec<Vec2>)], window: u32) -> Vec<(usize, usize, usize, usize)> {
+    pair_groups_hp(truth, sim, &[], &[], window)
+}
+
+/// As `pair_groups`, with each member's hp on its first frame (`truth_hp[group][member]`, None when absent) and
+/// `sim_hp[pool][member]`: members are assigned by `assign_tied`, so where distance ties (members on one point) the
+/// pairs whose first hp agree win.
+pub fn pair_groups_hp(
+    truth: &[(u32, Vec<Option<Vec2>>)],
+    sim: &[(u32, Vec<Vec2>)],
+    truth_hp: &[Vec<Option<i32>>],
+    sim_hp: &[Vec<i32>],
+    window: u32,
+) -> Vec<(usize, usize, usize, usize)> {
     let mut free: Vec<Vec<usize>> = sim.iter().map(|(_, v)| (0..v.len()).collect()).collect();
     let mut out = Vec::new();
     for (gi, (t, pts)) in truth.iter().enumerate() {
@@ -2008,7 +2037,14 @@ pub fn pair_groups(truth: &[(u32, Vec<Option<Vec2>>)], sim: &[(u32, Vec<Vec2>)],
             continue;
         }
         let sim_pts: Vec<Vec2> = taken.iter().map(|&(pi, si)| sim[pi].1[si]).collect();
-        for (mi, k) in assign(pts, &sim_pts) {
+        let sim_hps: Vec<Option<i32>> = taken.iter().map(|&(pi, si)| sim_hp.get(pi).and_then(|v| v.get(si)).copied()).collect();
+        let tie = |mi: usize, k: usize| -> i64 {
+            match (truth_hp.get(gi).and_then(|v| v.get(mi)).copied().flatten(), sim_hps[k]) {
+                (Some(a), Some(b)) if a != b => 1,
+                _ => 0,
+            }
+        };
+        for (mi, k) in assign_tied(pts, &sim_pts, &tie) {
             let (pi, si) = taken[k];
             free[pi].retain(|&x| x != si);
             out.push((gi, mi, pi, si));

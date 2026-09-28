@@ -654,3 +654,31 @@ fn the_score_stops_at_the_end_only_when_both_battles_are_over() {
     assert_eq!(r.engine_end_tick, None, "the sample's battle does not end");
     assert_eq!(r.score_until, None, "nothing is cut when the engine's battle does not end");
 }
+
+
+/// MEMBERS ON ONE POINT (a Ram and its Rider, created together on one spot) are told apart by their first hp: the tie
+/// cost decides only between assignments of equal total distance. 20260920-003751's Ram (1766) and Rider (593) were paired
+/// crosswise by order, and neither's hp matched on any tick.
+#[test]
+fn members_on_one_point_pair_by_their_first_hp() {
+    let at = |x: i32, y: i32| Vec2::new(x * royalesim::fixed::SUBTILE_PER_MILLITILE, y * royalesim::fixed::SUBTILE_PER_MILLITILE);
+    let p = at(14500, 8500);
+    let truth = vec![(1443u32, vec![Some(p), Some(p)])];
+    let sim = vec![(1442u32, vec![p, p])];
+    let pairs = |got: Vec<(usize, usize, usize, usize)>| -> Vec<(usize, usize)> {
+        let mut m: Vec<(usize, usize)> = got.iter().map(|&(_, mi, _, si)| (mi, si)).collect();
+        m.sort();
+        m
+    };
+    let got = pairs(pair_groups_hp(&truth, &sim, &[vec![Some(593), Some(1766)]], &[vec![1766, 593]], PAIR_WINDOW_TICKS));
+    assert_eq!(got, vec![(0, 1), (1, 0)], "the 593 with the 593 and the 1766 with the 1766");
+    assert_eq!(pairs(pair_groups(&truth, &sim, PAIR_WINDOW_TICKS)), vec![(0, 0), (1, 1)], "without hp, by order");
+    // distance still decides first: the member 1000 away goes to the far truth point whatever its hp
+    let truth2 = vec![(1443u32, vec![Some(p), Some(at(15500, 8500))])];
+    let got = pairs(pair_groups_hp(&truth2, &sim_far(p, at(15500, 8500)), &[vec![Some(593), Some(1766)]], &[vec![593, 1766]], PAIR_WINDOW_TICKS));
+    assert_eq!(got, vec![(0, 1), (1, 0)], "positions decide before hp");
+}
+
+fn sim_far(near: Vec2, far: Vec2) -> Vec<(u32, Vec<Vec2>)> {
+    vec![(1442u32, vec![far, near])]
+}
