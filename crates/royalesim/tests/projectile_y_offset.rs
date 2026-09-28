@@ -16,7 +16,10 @@
 //!   3. a princess tower's shot is born at the plain point under both arms (the null);
 //!   4. flown from the moved point the first king shot at the walking Knight lands one tick earlier, the Knight
 //!      having walked the same ticks under both arms;
-//!   5. the shipped value is the old arm, and the King Tower is the only loaded row that sets the column.
+//!   5. the shipped value is the old arm, and the King Tower is the only loaded row outside the hero pass that sets
+//!      the column; the hero pass's rows that set it are the Hero Musketeer and her turret;
+//!   6. a row the hero pass loaded applies its offset under both arms, once: the Hero Musketeer's first shot is born
+//!      300 past her plain point along Blue's forward y, and the base Musketeer's on the plain point (the null).
 //!
 //! PLANTS (regression):
 //!   * `projectile_y_offset_unread` -- the loader drops the column, so the new arm moves nothing: 1 and 4 go red.
@@ -185,6 +188,43 @@ fn the_shipped_value_is_the_old_arm_and_the_king_tower_is_the_only_loaded_row_wi
     assert_eq!(card_stat(&s, "KingTower").projectile_y_offset, 400 * K, "the King Tower row's ProjectileYOffset");
     assert_eq!(card_stat(&s, "PrincessTower").projectile_y_offset, 0);
     let db = s.cards();
-    let set: Vec<&str> = db.cards.iter().filter(|c| c.projectile_y_offset != 0).map(|c| c.name.as_str()).collect();
-    assert_eq!(set, ["KingTower"], "the loaded rows that set ProjectileYOffset");
+    let set = |hero: bool| -> Vec<&str> {
+        let rows = db.cards.iter().enumerate().filter(|(k, c)| c.projectile_y_offset != 0 && db.is_hero_record(*k as u16) == hero);
+        rows.map(|(_, c)| c.name.as_str()).collect()
+    };
+    assert_eq!(set(false), ["KingTower"], "the loaded rows outside the hero pass that set ProjectileYOffset");
+    assert_eq!(set(true), ["Musketeer_hero", "MusketeerTurret"], "the hero pass's rows that set ProjectileYOffset");
+}
+
+/// A Blue `name` at (9000, 9000) native with a Red Knight 5000 ahead of it: (where its first shot is born, the plain
+/// point, its ProjectileYOffset), native.
+fn troop_shot(arm: ProjectileYOffset, name: &str) -> ((i64, i64), (i64, i64), i64) {
+    let mut s = BattleState::new(7, cfg(arm));
+    let idx = s.cards().index(name).unwrap_or_else(|| panic!("{name} does not load"));
+    let stat = card_stat(&s, name).clone();
+    let shooter = s.scenario_spawn_now(Team::Blue, name, Vec2::new(9000 * K, 9000 * K), None).expect("put the shooter down");
+    s.scenario_spawn_now(Team::Red, "Knight", Vec2::new(9000 * K, 14000 * K), None).expect("put the Knight down");
+    for _ in 0..200 {
+        s.tick();
+        let shots: Vec<_> = s.projectiles().iter().filter(|p| p.team == Team::Blue && p.firer_card == Some(idx)).collect();
+        if let Some(p) = shots.first() {
+            assert_eq!(shots.len(), 1, "the scene drifted: {} shots on the first tick", shots.len());
+            let centre = s.entity(shooter).expect("the scene drifted: the shooter died").pos;
+            let r = Run { first: (s.tick_count(), p.pos, p.aim), hit: 0, walk: Vec::new(), centre, radius: (stat.projectile_start_radius / K) as i64, offset: (stat.projectile_y_offset / K) as i64 };
+            return (born(&r), plain_point(&r, Team::Blue), r.offset);
+        }
+    }
+    panic!("the scene drifted: {name} never shot");
+}
+
+#[test]
+fn a_hero_row_applies_its_offset_under_both_arms_once() {
+    for arm in [ProjectileYOffset::NotRead, ProjectileYOffset::ClientForwardY] {
+        let (at, (px, py), offset) = troop_shot(arm, "Musketeer_hero");
+        assert_eq!(offset, 300, "data: the Hero Musketeer row's ProjectileYOffset");
+        assert_eq!(at, (px, py + offset), "{arm:?}: the Hero Musketeer's first shot is not {offset} past her plain point ({px}, {py})");
+        let (at, plain, offset) = troop_shot(arm, "Musketeer");
+        assert_eq!(offset, 0, "data: the base Musketeer's row now sets a ProjectileYOffset; this null needs another troop");
+        assert_eq!(at, plain, "{arm:?}: the base Musketeer's first shot is not on her plain point");
+    }
 }
