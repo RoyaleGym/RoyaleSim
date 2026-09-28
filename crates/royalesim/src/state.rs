@@ -15434,6 +15434,7 @@ impl BattleState {
 
     /// `resolve_point` for a troop at an OBSERVED creation point (`spawn_unit_resolved`): everything but the
     /// placement.TAP_SNAP snap, which the point already carries. A building or a spell resolves as `resolve_point`.
+    /// (`spawn_unit_resolved` itself leaves a SINGLE troop's observed point unresolved: `spawn_unit_with`.)
     pub fn resolve_observed_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
         let troop = self.cfg.cards.get(idx).kind == CardKind::Troop;
         self.resolve_point_with(team, idx, pos, !troop)
@@ -16058,7 +16059,15 @@ impl BattleState {
         // The play path's resolution (snap, relocation) for troops and spells; a building
         // stays where it was put, as before.
         let observed = observed && kind == CardKind::Troop;
-        let pos = if kind == CardKind::Building { pos } else { self.resolve_point_with(team, idx, pos, !observed) };
+        // AN OBSERVED SINGLE TROOP STANDS ON ITS POINT: a capture's creation point already carries every placement rule
+        // the client applied, placement.TROOP_TOWER_TAPS' relocation off an own crown tower among them, and resolving it
+        // again moves it. Side 1's Giant of capture 20260918-112751 t235 was created on (8499, 31000), behind its King:
+        // its one-tile box is on the King's, so it was relocated to the tile (8500, 31500) and the single-unit clamp
+        // returned it to (8500, 31000), one unit off. A group's point is a tile or a centroid, not a creation point, and
+        // still resolves.
+        let second = card.formation.second_summon.filter(|d| d.unit != u16::MAX).map_or(0, |d| d.count.max(0));
+        let single = observed && card.count.max(1) == 1 && second == 0 && card.summon_members.is_none();
+        let pos = if kind == CardKind::Building || single { pos } else { self.resolve_point_with(team, idx, pos, !observed) };
         if kind == CardKind::Spell {
             // A cast, at any in-bounds point (tests aim spells where no player could).
             self.enqueue(team, idx, level, pos);
