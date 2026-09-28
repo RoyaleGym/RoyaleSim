@@ -3309,7 +3309,7 @@ def group_subactions(t: dict, group: str | None, what: str) -> list[tuple[str, i
     delays = col_list(acts, group, "SubActionsDelay")
     if len(subs) != len(delays) or not subs:
         raise SystemExit(f"{what}: {group} SubActions {subs} and SubActionsDelay {delays} do not pair up")
-    return list(zip(subs, delays))
+    return list(zip(subs, delays, strict=True))
 
 
 def barrage_block(t: dict, unit: str) -> dict:
@@ -3332,7 +3332,7 @@ def barrage_block(t: dict, unit: str) -> dict:
     if not (len(hs) == len(vs) == len(aeos) == len(habs)) or hs != habs:
         raise SystemExit(f"{unit}: barrage lists do not agree ({hs}, {habs}, {vs}, {aeos})")
     bombs, shot = [], None
-    for h, v, aeo in zip(habs, vs, aeos):
+    for h, v, aeo in zip(habs, vs, aeos, strict=True):
         area = t["area_effect_objects"].get(aeo)
         if area is None or area["LifeDuration"] is None:
             raise SystemExit(f"{unit}: barrage area {aeo} has no LifeDuration")
@@ -3406,7 +3406,8 @@ def snipe_block(t: dict, unit: str, u: dict) -> dict:
     if len(seq) != 2 or seq[0].get("Projectile") is None or seq[1].get("Projectile") is None:
         raise SystemExit(f"{unit}: AttackSequenceList is not the two entries a snipe needs ({seq})")
     base = norm_projectile(t, seq[0]["Projectile"])
-    if u["projectile"] is None or base is None or base["damage"] != u["projectile"]["damage"] or base["speed"] != u["projectile"]["speed"]:
+    own = u["projectile"]
+    if own is None or base is None or base["damage"] != own["damage"] or base["speed"] != own["speed"]:
         raise SystemExit(f"{unit}: AttackSequenceList entry 0 is not the row's own shot")
     filt = t.filters.get(s["SnipeTargetFilter"])
     if filt is None:
@@ -3443,7 +3444,7 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
         ]
         if len(bases) != 1:
             raise SystemExit(f"spells_evolved.{name}: {len(bases)} base cards name it in EvolvedSpells")
-        key, kind, b = bases[0]
+        _, kind, b = bases[0]
         card = summon_card(t, rarities, kind, "spells_evolved", s)
         # The form's kind is its base card's: Cannon_EV1 is an [EXT] of CHARACTER.Cannon, filed under characters,
         # with IsBuilding inherited true.
