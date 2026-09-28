@@ -40,7 +40,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::py::{apply_commands, ids_of_indices, state_json_text};
-use royalesim::state::{BattleState, DeployError, HAND_SIZE};
+use royalesim::state::{BattleConfig, BattleState, DeployError, TapSnap, HAND_SIZE};
 use royalesim::{EntityId as EntityIdOf, Team};
 use std::collections::BTreeMap;
 
@@ -50,7 +50,11 @@ const DECK: [&str; 8] = ["Musketeer", "IceGolemite", "Knight", "Archer", "Giant"
 /// A battle of DECK against DECK with Blue's entries marked `blue_forms`, at the end of the opening lockout, both
 /// sides at 10 elixir.
 fn battle(blue_forms: Vec<u8>) -> BattleState {
-    let mut cfg = config();
+    battle_on(config(), blue_forms)
+}
+
+/// `battle` on `cfg`.
+fn battle_on(mut cfg: BattleConfig, blue_forms: Vec<u8>) -> BattleState {
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [blue_forms, Vec::new()];
@@ -259,8 +263,8 @@ fn hero_ice_golem_storm_rides_on_the_golem() {
 }
 
 /// A Blue hero of `card`'s form, played at `at` and ticked once: the battle and the hero, on her first frame.
-fn hero_on_first_frame(forms: Vec<u8>, card: &str, form: &str, at: Vec2) -> (BattleState, EntityIdOf) {
-    let mut s = battle(forms);
+fn hero_on_first_frame(cfg: BattleConfig, forms: Vec<u8>, card: &str, form: &str, at: Vec2) -> (BattleState, EntityIdOf) {
+    let mut s = battle_on(cfg, forms);
     s.deploy(Team::Blue, card, at).expect("the play");
     s.tick();
     let hid = find_live(&s, Team::Blue, form)[0].id;
@@ -282,7 +286,7 @@ fn ticks_until_gone(s: &BattleState, id: EntityIdOf) -> u32 {
 #[test]
 fn a_press_while_she_deploys_waits_for_her_deploy_end() {
     // sp-h4tower: her first frame 101, the press issued on 101 and paid at once, her deploy end 121, the turret 125.
-    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    let (mut s, hid) = hero_on_first_frame(config(), vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
     assert!(s.entity(hid).unwrap().deploy_ms > 0, "she is deploying");
     let b = s.ability_buttons(Team::Blue)[0];
     assert!(b.available && !b.spent, "the button is available from her first frame");
@@ -308,7 +312,7 @@ fn a_press_while_she_deploys_waits_for_her_deploy_end() {
 fn a_hero_killed_before_her_turret_gets_the_elixir_back() {
     // S6 (sp-h6b): pressed 2 ticks before a Rocket kills her (press 186, gone 189): -3 on the press, +3 on the tick
     // after her death (190), no turret.
-    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    let (mut s, hid) = hero_on_first_frame(config(), vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
     run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
     let at = s.entity(hid).unwrap().pos;
     s.spawn_unit(Team::Red, "Rocket", at, None).expect("the Rocket");
@@ -340,7 +344,7 @@ fn a_hero_killed_before_her_turret_gets_the_elixir_back() {
 fn the_ice_golem_storm_is_not_refunded_once_made() {
     // S6 (sp-h6ib): pressed 1 tick before its death (press 189, gone 191): -2, not refunded: the storm was made on
     // the tick after the press, before the death.
-    let (mut s, gid) = hero_on_first_frame(vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0], "IceGolemite", "IceGolemite_hero", t(900, 1200));
+    let (mut s, gid) = hero_on_first_frame(config(), vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0], "IceGolemite", "IceGolemite_hero", t(900, 1200));
     let form = s.cards().index("IceGolemite_hero").unwrap();
     run_until(&mut s, 40, |s| s.entity(gid).is_some_and(|e| e.deploy_ms == 0));
     let at = s.entity(gid).unwrap().pos;
@@ -369,7 +373,7 @@ fn the_ice_golem_storm_is_not_refunded_once_made() {
 fn a_press_under_a_freeze_waits_for_the_thaw() {
     // S7 (sp-h7): pressed under a Freeze, taken and paid at once; the turret comes 4 ticks after her first free tick
     // (thaw 183, turret 187).
-    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    let (mut s, hid) = hero_on_first_frame(config(), vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
     run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
     let at = s.entity(hid).unwrap().pos;
     s.spawn_unit(Team::Red, "Freeze", at, None).expect("the Freeze");
@@ -399,7 +403,11 @@ fn a_press_under_a_freeze_waits_for_the_thaw() {
 #[test]
 fn the_storm_outlives_the_golem() {
     // S10 (sp-h10k): the golem died on P + 52 and the P + 62 wave still landed.
-    let (mut s, gid) = hero_on_first_frame(vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0], "IceGolemite", "IceGolemite_hero", t(900, 1200));
+    // The Rocket is aimed at the golem's exact point and the Knight stands 3000 to its side, exact points:
+    // placement.TAP_SNAP's old arm, none (the shipped tile-centre snap moves the Rocket's tap and the Knight).
+    let mut cfg = config();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    let (mut s, gid) = hero_on_first_frame(cfg, vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0], "IceGolemite", "IceGolemite_hero", t(900, 1200));
     run_until(&mut s, 40, |s| s.entity(gid).is_some_and(|e| e.deploy_ms == 0));
     let g = s.entity(gid).unwrap().pos;
     // A Red Knight 3000 to the golem's side: in the storm, out of a Rocket's reach on the golem.

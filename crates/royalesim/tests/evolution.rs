@@ -23,7 +23,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{barrage_spells, BattleConfig, BattleState, EVO_BASIC_PLAYS};
+use royalesim::state::{barrage_spells, BattleConfig, BattleState, TapSnap, EVO_BASIC_PLAYS};
 use royalesim::Team;
 
 /// A native point, in subtiles.
@@ -110,7 +110,11 @@ fn a_deck_card_marked_evolved_plays_its_form_every_third_play() {
 
 #[test]
 fn evo_cannon_drops_its_barrage() {
-    let mut s = battle(config());
+    // The Golems and the Knights stand at measured distances from the bombs, exact points: placement.TAP_SNAP's old
+    // arm, none (the shipped tile-centre snap would move each to its tile's centre).
+    let mut cfg = config();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    let mut s = battle(cfg);
     let form = idx(&s, "Cannon_EV1");
     // Five Golems (radius 750) about the far row, deploying (3000 ms) through the whole barrage, far from every other
     // attack:

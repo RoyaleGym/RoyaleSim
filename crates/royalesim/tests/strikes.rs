@@ -37,11 +37,19 @@ use common::*;
 use royalesim::card::SpellShape;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::BattleState;
+use royalesim::state::{BattleConfig, BattleState, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * K, p.1 * K)
+}
+
+/// `config()` with placement.TAP_SNAP's old arm, none, for a scene that taps an exact point a measured distance from
+/// its target (the reach's margin): the shipped tile-centre snap would move the tap.
+fn unsnapped() -> BattleConfig {
+    let mut c = config();
+    c.calib.placement_tap_snap = TapSnap::None;
+    c
 }
 
 /// The strike's damage at the Blue side's level.
@@ -127,7 +135,7 @@ fn a_princess_tower_alone_loses_a_quarter_of_one_strike_once() {
 /// Plant: strike_reach_bare.
 #[test]
 fn a_target_within_the_170_margin_is_struck() {
-    let mut s = BattleState::new(0, config());
+    let mut s = BattleState::new(0, unsnapped());
     let c = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 22000)), None).expect("spawn");
     let (cpos, r) = (s.entity(c).unwrap().pos, s.entity(c).unwrap().radius / K);
     // South of the Cannon, where no crown tower is in reach. East of it, the Red princess tower at (14500, 25500)
@@ -191,7 +199,7 @@ fn a_knight_about_to_leave_reach_is_not_struck() {
         let tap = at((9000, 23000));
         let r = card_stat(&BattleState::new(0, config()), "Knight").collision_radius / K;
         let start = Vec2::new(tap.x, tap.y - (3500 + 170 + r - 600 + off) * K);
-        let mut s = BattleState::new(0, config());
+        let mut s = BattleState::new(0, unsnapped());
         let k = s.scenario_spawn_now(Team::Red, "Knight", start, None).expect("spawn");
         s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
         let mut centre = None;

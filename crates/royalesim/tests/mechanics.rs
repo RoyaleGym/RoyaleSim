@@ -14,7 +14,7 @@ use royalesim::collide::{self, CollideScratch};
 use royalesim::entity::{AttackPhase, Entities, EntityKind, SpatialHash, SpawnInit};
 use royalesim::fixed::{isqrt, milli, tiles, Vec2, SUBTILE};
 use royalesim::path::{self, FrameWorld, NavRequest};
-use royalesim::state::{BattleConfig, BattleState, Calib};
+use royalesim::state::{BattleConfig, BattleState, Calib, TapSnap};
 use royalesim::target::in_attack_range;
 use royalesim::{EntityId, PathModel, PushModel, Rng, Team};
 use common::*;
@@ -64,6 +64,14 @@ fn tick_n(s: &mut BattleState, n: u32) {
     }
 }
 
+/// `config()` with placement.TAP_SNAP's old arm, none, for a scene that spawns a troop on an exact point (an edge of
+/// range, the centre line): the shipped tile-centre snap would take it to its tile's centre.
+fn unsnapped() -> BattleConfig {
+    let mut c = config();
+    c.calib.placement_tap_snap = TapSnap::None;
+    c
+}
+
 /// Ticks of deploy time for a card, from the data.
 fn deploy_ticks(s: &BattleState, card: &str) -> u32 {
     (card_stat(s, card).deploy_time_ms / s.config().calib.tick_ms) as u32
@@ -102,7 +110,7 @@ fn melee_unit_attacks_from_range_plus_both_radii_without_moving() {
     // range + the target's radius alone).
     // Plants: centre_range, reach_without_own_radius.
     for extra in [0, 1] {
-        let mut s = BattleState::new(1, config());
+        let mut s = BattleState::new(1, unsnapped());
         let knight = card_stat(&s, "Knight").range;
         let knight_r = card_stat(&s, "Knight").collision_radius;
         let cannon_r = card_stat(&s, "Cannon").collision_radius;
@@ -302,7 +310,7 @@ fn default_tower_follows_lane_by_x_and_falls_back_to_the_king() {
     // shipped client_spawn_lane picks by the lane the unit was created in
     // (tests/test_first_tower_pick.py).
     let cfg = || {
-        let mut c = config();
+        let mut c = unsnapped();
         c.calib.first_tower_pick = royalesim::state::FirstTowerPick::CurrentX;
         c
     };
@@ -346,7 +354,7 @@ fn default_tower_is_decided_in_the_units_own_frame() {
     // The shipped client_spawn_lane breaks the x = 9 tie the other way on both seats (each
     // unit takes its own right: state.rs creation_lane), which is symmetric too.
     let cfg = || {
-        let mut c = config();
+        let mut c = unsnapped();
         c.calib.first_tower_pick = royalesim::state::FirstTowerPick::CurrentX;
         c
     };
@@ -816,7 +824,7 @@ fn valkyrie_splash_is_centred_on_the_valkyrie_not_her_target() {
     // but outside it from the Bomb Tower's. Only a self-centred splash can hurt the
     // Cannon. Not a Tesla: a Tesla hides (tests/hide.rs) and is not a
     // target while under; the Bomb Tower is a plain building. Plant: aoe_centre_on_target.
-    let mut s = BattleState::new(1, config());
+    let mut s = BattleState::new(1, unsnapped());
     let v = card_stat(&s, "Valkyrie");
     assert!(v.self_as_aoe_center, "data: Valkyrie self_as_aoe_center");
     let (range, splash) = (v.range, v.area_damage_radius);

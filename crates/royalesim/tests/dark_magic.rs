@@ -44,7 +44,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, SpellShape, StrikePick};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -323,7 +323,11 @@ fn a_knight_that_appears_after_the_first_strike_is_struck_by_the_next_two() {
 #[test]
 fn a_knight_inside_by_its_radius_alone_is_struck() {
     let tap = at((9000, 22000));
-    let mut s = BattleState::new(0, shipped());
+    // The Knight stands 2800 from the tap, inside a 500-wide band: exact points, placement.TAP_SNAP's old arm, none
+    // (the shipped tile-centre snap moves the tap and the Knight).
+    let mut cfg = shipped();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    let mut s = BattleState::new(0, cfg);
     s.spawn_unit(Team::Blue, "DarkMagic", tap, None).expect("cast DarkMagic");
     let mut knight: Option<EntityId> = None;
     let mut lost = None;

@@ -16,7 +16,11 @@ use common::*;
 #[test]
 fn check_deploy_never_mutates_and_agrees_with_deploy() {
     // Plant: check_deploy_ignores_buildings.
-    let mut s = BattleState::new(4, scripted_config());
+    // The footprint verdict taps the Cannon's exact centre, a tile corner: placement.TAP_SNAP's old arm, none (the
+    // shipped tile-centre snap takes it to a tile centre 707 off the Cannon's centre, outside its footprint).
+    let mut cfg = scripted_config();
+    cfg.calib.placement_tap_snap = royalesim::state::TapSnap::None;
+    let mut s = BattleState::new(4, cfg);
     // Put a building down so a footprint rejection is reachable.
     s.spawn_unit(Team::Blue, "Cannon", t(900, 1000), None).unwrap();
     // past the opening lockout, which is also well past the Cannon's deploy time; before it

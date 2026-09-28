@@ -1962,8 +1962,12 @@ mod tests {
         let goblin = db.cards.iter().position(|c| c.summon_only && c.name == "Goblin").unwrap();
         let barrel_id = catalogue.iter().position(|i| db.get(*i).name == "GoblinBarrel").unwrap() as i32;
         assert_eq!(ids[goblin], barrel_id);
-        // A battle with a Goblin, a stunned unit and spells in flight.
-        let mut s = battle(&db, &["Knight", "Archer", "Knight", "Archer", "Giant", "Knight", "Archer", "Knight"]);
+        // A battle with a Goblin, a stunned unit and spells in flight. The Zap is aimed at the Knight's exact
+        // start point: placement.TAP_SNAP's old arm, none (the shipped tile-centre snap moves the tap, and the
+        // walking Knight is out of it).
+        let mut cfg = battle_config(&db, &["Knight", "Archer", "Knight", "Archer", "Giant", "Knight", "Archer", "Knight"]);
+        cfg.calib.placement_tap_snap = crate::state::TapSnap::None;
+        let mut s = BattleState::new(7, cfg);
         let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
         s.spawn_unit(Team::Blue, "GoblinBarrel", at(9, 8), None).unwrap();
         s.scenario_spawn_now(Team::Red, "Knight", at(9, 20), None).unwrap();
@@ -2000,11 +2004,15 @@ mod tests {
     }
 
     fn battle(db: &Arc<CardDb>, deck: &[&str]) -> BattleState {
+        BattleState::new(7, battle_config(db, deck))
+    }
+
+    fn battle_config(db: &Arc<CardDb>, deck: &[&str]) -> BattleConfig {
         let mut cfg = BattleConfig::with_cards(CardDb::clone(db));
         cfg.cards = db.clone();
         let d: Vec<String> = deck.iter().map(|s| s.to_string()).collect();
         cfg.decks = [d.clone(), d];
-        BattleState::new(7, cfg)
+        cfg
     }
 
     fn reload(db: &Arc<CardDb>, s: &BattleState) -> BattleState {

@@ -66,7 +66,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, SpellHit, SpellShape};
 use royalesim::fixed::{milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, Calib};
+use royalesim::state::{BattleConfig, BattleState, Calib, TapSnap};
 use royalesim::status::{compose, BuffDef, Sel};
 use royalesim::{EntityId, Team};
 
@@ -74,7 +74,10 @@ fn calib() -> Calib {
     Calib::shipped()
 }
 
-fn bare(cfg: BattleConfig) -> BattleState {
+/// Every battle here is `scene`'s, which lays its Knights on exact points (the near one in a band of the disc), so it
+/// runs placement.TAP_SNAP's old arm, none: the shipped tile-centre snap would move them off those points.
+fn bare(mut cfg: BattleConfig) -> BattleState {
+    cfg.calib.placement_tap_snap = TapSnap::None;
     BattleState::new(11, cfg)
 }
 

@@ -264,6 +264,9 @@ fn spell_battle() -> BattleState {
     // card in this battle recoils.
     cfg.calib.attack_pushback = royalesim::state::AttackPushback::None;
     cfg.calib.knock_duration_ms = 500;
+    // placement.TAP_SNAP's old arm, none: `state_hash_sees_spells_in_flight` aims two Fireballs one subtile apart, which
+    // the shipped tile-centre snap takes to one point.
+    cfg.calib.placement_tap_snap = royalesim::state::TapSnap::None;
     let mut s = BattleState::new(372_241, cfg);
     // Cannons on x = 9 so both Logs' rolls hit something (the troops walk off the axis).
     for (team, card, x, y) in [(Team::Red, "Knight", 900, 1900), (Team::Red, "Giant", 1050, 2000), (Team::Blue, "Knight", 900, 1300), (Team::Blue, "Giant", 750, 1200), (Team::Red, "Cannon", 900, 1750), (Team::Blue, "Cannon", 900, 1450)] {

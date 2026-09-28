@@ -80,7 +80,7 @@ use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffComposition, BuffExpiry, BuffReapply, Calib, FullStopBuff, HitSpeedBuff, PulseAmount, PulseTiming, PulsingArea,
-    StompSchedule, TargetBuffScope,
+    StompSchedule, TapSnap, TargetBuffScope,
 };
 use royalesim::status::{compose, BuffDef, Sel, MAX_BUFFS_PER_ENTITY};
 use royalesim::{EntityId, Team};
@@ -942,7 +942,10 @@ fn the_engine_runs_the_old_arms_too() {
     // scene, DIFFERENT otherwise -- so a before / after on the harness is meaningful.
     // ~~three foils were computed and discarded with `let _ = ...`~~: that let
     // `primary_target_only` be a no-op in spell.rs for a whole pass.
-    let scene = |cfg: BattleConfig| {
+    let scene = |mut cfg: BattleConfig| {
+        // The Snowball is aimed at the near Knight's exact point, which the shipped tile-centre snap would move off it:
+        // every arm here runs placement.TAP_SNAP's old arm, none.
+        cfg.calib.placement_tap_snap = TapSnap::None;
         let mut s = bare(cfg);
         let near = placed(&mut s, Team::Blue, "Knight", spot());
         let np = pos(&s, near);

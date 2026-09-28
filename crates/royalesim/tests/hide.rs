@@ -45,7 +45,7 @@ use royalesim::arena::Lane;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind, HideState};
 use royalesim::fixed::{Vec2, SUBTILE};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HideDelayMeaning, RiseLaw, RiseTrigger};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HideDelayMeaning, RiseLaw, RiseTrigger, TapSnap};
 use royalesim::{EntityId, Team};
 
 // ---------------------------------------------------------------------------
@@ -864,7 +864,11 @@ fn hidden_occludes_path_false_is_refused_at_load() {
 fn a_hidden_footprint_still_refuses_a_deploy_on_it() {
     // hide.HIDDEN_OCCLUDES_PATH = true: the footprint of a hidden Tesla is a
     // building footprint like any other for deploys (the path grid shares the rule).
-    let mut s = bare(scripted_config()); // decks dealt, so Blue has a hand
+    // The tap is the Tesla's exact centre, a tile corner: placement.TAP_SNAP's old arm, none (the shipped tile-centre
+    // snap takes it to a tile centre 707 off the Tesla's centre, outside its footprint).
+    let mut cfg = scripted_config(); // decks dealt, so Blue has a hand
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    let mut s = bare(cfg);
     past_deploy_lockout(&mut s); // or every check_deploy below answers TooEarly
     let at = t(900, 1200);
     let tesla = s.scenario_spawn_now(Team::Blue, "Tesla", at, None).unwrap();

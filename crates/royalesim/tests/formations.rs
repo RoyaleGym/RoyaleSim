@@ -58,7 +58,7 @@ mod common;
 use common::*;
 use royalesim::formation::{member_offset, nearest_lane, sin1024, Layout, LANE_LEFT, LANE_RIGHT, SIN_1024};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE};
-use royalesim::state::{BattleState, DeployStagger, FormationLayout, GroundDeployPoint, GroundYClamp};
+use royalesim::state::{BattleState, DeployStagger, FormationLayout, GroundDeployPoint, GroundYClamp, TapSnap};
 use royalesim::Team;
 use std::collections::BTreeMap;
 
@@ -732,9 +732,12 @@ fn every_formation_candidate_moves_a_behaviour() {
     assert!(flat.iter().all(|m| m.2 == flat[0].2));
     let staggered = BattleState::new(1, config()).formation_preview(Team::Blue, "Goblins", tap).unwrap();
     assert!(staggered.iter().any(|m| m.2 != staggered[0].2), "the stagger arm changed nothing");
-    // A single summon keeps the exact subtile tap under both layouts.
+    // A single summon keeps the exact subtile tap under both layouts. An exact point: placement.TAP_SNAP's old arm,
+    // none (under the shipped tile-centre arm a single ground unit takes formation.GROUND_DEPLOY_POINT, in native units).
     let odd = Vec2::new(tap.x + 7, tap.y + 5);
-    assert_eq!(BattleState::new(1, config()).formation_preview(Team::Blue, "Knight", odd).unwrap()[0].1, odd);
+    let mut cfg = config();
+    cfg.calib.placement_tap_snap = TapSnap::None;
+    assert_eq!(BattleState::new(1, cfg).formation_preview(Team::Blue, "Knight", odd).unwrap()[0].1, odd);
 }
 
 // ---------------------------------------------------------------------------
