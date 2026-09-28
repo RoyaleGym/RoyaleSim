@@ -18546,7 +18546,7 @@ mod tests {
         // correct. A re-extraction that renames it fails here; it never drops the values silently.
         assert_eq!(shipped.version, c.card_values_table, "cards.json is not the table cards.CLIENT16402_VALUES corrects");
         let on = with_card_values(&c, shipped.clone()).unwrap();
-        assert_eq!(c.card_value_overrides.len(), 5, "{:?}", c.card_value_overrides);
+        assert_eq!(c.card_value_overrides.len(), 8, "{:?}", c.card_value_overrides);
         for v in &c.card_value_overrides {
             let idx = shipped.index(&v.card).unwrap_or_else(|| panic!("{} is not loaded", v.card));
             let read = |db: &CardDb| -> i32 {
