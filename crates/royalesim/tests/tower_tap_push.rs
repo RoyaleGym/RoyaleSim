@@ -19,6 +19,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test tower_tap_push`):
 //!   * `tower_tap_push_x_first` -- a tie takes x first (-x, -y, +x, +y): (1) and (4) go red.
 //!   * `tower_tap_push_snapped_tile` -- the push reads the snapped tile centre, not the raw tap: (3) goes red.
+//!   * `tower_tap_push_snapped_row` -- the landing row or column is the snapped tile's, not the raw tap's:
+//!     `a_tap_on_a_tile_line_lands_on_the_lower_row` goes red.
 //!   * `ring_walks_the_snap_frame` (aimed at tests/live_bottle_taps.rs) -- the ring walks the arena's frame under
 //!     SNAP_EVEN_CORNER = absolute: (5) goes red, ring_nearest's misses move.
 mod common;
@@ -176,6 +178,29 @@ fn the_raw_tap_not_its_tile_decides() {
         let off: Vec<_> = PAIRS_15535.iter().map(|&(tap, want)| (tap, want, landing(&s, 0, tap))).filter(|r| r.1 != r.2).collect();
         assert!(off.is_empty(), "TAP_SNAP {snap:?}: (tap, client, engine) {off:?}");
     }
+}
+
+/// Oracle's line taps (client 15.535.29, a Knight each, 2026-09-28): a tap EXACTLY on a tile line of an own princess
+/// box, and the tile centre the Knight stood on. Five of them landed elsewhere on the first placement ship.
+const LINE_TAPS_15535: [Row; 7] = [
+    (0, (2000, 6500), (1500, 6500)),
+    (0, (3000, 5000), (2500, 4500)),
+    (0, (4000, 5000), (3500, 4500)),
+    (0, (4500, 6000), (5500, 5500)),
+    (0, (4500, 7000), (5500, 6500)),
+    (0, (5000, 6500), (5500, 6500)),
+    (1, (13500, 26000), (12500, 25500)),
+];
+
+#[test]
+fn a_tap_on_a_tile_line_lands_on_the_lower_row() {
+    // Under the shipped placement.TAP_SNAP (the tile centre; under none a tap off the box is not snapped at all). The
+    // push reads the RAW tap: its landing row or column is the tile the raw tap lies in, a line counting in the lower
+    // tile in arena coordinates, so side 1's y 26000 lands on 25500. The plant tower_tap_push_snapped_row (the snapped
+    // tile's row or column) turns (3000, 5000), (4000, 5000), (4500, 6000), (4500, 7000) and side 1's tap red.
+    let s = battle(NEW, TapSnap::TileCentre);
+    let off: Vec<_> = LINE_TAPS_15535.iter().map(|&(side, tap, want)| (side, tap, want, landing(&s, side, tap))).filter(|r| r.2 != r.3).collect();
+    assert!(off.is_empty(), "(side, tap, client, engine) {off:?}");
 }
 
 #[test]

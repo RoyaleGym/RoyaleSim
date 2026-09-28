@@ -6632,7 +6632,8 @@ fn ring_offsets(r: i32) -> Vec<(i32, i32)> {
 /// Measured on client 15.535.29. The unit is pushed out along the axis where `raw` is farther from
 /// the tower's centre, and on an exact tie along the first OUTWARD direction in the fixed arena
 /// order -y, -x, +y, +x (the centre itself goes -y). It lands on the first tile centre beyond the
-/// box, on the tapped tile's row or column. 42 of 42 princess-box taps (every tile of all four own
+/// box, on the row or column of the tile the RAW tap lies in (a tap on a line counts in the lower
+/// tile; below). 42 of 42 princess-box taps (every tile of all four own
 /// boxes, both seats, and 6 controls); pairs of taps on one tile on the two sides of its diagonal
 /// go opposite ways, 6 of 6 ((2600, 5400) -y and (2400, 5600) -x); the king's three ties, 3 of 3.
 /// The order is fixed in arena coordinates, so the two seats are NOT mirrors: side 0's princess
@@ -6658,12 +6659,27 @@ fn axis_push(raw: Vec2, centre: Vec2, tower: Rect, snapped: Vec2) -> Vec2 {
         Ordering::Equal if dy < 0 => (false, false),
         Ordering::Equal => (true, true),
     };
-    let half = crate::fixed::tiles(1) / 2;
+    let tile = crate::fixed::tiles(1);
+    let half = tile / 2;
+    // THE LANDING ROW (a push along x) OR COLUMN (a push along y): the tile the RAW tap lies in, a tap exactly on a
+    // tile line counting in the LOWER tile, in arena coordinates (tile k covers (k tile, (k + 1) tile]). Measured on
+    // client 15.535.29 with Oracle's line taps, 8 of 8 with sp-m6a's: (4500, 6000) lands on (5500, 5500) and (3000,
+    // 5000) on (2500, 4500), side 1's (13500, 26000) on (12500, 25500), the arena's lower row, not the placer's. A tap
+    // off every line lies in the tile it snaps to, so every tile-centre tap lands as before.
+    #[cfg(not(clash_plant = "tower_tap_push_snapped_row"))]
+    let (col, row) = {
+        let _ = snapped;
+        let lower = |v: i32| (v - 1).div_euclid(tile) * tile + half;
+        (lower(raw.x), lower(raw.y))
+    };
+    // PLANT (regression): the snapped tile's row or column, which puts a tap on a line one tile up or right.
+    #[cfg(clash_plant = "tower_tap_push_snapped_row")]
+    let (col, row) = (snapped.x, snapped.y);
     match (along_x, up) {
-        (false, false) => Vec2::new(snapped.x, tower.min.y - half),
-        (false, true) => Vec2::new(snapped.x, tower.max.y + half),
-        (true, false) => Vec2::new(tower.min.x - half, snapped.y),
-        (true, true) => Vec2::new(tower.max.x + half, snapped.y),
+        (false, false) => Vec2::new(col, tower.min.y - half),
+        (false, true) => Vec2::new(col, tower.max.y + half),
+        (true, false) => Vec2::new(tower.min.x - half, row),
+        (true, true) => Vec2::new(tower.max.x + half, row),
     }
 }
 

@@ -346,6 +346,32 @@ pub fn play_point(d: &Deploy) -> [i32; 2] {
     }
 }
 
+/// THE RAW TAP A SCENARIO TROOP ROW IS PLAYED AT, native, under placement.TAP_SNAP = client16402_tile_centre: the row's
+/// `tap` when it is an [x, y] pair (a scenario row), the card it plays is a troop and it carries no tunnel
+/// `destination`. The engine snaps it to the very tile `play_point` names (the maker's `pos` for a single unit, the
+/// tap's tile centre for a group), and its relocation off an own crown tower then reads the RAW tap, as the law says
+/// (placement.TOWER_TAP_PUSH, `axis_push`). Played at the snapped `pos`, a tap on a tile line reached the push as that
+/// tile's centre: Oracle's line tap (4500, 7000) on the side-0 princess box became (4500, 7500), a +x/+y tie, and went
+/// +y to (4499, 8500) where the client put the Knight on (5499, 6500). None under placement.TAP_SNAP = none, where
+/// the engine does not snap and the maker's `pos` is played as before.
+///
+/// Plant: replay_plays_the_snapped_tap.
+pub fn scenario_troop_tap(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<[i32; 2]> {
+    #[cfg(clash_plant = "replay_plays_the_snapped_tap")]
+    {
+        let _ = (s, db, d);
+        return None; // PLANT (regression): the row played at the maker's snapped pos, the push reading it as raw.
+    }
+    #[allow(unreachable_code)]
+    if s.config().calib.placement_tap_snap != royalesim::state::TapSnap::TileCentre || d.destination.is_some() {
+        return None;
+    }
+    let a = d.tap.as_ref()?.as_array()?;
+    let (x, y) = (i32::try_from(a.first()?.as_i64()?).ok()?, i32::try_from(a.get(1)?.as_i64()?).ok()?);
+    let troop = db.index(&deploy_play(d, db)).is_some_and(|i| db.get(i).kind == CardKind::Troop);
+    troop.then_some([x, y])
+}
+
 /// THE TICK WHOSE BOARD A DEPLOY'S POINT IS RESOLVED ON, when that is not the issue tick (`tick - 1`).
 ///
 /// The client resolves a tap -- snaps it, moves it off a tile it may not stand on -- when the player taps, and the
@@ -381,7 +407,8 @@ pub fn resolve_tick(d: &Deploy) -> Option<u32> {
 /// must not move again. None for a card this CardDb does not hold.
 pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2> {
     let idx = db.index(&deploy_play(d, db))?;
-    let p = from_native(play_point(d)[0], play_point(d)[1]);
+    let pp = scenario_troop_tap(s, db, d).unwrap_or_else(|| play_point(d));
+    let p = from_native(pp[0], pp[1]);
     let team = team_of(d.side);
     Some(if observed_row(d, db) { s.resolve_observed_point(team, idx, p) } else { s.resolve_point(team, idx, p) })
 }
@@ -1596,7 +1623,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let (resolved_on, pos) = match resolved.get(i) {
                     Some(&(t, p)) => (Some(t), p),
                     None => {
-                        let p = play_point(d);
+                        let p = scenario_troop_tap(&s, db, d).unwrap_or_else(|| play_point(d));
                         (None, from_native(p[0], p[1]))
                     }
                 };
