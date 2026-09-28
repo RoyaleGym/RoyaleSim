@@ -286,12 +286,13 @@ pub struct EffectBuffer {
     /// Buff applications, in buffer order (spell order = cast order). Drained in
     /// Resolve by `state.rs apply_effects`.
     pub buffs: Vec<BuffHit>,
-    /// Hooks that landed this tick, (victim, thrower) (calibration combat.SPECIAL_HOOK =
-    /// client_hook_drag; combat.rs `step_projectiles`). Drained in Resolve by `state.rs
-    /// apply_effects`, which starts the drag on a surviving victim. Empty under the shipped
-    /// not_read. `default` so a snapshot saved before it still loads.
+    /// Hooks that landed this tick, (victim, thrower, the hook's point at the start of the tick) (calibration
+    /// combat.SPECIAL_HOOK = client_hook_drag; combat.rs `step_projectiles`). Drained in Resolve by `state.rs
+    /// apply_effects`, which starts the drag on a surviving victim, set onto the hook's point under
+    /// combat.HOOK_LANDING = client_hook_point. Empty in a battle with no hook. `default` so a snapshot saved before
+    /// it still loads.
     #[serde(default)]
-    pub hooks: Vec<(EntityId, EntityId)>,
+    pub hooks: Vec<(EntityId, EntityId, Vec2)>,
     /// The Rune Giant's projectiles that landed on a live friend this tick, (friend, payload) (combat.rs
     /// `step_projectiles`). Drained in Resolve by `state.rs apply_effects`, which puts the enchant on a friend that
     /// survived it. Empty in every battle with no Rune Giant. `default` so a snapshot saved before it still loads.

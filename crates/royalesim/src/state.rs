@@ -271,6 +271,10 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// combat.HOOK_LANDING (`apply_effects`, a landed hook): where the hook's victim stands on the landing tick. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "hook_landing_default")]
+    pub hook_landing: HookLanding,
     /// status.ATTRACT_ONSET (`phase_path16402`'s attract pre-pass; spell.rs `step_spells`): the tick a pulling area's first
     /// pull moves a unit. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "attract_onset_default")]
@@ -1172,6 +1176,10 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn hook_landing_default() -> HookLanding {
+    HookLanding::OnVictim
 }
 
 fn attract_onset_default() -> AttractOnset {
@@ -3082,6 +3090,19 @@ calib_enum!(
         /// D + 1..D + 21, damage on D + 11 in both engines) and the two casts of the 16.402 corpus's 20260920-081819,
         /// where the client's collision accumulator holds the pull a tick before the unit moves by it.
         ClientNextTick = "client_next_tick",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_LANDING -- where a hook's victim (combat.SPECIAL_HOOK) stands on the tick the hook lands on it
+    /// (`apply_effects`), the point its drag starts from on the next tick.
+    HookLanding {
+        /// Today's engine: the hook lands on the victim, which stands where it walked that tick.
+        OnVictim = "on_victim",
+        /// The hook stays where it stood at the start of the landing tick and the victim is set onto that point, which
+        /// overrides its walk of that tick. Read off client 15.535.29's Fisherman scenes and the 16.402 corpus's
+        /// 20260920-081819: the recorded hook stands still on the landing tick and the victim stands on it, 42 to 759
+        /// nearer the thrower than it walked.
+        ClientHookPoint = "client_hook_point",
     }
 );
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
@@ -5241,6 +5262,7 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            hook_landing: pick(&v, &["combat", "HOOK_LANDING", "value"], HookLanding::from_calibration_name)?,
             attract_onset: pick(&v, &["status", "ATTRACT_ONSET", "value"], AttractOnset::from_calibration_name)?,
             retarget_wait_while_held: pick(&v, &["combat", "RETARGET_WAIT_WHILE_HELD", "value"], RetargetWaitWhileHeld::from_calibration_name)?,
             retarget_wait_reach_loss: pick(&v, &["combat", "RETARGET_WAIT_REACH_LOSS", "value"], RetargetWaitReachLoss::from_calibration_name)?,
@@ -14780,7 +14802,7 @@ impl BattleState {
         // that survived this Resolve, when the thrower lives and its special is still on that
         // victim and no other hook holds it. The first step is the next tick's Move phase
         // (`step_hook_drags`). Empty under the shipped not_read.
-        for &(v, by) in &fx.hooks {
+        for &(v, by, hook_at) in &fx.hooks {
             if !self.ents.is_alive(by) {
                 continue;
             }
@@ -14804,6 +14826,17 @@ impl BattleState {
             #[cfg(not(clash_plant = "hook_drag_unread"))]
             {
                 self.ents.hooked_by[vi] = Some(by);
+                // combat.HOOK_LANDING = client_hook_point: the victim is set onto the point the hook stood on at the
+                // start of this tick, over its walk of this tick; its drag starts from there on the next tick.
+                #[cfg(not(clash_plant = "hook_lands_on_victim"))]
+                let onto_hook = self.cfg.calib.hook_landing == HookLanding::ClientHookPoint;
+                #[cfg(clash_plant = "hook_lands_on_victim")]
+                let onto_hook = false; // PLANT (regression): the new arm leaves the victim where it walked.
+                if onto_hook {
+                    let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
+                    self.ents.pos[vi] = Vec2::new(hook_at.x.clamp(0, w), hook_at.y.clamp(0, h));
+                    self.hash.rebuild(&self.ents);
+                }
             }
             #[cfg(clash_plant = "hook_drag_unread")]
             self.end_special(bi); // PLANT (regression): the hook lands and drags nothing.
@@ -18114,9 +18147,10 @@ impl BattleState {
             // hashes as it did before the buffer.
             if !self.effects.hooks.is_empty() {
                 h.u32(self.effects.hooks.len() as u32);
-                for (v, by) in &self.effects.hooks {
+                for (v, by, at) in &self.effects.hooks {
                     h.id(*v);
                     h.id(*by);
+                    h.vec(*at);
                 }
             }
             // The Rune Giant's landed projectiles, only when one is pending.
@@ -18727,6 +18761,10 @@ impl BattleState {
 /// 20, unchanged, status.ATTRACT_ONSET: Calib gained attract_onset (serde default the old arm, area_first_tick), no new
 ///    state (under the new arm a pulling area stays in the saved and hashed spell list one more tick, with its life at 0),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_LANDING: Calib gained hook_landing (serde default the old arm, on_victim), and a landed
+///    hook's entry in the effect buffer (`EffectBuffer::hooks`) gained the hook's start-of-tick point: the buffer is
+///    drained in the tick that fills it, so no blob saved between ticks holds one, and a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19231,6 +19269,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // combat.HOOK_LANDING: a format-3 battle's hooks landed on their victims; it keeps that whatever the ledger ships (the
+    // same rule).
+    sh.insert("hook_landing".into(), serde_json::to_value(HookLanding::OnVictim).map_err(|e| e.to_string())?);
     // status.ATTRACT_ONSET: a format-3 battle pulled from the area's first tick; it keeps that whatever the ledger ships
     // (the same rule).
     sh.insert("attract_onset".into(), serde_json::to_value(AttractOnset::AreaFirstTick).map_err(|e| e.to_string())?);
