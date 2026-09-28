@@ -10,7 +10,8 @@
 //!     first raged step into C + 11 (5 of 5 casts, 9 units);
 //!   - the Rage's damage (RageDamage, the area's child) lands one tick after the first buff, on C + 11
 //!     (spells.CHILD_AREA_BIRTH; 5 of 5);
-//!   - the Rage buffs the caster's side only (OnlyOwnTroops);
+//!   - the Rage buffs the caster's side only (OnlyOwnTroops), buildings included (spells.OWN_SIDE_AREA_SCOPE =
+//!     own_side_all_kinds, the column's plain reading, unmeasured);
 //!   - a unit that stays inside to the end takes its last raged step 105 ticks after the cast, where the full BuffTime
 //!     gives 114 (CapBuffTimeToAreaEffectTime, status.AREA_BUFF_SOURCE_BINDING: the area's last application, on
 //!     C + 94, lasts its life left after that tick, 250 ms, plus one HitSpeed, 300 ms). The 2026-09-28 round 9 reading:
@@ -39,7 +40,10 @@
 //!   8. a spell object's chain depth is state: a save edited only in it fails the load's hash self-check;
 //!   9. a Blue Knight that walks through a Rage and out of it after the application on C + 82 takes that
 //!      application at 1,000 ms (950 under the rule before the round 9 fix), no later one, and its last raged step on
-//!      C + 102 (C + 101 under that rule); not_read gives the same, the cap not binding at 900 ms left.
+//!      C + 102 (C + 101 under that rule); not_read gives the same, the cap not binding at 900 ms left;
+//!  10. a Blue Cannon standing at a Rage's centre carries the buff from C + 10, the area's first application, through
+//!      C + 104, under spells.OWN_SIDE_AREA_SCOPE = own_side_all_kinds (shipped) and own_side_except_crown_towers;
+//!      under own_troops_only it never does.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spell_summon`):
 //!   * `fuse_counts_from_next_tick` -- the bottle releases one tick late: (2) goes red.
@@ -62,7 +66,7 @@ mod common;
 use common::*;
 use royalesim::card::{SpellDef, SpellPlacement, SpellShape};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, PulseAmount};
+use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, Calib, OwnSideScope, PulseAmount};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -178,6 +182,35 @@ fn the_rage_buffs_the_casters_side_only() {
     }
     assert!(own, "the scene drifted: the own Knight was never raged");
     assert!(!enemy, "the enemy Knight took the Rage buff");
+}
+
+/// The ticks after the cast (k = 0 is C) on which a Blue Cannon standing at the centre of a Rage carries its buff.
+fn raged_cannon(scope: OwnSideScope) -> Vec<u32> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.own_side_area_scope = scope;
+    let mut s = BattleState::new(0, cfg);
+    let c = s.scenario_spawn_now(Team::Blue, "Cannon", at((4500, 9500)), None).expect("spawn");
+    s.tick();
+    s.spawn_unit(Team::Blue, "Rage", at((4500, 9500)), None).expect("cast Rage");
+    let buff = rage_buff(&s);
+    (0..140u32)
+        .filter(|_| {
+            s.tick();
+            has_buff(&s, c, buff)
+        })
+        .collect()
+}
+
+/// spells.OWN_SIDE_AREA_SCOPE reaches an own building: the shipped own_side_all_kinds, and
+/// own_side_except_crown_towers (a Cannon is no crown tower), rage the Cannon on every tick C + 10..=C + 104, the
+/// area's first application (C + 10) to the end of its last (C + 94, 550 ms); own_troops_only never does.
+#[test]
+fn the_rage_buffs_an_own_building_inside_it() {
+    assert_eq!(Calib::shipped().own_side_area_scope, OwnSideScope::AllKinds, "the shipped scope");
+    for scope in [OwnSideScope::AllKinds, OwnSideScope::ExceptCrownTowers] {
+        assert_eq!(raged_cannon(scope), (10..=104).collect::<Vec<u32>>(), "{scope:?}: the ticks the Cannon is raged");
+    }
+    assert_eq!(raged_cannon(OwnSideScope::TroopsOnly), Vec::<u32>::new(), "own_troops_only: the Cannon took the buff");
 }
 
 /// A Blue Knight walking up the left lane into a Rage cast 5,500 ahead of it, and per tick after the cast (k = 0 is
