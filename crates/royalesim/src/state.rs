@@ -2726,7 +2726,7 @@ calib_enum!(
         /// carries `action_made`) lands on the 2nd tick after its creation (combat.rs
         /// ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), not the 6th. Read on client 15.535.29's hero scenes: every enemy hp
         /// drop within 2,600 of a new turret falls on its c + 2 (two Knights at -204; three Goblins it kills vanish on
-        /// c + 2), where the engine lands it on c + 6.
+        /// c + 2), where client_on_landing lands it on c + 6.
         ClientOnLandingActionAt2 = "client_on_landing_action_at_2",
     }
 );
@@ -9176,7 +9176,8 @@ impl BattleState {
     /// THE FIXED END POINT OF EACH MEMBER'S SLIDE (spawner.DEATH_SLIDE_AIM = fixed_end_point; entity.rs
     /// `death_slide_end`), member k in creation order as `death_spawn_points` lays them, WORLD subtiles: the ring
     /// `ring` starts on, at DeathSpawnRadius (`slide_end_points`). Empty when nothing slides (`slide_radius` 0) and
-    /// under the shipped current_ray, which reads no end point: the members then carry (0, 0).
+    /// under current_ray (the arm before the 2026-09-28 round 9 flip), which reads no end point: the members then
+    /// carry (0, 0).
     fn slide_ends(&self, team: Team, pos: Vec2, ring: DeathSpawnRing, slide_radius: i32) -> Vec<Vec2> {
         if slide_radius <= 0 || !ring.slide || self.cfg.calib.death_slide_aim != DeathSlideAim::FixedEndPoint {
             return Vec::new();
@@ -16643,13 +16644,15 @@ impl BattleState {
     ///
     /// Measured on client 15.535.29: the turret's first frame is at the hero + (0, 2500) in Blue's arena y whatever
     /// her facing (Red: -2500, read as the team frame, unmeasured), in the river and across the bridge alike; the
-    /// storm's waves land on P + 2, P + 32 and P + 62. Unmeasured or open: a turret point on the side's own princess
-    /// tower is moved behind the hero on the client (hero (3499, 3500) gives (3481, 2000)), which `scheduled_point`
-    /// does not do; the tick the turret's blow lands. The engine lands it as the Mega Knight's deploy projectile, 6
-    /// ticks after the turret appears (combat.rs DEPLOY_PROJECTILE_DELAY_TICKS), under either arm of
-    /// spawner.ABILITY_UNIT_FIRST_UPDATE. On client 15.535.29 it lands on c + 2, c being the turret's first frame: in
-    /// the three hero scenes with an enemy in its reach (sp-h2, sp-h2l9 and sp-scene-d, a Knight losing the blow's
-    /// 204 at level 11 and 169 at level 9 and sliding), where the engine lands it on c + 6.
+    /// storm's waves land on P + 2, P + 32 and P + 62; the turret's blow lands on c + 2, c being the turret's first
+    /// frame, in the three hero scenes with an enemy in its reach (sp-h2, sp-h2l9 and sp-scene-d, a Knight losing the
+    /// blow's 204 at level 11 and 169 at level 9 and sliding). The engine lands it there under the shipped
+    /// combat.DEPLOY_PROJECTILE = client_on_landing_action_at_2 (combat.rs ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), and
+    /// on c + 6, as the Mega Knight's, under client_on_landing (DEPLOY_PROJECTILE_DELAY_TICKS); either way under both
+    /// arms of spawner.ABILITY_UNIT_FIRST_UPDATE (tests/hero_turret.rs). Unmeasured or open: a turret point on the
+    /// side's own princess tower is moved behind the hero on the client (hero (3499, 3500) gives (3481, 2000)), which
+    /// `scheduled_point` does not do; whether the blow's 2 ticks belong to the turret or to its dummy building's
+    /// action.
     fn fire_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
@@ -17583,7 +17586,8 @@ impl BattleState {
                         h.u32(e.death_slide_until[i]);
                     }
                     // spawner.DEATH_SLIDE_AIM = fixed_end_point: the end point the slide steps toward, only under that arm, so
-                    // a battle at the shipped current_ray (which carries none) hashes as it did before the column.
+                    // a battle at current_ray, the arm before the 2026-09-28 round 9 flip (which carries none), hashes
+                    // as it did before the column.
                     // PLANT hash_skips_slide_end (tests/death_slide_aim.rs).
                     #[cfg(not(clash_plant = "hash_skips_slide_end"))]
                     if self.cfg.calib.death_slide_aim == DeathSlideAim::FixedEndPoint {

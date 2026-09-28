@@ -196,7 +196,7 @@ These keys were measured later, on the 16.402 corpus or client 15.535.29, and ar
 | `combat.ATTACK_CYCLE`, `combat.PROJECTILE_LAUNCH`, `combat.KAMIKAZE_DEATH` | the attack cycle, the launch point, the kamikaze death |
 | `lifetime.HP_DECAY` | a building's hit-point drain over its lifetime |
 | `formation.LAYOUT`, `DEPLOY_STAGGER`, `GROUND_Y_CLAMP` | where a card's summons stand, and when each appears |
-| `spawner` (27 of 35 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
+| `spawner` (29 of 36 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
 | `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
 | `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
 
