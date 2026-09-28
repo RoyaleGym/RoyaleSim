@@ -18,7 +18,8 @@
 //!   2. the Knight's first hp drop after the drag is on S + 1, the release tick.
 //!
 //! PLANT (regression):
-//!   * `hook_release_fresh_cycle` -- the special ends with a fresh cycle: (2) goes red (the first hit on S + 2).
+//!   * `hook_release_fresh_cycle` -- the special ends with a fresh cycle: (2) goes red (the first hit on S + 2), and so
+//!     does tests/hook_buildings.rs's pull, which ends through the same priming.
 //!     RUSTFLAGS='--cfg clash_plant="hook_release_fresh_cycle"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
 //!     --test hook_first_strike
 #![allow(unexpected_cfgs)]

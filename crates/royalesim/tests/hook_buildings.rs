@@ -21,8 +21,10 @@
 //!   2. troops_only (the old arm): nothing moves him faster than a walk, and he walks within melee range of the tower;
 //!   3. the shipped value is troops_only.
 //!
-//! PLANT (regression):
+//! PLANTS (regression):
 //!   * `hook_buildings_unread` -- the new arm hooks troops only: (1) goes red.
+//!   * `hook_release_fresh_cycle` (tests/hook_first_strike.rs's) -- the pull ends with a fresh cycle: (1) goes red too,
+//!     the tower's first hit landing on S + 2.
 //!     RUSTFLAGS='--cfg clash_plant="hook_buildings_unread"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
 //!     --test hook_buildings
 #![allow(unexpected_cfgs)]
