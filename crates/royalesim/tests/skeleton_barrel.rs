@@ -18,10 +18,10 @@
 //!
 //! THE ARMS. combat.KAMIKAZE_TIME ships flat_drain_to_zero, spawner.DEATH_BOMB_SPAWN_TIMING at_fuse_end and
 //! knockback.DEATH_PUSHBACK containers_ladder, the measured arms (no card that loaded before this change reads them).
-//! spawner.DEATH_SPAWN_PUSHBACK SHIPS not_read, its old arm, because its client_ring_slide also moves the Golem and the
-//! Lava Hound: at the shipped values the Skeletons appear at DeathSpawnRadius on DEATH_SPAWN_LAYOUT's ring with no
-//! slide, which is not where the client puts them. The ring tests select client_ring_slide by name (`ring_slide`).
-//! Every test names its arms through its config (`shipped`, `with`, `ring_slide`).
+//! spawner.DEATH_SPAWN_PUSHBACK ships client_ring_slide, the measured arm, since parity scored its flip (it had shipped
+//! not_read, its old arm, while the slide's move of the Golem and the Lava Hound waited for that score). The ring tests
+//! still select client_ring_slide by name (`ring_slide`), and the old arm's test selects not_read (`old_ring`).
+//! Every test names its arms through its config (`shipped`, `with`, `ring_slide`, `old_ring`).
 //!
 //! WHAT IS PINNED, and the plants that turn each red
 //! (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test skeleton_barrel`):
@@ -39,7 +39,7 @@
 //!      container_ring_troop_orientation (and death_ring_slide_facing, which lays the ring at 1480);
 //!   9. the slide: four ticks, the last-created member at 1250-1400 (client_ring_slide) -- container_slide_uncapped,
 //!      death_slide_never;
-//!  10. the shipped not_read: the Skeletons at DeathSpawnRadius, no slide -- death_ring_slide_ignores_arm;
+//!  10. not_read, the old arm: the Skeletons at DeathSpawnRadius, no slide -- death_ring_slide_ignores_arm;
 //!  11. the hit's reach: 2434 to a 500-radius Knight's centre hit, 3086 missed, a deploying flier hit, the ring at 81
 //!      -- aoe_centre_to_centre;
 //!  12. the push (shipped containers_ladder) -- death_pushback_unread;
@@ -98,7 +98,7 @@ fn shipped() -> BattleConfig {
     assert_eq!(c.kamikaze_time, KamikazeTime::FlatDrainToZero, "the shipped combat.KAMIKAZE_TIME");
     assert_eq!(c.death_bomb_spawn_timing, DeathBombSpawnTiming::AtFuseEnd, "the shipped spawner.DEATH_BOMB_SPAWN_TIMING");
     assert_eq!(c.death_pushback, DeathPushbackScope::ContainersLadder, "the shipped knockback.DEATH_PUSHBACK");
-    assert_eq!(c.death_spawn_pushback, DeathSpawnPushback::NotRead, "the shipped spawner.DEATH_SPAWN_PUSHBACK");
+    assert_eq!(c.death_spawn_pushback, DeathSpawnPushback::ClientRingSlide, "the shipped spawner.DEATH_SPAWN_PUSHBACK");
     assert_eq!(c.attack_cycle, AttackCycle::ProgressCredit, "the shipped combat.ATTACK_CYCLE, whose counter the fire is read on");
     cfg
 }
@@ -110,9 +110,14 @@ fn with(f: impl FnOnce(&mut Calib)) -> BattleConfig {
     cfg
 }
 
-/// spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide, the container ring's measured arm (it ships not_read).
+/// spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide, the container ring's measured arm (the shipped one).
 fn ring_slide() -> BattleConfig {
     with(|c| c.death_spawn_pushback = DeathSpawnPushback::ClientRingSlide)
+}
+
+/// spawner.DEATH_SPAWN_PUSHBACK = not_read, the old arm.
+fn old_ring() -> BattleConfig {
+    with(|c| c.death_spawn_pushback = DeathSpawnPushback::NotRead)
 }
 
 /// The container record the barrel's death leaves.
@@ -410,9 +415,9 @@ fn the_container_ring_slides_out_for_four_ticks_and_stops() {
 
 #[test]
 fn the_old_arm_lays_the_container_ring_at_its_radius_with_no_slide() {
-    // Shipped not_read, the old arm (DEATH_SPAWN_LAYOUT's ring at DeathSpawnRadius). Plant death_ring_slide_ignores_arm
-    // (the ring starts at 250 and slides).
-    let mut s = BattleState::new(9, shipped());
+    // not_read, the old arm (DEATH_SPAWN_LAYOUT's ring at DeathSpawnRadius). Plant death_ring_slide_ignores_arm (the
+    // ring starts at 250 and slides).
+    let mut s = BattleState::new(9, old_ring());
     let (t, c) = kill_barrel(&mut s, Team::Blue, (6000, 10000));
     after(&mut s, t + 12);
     let m = members(&s, Team::Blue);

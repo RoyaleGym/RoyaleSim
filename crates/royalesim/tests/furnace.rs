@@ -177,9 +177,9 @@ fn the_spirit_takes_the_furnaces_level() {
     let db = s.cards();
     let row = db.get(db.index(SPIRIT).unwrap());
     let want = db.scaled(db.index(SPIRIT).unwrap(), 11, row.hitpoints).unwrap();
-    // The 15.535.29 row (85) at level 11 is 217; the 16.402 corpus reads 215, the known Fire Spirits drift between the
-    // two clients' tables (tests/levels.rs `known_misses`).
-    assert_eq!(want, 217);
+    // The shipped cards.CLIENT16402_VALUES reads the 16.402 corpus's Hitpoints 84: 215 at level 11 (the 15.535.29
+    // row's 85 gives 217).
+    assert_eq!(want, 215);
     assert_eq!(s.entity(id).map(|v| v.max_hp), Some(want), "the spirit at the Furnace's level 11");
 }
 
