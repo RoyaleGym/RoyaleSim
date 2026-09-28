@@ -558,10 +558,16 @@ fn fan_count(calib: &Calib, card: &CardDef) -> i32 {
 /// A pingpong throw's position `t` ticks after it (combat.RANGE_PROJECTILE = straight_to_range
 /// on a PingpongVisualTime row), measured on client 15.535.29 on the Executioner's axe (within
 /// 5): `start + (range - start) x sin(pi t / period)` from `origin` toward `apex`, the point
-/// `range` out on the launch line, in NATIVE units. The apex tick (t = period / 2) is recorded
-/// on the client at the value one tick before it; that is open and not modelled. `origin` and `apex` are read on the
+/// `range` out on the launch line, in NATIVE units. `origin` and `apex` are read on the
 /// native grid in the thrower's frame (path.rs `native_in_frame`), so a Red throw is the rotation of a Blue one.
+///
+/// THE APEX TICK (t = period / 2) STANDS WHERE THE TICK BEFORE STOOD: the throw never reaches `range`. Client
+/// 15.535.29 records the apex tick at the value one tick before it, and on client 16.402 it decides a hit: the
+/// Executioner's axe of capture 20260920-082459 t3068 (period 30) stands on (2943, 15232), 6965 out, on t = 14, 15 and
+/// 16. A Skeleton on (3969, 16333), 1504 from that point, is not hit and lives to strike the Princess on t3086; from
+/// the apex, 7000 out on the same line, it would be 1479 away, inside the 1500 reach.
 fn pingpong_pos(origin: Vec2, apex: Vec2, start: i32, t: i32, period: i32, team: Team) -> Vec2 {
+    let t = if period > 0 && 2 * t == period { t - 1 } else { t };
     let (ox, oy) = (native_in_frame(origin.x, team), native_in_frame(origin.y, team));
     let (ux, uy) = (native_in_frame(apex.x, team) - ox, native_in_frame(apex.y, team) - oy);
     let range = isqrt(ux * ux + uy * uy).max(1);
@@ -1994,5 +2000,17 @@ mod tests {
         assert_eq!(damage_against(EntityKind::PrincessTower, 688, 30, CeilKeptShare), 207);
         assert_eq!(damage_against(EntityKind::PrincessTower, 688, 30, Floor), 206);
         assert_eq!(damage_against(EntityKind::PrincessTower, 192, 30, CeilKeptShare), 58);
+    }
+
+    #[test]
+    fn a_pingpong_throw_stands_on_its_previous_point_on_the_apex_tick() {
+        // Capture 20260920-082459 t3068: the Executioner's axe (period 30, start 600, range 7000) stands on the same
+        // point on t = 14 and 15 and never reaches its apex; a Skeleton 1504 from that point is not hit.
+        let k = crate::fixed::SUBTILE_PER_MILLITILE;
+        let (o, apex) = (Vec2::new(4480 * k, 8442 * k), Vec2::new(2939 * k, 15271 * k));
+        let at = |t| pingpong_pos(o, apex, 600 * k, t, 30, Team::Blue);
+        assert_eq!(at(15), at(14), "the apex tick moved past the tick before");
+        assert_ne!(at(14), at(13), "vacuous: the throw is not moving");
+        assert_ne!(at(15), apex, "the throw reached its apex");
     }
 }
