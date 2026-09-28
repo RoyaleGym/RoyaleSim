@@ -136,8 +136,8 @@ cd ..\..
 ..\.venv\Scripts\python tools\watch_battle.py --open
 ```
 
-The first is the timing run. The second opens a battle you can watch. On macOS and Linux, if
-`--open` stops with `no attribute 'startfile'`, open the `battle.html` it names in your browser.
+The first is the timing run. The second opens a battle you can watch, in your default browser on
+Windows, macOS and Linux.
 
 ### `tools/check_card_reads.py`
 
