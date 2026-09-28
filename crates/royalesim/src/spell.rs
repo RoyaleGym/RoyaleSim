@@ -770,9 +770,17 @@ pub struct AreaClock {
 ///
 /// The earlier rule, the life left this tick included plus one tick, was fitted to the
 /// Earthquake alone: it gives the same 100 ms there and 350 ms on the Rage, whose last raged
-/// step then fell on the cast + 101. The two rules part only where HitSpeed is not 100: the
-/// Rage-type areas (HitSpeed 300) run four ticks longer, and an area pulsing every tick
-/// (HitSpeed 50) one tick shorter, which no capture has measured.
+/// step then fell on the cast + 101. The two rules part wherever HitSpeed is not 100, by up
+/// to HitSpeed - 100 ms, on every application late enough for either cap to bind, not only
+/// the last one:
+///   - the eight HitSpeed 300 areas (the Rage and the other Rage-type areas, and the evolved
+///     Princess's two slowing areas) up to four ticks longer. A unit that walks out of a Rage
+///     after its application on the cast + 82 (900 ms left: 1,000 ms against 950) ends a
+///     tick later, as three Skeletons of the 16.402 corpus do (cast + 104, 103 and 102);
+///   - Event_HolidayFeast_AEO (HitSpeed 500) up to 400 ms longer;
+///   - the six areas that apply every tick (HitSpeed 50) one tick shorter.
+///
+/// Only the Rage's and the Earthquake's are measured.
 ///
 /// ControlsBuff / ControlledByParent: the slot is bound to the area (`BuffSlot::source`) and
 /// taken away when the area ends (state.rs `release_orphaned_buffs`).

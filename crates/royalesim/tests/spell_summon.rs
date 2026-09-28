@@ -15,6 +15,10 @@
 //!     gives 114 (CapBuffTimeToAreaEffectTime, status.AREA_BUFF_SOURCE_BINDING: the area's last application, on
 //!     C + 94, lasts its life left after that tick, 250 ms, plus one HitSpeed, 300 ms). The 2026-09-28 round 9 reading:
 //!     8 units over 4 casts (three in 20260919-182539, one in 20260918-134739 read in both seats), every one on C + 105;
+//!   - a unit that walks out of the Rage after its application on C + 82 (900 ms of the area left) takes that
+//!     application's full BuffTime, 1,000 ms (the cap binds only below it), and its last raged step lands a tick later
+//!     than under the rule before the round 9 fix (950 ms): three Skeletons of 20260919-182539's cast 177 end on C + 104,
+//!     103 and 102 in the client and the engine, and one tick earlier each under that rule;
 //!   - the Heal Spirit card deploys its unit like a one-unit troop, and the spirit's shot leaves a one-shot heal
 //!     area on its own side; each heal pulse is +100 at level 11 (status.BUFF_PULSE_AMOUNT =
 //!     scaled_per_second_times_frequency; 11 of 11).
@@ -32,14 +36,18 @@
 //!   6. the Heal Spirit is on the board after the cast tick and first moves DeployTime later;
 //!   7. an own damaged Knight next to the spirit's target is healed in pulses of exactly the amount
 //!      status.BUFF_PULSE_AMOUNT = scaled_per_second_times_frequency gives (+100 at level 11), and the enemy is not;
-//!   8. a spell object's chain depth is state: a save edited only in it fails the load's hash self-check.
+//!   8. a spell object's chain depth is state: a save edited only in it fails the load's hash self-check;
+//!   9. a Blue Knight that walks through a Rage and out of it after the application on C + 82 takes that
+//!      application at 1,000 ms (950 under the rule before the round 9 fix), no later one, and its last raged step on
+//!      C + 102 (C + 101 under that rule); not_read gives the same, the cap not binding at 900 ms left.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spell_summon`):
 //!   * `fuse_counts_from_next_tick` -- the bottle releases one tick late: (2) goes red.
 //!   * `child_area_with_parent` -- the child is born with its parent: (3) goes red.
 //!   * `own_area_hits_both_sides` -- OnlyOwnTroops read as no team filter: (4) goes red.
 //!   * `area_cap_unread` (spell.rs's cap plant) -- CapBuffTimeToAreaEffectTime not read: (5) goes red.
-//!   * `area_cap_one_tick` (spell.rs) -- the cap is the life left plus one tick, the Earthquake-only fit: (5) goes red.
+//!   * `area_cap_one_tick` (spell.rs) -- the cap is the life left plus one tick, the Earthquake-only fit: (5) and (9)
+//!     go red.
 //!   * `summon_released_late` -- the summoned unit is created at the end of the tick: (6) goes red.
 //!   * `projectile_area_dropped` -- the shot's area is dropped: (7) goes red.
 //!   * `pulse_share_scaled` (status.rs's pulse plant) -- the share first, then the level: (7) goes red.
@@ -74,6 +82,11 @@ fn rage_buff(s: &BattleState) -> u16 {
 
 fn has_buff(s: &BattleState, id: EntityId, buff: u16) -> bool {
     s.entity(id).is_some_and(|v| v.buffs.iter().any(|b| b.id == buff + 1 && b.ms > 0))
+}
+
+/// The time left on `id`'s Rage buff, ms (0 without one).
+fn buff_ms(s: &BattleState, id: EntityId, buff: u16) -> i32 {
+    s.entity(id).map_or(0, |v| v.buffs.iter().filter(|b| b.id == buff + 1).map(|b| b.ms).max().unwrap_or(0))
 }
 
 /// Plant: projectile_area_unread.
@@ -207,6 +220,49 @@ fn the_rage_buff_ends_sooner_when_bound_to_its_area() {
     // ms and the last raged step is C + 105; unbound, its 1,000 ms BuffTime gives C + 114.
     assert_eq!(bound, 105, "client_source_bound: the last raged step (not_read {unbound})");
     assert_eq!(unbound, 114, "not_read: the last raged step, the full BuffTime");
+}
+
+/// A Blue Knight walking up the left lane through a Rage cast 3,000 ahead of it, which it walks out of after the
+/// area's application on C + 82: per tick after the cast (k = 0 is C), its step and the time left on its Rage buff.
+fn walk_out(binding: AreaBuffSourceBinding) -> (Vec<i64>, Vec<i32>) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.area_buff_source_binding = binding;
+    let mut s = BattleState::new(0, cfg);
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 9000)), None).expect("spawn");
+    for _ in 0..3 {
+        s.tick();
+    }
+    let p = s.entity(k).unwrap().pos;
+    s.spawn_unit(Team::Blue, "Rage", Vec2::new(p.x, p.y + 3000 * K), None).expect("cast Rage");
+    let buff = rage_buff(&s);
+    let (mut steps, mut left) = (Vec::new(), Vec::new());
+    for _ in 0..130 {
+        let a = s.entity(k).unwrap().pos;
+        s.tick();
+        steps.push(step(a, s.entity(k).unwrap().pos));
+        left.push(buff_ms(&s, k, buff));
+    }
+    (steps, left)
+}
+
+/// (the k of the Knight's last Rage application, the buff time it left, the k of its last raged step). An application
+/// is a tick on which the time left rises. Checks that every step after the last raged one is an unraged walk.
+fn walk_out_ends(binding: AreaBuffSourceBinding) -> (usize, i32, usize) {
+    let (steps, left) = walk_out(binding);
+    let app = (1..left.len()).rfind(|&i| left[i] > left[i - 1]).unwrap_or_else(|| panic!("the scene drifted: the Knight was never raged: {left:?}"));
+    let last = steps.iter().rposition(|x| (74..=79).contains(x)).unwrap_or_else(|| panic!("the scene drifted: no raged step: {steps:?}"));
+    assert!(steps[last + 1..].iter().all(|x| (55..=61).contains(x)), "the scene drifted: the Knight's steps after its last raged one: {steps:?}");
+    (app, left[app], last)
+}
+
+/// Plant: area_cap_one_tick. The area's application on C + 82 has 900 ms of life left, this tick included: capped at
+/// 900 - 50 + 300 = 1,150 it keeps its BuffTime, 1,000 ms (the earlier rule's 900 + 50 = 950 bound it). The Knight is
+/// out of the area by C + 88, so that application is its last, and its last raged step is C + 102 (C + 101 under the
+/// earlier rule). not_read gives the same: the cap does not bind here.
+#[test]
+fn a_unit_that_walks_out_after_the_cast_plus_82_keeps_the_full_buff_time() {
+    assert_eq!(walk_out_ends(AreaBuffSourceBinding::ClientSourceBound), (82, 1000, 102), "client_source_bound: (last application, its ms, last raged step)");
+    assert_eq!(walk_out_ends(AreaBuffSourceBinding::NotRead), (82, 1000, 102), "not_read: (last application, its ms, last raged step)");
 }
 
 /// Plant: summon_released_late.
