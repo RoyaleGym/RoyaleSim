@@ -14913,6 +14913,12 @@ impl BattleState {
     }
 
     fn enqueue(&mut self, team: Team, idx: u16, level: i32, pos: Vec2) {
+        self.enqueue_with(team, idx, level, pos, false);
+    }
+
+    /// `enqueue`, with `observed` a troop's already-resolved creation point (`spawn_unit_resolved`): its formation
+    /// takes no single-unit deploy point (`formation_members_with`).
+    fn enqueue_with(&mut self, team: Team, idx: u16, level: i32, pos: Vec2, observed: bool) {
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // A SPELL SUMMON deploys its unit as a troop card deploys: the unit's own formation and
@@ -14941,12 +14947,12 @@ impl BattleState {
         if card.spawn_pathfind.is_some() {
             let dest = match self.cfg.calib.spawn_pathfind_destination {
                 SpawnPathfindDestination::ClientTileCentreMorphFootprint => pos,
-                SpawnPathfindDestination::OrdinaryGroundDeployPoint => self.formation_members(team, idx, level, pos).first().map_or(pos, |m| m.pos),
+                SpawnPathfindDestination::OrdinaryGroundDeployPoint => self.formation_members_with(team, idx, level, pos, observed).first().map_or(pos, |m| m.pos),
             };
             self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false });
             return;
         }
-        for m in self.formation_members(team, idx, level, pos) {
+        for m in self.formation_members_with(team, idx, level, pos, observed) {
             self.spawn_queue.push(m);
         }
     }
@@ -14969,6 +14975,12 @@ impl BattleState {
     ///
     /// engine_grid: the earlier `formation_grid` over all the members.
     fn formation_members(&self, team: Team, idx: u16, level: i32, pos: Vec2) -> Vec<PendingSpawn> {
+        self.formation_members_with(team, idx, level, pos, false)
+    }
+
+    /// `formation_members`, with `observed` a point that is already the unit's creation point: a single ground
+    /// unit then takes no placement.TAP_SNAP deploy point, being on it already.
+    fn formation_members_with(&self, team: Team, idx: u16, level: i32, pos: Vec2, observed: bool) -> Vec<PendingSpawn> {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let cards = &self.cfg.cards;
         let card = cards.get(idx);
@@ -15038,7 +15050,7 @@ impl BattleState {
                     // single unit: the column's front bound and the passable-ground ejection were
                     // never measured for one, and a scenario unit placed in the enemy half
                     // (spawn_unit) keeps its exact point.
-                    let single_point = calib.placement_tap_snap == TapSnap::TileCentre && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
+                    let single_point = !observed && calib.placement_tap_snap == TapSnap::TileCentre && calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit;
                     let single_clamp = calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate;
                     if cards.get(unit_of(0)).is_flying() || !(single_point || single_clamp) {
                         return vec![member(0, pos)];
@@ -15365,6 +15377,11 @@ impl BattleState {
     /// clamp: clamped back along its column. Then, under placement.TAP_SNAP, the plain tile
     /// centre. Then a troop under placement.TROOP_TOWER_TAPS: moved off an own crown tower.
     pub fn resolve_point(&self, team: Team, idx: u16, pos: Vec2) -> Vec2 {
+        self.resolve_point_with(team, idx, pos, true)
+    }
+
+    /// `resolve_point`, with `snap` false leaving out placement.TAP_SNAP (`spawn_unit_resolved`'s troops).
+    fn resolve_point_with(&self, team: Team, idx: u16, pos: Vec2, snap: bool) -> Vec2 {
         let card = self.cfg.cards.get(idx);
         let calib = &self.cfg.calib;
         if card.kind == CardKind::Building {
@@ -15380,7 +15397,7 @@ impl BattleState {
                 }
             }
         }
-        if calib.placement_tap_snap == TapSnap::TileCentre {
+        if snap && calib.placement_tap_snap == TapSnap::TileCentre {
             let t = self.cfg.arena.cell * 2;
             p = Vec2::new(p.x.div_euclid(t) * t + t / 2, p.y.div_euclid(t) * t + t / 2);
         }
@@ -15954,6 +15971,19 @@ impl BattleState {
     /// zones (a ground unit still may not be placed on water). Materialises in
     /// the next Spawn phase like a deploy.
     pub fn spawn_unit(&mut self, team: Team, card_name: &str, pos: Vec2, level: Option<i32>) -> Result<(), DeployError> {
+        self.spawn_unit_with(team, card_name, pos, level, false)
+    }
+
+    /// `spawn_unit` at an OBSERVED creation point: a live capture's, which the client already resolved. A troop's
+    /// point is not snapped again (placement.TAP_SNAP) and a single ground unit takes no deploy point off it; every
+    /// other resolution (the relocation off an own crown tower) runs as for `spawn_unit`. A building and a spell go
+    /// down exactly as through `spawn_unit` (a spell's recorded point is an approximate landing point, which the
+    /// snap puts on the cast's tile centre). The replay harness plays a corpus troop row through it.
+    pub fn spawn_unit_resolved(&mut self, team: Team, card_name: &str, pos: Vec2, level: Option<i32>) -> Result<(), DeployError> {
+        self.spawn_unit_with(team, card_name, pos, level, true)
+    }
+
+    fn spawn_unit_with(&mut self, team: Team, card_name: &str, pos: Vec2, level: Option<i32>, observed: bool) -> Result<(), DeployError> {
         if self.outcome.is_some() {
             return Err(DeployError::GameOver);
         }
@@ -15968,7 +15998,8 @@ impl BattleState {
         let (kind, flying) = (card.kind, card.is_flying());
         // The play path's resolution (snap, relocation) for troops and spells; a building
         // stays where it was put, as before.
-        let pos = if kind == CardKind::Building { pos } else { self.resolve_point(team, idx, pos) };
+        let observed = observed && kind == CardKind::Troop;
+        let pos = if kind == CardKind::Building { pos } else { self.resolve_point_with(team, idx, pos, !observed) };
         if kind == CardKind::Spell {
             // A cast, at any in-bounds point (tests aim spells where no player could).
             self.enqueue(team, idx, level, pos);
@@ -15977,7 +16008,7 @@ impl BattleState {
         if !flying && !self.cfg.arena.is_passable_ground(pos) {
             return Err(DeployError::Water);
         }
-        self.enqueue(team, idx, level, pos);
+        self.enqueue_with(team, idx, level, pos, observed);
         Ok(())
     }
 

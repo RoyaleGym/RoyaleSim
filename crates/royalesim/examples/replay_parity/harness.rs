@@ -1460,7 +1460,13 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                         (None, from_native(p[0], p[1]))
                     }
                 };
-                let r = s.spawn_unit(team, &name, pos, d.level);
+                // A CORPUS TROOP row (its `tap` no [x, y] pair: a live capture's observed creation point) goes down as
+                // seen (`spawn_unit_resolved`), so placement.TAP_SNAP does not snap a point the client already
+                // resolved. A spell row (its point an approximate landing point, which the snap puts on the tile the
+                // cast was aimed at) and every scenario row (a tap) go through `spawn_unit`.
+                let corpus_row = !d.tap.as_ref().is_some_and(|t| t.is_array());
+                let troop = db.index(&name).is_some_and(|i| db.get(i).kind == CardKind::Troop);
+                let r = if corpus_row && troop { s.spawn_unit_resolved(team, &name, pos, d.level) } else { s.spawn_unit(team, &name, pos, d.level) };
                 if r.is_ok() {
                     if let Some(idx) = db.index(&name) {
                         if db.get(idx).kind == CardKind::Spell {
