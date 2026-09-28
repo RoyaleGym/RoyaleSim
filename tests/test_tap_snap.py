@@ -107,5 +107,5 @@ def test_a_raw_fireball_tap_matches_client_15535():
 
 
 def test_the_old_arm_is_todays_engine():
-    """Today a single unit stands on the raw tap."""
+    """Under the old arm, none (the engine before the flip), a single unit stands on the raw tap."""
     assert knight_lands(arm("none"), 1, (9000, 19000)) == (9000, 19000)
