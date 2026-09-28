@@ -66,6 +66,12 @@ THE 15.535 FILES ARE A CSV PLUS TOML OVERLAYS
     characters/hero_form/*.toml).  Both are recorded under `excluded_tables`.  The
     *_EV1 units ARE in `units` (they are character rows); nothing releases them.
 
+    HERO FORMS (15.535 only): the forms in HERO_FORMS (Hero Musketeer, Hero Ice
+    Golem) are written to the top-level `hero_forms` list, each a card record read
+    from its two characters/hero_form files on a load of its own, plus `form_of`
+    (its base card), `ability` (its button) and `tables` (the unit and area rows it
+    names). Nothing else in the file changes.
+
 CONTINUATION ROWS
     Supercell's CSVs express per-level arrays as rows with a blank Name that
     follow the named row.  Handled deliberately: every blank-Name row is folded
@@ -754,9 +760,16 @@ class Tables(dict):
         # for 2018.
         self.shapes: dict[str, dict] = {}
         self.filters: dict[str, dict] = {}
+        # 15.535, the hero pass only (`load_tables(hero=...)`): the [ABILITY.*] sections of the hero files, by
+        # name, and each base card's EvolvedSpells link to its forms. Empty on every other load.
+        self.abilities: dict[str, dict] = {}
+        self.hero_links: dict[str, list] = {}
 
 
-def load_tables(vintage: str | Vintage | None = None) -> Tables:
+def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) -> Tables:
+    """The vintage's tables. `hero` (15.535 only): the hero forms whose characters/hero_form files are laid
+    over these tables too (`overlay_hero_files`). Only the hero pass asks for them, on a load of its own, so
+    nothing they add reaches a base record."""
     v = VINTAGES[vintage] if isinstance(vintage, str) else (vintage or VINTAGE)
     t = Tables(v)
     if v.is_2018:
@@ -828,6 +841,8 @@ def load_tables(vintage: str | Vintage | None = None) -> Tables:
     filters = v.raw / "game_object_filters.toml"
     if filters.is_file():
         t.filters.update({n: f for n, f in tomllib.load(filters.open("rb")).items() if isinstance(f, dict)})
+    if hero:
+        overlay_hero_files(t, v, hero)
 
     def unit_lookup(name: str):
         for k in ("characters", "buildings"):
@@ -3249,6 +3264,321 @@ def globals_block(v: Vintage) -> dict:
     return out
 
 
+# --- hero forms (15.535 only) ---------------------------------------------------------------------
+#
+# A HERO FORM is a card of its own: characters/hero_form/<stem>_spell.toml [SPELL_HERO.<form>] (CardForm
+# "HeroForm", the card row) and <stem>.toml (the [EXT.*] unit that extends the base character, its
+# [ABILITY.*] and every object the ability makes). spells_hero_form.csv is a stale copy of the base rows
+# and is not read. The build writes EXACTLY the forms named here, under the top-level `hero_forms` list,
+# never in `cards`. Each record is a card record (`summon_card`) plus `form_of` (the base card), `ability`
+# (the button: `ability_block`) and `tables` (the unit and area rows it names that the top-level maps do
+# not carry, so those maps and every record in them stay as they are).
+HERO_FORMS = {
+    "Musketeer_hero": ("Musketeer", "musketeer_hero"),
+    "IceGolemite_hero": ("IceGolemite", "ice_golemite_hero"),
+}
+# The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
+ABILITY_READ_KEYS = {
+    "ManaCost", "MaxCharges", "Cooldown", "CastTime", "TriggerDelay", "IsChampion", "KeepCurrentTarget",
+    "OnActivationAction",
+}
+ABILITY_UI_KEYS = {
+    "TID", "TID_INFO", "IconSWF", "IconExportName", "KeepIconEvenWhenOutOfCharges", "HideChargesTextField",
+    "DeployedEffect", "DeployedClip", "PopoverIconFileName", "PopoverIconExportName", "Stats", "StatsTags",
+    "OutOfChargesTID",
+}
+# The columns a hero ability's area may set: the ones `hero_area` reads, and the display ones.
+HERO_AREA_READ = {
+    "Rarity", "LifeDuration", "HitSpeed", "HitSpeedOffset", "Damage", "CrownTowerDamagePercent", "Radius",
+    "HitsGround", "HitsAir", "AffectsHidden", "Pushback", "FollowBehaviour", "StayAfterParentDies", "Shape",
+    "DamageType", "Filter", "OnHitAction", "OnStartingAction", "OnLifeTimeEndAction", "Base",
+}
+# The keys the two spawns of a `spawn_ahead` effect may set (the inner one also IgnoreEffects), and the columns its
+# placeholder building may set.
+SPAWN_AHEAD_KEYS = {
+    "ClassType", "SpawnType", "SpawnData", "ValidatePlacementAsBuilding", "RelativeX", "RelativeY", "UseDeploy",
+}
+PLACEHOLDER_SET = {"Rarity", "IsBuilding", "DeployTime", "DeployDelay", "LifeTime", "OnStartingAction"}
+HERO_AREA_COSMETIC = {"ParentLoopingEffectToSelf", "ScaledEffect", "StatsTags", "OneShotEffect"}
+
+
+def hero_files(v: Vintage, stem: str) -> list[Path]:
+    """A hero form's two files: its card row, then its unit and ability."""
+    folder = v.raw / "characters" / "hero_form"
+    return [folder / f"{stem}_spell.toml", folder / f"{stem}.toml"]
+
+
+def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
+    """Lay the hero files of `forms` over `t` (the hero pass's own load): [SPELL_HERO.*] into a new
+    `spells_hero` table, [ABILITY.*] into `t.abilities`, the base row's EvolvedSpells into `t.hero_links`
+    (recorded, never applied: the base row stays as it is), [STATS.*] dropped, [SHAPE.*] and
+    [DAMAGE_TYPE.*] by name, every other section routed as the base pass routes it. A name a table
+    already holds stops the build."""
+    t["spells_hero"] = OverlayTable("spells_hero", None)
+    for _form, (_base, stem) in forms.items():
+        for p in hero_files(v, stem):
+            label = f"characters/hero_form/{p.name}"
+            for section, body in tomllib.load(p.open("rb")).items():
+                if not isinstance(body, dict):
+                    raise SystemExit(f"{label}: [{section}] is not a table")
+                if section in ("SPELL_CHARACTER", "SPELL_BUILDING", "SPELL_OTHER"):
+                    for n, f in body.items():
+                        t.hero_links[n] = list(f.get("EvolvedSpells") or [])
+                    continue
+                if section == "ABILITY":
+                    t.abilities.update(body)
+                    continue
+                if section == "STATS":
+                    continue
+                if section == "SHAPE":
+                    t.shapes.update(body)
+                    continue
+                if section == "DAMAGE_TYPE":
+                    t.damage_types.update(body)
+                if section == "SPELL_HERO":
+                    route = {n: "spells_hero" for n in body}
+                elif section == "EXT":
+                    route = {}
+                    for n, f in body.items():
+                        base = f.get("Base", "")
+                        key = SECTION_TABLE.get(base.split(".")[0]) if "." in base else None
+                        if key is None:
+                            raise SystemExit(f"{label}: [EXT.{n}] Base {base!r} names no table")
+                        route[n] = key
+                else:
+                    key = SECTION_TABLE.get(section)
+                    if key is None:
+                        raise SystemExit(f"{label}: unknown section [{section}]")
+                    route = {n: key for n in body}
+                for n, key in route.items():
+                    if n in t[key].records:
+                        raise SystemExit(f"{label}: [{section}.{n}] names a row {key} already holds")
+                    t[key].overlay(p, {n: body[n]}, f"{label} [{section}]")
+
+
+def _one_action(acts, name, cls: str, keys: set[str]) -> dict:
+    """Action `name`, which must be of class `cls` and set no key outside `keys`; else the build stops."""
+    a = acts.get(name) if isinstance(name, str) else None
+    if a is None or a["ClassType"] != cls:
+        raise SystemExit(f"hero ability: action {name!r} is not an {cls}")
+    extra = _present(a) - keys
+    if extra:
+        raise SystemExit(f"hero ability: action {name} sets {sorted(extra)}, which this reader does not read")
+    return a
+
+
+def hero_area(h: Tables, name: str) -> dict:
+    """One area a hero ability makes (an ActionSpawn of an AreaEffectType whose source is the hero), read
+    whole or the build stops: its clock (LifeDuration, HitSpeed, HitSpeedOffset), its hit (Damage and whether
+    its damage type scales with level, the crown-tower percent, the radius of its Shape, air and ground, the
+    enemy side from its Filter, Pushback), whether it rides on the hero and stays after it, the buff its
+    OnHitAction hangs (an ActionSelect whose options are one buff: `hero_select_buff`) and the area its
+    OnLifeTimeEndAction makes. An OnStartingAction must only play an effect."""
+    tb = h["area_effect_objects"]
+    r = tb.get(name)
+    if r is None:
+        raise SystemExit(f"hero ability: no area {name}")
+    unread = tb.set_fields.get(name, set()) - HERO_AREA_READ - HERO_AREA_COSMETIC
+    if unread:
+        raise SystemExit(f"hero ability: area {name} sets {sorted(unread)}, which this reader does not read")
+    acts = h["actions"]
+    if r["OnStartingAction"] is not None:
+        start = acts.get(r["OnStartingAction"])
+        # ActionInterval of an effect (the Ice Golem storm's blizzard): cosmetic.
+        cosmetic = start is not None and (
+            _cosmetic_action(acts, r["OnStartingAction"])
+            or (start["ClassType"] == "ActionInterval" and _cosmetic_action(acts, start["ActionToExecute"]))
+        )
+        if not cosmetic:
+            raise SystemExit(f"hero ability: area {name}'s OnStartingAction {r['OnStartingAction']} is not an effect")
+    shape = h.shapes.get(r["Shape"]) if isinstance(r["Shape"], str) else None
+    if shape is None or shape.get("ClassType") != "Circle" or not isinstance(shape.get("Radius"), int):
+        raise SystemExit(f"hero ability: area {name}'s Shape {r['Shape']!r} is not a circle")
+    if r["Radius"] is not None and r["Radius"] != shape["Radius"]:
+        raise SystemExit(f"hero ability: area {name}'s Radius {r['Radius']} is not its Shape's {shape['Radius']}")
+    dt = h.damage_types.get(r["DamageType"]) if isinstance(r["DamageType"], str) else None
+    if r["DamageType"] is not None and dt is None:
+        raise SystemExit(f"hero ability: area {name}'s DamageType {r['DamageType']} is not a row")
+    filt = filter_block(h, r["Filter"]) if r["Filter"] is not None else None
+    if r["Filter"] is not None and filt is None:
+        raise SystemExit(f"hero ability: area {name}'s Filter {r['Filter']} does not read")
+    buff, buff_ms = hero_select_buff(h, r["OnHitAction"]) if r["OnHitAction"] is not None else (None, None)
+    end = None
+    if r["OnLifeTimeEndAction"] is not None:
+        keys = {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"}
+        a = _one_action(acts, r["OnLifeTimeEndAction"], "ActionSpawn", keys)
+        if a["SpawnType"] != "AreaEffectType" or a["ParentGOAsSource"] is not True:
+            raise SystemExit(f"hero ability: area {name}'s OnLifeTimeEndAction does not make an area on the hero")
+        end = hero_area(h, a["SpawnData"])
+    return {
+        "name": name,
+        "life_ms": r["LifeDuration"],
+        "hit_speed_ms": r["HitSpeed"],
+        "hit_speed_offset_ms": r["HitSpeedOffset"],
+        "damage": r["Damage"],
+        # DAMAGE_TYPE EnableLevelScaling: false keeps the Damage at every level (a blank type scales).
+        "damage_level_scaling": True if dt is None else dt.get("EnableLevelScaling", True) is not False,
+        "crown_tower_damage_percent": ct_percent(r["CrownTowerDamagePercent"]),
+        "radius_milli": shape["Radius"],
+        "hits_ground": flag(r, "HitsGround"),
+        "hits_air": flag(r, "HitsAir"),
+        "only_enemies": bool(filt and filt.get("match_team_enemy")),
+        "affects_hidden": flag(r, "AffectsHidden"),
+        "pushback_milli": r["Pushback"],
+        "follow_parent": r["FollowBehaviour"] == "FollowParent",
+        "stay_after_parent_dies": flag(r, "StayAfterParentDies"),
+        "filter": filt,
+        "buff": buff,
+        "buff_time_ms": buff_ms,
+        "end_area": end,
+    }
+
+
+def hero_select_buff(h: Tables, name: str) -> tuple[dict, int]:
+    """An OnHitAction that is an ActionSelect of BuffType ActionSpawns (by tower, by radius): its buff and
+    SpawnTime when every option is ONE buff (the same columns but the name, the same time), which is the
+    select's whole effect whatever its conditions pick. Any other select stops the build."""
+    acts = h["actions"]
+    _one_action(acts, name, "ActionSelect", {"ClassType", "SubActions", "PerActionConditions"})
+    options = _list_col(acts, name, "SubActions")
+    seen: list[tuple[dict, int]] = []
+    for o in options:
+        s = o if isinstance(o, dict) else acts.get(o)
+        if s is None or s.get("ClassType") != "ActionSpawn" or s.get("SpawnType") != "BuffType":
+            raise SystemExit(f"hero ability: select {name} has an option that is not a buff")
+        if _present(s) - {"ClassType", "SpawnType", "SpawnTime", "SpawnData", "StatsTags"}:
+            raise SystemExit(f"hero ability: select {name} has an option this reader does not read")
+        b = norm_buff(h, s.get("SpawnData"))
+        if b is None:
+            raise SystemExit(f"hero ability: select {name} names no buff row {s.get('SpawnData')!r}")
+        seen.append((b, s.get("SpawnTime")))
+    if not seen:
+        raise SystemExit(f"hero ability: select {name} has no option")
+    first, ms = seen[0]
+    for b, t_ms in seen[1:]:
+        if {**b, "name": None} != {**first, "name": None} or t_ms != ms:
+            raise SystemExit(f"hero ability: select {name}'s options are not one buff")
+    return first, ms
+
+
+def ability_block(h: Tables, name: str, units: dict) -> dict:
+    """THE BUTTON of a hero form ([ABILITY.<name>]), read whole or the build stops: its cost, charges,
+    cooldown, cast and trigger times, KeepCurrentTarget, and what OnActivationAction does, one of two
+    shapes -- `spawn_ahead` (an ActionGroup of one ActionSpawnToLocation of a placeholder building whose only
+    job is its OnStartingAction, one ActionSpawnToLocation of the unit on the placeholder's point: the Hero
+    Musketeer's turret) or `parent_areas` (an ActionGroup of ActionSpawns of areas whose source is the hero:
+    the Hero Ice Golem's storm). A unit the effect names is added to `units`."""
+    a = h.abilities.get(name) if isinstance(name, str) else None
+    if a is None:
+        raise SystemExit(f"hero ability {name!r}: no [ABILITY] row")
+    unread = set(a) - ABILITY_READ_KEYS - ABILITY_UI_KEYS
+    if unread:
+        raise SystemExit(f"hero ability {name}: sets {sorted(unread)}, which this reader does not read")
+    acts = h["actions"]
+    got = _group_leaves(acts, a["OnActivationAction"])
+    if got is None:
+        raise SystemExit(f"hero ability {name}: OnActivationAction is not an ActionGroup")
+    subs, delays = got
+    if any(d != 0 for d in delays):
+        raise SystemExit(f"hero ability {name}: a delayed sub-action is not read")
+    classes = [acts.get(s)["ClassType"] for s in subs]
+    if classes == ["ActionSpawnToLocation"]:
+        outer = _one_action(acts, subs[0], "ActionSpawnToLocation", SPAWN_AHEAD_KEYS)
+        if outer["SpawnType"] != "CharacterType" or outer["UseDeploy"] is not False:
+            raise SystemExit(f"hero ability {name}: the placeholder is not a character spawned without its deploy")
+        dummy_name = outer["SpawnData"]
+        _, dummy = unit_record(h, dummy_name)
+        dummy_set = h["buildings"].set_fields.get(dummy_name, set())
+        if dummy["Hitpoints"] is not None or dummy_set - PLACEHOLDER_SET:
+            raise SystemExit(f"hero ability {name}: placeholder {dummy_name} is more than a timed spawn")
+        inner_keys = SPAWN_AHEAD_KEYS | {"IgnoreEffects"}
+        inner = _one_action(acts, dummy["OnStartingAction"], "ActionSpawnToLocation", inner_keys)
+        if inner["SpawnType"] != "CharacterType" or (inner["RelativeX"] or 0) != 0 or (inner["RelativeY"] or 0) != 0:
+            raise SystemExit(f"hero ability {name}: the placeholder's spawn is not a character on its own point")
+        unit = inner["SpawnData"]
+        _, urow = unit_record(h, unit)
+        rec = norm_unit(h, unit, with_raw=True)
+        # THE UNIT'S OnStartingAction: one ActionSpawnToLocation of a projectile row on the unit's own point, carried
+        # as the unit's deploy projectile (the blow the loader lands where the unit appears).
+        if urow["OnStartingAction"] is not None:
+            keys = {"ClassType", "SpawnType", "SpawnData"}
+            sa = _one_action(acts, urow["OnStartingAction"], "ActionSpawnToLocation", keys)
+            if sa["SpawnType"] != "ProjectileType":
+                raise SystemExit(f"hero ability {name}: {unit}'s OnStartingAction is not a projectile")
+            rec["deploy_projectile"] = norm_projectile(h, sa["SpawnData"])
+            rec["action_graph"] = None
+        if urow["ProjectileYOffset"]:
+            rec["projectile_y_offset_milli"] = urow["ProjectileYOffset"]
+        units[unit] = rec
+        effect = {
+            "kind": "spawn_ahead",
+            "relative_x": outer["RelativeX"] or 0,
+            "relative_y": outer["RelativeY"] or 0,
+            "validate_as_building": outer["ValidatePlacementAsBuilding"] is True,
+            "unit": unit,
+            "use_deploy": inner["UseDeploy"] is True,
+            "via": {"name": dummy_name, "life_ms": dummy["LifeTime"], "deploy_ms": dummy["DeployTime"]},
+        }
+    elif classes and all(c == "ActionSpawn" for c in classes):
+        areas = []
+        for s in subs:
+            sp = _one_action(acts, s, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"})
+            if sp["SpawnType"] != "AreaEffectType" or sp["ParentGOAsSource"] is not True:
+                raise SystemExit(f"hero ability {name}: {s} is not an area on the hero")
+            areas.append(hero_area(h, sp["SpawnData"]))
+        effect = {"kind": "parent_areas", "areas": areas}
+    else:
+        raise SystemExit(f"hero ability {name}: OnActivationAction runs {classes}, which this reader does not read")
+    return {
+        "name": name,
+        "mana_cost": a["ManaCost"],
+        "max_charges": a.get("MaxCharges"),
+        "cooldown_ms": a.get("Cooldown"),
+        "cast_ms": a.get("CastTime") or 0,
+        "trigger_delay_ms": a.get("TriggerDelay") or 0,
+        "keep_current_target": a.get("KeepCurrentTarget") is True,
+        "is_champion": a.get("IsChampion") is True,
+        "effect": effect,
+    }
+
+
+def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list[dict], list[Path]]:
+    """The `hero_forms` records (HERO_FORMS, in that order) from a load of their own, and the files read."""
+    h = load_tables(v, hero=HERO_FORMS)
+    h.level_base = level_base
+    out: list[dict] = []
+    files: list[Path] = []
+    for form, (base, stem) in HERO_FORMS.items():
+        files += hero_files(v, stem)
+        s = h["spells_hero"].get(form)
+        if s is None or s["CardForm"] != "HeroForm":
+            raise SystemExit(f"hero form {form}: no [SPELL_HERO] row with CardForm HeroForm")
+        # A row built from an overlay alone has no Name column of its own.
+        s = Row(s.columns, {**s, "Name": form})
+        if form not in h.hero_links.get(base, []):
+            raise SystemExit(f"hero form {form}: {base}'s EvolvedSpells does not list it")
+        key = next((k for k in ("spells_characters", "spells_buildings") if h[k].get(base) is not None), None)
+        if key is None:
+            raise SystemExit(f"hero form {form}: base card {base} is not a troop or building card")
+        card = summon_card(h, rarities, "troop" if key == "spells_characters" else "building", "spells_hero", s)
+        card["display_name"] = f"Hero {display_name(base)}"
+        card["form_of"] = base
+        unit = card["summon_character"]
+        _, urow = unit_record(h, unit)
+        units = {unit: norm_unit(h, unit, with_raw=True)}
+        # ProjectileYOffset, kept on the hero rows alone (COSMETIC drops it from `raw` everywhere).
+        if urow["ProjectileYOffset"]:
+            card["projectile_y_offset_milli"] = urow["ProjectileYOffset"]
+        card["ability"] = ability_block(h, urow["Ability"], units)
+        aeos = {}
+        dae = card.get("death_area_effect")
+        if dae:
+            aeos[dae] = norm_aeo(h, dae)
+        card["tables"] = {"units": units, "area_effect_objects": aeos}
+        out.append(card)
+    return out, files
+
+
 def build(t: Tables) -> dict:
     v = t.vintage
     rarities = rarity_table(t)
@@ -3439,6 +3769,10 @@ def build(t: Tables) -> dict:
         # The globals the loader reads, by name (`globals_block`). 15.535 only: the 2018 Mirror row
         # carries no `spell.mirror` and stays refused, so that file needs none.
         doc["globals"] = globals_block(v)
+        # THE HERO FORMS (`hero_form_records`), last, from a load of their own: no other record changes.
+        doc["hero_forms"], hero_files = hero_form_records(v, rarities, t.level_base)
+        read = {p.relative_to(v.raw).as_posix(): {"sha256": sha256_of(p)} for p in hero_files}
+        provenance["files"] = dict(sorted({**provenance["files"], **read}.items()))
     return doc
 
 
