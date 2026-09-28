@@ -7546,6 +7546,7 @@ impl BattleState {
                 && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
                 && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
             avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0,
+            seq: e.creation_seq[i],
         }
     }
 
@@ -11344,6 +11345,9 @@ impl BattleState {
                         avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle
                             && calib.formation_stagger_wait == StaggerWait::Client16402
                             && e.stagger_ms[i] > 0,
+                        // creation order breaks a tie inside one group (`move16402::Index::query`);
+                        // a slot is reused, its creation order is not
+                        seq: e.creation_seq[i],
                     }
                 })
                 .collect();
@@ -11404,6 +11408,8 @@ impl BattleState {
                         dir: (0, 0),
                         heading_counts: false,
                         avoid_static: false,
+                        // after every entity, as its place after the slots put it before `seq`
+                        seq: u32::MAX,
                     });
                 }
             }

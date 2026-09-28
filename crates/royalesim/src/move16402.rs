@@ -156,6 +156,9 @@ pub struct Body {
     /// the separation scan still meets it as a troop): a member waiting out its stagger
     /// under movement.WAITING_HEADING = static_obstacle.
     pub avoid_static: bool,
+    /// Creation order (`Entities::creation_seq`): what breaks a tie between two entities first sighted in one group
+    /// (`Index::query`), as on the client.
+    pub seq: u32,
 }
 
 /// The order neighbours are visited in, which decides the steering: the vote below
@@ -192,8 +195,16 @@ impl Index {
     }
 
     /// The neighbours of a circle, in visit order: every collidable entity, both
-    /// sides, no class filtered out. `bodies` is in update order (which breaks ties
-    /// inside one group); returns indices.
+    /// sides, no class filtered out. Two entities first sighted in one group are met
+    /// in CREATION order (`Body::seq`), then by index; returns indices.
+    ///
+    /// Measured on client 16.402 (RoyaleLive traces): over the 21 avoidance starts of the
+    /// corpus whose candidate blockers disagree on the sign, this order names the client's
+    /// sign on 20; creation order alone names 18 and "the nearest decides" 19. The
+    /// engine's bodies are its SLOTS, which a LIFO free list reuses, so the index alone met
+    /// two blockers in one group in slot order once anything had died
+    /// (20260918-130203.b2 t1568: a deploying Ice Spirit between two waiting Goblins, +190
+    /// where the client has -190).
     pub fn query(&self, bodies: &[Body], x: i32, y: i32, r: i32, out: &mut Vec<usize>) {
         out.clear();
         let (qc0, qc1) = (((x - r) >> 10).max(0), ((x + r) >> 10).min(self.cols - 1));
@@ -201,9 +212,9 @@ impl Index {
         if qc0 > qc1 || qr0 > qr1 {
             return;
         }
-        // (first group column, first group row, update index) of every entity whose
-        // circle overlaps the query circle now
-        let mut hits: Vec<(i32, i32, usize)> = Vec::new();
+        // (first group column, first group row, creation order, index) of every entity
+        // whose circle overlaps the query circle now
+        let mut hits: Vec<(i32, i32, u32, usize)> = Vec::new();
         for (i, b) in bodies.iter().enumerate() {
             let Some((c0, c1, r0, r1)) = self.span(b) else { continue };
             let (fc, lc) = (c0.max(qc0), c1.min(qc1));
@@ -213,11 +224,14 @@ impl Index {
             }
             let rr = b.r + r;
             if len_sq(x - b.x, y - b.y) < rr * rr {
-                hits.push((fc, fr, i));
+                #[cfg(not(clash_plant = "slot_order_group_tie"))]
+                hits.push((fc, fr, b.seq, i));
+                #[cfg(clash_plant = "slot_order_group_tie")]
+                hits.push((fc, fr, 0, i)); // PLANT (regression): a tie inside one group goes by slot, as before.
             }
         }
         hits.sort_unstable();
-        out.extend(hits.into_iter().map(|h| h.2));
+        out.extend(hits.into_iter().map(|h| h.3));
     }
 }
 
@@ -879,7 +893,26 @@ mod tests {
     use super::*;
 
     fn body(x: i32, y: i32, r: i32, mass: i32, mover: bool, side: u8) -> Body {
-        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false }
+        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false, seq: 0 }
+    }
+
+    #[test]
+    fn a_tie_inside_one_group_goes_by_creation_order() {
+        // 20260918-130203.b2 t1568 in miniature: a walker heading up between two static
+        // blockers mirrored across its heading, both first sighted in the look group. The
+        // LAST static met sets the sign: the left one gives +200, the right one -200. The
+        // right one was created later, but it sits in the LOWER slot (a reused one). The
+        // plant slot_order_group_tie (the tie by slot, as before) turns this red.
+        let index = Index::new(36, 64);
+        let walker = body(4499, 14000, 400, 1, true, 0);
+        let mut right = body(5260, 14500, 500, 3, false, 0);
+        let mut left = body(3738, 14500, 500, 3, false, 0);
+        (left.seq, right.seq) = (40, 41);
+        let bodies = [walker, right, left];
+        let mut scratch = Vec::new();
+        let mut con = Contact::default();
+        avoidance_scan(&index, &bodies, 0, &mut con, None, false, &mut scratch);
+        assert_eq!(con.offset, -200, "the later-created (right) blocker is met last, whatever its slot");
     }
 
     #[test]
