@@ -84,6 +84,23 @@ def test_the_2018_table_scores_too():
     assert r.failures == [], "\n".join(r.failures)
 
 
+def test_todays_extractor_builds_the_2018_table(tmp_path):
+    """The table the test above reads is generated, so a workspace can hold one an OLDER extractor wrote: the
+    suite then passes while the extractor itself cannot build the 2018 table any more (a champion's button reader
+    once indexed a 2018 row, a plain dict, as a 15.535 one, and stage 3 crashed where every test was green). Build
+    it afresh here, as stage 3 does, and read the build."""
+    out = tmp_path / "cards-2018.json"
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "extract_cards.py"), "--vintage", "2018", "--out", str(out)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    with open(out, encoding="utf-8") as fh:
+        assert json.load(fh).get("version") == "cards-2018.1"
+
+
 # --- the evidence: each plant lands, and lands where it was aimed ----------------
 
 # plant -> a fragment the failure it causes must contain. A plant that reddens the

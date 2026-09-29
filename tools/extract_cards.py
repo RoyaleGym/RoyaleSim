@@ -3004,7 +3004,8 @@ def champion_dash_chain(t, unit: str) -> dict | None:
         if r is not None:
             kind, row = k, r
             break
-    name = row["Ability"] if row is not None and "Ability" in row.columns else None
+    # A 2018 row is a plain dict with no [ABILITY] section behind it: no button.
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
     if a is None or kind != "characters":
         return None
