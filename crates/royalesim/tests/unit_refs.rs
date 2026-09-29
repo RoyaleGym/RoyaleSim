@@ -157,6 +157,7 @@ fn shape_buffs(shape: &SpellShape, out: &mut Vec<u16>) {
         SpellShape::Strikes(d) => (Some(&d.hit), d.delivery.as_deref()),
         SpellShape::Clone { hit, .. } => (Some(hit), None),
         SpellShape::Fuse { then, .. } => (None, Some(then.as_ref())),
+        SpellShape::Echo { hit, then } => (Some(hit), Some(then.as_ref())),
         SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => (None, None),
     };
     if let Some(h) = hit {

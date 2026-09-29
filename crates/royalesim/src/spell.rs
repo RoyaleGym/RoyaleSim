@@ -462,6 +462,22 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         SpellShape::AreaEffect { hit } => {
             out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth });
         }
+        // An echoing area (card.rs `SpellShape::Echo`, the Evo Zap): its own hit as an `AreaEffect`'s, and its second
+        // strike's fuse, made with it at the same point.
+        SpellShape::Echo { hit, then } => {
+            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth });
+            // The second area is made on the cast tick + floor(delay / TICK_MS) (actions.SUB_ACTIONS_DELAY, as a
+            // scheduled area's entries are) and first acts the tick after, as an area another area makes does: one
+            // tick past the fuse's own release (spells.SUMMON_FUSE_START). Measured on client 15.535.29
+            // (sp-form-Zap-evo-s0): the second strike 30 frames after the first, for a delay of 1450.
+            let mut rest = objects_for(cards, calib, arena, team, card, level, depth + 1, then, tap, now)?;
+            for o in rest.iter_mut() {
+                if let SpellMotion::Fuse { ms, .. } = &mut o.motion {
+                    *ms += calib.tick_ms;
+                }
+            }
+            out.extend(rest);
+        }
         // A PULSING area effect is born at the tap with its first application DUE
         // (`next_ms` 0), so it applies on the tick it lands and every HitSpeed after --
         // spells.PULSING_AREA_EFFECT = hit_speed_period_from_landing. Under
@@ -1645,7 +1661,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 }
                 false
             }
-            (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit }) => {
+            (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit } | SpellShape::Echo { hit, .. }) => {
                 let first_new = fx.buffs.len();
                 impact(ctx, s.team, s.card, s.level, *pos, hit, s.damage, s.pulse, dmg, fx, nb, None);
                 // A UNIT'S SPAWN AREA (card.rs `spawn_area_effect`, the Battle Healer's BattleHealerSpawnHeal; cast only

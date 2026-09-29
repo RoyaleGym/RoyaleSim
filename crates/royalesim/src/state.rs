@@ -20519,6 +20519,9 @@ impl BattleState {
 ///    saved against other card data. EvoCounter gained `cycles` (serde default EVO_BASIC_PLAYS, not hashed), EvoBoard
 ///    `spears` and Projectile `trail` (serde default empty and None, hashed only when set), so a blob saved before them
 ///    deserializes and hashes as it did.
+/// 20, unchanged, the Evo Zap (card.rs `SpellShape::Echo`): the table gained an evolved spell whose shape is a new
+///    variant, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other
+///    card data. No new state: its objects are an area and a fuse, saved and hashed as before.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

@@ -271,6 +271,10 @@ pub enum SpellShape {
     /// A one-shot area effect at the tap (HitSpeed blank), applied on its first
     /// update (calibration spells.ONE_SHOT_AREA_EFFECT_APPLICATION).
     AreaEffect { hit: SpellHit },
+    /// A ONE-SHOT AREA THAT STRIKES AGAIN (the Evo Zap's Zap_EV1; `echo_area`): `hit` on its first update, as an
+    /// `AreaEffect` applies it, and its OnStartingAction's one live area later, `then`: a `Fuse` made with it, whose
+    /// fuse is that action's SubActionsDelay and whose `then` is the second area, at the same point.
+    Echo { hit: SpellHit, then: Box<SpellShape> },
     /// A PULSING area effect at the tap (HitSpeed set): it stands on the ground for
     /// LifeDuration and applies `hit` to everything inside it every `hit_speed_ms`,
     /// starting with the tick it lands (Poison 8000 / 250, Earthquake 3000 / 100).
@@ -1081,7 +1085,7 @@ impl SpellShape {
     /// centre-aimed strike makes (`StrikeDef::delivery`).
     pub fn child(&self) -> Option<&SpellShape> {
         match self {
-            SpellShape::Fuse { then, .. } => Some(then),
+            SpellShape::Fuse { then, .. } | SpellShape::Echo { then, .. } => Some(then),
             SpellShape::PulsingAreaEffect { child, .. } => child.as_deref(),
             SpellShape::Strikes(d) => d.delivery.as_deref(),
             _ => None,
@@ -1101,7 +1105,7 @@ impl SpellShape {
     fn schedule_mut(&mut self) -> Option<&mut Vec<ScheduledSpawn>> {
         match self {
             SpellShape::ScheduledArea { schedule, .. } => Some(schedule),
-            SpellShape::Fuse { then, .. } => then.schedule_mut(),
+            SpellShape::Fuse { then, .. } | SpellShape::Echo { then, .. } => then.schedule_mut(),
             SpellShape::PulsingAreaEffect { child: Some(c), .. } => c.schedule_mut(),
             SpellShape::Strikes(d) => d.delivery.as_deref_mut().and_then(SpellShape::schedule_mut),
             _ => None,
@@ -1114,6 +1118,7 @@ impl SpellShape {
         let hit = match self {
             SpellShape::Projectile { hit, .. } => hit.as_ref(),
             SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. } | SpellShape::Rolling { hit, .. } => Some(hit),
+            SpellShape::Echo { hit, .. } => Some(hit),
             SpellShape::Strikes(d) => Some(&d.hit),
             SpellShape::Clone { hit, .. } => Some(hit),
             SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => None,
@@ -5084,9 +5089,75 @@ fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx
     if let Some(got) = scheduled_area(aeo) {
         return got;
     }
+    // A ONE-SHOT AREA WHOSE ACTION STRIKES AGAIN LATER (the Evo Zap).
+    if let Some(got) = echo_area(aeo, buffs, ctx) {
+        return got;
+    }
     let what = aeo.name.clone().unwrap_or_default();
     refuse_action_mechanic_but_on_hit(aeo, &format!("area effect {what}"))?;
     area_effect_shape(aeo, buffs, ctx)
+}
+
+/// A ONE-SHOT AREA THAT STRIKES AGAIN (`SpellShape::Echo`; the Evo Zap's Zap_EV1): an area with a hit of its own and
+/// no HitSpeed, whose OnStartingAction (its graph exactly its schedule, `graph_is_its_schedule`) spawns areas: every one
+/// that lands nothing and spawns nothing is a visual (DummyZap_EV1_Visual) and is not made; exactly one other, a
+/// one-shot area of its own at a positive delay inside the parent's LifeDuration, is the second strike, made at the
+/// same point after that delay (a `Fuse`). None for any other area, which the paths after this one read.
+///
+/// Measured on client 15.535.29 (sp-form-Zap-evo-s0, level 11): the evolved Zap took 192 off a Knight and a Musketeer
+/// on its cast frame and 192 again 30 frames later (Zap_EV1_SpawnAOE_medium: the Zap with Radius + 500, at 1450 ms).
+fn echo_area(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Option<Result<(SpellShape, UnitNeeds), String>> {
+    let sched = aeo.schedule.as_ref()?;
+    if aeo.hit_speed_ms.is_some_and(|h| h > 0) || area_lands_nothing(aeo) || !graph_is_its_schedule(aeo, sched) {
+        return None;
+    }
+    let spawns_area = |e: &RawScheduleEntry| e.class.as_deref() == Some("ActionSpawn") && e.spawn_type.as_deref() == Some("AreaEffectType") && e.unread.is_empty();
+    if sched.entries.iter().any(|e| !e.is_cosmetic() && !spawns_area(e)) {
+        return None;
+    }
+    let what = aeo.name.clone().unwrap_or_default();
+    let mut live: Vec<(i32, &RawAreaEffect, String)> = Vec::new();
+    for e in sched.entries.iter().filter(|e| !e.is_cosmetic()) {
+        let name = e.spawn.clone().unwrap_or_default();
+        let Some(c) = ctx.aeos.get(&name) else {
+            return Some(Err(format!("area effect {what} spawns {name}, which has no area_effect_objects record")));
+        };
+        // A visual: it lands nothing, spawns nothing and runs no action.
+        if area_lands_nothing(c) && c.schedule.is_none() && c.action_graph.is_none() {
+            continue;
+        }
+        live.push((e.delay_ms.unwrap_or(0), c, name));
+    }
+    let [(delay, child, cname)] = live.as_slice() else { return None };
+    let (delay, child) = (*delay, *child);
+    // A spawn at 0 is not a second strike: the paths after this one read it (or refuse it) as they did.
+    if delay <= 0 {
+        return None;
+    }
+    let mut run = || -> Result<(SpellShape, UnitNeeds), String> {
+        if aeo.life_duration_ms.is_some_and(|l| delay >= l) {
+            return Err(format!("area effect {what} strikes again at {delay} ms, outside its life; not simulated"));
+        }
+        // Its own hit, read as any one-shot area's (its schedule is read here, not there).
+        let (own, needs) = area_effect_shape(aeo, buffs, ctx).map_err(|e| format!("area effect {what}: {e}"))?;
+        let SpellShape::AreaEffect { hit } = own else {
+            return Err(format!("area effect {what} is not a one-shot area of its own; not simulated"));
+        };
+        refuse_action_mechanic(&child.action_graph, &format!("area effect {cname}"))?;
+        let (second, more) = area_effect_shape(child, buffs, ctx).map_err(|e| format!("area effect {what} spawns {cname}: {e}"))?;
+        if !more.is_empty() || !needs.is_empty() || !matches!(second, SpellShape::AreaEffect { .. }) {
+            return Err(format!("area effect {what} spawns {cname}, which is not a one-shot area of its own; not simulated"));
+        }
+        #[cfg(not(clash_plant = "echo_dropped"))]
+        let shape = SpellShape::Echo { hit, then: Box::new(SpellShape::Fuse { fuse_ms: delay, then: Box::new(second) }) };
+        #[cfg(clash_plant = "echo_dropped")]
+        let shape = {
+            let _ = second;
+            SpellShape::AreaEffect { hit } // PLANT (regression): the area strikes once, as the base card's does.
+        };
+        Ok((shape, Vec::new()))
+    };
+    Some(run())
 }
 
 /// AN AREA THAT LANDS NOTHING OF ITS OWN: it hits neither ground nor air, and it carries no Buff, Pushback,
@@ -8206,12 +8277,16 @@ impl CardDb {
         let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("evolutions: {e}"))?;
         let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of).ok_or_else(|| format!("its base card {} does not load", extra.form_of))?;
         let bc = self.get(base).clone();
-        if bc.summon_only || bc.spell.is_some() || bc.evo.is_some() || bc.kind == CardKind::Spell {
-            return Err(format!("its base card {} is not a troop or building card", bc.name));
+        // AN EVOLVED SPELL (the Evo Zap) evolves a spell card; its mechanic is its own spell object's (an echoing area,
+        // `echo_area`), so it carries no block. Every other form evolves a troop or a building and carries one.
+        let spell_form = bc.kind == CardKind::Spell && bc.spell.is_some();
+        if bc.summon_only || bc.evo.is_some() || (!spell_form && (bc.spell.is_some() || bc.kind == CardKind::Spell)) {
+            return Err(format!("its base card {} is not a troop, building or spell card", bc.name));
         }
         let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some(), extra.evo_spear.is_some()];
-        if blocks.iter().filter(|b| **b).count() != 1 {
-            return Err("a form carries exactly one mechanic block here".into());
+        let carried = blocks.iter().filter(|b| **b).count();
+        if (spell_form && carried != 0) || (!spell_form && carried != 1) {
+            return Err("a troop or building form carries exactly one mechanic block here, a spell form none".into());
         }
         let reads: &[&str] = if extra.evo_barrage.is_some() {
             &["ActionCannonBarrage", "ActionGroup"]
@@ -9023,6 +9098,8 @@ impl CardDb {
                         Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } | SpellShape::Clone { .. }) => {
                             return Err(format!("{what}: the spell's own object carries no crown-tower share"))
                         }
+                        // An echoing area's two hits are the table's own; a value for one of them is refused.
+                        Some(SpellShape::Echo { .. }) => return Err(format!("{what}: an echoing area's crown-tower share is not replaced")),
                         None => c.crown_tower_damage_percent = pct,
                     }
                 }

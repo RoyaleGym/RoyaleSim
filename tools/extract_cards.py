@@ -3519,9 +3519,11 @@ def globals_block(v: Vintage) -> dict:
 # THE EVOLVED FORMS THIS BUILD LOADS (15.535 only), each a spells_evolved row: the evolved form of the base card
 # whose EvolvedSpells names it. Only these three: the engine runs their mechanics (card.rs `EvoDef`), and a form
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
-EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1")
+EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1")
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
+# The card tables an evolved row's base card may come from, and the kind each gives the form.
+EVOLVED_BASE_TABLES = (("spells_characters", "troop"), ("spells_buildings", "building"), ("spells_other", "spell"))
 EVOLUTIONS_PLAYED_NOT_IN_USE = {
     "AngryBarbarians_EV1": "sp-form-AngryBarbarians-evo-s0 and sp-ec-AngryBarbarians: the second play puts it down",
 }
@@ -3777,13 +3779,22 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             raise SystemExit(f"spells_evolved.{name}: absent or NotInUse")
         bases = [
             (key, kind, b)
-            for key, kind in (("spells_characters", "troop"), ("spells_buildings", "building"))
+            for key, kind in EVOLVED_BASE_TABLES
             for b in t[key].records.values()
             if b["EvolvedSpells"] == name and not b["NotInUse"]
         ]
         if len(bases) != 1:
             raise SystemExit(f"spells_evolved.{name}: {len(bases)} base cards name it in EvolvedSpells")
         _, kind, b = bases[0]
+        if kind == "spell":
+            # AN EVOLVED SPELL (the Evo Zap): its row is a spell row, built as its base's (`spell_card`); its mechanic
+            # is its area's own actions (card.rs reads them), so it carries no block of its own.
+            card = spell_card(t, rarities, s)
+            card["form_of"] = b["Name"]
+            card["spells_evolved_row"] = list(ev.records).index(name)
+            card["evo_cycles"] = s["DarkElixirCost"]
+            out.append(card)
+            continue
         card = summon_card(t, rarities, kind, "spells_evolved", s)
         # The form's kind is its base card's: Cannon_EV1 is an [EXT] of CHARACTER.Cannon, filed under characters,
         # with IsBuilding inherited true.
