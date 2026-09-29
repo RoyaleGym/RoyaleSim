@@ -7671,6 +7671,7 @@ impl BattleState {
     ///     (scene-b-s0 t796, -s1 t796, m5-clone t837), past any one push;
     ///   - a copy walking on its first frame stands one Skeleton step (88 to 90) away, plus any push; with both
     ///     together, up to 172.
+    ///
     /// Unmeasured: a point past the arena's end. sp-m4-towerhit t1331's hitter stands at y 31071, so its point is at y
     /// 32071, and the copy's first frame is (937, -1062) from it. `spawn_now` puts it where it puts any point off the
     /// board.

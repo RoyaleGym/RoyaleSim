@@ -234,7 +234,7 @@ fn a_barrage_bomb_lands_before_the_move_pass() {
     while s.tick_count() < play + 20 {
         s.tick();
     }
-    let skeletons: Vec<_> = s.entities().filter(|e| e.team == Team::Red && e.card == "Skeleton").map(|e| (e.id, e.pos)).collect();
+    let skeletons: Vec<_> = s.entities().filter(|e| e.team == Team::Red && e.card == "Skeletons").map(|e| (e.id, e.pos)).collect();
     assert_eq!(skeletons.len(), 3, "the scene drifted: {skeletons:?}");
     let (far, at) = *skeletons.iter().max_by_key(|(_, p)| p.dist2(bomb)).unwrap();
     let (dx, dy) = ((at.x - bomb.x) / K, (at.y - bomb.y) / K);

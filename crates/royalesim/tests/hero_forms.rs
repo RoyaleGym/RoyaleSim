@@ -409,7 +409,7 @@ fn a_cast_keeps_her_target_and_restarts_her_attack_clock() {
     // she comes out of the 950 ms cast still on the far Knight, her attack progress and load timer 0 through the cast,
     // and enters a fresh cycle on it (progress LoadTime + 50 = 350, load 300). The plant cast_releases_target (the lock
     // let go for a rescan at the hold's end) turns this red.
-    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    let (mut s, hid) = hero_on_first_frame(config(), vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
     run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
     let p = s.entity(hid).unwrap().pos;
     s.spawn_unit(Team::Red, "Knight", p.add(native(0, 5500)), None).expect("the far Knight");
@@ -448,7 +448,7 @@ fn a_cast_does_not_stop_her_target_search() {
     // sp-scene-d in miniature (client 15.535.29): her target is lost mid-cast (there on t154, to her turret's blow)
     // and she takes the enemy left in her sight on the next tick (t155), while the cast still holds her, not when the
     // cast ends. The plant cast_blinds_target_search (the cast holds her search as a stun does) turns this red.
-    let (mut s, hid) = hero_on_first_frame(vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    let (mut s, hid) = hero_on_first_frame(config(), vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
     run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
     let p = s.entity(hid).unwrap().pos;
     let lost = s.scenario_spawn_now(Team::Red, "Knight", p.add(native(-1500, 4000)), Some(1)).expect("the Knight she loses");
