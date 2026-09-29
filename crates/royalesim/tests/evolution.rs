@@ -239,10 +239,15 @@ fn a_barrage_bomb_lands_before_the_move_pass() {
     assert_eq!(skeletons.len(), 3, "the scene drifted: {skeletons:?}");
     let (far, at) = *skeletons.iter().max_by_key(|(_, p)| p.dist2(bomb)).unwrap();
     let (dx, dy) = ((at.x - bomb.x) / K, (at.y - bomb.y) / K);
-    let len = ((dx as f64).powi(2) + (dy as f64).powi(2)).sqrt();
-    assert!(len > 1500.0 && len < 2400.0, "the scene drifted: the far skeleton stands {len} from its bomb");
+    // Integers only (tests/test_no_floats.py): the length in thousandths, and each offset rounded to the nearest unit.
+    let len_milli = royalesim::fixed::isqrt((dx as i64 * dx as i64 + dy as i64 * dy as i64) * 1_000_000);
+    assert!(len_milli > 1_500_000 && len_milli < 2_400_000, "the scene drifted: the far skeleton stands {} from its bomb", len_milli / 1000);
+    let along = |d: i32| -> i32 {
+        let num = d as i64 * 1010 * 1000 * 2;
+        (if num >= 0 { (num + len_milli) / (2 * len_milli) } else { -((-num + len_milli) / (2 * len_milli)) }) as i32
+    };
     // 1010 beyond it along the bomb's line: clear of it (radii 500 + 500), and more than 2500 from the bomb.
-    let spot = Vec2::new(at.x + ((dx as f64) * 1010.0 / len).round() as i32 * K, at.y + ((dy as f64) * 1010.0 / len).round() as i32 * K);
+    let spot = Vec2::new(at.x + along(dx) * K, at.y + along(dy) * K);
     s.spawn_unit_resolved(Team::Red, "Knight", spot, None).unwrap();
     s.tick();
     let knight = s.entities().filter(|e| e.team == Team::Red && e.card == "Knight").map(|e| e.id).next().expect("the Knight");
