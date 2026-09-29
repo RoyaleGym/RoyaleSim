@@ -172,6 +172,10 @@ The crate itself has no Python dependency and builds alone.
 - **Units and their levels.** Each entity row of `state_json()` ends in `level`, the unified level
   the entity plays at: a played unit's card level, a Mirror's copy one above it, a Clone's copy the
   Clone's, a unit another unit puts down its parent's, a crown tower its tower level.
+  `unit_hitpoints(card_id, level)` lists every unit a card puts on the board, as (role, unit name,
+  hitpoints) at the level each one takes. The card's own row comes first; the other roles are
+  `second_summon`, `spawn`, `death_spawn` and `release` (`royalesim.UNIT_ROLES`). So a unit that
+  matches no catalogue row by its hitpoints can still be priced.
 - **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
   `tower_positions`), so a learner can build its action mask from the engine's own numbers and
