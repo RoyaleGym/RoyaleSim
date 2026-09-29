@@ -132,6 +132,12 @@ pub struct BuffDef {
     /// card hangs.
     #[serde(default)]
     pub not_cloned: bool,
+    /// character_buffs Invisible: no enemy may target the carrier while the buff lasts, a kept target included
+    /// (target.rs `invisible_at`); area damage still lands. Measured on client 15.535.29 on the Archer Queen's cape
+    /// (sp-champ-ArcherQueen-s0): every enemy targeting her drops her on the buff's first frame. `default` so a record
+    /// written before the field still reads.
+    #[serde(default)]
+    pub invisible: bool,
     /// character_buffs DamageReduction, RAW, 1..=100 (0 = blank; the loader refuses any other value): every hit a
     /// carrier takes is scaled by (100 - DamageReduction) / 100 under status.DAMAGE_REDUCTION (combat.rs
     /// `reduce_hit`, `damage_reduction_of`). The Super Knight's shield area hangs 100, the Evo Knight's idle buff 60.

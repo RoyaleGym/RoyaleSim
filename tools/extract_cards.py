@@ -2089,6 +2089,10 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
             out["clone"] = True
         if flag(b, "NotCloned"):
             out["not_cloned"] = True
+        # Invisible: no enemy may target the carrier while it lasts (the Archer Queen's cape; the engine's target.rs
+        # `invisible_at`). Written only where set, so every other buff is unchanged.
+        if flag(b, "Invisible"):
+            out["invisible"] = True
         if b["AttachedInheritAs"]:
             out["attached_inherit_as"] = b["AttachedInheritAs"]
         # UNKILLABLE among GameTagsToSet: the carrier's hitpoints do not fall below 1 while the buff lasts (the Hero
@@ -3113,6 +3117,44 @@ def champion_deflect(t, unit: str) -> dict | None:
     }
 
 
+# The self-buff ability: every column the reader takes, or none (the Deflect's cosmetic columns aside).
+SELF_BUFF_ABILITY_READ = {
+    "Buff", "BuffTime", "CastTime", "MaxCharges", "ManaCost", "Name", "TriggerDelay", "StatsTags", "Stats",
+}
+
+
+def champion_self_buff(t, unit: str) -> dict | None:
+    """THE BUTTON OF A CHAMPION WHOSE PRESS HANGS A BUFF ON HERSELF (15.535: the Archer Queen's ArcherQueenRapid),
+    or None (the card loads as a plain troop). The ability row names a Buff and its BuffTime, a CastTime and a
+    TriggerDelay, one charge, and nothing else: no OnActivationAction, no area, no tags held. Any other column gives
+    None."""
+    row = t["characters"].get(unit)
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - SELF_BUFF_ABILITY_READ - DEFLECT_ABILITY_COSMETIC:
+        return None
+    if a.get("MaxCharges") != 1:
+        return None
+    buff = norm_buff(t, a.get("Buff"))
+    ints = [a.get(k) for k in ("BuffTime", "CastTime", "TriggerDelay", "ManaCost")]
+    if buff is None or not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints):
+        return None
+    buff_ms, cast_ms, trigger_ms, mana = ints
+    if buff_ms <= 0:
+        return None
+    return {
+        "name": a["Name"],
+        "mana_cost": mana,
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": False,
+        "is_champion": True,
+        "effect": {"kind": "self_buff", "buff": buff, "time_ms": buff_ms},
+    }
+
+
 def champion_dash_chain(t, unit: str) -> dict | None:
     """THE BUTTON OF A CHAMPION WHOSE PRESS RUNS A DASH CHAIN (15.535: the Golden Knight's GoldenKnightChain), or
     None for a unit with no [ABILITY] or another one (it loads as a plain troop). The ability's OnActivationAction is
@@ -3250,7 +3292,11 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # 15.535 only: a champion whose button runs a dash chain (the Golden Knight), read whole
     # (`champion_dash_chain`). Every other champion's button is not read, and its card loads as
     # a plain troop, as before.
-    chain = champion_dash_chain(t, res["character"]) or champion_deflect(t, res["character"])
+    chain = (
+        champion_dash_chain(t, res["character"])
+        or champion_deflect(t, res["character"])
+        or champion_self_buff(t, res["character"])
+    )
     if chain is not None:
         card["ability"] = chain
     # Only on a row that reflects (norm_unit), so every other card row is unchanged.

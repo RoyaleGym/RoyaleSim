@@ -1199,6 +1199,11 @@ pub enum AbilityEffect {
     /// shot that lands on him is also sent back at its firer for its full damage (combat.rs `step_projectiles`,
     /// state.rs `deflects`). One charge: measured on client 15.535.29, no second press is taken within 60 s.
     Deflect { buff: BuffApply, active_ms: i32 },
+    /// A CHAMPION'S BUFF ON HERSELF (the Archer Queen's cape; `convert_champion_ability`): from the trigger, `buff` on
+    /// the champion for its time (state.rs `fire_ability`). Measured on client 15.535.29 (sp-champ-ArcherQueen-s0):
+    /// the cape lands on P + 4 (TriggerDelay 200), every enemy drops her then (its Invisible), and she attacks at 2.8
+    /// times her rate (HitSpeedMultiplier 280) from her cast's end to P + 73. One charge.
+    SelfBuff { buff: BuffApply },
 }
 
 /// ONE STEP OF AN ACTION GROUP (`AbilityEffect::ActionGroup`).
@@ -4479,6 +4484,8 @@ struct RawBuff {
     /// character_buffs Clone and NotCloned (`BuffDef::clone`, `BuffDef::not_cloned`); 15.535 only, written where set.
     clone: Option<bool>,
     not_cloned: Option<bool>,
+    /// character_buffs Invisible (`BuffDef::invisible`); 15.535 only, written where set.
+    invisible: Option<bool>,
     /// character_buffs GameTagsToSet UNKILLABLE and CharacterCrownTowerDamagePercent (`BuffDef::unkillable`,
     /// `BuffDef::char_crown_pct`); 15.535 only, written where set.
     unkillable: Option<bool>,
@@ -4631,6 +4638,7 @@ impl RawBuff {
             crown_hit: self.crown_tower_damage_per_hit.unwrap_or(0),
             clone_hold: self.clone.unwrap_or(false),
             not_cloned: self.not_cloned.unwrap_or(false),
+            invisible: self.invisible.unwrap_or(false),
             damage_reduction,
             damage_pct: self.damage_multiplier.unwrap_or(0),
             unkillable: self.unkillable.unwrap_or(false),
@@ -6616,6 +6624,15 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
     }
     // THE MONK'S DEFLECT: one charge, its buff on the champion, an active window; its CastTime and TriggerDelay run
     // through the press path every hero button takes (state.rs `start_ability`, `fire_scheduled`).
+    if a.effect.kind == "self_buff" {
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a self buff other than one charge with no cooldown is not simulated"));
+        }
+        let e = &a.effect;
+        let rb = e.buff.as_ref().ok_or_else(|| format!("{what}: a self buff with no buff"))?;
+        let buff = buffs.apply(rb, e.time_ms, &what)?;
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect: AbilityEffect::SelfBuff { buff } }));
+    }
     if a.effect.kind == "deflect" {
         if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
             return Err(format!("{what}: a deflect other than one charge with no cooldown is not simulated"));

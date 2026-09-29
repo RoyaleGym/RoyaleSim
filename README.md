@@ -520,7 +520,9 @@ Working:
   near, he runs at his target at twice his speed and dashes when it is in reach, as in the game.
   The Monk's hits run in his three-hit combo, the third pushing its target away. His button runs
   too: after its cast he stands, takes every hit at 35 % and sends enemy shots back at their
-  shooters, once. The other champions play as plain troops.
+  shooters, once. The Archer Queen's button runs as well: for 3.5 seconds no enemy can target
+  her and she shoots 2.8 times as fast, once. The Skeleton King and the Mighty Miner play as
+  plain troops.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,

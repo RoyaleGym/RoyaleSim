@@ -244,6 +244,14 @@ pub fn invisible(ctx: &TargetCtx, c: usize) -> bool {
 /// `invisible` from its parts, for a reader with no TargetCtx: the export's `status_flags` bit 1 (state.rs `view`),
 /// asked with the tick the next targeting runs on, so the bit is the predicate that targeting will act on.
 pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c: usize) -> bool {
+    // A CARRIED INVISIBLE BUFF (status.rs `BuffDef::invisible`; the Archer Queen's cape), whatever hung it: no enemy
+    // may target the carrier while it lasts, a kept target included. Measured on client 15.535.29
+    // (sp-champ-ArcherQueen-s0): the Knight, the Skeleton and the Musketeer that held her all took a tower on the
+    // cape's first frame; a shot already flying still landed.
+    #[cfg(not(clash_plant = "buff_invisible_targetable"))]
+    if ents.buff_slots(c).iter().any(|s| !s.is_empty() && cards.buffs[(s.id - 1) as usize].invisible) {
+        return true;
+    }
     if calib.invisibility != crate::state::Invisibility::ClientUntilHit {
         return false;
     }

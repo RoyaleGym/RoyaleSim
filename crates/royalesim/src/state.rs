@@ -7955,7 +7955,7 @@ impl BattleState {
             let champions: Vec<u16> = config.decks[t]
                 .iter()
                 .filter_map(|n| cards.index(n))
-                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. })))
+                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. })))
                 .fold(Vec::new(), |mut v, idx| {
                     if !v.contains(&idx) {
                         v.push(idx);
@@ -18746,7 +18746,7 @@ impl BattleState {
 
     /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
-        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. }))
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. }))
     }
 
     /// Does `form`'s used charge come back? The Golden Knight's does (combat.DASH_CHAIN_COOLDOWN); the Monk's Deflect is
@@ -18972,6 +18972,12 @@ impl BattleState {
                 let ticks = (active_ms / self.cfg.calib.tick_ms.max(1)).max(1) as u32;
                 self.deflects.retain(|(id, _)| *id != hero);
                 self.deflects.push((hero, self.tick + ticks));
+                let _ = (team, level, pos);
+            }
+            // A CHAMPION'S BUFF ON HERSELF (the Archer Queen's cape): it lands now, as any buff lands (`land_buff`).
+            crate::card::AbilityEffect::SelfBuff { buff } => {
+                let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                 let _ = (team, level, pos);
             }
             crate::card::AbilityEffect::ActionGroup { steps } => {

@@ -10478,6 +10478,44 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "ability": {
+    "name": "ArcherQueenRapid",
+    "mana_cost": 1,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 933,
+    "trigger_delay_ms": 200,
+    "keep_current_target": false,
+    "is_champion": true,
+    "effect": {
+     "kind": "self_buff",
+     "buff": {
+      "name": "ArcherQueenRapid",
+      "speed_multiplier_raw": -25,
+      "hit_speed_multiplier_raw": 280,
+      "spawn_speed_multiplier_raw": null,
+      "damage_per_second": null,
+      "hit_frequency_ms": null,
+      "heal_per_second": null,
+      "damage_reduction": null,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": null,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": false,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": null,
+      "not_cloned": true,
+      "invisible": true
+     },
+     "time_ms": 3500
+    }
+   },
    "count": 1,
    "summon_radius_milli": null,
    "summon_width_milli": null,
@@ -67613,7 +67651,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "invisible": true
    },
    "buff_time_ms": 3000,
    "only_enemies": false,
@@ -70357,7 +70396,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "invisible": true
    },
    "buff_time_ms": 500,
    "only_enemies": false,
@@ -73850,7 +73890,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "invisible": true
    },
    "buff_time_ms": 5000,
    "only_enemies": false,
@@ -74207,7 +74248,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "RageModeRage": {
    "name": "RageModeRage",
@@ -74442,7 +74484,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "LevelUp": {
    "name": "LevelUp",
@@ -74773,7 +74816,8 @@
    "death_spawn": null,
    "ignore_buildings": false,
    "crown_tower_damage_per_hit": null,
-   "not_cloned": true
+   "not_cloned": true,
+   "invisible": true
   },
   "PancakesCurse": {
    "name": "PancakesCurse",
@@ -75031,7 +75075,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "DarkElixirBuff": {
    "name": "DarkElixirBuff",
@@ -75500,7 +75545,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "Event_Global_VoodooCurse": {
    "name": "Event_Global_VoodooCurse",
@@ -76196,7 +76242,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "Cannon_EV1_barrage_damage_buff": {
    "name": "Cannon_EV1_barrage_damage_buff",
@@ -76285,7 +76332,8 @@
    "death_spawn": null,
    "ignore_buildings": false,
    "crown_tower_damage_per_hit": null,
-   "not_cloned": true
+   "not_cloned": true,
+   "invisible": true
   },
   "Ghost_EV1_Summon_Invisibility": {
    "name": "Ghost_EV1_Summon_Invisibility",
@@ -76307,7 +76355,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "GoblinCurse": {
    "name": "GoblinCurse",
@@ -76538,7 +76587,8 @@
    "death_spawn": null,
    "ignore_buildings": false,
    "crown_tower_damage_per_hit": null,
-   "not_cloned": true
+   "not_cloned": true,
+   "invisible": true
   },
   "MinionHorde_EV1_Reapply_Shadow_Buff": {
    "name": "MinionHorde_EV1_Reapply_Shadow_Buff",
@@ -76648,7 +76698,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "RageBarbarianEvoGhostForeverInvisibleBuff": {
    "name": "RageBarbarianEvoGhostForeverInvisibleBuff",
@@ -76670,7 +76721,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "RageBarbarianEvoGhostLifeControllerBuff": {
    "name": "RageBarbarianEvoGhostLifeControllerBuff",
@@ -76692,7 +76744,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "RageDummyBuff": {
    "name": "RageDummyBuff",
@@ -76758,7 +76811,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "snowball_spell_ev1_hit": {
    "name": "snowball_spell_ev1_hit",
@@ -76846,7 +76900,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "invisible": true
   },
   "Vines_Trap_Snare_Base": {
    "name": "Vines_Trap_Snare_Base",
