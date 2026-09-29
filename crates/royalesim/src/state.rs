@@ -6427,6 +6427,11 @@ struct PendingSpawn {
     /// SNAPSHOT_FORMAT 20; `default`, the value a queue saved before it held.
     #[serde(default)]
     action_made: bool,
+    /// THE PLAYED CARD a unit reports under (state_json's card_id; entity.rs `played_as`): a deploy spawn area's units
+    /// (the Tri Wizards' Electro and Ice Wizards, played as their own cards) report the card whose play made the area,
+    /// as every other card's units report the card played. None everywhere else. `default` None.
+    #[serde(default)]
+    played_as: Option<u16>,
 }
 
 /// AN ACTION A MECHANIC SCHEDULED FOR A LATER TICK (`BattleState::scheduled`): `ms` counts down by TICK_MS at the top
@@ -6739,6 +6744,8 @@ pub struct EntityView<'a> {
     pub card: &'a str,
     /// Index of `card` in the CardDb (for bindings that must not look names up).
     pub card_idx: u16,
+    /// The played card this entity reports under (entity.rs `played_as`), when not its own.
+    pub played_as: Option<u16>,
     pub pos: Vec2,
     /// The direction this entity faces, as a vector rather than an angle (there is no
     /// floating point here). Read by the spawner's ring law, which lays a set
@@ -8921,7 +8928,7 @@ impl BattleState {
                     #[cfg(clash_plant = "action_spawn_unit_deploy")]
                     let action_deploy: Option<i32> = None; // PLANT (regression): the unit's own DeployTime (1000).
                     let deploy_ms = if action { action_deploy } else { deploy_ms };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, played_as: None }));
                     k += 1;
                 }
                 left -= 1;
@@ -9238,6 +9245,7 @@ impl BattleState {
             morph_birth: false,
             cloned: false,
             action_made: false,
+            played_as: None,
         };
         Some((team, self.ents.team_seq[i], 0, p))
     }
@@ -10784,6 +10792,7 @@ impl BattleState {
             if let Some(f) = p.facing {
                 self.ents.facing[id.index as usize] = f;
             }
+            self.ents.played_as[id.index as usize] = p.played_as;
             // A death spawn queued under spawner.RELEASE_TIMING = next_spawn_phase: its first
             // tick is this one, and the delay counts from it.
             #[cfg(not(clash_plant = "acquire_delay_dropped_in_queue"))]
@@ -11122,6 +11131,7 @@ impl BattleState {
                     morph_birth: true,
                     cloned: false,
                     action_made: false,
+                    played_as: None,
                 });
                 if self.cfg.cards.get(m).spawn_area_effect.is_some() {
                     let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest, self.tick).expect("the spawn area's level is validated at the play");
@@ -15114,7 +15124,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, played_as: None });
             }
         }
         // A SCHEDULED AREA'S UNITS (the Graveyard's Skeletons, the Suspicious Bush's goblins), each at its own point
@@ -15152,12 +15162,13 @@ impl BattleState {
             let acquire_delay = false; // PLANT: a target from its first frame.
             #[cfg(clash_plant = "deploy_spawn_area_acquire_delayed")]
             let acquire_delay = true; // PLANT: a deploy spawn area's units wait for their 8th frame, as the Graveyard's do.
-            let p = PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false };
+            let p = PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, played_as: None };
             match r.via {
                 // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a released unit's first update (a deploy area's unit is a play
                 // of its card, in the next Spawn phase)
                 crate::card::SpawnVia::Action | crate::card::SpawnVia::OwnSpawn => self.release(PendingSpawn { first_update, ..p }),
-                crate::card::SpawnVia::DeployArea => self.spawn_queue.push(p),
+                // A deploy area's unit reports the card whose play made the area (`PendingSpawn::played_as`).
+                crate::card::SpawnVia::DeployArea => self.spawn_queue.push(PendingSpawn { played_as: Some(r.area_card), ..p }),
             }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
@@ -15265,6 +15276,7 @@ impl BattleState {
                 // A cloned barrel's container is not modelled (a copy's death bomb is unmeasured), so its units are not copies.
                 cloned: false,
                 action_made: false,
+                played_as: None,
             });
         }
     }
@@ -16257,7 +16269,7 @@ impl BattleState {
                     Some(&end) if counted => slide_move_count(p, end),
                     _ => 0,
                 };
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks, slide_end, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false }));
+                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks, slide_end, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false, played_as: None }));
             }
         }
         // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
@@ -16323,7 +16335,7 @@ impl BattleState {
                     team,
                     self.ents.team_seq[i],
                     256 + k as u32,
-                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false },
+                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, played_as: None },
                 ));
             }
         }
@@ -16786,7 +16798,7 @@ impl BattleState {
                 return;
             }
             // One entry: the cast. phase_spawn turns it into spell objects.
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, played_as: None });
             return;
         }
         // A CARD THAT IS AN AREA PUTTING ITS UNITS DOWN ITSELF (card.rs `CardDef::deploy_spawn_area`, the Tri Wizards'
@@ -16813,7 +16825,7 @@ impl BattleState {
                 SpawnPathfindDestination::ClientTileCentreMorphFootprint => pos,
                 SpawnPathfindDestination::OrdinaryGroundDeployPoint => self.formation_members_with(team, idx, level, pos, observed).first().map_or(pos, |m| m.pos),
             };
-            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+            self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos: dest, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, played_as: None });
             return;
         }
         for m in self.formation_members_with(team, idx, level, pos, observed) {
@@ -16895,7 +16907,7 @@ impl BattleState {
             let own = cards.get(unit).deploy_time_ms;
             let deploy_ms = if delay > 0 && own > 0 { Some(own + delay) } else { None };
             let stagger_ms = if deploy_ms.is_some() { delay } else { 0 };
-            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false, cloned: false, action_made: false }
+            PendingSpawn { team, card: unit, level: level_of(k), pos: p, deploy_ms, owner: None, stagger_ms, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x, morph_birth: false, cloned: false, action_made: false, played_as: None }
         };
         #[cfg(not(clash_plant = "formation_grid_legacy"))]
         let layout = calib.formation_layout;
@@ -17934,7 +17946,7 @@ impl BattleState {
                     self.scheduled_point(team, pos, crate::card::SpawnOffset::Relative { x: relative_x, y: relative_y }, flying)
                 };
                 let lvl = self.cfg.cards.unit_level(card, unit, None, level).expect("the ability unit's level is validated at try_new");
-                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: true, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                self.spawn_queue.push(PendingSpawn { team, card: unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: true, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, played_as: None });
             }
             crate::card::AbilityEffect::Areas { start, .. } => {
                 for part in start {
@@ -18531,6 +18543,7 @@ impl BattleState {
             kind: e.kind[i],
             card: &self.cfg.cards.get(e.card[i]).name,
             card_idx: e.card[i],
+            played_as: e.played_as[i],
             pos: e.pos[i],
             facing: e.facing[i],
             push_applied: e.push_applied[i],
@@ -18918,6 +18931,12 @@ impl BattleState {
                 }
                 // targeting.FIRST_TOWER_PICK = client_spawn_lane: the spawn lane and its window, written under that arm
                 // only.
+                // The played card a deploy area's unit reports under, only when set: an attribution, hashed so a saved
+                // battle's rows come back the same.
+                if let Some(c) = e.played_as[i] {
+                    h.u32(0x504c_4159);
+                    h.u32(c as u32);
+                }
                 if self.cfg.calib.first_tower_pick.spawn_lane() {
                     h.u32(e.spawn_lane[i] as u32);
                     h.u32(e.lane_window_end[i]);
@@ -20801,6 +20820,7 @@ impl BattleState {
         snap.ents.idle_back.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
+        snap.ents.played_as.resize(n, None);
         snap.ents.spawn_lane.resize(n, 0);
         snap.ents.lane_window_end.resize(n, 0);
         snap.ents.stagger_ms.resize(n, 0);

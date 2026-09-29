@@ -324,6 +324,11 @@ pub struct Entities {
     /// `chase_dropped`.
     #[serde(default)]
     pub chase_inside: Vec<Option<EntityId>>,
+    /// THE PLAYED CARD this entity reports under when it is not its own card (state.rs `PendingSpawn::played_as`): a
+    /// deploy spawn area's units (the Tri Wizards' Electro and Ice Wizards) report the Tri Wizards. None on every other
+    /// entity. `default` and sized on load like `chase_inside`.
+    #[serde(default)]
+    pub played_as: Vec<Option<u16>>,
     /// targeting.FIRST_TOWER_PICK = client_spawn_lane: the lane bits (the tilemap's lane-left or lane-right bit) this
     /// troop took at its creation point (state.rs `spawn_now`, and `summon_lane_flip` for a summon member), and the
     /// last tick on which its default tower comes from that lane (target.rs `default_tower`): u32::MAX while it
@@ -846,6 +851,7 @@ impl Entities {
             self.idle_back[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
+            self.played_as[i] = None;
             self.spawn_lane[i] = 0;
             self.lane_window_end[i] = 0;
             self.stagger_ms[i] = 0;
@@ -944,6 +950,7 @@ impl Entities {
             self.idle_back.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
+            self.played_as.push(None);
             self.spawn_lane.push(0);
             self.lane_window_end.push(0);
             self.stagger_ms.push(0);

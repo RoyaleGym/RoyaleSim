@@ -137,6 +137,8 @@ pub struct ScheduledRelease {
     pub offset: SpawnOffset,
     pub deploy_ms: Option<i32>,
     pub via: SpawnVia,
+    /// The card whose area this is (the Tri Wizards'): a deploy area's units report it (state.rs `PendingSpawn::played_as`).
+    pub area_card: u16,
 }
 
 /// A unit a landing spell releases, for the deferred spawn queue.
@@ -1860,7 +1862,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     *fired |= 1 << k;
                     // The entry's unit at the area's level (the owner's unified level; levels validated at deploy).
                     if let Ok(level) = ctx.cards.unit_level(s.card, e.unit, None, s.level) {
-                        out.scheduled.push(ScheduledRelease { team: s.team, unit: e.unit, level, centre: *pos, offset: e.offset, deploy_ms: e.deploy_time_ms, via: e.via });
+                        out.scheduled.push(ScheduledRelease { team: s.team, unit: e.unit, level, centre: *pos, offset: e.offset, deploy_ms: e.deploy_time_ms, via: e.via, area_card: s.card });
                     }
                 }
                 age + 1 < delay_ticks(ctx.calib, *life_ms).max(1)
