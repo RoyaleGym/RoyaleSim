@@ -70,7 +70,7 @@ equally well checked.
 
 A re-read on 2026-09-22 went through 24 entries against the corpus, of the 148 the ledger held
 that day. The ledger has grown since. Counted against it today, the re-read
-went through 24 of the 365 entries. It moved no status and no value. What it turned up was in
+went through 24 of the 369 entries. It moved no status and no value. What it turned up was in
 the evidence the statuses rest on: 42 places where a cited number, recording name or piece of
 arithmetic does not hold. Take that as a reason to re-derive, not as 42 established defects.
 Only a handful of the 42 have since been recomputed by hand, and one of those did not survive
@@ -83,21 +83,21 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-341 entries have not been re-read. So, concretely (every count on this page comes from
+345 entries have not been re-read. So, concretely (every count on this page comes from
 `python tools/ledger_census.py`, and `tests/test_ledger_census.py` fails when the page and the
 ledger disagree, because these figures went stale twice in one afternoon before that gate existed):
 
 - **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 365 carry a status. That 365 counts TOP-LEVEL
+  universal, so check rather than assume.** All 369 carry a status. That 369 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
-  another and carries its own `measured` status, so counting every status in the file gives 366
-  and 249 measured. The tools agree on 365 by convention, and the convention undercounts by one. 310 name the rivals the
-  value was chosen against and 319 state what would move it, and 302 do both. The gap is mostly
+  another and carries its own `measured` status, so counting every status in the file gives 370
+  and 250 measured. The tools agree on 369 by convention, and the convention undercounts by one. 314 name the rivals the
+  value was chosen against and 323 state what would move it, and 306 do both. The gap is mostly
   the 31 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 22 of
-  the 248 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 249 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -152,7 +152,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 365 top-level keys with a status, 248 are `measured`; one more entry, nested inside another, is measured too (366 in all).
+disagree. Of the 369 top-level keys with a status, 249 are `measured`; one more entry, nested inside another, is measured too (370 in all).
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
@@ -167,7 +167,7 @@ disagree. Of the 365 top-level keys with a status, 248 are `measured`; one more 
 | `match.LOGIC_BATTLE_START_COOLDOWN_MS` | 4500 | datamined, LOW | any recording of a match start |
 | `match.KING_ACTIVATE_TIME_MS` | 3300 | datamined, MEDIUM | a recording of what the delay actually delays |
 | `arena.ARENA_SOURCE_VINTAGE` | ~2018 tilemap | datamined, MEDIUM | a calibrated screenshot of a live arena; bridge width varied by arena even in 2018 |
-| `knockback` (5 of 12 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `PUSH_LOAD_TIMER`, `DIRECTION_ROLLING`, `ROLLING_CONTACT_RADIUS`, `ATTACK_PUSHBACK` and `DEATH_PUSHBACK` are measured |
+| `knockback` (6 of 13 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges and the combo's melee push unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `PUSH_LOAD_TIMER`, `DIRECTION_ROLLING`, `ROLLING_CONTACT_RADIUS`, `ATTACK_PUSHBACK` and `DEATH_PUSHBACK` are measured |
 | `spells.*` (11 of 40 keys) | `AOE_HIT_TEST`, `ROLLING_HIT_SHAPE` and `SPAWNING_SPELL_WATER_RULE` are in `spell-spec.md`; the other eight are not, so read their ledger entries | guess / hypothesis / community | each key's own `promotion_rules` in the ledger names its deciding observation |
 | `status.*` (13 of 26 keys: stun and buff timing) | see `spell-spec.md` | community / hypothesis / guess | likewise |
 | `economy` (2 of 7 keys) | the elixir a death pays the opponent, the starting-hand rule | guess / community, LOW-MEDIUM | each key's `promotion_rules` names the 15.535.29 scenario it needs. `MANA_ON_DEATH_FOR_OPPONENT_UNIT` rests on the tables' pattern. The other five are measured: the Elixir Collector's payout at the cap, its overflow, its step in double elixir, its stun and the elixir its death pays its owner |
