@@ -354,7 +354,9 @@ pub enum SpawnVia {
     /// tick, where the unit is created in the Spawn phase as a play of its card is, its card's own deploy area
     /// (`CardDef::deploy_area_effect`) landing where it appears (state.rs `phase_spawn`). Measured on client 15.535.29
     /// (sweep-TriWizards): the Electro Wizard and the Ice Wizard first stand on the play's C + 7 (SubActionsDelay 300),
-    /// RelativeX +5 and -5 from the tap (spawner.RELATIVE_SPAWN_OFFSET), and leave their deploy on C + 27.
+    /// RelativeX +5 and -5 from the tap (spawner.RELATIVE_SPAWN_OFFSET), and leave their deploy on C + 27. An enemy may
+    /// target the unit on its first frame, as a played troop; the client's Knight took the Ice Wizard a frame later, on
+    /// C + 8 (tests/tri_wizards.rs pins the engine's C + 7 beside it).
     DeployArea,
 }
 
