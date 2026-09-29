@@ -537,6 +537,10 @@ Working:
   Tesla as soon as it starts to rise. At `126992a` the Rage and Heal cards
   load too. docs/mechanics.md lists what about them is not measured yet.
 - Same seed same battle, snapshots, and the deploy-legality query.
+- An optional command delay, per side: `Battle.set_command_delay_ticks(blue, red)`. In the real
+  game a play lands about 1.1 seconds (22 ticks) after the tap, and the card and the elixir only
+  go when it lands. With a delay set, a play or a button press waits that long and is checked
+  again when it runs. The default is no delay, which is how the engine always ran.
 - Seat symmetry is a test setting, not something the engine promises. The game itself treats the
   two seats a little differently in three measured places: where a ground deploy is clamped, the
   point it lands on, and how the pathfinder breaks a tie. The engine copies the game, so it is

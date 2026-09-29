@@ -370,6 +370,8 @@ fn reason_of(r: &Result<(), DeployError>) -> u8 {
             DeployError::NoHero => 15,
             DeployError::AbilityNotReady => 16,
             DeployError::AbilitySpent => 17,
+            // 18: a card or button with a delayed command waiting (`command_delay_ticks`); it clears when that runs.
+            DeployError::CardPending => 18,
             DeployError::UnknownCard(_)
             | DeployError::UnsupportedCard(..)
             | DeployError::NotInHand
@@ -436,6 +438,9 @@ pub struct Battle {
     calib: Option<Calib>,
     /// What was overridden, parsed, for `calibration_overrides()` and for every frame.
     calib_overrides: BTreeMap<String, serde_json::Value>,
+    /// THE COMMAND DELAY every battle this object starts runs (`BattleConfig::command_delay_ticks`, Blue then Red;
+    /// `set_command_delay_ticks`). [0, 0], the default, runs every command at once.
+    command_delay_ticks: [u32; 2],
     state: Option<BattleState>,
 }
 
@@ -1209,7 +1214,7 @@ impl Battle {
             db.check_levels(idx, tower_lvl).map_err(|e| BuildError::Value(format!("tower_level {tower_lvl}: {e}")))?;
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, command_delay_ticks: [0, 0], state: None })
     }
 
     /// `catalogue_json`'s body, with no Python type in it (`build` says why).
@@ -1580,6 +1585,7 @@ impl Battle {
         }
         cfg.decks = named;
         cfg.forms = forms;
+        cfg.command_delay_ticks = self.command_delay_ticks;
         let mut s = BattleState::try_new(seed, cfg).map_err(PyValueError::new_err)?;
         if start_tick > 0 {
             s.scenario_set_tick(start_tick);
@@ -1618,6 +1624,55 @@ impl Battle {
     }
 
     /// PURE: the reason code `step` would give this command alone.
+    /// THE COMMAND DELAY, in ticks, for every battle this object starts from the next `reset` on (Blue, Red): a play or
+    /// a button press accepted on tick T runs on T + k, checked again in full then; the hand and the elixir change
+    /// only when it runs; a waiting card or button reads reason 18 (CardPending), and a waiting command's cost counts
+    /// against the side's elixir. 0 runs every command at once (the default). Measured on the live client: 21-22.
+    fn set_command_delay_ticks(&mut self, blue: u32, red: u32) {
+        self.command_delay_ticks = [blue, red];
+    }
+
+    /// The command delay the next `reset` uses, (Blue, Red).
+    fn command_delay_ticks(&self) -> (u32, u32) {
+        (self.command_delay_ticks[0], self.command_delay_ticks[1])
+    }
+
+    /// `team`'s commands accepted and not run yet, in the order they run: (kind, what, x, y, ticks left, cost), kind
+    /// "deploy" (what: the catalogue card id, x and y the tap) or "ability" (what: the button's action slot, x = y =
+    /// 0). Empty with no delay.
+    fn pending_commands(&self, team: i64) -> PyResult<Vec<(String, i64, i32, i32, u32, i32)>> {
+        let s = self.s()?;
+        let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("team {team}")))?;
+        let now = s.tick_count();
+        Ok(s.pending_commands(t)
+            .into_iter()
+            .map(|c| {
+                let left = c.due.saturating_sub(now);
+                match c.kind {
+                    crate::state::CommandKind::Deploy { card, pos } => ("deploy".to_string(), self.id_of_idx[card as usize] as i64, pos.x, pos.y, left, c.cost),
+                    crate::state::CommandKind::Ability { button } => ("ability".to_string(), (HAND_SIZE + button) as i64, 0, 0, left, c.cost),
+                }
+            })
+            .collect())
+    }
+
+    /// The delayed commands that ran at the top of the last tick: (team, kind, reason), reason 0 for a command that
+    /// ran and a deploy reason code for one refused then.
+    fn commands_run(&self) -> PyResult<Vec<(i64, String, u8)>> {
+        let s = self.s()?;
+        Ok(s.commands_run()
+            .iter()
+            .map(|r| {
+                let kind = match r.command.kind {
+                    crate::state::CommandKind::Deploy { .. } => "deploy",
+                    crate::state::CommandKind::Ability { .. } => "ability",
+                };
+                let reason = reason_of(&r.result.clone().map(|_| ()));
+                (r.command.team as i64, kind.to_string(), reason)
+            })
+            .collect())
+    }
+
     fn check_deploy(&self, team: i64, slot: i64, x: i32, y: i32) -> PyResult<u8> {
         let s = self.s()?;
         Ok(check_command(s, team, slot, x, y))

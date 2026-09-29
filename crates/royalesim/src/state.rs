@@ -6278,6 +6278,11 @@ pub struct BattleConfig {
     /// entry plays its hero form on every play (`resolve_play`) and is one of its side's ability buttons, in deck order
     /// (`try_new`).
     pub forms: [Vec<u8>; 2],
+    /// THE COMMAND DELAY per seat, in ticks (Blue, Red): a play or a button press accepted on tick T runs on T + k
+    /// (`deploy_slot`, `press_ability_button`, `run_due_commands`). 0 (the default) runs it at once, as the engine
+    /// always has. Measured on the live client by the device clock (238 taps): a tap runs 1072..1099 ms later (21-22
+    /// ticks), the same for every player; the hand and the elixir change only when it runs.
+    pub command_delay_ticks: [u32; 2],
 }
 
 impl BattleConfig {
@@ -6325,8 +6330,44 @@ impl BattleConfig {
             shuffle_decks: false,
             bucket_subtiles: SUBTILE,
             forms: [Vec::new(), Vec::new()],
+            command_delay_ticks: [0, 0],
         }
     }
+}
+
+/// WHAT A DELAYED COMMAND DOES when it runs (`PendingCommand`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum CommandKind {
+    /// A play of `card` (a hand card's index) at the tap `pos`; the slot is found when it runs, the card still in hand.
+    Deploy { card: u16, pos: Vec2 },
+    /// A press of ability button `button`.
+    Ability { button: usize },
+}
+
+/// A COMMAND ACCEPTED AND NOT RUN YET (`BattleConfig::command_delay_ticks`): taken on `accepted`, run at the top of
+/// tick `due` by the ordinary deploy or press, which checks it again in full then (`run_due_commands`). `cost` is its
+/// elixir, counted against later commands of its seat while it waits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PendingCommand {
+    pub team: Team,
+    pub accepted: u32,
+    pub due: u32,
+    pub cost: i32,
+    pub kind: CommandKind,
+}
+
+/// A DELAYED COMMAND THAT RAN this tick, and what came of it: where a play went down, the hero a press pressed, or why
+/// it was refused then (`BattleState::commands_run`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CommandRun {
+    pub command: PendingCommand,
+    pub result: Result<CommandOutcome, DeployError>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CommandOutcome {
+    Deployed(Vec2),
+    Pressed(EntityId),
 }
 
 // ---------------------------------------------------------------------------
@@ -6406,6 +6447,9 @@ pub enum DeployError {
     AbilityNotReady,
     /// The button's hero has used its one charge.
     AbilitySpent,
+    /// THE CARD OR BUTTON HAS A COMMAND WAITING (`BattleConfig::command_delay_ticks`): measured on the live client, a
+    /// tapped card's slot empties at the touch, so it cannot be played again before it runs.
+    CardPending,
 }
 
 impl From<crate::arena::ZoneError> for DeployError {
@@ -7699,6 +7743,13 @@ pub struct BattleState {
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
+    /// THE COMMANDS WAITING (`BattleConfig::command_delay_ticks`), in the order they were accepted.
+    commands: Vec<PendingCommand>,
+    /// What the commands run at the top of the last tick came to (`commands_run`); not state (a report of the tick).
+    commands_run: Vec<CommandRun>,
+    /// True while `run_due_commands` runs one: the ordinary deploy and press take it at once, and the waiting ones'
+    /// rules (`CardPending`, `pending_cost`) do not apply to it.
+    running_command: bool,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -8084,6 +8135,9 @@ impl BattleState {
             chains: Vec::new(),
             throws: Vec::new(),
             deflects: Vec::new(),
+            commands: Vec::new(),
+            commands_run: Vec::new(),
+            running_command: false,
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -10746,6 +10800,7 @@ impl BattleState {
         if self.outcome.is_some() {
             return;
         }
+        self.run_due_commands();
         // rider.OFFSET_LAW: the mounts' facings as the last tick left them, before anything turns one.
         self.note_mount_facings();
         // spawner.LIFE_STATE_FIRST_LOOK_AIM: the positions a Goblin Hut's first look reads, before anything moves.
@@ -18984,7 +19039,11 @@ impl BattleState {
         }
         let (_, form) = self.button_form(team, k).ok_or(DeployError::NoHero)?;
         let a = self.cfg.cards.get(form).ability.as_ref().ok_or(DeployError::NoHero)?;
-        self.check_elixir(team, a.cost)?;
+        #[cfg(not(clash_plant = "pending_command_ignored"))]
+        if !self.running_command && self.commands.iter().any(|c| c.team == team && c.kind == CommandKind::Ability { button: k }) {
+            return Err(DeployError::CardPending);
+        }
+        self.check_elixir(team, a.cost + self.pending_cost(team))?;
         let h = self.newest_hero(team, form).ok_or(DeployError::NoHero)?;
         let u = self.hero_units[h];
         if u.spent {
@@ -19005,8 +19064,19 @@ impl BattleState {
     /// her 200 ms); one pressed on her first frame (P = 101) waited for her deploy end (121) and put it down on 125;
     /// the hero's death before the effect gives the elixir back (`fire_scheduled`). Unmeasured: that the cast holds the
     /// hero (KeepCurrentTarget only means something if it does).
+    ///
+    /// UNDER A COMMAND DELAY the press is checked now and runs `command_delay_ticks` on (`run_due_commands`); it
+    /// returns the hero behind the button now.
     pub fn press_ability_button(&mut self, team: Team, k: usize) -> Result<EntityId, DeployError> {
         self.check_ability_button(team, k)?;
+        let delay = self.cfg.command_delay_ticks[team as usize];
+        if delay > 0 && !self.running_command {
+            let (_, form) = self.button_form(team, k).expect("checked");
+            let h = self.newest_hero(team, form).expect("checked");
+            let cost = self.cfg.cards.get(form).ability.as_ref().map_or(0, |a| a.cost);
+            self.commands.push(PendingCommand { team, accepted: self.tick, due: self.tick + delay, cost, kind: CommandKind::Ability { button: k } });
+            return Ok(self.hero_units[h].id);
+        }
         let (_, form) = self.button_form(team, k).expect("checked");
         let h = self.newest_hero(team, form).expect("checked");
         let a = self.cfg.cards.get(form).ability.clone().expect("checked");
@@ -19274,6 +19344,52 @@ impl BattleState {
         p
     }
 
+    /// THE ELIXIR `team`'s waiting commands have spoken for (`PendingCommand::cost`); 0 when none waits, or while one
+    /// runs (it is checked then against the elixir alone, as a play at once is).
+    fn pending_cost(&self, team: Team) -> i32 {
+        if self.running_command {
+            return 0;
+        }
+        self.commands.iter().filter(|c| c.team == team).map(|c| c.cost).sum()
+    }
+
+    /// THE DELAYED COMMANDS DUE NOW run, in the order they were accepted, each through the ordinary deploy or press
+    /// with its checks made again in full: a play whose card left the hand, whose elixir falls short or whose point is
+    /// refused now is refused now, and a building whose tile is taken goes where a play now would put it (measured on
+    /// the live client: a Goblin Hut tapped on a Tombstone's pending tile went down 3 tiles toward the river, paid).
+    /// What came of each is `commands_run` until the next tick.
+    fn run_due_commands(&mut self) {
+        self.commands_run.clear();
+        if self.commands.is_empty() {
+            return;
+        }
+        let now = self.tick;
+        let due: Vec<PendingCommand> = self.commands.iter().copied().filter(|c| c.due <= now).collect();
+        self.commands.retain(|c| c.due > now);
+        for c in due {
+            self.running_command = true;
+            let result = match c.kind {
+                CommandKind::Deploy { card, pos } => match self.players[c.team as usize].hand.iter().position(|h| *h == card) {
+                    Some(slot) => self.deploy_slot(c.team, slot, pos).map(CommandOutcome::Deployed),
+                    None => Err(DeployError::NotInHand),
+                },
+                CommandKind::Ability { button } => self.press_ability_button(c.team, button).map(CommandOutcome::Pressed),
+            };
+            self.running_command = false;
+            self.commands_run.push(CommandRun { command: c, result });
+        }
+    }
+
+    /// `team`'s commands accepted and not run yet (`BattleConfig::command_delay_ticks`), in the order they will run.
+    pub fn pending_commands(&self, team: Team) -> Vec<PendingCommand> {
+        self.commands.iter().copied().filter(|c| c.team == team).collect()
+    }
+
+    /// The delayed commands that ran at the top of the last tick, and what came of each.
+    pub fn commands_run(&self) -> &[CommandRun] {
+        &self.commands_run
+    }
+
     /// PURE query: exactly the verdict `deploy` would give this play right now,
     /// with no mutation (the Python protocol's `check_deploy`). `deploy` calls
     /// this first, so the two cannot drift apart.
@@ -19315,10 +19431,18 @@ impl BattleState {
         // deploys -- a Mirror's copy by the copied card's rule (match.MIRROR_PLACEMENT, measured on client 15.535.29:
         // an enemy-half tap is moved back as the copied troop's is, a river tap refused), a variant card's by its form's.
         let play = self.resolve_play(team, slot)?;
+        // A DELAYED COMMAND WAITING (`command_delay_ticks`; nothing here without one): its card cannot be played again,
+        // and its cost is spoken for. Measured on the live client: the slot empties at the touch; a second tap the
+        // elixir covers only without the first's cost is never sent (nothing spent).
+        #[cfg(not(clash_plant = "pending_command_ignored"))]
+        if !self.running_command && self.commands.iter().any(|c| c.team == team && matches!(c.kind, CommandKind::Deploy { card, .. } if card == play.in_slot)) {
+            return Err(DeployError::CardPending);
+        }
+        let pending = self.pending_cost(team);
         #[cfg(not(clash_plant = "variant_check_act_split"))]
-        self.check_elixir(team, play.cost)?;
+        self.check_elixir(team, play.cost + pending)?;
         #[cfg(clash_plant = "variant_check_act_split")]
-        self.check_elixir(team, self.cfg.cards.get(play.in_slot).elixir)?; // PLANT: the verdict reads the hand card's cost.
+        self.check_elixir(team, self.cfg.cards.get(play.in_slot).elixir + pending)?; // PLANT: the verdict reads the hand card's cost.
         #[cfg(not(clash_plant = "variant_placement_of_hand_card"))]
         let at = play.card;
         #[cfg(clash_plant = "variant_placement_of_hand_card")]
@@ -19342,8 +19466,18 @@ impl BattleState {
     /// footprint did not fit the tap, the tap itself otherwise. The caller is given the
     /// point rather than asked to query for it again, because a second query is a second
     /// answer that can disagree with the one the engine acted on.
+    ///
+    /// UNDER A COMMAND DELAY (`BattleConfig::command_delay_ticks`, k > 0 for `team`) the play is checked now and runs
+    /// k ticks on (`run_due_commands`), where this same function plays it; it returns the TAP, and where the card went
+    /// down is in that tick's `commands_run`.
     pub fn deploy_slot(&mut self, team: Team, slot: usize, pos: Vec2) -> Result<Vec2, DeployError> {
         self.check_deploy_slot(team, slot, pos)?;
+        let k = self.cfg.command_delay_ticks[team as usize];
+        if k > 0 && !self.running_command {
+            let play = self.resolve_play(team, slot)?;
+            self.commands.push(PendingCommand { team, accepted: self.tick, due: self.tick + k, cost: play.cost, kind: CommandKind::Deploy { card: play.in_slot, pos } });
+            return Ok(pos);
+        }
         // The same resolution the verdict just read, against the same state (`resolve_play`).
         let play = self.resolve_play(team, slot)?;
         #[cfg(not(clash_plant = "variant_placement_of_hand_card"))]
@@ -20628,6 +20762,29 @@ impl BattleState {
                 }
             }
         }
+        // The commands waiting, only when there are some (`command_delay_ticks`).
+        if !self.commands.is_empty() {
+            h.u32(0x434d_4451);
+            h.u32(self.commands.len() as u32);
+            for c in &self.commands {
+                h.u32(c.team as u32);
+                h.u32(c.accepted);
+                h.u32(c.due);
+                h.u32(c.cost as u32);
+                match c.kind {
+                    CommandKind::Deploy { card, pos } => {
+                        h.u32(1);
+                        h.u32(card as u32);
+                        h.u32(pos.x as u32);
+                        h.u32(pos.y as u32);
+                    }
+                    CommandKind::Ability { button } => {
+                        h.u32(2);
+                        h.u32(button as u32);
+                    }
+                }
+            }
+        }
         // The deflects active, only when there are some.
         if !self.deflects.is_empty() {
             h.u32(0x4446_4c43);
@@ -21446,6 +21603,12 @@ struct Snapshot {
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
+    /// The command delay and the commands waiting (`BattleConfig::command_delay_ticks`, `BattleState::commands`).
+    /// Added after SNAPSHOT_FORMAT 20; `default` no delay and none waiting.
+    #[serde(default)]
+    command_delay_ticks: [u32; 2],
+    #[serde(default)]
+    commands: Vec<PendingCommand>,
     state_hash: u64,
 }
 
@@ -22115,6 +22278,8 @@ impl BattleState {
             chains: self.chains.clone(),
             throws: self.throws.clone(),
             deflects: self.deflects.clone(),
+            command_delay_ticks: c.command_delay_ticks,
+            commands: self.commands.clone(),
             state_hash: self.state_hash(),
         };
         #[cfg(clash_plant = "save_drops_path_grid")]
@@ -22335,6 +22500,7 @@ impl BattleState {
             shuffle_decks: snap.shuffle_decks,
             bucket_subtiles: snap.bucket_subtiles,
             forms: snap.forms,
+            command_delay_ticks: snap.command_delay_ticks,
         };
         let mut s = BattleState {
             cfg,
@@ -22365,6 +22531,9 @@ impl BattleState {
             chains: snap.chains,
             throws: snap.throws,
             deflects: snap.deflects,
+            commands: snap.commands,
+            commands_run: Vec::new(),
+            running_command: false,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),
