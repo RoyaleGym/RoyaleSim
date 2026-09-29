@@ -516,7 +516,9 @@ Working:
   A side has at most three buttons: its heroes' first, then its champion's. The champion's charge
   comes back 11 seconds after his dashes end, a figure not measured yet. Pressed with no enemy
   near, he runs at his target at twice his speed and dashes when it is in reach, as in the game.
-  The other champions play as plain troops.
+  The Monk's hits run in his three-hit combo, the third pushing its target away. His button runs
+  too: after its cast he stands, takes every hit at 35 % and sends enemy shots back at their
+  shooters, once. The other champions play as plain troops.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
@@ -547,13 +549,10 @@ Not modelled yet, in plain words:
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
 - Morph, air units beyond flying straight at their target, and tower troops. Evolutions, hero
   forms and champions' buttons beyond the ones above.
-- The Monk's two damages. They come with no times, so the engine does not load them, and the Monk
-  hits for its first damage only.
-- The Monk's Deflect ability. The card table does not carry the Monk's ability, so the Monk
-  plays without it. The card stays in the default card list, so the list keeps its size and
-  order. (The Inferno Tower's and Inferno Dragon's growing damage and the
-  Mortar's minimum range run since `126992a`, measured on the 16.402 corpus. The 2018 table carries
-  no ramp columns, so on it the Infernos keep their first damage.)
+- The growing damage of the Inferno Tower and the Inferno Dragon on the 2018 table. That table
+  has no columns for it, so there the Infernos keep their first damage. (On the 15.535 table the
+  growing damage and the Mortar's minimum range run since `126992a`, measured on the 16.402
+  corpus.)
 - One known collision defect: a unit overlapping several obstacles gets the push-outs summed
   instead of one chosen. The 47-tick overlap was retired on 2026-09-22 (docs/mechanics.md, Known
   defects).
