@@ -2264,6 +2264,46 @@ def sequence_damage(tb, name: str) -> int | None:
     return d if isinstance(d, int) and not isinstance(d, bool) else None
 
 
+# THE COMBO (15.535; the Monk and the Mega Monk): a row whose AttackSequence advances by itself (no
+# AttackSequenceMode, no AttackSequenceList) and that sets VariableDamage2 with no VariableDamageTime1. Its
+# columns come in three stages -- Damage / MeleePushback / IsMeleePushbackAll, VariableDamage2 / MeleePushback2 /
+# IsMeleePushbackAll2, VariableDamage3 / MeleePushback3 / IsMeleePushbackAll3 -- and entry k of the sequence deals
+# stage k's damage and melee pushback (calibration combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK). The Monk:
+# [0, 1, 2], 55 / 55 / 165, the third pushing 1800.
+COMBO_STAGES = (
+    ("Damage", "MeleePushback", "IsMeleePushbackAll"),
+    ("VariableDamage2", "MeleePushback2", "IsMeleePushbackAll2"),
+    ("VariableDamage3", "MeleePushback3", "IsMeleePushbackAll3"),
+)
+
+
+def combo(t: dict, table: str, name: str, c: dict) -> dict | None:
+    """THE COMBO as a named block: `sequence` the row's AttackSequence, `stages` the three stages' damage, melee
+    pushback (millitiles, 0 on a blank) and IsMeleePushbackAll. None for every other row: a 2018 row, a row with no
+    VariableDamage2, a ramp (VariableDamageTime1 set), a sequence that a mode or a list drives. Fail-closed: a
+    sequence entry that names no stage, or an entry whose stage has no damage, gives None, and the row carries no
+    combo."""
+    if not isinstance(c, Row) or c.get("VariableDamage2") is None or c.get("VariableDamageTime1") is not None:
+        return None
+    arrays = t[table].arrays.get(name, {})
+    if c.get("AttackSequenceMode") is not None or arrays.get("AttackSequenceList") is not None:
+        return None
+    order = arrays.get("AttackSequence")
+    if not isinstance(order, list) or not order or any(k not in (0, 1, 2) or isinstance(k, bool) for k in order):
+        return None
+    # A characters.csv row writes the sequence's first element (0) blank and the reader drops it: the Mega Monk (an
+    # event unit) reads [1, 2]. A sequence that does not start on stage 0 is refused rather than read without it.
+    if order[0] != 0:
+        return None
+    stages = [
+        {"damage": c.get(d), "pushback_milli": c.get(p) or 0, "pushback_all": bool(flag(c, a))}
+        for d, p, a in COMBO_STAGES
+    ]
+    if any(stages[k]["damage"] is None for k in order):
+        return None
+    return {"sequence": list(order), "stages": stages}
+
+
 def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     table, c = unit_record(t, name)
     defaults: list[str] = []
@@ -2490,6 +2530,9 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             "time1_ms": c.get("VariableDamageTime1"),
             "time2_ms": c.get("VariableDamageTime2"),
         },
+        # THE COMBO (`combo`): an AttackSequence that advances by itself, with VariableDamage2 and no
+        # VariableDamageTime1 (the Monk, the Mega Monk). Dropped below from every row that has none.
+        "combo": combo(t, table, name, c),
         # AttackPushBack: the recoil of each of the unit's own attacks, away from its target (the
         # Sparky 750, the Firecracker 1000), under calibration knockback.ATTACK_PUSHBACK. 15.535
         # rows only.
@@ -2559,6 +2602,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     }
     if u["reflected_attack"] is None:
         del u["reflected_attack"]
+    if u["combo"] is None:
+        del u["combo"]
     if u["mana"] is None or not isinstance(c, Row):
         del u["mana"]
     if u["projectile_y_offset_milli"] is None or not isinstance(c, Row):
@@ -3131,6 +3176,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # Only on a row that reflects (norm_unit), so every other card row is unchanged.
     if "reflected_attack" in u:
         card["reflected_attack"] = u["reflected_attack"]
+    # Only on a combo row (norm_unit `combo`), so every other card row is unchanged.
+    if "combo" in u:
+        card["combo"] = u["combo"]
     if s["CustomDeployTime"] is not None:
         card["deploy_time_ms"] = s["CustomDeployTime"]
     card["count"] = res["count"]

@@ -10963,6 +10963,30 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "combo": {
+    "sequence": [
+     0,
+     1,
+     2
+    ],
+    "stages": [
+     {
+      "damage": 55,
+      "pushback_milli": 0,
+      "pushback_all": false
+     },
+     {
+      "damage": 55,
+      "pushback_milli": 0,
+      "pushback_all": false
+     },
+     {
+      "damage": 165,
+      "pushback_milli": 1800,
+      "pushback_all": true
+     }
+    ]
+   },
    "count": 1,
    "summon_radius_milli": null,
    "summon_width_milli": null,
@@ -32280,6 +32304,30 @@
    "buff_on_damage": null,
    "ignore_buffs": null,
    "variable_damage": null,
+   "combo": {
+    "sequence": [
+     0,
+     1,
+     2
+    ],
+    "stages": [
+     {
+      "damage": 55,
+      "pushback_milli": 0,
+      "pushback_all": false
+     },
+     {
+      "damage": 55,
+      "pushback_milli": 0,
+      "pushback_all": false
+     },
+     {
+      "damage": 165,
+      "pushback_milli": 1800,
+      "pushback_all": true
+     }
+    ]
+   },
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
    "special": null,
