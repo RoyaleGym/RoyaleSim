@@ -188,9 +188,18 @@ The crate itself has no Python dependency and builds alone.
   charge has not come back yet) and `ABILITY_SPENT` (a hero has used its charge). A match refuses every
   deploy for its opening `match.DEPLOY_LOCKOUT_TICKS` (90 ticks), so at tick 0 every answer is
   `TOO_EARLY`. For example, with a Giant in hand slot 0, once those 90 ticks have passed (re-run
-  2026-09-26 on RoyaleSim `126992a`):
+  2026-09-29 on RoyaleSim `2245f9f`):
 
   ```python
+  import json, royalesim
+
+  deck = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"]
+  b = royalesim.Battle(card_names=deck, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+  b.reset(seed=1, decks=[list(range(8))] * 2, shuffle=0, start_tick=0,
+          elixir_milli=[10_000, 10_000], tower_hp=None, spawns=[])
+  calib = json.loads(royalesim.EMBEDDED_CALIBRATION_JSON)
+  b.step([], calib["match"]["DEPLOY_LOCKOUT_TICKS"]["value"])   # wait out the opening lockout
+
   T, R = royalesim.SUBTILE, royalesim.DEPLOY_REASONS
   for label, (x, y) in [("own half", (5, 10)), ("the river", (9, 16)),
                         ("enemy half", (9, 25)), ("off the map", (40, 10))]:

@@ -40,11 +40,14 @@
 //!
 //! ABILITY BUTTONS
 //!     A command slot in [HAND_SIZE, HAND_SIZE + ABILITY_BUTTONS) presses ability
-//!     button slot - HAND_SIZE: the hero of that team's k-th deck entry marked form 2
-//!     in `reset(..., forms=)`. Its x and y are not read. The verdict is
-//!     TOO_EARLY, GAME_OVER and NOT_ENOUGH_ELIXIR as for a deploy, then NO_HERO and
-//!     ABILITY_SPENT (state.rs `check_ability_button`); ABILITY_NOT_READY keeps its
-//!     index but is no longer given (a deploying hero may press). One
+//!     button slot - HAND_SIZE. A side's buttons are its heroes (the deck entries marked
+//!     form 2 in `reset(..., forms=)`, in deck order), then its champion (a deck entry
+//!     whose card has a button of its own, the Golden Knight). Its x and y are not
+//!     read. The verdict is TOO_EARLY, GAME_OVER and NOT_ENOUGH_ELIXIR as for a
+//!     deploy, then NO_HERO (no button there, or nothing alive behind it),
+//!     ABILITY_SPENT (a hero's one charge is used) and ABILITY_NOT_READY (a champion's
+//!     charge is out: its chain runs, or the charge has not come back) (state.rs
+//!     `check_ability_button`). A deploying hero may press. One
 //!     command per team per step still holds, so a press and a deploy of one team
 //!     never share a step.
 //!
@@ -77,10 +80,9 @@
 //!     A unit a spell RELEASES (the Goblin of a Goblin Barrel) is not a card: it is
 //!     never in the catalogue, and `state_json` reports it under the catalogue id of
 //!     the spell that releases it.
-//!     `state_json` additionally carries, as trailing data the protocol decoder
-//!     ignores (msgspec 0.21.1 drops extra array elements and unknown keys, which
-//!     this repo measures rather than assumes): per entity, two more row elements
-//!     [stun_ticks, knockback_ticks]
+//!     `state_json` additionally carries, per entity, two row elements
+//!     [stun_ticks, knockback_ticks] (ENTITY_FIELDS's columns 12 and 13, which
+//!     RoyaleGym decodes; the row runs on to `level` and `mount_uid`)
 //!     (ticks remaining, rounded up; under the shipped knockback ladder the ticks the
 //!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array of rows
 //!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits]
@@ -222,8 +224,9 @@ pub const DEPLOY_REASONS: [&str; 18] = [
     // NOTHING_TO_MIRROR, index 14: a Mirror played before its side has played anything it could copy
     // (state.rs `resolve_play`, match.MIRROR_RECORD).
     "NOTHING_TO_MIRROR",
-    // An ability button's own reasons (state.rs `check_ability_button`), 15 to 17: no living hero behind the button,
-    // (16, no longer given: a deploying hero may press, measured on client 15.535.29), its hero's one charge used.
+    // An ability button's own reasons (state.rs `check_ability_button`), 15 to 17: nothing alive behind the button; a
+    // champion's charge out (its chain runs, or the charge has not come back; a hero never gets it: a deploying hero
+    // may press, measured on client 15.535.29); a hero's one charge used.
     "NO_HERO",
     "ABILITY_NOT_READY",
     "ABILITY_SPENT",
@@ -1813,7 +1816,8 @@ impl Battle {
     /// RIDERS (the Ram Rider's rider; card.rs `AttachDef`): `(uid, mount uid)` for every live
     /// attached rider whose mount lives. A rider stands where its mount stood a tick before and,
     /// under calibration rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune, nothing targets
-    /// or touches it. `state_json` is unchanged; a viewer reads this beside it.
+    /// or touches it. `state_json` carries the same link as every entity row's last column, `mount_uid`; this
+    /// list is the riders alone.
     fn rider_states(&self) -> PyResult<Vec<(i64, i64)>> {
         let s = self.s()?;
         Ok(s.entities()

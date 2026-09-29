@@ -138,7 +138,8 @@ SHOULD A LOADED CARD CARRYING AN UNREAD MECHANIC BE REFUSED, THE WAY RAGE AND HE
     AoeToGround where they agree with the attacker's own two flags, IsBuilding on a
     row the loader already classes by its table.  Take those away and 39 of the 95
     are left -- cards whose unread column changes what a player would see: the
-    Inferno family's damage ramp, the seven champions' Ability, the Mega Knight's
+    Inferno family's damage ramp, the champions' Ability (the Golden Knight's is read
+    since 2026-09-28), the Mega Knight's
     and Assassin's dash and landing hit, Mortar's MinimumRange, the Electro Giant's
     reflect, the Fisherman's pull, the Bowler's projectile knockback.
 
@@ -1140,7 +1141,8 @@ def plant_slice_mechanic(doc, consumed, colmap):
     # Any column the engine does not read will do. It was ReflectedAttackDamage until
     # card.rs began loading the reflect (combat.REFLECT_ATTACK, 2026-09-25), then the Inferno
     # ramp's VariableDamage2 until the extractor carried it into `variable_damage` (2026-09-26).
-    # A champion's Ability is carried into cards.json by nothing and read by nothing.
+    # A champion's Ability is carried into cards.json for the Golden Knight alone (`champion_dash_chain`, as the
+    # card's `ability`); the Knight's row has none, so an Ability planted on it is read by nothing.
     doc["units"]["Knight"]["raw"]["Ability"] = "KnightAbility"
     return doc, consumed, colmap
 

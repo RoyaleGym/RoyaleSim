@@ -6219,8 +6219,9 @@ impl BattleConfig {
 /// Cards in hand. A game rule, not a physics constant (protocol.py HAND_SIZE).
 pub const HAND_SIZE: usize = 4;
 
-/// THE MOST ABILITY BUTTONS A SIDE HAS: one per form-2 deck entry, at most this many (loadout.toml's top ladder: a
-/// hero slot and a flex slot). The Python layer's command slots HAND_SIZE .. HAND_SIZE + ABILITY_BUTTONS press them.
+/// THE MOST ABILITY BUTTONS A SIDE HAS: one per form-2 deck entry (its heroes, in deck order), then one for its
+/// champion (`ability_buttons`), at most this many in all. The Python layer's command slots HAND_SIZE .. HAND_SIZE +
+/// ABILITY_BUTTONS press them.
 pub const ABILITY_BUTTONS: usize = 3;
 
 /// THE TICKS A PRESS TAKES TO START, before its TriggerDelay runs (`press_ability_button`), counted on the hero's
@@ -17999,10 +18000,12 @@ impl BattleState {
     }
 
     /// PURE: the verdict a press of `team`'s button `k` gets now, in the deploy verdict's order for what the two share
-    /// -- the opening lockout, game over, the elixir -- then NoHero (no form-2 entry k, or no living hero of it) and
-    /// AbilitySpent (its charge is used). A deploying, stunned or frozen hero may press, and its press waits for it to
-    /// be free (`fire_scheduled`): measured on client 15.535.29, the button is available from the hero's first frame,
-    /// and presses on that frame and under a Freeze were taken and debited. AbilityNotReady is no longer given.
+    /// -- the opening lockout, game over, the elixir -- then NoHero (no button k, or nothing alive behind it),
+    /// AbilitySpent (a hero's one charge is used) and AbilityNotReady (a champion's charge is out: its chain runs, or
+    /// combat.DASH_CHAIN_COOLDOWN has not given it back). A deploying, stunned or frozen hero may press, and its press
+    /// waits for it to be free (`fire_scheduled`): measured on client 15.535.29, the button is available from the
+    /// hero's first frame, and presses on that frame and under a Freeze were taken and debited. A hero never gets
+    /// AbilityNotReady.
     pub fn check_ability_button(&self, team: Team, k: usize) -> Result<(), DeployError> {
         let until = self.cfg.calib.deploy_lockout_ticks.max(0) as u32;
         if self.tick < until {
