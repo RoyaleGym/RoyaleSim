@@ -505,6 +505,8 @@ pub type CommandOutcome = (i32, u8, u32, i32, i32);
 
 /// The tap a caller made: team, hand slot, x, y.
 pub type Command = (i64, i64, i32, i32);
+/// A waiting command as `pending_commands` returns it: (kind, what, x, y, ticks left, cost).
+pub type PendingRow = (String, i64, i32, i32, u32, i32);
 
 pub fn apply_commands(
     s: &mut BattleState,
@@ -1640,7 +1642,7 @@ impl Battle {
     /// `team`'s commands accepted and not run yet, in the order they run: (kind, what, x, y, ticks left, cost), kind
     /// "deploy" (what: the catalogue card id, x and y the tap) or "ability" (what: the button's action slot, x = y =
     /// 0). Empty with no delay.
-    fn pending_commands(&self, team: i64) -> PyResult<Vec<(String, i64, i32, i32, u32, i32)>> {
+    fn pending_commands(&self, team: i64) -> PyResult<Vec<PendingRow>> {
         let s = self.s()?;
         let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("team {team}")))?;
         let now = s.tick_count();
