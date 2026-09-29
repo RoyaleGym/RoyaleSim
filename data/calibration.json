@@ -2303,6 +2303,17 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted",
       "globals_role": "context"
     },
+    "CROWN_TOWER_SPELL_REACH": {
+      "value": "aoe_hit_test",
+      "candidates": ["aoe_hit_test", "client_square_1000_strict"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm aoe_hit_test, today's engine: a crown tower is a disc to a spell, reached when the spell's point is within its radius plus the tower's collision radius (spells.AOE_HIT_TEST = edge_inclusive), so a Rocket 3000 from a princess tower's centre hits it and a Fireball at offset (2000, 3000) misses. HIGH for client_square_1000_strict on the client over the 19 corpus casts near an enemy crown tower (every one fits, and no disc fits them all), with the king's half-side bounded by one client 15.535.29 Zap",
+      "provenance": "READ on the client (parity, round 9 item 35, and its revision). A spell reaches a crown tower when the distance from the spell's point to the tower's SQUARE (half-side 1000 native, round the tower's centre) is STRICTLY below the spell's radius. It fits all 19 corpus casts near an enemy crown tower; no circle fits them. Fireballs (radius 2500) at offset (2000, 3000): square distance 2,236, hit (20260920-112751 t674, -91; 20260918-115249.b1 t2074, a kill, and 115249.b1's first divergence, t2107, is that 50-hp tower's), where edge_inclusive misses (3,606 > 3,500). A Rocket (2000) at (0, 3000): 2,000 is not below 2,000, a miss in the client, which edge_inclusive hits. Three Freezes (3000) at (0, 4000): 3,000, not below, misses. A half-side of 1,500, or a non-strict comparison, makes the Rocket a hit. The king: client 15.535.29 ub-b1-ec4-zap, a Zap (2500) at offset (-3500, -500) from the king does not damage it, and a 1,400 square would (2,100), so the king's half-side is at most 1,000; no scenario cast on a princess tower lands between the two sizes.",
+      "meaning": "The shape a spell's impact (a projectile spell's landing, an area's application) reaches a crown tower by: aoe_hit_test, a disc read by spells.AOE_HIT_TEST as any unit is; client_square_1000_strict, a square of half-side 1000 native round the tower's centre, reached when the distance from the spell's point to the square is strictly below the spell's radius. Troops and other buildings keep spells.AOE_HIT_TEST under both arms, and an Evo Cannon's barrage bomb keeps its centre-to-centre reach.",
+      "open": "Freeze and the other damage-free areas on a tower (whether their buff lands by the same square: the three Freeze casts were misses either way). Whether the square is the tower's placement box (half-side 1000 is also a princess tower's collision radius, and the king's box is larger). Troop splash on a tower (not this key).",
+      "promotion_rules": "The test file passes (crates/royalesim/tests/crown_tower_spell_reach.rs). Flip to client_square_1000_strict when parity's scoring by override over the corpus (the 19 casts) and the scenario fixtures agrees with the reading above, with nothing else moving.",
+      "engine": "spell.rs impact (in_crown_square, CROWN_SQUARE_HALF_MILLI; the neighbour query widened to the square's corner under the new arm)"
+    },
     "WAVE_AREA_MODEL": {
       "value": "single_disc_one_hit_per_wave",
       "status": "measured",

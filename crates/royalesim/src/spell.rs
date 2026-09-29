@@ -64,6 +64,7 @@ use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
     AirToGroundWindow, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling,
+    CrownTowerSpellReach,
     DeathBombSpawnTiming, DeathPushbackScope, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape,
     StaggerWait, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding, SummonFuseStart, TargetBuffScope,
 };
@@ -821,6 +822,23 @@ fn crown_pulse(ctx: &SpellCtx, card: u16, level: i32, b: BuffApply) -> i32 {
     }
 }
 
+/// spells.CROWN_TOWER_SPELL_REACH = client_square_1000_strict: the half-side of a crown tower's square, native, both
+/// kinds (parity, round 9 item 35: a king square of 1,400 would have taken a Zap the client's king did not).
+pub const CROWN_SQUARE_HALF_MILLI: i32 = 1000;
+
+/// The distance from a crown tower's centre to its square's corner, native, rounded up (the neighbour query's reach).
+const CROWN_SQUARE_CORNER_MILLI: i32 = 1415;
+
+/// Whether an impact of `radius` at `centre` reaches the crown tower at `tower` under client_square_1000_strict: the
+/// distance from `centre` to the square of half-side `CROWN_SQUARE_HALF_MILLI` round `tower` is STRICTLY below
+/// `radius`. The client's casts on the square's edge miss (a Rocket 2000 from it, three Freezes 3000 from it).
+pub fn in_crown_square(centre: Vec2, tower: Vec2, radius: i32) -> bool {
+    let half = (CROWN_SQUARE_HALF_MILLI * K) as i64;
+    let dx = ((centre.x as i64) - (tower.x as i64)).abs().saturating_sub(half).max(0);
+    let dy = ((centre.y as i64) - (tower.y as i64)).abs().saturating_sub(half).max(0);
+    dx * dx + dy * dy < (radius as i64) * (radius as i64)
+}
+
 /// Apply one circular impact of `hit` at `centre` for `team`, of card `card` cast at unified `level`. `damage` is
 /// level-scaled. `area`: the clock of the pulsing area this impact is one application of (`area_bound`), None for every
 /// other impact. Each buff the impact hangs (`buff`, then `buff2`) carries `level` (`BuffHit::src_level`) and its
@@ -838,7 +856,10 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         let (time_ms, first_pulse_ms, source) = area_bound(ctx, hit, b, area);
         BuffHit { first_pulse_ms, source, src_level: level, crown_amount: crown_pulse(ctx, card, level, b), ..BuffHit::plain(id, b.buff, time_ms, pulse) }
     };
-    ctx.hash.neighbours_within(e, centre, hit.radius + ctx.hash.max_radius(), nb);
+    // spells.CROWN_TOWER_SPELL_REACH = client_square_1000_strict reaches a tower's corner, 1415 from its centre.
+    let square = ctx.calib.crown_tower_spell_reach == CrownTowerSpellReach::Square1000Strict;
+    let wide = if square { ctx.hash.max_radius().max(CROWN_SQUARE_CORNER_MILLI * K) } else { ctx.hash.max_radius() };
+    ctx.hash.neighbours_within(e, centre, hit.radius + wide, nb);
     // the fixed_distance arm's zero-vector fallback, a unit axis per victim
     let fallback = |v: usize| match ctx.calib.knock_zero_vector {
         #[cfg(not(clash_plant = "zero_vector_plus_y"))]
@@ -887,7 +908,13 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         };
         // A barrage bomb reaches centre to centre (card.rs `BARRAGE_REACH_MILLI`, measured).
         let edge = if barrage.is_some() { 0 } else { edge };
-        if !in_range_edge(centre, e.pos[v], hit.radius, edge) {
+        // spells.CROWN_TOWER_SPELL_REACH = client_square_1000_strict: a crown tower is a square, reached strictly.
+        #[cfg(not(clash_plant = "crown_tower_spell_disc"))]
+        let tower_square = square && barrage.is_none() && e.kind[v].is_crown_tower();
+        #[cfg(clash_plant = "crown_tower_spell_disc")]
+        let tower_square = false; // PLANT (regression): a crown tower is a disc to every spell, whatever the arm.
+        let reached = if tower_square { in_crown_square(centre, e.pos[v], hit.radius) } else { in_range_edge(centre, e.pos[v], hit.radius, edge) };
+        if !reached {
             continue;
         }
         let id = e.id_of(v);

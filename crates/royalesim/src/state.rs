@@ -806,6 +806,10 @@ pub struct Calib {
     pub crown_rounding: CrownRounding,
     /// spells.AOE_HIT_TEST.
     pub aoe_hit_test: AoeHitTest,
+    /// spells.CROWN_TOWER_SPELL_REACH (spell.rs `impact`): the shape a spell's impact reaches a crown tower by. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "crown_tower_spell_reach_default")]
+    pub crown_tower_spell_reach: CrownTowerSpellReach,
     /// spells.SPELL_AS_DEPLOY_LAUNCH_MODEL.
     pub spell_as_deploy_launch: LaunchModel,
     /// spells.ROLLING_HIT_SHAPE.
@@ -1649,6 +1653,10 @@ fn waited_press_cast_default() -> WaitedPressCast {
     WaitedPressCast::StatusStart
 }
 
+fn crown_tower_spell_reach_default() -> CrownTowerSpellReach {
+    CrownTowerSpellReach::AoeHitTest
+}
+
 fn damage_reduction_default() -> DamageReductionLaw {
     DamageReductionLaw::NotRead
 }
@@ -1983,6 +1991,21 @@ calib_enum!(
 calib_enum!(
     /// spells.AOE_HIT_TEST.
     AoeHitTest { EdgeInclusive = "edge_inclusive", CentreInRadius = "centre_in_radius" }
+);
+calib_enum!(
+    /// spells.CROWN_TOWER_SPELL_REACH -- the shape a spell's impact (spell.rs `impact`: a projectile spell's landing, a
+    /// one-shot or pulsing area's application) reaches a CROWN TOWER by. Every other unit keeps spells.AOE_HIT_TEST,
+    /// and an Evo Cannon's barrage bomb keeps its own centre-to-centre reach.
+    CrownTowerSpellReach {
+        /// Today's engine (shipped): the tower is a disc, read by spells.AOE_HIT_TEST as any unit is (edge_inclusive:
+        /// the centre within the spell's radius plus the tower's collision radius).
+        AoeHitTest = "aoe_hit_test",
+        /// The tower is a square of half-side 1000 (native) round its centre, both kinds, and the impact reaches it when
+        /// the distance from the spell's point to that square is STRICTLY below the spell's radius. Read on the client
+        /// (parity, round 9 item 35): all 19 corpus casts near an enemy crown tower, and a Zap beside a king tower on
+        /// client 15.535.29 that a larger king square would have hit.
+        Square1000Strict = "client_square_1000_strict",
+    }
 );
 calib_enum!(
     /// spells.SPELL_AS_DEPLOY_LAUNCH_MODEL.
@@ -5509,6 +5532,7 @@ impl Calib {
             projectile_speed_to_subtiles_per_tick: int(&v, &["time", "PROJECTILE_SPEED_TO_SUBTILES_PER_TICK", "value"])?,
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
+            crown_tower_spell_reach: pick(&v, &["spells", "CROWN_TOWER_SPELL_REACH", "value"], CrownTowerSpellReach::from_calibration_name)?,
             spell_as_deploy_launch: pick(&v, &["spells", "SPELL_AS_DEPLOY_LAUNCH_MODEL", "value"], LaunchModel::from_calibration_name)?,
             rolling_hit_shape: pick(&v, &["spells", "ROLLING_HIT_SHAPE", "value"], RollHitShape::from_calibration_name)?,
             spawning_spell_water: pick(&v, &["spells", "SPAWNING_SPELL_WATER_RULE", "value"], SpawnWaterRule::from_calibration_name)?,
@@ -19179,6 +19203,9 @@ impl BattleState {
 ///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
 ///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
+///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.WAITED_PRESS_CAST: Calib gained waited_press_cast (serde default the old arm, status_start)
 ///    and ScheduledAction::Ability gained waited (serde default false, set only under the new arm and hashed only when
 ///    set); the late starts (`Scratch::late_casts`) are pushed and read inside one tick, so a blob saved before it
@@ -19687,6 +19714,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ability_unit_first_update".into(), serde_json::to_value(AbilityUnitFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
     // status.WAITED_PRESS_CAST: the same.
     sh.insert("waited_press_cast".into(), serde_json::to_value(WaitedPressCast::StatusStart).map_err(|e| e.to_string())?);
+    // spells.CROWN_TOWER_SPELL_REACH: a format-3 battle's spells reached a crown tower as a disc; it keeps the old arm
+    // whatever the ledger ships (the same rule).
+    sh.insert("crown_tower_spell_reach".into(), serde_json::to_value(CrownTowerSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("jump_landing_contact".into(), serde_json::to_value(JumpLandingContact::LandingTick).map_err(|e| e.to_string())?);
