@@ -5,8 +5,8 @@
 //! precondition:
 //!   1. client_cleared: a Knight attacking a Giant holds no target from the tick a Zap lands on it to its resume,
 //!      and takes the Giant back on the resume rescan;
-//!   2. kept, the shipped arm: it holds the Giant through the stun;
-//!   3. the shipped arm is kept.
+//!   2. kept, the old arm: it holds the Giant through the stun;
+//!   3. the shipped arm is client_cleared (since the 2026-09-28 round 9 arms flip).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test stun_clears_target`):
 //!   stun_keeps_target  a landing hold keeps the target whatever the arm: (1) goes red.
@@ -55,7 +55,7 @@ fn a_landing_stun_clears_the_target_under_client_cleared() {
 }
 
 #[test]
-fn the_shipped_arm_keeps_the_target_through_the_stun() {
+fn the_old_arm_keeps_the_target_through_the_stun() {
     let (giant, rows) = zapped_knight(StunClearsTarget::Kept);
     let landed = rows.iter().position(|r| r.1).expect("the scene drifted: the Zap never held the Knight");
     let resumed = (landed..rows.len()).find(|&k| !rows[k].1).expect("the scene drifted: the stun never ended");
@@ -63,6 +63,6 @@ fn the_shipped_arm_keeps_the_target_through_the_stun() {
 }
 
 #[test]
-fn the_shipped_arm_is_kept() {
-    assert_eq!(Calib::shipped().stun_clears_target, StunClearsTarget::Kept);
+fn the_shipped_arm_is_client_cleared() {
+    assert_eq!(Calib::shipped().stun_clears_target, StunClearsTarget::ClientCleared);
 }

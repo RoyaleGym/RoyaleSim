@@ -4,9 +4,9 @@
 //! makes a Goblin on (9000, 22000) exactly, both Red princess towers 6,519 from it, and the client's Goblin holds the
 //! RIGHT tower on its first frame. Pinned here, each with its precondition:
 //!   1. own_frame_high_x: that Goblin's first target is Red's right princess tower (14500, 25500);
-//!   2. own_frame_low_x, the shipped arm: the left one (3500, 25500), the engine's first divergence there;
+//!   2. own_frame_low_x, the old arm: the left one (3500, 25500), the engine's first divergence there;
 //!   3. both arms are seat-symmetric: a Red drill's Goblin on x 9000 takes the tower the Blue one's rotation names;
-//!   4. the shipped arm is own_frame_low_x.
+//!   4. the shipped arm is own_frame_high_x (since the 2026-09-28 round 9 arms flip).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test equal_distance_tie`):
 //!   equal_distance_tie_low_x  the lower own-frame x first, whatever the arm: (1) goes red.
@@ -52,7 +52,7 @@ fn a_blue_goblin_on_the_centre_line_takes_the_right_tower_under_own_frame_high_x
 }
 
 #[test]
-fn the_shipped_arm_takes_the_left_tower() {
+fn the_old_arm_takes_the_left_tower() {
     let (_, target) = first_goblin(EqualDistanceTie::OwnFrameLowX, Team::Blue, BLUE_DRILL_Y);
     assert_eq!(target, n(3500, 25500), "own_frame_low_x: the Goblin on x 9000 did not take Red's left princess tower");
 }
@@ -68,6 +68,6 @@ fn both_arms_are_seat_symmetric() {
 }
 
 #[test]
-fn the_shipped_arm_is_own_frame_low_x() {
-    assert_eq!(Calib::shipped().equal_distance_tie, EqualDistanceTie::OwnFrameLowX);
+fn the_shipped_arm_is_own_frame_high_x() {
+    assert_eq!(Calib::shipped().equal_distance_tie, EqualDistanceTie::OwnFrameHighX);
 }

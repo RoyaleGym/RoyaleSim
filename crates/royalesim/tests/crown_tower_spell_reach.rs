@@ -2,7 +2,7 @@
 //!
 //! Under client_square_1000_strict a crown tower is a square of half-side 1000 native round its centre, and an impact
 //! reaches it when the distance from its point to that square is strictly below its radius; under aoe_hit_test, the
-//! shipped arm, it is a disc read by spells.AOE_HIT_TEST (edge_inclusive: radius plus the tower's collision radius).
+//! old arm, it is a disc read by spells.AOE_HIT_TEST (edge_inclusive: radius plus the tower's collision radius).
 //! Each scene below is the client's, and the two arms disagree on each:
 //!   - a Fireball (2500) at offset (2000, 3000) from a princess tower: square distance 2,236, a hit on the client; the
 //!     disc misses (3,606 > 3,500);
@@ -45,8 +45,8 @@ const PRINCESS: (i32, i32) = (3500, 25500);
 const KING: (i32, i32) = (9000, 29000);
 
 #[test]
-fn the_shipped_arm_is_aoe_hit_test() {
-    assert_eq!(Calib::shipped().crown_tower_spell_reach, CrownTowerSpellReach::AoeHitTest);
+fn the_shipped_arm_is_client_square_1000_strict() {
+    assert_eq!(Calib::shipped().crown_tower_spell_reach, CrownTowerSpellReach::Square1000Strict);
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn the_client_arm_reaches_a_tower_by_its_square() {
 }
 
 #[test]
-fn the_shipped_arm_reads_the_tower_as_a_disc() {
+fn the_old_arm_reads_the_tower_as_a_disc() {
     // Not vacuous: the old arm lands each scene the other way.
     let arm = CrownTowerSpellReach::AoeHitTest;
     assert_eq!(tower_loss(arm, "Fireball", PRINCESS, (2000, -3000)), 0, "the disc misses the Fireball at (2000, 3000)");

@@ -334,7 +334,7 @@ fn a_waited_press_steps_once_before_its_hold() {
     // status.WAITED_PRESS_CAST (parity, round 9 item 43; sp-h4king8500: pressed while she deploys, her first free tick
     // t121 she steps (8499, 500) -> (8457, 542) and then casts, the turret on t125 either way). Her first free tick is
     // the 20th from her first frame (a_press_while_she_deploys_waits_for_her_deploy_end), index 19 from the press.
-    assert_eq!(Calib::shipped().waited_press_cast, WaitedPressCast::StatusStart, "the shipped arm");
+    assert_eq!(Calib::shipped().waited_press_cast, WaitedPressCast::AfterMove, "the shipped arm");
     let old = waited_press(WaitedPressCast::StatusStart);
     let new = waited_press(WaitedPressCast::AfterMove);
     let free = 19;
