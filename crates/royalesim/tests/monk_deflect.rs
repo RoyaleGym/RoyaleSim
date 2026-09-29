@@ -21,6 +21,7 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test monk_deflect`):
 //!   deflect_returns_nothing   the deflect sends nothing back: (3) goes red.
 //!   deflect_walks             the active window does not hold him: (2) goes red.
+//!   ability_time_rounds_up    his 933 ms cast and 933 ms trigger keep their part-tick: (2) goes red (row 98).
 mod common;
 
 use common::*;
@@ -93,7 +94,9 @@ fn the_deflect_holds_the_monk_cuts_every_hit_to_35_percent_and_sends_the_shots_b
     let still: Vec<usize> = (1..rows.len()).filter(|&k| rows[k].at == rows[k - 1].at).collect();
     let walks_again = (20..rows.len()).find(|&k| rows[k].at != rows[k - 1].at).expect("he walks again after the Deflect");
     assert!((1..walks_again).all(|k| still.contains(&k)), "he stands from the press to the Deflect's end (walks again on row {walks_again})");
-    assert!((90..=100).contains(&walks_again), "the hold ends about P + 97 (measured), not on row {walks_again}");
+    // Row k is the press's first frame P + k. Measured: state 0 on P + 96, attacking on P + 97; his cast is 17 frames
+    // and his state 79 (`whole_ticks_ms`).
+    assert_eq!(walks_again, 97, "he moves again on P + 97, the client's first frame after his hold");
     let on_monk = drops(&rows, start, true);
     let on_musk = drops(&rows, start, false);
     let reduced: Vec<usize> = on_monk.iter().filter(|d| d.1 == 75).map(|d| d.0).collect();

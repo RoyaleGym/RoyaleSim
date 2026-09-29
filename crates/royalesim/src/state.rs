@@ -6333,6 +6333,19 @@ pub const ABILITY_BUTTONS: usize = 3;
 /// (TriggerDelay 0) is made on P + 1 and its first wave lands on P + 2 (`fire_ability`).
 pub const ABILITY_START_TICKS: i32 = 1;
 
+/// AN ABILITY'S TIME IN WHOLE TICKS: `ms` less its part-tick, what the client runs a CastTime, a TriggerDelay and an
+/// ability's state duration on. Measured on client 15.535.29: CastTime 933 holds 17 frames past the first, as 900
+/// would, and 950 holds 18 (`start_ability`); the Monk's TriggerDelay 933 lands his Deflect on P + 18, not P + 19.
+#[inline]
+pub fn whole_ticks_ms(ms: i32, tick_ms: i32) -> i32 {
+    #[cfg(not(clash_plant = "ability_time_rounds_up"))]
+    let out = ms - ms.rem_euclid(tick_ms.max(1));
+    // PLANT (regression): the part-tick is kept, as the engine did before the reading: 933 holds 18 frames.
+    #[cfg(clash_plant = "ability_time_rounds_up")]
+    let out = ms;
+    out
+}
+
 /// THE TICKS A STARTING ABILITY AREA WAITS before its first update (`fire_ability`): made in the Status phase, it is
 /// stepped from the next tick's Projectile phase, as an area made by another area's end is. Measured on client
 /// 15.535.29 through its victims: the Hero Ice Golem's storm, made on P + 1, lands its waves on P + 2, P + 32 and
@@ -18814,8 +18827,9 @@ impl BattleState {
         self.players[team as usize].mana -= (a.cost as i64) * self.mana_unit;
         self.hero_units[h].spent = true;
         let id = self.hero_units[h].id;
-        // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay.
-        let ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + a.trigger_ms;
+        // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay in whole ticks
+        // (`whole_ticks_ms`).
+        let ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + whole_ticks_ms(a.trigger_ms, self.cfg.calib.tick_ms);
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
         Ok(id)
     }
@@ -18839,11 +18853,23 @@ impl BattleState {
     /// away, a Goblin 5,035) her target on t155; sp-h2d, walking at a princess tower when pressed, the Knight her
     /// target on t162, mid-cast, the first Target phase that finds it within her sight (6000 and both radii).
     /// Unmeasured: a stun that lands on her mid-cast. Her search runs on for as long as it holds her.
+    ///
+    /// THE HOLD'S LENGTH counts whole ticks (`whole_ticks_ms`): measured on client 15.535.29, a CastTime of 950 holds 18
+    /// frames from its first (the Hero Musketeer, 30 presses of 30) and one of 933 holds 17 (the Monk, the Archer
+    /// Queen): floor(CastTime / 50) - 1 frames past the first. A DEFLECT's champion is held on through his ability's
+    /// state (`AbilityEffect::Deflect::active_ms`) from the cast's end, the same count: the Monk casts P..P + 16 and
+    /// stands P + 17..P + 95, free on P + 96 (sp-champ-Monk-s0, 4000 ms).
     fn start_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let Some(a) = self.cfg.cards.get(self.ents.card[i]).ability.clone() else { return };
-        if a.cast_ms > 0 {
-            self.ents.stun_ms[i] = self.ents.stun_ms[i].max(a.cast_ms);
+        let tick = self.cfg.calib.tick_ms.max(1);
+        let mut hold = whole_ticks_ms(a.cast_ms, tick);
+        #[cfg(not(clash_plant = "deflect_walks"))]
+        if let crate::card::AbilityEffect::Deflect { active_ms, .. } = a.effect {
+            hold += whole_ticks_ms(active_ms, tick) - tick;
+        }
+        if hold > 0 {
+            self.ents.stun_ms[i] = self.ents.stun_ms[i].max(hold);
             if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == hero) {
                 u.casting = true;
             }
@@ -18940,12 +18966,9 @@ impl BattleState {
             // first frame P = t197): he casts P..P + 16, is active P + 17..P + 95, stands and attacks nothing through
             // both, and every hit on him in the active window lands at 35 % (217 -> 75, 202 -> 70, 81 -> 28).
             crate::card::AbilityEffect::Deflect { buff, active_ms } => {
+                // His hold through the active state was set at the cast's start (`start_ability`).
                 let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
-                #[cfg(not(clash_plant = "deflect_walks"))]
-                {
-                    self.ents.stun_ms[i] = self.ents.stun_ms[i].max(active_ms);
-                }
                 let ticks = (active_ms / self.cfg.calib.tick_ms.max(1)).max(1) as u32;
                 self.deflects.retain(|(id, _)| *id != hero);
                 self.deflects.push((hero, self.tick + ticks));
