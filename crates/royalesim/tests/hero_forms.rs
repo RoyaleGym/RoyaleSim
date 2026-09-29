@@ -32,8 +32,8 @@
 //! PLANTS: `RUSTFLAGS='--cfg clash_plant="hero_forms_in_first_pass"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! hero_forms` -> 1 red (the forms load among the table's rows, so the towers and units after them move).
 //! `--cfg clash_plant="hash_heroes_always"` -> tests/hash_continuity.rs red (the button list hashed in every battle).
-//! `--cfg clash_plant="cast_releases_target"` -> `a_cast_keeps_her_target_and_restarts_her_attack_clock` red (the
-//! cast lets her target go for a rescan at its end). `--cfg clash_plant="cast_blinds_target_search"` ->
+//! `--cfg clash_plant="cast_releases_target"` -> `a_cast_keeps_her_target_and_restarts_her_attack_clock` and
+//! `a_cast_does_not_stop_her_target_search` red (the cast lets her target go for a rescan at its end). `--cfg clash_plant="cast_blinds_target_search"` ->
 //! `a_cast_does_not_stop_her_target_search` red (the cast holds her search as a stun does).
 //! `--cfg clash_plant="waited_press_casts_before_move"` -> `a_waited_press_steps_once_before_its_hold` red (a waited
 //! press starts its hold before the move pass, whatever status.WAITED_PRESS_CAST says).
