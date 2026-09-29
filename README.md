@@ -67,7 +67,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 132 of the 144 cards in the 15.535 client's card table and refuses 12, with a reason for each, and ten of them also in their evolved or hero form. Counted by the loader itself (its census at `145171f`, `cards.json` FNV-1a 64 33f92e8a9791278a). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 132 of the 144 cards in the 15.535 client's card table and refuses 12, with a reason for each, and ten of them also in their evolved or hero form. Counted by the loader itself (its census at `6244a58`, `cards.json` FNV-1a 64 722e6cd75be8008b). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 373 carry a status from guess to measured, and 258 are measured (RoyaleSim e70e458). 318 also name the rivals they were chosen against, and 327 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -499,8 +499,8 @@ Working:
   a Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon* drops,
   the MusketeerTurret is what the Hero Musketeer's ability makes, and no hand can play either.
   The three lists are disjoint and their union is 191: the 144 rows plus the 2 towers plus the 7
-  evolved forms plus those 38. Counts from the census at `145171f`, against `cards.json`
-  FNV-1a 64 33f92e8a9791278a. The loadable and refused lists are pinned row by row in
+  evolved forms plus those 38. Counts from the census at `6244a58`, against `cards.json`
+  FNV-1a 64 722e6cd75be8008b. The loadable and refused lists are pinned row by row in
   `crates/royalesim/tests/loadable_census.rs`, which CI runs. No row of the 144 moved since
   `ab2e520`. The default card list holds every card that loads, the Miner, the Goblin Drill
   and the Mirror included.
