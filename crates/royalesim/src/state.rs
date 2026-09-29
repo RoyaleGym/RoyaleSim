@@ -666,6 +666,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "dash_chain_end_default")]
     pub dash_chain_end: DashChainEnd,
+    /// combat.DASH_CHAIN_ATTACK_CYCLE: a champion's attack cycle when its dash chain ends (`chain_pass`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "dash_chain_attack_cycle_default")]
+    pub dash_chain_attack_cycle: DashChainAttackCycle,
     /// combat.DASH_CHAIN_PENDING: what a champion does while its press waits for a target (`chain_pass`, the move
     /// pass). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "dash_chain_pending_default")]
@@ -1766,6 +1770,10 @@ fn dash_chain_pending_default() -> DashChainPending {
 
 fn dash_chain_end_default() -> DashChainEnd {
     DashChainEnd::KeepLastTarget
+}
+
+fn dash_chain_attack_cycle_default() -> DashChainAttackCycle {
+    DashChainAttackCycle::Kept
 }
 
 fn dash_chain_cooldown_default() -> Option<i32> {
@@ -3274,6 +3282,19 @@ calib_enum!(
         /// (entity.rs `retarget_wait`); under combat.POST_KILL_WAIT = none, which counts nothing, the target is only
         /// dropped and the next Target phase decides.
         ClientNoTargetTwoTicks = "client15535_no_target_two_ticks",
+    }
+);
+calib_enum!(
+    /// combat.DASH_CHAIN_ATTACK_CYCLE -- a champion's attack cycle when its dash chain ends (`chain_pass`, H + 2 after
+    /// its last blow H).
+    DashChainAttackCycle {
+        /// The engine before this key: the cycle runs on from the chain, so his first ordinary hit lands on H + 6.
+        Kept = "kept",
+        /// Measured on client 15.535.29 (the Golden Knight, 12 of 12 chains over every sp-champ-G* scene): the chain's
+        /// end restarts the cycle from its load time, as a dash's end does (`end_dashes`): on H + 2 the load timer
+        /// reads LoadTime, on H + 3 the attack progress 100, then +50 a tick, and the first ordinary hit lands on
+        /// H + 19, one HitSpeed after H + 1.
+        ClientRestartFromLoad = "client15535_restart_from_load",
     }
 );
 calib_enum!(
@@ -5842,6 +5863,7 @@ impl Calib {
             waited_press_cast: pick(&v, &["status", "WAITED_PRESS_CAST", "value"], WaitedPressCast::from_calibration_name)?,
             dash_chain_cooldown_ms: dash_chain_cooldown(&v)?,
             dash_chain_end: pick(&v, &["combat", "DASH_CHAIN_END", "value"], DashChainEnd::from_calibration_name)?,
+            dash_chain_attack_cycle: pick(&v, &["combat", "DASH_CHAIN_ATTACK_CYCLE", "value"], DashChainAttackCycle::from_calibration_name)?,
             dash_chain_pending: pick(&v, &["combat", "DASH_CHAIN_PENDING", "value"], DashChainPending::from_calibration_name)?,
             damage_reduction: pick(&v, &["status", "DAMAGE_REDUCTION", "value"], DamageReductionLaw::from_calibration_name)?,
             idle_buff: pick(&v, &["status", "IDLE_BUFF", "value"], IdleBuffLaw::from_calibration_name)?,
@@ -12186,6 +12208,23 @@ impl BattleState {
                     if hold {
                         self.ents.retarget_wait[i] = 2;
                     }
+                }
+            }
+        }
+        // combat.DASH_CHAIN_ATTACK_CYCLE = client15535_restart_from_load: the chain's end restarts the attack cycle from
+        // its load time, as a dash's end does (`end_dashes`), whatever the chain's blows left in it.
+        #[cfg(not(clash_plant = "chain_end_keeps_cycle"))]
+        let restart = self.cfg.calib.dash_chain_attack_cycle == DashChainAttackCycle::ClientRestartFromLoad;
+        #[cfg(clash_plant = "chain_end_keeps_cycle")]
+        let restart = false; // PLANT (regression): the new arm keeps the cycle the chain left.
+        if restart {
+            for id in &ended {
+                if self.ents.is_alive(*id) {
+                    let i = id.index as usize;
+                    let load = self.cfg.cards.get(self.ents.card[i]).load_time_ms.max(0);
+                    self.ents.attack_phase[i] = AttackPhase::Idle;
+                    self.ents.attack_ms[i] = 0;
+                    self.ents.attack_load_ms[i] = load;
                 }
             }
         }
@@ -20316,6 +20355,9 @@ impl BattleState {
 /// 20, unchanged, spawner.RING_CREATION_ORDER: Calib gained ring_creation_order (serde default the old arm,
 ///    ascending_angle), no new state (it orders the wave's creations within the tick), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
+///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -20718,6 +20760,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.DASH_CHAIN_END and DASH_CHAIN_PENDING: a format-3 battle ran no champion; the same rule.
     sh.insert("dash_chain_pending".into(), serde_json::to_value(DashChainPending::WaitForGroundCharacter).map_err(|e| e.to_string())?);
     sh.insert("dash_chain_end".into(), serde_json::to_value(DashChainEnd::KeepLastTarget).map_err(|e| e.to_string())?);
+    // combat.DASH_CHAIN_ATTACK_CYCLE: a format-3 battle's champion kept his attack cycle through a chain's end; it keeps
+    // that whatever the ledger ships (the same rule).
+    sh.insert("dash_chain_attack_cycle".into(), serde_json::to_value(DashChainAttackCycle::Kept).map_err(|e| e.to_string())?);
     // combat.ATTACK_COMBO and knockback.COMBO_PUSHBACK: a format-3 battle ran no combo; it keeps the old arms whatever
     // the ledger ships (the same rule).
     sh.insert("attack_combo".into(), serde_json::to_value(AttackCombo::NotRead).map_err(|e| e.to_string())?);

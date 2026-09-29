@@ -36,13 +36,14 @@
 //!   pending_run_walks   the waiting press walks at his own speed: (6) goes red.
 //!   pending_trigger_without_radius the trigger reads DashRange alone: (6) goes red.
 //!   pending_target_frozen the waiting press keeps its target from the press: (7) goes red.
+//!   chain_end_keeps_cycle the measured cycle keeps the one the chain left: under_the_measured_cycle_... goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashChainEnd, DashChainPending, DeployError, PostKillWait};
+use royalesim::state::{BattleConfig, BattleState, DashChainAttackCycle, DashChainEnd, DashChainPending, DeployError, PostKillWait};
 use royalesim::{EntityId, Team};
 
 const GK_AT: (i32, i32) = (3500, 9000);
@@ -339,4 +340,29 @@ fn without_a_post_kill_wait_the_measured_end_only_drops_the_target() {
     let h2 = rows.iter().position(|r| r.hp[1] < knight_hp).expect("the Knight was hit");
     assert_eq!(rows[h2 + 2].target, None, "H + 2: the target is dropped");
     assert!(rows[h2 + 3].target.is_some(), "H + 3: the next Target phase decides, no hold");
+}
+
+/// The Golden Knight alone on the Giant under the shipped chain end (client15535_no_target_two_ticks) and `cycle`: the
+/// ticks from the dash's blow on the Giant to the next hp it loses (his first ordinary hit).
+fn first_hit_after_the_chain(cycle: DashChainAttackCycle) -> usize {
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_end = DashChainEnd::ClientNoTargetTwoTicks;
+    cfg.calib.dash_chain_attack_cycle = cycle;
+    let (mut s, gk, ids) = scene_in(cfg, &[("Giant", GIANT_AT)]);
+    let giant_hp = s.entity(ids[0]).unwrap().hp;
+    let rows = run(&mut s, gk, &ids, 60);
+    let h = rows.iter().position(|r| r.hp[0] < giant_hp).expect("the dash's blow on the Giant");
+    let f = (h + 1..rows.len()).find(|&k| rows[k].hp[0] < rows[h].hp[0]).expect("an ordinary hit after the chain");
+    f - h
+}
+
+#[test]
+fn under_the_measured_cycle_his_first_ordinary_hit_lands_on_h_plus_19() {
+    // combat.DASH_CHAIN_ATTACK_CYCLE (parity's item 62). Measured on client 15.535.29, 12 of 12 chains: the chain's end
+    // restarts his attack cycle from LoadTime, as a dash's end does, and his first ordinary hit lands on H + 19, one
+    // HitSpeed (900) after H + 1. Under kept the cycle runs on from the chain and the hit comes early. Plant:
+    // chain_end_keeps_cycle.
+    assert_eq!(first_hit_after_the_chain(DashChainAttackCycle::ClientRestartFromLoad), 19, "client15535_restart_from_load: H + 19");
+    let kept = first_hit_after_the_chain(DashChainAttackCycle::Kept);
+    assert!(kept < 19, "vacuous: under kept the first ordinary hit is not early (H + {kept})");
 }
