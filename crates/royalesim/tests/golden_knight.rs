@@ -42,7 +42,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashChainEnd, DashChainPending, DeployError};
+use royalesim::state::{BattleConfig, BattleState, DashChainEnd, DashChainPending, DeployError, PostKillWait};
 use royalesim::{EntityId, Team};
 
 const GK_AT: (i32, i32) = (3500, 9000);
@@ -63,6 +63,10 @@ fn cfg_with(cooldown: Option<i32>) -> BattleConfig {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     cfg.calib.dash_chain_cooldown_ms = cooldown;
+    // The arms (1) to (4) were written on, before combat.DASH_CHAIN_END and DASH_CHAIN_PENDING flipped: the tests of
+    // those keys name theirs.
+    cfg.calib.dash_chain_end = DashChainEnd::KeepLastTarget;
+    cfg.calib.dash_chain_pending = DashChainPending::WaitForGroundCharacter;
     cfg
 }
 
@@ -311,4 +315,28 @@ fn a_waiting_press_re_decides_its_target_each_tick_and_dashes_at_a_knight_put_do
     assert!(knight.is_some(), "the scene drifted: no Knight on the board");
     assert_ne!(Some(tower), knight, "the scene drifted");
     assert!(dashed_at_knight, "his target was not re-decided to the Knight, or he never dashed at it: (on the Knight, on the tower, step) {seen:?}");
+}
+
+#[test]
+fn the_shipped_values_are_the_measured_arms_since_the_round_10_ship() {
+    let c = royalesim::state::Calib::shipped();
+    assert_eq!(c.dash_chain_end, DashChainEnd::ClientNoTargetTwoTicks);
+    assert_eq!(c.dash_chain_pending, DashChainPending::ClientRunToCurrentTarget);
+}
+
+#[test]
+fn without_a_post_kill_wait_the_measured_end_only_drops_the_target() {
+    // combat.POST_KILL_WAIT = none counts nothing, so the two-tick hold cannot run: the configuration is still accepted,
+    // the chain's end drops the target (H + 2), and the next Target phase decides (H + 3).
+    let reds = [("Giant", GIANT_AT), ("Knight", (5500, 14500))];
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_end = DashChainEnd::ClientNoTargetTwoTicks;
+    cfg.calib.post_kill_wait = PostKillWait::None;
+    assert!(cfg.calib.validate().is_ok(), "the measured end refused a configuration with no post-kill wait");
+    let (mut s, gk, ids) = scene_in(cfg, &reds);
+    let knight_hp = s.entity(ids[1]).unwrap().hp;
+    let rows = run(&mut s, gk, &ids, 30);
+    let h2 = rows.iter().position(|r| r.hp[1] < knight_hp).expect("the Knight was hit");
+    assert_eq!(rows[h2 + 2].target, None, "H + 2: the target is dropped");
+    assert!(rows[h2 + 3].target.is_some(), "H + 3: the next Target phase decides, no hold");
 }

@@ -69,7 +69,7 @@ layer bots train in. Install steps are below, under "Install".
   <tr>
     <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 132 of the 144 cards in the 15.535 client's card table and refuses 12, with a reason for each, and five of them also in their evolved or hero form. Counted by the loader itself (its census at `fa2592f`, `cards.json` FNV-1a 64 f6539d6c6ac2d4e3). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
-    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 369 carry a status from guess to measured, and 249 are measured (RoyaleSim 5b8d76b). 314 also name the rivals they were chosen against, and 323 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 369 carry a status from guess to measured, and 251 are measured (RoyaleSim c3ead62). 314 also name the rivals they were chosen against, and 323 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
 </table>
 
@@ -513,10 +513,9 @@ Working:
   tests say so; the rest are named constants.
 - The Golden Knight's button, at `5f75824`. A press sends him dashing from one enemy to the next.
   A side has at most three buttons: its heroes' first, then its champion's. The champion's charge
-  comes back 11 seconds after his dashes end, a figure not measured yet. The other champions play
-  as plain troops. A known defect: a press with no enemy on the ground within 5.5 tiles stops him
-  targeting anything until one comes that close, so against towers alone he never attacks again
-  (docs/mechanics.md, Known defects).
+  comes back 11 seconds after his dashes end, a figure not measured yet. Pressed with no enemy
+  near, he runs at his target at twice his speed and dashes when it is in reach, as in the game.
+  The other champions play as plain troops.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,

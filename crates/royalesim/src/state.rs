@@ -3263,7 +3263,8 @@ calib_enum!(
         /// Measured on client 15.535.29 (item 53's correction, the Golden Knight's gk1, gk2 and gk3): he holds NO
         /// target on H + 2 and H + 3 and takes one by the ordinary rule on H + 4 -- the nearest enemy, which in gk2 and
         /// gk3 is the Giant at 1,566, not the Knight he last hit at 2,504. Run through the post-kill wait's counter
-        /// (entity.rs `retarget_wait`), so it needs combat.POST_KILL_WAIT's counting arms (`Calib::validate`).
+        /// (entity.rs `retarget_wait`); under combat.POST_KILL_WAIT = none, which counts nothing, the target is only
+        /// dropped and the next Target phase decides.
         ClientNoTargetTwoTicks = "client15535_no_target_two_ticks",
     }
 );
@@ -6130,9 +6131,6 @@ impl Calib {
         // the caster, where the client pushes it forward.
         if (c.roll_first_step == RollFirstStep::HitOnLandingTickStepAfter) != (c.knock_direction_rolling == RollDirection::RadialFromTickEndCentre) {
             return Err("spells.ROLL_FIRST_STEP = client15535_hit_on_landing_tick_step_after and knockback.DIRECTION_ROLLING = client15535_radial_from_tick_end_centre run only together".into());
-        }
-        if c.dash_chain_end == DashChainEnd::ClientNoTargetTwoTicks && c.post_kill_wait == PostKillWait::None {
-            return Err("combat.DASH_CHAIN_END = client15535_no_target_two_ticks runs through the post-kill wait's counter, which combat.POST_KILL_WAIT = none does not run".into());
         }
         if c.attack_pushback == AttackPushback::LadderAwayFromTarget && c.knock_law != KnockLaw::Client16402 {
             return Err("knockback.ATTACK_PUSHBACK = ladder_away_from_target has no engine implementation under knockback.DISPLACEMENT_LAW other than client16402".into());
@@ -12144,12 +12142,17 @@ impl BattleState {
         #[cfg(clash_plant = "chain_end_keeps_target")]
         let drop = false; // PLANT (regression): the new arm keeps the last dash target.
         if drop {
+            // The hold runs on the post-kill wait's counter; combat.POST_KILL_WAIT = none counts nothing, so there the
+            // target is only dropped and the next Target phase (H + 3) decides.
+            let hold = self.cfg.calib.post_kill_wait != PostKillWait::None;
             for id in &ended {
                 if self.ents.is_alive(*id) {
                     let i = id.index as usize;
                     self.ents.target[i] = None;
                     self.ents.target_locked[i] = false;
-                    self.ents.retarget_wait[i] = 2;
+                    if hold {
+                        self.ents.retarget_wait[i] = 2;
+                    }
                 }
             }
         }
