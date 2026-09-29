@@ -6460,6 +6460,10 @@ pub struct EvoBoard {
     /// `default` so a battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
     pub rages: Vec<(EntityId, u32)>,
+    /// Each Evo Inferno Dragon and the tick its count's decay last restarted (`stages_pass`). `default` so a battle saved
+    /// before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub stages: Vec<(EntityId, u32)>,
 }
 
 /// AN EVO BATTLE RAM'S CHARGE PUSH (`ram_pass`): the tick its push switches on (None while it is not charged), the
@@ -6482,6 +6486,7 @@ impl EvoBoard {
             && self.spears.is_empty()
             && self.rams.is_empty()
             && self.rages.is_empty()
+            && self.stages.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -8461,6 +8466,10 @@ impl BattleState {
         if evo.spear.is_some() {
             self.evo.spears.push((id, 0));
         }
+        // An Evo Inferno Dragon's count starts at 0, its decay from its creation (`stages_pass`).
+        if evo.stages.is_some() {
+            self.evo.stages.push((id, self.tick));
+        }
         // An Evo Battle Ram starts uncharged: its push switches on with its first charge (`ram_pass`).
         if evo.ram.is_some() {
             self.evo.rams.push(RamState { id, armed_at: None, struck: Vec::new(), recoil: false });
@@ -8483,6 +8492,17 @@ impl BattleState {
         // A RAGE AFTER HITS (the Evo Battle Ram's Barbarian_EV1, `HitRageDef`): every `hits`-th hit lands the unit's own
         // buff for its time, on the hit's tick. Measured on client 15.535.29 (sp-ram-alone-s0, level 11): the first
         // Barbarian's first hit lands on t1111 (progress 1400) and its progress steps 65 from t1112 (50 x 130 / 100).
+        // THE EVO INFERNO DRAGON'S COUNT (card.rs `StagesDef`): one more per hit, to its cap, across targets; the hit
+        // restarts the decay (`stages_pass`).
+        if let Some(st) = evo.stages {
+            #[cfg(not(clash_plant = "stage_count_never"))]
+            {
+                self.ents.combo_ix[i] = self.ents.combo_ix[i].saturating_add(1).min(st.cap);
+            }
+            #[cfg(clash_plant = "stage_count_never")]
+            let _ = st; // PLANT (regression): the count never moves; every hit deals the first entry.
+            self.stage_restart(id);
+        }
         // The count starts at the unit's first hit: a death spawn is created by `materialise_released`, not through
         // `evo_created`, so the entry is made here, on whatever path made the unit.
         if let Some(r) = evo.hit_rage {
@@ -8822,6 +8842,46 @@ impl BattleState {
             }
         }
         self.evo.rams = rams;
+    }
+
+    /// THE EVO INFERNO DRAGON'S COUNT (card.rs `StagesDef`; the count is entity.rs `combo_ix`), in the Move phase, for
+    /// each dragon: while it is held (a stun or a full-stop buff: the graph's COMBAT_DISABLED) its count is 0; and
+    /// `decay_ms` (in ticks) after the last restart of its decay (its creation, a hit, an attack's start: `stage_restart`)
+    /// its count is 0 and the decay restarts. Unmeasured: the decay and the hold (no scene holds the dragon, or leaves it
+    /// idle for 7000 ms with a count).
+    fn stages_pass(&mut self) {
+        let mut st = std::mem::take(&mut self.evo.stages);
+        for (id, last) in st.iter_mut() {
+            if !self.ents.is_alive(*id) {
+                continue;
+            }
+            let i = id.index as usize;
+            let Some(sd) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.stages) else { continue };
+            #[cfg(not(clash_plant = "stage_hold_kept"))]
+            if self.ents.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) {
+                self.ents.combo_ix[i] = 0;
+            }
+            #[cfg(not(clash_plant = "stage_decay_never"))]
+            let due = self.tick >= *last + (sd.decay_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+            #[cfg(clash_plant = "stage_decay_never")]
+            let due = {
+                let _ = sd; // PLANT (regression): the count never decays.
+                false
+            };
+            if due {
+                self.ents.combo_ix[i] = 0;
+                *last = self.tick;
+            }
+        }
+        self.evo.stages = st;
+    }
+
+    /// Restart an Evo Inferno Dragon's decay (`stages_pass`): its hit, its attack's start.
+    fn stage_restart(&mut self, id: EntityId) {
+        let now = self.tick;
+        if let Some(s) = self.evo.stages.iter_mut().find(|(m, _)| *m == id) {
+            s.1 = now;
+        }
     }
 
     fn snipe_pass(&mut self) {
@@ -14766,6 +14826,10 @@ impl BattleState {
         if !self.evo.rams.is_empty() {
             self.ram_pass();
         }
+        // THE EVO INFERNO DRAGON'S COUNT (`stages_pass`): its decay and COMBAT_DISABLED.
+        if !self.evo.stages.is_empty() {
+            self.stages_pass();
+        }
         // status.WAITED_PRESS_CAST = client_after_move: a waited press's cast hold starts here, after her step.
         if !self.scratch.late_casts.is_empty() {
             for hero in std::mem::take(&mut self.scratch.late_casts) {
@@ -15019,6 +15083,10 @@ impl BattleState {
                 if now {
                     self.ents.attack_seq[i] = self.select_attack(i);
                 }
+            }
+            // THE EVO INFERNO DRAGON (card.rs `StagesDef`): an attack's start restarts its count's decay (`stages_pass`).
+            if self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle && !self.evo.stages.is_empty() {
+                self.stage_restart(self.ents.id_of(i));
             }
             self.ents.attack_phase[i] = step.phase;
             // movement.ATTACK_FACING = toward_target: a unit in its attack state faces its target on
@@ -20202,6 +20270,15 @@ impl BattleState {
                     h.i32(*ms);
                 }
             }
+            // The Evo Inferno Dragons' decays, only when there are some.
+            if !b.stages.is_empty() {
+                h.u32(0x5354_4731);
+                h.u32(b.stages.len() as u32);
+                for (id, t) in &b.stages {
+                    h.id(*id);
+                    h.u32(*t);
+                }
+            }
             // The Evo Battle Rams and the rages of their Barbarians, only when there are some.
             if !b.rams.is_empty() || !b.rages.is_empty() {
                 h.u32(0x5241_4d31);
@@ -20791,6 +20868,10 @@ impl BattleState {
 ///    an evolved form and its death spawn, so the card fingerprint moves: a snapshot saved by an earlier build is
 ///    refused as saved against other card data. EvoBoard gained `rams` and `rages` (serde default empty, hashed only
 ///    when not empty), so a blob saved before them deserializes and hashes as it did.
+/// 20, unchanged, the Evo Inferno Dragon (card.rs `StagesDef`): EvoDef gained `stages` and the table an evolved form, so
+///    the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
+///    EvoBoard gained `stages` (serde default empty, hashed only when not empty); the count is the saved and hashed
+///    `combo_ix`.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

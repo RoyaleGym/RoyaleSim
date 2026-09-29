@@ -3589,7 +3589,10 @@ def globals_block(v: Vintage) -> dict:
 # THE EVOLVED FORMS THIS BUILD LOADS (15.535 only), each a spells_evolved row: the evolved form of the base card
 # whose EvolvedSpells names it. Only these three: the engine runs their mechanics (card.rs `EvoDef`), and a form
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
-EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1")
+EVOLUTIONS = (
+    "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
+    "InfernoDragon_EV1",
+)
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
 # The card tables an evolved row's base card may come from, and the kind each gives the form.
@@ -3619,6 +3622,11 @@ RAM_PUSH_PINNED = {
 }
 RAM_PUSH_READ = ("ActionDelay", "PushBackRadius", "PushRadiusDirectionalOffset", "PushBackStrength", "PushBackDamage")
 RAM_PUSH_COSMETIC = {"OnPushEffect", "OnPushEffectMinInterval"}
+# THE EVO INFERNO DRAGON'S STAGES (characters/inferno_dragon_ev1.toml): the unit's three variables, and the rows its
+# graph runs, each read against the strings this reader implements (`stages_block`).
+STAGE_COUNT = "InfernoDragon_EV1_AttackCount"
+STAGE_DECAY = "InfernoDragon_EV1_AttackDecayCounter"
+STAGE_DECAY_TIME = "InfernoDragon_EV1_DecayTime"
 
 
 def col_list(tb, name: str, col: str) -> list:
@@ -3902,6 +3910,72 @@ def ram_block(t: Tables, card: dict) -> dict:
     }
 
 
+def stages_block(t: Tables, card: dict) -> dict:
+    """InfernoDragon_EV1's damage stages (characters/inferno_dragon_ev1.toml), read whole or the build stops:
+      - OnAttackAction: each attack adds one to the count, capped at `cap` (`min(cap, count + 1)`), then restarts the
+        decay counter at DecayTime (`decay_ms`); OnStartingAttackAction: an attack's start restarts it too;
+      - OnStartingAction: every 50 ms the decay counter runs down 50, and at 0 the count is 0 (every branch of the
+        decay) and the counter restarts; the attack entry is the first whose `below` the count is under (the last
+        entry past them all); while COMBAT_DISABLED the count is 0;
+      - AttackSequenceList (Manual): the entries' Damage, `damages`.
+    The effect-only rows (the damage-state VFX, the fizzle, the animator layers, a 50 ms tag) are not read."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    u = norm_unit(t, unit, with_raw=True)
+    acts = t["actions"]
+    seq = (u.get("list_columns") or {}).get("AttackSequenceList") or []
+    damages = [e.get("Damage") for e in seq]
+    if row["AttackSequenceMode"] != "Manual" or len(damages) < 2 or not all(isinstance(d, int) for d in damages):
+        raise SystemExit(f"{unit}: not a Manual AttackSequenceList of damages ({damages})")
+    names = {
+        "OnAttackAction": "InfernoDragon_EV1_IncrementAttackCount",
+        "OnStartingAttackAction": "InfernoDragon_EV1_ResetDecayCounter",
+        "OnStartingAction": "InfernoDragon_EV1_ConstantTicker",
+    }
+    for col, want in names.items():
+        if row[col] != want:
+            raise SystemExit(f"{unit}: {col} is {row[col]!r}, not {want}")
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"{unit}: {what}")
+
+    inc = acts.get(names["OnAttackAction"])
+    m = re.fullmatch(rf"min\((\d+), {STAGE_COUNT} \+ 1\)", str(inc["Value"]))
+    step_ok = inc["ClassType"] == "ActionSetVariable" and inc["Variable"] == STAGE_COUNT and m is not None
+    need(step_ok, "the count's step")
+    need(inc["NextAction"] == names["OnStartingAttackAction"], "the count's step does not restart the decay")
+    reset = acts.get(names["OnStartingAttackAction"])
+    need(reset["Variable"] == STAGE_DECAY and reset["Value"] == STAGE_DECAY_TIME, "the decay's restart")
+    tick = acts.get(names["OnStartingAction"])
+    group = tick["ActionToExecute"]
+    subs = ["InfernoDragon_EV1_UpdateDecayCounter", "InfernoDragon_EV1_UpdateAttackSequence",
+            "InfernoDragon_EV1_CheckCombatDisabled"]
+    need(tick["ClassType"] == "ActionInterval" and tick["Interval"] == 50, "the ticker is not every 50 ms")
+    need(isinstance(group, dict) and group.get("SubActions") == subs, f"the ticker runs {group!r}")
+    dec = acts.get(subs[0])
+    then = dec["NextAction"]
+    need(dec["Variable"] == STAGE_DECAY and dec["Value"] == f"max(0, {STAGE_DECAY} - 50)", "the decay's step")
+    need(isinstance(then, dict) and then.get("ExecuteIfTrue") == f"{STAGE_DECAY} == 0", "the decay's end")
+    need((then.get("SubActions") or [])[:2] == ["InfernoDragon_EV1_DoAttackDecay", names["OnStartingAttackAction"]],
+         "the decay's end does not zero the count and restart")
+    zero = acts.arrays.get("InfernoDragon_EV1_DoAttackDecay", {}).get("SubActions") or []
+    need(len(zero) >= 1 and all(z.get("Variable") == STAGE_COUNT and z.get("Value") == "0" for z in zero),
+         "a decay branch that does not zero the count")
+    sel = acts.arrays.get(subs[1], {})
+    conds = sel.get("PerActionConditions") or []
+    below = [int(c.rsplit("<", 1)[1]) for c in conds if re.fullmatch(rf"{STAGE_COUNT} < \d+", c)]
+    picks = [s.get("AttackIndex") for s in sel.get("SubActions") or []]
+    need(len(below) == len(conds) == len(damages) - 1 and below == sorted(below), f"the entry thresholds {conds}")
+    need(picks == list(range(len(damages))), f"the entries picked {picks}")
+    off = acts.get(subs[2])
+    need(off["ExecuteIfTrue"] == "COMBAT_DISABLED" and off["Variable"] == STAGE_COUNT and off["Value"] == "0",
+         "COMBAT_DISABLED does not zero the count")
+    decay = (t.variables.get(STAGE_DECAY_TIME) or {}).get("DefaultValue")
+    need(isinstance(decay, int) and decay > 0, f"DecayTime {decay!r}")
+    return {"damages": damages, "below": below, "cap": int(m.group(1)), "decay_ms": decay}
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -3952,6 +4026,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_snipe"] = snipe_block(t, unit, u)
         elif name == "BattleRam_EV1":
             card["evo_ram"] = ram_block(t, card)
+        elif name == "InfernoDragon_EV1":
+            card["evo_stages"] = stages_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

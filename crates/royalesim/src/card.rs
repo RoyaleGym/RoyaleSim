@@ -1684,6 +1684,8 @@ pub struct EvoDef {
     /// A RAGE AFTER HITS, on a unit a form puts down (the Evo Battle Ram's death-spawned Barbarian_EV1): its own buff
     /// after every `HitRageDef::hits`-th hit.
     pub hit_rage: Option<HitRageDef>,
+    /// Evo Inferno Dragon: its hits deal the entry its hit count has reached, in place of the VariableDamage ramp.
+    pub stages: Option<StagesDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -1725,6 +1727,31 @@ pub struct RamPushDef {
 pub struct HitRageDef {
     pub hits: u32,
     pub apply: BuffApply,
+}
+
+/// THE EVO INFERNO DRAGON'S STAGES (characters/inferno_dragon_ev1.toml; tools/extract_cards.py `stages_block`): its hit
+/// deals `damages[entry(count)]` (level-scaled; combat.rs `stage_damage`), where the count is its hits so far (entity.rs
+/// `combo_ix`), one more per hit up to `cap` and across targets (state.rs `evo_after_fire`); `decay_ms` after the last
+/// hit or attack start with neither, and on any tick it is held (a stun, a freeze: COMBAT_DISABLED), the count is 0
+/// (state.rs `stages_pass`). Its row keeps the base dragon's VariableDamage columns, which the targeting rules keyed on
+/// an inferno still read; its damage never does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StagesDef {
+    /// AttackSequenceList Damage, level 1, one per entry.
+    pub damages: [i32; 4],
+    /// The count thresholds: the entry is the first whose threshold the count is under, the last past them all.
+    pub below: [u8; 3],
+    /// The count's cap.
+    pub cap: u8,
+    /// DecayTime, ms.
+    pub decay_ms: i32,
+}
+
+impl StagesDef {
+    /// The entry a hit count reaches.
+    pub fn entry(&self, count: u8) -> usize {
+        self.below.iter().position(|b| count < *b).unwrap_or(self.below.len())
+    }
 }
 
 /// THE EVO ELITE BARBARIANS' SPEAR (angry_barbarian_evo.toml; tools/extract_cards.py `spear_block`), on each member
@@ -3727,9 +3754,31 @@ struct RawEvolution {
     evo_snipe: Option<RawSnipe>,
     evo_spear: Option<RawSpear>,
     evo_ram: Option<RawRam>,
+    evo_stages: Option<RawStages>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_stages` (tools/extract_cards.py `stages_block`).
+#[derive(Deserialize)]
+struct RawStages {
+    damages: Option<Vec<i32>>,
+    below: Option<Vec<i32>>,
+    cap: Option<i32>,
+    decay_ms: Option<i32>,
+}
+
+fn stages_of(r: &RawStages) -> Result<StagesDef, String> {
+    let damages: [i32; 4] = r.damages.clone().unwrap_or_default().try_into().map_err(|d| format!("stages of damages {d:?}; four are read"))?;
+    let below: Vec<u8> = r.below.clone().unwrap_or_default().into_iter().map(u8::try_from).collect::<Result<_, _>>().map_err(|_| "a stage threshold past 255")?;
+    let below: [u8; 3] = below.try_into().map_err(|b| format!("stage thresholds {b:?}; three are read"))?;
+    if below.windows(2).any(|w| w[0] >= w[1]) || damages.iter().any(|d| *d <= 0) {
+        return Err(format!("stage thresholds {below:?} not rising, or a damage of 0 or less {damages:?}"));
+    }
+    let cap = r.cap.and_then(|c| u8::try_from(c).ok()).filter(|c| *c >= below[2]).ok_or("a stage cap under the last threshold")?;
+    let decay_ms = r.decay_ms.filter(|d| *d > 0).ok_or("stages with no DecayTime")?;
+    Ok(StagesDef { damages, below, cap, decay_ms })
 }
 
 /// cards.json `evolutions[].evo_ram` (tools/extract_cards.py `ram_block`).
@@ -8394,7 +8443,14 @@ impl CardDb {
         if bc.summon_only || bc.evo.is_some() || (!spell_form && (bc.spell.is_some() || bc.kind == CardKind::Spell)) {
             return Err(format!("its base card {} is not a troop, building or spell card", bc.name));
         }
-        let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some(), extra.evo_spear.is_some(), extra.evo_ram.is_some()];
+        let blocks = [
+            extra.evo_barrage.is_some(),
+            extra.evo_duplication.is_some(),
+            extra.evo_snipe.is_some(),
+            extra.evo_spear.is_some(),
+            extra.evo_ram.is_some(),
+            extra.evo_stages.is_some(),
+        ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
             return Err("a troop or building form carries exactly one mechanic block here, a spell form none".into());
@@ -8407,6 +8463,8 @@ impl CardDb {
             &SPEAR_GRAPH
         } else if extra.evo_ram.is_some() {
             &["ActionDamagingPushBack"]
+        } else if extra.evo_stages.is_some() {
+            &["ActionAnimatorLayer", "ActionInterval", "ActionPlayEffect", "ActionSelect", "ActionSetVariable"]
         } else {
             &[]
         };
@@ -8425,6 +8483,7 @@ impl CardDb {
             }
         }
         raw.action_graph = None;
+        let raw_damage = raw.damage;
         let (mut c, _, needs) = convert(raw, buffs, ctx)?;
         // A SPEAR FORM'S OTHER MEMBERS (summon_members 1..): each its own unit row, loaded here as a summon-only record
         // after the form, with the form's block, and held to the form's graph. Any other unit a form needs is refused.
@@ -8463,6 +8522,7 @@ impl CardDb {
                     spear: None,
                     ram: None,
                     hit_rage: Some(HitRageDef { hits, apply }),
+                    stages: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -8500,7 +8560,26 @@ impl CardDb {
         if extra.evo_barrage.is_some() && shapes.iter().any(|d| d.is_some()) {
             return Err("a barrage on a row that carries another spell object; one spell object names one shape".into());
         }
-        let mut evo = EvoDef { base, cycles, barrage: None, duplication: None, snipe: None, spear: None, ram: None, hit_rage: None, cloned_as: None };
+        let mut evo = EvoDef {
+            base,
+            cycles,
+            barrage: None,
+            duplication: None,
+            snipe: None,
+            spear: None,
+            ram: None,
+            hit_rage: None,
+            stages: None,
+            cloned_as: None,
+        };
+        // THE STAGES: the first entry is the row's own Damage.
+        if let Some(r) = &extra.evo_stages {
+            let st = stages_of(r)?;
+            if raw_damage != Some(st.damages[0]) {
+                return Err(format!("a stage 0 of {} against the row's Damage {raw_damage:?}", st.damages[0]));
+            }
+            evo.stages = Some(st);
+        }
         // THE RAM: a charger that lives through its hit (its row's Kamikaze false), whose death spawn loaded above.
         if let Some(r) = &extra.evo_ram {
             if c.charge.is_none() || c.kamikaze {

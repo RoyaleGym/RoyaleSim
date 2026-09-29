@@ -1404,6 +1404,15 @@ fn stage_damage(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> i32
         // A level-1 stat like Damage; the level was validated at spawn.
         return cards.scaled(ents.card[a], ents.level[a], stage.damage).expect("level validated at spawn");
     }
+    // THE EVO INFERNO DRAGON (card.rs `StagesDef`): the entry its hit count has reached (entity.rs `combo_ix`, moved on
+    // by state.rs `evo_after_fire` after the hit), in place of its row's VariableDamage ramp; the count runs across
+    // targets. Measured on client 15.535.29 (sp-form-InfernoDragon-evo-s0, level 11): hits 400 ms apart read 35, 35,
+    // (a third on the Skeleton it kills), 35 on a Knight, then 120 on each of the next four, the fifth hit onward.
+    #[cfg(not(clash_plant = "stages_unread"))]
+    if let Some(st) = cards.get(ents.card[a]).evo.as_ref().and_then(|v| v.stages) {
+        // A level-1 stat like Damage; the level was validated at spawn.
+        return cards.scaled(ents.card[a], ents.level[a], st.damages[st.entry(ents.combo_ix[a])]).expect("level validated at spawn");
+    }
     #[cfg(not(clash_plant = "variable_damage_first_stage"))]
     let ramps = calib.variable_damage == VariableDamage::AttackProgressStages;
     #[cfg(clash_plant = "variable_damage_first_stage")]
