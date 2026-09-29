@@ -37,7 +37,9 @@ def test_a_play_waits_then_runs():
     out = b.step([(0, 0, 9500 * SUB, 8500 * SUB)], 0)
     assert out[0][1] == 0, f"the play is accepted: {out}"
     pending = b.pending_commands(0)
-    assert len(pending) == 1 and pending[0][0] == "deploy" and pending[0][4] == 22, pending
+    assert len(pending) == 1, pending
+    assert pending[0][0] == "deploy", pending
+    assert pending[0][4] == 22, f"22 ticks left: {pending}"
     assert b.check_deploy(0, 0, 9500 * SUB, 9500 * SUB) == 18, "the waiting card reads CardPending"
     b.step([], 22)
     assert len(b.pending_commands(0)) == 1, "it has not run after 22 ticks: it runs at the top of the next"
