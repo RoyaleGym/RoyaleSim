@@ -5,7 +5,7 @@
 //! for five Target phases from the one that finds the loss, its attack progress zeroed on the fifth, and takes the
 //! decision's target on the sixth.
 //!
-//! REACH LOSS (client_after_reach_loss, shipped at its old arm kill_only): a unit whose row sets VariableDamage (the
+//! REACH LOSS (client_after_reach_loss, shipped since the 2026-09-28 round 9 lanes flip; kill_only the old arm): a unit whose row sets VariableDamage (the
 //! Inferno Dragon), in its attack, whose LIVE target has left its attack reach, and which the decision neither keeps nor
 //! replaces by an enemy already in that reach, starts the same wait, its progress 0 at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon loses
 //! a Giant that walks out of its reach on t3012, reads no target t3012..t3016, and takes the Skeletons on t3017 without
@@ -17,7 +17,7 @@
 //! inferno retargets at once: on the 16.402 corpus a Spear Goblin and a Skeleton whose targets left their reach took
 //! the next at once, and the arm read on every unit lost 3,207 within 250 there.
 //!
-//! HELD (client_paused, shipped at its old arm runs_through): the wait counts only Target phases on which its unit is not
+//! HELD (client_paused, shipped since the 2026-09-28 round 9 lanes flip; runs_through the old arm): the wait counts only Target phases on which its unit is not
 //! held (a stun or a freeze). Read off client 15.535.29's sp-scene-b-s1: a princess tower that lost its target on t316
 //! and was frozen t317..t338 read progress 0 on t343 and took its next target on t344; the engine ran the wait through the
 //! freeze and took it on t340, the tick after. One event.
@@ -39,7 +39,7 @@
 //!      reach, takes the Cannon out of its reach on L under both arms;
 //!   5. held, runs_through: the Knight's next target lands on the first tick after the freeze;
 //!   6. held, client_paused: it lands the unfrozen ticks the wait still owed later, pinned on the tick;
-//!   7. both shipped values are the old arms.
+//!   7. both shipped values are the new arms.
 //!
 //! PLANTS (regression):
 //!   * `reach_loss_no_wait` -- the new arm retargets at once after a reach loss: (2) goes red.
@@ -204,8 +204,8 @@ fn the_new_arm_serves_the_rest_of_the_wait_after_the_freeze() {
 }
 
 #[test]
-fn the_shipped_values_are_the_old_arms() {
+fn the_shipped_values_are_the_new_arms() {
     let c = Calib::shipped();
-    assert_eq!(c.retarget_wait_reach_loss, RetargetWaitReachLoss::KillOnly);
-    assert_eq!(c.retarget_wait_while_held, RetargetWaitWhileHeld::RunsThrough);
+    assert_eq!(c.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss);
+    assert_eq!(c.retarget_wait_while_held, RetargetWaitWhileHeld::ClientPaused);
 }

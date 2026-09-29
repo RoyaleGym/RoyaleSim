@@ -27,7 +27,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeathSlideAim, DeathSlideStop, DeathSpawnPushback};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeathSlideAim, DeathSlideBirth, DeathSlideStop, DeathSpawnPushback};
 use royalesim::{EntityId, Team};
 
 const NEW: DeathSlideStop = DeathSlideStop::MoveCount;
@@ -38,6 +38,9 @@ fn with(stop: DeathSlideStop, aim: DeathSlideAim) -> BattleConfig {
     cfg.calib.death_spawn_pushback = DeathSpawnPushback::ClientRingSlide;
     cfg.calib.death_slide_aim = aim;
     cfg.calib.death_slide_stop = stop;
+    // The pinned slide ends were read with the members born through the sine table (spawner.DEATH_SLIDE_BIRTH =
+    // sine_table), as the scenes were written; the shipped birth one step toward the end point moves them.
+    cfg.calib.death_slide_birth = DeathSlideBirth::SineTable;
     cfg
 }
 
