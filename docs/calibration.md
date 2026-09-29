@@ -167,9 +167,9 @@ disagree. Of the 348 top-level keys with a status, 232 are `measured`; one more 
 | `match.LOGIC_BATTLE_START_COOLDOWN_MS` | 4500 | datamined, LOW | any recording of a match start |
 | `match.KING_ACTIVATE_TIME_MS` | 3300 | datamined, MEDIUM | a recording of what the delay actually delays |
 | `arena.ARENA_SOURCE_VINTAGE` | ~2018 tilemap | datamined, MEDIUM | a calibrated screenshot of a live arena; bridge width varied by arena even in 2018 |
-| `knockback` (7 of 12 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `PUSH_LOAD_TIMER`, `DIRECTION_ROLLING`, `ROLLING_CONTACT_RADIUS`, `ATTACK_PUSHBACK` and `DEATH_PUSHBACK` are measured |
-| `spells.*` (11 of 24 keys) | `AOE_HIT_TEST`, `ROLLING_HIT_SHAPE` and `SPAWNING_SPELL_WATER_RULE` are in `spell-spec.md`; the other eight are not, so read their ledger entries | guess / hypothesis / community | each key's own `promotion_rules` in the ledger names its deciding observation |
-| `status.*` (13 of 21 keys: stun and buff timing) | see `spell-spec.md` | community / hypothesis / guess | likewise |
+| `knockback` (5 of 12 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `PUSH_LOAD_TIMER`, `DIRECTION_ROLLING`, `ROLLING_CONTACT_RADIUS`, `ATTACK_PUSHBACK` and `DEATH_PUSHBACK` are measured |
+| `spells.*` (10 of 38 keys) | `AOE_HIT_TEST`, `ROLLING_HIT_SHAPE` and `SPAWNING_SPELL_WATER_RULE` are in `spell-spec.md`; the other seven are not, so read their ledger entries | guess / hypothesis / community | each key's own `promotion_rules` in the ledger names its deciding observation |
+| `status.*` (13 of 23 keys: stun and buff timing) | see `spell-spec.md` | community / hypothesis / guess | likewise |
 | `economy` (2 of 7 keys) | the elixir a death pays the opponent, the starting-hand rule | guess / community, LOW-MEDIUM | each key's `promotion_rules` names the 15.535.29 scenario it needs. `MANA_ON_DEATH_FOR_OPPONENT_UNIT` rests on the tables' pattern. The other five are measured: the Elixir Collector's payout at the cap, its overflow, its step in double elixir, its stun and the elixir its death pays its owner |
 | `spawner.INTERVAL_START_ORIGIN` | `placement_counter_first_frame_counts` | hypothesis, MEDIUM | an interval spawner whose DeployTime is not StartCounterAt - 950: the tick of its first unit |
 | `rng.GENERATOR` | `pcg32` | guess, LOW | not settleable, and not a goal. See `architecture.md`, Determinism |
@@ -182,7 +182,7 @@ The keys that carry the measured 2026 movement and pathfinding model are at `mea
 them at HIGH; each entry's `confidence` names the ones that are not. They are `time.TICK_MS`,
 `time.SPEED_TO_SUBTILES_PER_TICK`, `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`,
 `pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the `movement.*` section except
-`BUFF_SPEED_COMPOSITION` and `SPAWN_PATHFIND_STATES` (hypotheses), and the cost, goal and replan
+`BUFF_SPEED_COMPOSITION`, `SPAWN_PATHFIND_STATES`, `SPAWN_PATHFIND_START` and `JUMP_LANDING_CONTACT` (hypotheses), and the cost, goal and replan
 keys. Their evidence is in `pathfinding.md` and `movement-measurements.md`.
 
 These keys were measured later, on the 16.402 corpus or client 15.535.29, and are `measured` too:
@@ -196,7 +196,7 @@ These keys were measured later, on the 16.402 corpus or client 15.535.29, and ar
 | `combat.ATTACK_CYCLE`, `combat.PROJECTILE_LAUNCH`, `combat.KAMIKAZE_DEATH` | the attack cycle, the launch point, the kamikaze death |
 | `lifetime.HP_DECAY` | a building's hit-point drain over its lifetime |
 | `formation.LAYOUT`, `DEPLOY_STAGGER`, `GROUND_Y_CLAMP` | where a card's summons stand, and when each appears |
-| `spawner` (27 of 35 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
+| `spawner` (27 of 36 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
 | `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
 | `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
 
