@@ -1513,6 +1513,17 @@
       "promotion_rules": "The test file (crates/royalesim/tests/hook_landing.rs) passes. Switch on when parity's score is positive (replay_parity --calibration-override combat.HOOK_LANDING=\"client_hook_point\", every other key at its shipped value). Registered prediction: every Fisherman drag in the scenes and in 20260920-081819 lands on the client's point and runs its 510 steps on the client's ticks.",
       "engine": "combat.rs step_projectiles (a landed hook carries its start-of-tick point, EffectBuffer::hooks) and state.rs apply_effects (the victim set onto it). Plant hook_lands_on_victim. Test: crates/royalesim/tests/hook_landing.rs."
     },
+    "DASH_CHAIN_COOLDOWN": {
+      "value": 11000,
+      "candidates": [11000],
+      "status": "hypothesis",
+      "confidence": "LOW: the 15.535.29 tables give the Golden Knight's ability Cooldown only as a stats tag, with no number, and the oracle does not run a champion's recharge (see provenance); 11000 is the Cooldown of the unused (NOTINUSEABILITY) Golden Knight rows of character_abilities.csv, and its start (the chain's end) is a choice",
+      "provenance": "NOT MEASURED. Read on client 15.535.29 (parity, round 10, Oracle's recorded frames): the button is available and charged from his first frame; the press takes the one charge; it reads not available through the chain and after it. In the GK battery's gk2 the chain ends on t191 and he lives to t401, 10.5 s, with no charge back, so the cooldown is at least that from the chain's end, or at least 11.0 s from the press. The tables' only numbers are the NOTINUSEABILITY rows of character_abilities.csv (CastTime 766, TriggerDelay 200, Cooldown 11000, DashRange 6000: an older Golden Knight, not the one that runs). Oracle's sp-champ-GK-recharge1-s0 and -recharge2-s0 (parity, round 10): chains of one hit and of two, no charge back for 33.6 s and 57.6 s, to his death, every press after the first refused as no_charges; and the controls show the oracle does not run a champion's recharge at all (the Monk's 20000 csv Cooldown never came back in 39.5 s; the Golden Knight with no retries for 800 ticks never in 54 s), so its reading says nothing about the client. Only a live game settles it (the owner's go).",
+      "meaning": "Milliseconds from the end of a champion's dash chain (state.rs chain_pass) until its button's charge is back (HeroUnit::recharge_at). The engine also reads \"none\" (the charge never comes back), which no reading supports. The button reads cooldown_ticks meanwhile and refuses a press as AbilityNotReady.",
+      "open": "Its length, and whether it counts from the press or from the chain's end (both unmeasured): only a live game can read it.",
+      "promotion_rules": "Oracle's battery: two presses, chains of different lengths, the tick the second press is first taken.",
+      "engine": "state.rs chain_pass (sets HeroUnit::recharge_at), phase_status (gives the charge back), ability_buttons (cooldown_ticks)"
+    },
     "HOOK_BUILDINGS": {
       "value": "client_pull_self",
       "candidates": ["troops_only", "client_pull_self"],

@@ -925,15 +925,18 @@ pub fn state_json_text(
             let _ = write!(o, "[{id},{},{}]", c.plays, u8::from(c.next_evolved()));
         }
         o.push(']');
-        // THE SIDE'S ABILITY BUTTONS (state.rs `ability_buttons`), one row per form-2 deck entry in deck order:
-        // [available, spent, cost] -- available 1 when its newest living hero has deployed and not used its charge,
-        // spent 1 when that hero has used it, cost the press's elixir. Keyed, so a decoder that does not know it drops it.
+        // THE SIDE'S ABILITY BUTTONS (state.rs `ability_buttons`), one row per button in button order (the form-2 deck
+        // entries, then the champion entries): [available, spent, cost, card_id, cooldown_ticks] -- available 1 when a
+        // press would be taken but for the elixir, spent 1 when a hero has used its one charge (a champion's comes back,
+        // so it is never spent), cost the press's elixir, card_id the button's base card, cooldown_ticks the ticks until
+        // a champion's used charge is back (0 otherwise). Keyed, so a decoder that does not know it drops it.
         o.push_str(",\"abilities\":[");
         for (k, b) in s.ability_buttons(team).iter().enumerate() {
             if k > 0 {
                 o.push(',');
             }
-            let _ = write!(o, "[{},{},{}]", u8::from(b.available), u8::from(b.spent), b.cost);
+            let card_id = id_of_idx.get(b.base as usize).copied().unwrap_or(-1);
+            let _ = write!(o, "[{},{},{},{card_id},{}]", u8::from(b.available), u8::from(b.spent), b.cost, b.cooldown_ticks);
         }
         o.push(']');
         let _ = write!(

@@ -635,6 +635,11 @@ pub struct Calib {
     /// before it ran.
     #[serde(default = "waited_press_cast_default")]
     pub waited_press_cast: WaitedPressCast,
+    /// combat.DASH_CHAIN_COOLDOWN (`chain_pass`): ms from a dash chain's end until the champion's charge is back, or
+    /// None: it never comes back ("none"). Added after SNAPSHOT_FORMAT 20; the `default` is the ledger's value when it
+    /// was added.
+    #[serde(default = "dash_chain_cooldown_default")]
+    pub dash_chain_cooldown_ms: Option<i32>,
     /// status.DAMAGE_REDUCTION (combat.rs `reduce_hit`): how a hit on a unit carrying a DamageReduction buff is
     /// scaled. status.IDLE_BUFF (`idle_buff_pass`, combat.rs `damage_reduction_of`): whether a BuffWhenNotAttacking
     /// that is not an invisibility runs. Added after SNAPSHOT_FORMAT 20; each `default` is the old arm, not_read,
@@ -1699,6 +1704,21 @@ fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
 
 fn waited_press_cast_default() -> WaitedPressCast {
     WaitedPressCast::StatusStart
+}
+
+fn dash_chain_cooldown_default() -> Option<i32> {
+    Some(11000)
+}
+
+/// combat.DASH_CHAIN_COOLDOWN's value: "none" (the charge never comes back), or a non-negative number of ms from the
+/// chain's end.
+fn dash_chain_cooldown(v: &Value) -> Result<Option<i32>, String> {
+    let path = ["combat", "DASH_CHAIN_COOLDOWN", "value"];
+    let x = at(v, &path)?;
+    if x.as_str() == Some("none") {
+        return Ok(None);
+    }
+    x.as_i64().and_then(|n| i32::try_from(n).ok()).filter(|n| *n >= 0).map(Some).ok_or_else(|| format!("{}: not \"none\" or a number of ms: {x}", path.join(".")))
 }
 
 fn stun_clears_target_default() -> StunClearsTarget {
@@ -5606,6 +5626,7 @@ impl Calib {
             life_state_aim_repick: pick(&v, &["spawner", "LIFE_STATE_AIM_REPICK", "value"], LifeStateAimRepick::from_calibration_name)?,
             ability_unit_first_update: pick(&v, &["spawner", "ABILITY_UNIT_FIRST_UPDATE", "value"], AbilityUnitFirstUpdate::from_calibration_name)?,
             waited_press_cast: pick(&v, &["status", "WAITED_PRESS_CAST", "value"], WaitedPressCast::from_calibration_name)?,
+            dash_chain_cooldown_ms: dash_chain_cooldown(&v)?,
             damage_reduction: pick(&v, &["status", "DAMAGE_REDUCTION", "value"], DamageReductionLaw::from_calibration_name)?,
             idle_buff: pick(&v, &["status", "IDLE_BUFF", "value"], IdleBuffLaw::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
@@ -6062,7 +6083,7 @@ pub const HAND_SIZE: usize = 4;
 
 /// THE MOST ABILITY BUTTONS A SIDE HAS: one per form-2 deck entry, at most this many (loadout.toml's top ladder: a
 /// hero slot and a flex slot). The Python layer's command slots HAND_SIZE .. HAND_SIZE + ABILITY_BUTTONS press them.
-pub const ABILITY_BUTTONS: usize = 2;
+pub const ABILITY_BUTTONS: usize = 3;
 
 /// THE TICKS A PRESS TAKES TO START, before its TriggerDelay runs (`press_ability_button`), counted on the hero's
 /// free ticks (`fire_scheduled`). Measured on client 15.535.29: a free Hero Musketeer pressed on tick P is casting on
@@ -6111,8 +6132,9 @@ pub enum DeployError {
     NothingToMirror,
     /// An ability button with no living hero behind it (or no form-2 deck entry at all).
     NoHero,
-    /// No longer given (`check_ability_button`: a deploying hero may press, measured on client 15.535.29); kept so
-    /// the Python layer's reason indices stay where they are.
+    /// A CHAMPION'S button whose charge is out: its dash chain runs, or it has not recharged
+    /// (combat.DASH_CHAIN_COOLDOWN). A hero's is never refused so: a deploying hero may press (measured on client
+    /// 15.535.29).
     AbilityNotReady,
     /// The button's hero has used its one charge.
     AbilitySpent,
@@ -6226,6 +6248,11 @@ pub struct PlayerState {
     /// and hashed only when not empty, so such a battle hashes as it did before the field.
     #[serde(default)]
     pub heroes: Vec<u16>,
+    /// THE SIDE'S CHAMPION BUTTONS, after its heroes': each deck entry whose card has a champion's button (card.rs
+    /// `AbilityEffect::DashChain`, the Golden Knight), in deck order. Empty in every battle without one, and hashed only
+    /// when not empty.
+    #[serde(default)]
+    pub champions: Vec<u16>,
 }
 
 /// A HERO UNIT'S ONE CHARGE (card.rs `AbilityDef`): every unit created of a card with an ability, in creation order
@@ -6238,7 +6265,47 @@ pub struct HeroUnit {
     /// before the field.
     #[serde(default)]
     pub casting: bool,
+    /// A CHAMPION'S RECHARGE (its button's charge comes back, unlike a hero's): the tick from which its used charge is
+    /// back (`phase_status`), 0 when none is pending. Set when its dash chain ends (`chain_pass`,
+    /// combat.DASH_CHAIN_COOLDOWN). `default` 0 for an entry saved before the field; hashed only when set.
+    #[serde(default)]
+    pub recharge_at: u32,
 }
+
+/// A DASH CHAIN UNDER WAY (card.rs `AbilityEffect::DashChain`, the Golden Knight's button; `chain_pass`): the champion,
+/// the phase and the tick it began, the target, the targets hit (OncePerTarget) and the dashes left. Saved and hashed
+/// (`BattleState::chains`, only when not empty).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChainRun {
+    pub id: EntityId,
+    pub phase: ChainPhase,
+    pub mark: u32,
+    pub target: Option<EntityId>,
+    pub hit: Vec<EntityId>,
+    pub left: i32,
+}
+
+/// Where a dash chain stands (`ChainRun`). Measured on client 15.535.29 (parity, round 10 item 53; Oracle's GK battery
+/// and sp-champ-GoldenKnight-s0):
+///   - Seek: pressed with no target in reach; he walks, and takes the first that comes (WaitForTarget; unmeasured);
+///   - Aim: the press row: he takes his walk step, and dashes from the next tick;
+///   - Dash: JumpSpeed a tick in sub-steps, each followed by the range test (`phase_path16402_for`);
+///   - Landed: the blow's tick and the one after, standing on the target he hit;
+///   - Poise: the tick he takes his next target, standing; he dashes from the next tick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ChainPhase {
+    Seek,
+    Aim,
+    Dash,
+    Landed,
+    Poise,
+}
+
+/// A dash chain's sub-step, NATIVE: a dash tick moves JumpSpeed in sub-steps of at most the walk's step cap, each
+/// through the walk's arithmetic (move16402.rs `dash_half_step`) and each followed by the range test. Measured on
+/// client 15.535.29 (item 53): the Golden Knight's 400 as 250 and then 150; a hit on the Giant after the first 250 (5 of
+/// 5), on a Knight after 250 + 148 (2 of 2).
+pub const CHAIN_SUB_STEP: i32 = 250;
 
 /// ONE ABILITY BUTTON as a side sees it (`BattleState::ability_buttons`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -6254,6 +6321,10 @@ pub struct AbilityButton {
     pub spent: bool,
     /// The press's elixir (ManaCost).
     pub cost: i32,
+    /// A champion's button (its charge comes back after combat.DASH_CHAIN_COOLDOWN), not a hero's.
+    pub champion: bool,
+    /// Ticks until a champion's used charge is back: 0 when ready, not used, or while its chain still runs.
+    pub cooldown_ticks: u32,
 }
 
 /// WHAT PLAYING ONE HAND SLOT PUTS DOWN (`BattleState::resolve_play`): the card in the slot, the card the play
@@ -7241,6 +7312,8 @@ pub struct BattleState {
     /// Every hero unit's charge (`HeroUnit`), in creation order; a dead one is dropped at the next Status phase. Empty
     /// in every battle without a hero, which hashes as it did before the field.
     hero_units: Vec<HeroUnit>,
+    /// The dash chains under way (`ChainRun`), in press order. Empty in every battle without one.
+    chains: Vec<ChainRun>,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -7540,8 +7613,23 @@ impl BattleState {
                 }
                 deck.push(idx);
             }
-            if heroes.len() > ABILITY_BUTTONS {
-                return Err(format!("forms[{t}] marks {} heroes; a side has at most {ABILITY_BUTTONS} ability buttons", heroes.len()));
+            // A CHAMPION'S BUTTON (the Golden Knight's dash chain) follows the heroes', in deck order.
+            let champions: Vec<u16> = config.decks[t]
+                .iter()
+                .filter_map(|n| cards.index(n))
+                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. })))
+                .fold(Vec::new(), |mut v, idx| {
+                    if !v.contains(&idx) {
+                        v.push(idx);
+                    }
+                    v
+                });
+            if heroes.len() + champions.len() > ABILITY_BUTTONS {
+                return Err(format!(
+                    "forms[{t}] marks {} heroes beside {} champions; a side has at most {ABILITY_BUTTONS} ability buttons",
+                    heroes.len(),
+                    champions.len()
+                ));
             }
             // A hero card is known by its card alone (`resolve_play`), so a second copy of it in the deck would play the
             // form too, whatever its own entry says.
@@ -7576,7 +7664,7 @@ impl BattleState {
             }
             let hand: Vec<u16> = deck.iter().take(HAND_SIZE).copied().collect();
             let queue: VecDeque<u16> = deck.iter().skip(HAND_SIZE).copied().collect();
-            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None, evo, heroes });
+            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None, evo, heroes, champions });
         }
         let players: [PlayerState; 2] = [players.remove(0), players.remove(0)];
 
@@ -7607,6 +7695,7 @@ impl BattleState {
             scheduled: Vec::new(),
             evo: EvoBoard::default(),
             hero_units: Vec::new(),
+            chains: Vec::new(),
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -7754,7 +7843,7 @@ impl BattleState {
         }
         // A HERO UNIT'S ONE CHARGE (`HeroUnit`), for every creation of a card with an ability but a Clone's copy.
         if appearance && c.ability.is_some() {
-            self.hero_units.push(HeroUnit { id, spent: false, casting: false });
+            self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0 });
         }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
@@ -9849,6 +9938,8 @@ impl BattleState {
                 Phase::Spawn => self.phase_spawn(),
                 Phase::Target => self.phase_target(),
                 Phase::Path => {
+                    // The dash chains' phases for this tick's move pass (`chain_pass`).
+                    self.chain_pass();
                     // An Evo Cannon bomb due this tick lands before anything moves (`land_barrage_early`).
                     self.land_barrage_early();
                     match self.cfg.path_model {
@@ -10539,6 +10630,12 @@ impl BattleState {
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
             self.hero_units.retain(|h| ents.is_alive(h.id));
+            // A CHAMPION'S CHARGE COMES BACK on its recharge tick (`HeroUnit::recharge_at`).
+            let tick = self.tick;
+            for u in self.hero_units.iter_mut().filter(|u| u.recharge_at != 0 && tick >= u.recharge_at) {
+                u.spent = false;
+                u.recharge_at = 0;
+            }
         }
         let dt = self.cfg.calib.tick_ms;
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
@@ -11269,6 +11366,8 @@ impl BattleState {
                     && !switched.contains(&self.ents.id_of(i))
                     // An Evo Musketeer aiming a snipe keeps it: `snipe_pass` judges it.
                     && !self.evo.aiming(self.ents.id_of(i))
+                    // A champion's dash chain keeps its own target (`chain_pass`).
+                    && !self.chains.iter().any(|c| c.id == self.ents.id_of(i))
                 {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
@@ -11667,6 +11766,136 @@ impl BattleState {
     /// takes its first ladder step on the next tick, as it does under a spell. Measured on client 15.535.29 and the
     /// 16.402 corpus: 4 of 4 Knights hit by the Mega Knight's jump slid 199, 174, 149, ... from the blow's next tick,
     /// away from its landing point; Giants (IgnorePushback) and a princess tower did not move.
+    /// THE CHAIN'S BLOWS (`phase_path16402_for`'s `chain_hits`): DashDamage at the champion's level on the target, in
+    /// this tick's Resolve (measured on client 15.535.29: 335 at level 11, 7 of 7, on the hit tick), and the chain
+    /// lands (`ChainRun`: Landed from this tick, the target hit, one dash fewer). No push: the table's DashPushBack
+    /// 2000 moved nothing that was hit (a Knight; the Giant ignores pushback), so none is run.
+    fn land_chain_hits(&mut self, hits: Vec<(usize, EntityId)>) {
+        for (a, t) in hits {
+            let card = self.ents.card[a];
+            let Some(crate::card::AbilityEffect::DashChain { damage, .. }) = self.cfg.cards.get(card).ability.as_ref().map(|x| x.effect.clone()) else { continue };
+            if self.ents.is_alive(t) {
+                #[cfg(not(clash_plant = "chain_blow_unscaled"))]
+                let amount = self.cfg.cards.scaled(card, self.ents.level[a], damage).expect("level validated at spawn");
+                #[cfg(clash_plant = "chain_blow_unscaled")]
+                let amount = damage; // PLANT (regression): the level-1 column, 131 where the level-11 blow is 335.
+                self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false, own: false });
+            }
+            let id = self.ents.id_of(a);
+            if let Some(c) = self.chains.iter_mut().find(|c| c.id == id) {
+                c.phase = ChainPhase::Landed;
+                c.mark = self.tick;
+                c.hit.push(t);
+                c.left -= 1;
+            }
+        }
+    }
+
+    /// THE CLOSEST TARGET A DASH CHAIN MAY TAKE from champion `i`: an enemy ground character (the table's
+    /// GroundCharacterTargets: a troop, not flying, not mid-leap, not held by a hook, not under ground) whose centre
+    /// lies within `range` of his, not in `hit` (OncePerTarget); the nearest by centre distance, then the earliest
+    /// created. None when none is.
+    fn chain_pick(&self, i: usize, range: i32, hit: &[EntityId]) -> Option<EntityId> {
+        let e = &self.ents;
+        let r2 = (range as i64) * (range as i64);
+        (0..e.capacity())
+            .filter(|&j| {
+                e.alive[j]
+                    && e.hp[j] > 0
+                    && e.team[j] != e.team[i]
+                    && e.kind[j] == EntityKind::Troop
+                    && !e.in_air(j)
+                    && !e.jumping[j]
+                    && e.hooked_by[j].is_none()
+                    && e.tunnel_dest[j].is_none()
+                    && !hit.contains(&e.id_of(j))
+            })
+            .map(|j| (e.pos[j].dist2(e.pos[i]), e.creation_seq[j], j))
+            .filter(|(d2, _, _)| *d2 <= r2)
+            .min()
+            .map(|(_, _, j)| e.id_of(j))
+    }
+
+    /// THE DASH CHAINS' PHASES FOR THIS TICK (`ChainRun`, `ChainPhase`), at the top of the Path phase, before the move
+    /// pass that runs them. Measured on client 15.535.29 (item 53: Oracle's GK battery, five runs, and the champion
+    /// scene):
+    ///   - the press row (Aim, the tick the press fired) walks, and the chain dashes from the next tick;
+    ///   - after a blow (Landed on H) he stands on H + 1, and on H + 2 takes the CLOSEST ground character within
+    ///     DashSecondaryRange not yet hit (Poise: standing) and dashes from H + 3; with none, or no dash left
+    ///     (DashCount), the chain ends on H + 2 and he melees from H + 3 (gk1: the Giant hit t169, still t170, walking
+    ///     state t171, attacking t172; gk2: the Giant hit t185, t186 still, the Knight taken t187, dashes t188-189);
+    ///   - a target gone mid-dash ends that dash as a landing with no blow (unmeasured).
+    /// At the chain's end his charge's recharge starts: combat.DASH_CHAIN_COOLDOWN from that tick (the length and its
+    /// start unmeasured). A champion gone ends his chain.
+    fn chain_pass(&mut self) {
+        if self.chains.is_empty() {
+            return;
+        }
+        let tick = self.tick;
+        // None: the charge never comes back (combat.DASH_CHAIN_COOLDOWN = "none").
+        let cooldown = self.cfg.calib.dash_chain_cooldown_ms.map(|ms| (ms / self.cfg.calib.tick_ms.max(1)).max(1) as u32);
+        let mut runs = std::mem::take(&mut self.chains);
+        let mut ended: Vec<EntityId> = Vec::new();
+        runs.retain(|c| self.ents.is_alive(c.id));
+        for c in runs.iter_mut() {
+            let i = c.id.index as usize;
+            let Some(crate::card::AbilityEffect::DashChain { radius, second_range, .. }) = self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| a.effect.clone()) else {
+                ended.push(c.id);
+                continue;
+            };
+            match c.phase {
+                ChainPhase::Seek => {
+                    if let Some(t) = self.chain_pick(i, radius, &c.hit) {
+                        c.phase = ChainPhase::Aim;
+                        c.mark = tick;
+                        c.target = Some(t);
+                    }
+                }
+                ChainPhase::Aim | ChainPhase::Poise => {
+                    if tick > c.mark {
+                        c.phase = ChainPhase::Dash;
+                        c.mark = tick;
+                    }
+                }
+                ChainPhase::Dash => {
+                    if !c.target.is_some_and(|t| self.ents.is_alive(t)) {
+                        c.phase = ChainPhase::Landed;
+                        c.mark = tick.saturating_sub(1);
+                    }
+                }
+                ChainPhase::Landed => {}
+            }
+            if c.phase == ChainPhase::Landed && tick >= c.mark + 2 {
+                #[cfg(not(clash_plant = "chain_retakes_hit"))]
+                let next = if c.left > 0 { self.chain_pick(i, second_range, &c.hit) } else { None };
+                #[cfg(clash_plant = "chain_retakes_hit")]
+                let next = if c.left > 0 { self.chain_pick(i, second_range, &[]) } else { None }; // PLANT (regression): a target hit is taken again.
+                match next {
+                    Some(t) => {
+                        c.phase = ChainPhase::Poise;
+                        c.mark = tick;
+                        c.target = Some(t);
+                    }
+                    None => ended.push(c.id),
+                }
+            }
+        }
+        for c in &runs {
+            if let (Some(t), false) = (c.target, ended.contains(&c.id)) {
+                self.ents.target[c.id.index as usize] = Some(t).filter(|t| self.ents.is_alive(*t));
+            }
+        }
+        runs.retain(|c| !ended.contains(&c.id));
+        if let Some(cooldown) = cooldown {
+            for id in ended {
+                if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == id) {
+                    u.recharge_at = tick + cooldown;
+                }
+            }
+        }
+        self.chains = runs;
+    }
+
     fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
         for (a, target, centre) in blows {
             let card = self.cfg.cards.get(self.ents.card[a]);
@@ -11920,6 +12149,15 @@ impl BattleState {
         let mut dash_immune = std::mem::take(&mut self.ents.dash_immune_until);
         let mut dash_blows: Vec<(usize, Option<EntityId>, Vec2)> = Vec::new();
         let mut dash_ended: Vec<usize> = Vec::new();
+        // THE DASH CHAINS this tick (`chain_pass` set their phases): per entity, (phase, target, JumpSpeed).
+        let mut chain_at: Vec<Option<(ChainPhase, Option<EntityId>, i32)>> = vec![None; self.ents.capacity()];
+        for c in &self.chains {
+            let ci = c.id.index as usize;
+            if let Some(crate::card::AbilityEffect::DashChain { speed, .. }) = self.cfg.cards.get(self.ents.card[ci]).ability.as_ref().map(|a| a.effect.clone()) {
+                chain_at[ci] = Some((c.phase, c.target, speed));
+            }
+        }
+        let mut chain_hits: Vec<(usize, EntityId)> = Vec::new();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -11975,7 +12213,12 @@ impl BattleState {
                         // a unit mid river-jump is skipped by every neighbour's scans
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
-                        collidable: alive && !held && !jumping[i] && dash_state[i] != DashState::Dashing && !e.attached(i),
+                        collidable: alive
+                            && !held
+                            && !jumping[i]
+                            && dash_state[i] != DashState::Dashing
+                            && !matches!(chain_at[i], Some((ChainPhase::Dash, _, _)))
+                            && !e.attached(i),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot
@@ -12315,6 +12558,47 @@ impl BattleState {
                 // DashImmuneToDamageTime it discards damage from here (`dash_immune_until`).
                 let mut dash_stand = false;
                 let mut stand_goal: Option<(i32, i32)> = None;
+                // ---- THE DASH CHAIN (card.rs `AbilityEffect::DashChain`; `chain_pass`), measured on client 15.535.29
+                // (item 53). DASH: JumpSpeed a tick in sub-steps of at most CHAIN_SUB_STEP, each the walk's arithmetic
+                // toward the target's centre where this pass has it (`dash_half_step`), each followed by the range test
+                // (Range + both radii); the first within lands the blow (`chain_hits`, after the pass) and ends the
+                // tick's motion. No scan: a dashing champion is no body. LANDED and POISE: he stands, as a stand does
+                // (speed 0, the scans run: the champion scene's 225 and 557 moves after landings are contact pushes).
+                // SEEK and AIM (the press row): he walks.
+                match chain_at[i] {
+                    Some((ChainPhase::Dash, Some(t), speed)) if e.is_alive(t) => {
+                        let ti = t.index as usize;
+                        let mut p = actor;
+                        let mut left = speed;
+                        while left > 0 {
+                            let len = left.min(CHAIN_SUB_STEP);
+                            let tp = (bodies[ti].x, bodies[ti].y);
+                            let (q, _) = move16402::dash_half_step(p, tp, len);
+                            p = q;
+                            left -= len;
+                            #[cfg(not(clash_plant = "chain_whole_step"))]
+                            let test = true;
+                            #[cfg(clash_plant = "chain_whole_step")]
+                            let test = left == 0; // PLANT (regression): one range test a tick, after the whole JumpSpeed.
+                            if test && target::in_attack_range(calib, Vec2::new(p.0 * K, p.1 * K), card.range, e.radius[i], Vec2::new(tp.0 * K, tp.1 * K), e.radius[ti]) {
+                                chain_hits.push((i, t));
+                                break;
+                            }
+                        }
+                        let mut v = (p.0 - actor.0, p.1 - actor.1);
+                        if move16402::normalize_to(&mut v, 256) != 0 {
+                            facing[i] = Vec2::new(v.0, v.1);
+                            bodies[i].dir = v;
+                        }
+                        bodies[i].x = p.0;
+                        bodies[i].y = p.1;
+                        deltas[i] = Vec2::new(p.0 * K, p.1 * K).sub(e.pos[i]);
+                        walk_step[i] = 0;
+                        continue;
+                    }
+                    Some((ChainPhase::Dash | ChainPhase::Landed | ChainPhase::Poise, _, _)) => dash_stand = true,
+                    _ => {}
+                }
                 // a held unit (`held_walk`) starts no dash: its dash, if any, ended above
                 if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash && !held_walk) {
                     let tk = calib.tick_ms.max(1);
@@ -12884,6 +13168,7 @@ impl BattleState {
         self.ents.dash_blocked = dash_blocked;
         self.ents.dash_immune_until = dash_immune;
         self.land_dash_blows(dash_blows);
+        self.land_chain_hits(chain_hits);
         self.end_dashes(dash_ended);
         self.scratch.deltas = deltas;
         self.scratch.walk_step = walk_step;
@@ -14028,8 +14313,12 @@ impl BattleState {
             // Mid-leap (state 5): the attack side of a leap is unmeasured
             // (jump16402.rs); the engine holds the swing and keeps the unit targetable.
             // Mid-dash (combat.DASH_ATTACK): the swing holds; the dash ends in a fresh cycle.
+            // A champion whose dash chain runs does not attack (`chain_pass`): the press row walks, the rest dash
+            // or stand.
+            let chaining = self.chains.iter().any(|c| c.id == e.id_of(i));
             let can_act = e.deploy_ms[i] == 0
                 && !held
+                && !chaining
                 && !e.jumping[i]
                 && e.dash_state[i] != DashState::Dashing
                 && target::hide_acts(&self.cfg.calib, e, i)
@@ -17459,8 +17748,18 @@ impl BattleState {
 
     /// The (base card, hero form) of `team`'s button `k`, or None.
     fn button_form(&self, team: Team, k: usize) -> Option<(u16, u16)> {
-        let base = *self.players[team as usize].heroes.get(k)?;
-        Some((base, self.cfg.cards.form_card(base, FORM_HERO)?))
+        let p = &self.players[team as usize];
+        if let Some(&base) = p.heroes.get(k) {
+            return Some((base, self.cfg.cards.form_card(base, FORM_HERO)?));
+        }
+        // A champion's button: the card is its own "form".
+        let c = *p.champions.get(k.checked_sub(p.heroes.len())?)?;
+        Some((c, c))
+    }
+
+    /// Is `form` a champion's (a recovering charge, card.rs `AbilityEffect::DashChain`) rather than a hero form's?
+    fn champion_button(&self, form: u16) -> bool {
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. }))
     }
 
     /// The `hero_units` entry of the newest living hero of `team`'s hero form `form`, or None.
@@ -17473,13 +17772,17 @@ impl BattleState {
 
     /// EVERY ABILITY BUTTON OF `team`, in button order (`AbilityButton`).
     pub fn ability_buttons(&self, team: Team) -> Vec<AbilityButton> {
-        (0..self.players[team as usize].heroes.len())
+        let p = &self.players[team as usize];
+        (0..p.heroes.len() + p.champions.len())
             .filter_map(|k| {
                 let (base, form) = self.button_form(team, k)?;
                 let cost = self.cfg.cards.get(form).ability.as_ref().map_or(0, |a| a.cost);
                 let hu = self.newest_hero(team, form).map(|h| self.hero_units[h]);
-                let spent = hu.is_some_and(|u| u.spent);
-                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !spent, spent, cost })
+                let used = hu.is_some_and(|u| u.spent);
+                // A champion's used charge comes back: it is never `spent`, and reads its recharge instead.
+                let champion = self.champion_button(form);
+                let cooldown_ticks = hu.map_or(0, |u| u.recharge_at.saturating_sub(self.tick));
+                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !used, spent: used && !champion, cost, champion, cooldown_ticks })
             })
             .collect()
     }
@@ -17503,7 +17806,8 @@ impl BattleState {
         let h = self.newest_hero(team, form).ok_or(DeployError::NoHero)?;
         let u = self.hero_units[h];
         if u.spent {
-            return Err(DeployError::AbilitySpent);
+            // A champion's charge is out while its chain runs and until it recharges.
+            return Err(if self.champion_button(form) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
         }
         Ok(())
     }
@@ -17604,6 +17908,19 @@ impl BattleState {
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
         let Some(a) = self.cfg.cards.get(card).ability.clone() else { return };
         match a.effect {
+            // THE DASH CHAIN BEGINS (`ChainRun`): the closest enemy ground character within the charge's circle, or
+            // none yet (he waits for one, WaitForTarget). This is the press row: he takes his walk step on it and dashes
+            // from the next tick (`chain_pass`).
+            crate::card::AbilityEffect::DashChain { radius, count, .. } => {
+                let target = self.chain_pick(i, radius, &[]);
+                self.chains.retain(|c| c.id != hero);
+                let phase = if target.is_some() { ChainPhase::Aim } else { ChainPhase::Seek };
+                self.chains.push(ChainRun { id: hero, phase, mark: self.tick, target, hit: Vec::new(), left: count });
+                if target.is_some() {
+                    self.ents.target[i] = target;
+                }
+                let _ = (team, level, pos);
+            }
             crate::card::AbilityEffect::SpawnAhead { unit, relative_x, relative_y, validate_as_building } => {
                 let flying = self.cfg.cards.get(unit).is_flying();
                 #[cfg(clash_plant = "ability_point_unvalidated")]
@@ -18428,6 +18745,14 @@ impl BattleState {
                     h.u32(*c as u32);
                 }
             }
+            // The side's champion buttons, only when it has some.
+            if !p.champions.is_empty() {
+                h.u32(0x4348_414d);
+                h.u32(p.champions.len() as u32);
+                for c in &p.champions {
+                    h.u32(*c as u32);
+                }
+            }
         }
         let e = &self.ents;
         let (free, counters, created) = e.allocator_state();
@@ -19030,6 +19355,30 @@ impl BattleState {
                 h.id(u.id);
                 h.bool(u.spent);
                 h.bool(u.casting);
+                // A champion's recharge, only when set: a hero's never is.
+                if u.recharge_at != 0 {
+                    h.u32(0x5243_4847);
+                    h.u32(u.recharge_at);
+                }
+            }
+        }
+        // The dash chains under way, only when there are some.
+        if !self.chains.is_empty() {
+            h.u32(0x4348_4e53);
+            h.u32(self.chains.len() as u32);
+            for c in &self.chains {
+                h.id(c.id);
+                h.u32(c.phase as u32);
+                h.u32(c.mark);
+                h.bool(c.target.is_some());
+                if let Some(t) = c.target {
+                    h.id(t);
+                }
+                h.u32(c.hit.len() as u32);
+                for t in &c.hit {
+                    h.id(*t);
+                }
+                h.i32(c.left);
             }
         }
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
@@ -19520,6 +19869,11 @@ impl BattleState {
 /// 20, unchanged, targeting.EQUAL_DISTANCE_TIE: Calib gained equal_distance_tie (serde default the old arm,
 ///    own_frame_low_x), no new state (the new arm reads the saved positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, the Golden Knight's button (card.rs `AbilityEffect::DashChain`): Calib gained dash_chain_cooldown_ms
+///    (combat.DASH_CHAIN_COOLDOWN, serde default Some(11000)), HeroUnit gained recharge_at (serde default 0, hashed only when
+///    set), PlayerState gained champions and BattleState chains (serde default empty, hashed only when not empty); the
+///    card fingerprint moves with the Golden Knight's button, so a snapshot saved by an earlier build is refused as
+///    saved against other card data; a migrated format-3 battle takes the defaults (no champion, no chain).
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -19685,6 +20039,9 @@ struct Snapshot {
     evo: EvoBoard,
     #[serde(default)]
     hero_units: Vec<HeroUnit>,
+    /// The dash chains under way (`BattleState::chains`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    chains: Vec<ChainRun>,
     state_hash: u64,
 }
 
@@ -20308,6 +20665,7 @@ impl BattleState {
             forms: c.forms.clone(),
             evo: self.evo.clone(),
             hero_units: self.hero_units.clone(),
+            chains: self.chains.clone(),
             state_hash: self.state_hash(),
         };
         #[cfg(clash_plant = "save_drops_path_grid")]
@@ -20554,6 +20912,7 @@ impl BattleState {
             scheduled: snap.scheduled,
             evo: snap.evo,
             hero_units: snap.hero_units,
+            chains: snap.chains,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),

@@ -175,10 +175,11 @@ fn hero_musketeer_plays_and_puts_her_turret_down() {
     run_until(&mut s, 30, |s| s.entity(knight).is_some_and(|e| e.hp < hp0));
     let blow = db.scaled(turret, level, 80).unwrap();
     assert_eq!(hp0 - s.entity(knight).unwrap().hp, blow, "the blow");
-    // The observation: Blue's one button, spent.
+    // The observation: Blue's one button, spent: [available, spent, cost, card_id (the Musketeer, catalogue id 0 here),
+    // cooldown_ticks (a hero's charge never comes back)].
     let json = state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 1, 2]], &BTreeMap::new()).unwrap();
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(v["players"][0]["abilities"], serde_json::json!([[0, 1, 3]]));
+    assert_eq!(v["players"][0]["abilities"], serde_json::json!([[0, 1, 3, 0, 0]]));
     assert_eq!(v["players"][1]["abilities"], serde_json::json!([]));
 }
 

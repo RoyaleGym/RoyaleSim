@@ -1165,9 +1165,15 @@ pub struct AbilityDef {
     pub effect: AbilityEffect,
 }
 
-/// What a hero's button does.
+/// What a hero's or a champion's button does.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AbilityEffect {
+    /// A DASH CHAIN (the Golden Knight's GoldenKnightChain; tools/extract_cards.py `champion_dash_chain`): from the
+    /// press, dash at the CLOSEST enemy ground character within `radius`, land `damage` on it, and chain to the closest
+    /// one not yet hit within `second_range`, up to `count` targets (state.rs `chain_pass`). `speed` is JumpSpeed,
+    /// native a tick, moved in sub-steps of at most the walk's 250. `damage` is level 1. `immune_ms`: the table's
+    /// DashImmuneToDamageTime (unmeasured on the chain; not run). Radii in subtiles.
+    DashChain { radius: i32, count: i32, speed: i32, damage: i32, second_range: i32, immune_ms: Option<i32> },
     /// A UNIT PUT DOWN AHEAD OF THE HERO (the Hero Musketeer's turret): `unit` (a summon-only record) at the
     /// ActionSpawnToLocation's RelativeX / RelativeY from the hero, read as a scheduled area's relative offset is
     /// (state.rs `scheduled_point`), deploying its own DeployTime. The table's 50 ms placeholder building, whose only
@@ -2009,7 +2015,8 @@ pub struct CardDef {
     /// ON A HERO FORM (cards.json `hero_forms`, loaded after every other record): its base card's index. None on
     /// every other card. The base finds its form through `CardDb::form_card`, so no base record changes.
     pub form_of: Option<u16>,
-    /// ON A HERO FORM: its button (`AbilityDef`). None on every other card.
+    /// ON A HERO FORM, or a CHAMPION whose button is read (the Golden Knight): its button (`AbilityDef`). None on
+    /// every other card.
     pub ability: Option<AbilityDef>,
     /// THE IDLE BUFF (`IdleBuffDef`; units BuffWhenNotAttacking when the buff is not an invisibility, status.IDLE_BUFF):
     /// the Super Knight's shield. None on every other card.
@@ -2383,6 +2390,10 @@ struct RawCard {
     /// ProjectileSpecial row): `CardDef::special`. Not yet written by the extractor; absent
     /// reads as no special.
     special: Option<RawSpecial>,
+    /// A CHAMPION'S BUTTON (tools/extract_cards.py `champion_dash_chain`): 15.535 only, on the Golden Knight's row.
+    /// Absent on every other card.
+    #[serde(default)]
+    ability: Option<RawAbility>,
     /// cards.json `death_spawn_projectile`: the NAME of the `projectiles` row the unit's death
     /// releases (characters DeathSpawnProjectile; the Phoenix's PhoenixFireball).
     /// `from_json_str` resolves it into `CardDef::death_projectile`. Absent in a file whose
@@ -3714,6 +3725,18 @@ struct RawAbilityEffect {
     /// The table's ValidatePlacementAsBuilding on the spawn (absent: false).
     validate_as_building: Option<bool>,
     areas: Option<Vec<RawHeroArea>>,
+    /// `dash_chain` (a champion's button, tools/extract_cards.py `champion_dash_chain`): the charge's circle, its
+    /// selection, the chain's numbers off the character row, the pending buff's SpeedMultiplier.
+    radius_milli: Option<i32>,
+    selection: Option<String>,
+    once_per_target: Option<bool>,
+    wait_for_target: Option<bool>,
+    filter: Option<BTreeMap<String, serde_json::Value>>,
+    count: Option<i32>,
+    speed: Option<i32>,
+    damage: Option<i32>,
+    secondary_range_milli: Option<i32>,
+    immune_ms: Option<i32>,
 }
 
 /// One area of a `parent_areas` effect (tools/extract_cards.py `hero_area`).
@@ -5894,6 +5917,46 @@ fn convert_variable_damage(raw: Option<RawVariableDamage>) -> Result<Option<Vari
 /// stands a unit still and drags a ground troop to it, and the building case (DragSelfSpeed)
 /// is not measured. A special projectile that carries damage or a buff is not the hook the
 /// law describes, and is refused rather than run as one.
+/// A CHAMPION'S BUTTON off its own card row (`RawCard::ability`), or None: the one effect read is `dash_chain` (the
+/// Golden Knight's), and only in the shape the extractor writes it -- a charge on the closest enemy ground character
+/// once per target, waiting for one, one charge. Anything else refuses the card, loudly, rather than run a button that
+/// is not the table's. The ability's Cooldown is not in the 15.535.29 tables as a number; the engine reads it from
+/// the ledger (combat.DASH_CHAIN_COOLDOWN, state.rs).
+fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind) -> Result<Option<AbilityDef>, String> {
+    let Some(a) = raw else { return Ok(None) };
+    let what = format!("ability {}", a.name);
+    if kind != CardKind::Troop {
+        return Err(format!("{what}: a champion button on a {kind:?} card is not simulated"));
+    }
+    if a.max_charges != Some(1) || a.cooldown_ms.is_some() {
+        return Err(format!("{what}: {:?} charges and cooldown {:?}; one charge, the cooldown from the ledger, is simulated", a.max_charges, a.cooldown_ms));
+    }
+    if a.mana_cost < 0 || a.cast_ms != 0 || a.trigger_delay_ms != 0 {
+        return Err(format!("{what}: a cost below 0, or a CastTime or TriggerDelay, is not simulated on a chain"));
+    }
+    let e = &a.effect;
+    if e.kind != "dash_chain" {
+        return Err(format!("{what}: effect {} is not simulated on a champion", e.kind));
+    }
+    if e.selection.as_deref() != Some("Closest") || e.once_per_target != Some(true) || e.wait_for_target != Some(true) {
+        return Err(format!("{what}: a chain other than closest, once per target, waiting for one, is not simulated"));
+    }
+    let flag = |k: &str| e.filter.as_ref().and_then(|f| f.get(k)).and_then(serde_json::Value::as_bool) == Some(true);
+    if !(flag("MatchTeamEnemy") && flag("MatchTypeCharacters") && flag("FilterFlying")) {
+        return Err(format!("{what}: a target filter other than enemy ground characters is not simulated"));
+    }
+    let need = |v: Option<i32>, n: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: no positive {n}"));
+    let effect = AbilityEffect::DashChain {
+        radius: milli(need(e.radius_milli, "radius_milli")?),
+        count: need(e.count, "DashCount")?,
+        speed: need(e.speed, "JumpSpeed")?,
+        damage: need(e.damage, "DashDamage")?,
+        second_range: milli(need(e.secondary_range_milli, "DashSecondaryRange")?),
+        immune_ms: e.immune_ms,
+    };
+    Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: 0, trigger_ms: 0, keep_target: a.keep_current_target, effect }))
+}
+
 fn convert_special(raw: Option<RawSpecial>, kind: CardKind) -> Result<Option<SpecialDef>, String> {
     let Some(b) = raw else { return Ok(None) };
     let need = |v: Option<i32>, what: &str| match v {
@@ -6453,6 +6516,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // arm; a half-blank block refuses the card like any other.
     let variable_damage = convert_variable_damage(raw.variable_damage)?;
     let special = convert_special(raw.special, kind)?;
+    let ability = convert_champion_ability(raw.ability, kind)?;
     let attack_pushback = match raw.attack_pushback_milli {
         Some(x) if x < 0 => return Err(format!("attack_pushback_milli {x} < 0")),
         Some(x) => milli(x),
@@ -6802,9 +6866,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         #[cfg(clash_plant = "projectile_y_offset_unread")]
         projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
         evo: None,
-        // A hero form's links and button are set by its own pass (`CardDb::load_hero_forms`).
+        // A hero form's links and button are set by its own pass (`CardDb::load_hero_forms`); a champion's button is
+        // its own row's (`convert_champion_ability`).
         form_of: None,
-        ability: None,
+        ability,
         idle_buff: idle.map(|(d, _)| d),
         // Resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         idle_area: None,
@@ -7892,7 +7957,9 @@ impl CardDb {
     /// 2 (state.rs `BattleConfig::forms`), never the form.
     fn load_hero_form(&mut self, v: serde_json::Value, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(), String> {
         let extra: RawHeroForm = serde_json::from_value(v.clone()).map_err(|e| format!("hero form: {e}"))?;
-        let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("hero form: {e}"))?;
+        let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("hero form: {e}"))?;
+        // Its button is this pass's (`RawHeroForm::ability`, below), not a champion's (`convert_champion_ability`).
+        raw.ability = None;
         let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of && !self.get(b).summon_only && self.get(b).evo.is_none());
         let base = base.ok_or_else(|| format!("base card {} is not a loaded card", extra.form_of))?;
         if self.form_card(base, FORM_HERO).is_some() {
