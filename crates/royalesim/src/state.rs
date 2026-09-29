@@ -11962,8 +11962,36 @@ impl BattleState {
                     let ti = t.index as usize;
                     target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
                 });
+            // The same rule on the hit tick: a corpse replaced by a target out of reach clears a cycle in Cooldown that the
+            // attack step would carry past its range gate. The hit leaves the progress on a multiple of HitSpeed plus what
+            // the tick's advance overshot, and the step's hit-started test (combat.rs, progress % HitSpeed > 50, the
+            // progress_credit cycle's) reads that overshoot as a swing under way. At the unbuffed 50 (or a slowed one) the
+            // overshoot is at most 50, the test reads no swing and the gate drops the cycle itself: those cycles are left
+            // alone here, under every tick order (tests/tick_order.rs pins the walk after a kill). Under a hit-speed buff
+            // the overshoot can pass 50: the hero Berserker's rage (HitSpeedMultiplier 300, 150 a tick against HitSpeed
+            // 600) hits at progress 700, remainder 100, and the engine had it swing on at a Knight 2,600 away for the
+            // rest of its rage. Measured on client 15.535.29, sp-form-Berserker-hero-s0: the raged hero kills a Skeleton
+            // on t218 at progress 700 and on t219 reads progress 0 and walks at the Knight; the Knight's own kill on t267
+            // the same (progress 0 and a walk at the Musketeer on t268).
+            #[cfg(not(clash_plant = "corpse_switch_keeps_cooldown"))]
+            let hit_tick_corpse = corpse_in_reach_only
+                && was.is_none()
+                && d.target.is_some()
+                && !corpse_keeps
+                && e.attack_phase[i] == AttackPhase::Cooldown
+                && calib.attack_cycle == AttackCycle::ProgressCredit
+                && {
+                    let hs = cards.get(e.card[i]).hit_speed_ms;
+                    hs > 0 && e.attack_ms[i] % hs > calib.tick_ms
+                };
+            #[cfg(clash_plant = "corpse_switch_keeps_cooldown")]
+            let hit_tick_corpse = false; // PLANT (regression): the hit tick's cycle runs on at a corpse's out-of-reach successor.
             if !replaced_a_corpse
-                && (d.cancel_attack || (changed && e.attack_phase[i] == AttackPhase::Windup && !carried && !switched_in_reach))
+                && (d.cancel_attack
+                    || (changed
+                        && (e.attack_phase[i] == AttackPhase::Windup || hit_tick_corpse)
+                        && !carried
+                        && !switched_in_reach))
             {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;

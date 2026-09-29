@@ -24,7 +24,9 @@
 //! hero_berserker`):
 //!   - own_damage_multiplier_ignored -> `the_rage_hits_for_167_every_4_frames` red (102 a hit);
 //!   - unkillable_not_read -> `the_raged_hero_keeps_1_hp_and_dies_after_the_rage` red (it dies to the first blow);
-//!   - form_finish_override_ignored -> `the_bear_takes_its_next_target_on_the_loss_plus_1` red (it waits to L + 6).
+//!   - form_finish_override_ignored -> `the_bear_takes_its_next_target_on_the_loss_plus_1` red (it waits to L + 6);
+//!   - corpse_switch_keeps_cooldown -> `the_bear_walks_at_a_successor_out_of_its_reach` red (it swings on from where
+//!     it stands and strikes the Collector out of its reach).
 #![allow(unexpected_cfgs)]
 
 mod common;
@@ -250,6 +252,55 @@ fn the_bear_takes_its_next_target_on_the_loss_plus_1() {
     assert!(!raged.is_empty(), "the raged hero kills a Skeleton inside the rage");
     assert!(raged.iter().all(|g| g.1 == 1), "the bear takes its next target on L + 1: {raged:?}");
     assert!(!control.is_empty() && control.iter().all(|g| g.1 == 6), "the plain hero waits to L + 6: {control:?}");
+}
+
+#[test]
+fn the_bear_walks_at_a_successor_out_of_its_reach() {
+    // combat.CORPSE_SWITCH_REACH on the hit tick (state.rs `hit_tick_corpse`). A red Knight in front of the hero, set to
+    // 100 hp at the press, dies to the first raged blow (167), which lands at progress 700: 100 past HitSpeed 600, where
+    // an unbuffed hit leaves 0. A red Elixir Collector 3,905 away, which cannot walk in, is the next target, out of the
+    // hero's reach (Range 800 and both radii). The scene (sp-form-Berserker-hero-s0) reads progress 0 and a walk on the
+    // frame after the kill (t218 -> t219), and its hero strikes its next target only from within reach.
+    let (mut s, hid) = scene((9000, 11500), &[("Knight", (0, 1500)), ("Elixir Collector", (2500, 3000))]);
+    let near = find_live(&s, Team::Red, "Knight")[0].id;
+    let col = find_live(&s, Team::Red, "Elixir Collector")[0].id;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    assert!(s.debug_set_hp(near, 100));
+    let reach = 800 + (s.entity(hid).unwrap().radius + s.entity(col).unwrap().radius) / K;
+    let mut kill = None;
+    let mut prev = s.entity(hid).unwrap().pos;
+    let mut col_hp = s.entity(col).unwrap().hp;
+    let mut struck = Vec::new();
+    for k in 0..LAST_RAGED {
+        s.tick();
+        let h = s.entity(hid).expect("the hero lives through its rage");
+        let Some(c) = s.entity(col) else {
+            // The Collector falls to the raged blows (167 every 4 frames): nothing after that tests the switch.
+            break;
+        };
+        let d = h.pos.sub(c.pos);
+        let (dx, dy) = ((d.x / K) as i64, (d.y / K) as i64);
+        let dist = ((dx * dx + dy * dy) as f64).sqrt() as i32;
+        // A blow: more than the Collector's own decay.
+        if col_hp - c.hp > 50 {
+            struck.push((k, dist, col_hp - c.hp));
+        }
+        col_hp = c.hp;
+        if kill.is_none() && s.entity(near).is_none() {
+            kill = Some(k);
+            assert_eq!(h.attack_ms, 700, "the kill's blow lands at progress 700 (100 past HitSpeed)");
+        } else if kill.is_some_and(|kk| k == kk + 1) {
+            assert_eq!(h.target, Some(col), "it takes the Collector on the kill + 1");
+            assert!(dist > reach + 100, "the Collector stands out of its reach then ({dist} against {reach})");
+            assert_eq!(h.attack_ms, 0, "its cycle is dropped on the kill + 1");
+            assert!(h.pos != prev, "and it walks on the kill + 1");
+        }
+        prev = h.pos;
+    }
+    let kill = kill.expect("the near Knight dies inside the rage");
+    assert!(kill > CAST_FRAMES, "the kill is the first raged blow, after the cast (k = {kill})");
+    assert!(!struck.is_empty(), "the hero strikes the Collector inside the rage");
+    assert!(struck.iter().all(|b| b.1 <= reach + 100), "every blow on the Collector lands within reach: {struck:?} (reach {reach})");
 }
 
 #[test]
