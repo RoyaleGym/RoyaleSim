@@ -506,6 +506,11 @@ pub struct Calib {
     /// `default` is the old arm, `Refrozen`, which is what a battle saved before this key ran.
     #[serde(default = "avoidance_drop_segment_default")]
     pub avoidance_drop_segment: AvoidanceDropSegment,
+    /// pathfinding.SAMEPATH_SEGMENT: what a SAMEPATH replan does to the frozen segment direction
+    /// (`phase_path16402_for`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `Kept`, which is what a battle saved before this key ran.
+    #[serde(default = "samepath_segment_default")]
+    pub samepath_segment: SamepathSegment,
     /// spawner.RELEASE_TIMING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `NextSpawnPhase`, which is what a battle saved before this key actually ran. Read
     /// through `BattleState::release_timing`, so the regression plant can force the old arm.
@@ -1480,6 +1485,10 @@ fn zero_step_waypoint_test_default() -> ZeroStepWaypointTest {
 
 fn avoidance_drop_segment_default() -> AvoidanceDropSegment {
     AvoidanceDropSegment::Refrozen
+}
+
+fn samepath_segment_default() -> SamepathSegment {
+    SamepathSegment::Kept
 }
 
 fn projectile_spawn_formation_default() -> ProjectileSpawnFormation {
@@ -3362,6 +3371,20 @@ calib_enum!(
         /// Measured on client 16.402 and client 15.535.29: the drop leaves the segment as it
         /// was, the direction toward the node it dropped; only a reached pop refreezes it.
         Client16402Kept = "client16402_kept"
+    }
+);
+calib_enum!(
+    /// pathfinding.SAMEPATH_SEGMENT -- the frozen segment direction after a replan forced only by the
+    /// friendly occluder set changing that touched neither the old list nor the new one (path16402.rs
+    /// `path_touches_changed_occlusion` false, the SAMEPATH case): the unit keeps its old list under
+    /// either arm. The reached test measures the next waypoint along the segment, so the arm decides
+    /// the tick the unit takes its next node.
+    SamepathSegment {
+        /// The engine before this key: the segment stays frozen where the node was taken.
+        Kept = "kept",
+        /// Measured on client 15.535.29 (the recorded corpus): the segment restarts, and the step
+        /// refreezes it from the start-of-tick position toward the kept next waypoint.
+        ClientRestarted = "client_restarted"
     }
 );
 calib_enum!(
@@ -5583,6 +5606,7 @@ impl Calib {
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
             zero_step_waypoint_test: pick(&v, &["pathfinding", "ZERO_STEP_WAYPOINT_TEST", "value"], ZeroStepWaypointTest::from_calibration_name)?,
             avoidance_drop_segment: pick(&v, &["pathfinding", "AVOIDANCE_DROP_SEGMENT", "value"], AvoidanceDropSegment::from_calibration_name)?,
+            samepath_segment: pick(&v, &["pathfinding", "SAMEPATH_SEGMENT", "value"], SamepathSegment::from_calibration_name)?,
             release_timing: pick(&v, &["spawner", "RELEASE_TIMING", "value"], ReleaseTiming::from_calibration_name)?,
             emission_water_turn: pick(&v, &["spawner", "EMISSION_WATER_TURN", "value"], EmissionWaterTurn::from_calibration_name)?,
             spawn_area_object_scope: pick(&v, &["spawner", "SPAWN_AREA_OBJECT_SCOPE", "value"], SpawnAreaObjectScope::from_calibration_name)?,
@@ -12963,7 +12987,18 @@ impl BattleState {
                                         } else if only_occlusion
                                             && !path16402::path_touches_changed_occlusion(&g.occ_prev, &g.occ_cur, &old_idx, &chain)
                                         {
-                                            // SAMEPATH: the change touched neither list
+                                            // SAMEPATH: the change touched neither list, and the old list stays.
+                                            // pathfinding.SAMEPATH_SEGMENT = client_restarted: the frozen segment
+                                            // restarts as well, so the step below refreezes it from the start of the
+                                            // tick toward the kept next waypoint. kept, the engine before this key,
+                                            // leaves it frozen where the node was taken.
+                                            #[cfg(not(clash_plant = "samepath_keeps_segment"))]
+                                            let restart = calib.samepath_segment == SamepathSegment::ClientRestarted;
+                                            #[cfg(clash_plant = "samepath_keeps_segment")]
+                                            let restart = false; // PLANT (regression): SAMEPATH keeps the segment under either arm.
+                                            if restart {
+                                                segs[i] = Vec2::default();
+                                            }
                                         } else {
                                             routes[i] = chain.iter().map(|&n| arena.half_to_subtile_center(n % cols, n / cols)).collect();
                                             segs[i] = Vec2::default();
@@ -19957,6 +19992,9 @@ impl BattleState {
 ///    card fingerprint moves (a snapshot saved by an earlier build is refused as saved against other card data); no
 ///    new state (the area is a saved and hashed spell object, and its units go through the saved queue). migrate_v3
 ///    strips `deploy_spawn_area` with the rest of the post-format-3 tail.
+/// 20, unchanged, pathfinding.SAMEPATH_SEGMENT: Calib gained samepath_segment (serde default the old arm, kept), no
+///    new state (the new arm clears the saved `seg_dir` column, which the step refreezes in the same tick), so a blob
+///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -20465,6 +20503,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pathfinding.AVOIDANCE_DROP_SEGMENT: a format-3 battle refroze the segment after a drop; it keeps that whatever
     // the ledger ships (the same rule).
     sh.insert("avoidance_drop_segment".into(), serde_json::to_value(AvoidanceDropSegment::Refrozen).map_err(|e| e.to_string())?);
+    // pathfinding.SAMEPATH_SEGMENT: a format-3 battle kept the segment through a SAMEPATH replan; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("samepath_segment".into(), serde_json::to_value(SamepathSegment::Kept).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
