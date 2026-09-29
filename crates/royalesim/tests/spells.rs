@@ -1569,3 +1569,151 @@ fn spell_placement_follows_the_card_data() {
     assert_eq!(v("GoblinBarrel", "enemy_king"), Ok(()), "a barrel may land on the king");
     assert_eq!(v("Knight", "own_tower"), Err(DeployError::Occupied), "control: a troop is refused on a building");
 }
+
+// ---------------------------------------------------------------------------
+// THE LOG'S LANDING-TICK HIT AND ITS TICK-END PUSH (a pair: spells.ROLL_FIRST_STEP =
+// client15535_hit_on_landing_tick_step_after with knockback.DIRECTION_ROLLING =
+// client15535_radial_from_tick_end_centre). Measured on client 15.535.29: the Log stands unmoved on its tap on
+// the landing tick and hits there (a Hog next to the tap lost its hp on the landing tick and was pushed from the
+// next), rolls from the next tick, and every later hit pushes away from the Log's centre at the end of the hit's
+// tick. Pinned, both seats:
+//   1. the Knight next to the tap loses hp on the landing tick under the pair and one tick later under the shipped
+//      arms, and moves from the tick after its hit under both;
+//   2. under the pair, the axis cases of log_behind_the_tap_* hold (behind: back by the whole carry; half a step
+//      ahead: forward; 1,500 behind: untouched);
+//   3. under the pair, a Knight off the axis ahead, hit mid-roll, is pushed along the line from the Log's tick-end
+//      centre, which the contact point's line is not;
+//   4. either arm alone is refused.
+// Plants: roll_landing_tick_unswept (1 goes red), roll_tick_end_arm_from_contact (3 goes red).
+
+fn log_pair(mut cfg: BattleConfig) -> BattleConfig {
+    cfg.calib.roll_first_step = royalesim::state::RollFirstStep::HitOnLandingTickStepAfter;
+    cfg.calib.knock_direction_rolling = RollDirection::RadialFromTickEndCentre;
+    cfg
+}
+
+/// A `caster` Log at `tap` over a deploying Knight put down at `at` two ticks before the landing: the tick CALLS
+/// (1-based) on which the Log lands (its roll appears), the Knight first loses hp against a control battle with no
+/// Log, and the Knight first moves.
+fn log_landing_hit_move(cfg: &BattleConfig, caster: Team, tap: Vec2, at: Vec2) -> (u32, u32, u32) {
+    let s0 = bare(cfg.clone());
+    let (air_step, min_d, _, _, _, _) = log_numbers(&s0);
+    let land = ((min_d + air_step - 1) / air_step) as u32;
+    let foe = match caster {
+        Team::Blue => Team::Red,
+        Team::Red => Team::Blue,
+    };
+    let mut s = bare(cfg.clone());
+    let mut control = s.clone();
+    s.spawn_unit(caster, "Log", tap, None).unwrap();
+    let (mut landed, mut hit, mut moved) = (None, None, None);
+    for k in 1..=land + 20 {
+        if k + 1 == land {
+            for st in [&mut s, &mut control] {
+                st.spawn_unit(foe, "Knight", at, None).unwrap();
+            }
+        }
+        s.tick();
+        control.tick();
+        if landed.is_none() && s.spells().iter().any(|sp| matches!(sp.motion, royalesim::spell::SpellMotion::Rolling { .. })) {
+            landed = Some(k);
+        }
+        if let Some(v) = control.entities().find(|e| e.card == "Knight") {
+            let a = s.entity(v.id).expect("the Knight lives");
+            if hit.is_none() && a.hp < v.hp {
+                hit = Some(k);
+            }
+            if moved.is_none() && a.pos != v.pos {
+                moved = Some(k);
+            }
+        }
+    }
+    (landed.expect("the Log landed"), hit.expect("the Knight was hit"), moved.expect("the Knight was pushed"))
+}
+
+#[test]
+fn log_pair_hits_on_the_landing_tick_and_pushes_from_the_next() {
+    let cfg = config();
+    let s0 = bare(cfg.clone());
+    let (_, _, step, _, _, _) = log_numbers(&s0);
+    let blue_tap = t(900, 1100);
+    for caster in [Team::Blue, Team::Red] {
+        let (tap, fwd) = match caster {
+            Team::Blue => (blue_tap, 1),
+            Team::Red => (mirror(&s0, blue_tap), -1),
+        };
+        let at = Vec2::new(tap.x, tap.y + fwd * step / 2);
+        let (land, hit, moved) = log_landing_hit_move(&log_pair(cfg.clone()), caster, tap, at);
+        assert_eq!((hit, moved), (land, land + 1), "{caster:?}: the pair hits on the landing tick {land} and pushes from the next");
+        let (land0, hit0, moved0) = log_landing_hit_move(&cfg, caster, tap, at);
+        assert_eq!((land0, hit0, moved0), (land, land + 1, land + 2), "{caster:?}: the shipped arms hit one tick after landing");
+    }
+}
+
+#[test]
+fn log_pair_keeps_the_axis_cases() {
+    let cfg = log_pair(config());
+    let s0 = bare(cfg.clone());
+    let push = knock_carry(&cfg.calib, milli(int(&log_roll()["pushback_milli"])));
+    let (_, _, step, _, _, _) = log_numbers(&s0);
+    let blue_tap = t(900, 1100);
+    for caster in [Team::Blue, Team::Red] {
+        let (tap, fwd) = match caster {
+            Team::Blue => (blue_tap, 1),
+            Team::Red => (mirror(&s0, blue_tap), -1),
+        };
+        for off in [milli(500), milli(1000)] {
+            let d = log_push_on(&cfg, caster, tap, "Knight", Vec2::new(tap.x, tap.y - fwd * off)).expect("pushed");
+            assert_eq!(d, Vec2::new(0, -fwd * push), "{caster:?}: the Knight {} behind the tap goes back by the whole carry", off / K);
+        }
+        assert_eq!(log_push_on(&cfg, caster, tap, "Knight", Vec2::new(tap.x, tap.y - fwd * milli(1500))), None, "{caster:?}: 1,500 behind is untouched");
+        let d = log_push_on(&cfg, caster, tap, "Knight", Vec2::new(tap.x, tap.y + fwd * step / 2)).expect("pushed");
+        assert_eq!(d, Vec2::new(0, fwd * push), "{caster:?}: half a roll step ahead goes forward by the whole carry");
+    }
+}
+
+/// |sin| of the angle between `a` and `b`, in parts per 10,000.
+fn sin_between(a: Vec2, b: Vec2) -> i64 {
+    let (ax, ay, bx, by) = (a.x as i64, a.y as i64, b.x as i64, b.y as i64);
+    let cross = (ax * by - ay * bx).abs();
+    let la = royalesim::fixed::isqrt(ax * ax + ay * ay).max(1);
+    let lb = royalesim::fixed::isqrt(bx * bx + by * by).max(1);
+    cross * 10_000 / (la * lb)
+}
+
+#[test]
+fn log_pair_pushes_a_mid_roll_hit_from_the_tick_end_centre() {
+    let s0 = bare(config());
+    let (_, _, step, _, _, hd) = log_numbers(&s0);
+    let r = card_stat(&s0, "Knight").collision_radius;
+    let blue_tap = t(900, 1100);
+    for caster in [Team::Blue, Team::Red] {
+        let (tap, fwd) = match caster {
+            Team::Blue => (blue_tap, 1),
+            Team::Red => (mirror(&s0, blue_tap), -1),
+        };
+        // Off the axis and two tiles ahead: out of the landing sweep, hit on roll step n, whose sweep first reaches
+        // its near edge; the tick-end centre is n steps ahead of the tap, the contact point where the front face met
+        // the edge, 100 short of it.
+        let (side, ahead) = (milli(900), milli(2000));
+        let at = Vec2::new(tap.x + side, tap.y + fwd * ahead);
+        let n = (ahead - r - hd + step - 1) / step;
+        let cur = Vec2::new(tap.x, tap.y + fwd * n * step);
+        let contact = Vec2::new(tap.x, tap.y + fwd * (ahead - r - hd));
+        assert!(contact != cur, "the scene drifted: the contact point is the tick-end centre");
+        let d = log_push_on(&log_pair(config()), caster, tap, "Knight", at).expect("pushed");
+        assert!(sin_between(d, at.sub(cur)) <= 50, "{caster:?}: the push {d:?} is not along the line from the tick-end centre");
+        assert!(sin_between(at.sub(contact), at.sub(cur)) > 200, "the scene drifted: the two lines are too close to tell apart");
+    }
+}
+
+#[test]
+fn log_pair_arms_are_refused_alone() {
+    let mut c = config();
+    c.calib.roll_first_step = royalesim::state::RollFirstStep::HitOnLandingTickStepAfter;
+    assert!(c.calib.validate().is_err(), "the landing-tick hit alone was accepted");
+    let mut c = config();
+    c.calib.knock_direction_rolling = RollDirection::RadialFromTickEndCentre;
+    assert!(c.calib.validate().is_err(), "the tick-end push alone was accepted");
+    assert!(log_pair(config()).calib.validate().is_ok(), "the pair is refused");
+}

@@ -1271,16 +1271,18 @@ fn laser(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &S
 }
 
 /// One tick of a rolling projectile: move, sweep, hit each new victim once.
-/// Returns true while it still has distance to roll.
+/// Returns true while it still has distance to roll. `still`: the landing tick's sweep of
+/// spells.ROLL_FIRST_STEP = client15535_hit_on_landing_tick_step_after -- a step of 0, so the
+/// rectangle is the roll's own cross-section on the landing point.
 #[allow(clippy::too_many_arguments)]
-fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, travelled: &mut i32, len: i32, hit_set: &mut Vec<EntityId>, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>) -> bool {
+fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, travelled: &mut i32, len: i32, hit_set: &mut Vec<EntityId>, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>, still: bool) -> bool {
     let Some(crate::card::SpellDef { shape: SpellShape::Rolling { speed, half_width, half_depth, hit, .. }, .. }) = &ctx.cards.get(card).spell else {
         return false;
     };
     let (speed, half_width, half_depth) = (*speed, *half_width, *half_depth);
     let e = ctx.ents;
     let fwd = forward_dy(team);
-    let step = (speed * ctx.calib.projectile_speed_to_subtiles_per_tick).min(len - *travelled).max(0);
+    let step = if still { 0 } else { (speed * ctx.calib.projectile_speed_to_subtiles_per_tick).min(len - *travelled).max(0) };
     let prev = *pos;
     #[cfg(not(clash_plant = "rolling_forward_plus_y_for_both"))]
     let cur = Vec2::new(prev.x, prev.y + fwd * step);
@@ -1389,6 +1391,16 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                         RollDirection::RadialFromContactPoint => {
                             Vec2::new(contact.x / K, vn.y - fwd * (ctx.calib.knock_rolling_contact_radius + e.radius[v] / K))
                         }
+                        // client15535_radial_from_tick_end_centre: away from the roll's centre at the END of this tick
+                        // (measured on client 15.535.29, item 55: a Hog hit mid-roll steps (70, -131) from the centre
+                        // (14500, 22500), where the contact point (14500, 22627) gives (65, -134)). It pairs with
+                        // spells.ROLL_FIRST_STEP's landing-tick hit, whose tick-end centre is the landing point: a unit
+                        // just ahead of the tap is hit there and goes forward.
+                        #[cfg(not(clash_plant = "roll_tick_end_arm_from_contact"))]
+                        RollDirection::RadialFromTickEndCentre => Vec2::new(cur.x / K, cur.y / K),
+                        // PLANT (regression): the tick-end arm pushes from the contact point.
+                        #[cfg(clash_plant = "roll_tick_end_arm_from_contact")]
+                        RollDirection::RadialFromTickEndCentre => Vec2::new(contact.x / K, contact.y / K),
                     };
                     fx.knocks.push(Knock::Push { id, src, strength: k.distance / K, caster: team, now: false });
                     continue;
@@ -1407,6 +1419,8 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                         let src = Vec2::new(contact.x, e.pos[v].y - fwd * (ctx.calib.knock_rolling_contact_radius * K + e.radius[v]));
                         push_along(e.pos[v].sub(src), k.distance, Some(along))
                     }
+                    // The same source as the client16402 law's: the tick-end centre.
+                    RollDirection::RadialFromTickEndCentre => push_along(e.pos[v].sub(cur), k.distance, Some(along)),
                     // NOT SELECTED. Kept implemented because it is a listed candidate
                     // of knockback.DIRECTION_ROLLING and state.rs::pick refuses a
                     // candidate string with no engine implementation at load -- deleting
@@ -1709,7 +1723,21 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     s.motion = SpellMotion::Rolling { pos: p, travelled, len, hit };
                     return true;
                 }
-                let more = roll(ctx, s.team, s.card, s.damage, &mut p, &mut travelled, len, &mut hit, dmg, fx, nb);
+                // client15535_hit_on_landing_tick_step_after: it stands unmoved on the landing point, as under
+                // tick_after_landing, and its rectangle there hits this tick (a step of 0); it steps from the next
+                // tick. Measured on client 15.535.29 (item 55): a Log lands on its tap and does not move on the landing
+                // tick, rolls 200 a tick from the next, and a Hog next to the tap loses its hp on the landing tick and
+                // is pushed from the next.
+                if first == RollFirstStep::HitOnLandingTickStepAfter {
+                    #[cfg(not(clash_plant = "roll_landing_tick_unswept"))]
+                    let more = roll(ctx, s.team, s.card, s.damage, &mut p, &mut travelled, len, &mut hit, dmg, fx, nb, true);
+                    // PLANT (regression): the landing tick sweeps nothing, as under tick_after_landing.
+                    #[cfg(clash_plant = "roll_landing_tick_unswept")]
+                    let more = true;
+                    s.motion = SpellMotion::Rolling { pos: p, travelled, len, hit };
+                    return more;
+                }
+                let more = roll(ctx, s.team, s.card, s.damage, &mut p, &mut travelled, len, &mut hit, dmg, fx, nb, false);
                 if !more {
                     if let Some(sp) = shape.release() {
                         release_units(ctx, s.team, s.card, s.level, sp, p, &mut out.released);
@@ -1720,7 +1748,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             }
             // A ROLL THAT RELEASES UNITS (the Barbarian Barrel) releases them where it stops, on the tick it stops.
             (SpellMotion::Rolling { pos, travelled, len, hit }, SpellShape::Rolling { spawn, .. }) => {
-                let more = roll(ctx, s.team, s.card, s.damage, pos, travelled, *len, hit, dmg, fx, nb);
+                let more = roll(ctx, s.team, s.card, s.damage, pos, travelled, *len, hit, dmg, fx, nb, false);
                 #[cfg(not(clash_plant = "roll_release_dropped"))]
                 if !more {
                     if let Some(sp) = spawn {

@@ -2383,6 +2383,10 @@ calib_enum!(
         /// plus the victim's radius) behind the victim along the caster's forward axis: fitted
         /// to the four recorded Log pushes at 4.8 RMS of 520 (the 16.402 corpus).
         RadialFromContactPoint = "radial_from_contact_point",
+        /// Away from the roll's centre at the end of the hit's tick (spell.rs `roll`'s `cur`). Measured on client
+        /// 15.535.29 (item 55). Runs only with spells.ROLL_FIRST_STEP = client15535_hit_on_landing_tick_step_after
+        /// (`Calib::validate`): alone it pushes a unit just ahead of the tap back toward the caster.
+        RadialFromTickEndCentre = "client15535_radial_from_tick_end_centre",
     }
 );
 calib_enum!(
@@ -4518,6 +4522,11 @@ calib_enum!(
         /// The tick after: the roll stands unmoved on the landing point on the landing tick. Measured on the
         /// Barbarian Barrel (4 of 4 on the 16.402 corpus).
         TickAfterLanding = "tick_after_landing",
+        /// The tick after, and the landing tick's roll HITS where it stands (a sweep of its own cross-section on the
+        /// landing point; spell.rs `roll`'s `still`). Measured on client 15.535.29 on the Log (item 55): a Hog next to
+        /// the tap loses its hp on the landing tick and is pushed from the next. Runs only with knockback.
+        /// DIRECTION_ROLLING = client15535_radial_from_tick_end_centre (`Calib::validate`).
+        HitOnLandingTickStepAfter = "client15535_hit_on_landing_tick_step_after",
     }
 );
 calib_enum!(
@@ -6003,6 +6012,12 @@ impl Calib {
         }
         if c.load_first_hit == LoadFirstHit::LoadTimeFromDeployEnd && c.attack_cycle != AttackCycle::ProgressCredit {
             return Err("combat.LOAD_FIRST_HIT = load_time_from_deploy_end has no engine implementation under combat.ATTACK_CYCLE other than progress_credit".into());
+        }
+        // spells.ROLL_FIRST_STEP's landing-tick hit and knockback.DIRECTION_ROLLING's tick-end centre are one
+        // measurement (item 55) and run only together: either alone pushes a unit just ahead of the tap back toward
+        // the caster, where the client pushes it forward.
+        if (c.roll_first_step == RollFirstStep::HitOnLandingTickStepAfter) != (c.knock_direction_rolling == RollDirection::RadialFromTickEndCentre) {
+            return Err("spells.ROLL_FIRST_STEP = client15535_hit_on_landing_tick_step_after and knockback.DIRECTION_ROLLING = client15535_radial_from_tick_end_centre run only together".into());
         }
         if c.attack_pushback == AttackPushback::LadderAwayFromTarget && c.knock_law != KnockLaw::Client16402 {
             return Err("knockback.ATTACK_PUSHBACK = ladder_away_from_target has no engine implementation under knockback.DISPLACEMENT_LAW other than client16402".into());
