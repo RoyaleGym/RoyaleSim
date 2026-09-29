@@ -10969,6 +10969,44 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "ability": {
+    "name": "Deflect",
+    "mana_cost": 1,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 933,
+    "trigger_delay_ms": 933,
+    "keep_current_target": false,
+    "is_champion": true,
+    "effect": {
+     "kind": "deflect",
+     "buff": {
+      "name": "ShieldBoostMonk",
+      "speed_multiplier_raw": null,
+      "hit_speed_multiplier_raw": null,
+      "spawn_speed_multiplier_raw": null,
+      "damage_per_second": null,
+      "hit_frequency_ms": null,
+      "heal_per_second": null,
+      "damage_reduction": 65,
+      "damage_multiplier": null,
+      "crown_tower_damage_percent": null,
+      "immune_to_anti_magic": null,
+      "no_effect_to_crown_towers": false,
+      "attract_percentage": null,
+      "building_damage_percent": null,
+      "enable_stacking": false,
+      "hit_tick_from_source": false,
+      "controlled_by_parent": false,
+      "death_spawn": null,
+      "ignore_buildings": false,
+      "crown_tower_damage_per_hit": null
+     },
+     "time_ms": 4000,
+     "active_ms": 4000,
+     "radius_milli": 1500
+    }
+   },
    "combo": {
     "sequence": [
      0,

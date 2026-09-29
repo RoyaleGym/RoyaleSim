@@ -3040,6 +3040,72 @@ CHAIN_CHARGE_KEYS = {
 }
 
 
+# The Deflect's ability, AEO and tag action: every column the reader takes, or none (cosmetic columns aside).
+DEFLECT_ABILITY_READ = {
+    "AbilityStateDuration", "AreaEffectObject", "Buff", "BuffTime", "CastTime", "MaxCharges", "ManaCost", "Name",
+    "OnActivationAction", "TriggerDelay", "GameTagsWhileAbilityActive", "StatsTags", "Stats",
+}
+DEFLECT_ABILITY_COSMETIC = {
+    "KeepIconEvenWhenOutOfCharges", "HideChargesTextField", "DeployedClip", "DeployedEffect", "IconExportName", "IconSWF",
+    "TID", "TID_INFO",
+}
+DEFLECT_AEO_READ = {"DeflectProjectilesEnabled", "FollowBehaviour", "HitsAir", "HitsGround", "IgnoreBuildings", "LifeDuration",
+                    "Name", "OnlyEnemies", "Radius", "Rarity"}
+DEFLECT_AEO_COSMETIC = {"DeflectedProjectileEffect", "DeflectionFBEffect", "SpawnDeployBaseAnim"}
+# The tags the Deflect holds its champion with while it is active: he stands (no move; an attract still moves him).
+DEFLECT_HOLD_TAGS = "AVOIDANCE_AS_OBSTACLE,NO_MOVE_ALLOW_ATTRACT"
+
+
+def champion_deflect(t, unit: str) -> dict | None:
+    """THE BUTTON OF A CHAMPION WHOSE PRESS DEFLECTS (15.535: the Monk's Deflect), or None (the card loads as a plain
+    troop). The ability row hangs a buff on the champion for BuffTime, puts down an area effect that follows him and
+    deflects projectiles (DeflectProjectilesEnabled) for its LifeDuration, holds him while it is active
+    (GameTagsWhileAbilityActive AVOIDANCE_AS_OBSTACLE, NO_MOVE_ALLOW_ATTRACT for AbilityStateDuration), and its
+    OnActivationAction only sets tags for a duration. Any other column, or any other shape, gives None."""
+    row = t["characters"].get(unit)
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - DEFLECT_ABILITY_READ - DEFLECT_ABILITY_COSMETIC:
+        return None
+    if a.get("GameTagsWhileAbilityActive") != DEFLECT_HOLD_TAGS or a.get("MaxCharges") != 1:
+        return None
+    aeo_name = a.get("AreaEffectObject")
+    aeo_tb = t["area_effect_objects"]
+    aeo = aeo_tb.get(aeo_name) if isinstance(aeo_name, str) else None
+    if aeo is None or aeo_tb.set_fields.get(aeo_name, set()) - DEFLECT_AEO_READ - DEFLECT_AEO_COSMETIC:
+        return None
+    if not aeo["DeflectProjectilesEnabled"] or aeo["FollowBehaviour"] != "FollowParent":
+        return None
+    on = a.get("OnActivationAction")
+    act = t["actions"].get(on) if isinstance(on, str) else None
+    if act is None or act["ClassType"] != "ActionWithDuration" or t["actions"].set_fields.get(on, set()) != {"ActionDuration", "ClassType", "GameTagsToSet"}:
+        return None
+    buff = norm_buff(t, a.get("Buff"))
+    ints = [a.get(k) for k in ("AbilityStateDuration", "BuffTime", "CastTime", "TriggerDelay", "ManaCost")]
+    if buff is None or not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints):
+        return None
+    state_ms, buff_ms, cast_ms, trigger_ms, mana = ints
+    if not (aeo["LifeDuration"] == state_ms == act["ActionDuration"]):
+        return None
+    return {
+        "name": a["Name"],
+        "mana_cost": mana,
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": False,
+        "is_champion": True,
+        "effect": {
+            "kind": "deflect",
+            "buff": buff,
+            "time_ms": buff_ms,
+            "active_ms": state_ms,
+            "radius_milli": aeo["Radius"],
+        },
+    }
+
+
 def champion_dash_chain(t, unit: str) -> dict | None:
     """THE BUTTON OF A CHAMPION WHOSE PRESS RUNS A DASH CHAIN (15.535: the Golden Knight's GoldenKnightChain), or
     None for a unit with no [ABILITY] or another one (it loads as a plain troop). The ability's OnActivationAction is
@@ -3177,7 +3243,7 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # 15.535 only: a champion whose button runs a dash chain (the Golden Knight), read whole
     # (`champion_dash_chain`). Every other champion's button is not read, and its card loads as
     # a plain troop, as before.
-    chain = champion_dash_chain(t, res["character"])
+    chain = champion_dash_chain(t, res["character"]) or champion_deflect(t, res["character"])
     if chain is not None:
         card["ability"] = chain
     # Only on a row that reflects (norm_unit), so every other card row is unchanged.
