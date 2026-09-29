@@ -77257,6 +77257,7 @@
    },
    "form_of": "Skeletons",
    "spells_evolved_row": 10,
+   "evo_cycles": 2,
    "evo_duplication": {
     "hits": 1,
     "buff_ms": 500,
@@ -77425,6 +77426,7 @@
    },
    "form_of": "Cannon",
    "spells_evolved_row": 96,
+   "evo_cycles": 2,
    "evo_barrage": {
     "bombs": [
      {
@@ -77653,6 +77655,7 @@
    },
    "form_of": "Musketeer",
    "spells_evolved_row": 14,
+   "evo_cycles": 2,
    "evo_snipe": {
     "delay_ms": 0,
     "ammo": 3,
@@ -77703,6 +77706,278 @@
     }
    },
    "cloned_version": "Musketeer"
+  },
+  {
+   "name": "AngryBarbarians_EV1",
+   "display_name": "Angry Barbarians_EV1",
+   "kind": "troop",
+   "elixir": 6,
+   "rarity": "Common",
+   "summon_character": "AngryBarbarian_EV1",
+   "hitpoints": 524,
+   "damage": 150,
+   "damage_source": "characters.AngryBarbarian_EV1.Damage",
+   "hit_speed_ms": 1400,
+   "load_time_ms": 850,
+   "load_first_hit": false,
+   "speed": 90,
+   "stop_movement_after_ms": null,
+   "wait_ms": null,
+   "range_milli": 1200,
+   "minimum_range_milli": null,
+   "sight_range_milli": 6000,
+   "collision_radius_milli": 500,
+   "mass": 4,
+   "deploy_time_ms": 1000,
+   "attacks_air": false,
+   "attacks_ground": true,
+   "target_only_buildings": false,
+   "flying_height": 0,
+   "area_damage_radius_milli": 0,
+   "self_as_aoe_center": false,
+   "projectile": {
+    "name": "AngryBarbarian_EV1_RangedProjectile",
+    "speed": 600,
+    "damage": 111,
+    "crown_tower_damage_percent": 100,
+    "crown_tower_damage_percent_raw": null,
+    "homing": true,
+    "radius_milli": null,
+    "radius_y_milli": null,
+    "aoe_to_air": false,
+    "aoe_to_ground": false,
+    "only_enemies": true,
+    "pushback_milli": null,
+    "pushback_all": false,
+    "maximum_targets": null,
+    "projectile_radius_milli": null,
+    "projectile_radius_y_milli": null,
+    "projectile_range_milli": null,
+    "min_distance_milli": null,
+    "spawn_character": null,
+    "spawn_character_count": null,
+    "spawn_character_deploy_time_ms": null,
+    "spawn_character_level_index": null,
+    "spawn_area_effect_object": null,
+    "target_buff": null,
+    "buff_time_ms": null,
+    "spawn_projectile": null,
+    "action_graph": {
+     "roots": {
+      "OnStartingAction": "AngryBarbarian_EV1_RangedProjectile_starting_actions"
+     },
+     "class_types": [
+      "ActionGroup",
+      "ActionInterval",
+      "ActionPlayEffect",
+      "ActionResetTarget",
+      "ActionRunActionOnShooter",
+      "ActionSetAttackSequenceIndex",
+      "ActionSetVariable",
+      "ActionSpawn",
+      "ActionWaitToActivate"
+     ],
+     "spawns": [
+      "AreaEffectType:AngryBarbarian_EV1_RageAEO"
+     ],
+     "mechanic": true
+    },
+    "pingpong_visual_time_ms": null,
+    "check_collisions": false,
+    "projectile_start_extra_radius_milli": null,
+    "random_delay_ms": null,
+    "spawn_count": null,
+    "scatter": null,
+    "spawn_radius_raw": null,
+    "apply_buff_before_damage": false
+   },
+   "shield_hitpoints": 0,
+   "crown_tower_damage_percent": 100,
+   "lifetime_ms": null,
+   "ignore_pushback": false,
+   "death_damage": null,
+   "death_damage_radius_milli": null,
+   "death_spawn": null,
+   "death_area_effect": null,
+   "spawner": null,
+   "spawn_radius_milli": null,
+   "spawn_angle_shift_deg": null,
+   "projectile_start_radius_milli": 450,
+   "kamikaze": false,
+   "kamikaze_time_ms": null,
+   "spawn_pathfind": null,
+   "charge": null,
+   "dash": null,
+   "jump": null,
+   "hides_when_not_attacking": false,
+   "hide_time_ms": null,
+   "up_time_ms": null,
+   "buff_on_damage": null,
+   "defaults_applied": [
+    "crown_tower_damage_percent",
+    "area_damage_radius_milli",
+    "flying_height",
+    "shield_hitpoints"
+   ],
+   "death_spawn_projectile": null,
+   "spawn_area_object": null,
+   "hovering": false,
+   "variable_damage": null,
+   "attack_pushback_milli": null,
+   "special": null,
+   "ignore_buffs": null,
+   "death_pushback_milli": null,
+   "action_graph": {
+    "roots": {
+     "OnStartingAction": "AngryBarbarian_EV1_starting_actions_group"
+    },
+    "class_types": [
+     "ActionFilter",
+     "ActionGroup",
+     "ActionInterval",
+     "ActionPlayEffect",
+     "ActionSetAnimationModifier",
+     "ActionSetAttackSequenceIndex",
+     "ActionSetVariable",
+     "ActionWaitToActivate"
+    ],
+    "spawns": [],
+    "mechanic": true
+   },
+   "death_spawn_pushback": false,
+   "count": 2,
+   "summon_radius_milli": null,
+   "summon_width_milli": null,
+   "summon_deploy_delay_ms": 100,
+   "summon_deploy_delay_second_ms": null,
+   "second_summon": {
+    "character": "AngryBarbarian_EV1_2",
+    "count": 1
+   },
+   "summon_resolution": {
+    "source": "spells_evolved.AngryBarbarians_EV1.SummonCharactersList (overlay; 2 entries)",
+    "characters": [
+     "AngryBarbarian_EV1",
+     "AngryBarbarian_EV1_2"
+    ]
+   },
+   "summon_members": [
+    {
+     "character": "AngryBarbarian_EV1",
+     "offset_x_milli": -700,
+     "offset_y_milli": 0
+    },
+    {
+     "character": "AngryBarbarian_EV1_2",
+     "offset_x_milli": 700,
+     "offset_y_milli": 0
+    }
+   ],
+   "summon_offsets_x_mirrored": true,
+   "deploy_area_effect": null,
+   "deploy_projectile": null,
+   "level_scaling": {
+    "rarity": "Common",
+    "level_count": 16,
+    "multiplier_percent_by_level": [
+     100,
+     110,
+     121,
+     133,
+     146,
+     160,
+     176,
+     193,
+     212,
+     233,
+     256,
+     281,
+     309,
+     339,
+     372,
+     409
+    ],
+    "applies_to": [
+     "hitpoints",
+     "damage"
+    ],
+    "rounding": "floor -- MEASURED on the 16.402 live captures' max_hp (tests/levels.rs); the composition with crown-tower percent and shields is still calibration.json combat.DAMAGE_ARITHMETIC",
+    "relative_level": 0,
+    "reading": "object_rarity_local_1",
+    "ladder_rarity": "Common",
+    "base_level": 1
+   },
+   "form_of": "AngryBarbarians",
+   "spells_evolved_row": 43,
+   "evo_cycles": 1,
+   "evo_spear": {
+    "min_range_milli": 3500,
+    "max_range_milli": 5000,
+    "sight_range_milli": 5000,
+    "start_radius_milli": 200,
+    "spear": {
+     "name": "AngryBarbarian_EV1_RangedProjectile",
+     "speed": 600,
+     "damage": 111,
+     "crown_tower_damage_percent": 100,
+     "crown_tower_damage_percent_raw": null,
+     "homing": true,
+     "radius_milli": null,
+     "radius_y_milli": null,
+     "aoe_to_air": false,
+     "aoe_to_ground": false,
+     "only_enemies": true,
+     "pushback_milli": null,
+     "pushback_all": false,
+     "maximum_targets": null,
+     "projectile_radius_milli": null,
+     "projectile_radius_y_milli": null,
+     "projectile_range_milli": null,
+     "min_distance_milli": null,
+     "spawn_character": null,
+     "spawn_character_count": null,
+     "spawn_character_deploy_time_ms": null,
+     "spawn_character_level_index": null,
+     "spawn_area_effect_object": null,
+     "target_buff": null,
+     "buff_time_ms": null,
+     "spawn_projectile": null,
+     "action_graph": {
+      "roots": {
+       "OnStartingAction": "AngryBarbarian_EV1_RangedProjectile_starting_actions"
+      },
+      "class_types": [
+       "ActionGroup",
+       "ActionInterval",
+       "ActionPlayEffect",
+       "ActionResetTarget",
+       "ActionRunActionOnShooter",
+       "ActionSetAttackSequenceIndex",
+       "ActionSetVariable",
+       "ActionSpawn",
+       "ActionWaitToActivate"
+      ],
+      "spawns": [
+       "AreaEffectType:AngryBarbarian_EV1_RageAEO"
+      ],
+      "mechanic": true
+     },
+     "pingpong_visual_time_ms": null,
+     "check_collisions": false,
+     "projectile_start_extra_radius_milli": null,
+     "random_delay_ms": null,
+     "spawn_count": null,
+     "scatter": null,
+     "spawn_radius_raw": null,
+     "apply_buff_before_damage": false
+    },
+    "cooldown_ms": 5000,
+    "trail_first_ms": 200,
+    "trail_action_delay_ms": 200,
+    "trail_every_ms": 160,
+    "area": "AngryBarbarian_EV1_RageAEO"
+   },
+   "cloned_version": "AngryBarbarian"
   }
  ],
  "hero_forms": [

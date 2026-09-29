@@ -6399,10 +6399,12 @@ pub enum Outcome {
     Draw,
 }
 
-/// THE BASIC PLAYS OF AN EVOLVED CARD BEFORE ITS EVOLVED ONE. Measured on client 15.535.29 on Evo Skeletons, Evo
-/// Cannon and Evo Musketeer: counting only that card's own plays from the battle's start, plays 1 and 2 put the base
-/// card down and play 3 the evolved form, and the count starts again, so plays 3, 6, 9 ... are evolved. Other cards'
-/// plays do not count, and the first play from the opening hand is basic (the count starts at 0).
+/// THE BASIC PLAYS OF AN EVOLVED CARD BEFORE ITS EVOLVED ONE, where the card data names none (card.rs `EvoDef::cycles`
+/// reads spells_evolved DarkElixirCost). Measured on client 15.535.29 on Evo Skeletons, Evo Cannon and Evo Musketeer:
+/// counting only that card's own plays from the battle's start, plays 1 and 2 put the base card down and play 3 the
+/// evolved form, and the count starts again, so plays 3, 6, 9 ... are evolved. Other cards' plays do not count, and the
+/// first play from the opening hand is basic (the count starts at 0). The Evo Elite Barbarians' column says 1: plays 2,
+/// 4, 6 ... (sp-ec-AngryBarbarians).
 pub const EVO_BASIC_PLAYS: u8 = 2;
 
 /// THE COUNTER OF ONE EVOLVED DECK CARD (`PlayerState::evo`): the base card, its form, and its plays since its last
@@ -6412,12 +6414,24 @@ pub struct EvoCounter {
     pub card: u16,
     pub form: u16,
     pub plays: u8,
+    /// The form's basic plays before each evolved one (card.rs `EvoDef::cycles`), copied from the card data at
+    /// `try_new`. Not hashed: the card data decides it. `default` EVO_BASIC_PLAYS, what a battle saved before it ran.
+    #[serde(default = "evo_basic_plays")]
+    pub cycles: u8,
+}
+
+fn evo_basic_plays() -> u8 {
+    EVO_BASIC_PLAYS
 }
 
 impl EvoCounter {
     /// Is this card's next play from the hand its evolved one?
     pub fn next_evolved(&self) -> bool {
-        self.plays >= EVO_BASIC_PLAYS
+        #[cfg(not(clash_plant = "evo_cycles_constant"))]
+        let cycles = self.cycles;
+        #[cfg(clash_plant = "evo_cycles_constant")]
+        let cycles = EVO_BASIC_PLAYS; // PLANT (regression): every form evolves on the third play, as before the column.
+        self.plays >= cycles
     }
 }
 
@@ -6433,11 +6447,15 @@ pub struct EvoBoard {
     pub next_group: u32,
     /// Each Evo Musketeer: her snipes left, and the target she aims one at.
     pub snipers: Vec<(EntityId, u8, Option<EntityId>)>,
+    /// Each Evo Elite Barbarian: the ms left before it holds its spear again (0: it holds it; `spear_pass`). `default`
+    /// so a battle saved before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub spears: Vec<(EntityId, i32)>,
 }
 
 impl EvoBoard {
     fn is_empty(&self) -> bool {
-        self.members.is_empty() && self.hits.is_empty() && self.next_group == 0 && self.snipers.is_empty()
+        self.members.is_empty() && self.hits.is_empty() && self.next_group == 0 && self.snipers.is_empty() && self.spears.is_empty()
     }
 
     /// Is entity `id` an Evo Musketeer aiming a snipe (a target kept: a snipe left, or her last one just gone and its
@@ -7831,7 +7849,8 @@ impl BattleState {
                         })?;
                         cards.check_levels(form, config.card_level[t])?;
                         if !evo.iter().any(|e| e.card == idx) {
-                            evo.push(EvoCounter { card: idx, form, plays: 0 });
+                            let cycles = cards.get(form).evo.as_ref().map_or(EVO_BASIC_PLAYS, |e| e.cycles);
+                            evo.push(EvoCounter { card: idx, form, plays: 0, cycles });
                         }
                     }
                     FORM_HERO => {
@@ -8403,6 +8422,10 @@ impl BattleState {
         if let Some(sn) = evo.snipe {
             self.evo.snipers.push((id, sn.ammo, None));
         }
+        // An Evo Elite Barbarian starts holding its spear (the ranged state of its OnStartingAction).
+        if evo.spear.is_some() {
+            self.evo.spears.push((id, 0));
+        }
     }
 
     /// AN EVOLVED UNIT'S FIRE (`phase_attack_for`, right after `combat::fire`), `shots_from` the projectile list's
@@ -8435,6 +8458,22 @@ impl BattleState {
                     let pos = self.evo_copy_point(self.ents.pos[i], team);
                     self.scratch.evo_copies.push(EvoCopy { hitter: id, group: g, team, card: self.ents.card[i], level: self.ents.level[i], pos });
                 }
+            }
+        }
+        // THE SPEAR'S THROW (`spear_pass`, combat.rs `fire`): the spear is gone for its cooldown, the member's entry is
+        // melee again, and its target is let go (the shooter's ActionResetTarget), so the next Target phase picks one
+        // afresh. Measured on client 15.535.29 (sp-form-AngryBarbarians-evo-s0): the thrower walks at its Knight on the
+        // tick after the throw, its target taken again.
+        if let Some(sp) = evo.spear {
+            if self.ents.attack_seq[i] == 1 {
+                if let Some(s) = self.evo.spears.iter_mut().find(|(m, _)| *m == id) {
+                    s.1 = sp.cooldown_ms;
+                }
+                // The throw's own tick is its attack's (the member stands through it); its target is let go now, so the
+                // next tick's Target phase picks afresh and its attack starts from rest.
+                self.ents.attack_seq[i] = 0;
+                self.ents.target[i] = None;
+                self.ents.target_locked[i] = false;
             }
         }
         if let Some(sn) = evo.snipe {
@@ -8552,6 +8591,7 @@ impl BattleState {
         let live: Vec<u32> = self.evo.members.iter().map(|(_, g)| *g).collect();
         self.evo.hits.retain(|(g, _)| live.contains(g));
         self.evo.snipers.retain(|(m, _, _)| ents.is_alive(*m));
+        self.evo.spears.retain(|(m, _)| ents.is_alive(*m));
     }
 
     /// THE EVO MUSKETEER'S SNIPE TARGETS, in the Move phase after the move pass and before the deploy countdown, for
@@ -8574,6 +8614,61 @@ impl BattleState {
     /// 1981: SnipeSideClip 1250 plus radius 500 or 750), and she steps on that tick; the first snipe leaves 15 ticks
     /// after her deploy ends; she stands on the tick after each snipe and takes her next target the tick after that, so
     /// each next snipe leaves 19 ticks after the last (the load timer's rest shortens the new windup).
+    /// THE EVO ELITE BARBARIANS' SPEAR (card.rs `SpearDef`), in the Move phase after the move pass, for each member:
+    ///   - its spear's cooldown runs down by the tick's composed hit speed (AffectedByHitSpeed: 65 a tick under a Rage),
+    ///     and at 0 the member holds its spear again;
+    ///   - a member that holds its spear, past its deploy, whose live target stands outside `SpearDef::min` and inside
+    ///     `SpearDef::max`, both attack reaches (range plus both radii, `target::in_attack_range`), attacks with the
+    ///     thrown entry (attack_seq 1) from the next tick's attack pass: its reach is `max` (combat.rs `attack_reach`),
+    ///     so it stands and throws at the end of its windup; any other member attacks with its melee entry (0). A member
+    ///     whose entry falls back to melee before its throw starts its swing over (ResetRealHitStarted);
+    ///   - the window is read as the throw's windup starts: a member already winding up its throw (attack_seq 1, its
+    ///     cycle under way) at a target that lives keeps the thrown entry, wherever the target has gone since.
+    ///
+    /// Measured on client 15.535.29 (sp-form-AngryBarbarians-evo-s0; level 11): each member took a Knight 5,300 to
+    /// 6,000 away as its target, stood from its first attacking frame at progress LoadTime + 50 (900 and 950, the two
+    /// rows' LoadTimes 850 and 900) and threw on the frame the progress reached HitSpeed 1400; neither threw at the
+    /// Skeletons and the Knight it met in melee. In sp-rage-5000-s0 and -4000-s0 neither threw at an Elixir Collector
+    /// 4000 or 5000 ahead, centre to centre: inside the 3500 minimum as attack reaches. The second member of
+    /// sp-form-AngryBarbarians-evo-s0 started its windup on t778 with its walking Knight 4,969 away (edge to edge) and
+    /// threw on t787 with the Knight at 5,054, past the maximum. Unmeasured: the cooldown's length (5000 ms at the hit
+    /// speed, the table's), a throw at a flier, and a target that comes inside the minimum during the windup.
+    fn spear_pass(&mut self) {
+        let mut spears = std::mem::take(&mut self.evo.spears);
+        for s in spears.iter_mut() {
+            let id = s.0;
+            if !self.ents.is_alive(id) {
+                continue;
+            }
+            let a = id.index as usize;
+            let Some(sp) = self.cfg.cards.get(self.ents.card[a]).evo.as_ref().and_then(|v| v.spear) else { continue };
+            if s.1 > 0 {
+                let dt = self.ents.buffed(&self.cfg.cards.buffs, a, Sel::HitSpeed, self.cfg.calib.tick_ms);
+                s.1 = (s.1 - dt.max(0)).max(0);
+            }
+            let e = &self.ents;
+            let calib = &self.cfg.calib;
+            let throws = s.1 == 0
+                && e.deploy_ms[a] <= 0
+                && e.target[a].filter(|t| e.is_alive(*t)).is_some_and(|t| {
+                    let ti = t.index as usize;
+                    !target::in_attack_range(calib, e.pos[a], sp.min, e.radius[a], e.pos[ti], e.radius[ti])
+                        && target::in_attack_range(calib, e.pos[a], sp.max, e.radius[a], e.pos[ti], e.radius[ti])
+                });
+            #[cfg(not(clash_plant = "spear_window_every_tick"))]
+            let winding = e.attack_seq[a] == 1 && e.attack_phase[a] != AttackPhase::Idle && e.target[a].is_some_and(|t| e.is_alive(t));
+            #[cfg(clash_plant = "spear_window_every_tick")]
+            let winding = false; // PLANT (regression): a target that leaves the window mid-windup cancels the throw.
+            let seq = u8::from(throws || winding);
+            if self.ents.attack_seq[a] == 1 && seq == 0 {
+                self.ents.attack_phase[a] = AttackPhase::Idle;
+                self.ents.attack_ms[a] = 0;
+            }
+            self.ents.attack_seq[a] = seq;
+        }
+        self.evo.spears = spears;
+    }
+
     fn snipe_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step);
@@ -9767,6 +9862,7 @@ impl BattleState {
                     enchant: Some(payload),
                     bonus: 0,
                     bonus_crown: 0,
+                    trail: None,
                 });
             }
             self.ents.enchant_state[i] = ENCHANT_WAITING;
@@ -14470,6 +14566,11 @@ impl BattleState {
         if !self.evo.snipers.is_empty() {
             self.snipe_pass();
         }
+        // THE EVO ELITE BARBARIANS' SPEAR (`spear_pass`), on the same positions: the entry each member attacks with from
+        // the next tick's attack pass.
+        if !self.evo.spears.is_empty() {
+            self.spear_pass();
+        }
         // status.WAITED_PRESS_CAST = client_after_move: a waited press's cast hold starts here, after her step.
         if !self.scratch.late_casts.is_empty() {
             for hero in std::mem::take(&mut self.scratch.late_casts) {
@@ -14779,7 +14880,9 @@ impl BattleState {
                 // THE SELECTOR'S MELEE ENTRY lands as a direct strike with no projectile (combat.rs `fire`), so the
                 // projectile bookkeeping below leaves it alone. False on every card without a selector.
                 let melee = select.is_some_and(|sel| combat::melee_chosen(&self.ents, i, t.index as usize, sel));
-                let shot = self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee;
+                // An Evo Elite Barbarian's throw (combat.rs `fire`, the spear) is a shot too.
+                let throw = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().is_some_and(|v| v.spear.is_some()) && self.ents.attack_seq[i] == 1;
+                let shot = (self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee) || throw;
                 let strike_from = self.dmg.hits.len();
                 let shots_from = self.projectiles.len();
                 // enchant.BONUS_ATTACKS: every fire of an enchanted unit counts toward its bonus, a shot that hits nothing
@@ -15552,7 +15655,25 @@ impl BattleState {
         // A landing object's area effect: cast at its point and appended after them, so
         // it too first applies next tick (as a death's area effect does, `phase_reap`).
         for a in areas {
-            let v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, a.team, a.card, a.level, a.pos, self.tick).expect("released area level validated at deploy");
+            #[allow(unused_mut)]
+            let mut v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, a.team, a.card, a.level, a.pos, self.tick).expect("released area level validated at deploy");
+            // A SPEAR'S AREA (combat.rs `step_projectiles`, card.rs `SpearDef`) first applies one HitSpeed after it is
+            // made, whatever spells.PULSING_AREA_EFFECT ships. Measured on client 15.535.29 (sp-form-AngryBarbarians-
+            // evo-s0): the area made on step 4 of a spear's flight (L + 4, L its launch tick) rages its thrower from
+            // L + 11, both throwers; the rage runs' probes onset on the same pulse phase.
+            #[cfg(not(clash_plant = "spear_area_pulses_at_once"))]
+            {
+                let cards = &self.cfg.cards;
+                if cards.get(a.card).evo.as_ref().is_some_and(|e| e.spear.is_some()) {
+                    if let Some(SpellShape::PulsingAreaEffect { hit_speed_ms, .. }) = cards.get(a.card).projectile_area.as_ref().map(|d| &d.shape) {
+                        for sp in v.iter_mut() {
+                            if let spell::SpellMotion::Pulsing(p) = &mut sp.motion {
+                                p.next_ms = (hit_speed_ms - self.cfg.calib.tick_ms).max(0);
+                            }
+                        }
+                    }
+                }
+            }
             self.spells.extend(v);
         }
         // Projectiles fired by spell objects: this tick's `step_projectiles` has run, so
@@ -18071,7 +18192,7 @@ impl BattleState {
             let cost = c.elixir; // PLANT: the card's cost whatever the form.
             return Ok(Play { in_slot: idx, card: o.card, level, cost });
         }
-        // AN EVOLVED CARD'S THIRD PLAY (`EVO_BASIC_PLAYS`) puts its form down, at the base card's cost.
+        // AN EVOLVED CARD'S PLAY AFTER ITS CYCLE (`EvoCounter::cycles`) puts its form down, at the base card's cost.
         if let Some(k) = self.players[t].evo.iter().find(|k| k.card == idx && k.next_evolved()) {
             return Ok(Play { in_slot: idx, card: k.form, level, cost: c.elixir });
         }
@@ -19504,6 +19625,14 @@ impl BattleState {
                 if p.fixed {
                     h.u32(0x4649_5844);
                 }
+                // An Evo Elite Barbarian's spear and its trail, only on one, so a battle without one hashes as before.
+                if let Some(t) = p.trail {
+                    h.u32(0x5452_4c31);
+                    h.u32(t.card as u32);
+                    h.i32(t.level);
+                    h.u32(t.steps as u32);
+                    h.u32(t.next as u32);
+                }
             }
             // A spark carrier (combat.SPAWN_PROJECTILE new arm) hashes its own state; every other
             // shot writes nothing more, so a battle without one hashes as it did.
@@ -19817,6 +19946,15 @@ impl BattleState {
                 h.id(*id);
                 h.u32(*ammo as u32);
                 h.opt_id(*t);
+            }
+            // The Evo Elite Barbarians' spears, only when there are some: a battle without one hashes as before.
+            if !b.spears.is_empty() {
+                h.u32(0x5350_5231);
+                h.u32(b.spears.len() as u32);
+                for (id, ms) in &b.spears {
+                    h.id(*id);
+                    h.i32(*ms);
+                }
             }
         }
         #[cfg(not(clash_plant = "hash_skips_scheduled"))]
@@ -20376,6 +20514,11 @@ impl BattleState {
 ///    and `char_crown_pct` (serde default 0 and false) and the table a hero form, so the card fingerprint moves: a
 ///    snapshot saved by an earlier build is refused as saved against other card data. No new state (the rage is a
 ///    saved and hashed buff slot) and no Calib field.
+/// 20, unchanged, the Evo Elite Barbarians (card.rs `SpearDef`): EvoDef gained `cycles` and `spear`, and the table an
+///    evolved form and its member, so the card fingerprint moves: a snapshot saved by an earlier build is refused as
+///    saved against other card data. EvoCounter gained `cycles` (serde default EVO_BASIC_PLAYS, not hashed), EvoBoard
+///    `spears` and Projectile `trail` (serde default empty and None, hashed only when set), so a blob saved before them
+///    deserializes and hashes as it did.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

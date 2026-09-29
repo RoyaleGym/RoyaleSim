@@ -1656,15 +1656,48 @@ pub const FORM_EVOLUTION: u8 = 1;
 pub struct EvoDef {
     /// The base card's index.
     pub base: u16,
+    /// spells_evolved DarkElixirCost: the base card's basic plays before each evolved one (state.rs `EvoCounter`).
+    /// Measured on client 15.535.29 over the oracle's 42 evo-cycle runs, 42 of 42 (1 on the Elite Barbarians, 2 on
+    /// the Skeletons, the Cannon and the Musketeer). A record written before the column reads 2.
+    pub cycles: u8,
     /// Evo Cannon: the barrage the unit drops when it is created.
     pub barrage: Option<BarrageDef>,
     /// Evo Skeletons: a copy for every two hits of the play's group.
     pub duplication: Option<DuplicationDef>,
     /// Evo Musketeer: the long shots she holds.
     pub snipe: Option<SnipeDef>,
+    /// Evo Elite Barbarians: the spear each member throws at a target out of its melee reach.
+    pub spear: Option<SpearDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
+}
+
+/// THE EVO ELITE BARBARIANS' SPEAR (angry_barbarian_evo.toml; tools/extract_cards.py `spear_block`), on each member
+/// (the form card and its second member, `load_evolution`). A member fights in melee, its row's Damage (the
+/// AttackSequenceList entry 0); while it holds its spear and its target stands outside `min` and inside `max`, both
+/// read as attack reaches (range plus both collision radii, `target::in_attack_range`), its attack is the thrown entry
+/// (entities `attack_seq` 1; state.rs `spear_pass`): its reach is `max` (combat.rs `attack_reach`) and its fire throws
+/// the spear (combat.rs `fire`). The throw gives the spear up for `cooldown_ms` at the member's hit speed and resets
+/// its target (`evo_after_fire`). The spear flies as a homing shot and leaves the card's `projectile_area` (a Rage) on
+/// the ticks its trail names and where it lands (combat.rs `step_projectiles`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SpearDef {
+    /// The variable AngryBarbarian_EV1_min_range and the thrown entry's CustomRange, SUBTILES.
+    pub min: i32,
+    pub max: i32,
+    /// CustomProjectileStartRadius, SUBTILES: the spear starts this far from the thrower toward the target.
+    pub start_radius: i32,
+    /// The spear projectile row's Speed (raw), Damage (level 1) and crown-tower percent.
+    pub speed: i32,
+    pub damage: i32,
+    pub crown_pct: i32,
+    /// The ActionInterval that gives the spear back, ms, run at the member's composed hit speed (AffectedByHitSpeed).
+    pub cooldown_ms: i32,
+    /// The trail's areas: area k is made on the spear's step floor((trail_first_ms + k x trail_every_ms) / TICK_MS),
+    /// on the point the spear held before that step's move.
+    pub trail_first_ms: i32,
+    pub trail_every_ms: i32,
 }
 
 /// One bomb of the barrage: its point and when it lands.
@@ -3638,8 +3671,37 @@ struct RawEvolution {
     evo_barrage: Option<RawBarrage>,
     evo_duplication: Option<RawDuplication>,
     evo_snipe: Option<RawSnipe>,
+    evo_spear: Option<RawSpear>,
+    /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
+    evo_cycles: Option<i32>,
     cloned_version: Option<String>,
 }
+
+/// cards.json `evolutions[].evo_spear` (tools/extract_cards.py `spear_block`).
+#[derive(Deserialize)]
+struct RawSpear {
+    min_range_milli: Option<i32>,
+    max_range_milli: Option<i32>,
+    start_radius_milli: Option<i32>,
+    spear: Option<RawSnipeShot>,
+    cooldown_ms: Option<i32>,
+    trail_first_ms: Option<i32>,
+    trail_every_ms: Option<i32>,
+    area: Option<String>,
+}
+
+/// THE SPEAR'S MEMBER GRAPH: the action classes a spear member's row runs (tools/extract_cards.py `spear_block` reads
+/// every row of them), all of them the spear's state and its checks.
+const SPEAR_GRAPH: [&str; 8] = [
+    "ActionFilter",
+    "ActionGroup",
+    "ActionInterval",
+    "ActionPlayEffect",
+    "ActionSetAnimationModifier",
+    "ActionSetAttackSequenceIndex",
+    "ActionSetVariable",
+    "ActionWaitToActivate",
+];
 
 #[derive(Deserialize)]
 struct RawBarrageBomb {
@@ -3756,6 +3818,26 @@ fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, Strin
         bombs,
         shot: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
         crown_damage: b.buff_crown_tower_damage_per_hit.unwrap_or(0).max(0),
+    })
+}
+
+fn spear_of(sp: &RawSpear) -> Result<SpearDef, String> {
+    let need = |v: Option<i32>, what: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a spear with no {what}"));
+    let shot = sp.spear.as_ref().ok_or("a spear with no projectile")?;
+    let (min, max) = (need(sp.min_range_milli, "minimum range")?, need(sp.max_range_milli, "CustomRange")?);
+    if min >= max {
+        return Err(format!("a spear reach of {min} to {max}"));
+    }
+    Ok(SpearDef {
+        min: milli(min),
+        max: milli(max),
+        start_radius: milli(need(sp.start_radius_milli, "CustomProjectileStartRadius")?),
+        speed: need(shot.speed, "spear Speed")?,
+        damage: need(shot.damage, "spear Damage")?,
+        crown_pct: shot.crown_tower_damage_percent.unwrap_or(100),
+        cooldown_ms: need(sp.cooldown_ms, "cooldown")?,
+        trail_first_ms: need(sp.trail_first_ms, "trail delay")?,
+        trail_every_ms: need(sp.trail_every_ms, "trail interval")?,
     })
 }
 
@@ -5512,7 +5594,9 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
     // recognised by its own shape first.
     let pulse_ms = aeo.hit_speed_ms.filter(|h| *h > 0);
     if pulse_ms.is_some() {
-        if aeo.damage.is_some() {
+        // Damage 0 deals nothing: the Evo Elite Barbarians' Rage row sets it over the Rage's blank, and only a row that
+        // also pulses a buff gets past the next refusal.
+        if aeo.damage.is_some_and(|d| d != 0) {
             return Err(format!("pulsing area effect {what} deals its own Damage every HitSpeed; not simulated"));
         }
         if aeo.buff.is_none() && hit_buff.is_none() {
@@ -8125,7 +8209,7 @@ impl CardDb {
         if bc.summon_only || bc.spell.is_some() || bc.evo.is_some() || bc.kind == CardKind::Spell {
             return Err(format!("its base card {} is not a troop or building card", bc.name));
         }
-        let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some()];
+        let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some(), extra.evo_spear.is_some()];
         if blocks.iter().filter(|b| **b).count() != 1 {
             return Err("a form carries exactly one mechanic block here".into());
         }
@@ -8133,9 +8217,20 @@ impl CardDb {
             &["ActionCannonBarrage", "ActionGroup"]
         } else if extra.evo_snipe.is_some() {
             &["ActionGroup", "ActionMusketeerSnipe", "ActionPlayEffect"]
+        } else if extra.evo_spear.is_some() {
+            &SPEAR_GRAPH
         } else {
             &[]
         };
+        let cycles = match extra.evo_cycles {
+            None => 2,
+            Some(n) => u8::try_from(n).ok().filter(|n| *n >= 1).ok_or_else(|| format!("an evolved cycle of {n}"))?,
+        };
+        // A SPEAR MEMBER's own Projectile column is its spear, which the block throws (`SpearDef`): the member itself
+        // fights in melee, so the row loads without it.
+        if extra.evo_spear.is_some() {
+            raw.projectile = None;
+        }
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
             if !g.spawns.is_empty() || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
@@ -8143,8 +8238,34 @@ impl CardDb {
         }
         raw.action_graph = None;
         let (mut c, _, needs) = convert(raw, buffs, ctx)?;
-        if let Some((_, u)) = needs.first() {
-            return Err(format!("needs unit {u} loaded; a form with units of its own is not simulated"));
+        // A SPEAR FORM'S OTHER MEMBERS (summon_members 1..): each its own unit row, loaded here as a summon-only record
+        // after the form, with the form's block, and held to the form's graph. Any other unit a form needs is refused.
+        let mut members: Vec<(u8, CardDef)> = Vec::new();
+        for (which, u) in needs {
+            let UnitUse::SummonMember(k) = which else {
+                return Err(format!("needs unit {u} loaded; a form with units of its own is not simulated"));
+            };
+            if extra.evo_spear.is_none() {
+                return Err(format!("needs member {u}; only a spear form's members load here"));
+            }
+            let mut uv = ctx.units.get(&u).cloned().ok_or_else(|| format!("member {u}: no units record"))?;
+            let obj = uv.as_object_mut().ok_or_else(|| format!("member {u}: not an object"))?;
+            obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+            obj.entry("count").or_insert(serde_json::Value::from(1));
+            let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("member {u}: {e}"))?;
+            if let Some(g) = ur.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
+                if !g.spawns.is_empty() || g.class_types.iter().any(|c| !SPEAR_GRAPH.contains(&c.as_str())) {
+                    return Err(format!("member {u} runs an action graph the spear does not read ({})", g.class_types.join(", ")));
+                }
+            }
+            ur.action_graph = None;
+            ur.projectile = None;
+            let (mut m, _, mneeds) = convert(ur, buffs, ctx).map_err(|e| format!("member {u}: {e}"))?;
+            if let Some((_, n)) = mneeds.first() {
+                return Err(format!("member {u} needs {n}; not simulated"));
+            }
+            m.summon_only = true;
+            members.push((k, m));
         }
         if c.kind != bc.kind || c.elixir != bc.elixir || c.rarity != bc.rarity {
             return Err(format!("a {:?} of {} elixir ({}) against its base's {:?} of {} ({})", c.kind, c.elixir, c.rarity, bc.kind, bc.elixir, bc.rarity));
@@ -8153,7 +8274,7 @@ impl CardDb {
         if extra.evo_barrage.is_some() && shapes.iter().any(|d| d.is_some()) {
             return Err("a barrage on a row that carries another spell object; one spell object names one shape".into());
         }
-        let mut evo = EvoDef { base, barrage: None, duplication: None, snipe: None, cloned_as: None };
+        let mut evo = EvoDef { base, cycles, barrage: None, duplication: None, snipe: None, spear: None, cloned_as: None };
         if let Some(b) = &extra.evo_barrage {
             evo.barrage = Some(barrage_of(b, buffs)?);
         }
@@ -8168,6 +8289,21 @@ impl CardDb {
             }
             evo.snipe = Some(snipe_of(sn)?);
         }
+        // THE SPEAR'S AREA (the trail's and the landing's, one row): the card's `projectile_area`, a pulsing area over
+        // the thrower's own side (a Rage), which the spear releases (combat.rs `step_projectiles`).
+        if let Some(sp) = &extra.evo_spear {
+            if shapes.iter().any(|d| d.is_some()) {
+                return Err("a spear on a row that carries another spell object; one spell object names one shape".into());
+            }
+            let name = sp.area.clone().ok_or("a spear with no area")?;
+            let aeo = ctx.aeos.get(&name).ok_or_else(|| format!("spear area {name}: no area_effect_objects record"))?;
+            let (shape, more) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("spear area {name}: {e}"))?;
+            if !more.is_empty() || !matches!(shape, SpellShape::PulsingAreaEffect { child: None, .. }) {
+                return Err(format!("spear area {name} is not a pulsing area of its own; not simulated"));
+            }
+            c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+            evo.spear = Some(spear_of(sp)?);
+        }
         // ClonedVersion names the base card's own unit row: the Clone copies the base card.
         if let Some(cv) = extra.cloned_version.as_deref() {
             if bc.unit_name != cv {
@@ -8178,9 +8314,31 @@ impl CardDb {
         if !self.rarities.iter().any(|r| r.name == c.rarity) {
             return Err(format!("rarity {} not in rarities.csv", c.rarity));
         }
+        for (_, m) in members.iter_mut() {
+            if !self.rarities.iter().any(|r| r.name == m.rarity) {
+                return Err(format!("member {}: rarity {} not in rarities.csv", m.name, m.rarity));
+            }
+            m.evo = Some(evo.clone());
+            m.projectile_area = c.projectile_area.clone();
+        }
         c.evo = Some(evo);
+        if members.iter().any(|(_, m)| self.index(&m.name).is_some()) {
+            return Err("a member's name is already loaded".into());
+        }
         self.push(c, None)?;
-        self.forms.push((base, FORM_EVOLUTION, (self.cards.len() - 1) as u16));
+        let form = (self.cards.len() - 1) as u16;
+        // A deploy at explicit offsets: member 0 is the form's own row, as in the table pass.
+        if let Some(m0) = self.cards[form as usize].summon_members.as_mut().and_then(|ms| ms.first_mut()) {
+            m0.unit = form;
+        }
+        for (k, m) in members {
+            self.push(m, None)?;
+            let ui = (self.cards.len() - 1) as u16;
+            if let Some(ms) = self.cards[form as usize].summon_members.as_mut() {
+                ms[k as usize].unit = ui;
+            }
+        }
+        self.forms.push((base, FORM_EVOLUTION, form));
         Ok(())
     }
 

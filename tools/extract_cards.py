@@ -3519,7 +3519,16 @@ def globals_block(v: Vintage) -> dict:
 # THE EVOLVED FORMS THIS BUILD LOADS (15.535 only), each a spells_evolved row: the evolved form of the base card
 # whose EvolvedSpells names it. Only these three: the engine runs their mechanics (card.rs `EvoDef`), and a form
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
-EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1")
+EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1")
+# Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
+# measurement that shows it (the oracle's scenes of client 15.535.29).
+EVOLUTIONS_PLAYED_NOT_IN_USE = {
+    "AngryBarbarians_EV1": "sp-form-AngryBarbarians-evo-s0 and sp-ec-AngryBarbarians: the second play puts it down",
+}
+# THE ELITE BARBARIANS' SPEAR (angry_barbarian_evo.toml), read row by row: every action the unit's graph runs, with the
+# value this reader implements. A row whose value differs is a mechanic nobody has read, and the build stops.
+SPEAR_MIN_RANGE_VAR = "AngryBarbarian_EV1_min_range"
+SPEAR_CONDITION = "!target_in_range({min}) && AngryBarbarian_EV_has_projectile > 0 && target_in_range({max})"
 
 
 def col_list(tb, name: str, col: str) -> list:
@@ -3662,14 +3671,109 @@ def snipe_block(t: dict, unit: str, u: dict) -> dict:
     }
 
 
+def overlay_evolved_rows(t: Tables, ev) -> None:
+    """The [SPELL_EVOLVED.<name>] sections the characters' own files write for the rows in EVOLUTIONS, laid over their
+    spells_evolved.csv rows (the table loader skips the section everywhere else, SKIP_SECTIONS): the Elite Barbarians'
+    SummonCharactersList and its offsets live there alone. A section for a row outside EVOLUTIONS is not read, so no
+    other row changes."""
+    folder = t.vintage.raw / "characters"
+    for p in sorted(folder.glob("*.toml")):
+        doc = tomllib.load(p.open("rb"))
+        body = doc.get("SPELL_EVOLVED")
+        if not isinstance(body, dict):
+            continue
+        mine = {n: f for n, f in body.items() if n in EVOLUTIONS and isinstance(f, dict)}
+        if mine:
+            ev.overlay(p, mine, f"characters/{p.name} [SPELL_EVOLVED]")
+
+
+def spear_block(t: Tables, card: dict) -> dict:
+    """AngryBarbarians_EV1's spear (angry_barbarian_evo.toml), read whole or the build stops. Each member unit (the
+    card's SummonCharactersList) runs the same graph:
+      - OnStartingAction: the ranged state (AngryBarbarian_EV_has_projectile 1) and a check every 50 ms; while the
+        variable is 1 and the target is outside `min_range` (the variable's DefaultValue) and inside `max_range` (the
+        condition's literal, the AttackSequenceList entry 1's CustomRange), the attack is entry 1: the Projectile row,
+        thrown from CustomProjectileStartRadius; otherwise entry 0, the melee Damage;
+      - the spear's OnStartingAction: after `trail_first_ms` (SubActionsDelay) an ActionInterval of `trail_every_ms`
+        spawning `area` at the spear, and ActionRunActionOnShooter: the melee state (the variable 0, entry 0), an
+        ActionInterval of `cooldown_ms` (AffectedByHitSpeed) that puts the ranged state back, and an ActionResetTarget;
+      - the spear's OnTargetReachedAction: `area` once more, where it arrives."""
+    acts = t["actions"]
+    members = [m["character"] for m in card.get("summon_members") or []] or [card["summon_character"]]
+    rows = []
+    for unit in members:
+        _, row = unit_record(t, unit)
+        u = norm_unit(t, unit, with_raw=True)
+        rows.append((unit, row, u))
+    unit, row, u = rows[0]
+    seq = (u.get("list_columns") or {}).get("AttackSequenceList") or []
+    if len(seq) != 2 or seq[0].get("Projectile") is not None or seq[1].get("Projectile") is None:
+        raise SystemExit(f"{unit}: AttackSequenceList is not a melee entry and a thrown one ({seq})")
+    for other, orow, ou in rows[1:]:
+        other_seq = (ou.get("list_columns") or {}).get("AttackSequenceList")
+        if other_seq != seq or orow["OnStartingAction"] != row["OnStartingAction"]:
+            raise SystemExit(f"{other}: its attack entries or its graph are not {unit}'s")
+    if seq[0].get("Damage") != row["Damage"]:
+        raise SystemExit(f"{unit}: the melee entry's Damage {seq[0].get('Damage')} is not the row's {row['Damage']}")
+    var = t.variables.get(SPEAR_MIN_RANGE_VAR)
+    min_range = (var or {}).get("DefaultValue")
+    max_range = seq[1].get("CustomRange")
+    if not isinstance(min_range, int) or not isinstance(max_range, int):
+        raise SystemExit(f"{unit}: the spear's ranges {min_range!r} / {max_range!r} are not integers")
+    cond = SPEAR_CONDITION.format(min=SPEAR_MIN_RANGE_VAR, max=max_range)
+    for n in ("AngryBarbarian_EV1_check_can_use_range", "AngryBarbarian_EV1_wait_to_activate_set_range"):
+        if (acts.get(n) or {}).get("Condition") != cond:
+            raise SystemExit(f"{unit}: {n}'s Condition is not {cond!r}")
+    spear = norm_projectile(t, seq[1]["Projectile"])
+    if spear is None or spear["name"] != row["Projectile"]:
+        raise SystemExit(f"{unit}: the thrown entry's Projectile is not the row's")
+    proj_row = t["projectiles"].get(spear["name"])
+    start = acts.get(proj_row["OnStartingAction"])
+    arr = acts.arrays.get(proj_row["OnStartingAction"], {})
+    subs, delays = arr.get("SubActions") or [], arr.get("SubActionsDelay") or []
+    if start is None or start["ClassType"] != "ActionGroup" or len(subs) != 2:
+        raise SystemExit(f"{spear['name']}: OnStartingAction is not the trail and the shooter's action")
+    trail, on_shooter = acts.get(subs[0]), acts.get(subs[1])
+    shooter = on_shooter["ClassType"]
+    if trail["ClassType"] != "ActionInterval" or shooter != "ActionRunActionOnShooter" or delays[1] != 0:
+        raise SystemExit(f"{spear['name']}: {subs} are not an ActionInterval and an ActionRunActionOnShooter at 0")
+    spawn = acts.get(trail["ActionToExecute"])
+    if spawn["ClassType"] != "ActionSpawn" or spawn["SpawnType"] != "AreaEffectType":
+        raise SystemExit(f"{spear['name']}: the trail does not spawn an area")
+    reached = proj_row["OnTargetReachedAction"]
+    same_area = isinstance(reached, dict) and reached.get("SpawnData") == spawn["SpawnData"]
+    if not same_area or reached.get("SpawnType") != "AreaEffectType":
+        raise SystemExit(f"{spear['name']}: OnTargetReachedAction does not spawn the trail's area ({reached!r})")
+    melee = acts.arrays.get(on_shooter["ActionToExecute"], {}).get("SubActions") or []
+    classes = [acts.get(n)["ClassType"] for n in melee]
+    if classes != ["ActionSetVariable", "ActionSetAttackSequenceIndex", "ActionInterval", "ActionResetTarget"]:
+        raise SystemExit(f"{spear['name']}: the shooter's action runs {classes}, not the melee state this reader reads")
+    timer = acts.get(melee[2])
+    if timer["ActionToExecute"] != "AngryBarbarian_EV1_as_ranged" or not timer["AffectedByHitSpeed"]:
+        raise SystemExit(f"{spear['name']}: the cooldown does not put the ranged state back at the hit speed")
+    return {
+        "min_range_milli": min_range,
+        "max_range_milli": max_range,
+        "sight_range_milli": seq[1].get("CustomSightRange"),
+        "start_radius_milli": seq[1].get("CustomProjectileStartRadius"),
+        "spear": spear,
+        "cooldown_ms": timer["Interval"],
+        "trail_first_ms": delays[0],
+        "trail_action_delay_ms": trail["ActionDelay"],
+        "trail_every_ms": trail["Interval"],
+        "area": spawn["SpawnData"],
+    }
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
     out = []
     ev = t["spells_evolved"]
+    overlay_evolved_rows(t, ev)
     for name in EVOLUTIONS:
         s = ev.get(name)
-        if s is None or s["NotInUse"]:
+        if s is None or (s["NotInUse"] and name not in EVOLUTIONS_PLAYED_NOT_IN_USE):
             raise SystemExit(f"spells_evolved.{name}: absent or NotInUse")
         bases = [
             (key, kind, b)
@@ -3690,6 +3794,9 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
         card["spells_evolved_row"] = list(ev.records).index(name)
         unit = card["summon_character"]
         u = norm_unit(t, unit, with_raw=True)
+        # The evolved cycle (spells_evolved DarkElixirCost): the base card's plays before each evolved one. Measured
+        # on client 15.535.29 over the oracle's 42 sp-ec-* runs, 42 of 42.
+        card["evo_cycles"] = s["DarkElixirCost"]
         if name == "Cannon_EV1":
             card["evo_barrage"] = barrage_block(t, unit)
         elif name == "Skeletons_EV1":
@@ -3697,6 +3804,13 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["is_a_group"] = bool(s["IsAGroup"])
         elif name == "Musketeer_EV1":
             card["evo_snipe"] = snipe_block(t, unit, u)
+        elif name == "AngryBarbarians_EV1":
+            card["evo_spear"] = spear_block(t, card)
+            # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k
+            # leaves its deploy k x 100 ms after the first. Measured on client 15.535.29
+            # (sp-form-AngryBarbarians-evo-s0: both members first seen on t752, their deploys ending on t771 and t773).
+            if card["summon_deploy_delay_ms"] is None:
+                card["summon_deploy_delay_ms"] = s["SummonSpawnDelay"]
         card["cloned_version"] = urow["ClonedVersion"]
         out.append(card)
     return out

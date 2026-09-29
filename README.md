@@ -505,10 +505,11 @@ Working:
   and the Mirror included.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
-- Evolved and hero forms for six special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Hero
-  Musketeer, Hero Ice Golem and Hero Berserker. `reset(..., forms=...)` marks a deck's card 1 for
-  its evolution or 2 for its hero. Counting each card's own plays, every third play of an evolved
-  card is the evolution. A hero's ability is a button: a command on slot 4, 5 or 6, just past the
+- Evolved and hero forms for seven special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
+  Elite Barbarians, Hero Musketeer, Hero Ice Golem and Hero Berserker. `reset(..., forms=...)` marks
+  a deck's card 1 for its evolution or 2 for its hero. Counting each card's own plays, an evolved
+  card plays its evolution after its cycle of basic plays: two for most, one for the Elite
+  Barbarians. A hero's ability is a button: a command on slot 4, 5 or 6, just past the
   four hand slots, presses it. What each form does was measured on client 15.535.29 where the
   tests say so; the rest are named constants.
 - The Golden Knight's button, at `5f75824`. A press sends him dashing from one enemy to the next.

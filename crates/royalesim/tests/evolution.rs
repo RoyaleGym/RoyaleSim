@@ -453,10 +453,14 @@ fn forms_take_slots_after_every_existing_card() {
     let forms: Vec<(String, String)> = db.forms.iter().map(|(b, _, f)| (db.get(*b).name.clone(), db.get(*f).name.clone())).collect();
     assert_eq!(
         forms,
-        [("Skeletons", "Skeletons_EV1"), ("Cannon", "Cannon_EV1"), ("Musketeer", "Musketeer_EV1")].map(|(a, b)| (a.to_string(), b.to_string()))
+        [("Skeletons", "Skeletons_EV1"), ("Cannon", "Cannon_EV1"), ("Musketeer", "Musketeer_EV1"), ("AngryBarbarians", "AngryBarbarians_EV1")]
+            .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    assert_eq!(db.cards.len(), n0 + 3);
+    // Four forms and the Elite Barbarians' second member (AngryBarbarian_EV1_2), right after its form.
+    assert_eq!(db.cards.len(), n0 + 5);
+    assert_eq!(db.cards[n0 + 4].name, "AngryBarbarian_EV1_2");
+    assert!(db.cards[n0 + 4].summon_only);
     // The whole table: the hero pass leaves every one of those slots where it was, the forms included, and loads only
     // after them.
     let full = cards();

@@ -197,6 +197,21 @@ pub struct Projectile {
     pub bonus: i32,
     #[serde(default)]
     pub bonus_crown: i32,
+    /// THE EVO ELITE BARBARIANS' SPEAR (card.rs `SpearDef`): Some only on a thrown spear, whose trail areas
+    /// `step_projectiles` makes as it flies. None on every other shot. `default` so a snapshot saved before it still
+    /// loads; hashed only when Some.
+    #[serde(default)]
+    pub trail: Option<SpearTrail>,
+}
+
+/// A spear's trail (`Projectile::trail`): the thrower's card and level (the area is the card's `projectile_area`), the
+/// spear's steps so far and the next trail area's number.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SpearTrail {
+    pub card: u16,
+    pub level: i32,
+    pub steps: u16,
+    pub next: u16,
 }
 
 /// What the Rune Giant's projectile carries (`Projectile::enchant`): the unit that sent it, its card (whose
@@ -893,8 +908,10 @@ pub fn melee_target_ok(ents: &Entities, ti: usize, sel: crate::card::AttackSelec
 /// (entities `attack_seq` 1 on a card with a snipe; state.rs `snipe_pass`) the snipe entry's CustomRange.
 #[inline]
 pub fn attack_reach(ents: &Entities, card: &crate::card::CardDef, a: usize) -> i32 {
-    match card.evo.as_ref().and_then(|v| v.snipe) {
-        Some(sn) if ents.attack_seq[a] == 1 => sn.reach,
+    match (card.evo.as_ref().and_then(|v| v.snipe), card.evo.as_ref().and_then(|v| v.spear)) {
+        (Some(sn), _) if ents.attack_seq[a] == 1 => sn.reach,
+        // An Evo Elite Barbarian holding its spear on a target out of melee reach (state.rs `spear_pass`).
+        (_, Some(sp)) if ents.attack_seq[a] == 1 => sp.max,
         _ => card.range,
     }
 }
@@ -972,6 +989,47 @@ pub fn fire(
     // of it in place of the card's. Nothing moves for a unit without such a buff.
     let amount = own_damage(ents, cards, a, amount);
     let pct = own_crown_pct(ents, cards, a).unwrap_or(card.crown_tower_damage_percent);
+    // THE EVO ELITE BARBARIANS' SPEAR (card.rs `SpearDef`; state.rs `spear_pass`): an attack of the thrown entry
+    // (`attack_seq` 1) throws the spear at the target, a homing shot from the spear's start radius at its own speed and
+    // level-scaled damage, releasing the card's area as it flies and where it lands (`step_projectiles`). Measured on
+    // client 15.535.29 (sp-form-AngryBarbarians-evo-s0): the spear leaves 196-200 ahead of its thrower on the fire tick,
+    // steps 600 a tick and takes 284 off a level-11 Knight (111 on the ladder) on its arrival.
+    #[cfg(not(clash_plant = "spear_never_thrown"))]
+    let throws = card.evo.as_ref().and_then(|v| v.spear).filter(|_| ents.attack_seq[a] == 1);
+    #[cfg(clash_plant = "spear_never_thrown")]
+    let throws: Option<crate::card::SpearDef> = None; // PLANT (regression): the member strikes in melee on every attack.
+    if let Some(sp) = throws {
+        let (pos, fresh) = launch_point(ents, calib, sp.start_radius, 0, false, a, ti);
+        projectiles.push(Projectile {
+            team: ents.team[a],
+            pos,
+            target,
+            aim: ents.pos[ti],
+            fixed: false,
+            speed: sp.speed * calib.projectile_speed_to_subtiles_per_tick,
+            damage: cards.scaled(ents.card[a], ents.level[a], sp.damage).expect("level validated at spawn"),
+            crown_pct: sp.crown_pct,
+            splash: 0,
+            hits_air: card.attacks_air,
+            hits_ground: card.attacks_ground,
+            frac: Vec2::default(),
+            fresh,
+            buff: None,
+            pulse: 0,
+            firer_card: Some(ents.card[a]),
+            straight: None,
+            hook: None,
+            bonus: 0,
+            bonus_crown: 0,
+            carrier: None,
+            release: card.projectile_area.as_ref().map(|_| (ents.card[a], ents.level[a])),
+            buff_first: false,
+            src_level: ents.level[a],
+            enchant: None,
+            trail: Some(SpearTrail { card: ents.card[a], level: ents.level[a], steps: 0, next: 0 }),
+        });
+        return;
+    }
     let splash_r = if card.area_damage_radius > 0 {
         card.area_damage_radius
     } else {
@@ -1117,6 +1175,7 @@ pub fn fire(
                         enchant: None,
                         bonus: direct.hit,
                         bonus_crown: direct.crown,
+                        trail: None,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -1224,6 +1283,7 @@ pub fn fire(
             buff_first: card.attack_buff_first,
             src_level: ents.level[a],
             enchant: None,
+            trail: None,
         });
         return;
     }
@@ -1446,6 +1506,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         enchant: None,
         bonus: 0,
         bonus_crown: 0,
+        trail: None,
     });
 }
 
@@ -1787,6 +1848,24 @@ pub fn step_projectiles(
         }
         // combat.HOOK_LANDING: where a hook stood at the start of this tick, before its step.
         let start = p.pos;
+        // A SPEAR'S TRAIL (`Projectile::trail`; card.rs `SpearDef`): on step n of its flight every trail area due by
+        // then (area k on step floor((first + k x every) / TICK_MS)) is released on the point the spear held before
+        // this step's move, cast in this Projectile phase as the landing's area is. Measured on client 15.535.29
+        // (sp-rage-5000-s0 and sp-rage-4000-s0, own troops walking the spears' lines; the recordings list no area): the
+        // first area stands 1800 along the flight (the point before step 4's move, 200 ms). The later areas' spacing
+        // (every 160 ms, floor) is the reading that agrees best with the probes' raged ticks (825 of 930 clean ticks
+        // against 790 for ceil on sp-rage-4000-s0), not a measurement of their points.
+        if let Some(tr) = p.trail.as_mut() {
+            tr.steps = tr.steps.saturating_add(1);
+            #[cfg(not(clash_plant = "spear_trail_dropped"))]
+            if let Some(sp) = cards.get(tr.card).evo.as_ref().and_then(|v| v.spear) {
+                let dt = calib.tick_ms.max(1);
+                while i32::from(tr.steps) >= (sp.trail_first_ms + sp.trail_every_ms * i32::from(tr.next)) / dt {
+                    areas.push(crate::spell::AreaRelease { team: p.team, card: tr.card, level: tr.level, pos: start });
+                    tr.next = tr.next.saturating_add(1);
+                }
+            }
+        }
         // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
         let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
         p.pos = np;
@@ -1908,6 +1987,7 @@ fn release_sparks(
             enchant: None,
             bonus: c.bonus,
             bonus_crown: c.bonus_crown,
+            trail: None,
         };
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);
