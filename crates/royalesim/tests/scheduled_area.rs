@@ -53,7 +53,7 @@ use common::*;
 use royalesim::card::{SpawnOffset, SpellPlacement, SpellShape, UnitRef};
 use royalesim::fixed::{milli, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, ScheduledSpawnInvalidPoint, SubActionsDelay, SubTickDelayRounding, TeamYDirection};
+use royalesim::state::{BattleConfig, BattleState, ScheduledSpawnInvalidPoint, ScheduledUnitFirstUpdate, SubActionsDelay, SubTickDelayRounding, TeamYDirection};
 use royalesim::{EntityId, Team};
 
 /// The level of the measured casts.
@@ -86,6 +86,10 @@ fn shipped() -> BattleConfig {
     let mut c = config();
     c.card_level = [LEVEL, LEVEL];
     c.tower_level = [LEVEL, LEVEL];
+    // The slots and the schedule were pinned with each unit standing on its slot on its first frame (spawner.
+    // SCHEDULED_UNIT_FIRST_UPDATE = next_tick); the shipped first update on the creation tick pushes the ones that
+    // are born overlapping a body.
+    c.calib.scheduled_unit_first_update = ScheduledUnitFirstUpdate::NextTick;
     assert_eq!(c.calib.sub_actions_delay, SubActionsDelay::FromGroupStart, "the shipped actions.SUB_ACTIONS_DELAY");
     assert_eq!(c.calib.sub_tick_delay_rounding, SubTickDelayRounding::FloorFromCreation, "the shipped actions.SUB_TICK_DELAY_ROUNDING");
     assert_eq!(c.calib.team_y_direction, TeamYDirection::AgainstForward, "the shipped actions.TEAM_Y_DIRECTION");

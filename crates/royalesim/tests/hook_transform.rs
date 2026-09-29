@@ -25,7 +25,7 @@ mod common;
 use common::*;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, SpecialHook};
+use royalesim::state::{BattleConfig, BattleState, HookBuildings, HookLanding, SpecialHook};
 use royalesim::{EntityId, Team};
 
 /// The Cannon Cart's card. Its broken form is another row, read from the card's transformation.
@@ -52,6 +52,12 @@ fn dist(a: Vec2, b: Vec2) -> i64 {
 fn level11(mut cfg: BattleConfig) -> BattleConfig {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
+    // The drag's ticks were pinned with the hook landing on its victim where the victim walked (combat.HOOK_LANDING =
+    // on_victim); the shipped landing on the hook's point starts the drag a tick later.
+    cfg.calib.hook_landing = HookLanding::OnVictim;
+    // A victim that became a building ends the drag, as a hook on a building did (combat.HOOK_BUILDINGS =
+    // troops_only); the shipped client_pull_self pulls the Fisherman to it instead.
+    cfg.calib.hook_buildings = HookBuildings::TroopsOnly;
     cfg
 }
 

@@ -102,7 +102,7 @@ mod common;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardColumn;
-use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, TapSnap, TroopTowerTaps};
+use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, StunClearsTarget, TapSnap, TroopTowerTaps};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -935,7 +935,11 @@ fn zap_forces_a_retarget_on_resume() {
     assert_registry("status.STUN_RETARGET_ON_RESUME", calib().stun_retarget_on_resume.to_string(), "true");
     let held = ((int(&zap_aeo()["buff_time_ms"]) + calib().tick_ms - 1) / calib().tick_ms) as u32;
     let build = |zap: Option<u32>| {
-        let mut s = bare(config());
+        // The held Musketeer keeping Cannon A to its resume is status.STUN_CLEARS_TARGET = kept's; under the shipped
+        // client_cleared it holds no target from the Zap's landing, and the resume rescan is the same.
+        let mut cfg = config();
+        cfg.calib.stun_clears_target = StunClearsTarget::Kept;
+        let mut s = bare(cfg);
         let m_at = stage();
         let m = s.scenario_spawn_now(Team::Red, "Musketeer", m_at, Some(1_000_000)).unwrap();
         // Cannon A outlives the 80 ticks whatever the vintage's numbers (the 15.535

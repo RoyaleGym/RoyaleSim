@@ -47,7 +47,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, SpawnOffset, SpellShape, UnitRef};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, RelativeSpawnOffset, SubTickDelayRounding};
+use royalesim::state::{BattleConfig, BattleState, RelativeSpawnOffset, ScheduledUnitFirstUpdate, SubTickDelayRounding};
 use royalesim::{EntityId, Team};
 
 /// The level of the measured bushes.
@@ -64,6 +64,10 @@ fn shipped() -> BattleConfig {
     let mut c = config();
     c.card_level = [LEVEL, LEVEL];
     c.tower_level = [LEVEL, LEVEL];
+    // The goblins' points were pinned with each unit standing on its slot on its first frame (spawner.
+    // SCHEDULED_UNIT_FIRST_UPDATE = next_tick); the shipped first update on the creation tick pushes the ones that
+    // are born overlapping a body.
+    c.calib.scheduled_unit_first_update = ScheduledUnitFirstUpdate::NextTick;
     assert_eq!(c.calib.sub_tick_delay_rounding, SubTickDelayRounding::FloorFromCreation, "the shipped actions.SUB_TICK_DELAY_ROUNDING");
     assert_eq!(c.calib.relative_spawn_offset, RelativeSpawnOffset::HalfTileOwnerLeft, "the shipped spawner.RELATIVE_SPAWN_OFFSET");
     c

@@ -79,7 +79,7 @@ use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::formation::sin1024;
 use royalesim::move16402::{death_slide_to, DEATH_SLIDE_STEP};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeathSlideAim, DeathSpawnPushback};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeathSlideAim, DeathSlideBirth, DeathSpawnPushback};
 use royalesim::{EntityId, PathModel, Team};
 use std::collections::BTreeSet;
 
@@ -90,6 +90,9 @@ const MEASURED_START: i32 = 250;
 
 fn with_arm(mut cfg: BattleConfig, arm: DeathSpawnPushback) -> BattleConfig {
     cfg.calib.death_spawn_pushback = arm;
+    // The ring points were pinned with the members born through the sine table (spawner.DEATH_SLIDE_BIRTH =
+    // sine_table); the shipped birth one step toward the end point moves the diagonal ones by a unit.
+    cfg.calib.death_slide_birth = DeathSlideBirth::SineTable;
     cfg
 }
 

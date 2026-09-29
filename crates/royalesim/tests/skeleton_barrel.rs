@@ -65,7 +65,7 @@ use common::*;
 use royalesim::card::{CardDb, CardKind};
 use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{AttackCycle, BattleConfig, BattleState, Calib, DeathBombSpawnTiming, DeathPushbackScope, DeathSpawnPushback, KamikazeTime};
+use royalesim::state::{AttackCycle, BattleConfig, BattleState, Calib, DeathBombSpawnTiming, DeathPushbackScope, DeathSlideBirth, DeathSpawnPushback, KamikazeTime};
 use royalesim::{EntityId, Team};
 
 const BARREL: &str = "SkeletonBalloon";
@@ -100,6 +100,9 @@ fn shipped() -> BattleConfig {
     assert_eq!(c.death_pushback, DeathPushbackScope::ContainersLadder, "the shipped knockback.DEATH_PUSHBACK");
     assert_eq!(c.death_spawn_pushback, DeathSpawnPushback::ClientRingSlide, "the shipped spawner.DEATH_SPAWN_PUSHBACK");
     assert_eq!(c.attack_cycle, AttackCycle::ProgressCredit, "the shipped combat.ATTACK_CYCLE, whose counter the fire is read on");
+    // The ring points were pinned with the members born through the sine table (spawner.DEATH_SLIDE_BIRTH =
+    // sine_table); the shipped birth one step toward the end point moves the diagonal ones by a unit.
+    cfg.calib.death_slide_birth = DeathSlideBirth::SineTable;
     cfg
 }
 
