@@ -3926,7 +3926,7 @@
         "ahead_only",
         "client15535_ahead_outward_behind"
       ],
-      "status": "measured",
+      "status": "hypothesis",
       "confidence": "MEDIUM: 239 of 239 oracle copies fit client15535_ahead_outward_behind; the OUTWARD side rests on the right-bridge scenes (13 copies at +x) and the left-bridge ones (15 at -x); ahead_only is right for the 197 whose ahead point stands.",
       "provenance": "MEASURED on client 15.535.29, the oracle's fixtures (its real-match replays, sp-scene-b, sp-m4, sp-m5) and its designed river-bank scenes sp-esk-bank-{1500,3500,5500,8500,9500,12500,14500,16500}-s{0,1} (Evo Skeletons swarming a Giant held at an Elixir Collector on and beside each bridge). Each copy is matched to the skeleton whose attack load timer reset on the copy's tick. Every one of the 239 matched copies stands, on its first frame, within 400 (the first update's push, up to ~150) of the first of: 1000 ahead of the hitter in y toward the enemy (197), 1000 in x toward the nearer side of the arena (28: -x for every hitter left of x 9000, +x for every one right of it), 1000 behind (14, each where both earlier points were water). No candidate that a ground unit could stand on was ever skipped; occupancy does not refuse one (chosen points had units as close as 21). Found on the real-match replay 208a8647 t1219, whose copy the engine made in the river.",
       "meaning": "ahead_only: the copy is made EVO_COPY_AHEAD_MILLI (1000) ahead of where its hitter stands after the tick's move, in the arena's y toward the enemy, whatever lies there (the engine before this key). client15535_ahead_outward_behind: the first of AHEAD, OUTWARD (x toward the nearer side: -x when the hitter stands left of the centre line, +x otherwise) and BEHIND, each 1000 from the hitter, where a ground unit's centre can stand (Arena::is_passable_ground: in bounds, touching no water); none standing keeps the ahead point.",
@@ -3940,7 +3940,7 @@
         "ascending_angle",
         "client_descending_angle"
       ],
-      "status": "measured",
+      "status": "hypothesis",
       "confidence": "HIGH for the order: 37 of 37 readable waves on both clients, none the other way. The effect is one tick of contact pushes between siblings.",
       "provenance": "MEASURED on client 16.402 (the live corpus) and on client 15.535.29 (the oracle's scenario fixtures and the sweep): the truth's keys follow the client's creation order. Every Witch ring (four Skeletons at SpawnRadius 2000, no SpawnAngleShift) is created south, west, north, east, the reverse of the engine's east, north, west, south: 9 of 9 live, 9 of 9 oracle. Every Night Witch pair (two Bats, SpawnAngleShift 90 on its facing) whose spawner was walking puts its first-created Bat on the facing's right, where the engine makes k = 0 on its left: 16 of 16 live, 3 of 3 oracle. The positions are the engine's in every case; only the order differs. Found on 20260918-122757.b2 under spells.ROLL_FIRST_STEP's and knockback.DIRECTION_ROLLING's pair: sibling Skeletons of the t2356 wave pushed a tick early (51 off 52, t2408) and a tick late (50 off 49, t2418), each pair updated in the other order.",
       "meaning": "ascending_angle: a ring wave's member k (at angle shift + k x 360 / n) is created k-th, so it updates k-th. client_descending_angle: the same points, created from the last angle to the first.",
