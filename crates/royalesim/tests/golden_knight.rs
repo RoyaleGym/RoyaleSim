@@ -63,6 +63,10 @@ fn cfg_with(cooldown: Option<i32>) -> BattleConfig {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     cfg.calib.dash_chain_cooldown_ms = cooldown;
+    // The arms (1) to (4) were written on, before combat.DASH_CHAIN_END and DASH_CHAIN_PENDING flipped: the tests of
+    // those keys name theirs.
+    cfg.calib.dash_chain_end = DashChainEnd::KeepLastTarget;
+    cfg.calib.dash_chain_pending = DashChainPending::WaitForGroundCharacter;
     cfg
 }
 
@@ -311,4 +315,11 @@ fn a_waiting_press_re_decides_its_target_each_tick_and_dashes_at_a_knight_put_do
     assert!(knight.is_some(), "the scene drifted: no Knight on the board");
     assert_ne!(Some(tower), knight, "the scene drifted");
     assert!(dashed_at_knight, "his target was not re-decided to the Knight, or he never dashed at it: (on the Knight, on the tower, step) {seen:?}");
+}
+
+#[test]
+fn the_shipped_values_are_the_measured_arms_since_the_round_10_ship() {
+    let c = royalesim::state::Calib::shipped();
+    assert_eq!(c.dash_chain_end, DashChainEnd::ClientNoTargetTwoTicks);
+    assert_eq!(c.dash_chain_pending, DashChainPending::ClientRunToCurrentTarget);
 }
