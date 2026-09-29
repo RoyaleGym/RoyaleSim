@@ -2398,6 +2398,17 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted",
       "globals_role": "context"
     },
+    "BUILDING_SPELL_REACH": {
+      "value": "aoe_hit_test",
+      "candidates": ["aoe_hit_test", "client_square_radius_strict"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm aoe_hit_test, which is today's engine: a spell reaches an ordinary building by a disc, and misses a Cannon the client's Fireball killed. MEDIUM for client_square_radius_strict: it fits the one case that separates the arms and the 27 pairs that do not; the square's size for the larger buildings is inferred from the crown towers' (half-side 1000, their collision radius).",
+      "provenance": "MEASURED on client 15.535.29 (an oracle replay of a recorded match, sp-il-925effff): the Fireball of t411 landed 3,162 from a 591-hp Cannon's centre and killed it. The Cannon's square of half-side 600 (its collision radius) is 2,433 from the landing point, inside the Fireball's 2,500; the disc (edge-inclusive: 2,500 + 600 = 3,100) is not. The 27 other (spell, building) pairs of the recorded scenes agree under both arms. The crown towers' square (spells.CROWN_TOWER_SPELL_REACH) has the same shape and the same strict test. Not yet scored against the recordings.",
+      "meaning": "client_square_radius_strict: an ordinary building (not a crown tower) is a square of half-side its collision radius round its centre, and a spell's impact reaches it when the distance from the spell's point to that square is strictly below the spell's radius. Troops keep spells.AOE_HIT_TEST; an Evo Cannon's barrage bomb keeps its centre-to-centre reach. aoe_hit_test: the building is a disc, as any unit is.",
+      "open": "Whether the square is the building's collision radius or its placement footprint (for a Cannon, 600 against the 3 x 3 tiles it stands on); the larger buildings (an X-Bow, an Inferno Tower, the huts) have no separating cast. Whether a rolling projectile (the Log) or a troop's splash reaches a building by the same square (not this key's).",
+      "promotion_rules": "The test file (crates/royalesim/tests/building_spell_reach.rs) passes. Then score with this arm switched on alone; the registered prediction: sp-il-925effff's t411 Fireball kills the Cannon, and nothing else moves by more than a building on a spell's edge.",
+      "engine": "spell.rs impact (in_square)"
+    },
     "CROWN_TOWER_SPELL_REACH": {
       "value": "client_square_1000_strict",
       "candidates": ["aoe_hit_test", "client_square_1000_strict"],

@@ -851,6 +851,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
     #[serde(default = "crown_tower_spell_reach_default")]
     pub crown_tower_spell_reach: CrownTowerSpellReach,
+    /// spells.BUILDING_SPELL_REACH (spell.rs `impact`): the shape a spell's impact reaches an ordinary building by.
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "building_spell_reach_default")]
+    pub building_spell_reach: BuildingSpellReach,
     /// spells.SPELL_AS_DEPLOY_LAUNCH_MODEL.
     pub spell_as_deploy_launch: LaunchModel,
     /// spells.ROLLING_HIT_SHAPE.
@@ -1771,6 +1775,10 @@ fn crown_tower_spell_reach_default() -> CrownTowerSpellReach {
     CrownTowerSpellReach::AoeHitTest
 }
 
+fn building_spell_reach_default() -> BuildingSpellReach {
+    BuildingSpellReach::AoeHitTest
+}
+
 fn damage_reduction_default() -> DamageReductionLaw {
     DamageReductionLaw::NotRead
 }
@@ -2119,6 +2127,20 @@ calib_enum!(
         /// (parity, round 9 item 35): all 19 corpus casts near an enemy crown tower, and a Zap beside a king tower on
         /// client 15.535.29 that a larger king square would have hit.
         Square1000Strict = "client_square_1000_strict",
+    }
+);
+calib_enum!(
+    /// spells.BUILDING_SPELL_REACH -- the shape a spell's impact (spell.rs `impact`) reaches an ORDINARY building by (a
+    /// Cannon, a Tesla, a hut: not a crown tower, which is spells.CROWN_TOWER_SPELL_REACH's). Troops keep
+    /// spells.AOE_HIT_TEST, and an Evo Cannon's barrage bomb its own centre-to-centre reach.
+    BuildingSpellReach {
+        /// Today's engine: the building is a disc, read by spells.AOE_HIT_TEST as any unit is.
+        AoeHitTest = "aoe_hit_test",
+        /// The building is a square of half-side its collision radius round its centre, reached when the distance from
+        /// the spell's point to it is STRICTLY below the spell's radius, as a crown tower's square is. Read on the
+        /// client (item 57): a Fireball 3,162 from a 591-hp Cannon's centre killed it, the square 2,433 away, where the
+        /// disc (edge-inclusive, 3,100) misses; 27 other (spell, building) pairs agree under both.
+        SquareRadiusStrict = "client_square_radius_strict",
     }
 );
 calib_enum!(
@@ -5841,6 +5863,7 @@ impl Calib {
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
             crown_tower_spell_reach: pick(&v, &["spells", "CROWN_TOWER_SPELL_REACH", "value"], CrownTowerSpellReach::from_calibration_name)?,
+            building_spell_reach: pick(&v, &["spells", "BUILDING_SPELL_REACH", "value"], BuildingSpellReach::from_calibration_name)?,
             spell_as_deploy_launch: pick(&v, &["spells", "SPELL_AS_DEPLOY_LAUNCH_MODEL", "value"], LaunchModel::from_calibration_name)?,
             rolling_hit_shape: pick(&v, &["spells", "ROLLING_HIT_SHAPE", "value"], RollHitShape::from_calibration_name)?,
             spawning_spell_water: pick(&v, &["spells", "SPAWNING_SPELL_WATER_RULE", "value"], SpawnWaterRule::from_calibration_name)?,
@@ -20123,6 +20146,9 @@ impl BattleState {
 ///    set), PlayerState gained champions and BattleState chains (serde default empty, hashed only when not empty); the
 ///    card fingerprint moves with the Golden Knight's button, so a snapshot saved by an earlier build is refused as
 ///    saved against other card data; a migrated format-3 battle takes the defaults (no champion, no chain).
+/// 20, unchanged, spells.BUILDING_SPELL_REACH: Calib gained building_spell_reach (serde default the old arm,
+///    aoe_hit_test), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -20679,6 +20705,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spells.CROWN_TOWER_SPELL_REACH: a format-3 battle's spells reached a crown tower as a disc; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("crown_tower_spell_reach".into(), serde_json::to_value(CrownTowerSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
+    // spells.BUILDING_SPELL_REACH: the same rule.
+    sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("jump_landing_contact".into(), serde_json::to_value(JumpLandingContact::LandingTick).map_err(|e| e.to_string())?);

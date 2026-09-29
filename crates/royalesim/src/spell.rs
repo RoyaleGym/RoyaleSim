@@ -64,7 +64,7 @@ use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
     AirToGroundWindow, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling,
-    CrownTowerSpellReach,
+    BuildingSpellReach, CrownTowerSpellReach,
     DeathBombSpawnTiming, DeathPushbackScope, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape,
     StaggerWait, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding, SummonFuseStart, TargetBuffScope,
 };
@@ -839,9 +839,17 @@ const CROWN_SQUARE_CORNER_MILLI: i32 = 1415;
 /// distance from `centre` to the square of half-side `CROWN_SQUARE_HALF_MILLI` round `tower` is STRICTLY below
 /// `radius`. The client's casts on the square's edge miss (a Rocket 2000 from it, three Freezes 3000 from it).
 pub fn in_crown_square(centre: Vec2, tower: Vec2, radius: i32) -> bool {
-    let half = (CROWN_SQUARE_HALF_MILLI * K) as i64;
-    let dx = ((centre.x as i64) - (tower.x as i64)).abs().saturating_sub(half).max(0);
-    let dy = ((centre.y as i64) - (tower.y as i64)).abs().saturating_sub(half).max(0);
+    in_square(centre, tower, CROWN_SQUARE_HALF_MILLI * K, radius)
+}
+
+/// Whether an impact of `radius` at `centre` reaches the square of half-side `half` (subtiles) round `at`: the distance
+/// from `centre` to the square is STRICTLY below `radius`. A crown tower's (`in_crown_square`) and, under
+/// spells.BUILDING_SPELL_REACH = client_square_radius_strict, an ordinary building's, whose half-side is its collision
+/// radius.
+pub fn in_square(centre: Vec2, at: Vec2, half: i32, radius: i32) -> bool {
+    let half = half as i64;
+    let dx = ((centre.x as i64) - (at.x as i64)).abs().saturating_sub(half).max(0);
+    let dy = ((centre.y as i64) - (at.y as i64)).abs().saturating_sub(half).max(0);
     dx * dx + dy * dy < (radius as i64) * (radius as i64)
 }
 
@@ -864,7 +872,10 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
     };
     // spells.CROWN_TOWER_SPELL_REACH = client_square_1000_strict reaches a tower's corner, 1415 from its centre.
     let square = ctx.calib.crown_tower_spell_reach == CrownTowerSpellReach::Square1000Strict;
+    // spells.BUILDING_SPELL_REACH = client_square_radius_strict reaches an ordinary building's corner, its radius x 1.415.
+    let building_square = ctx.calib.building_spell_reach == BuildingSpellReach::SquareRadiusStrict;
     let wide = if square { ctx.hash.max_radius().max(CROWN_SQUARE_CORNER_MILLI * K) } else { ctx.hash.max_radius() };
+    let wide = if building_square { wide.max(ctx.hash.max_radius() * 1415 / 1000 + 1) } else { wide };
     ctx.hash.neighbours_within(e, centre, hit.radius + wide, nb);
     // the fixed_distance arm's zero-vector fallback, a unit axis per victim
     let fallback = |v: usize| match ctx.calib.knock_zero_vector {
@@ -919,7 +930,21 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         let tower_square = square && barrage.is_none() && e.kind[v].is_crown_tower();
         #[cfg(clash_plant = "crown_tower_spell_disc")]
         let tower_square = false; // PLANT (regression): a crown tower is a disc to every spell, whatever the arm.
-        let reached = if tower_square { in_crown_square(centre, e.pos[v], hit.radius) } else { in_range_edge(centre, e.pos[v], hit.radius, edge) };
+        // spells.BUILDING_SPELL_REACH = client_square_radius_strict: an ordinary building (not a crown tower) is a
+        // square of half-side its collision radius, reached strictly, as a crown tower is (measured on client 15.535.29,
+        // item 57: a Fireball 3,162 from a Cannon's centre killed it, the square 2,433 away, where the disc misses at
+        // 3,100). A troop keeps the disc.
+        #[cfg(not(clash_plant = "building_spell_disc"))]
+        let on_building_square = building_square && barrage.is_none() && e.kind[v] == EntityKind::Building;
+        #[cfg(clash_plant = "building_spell_disc")]
+        let on_building_square = false; // PLANT (regression): an ordinary building is a disc to every spell, whatever the arm.
+        let reached = if tower_square {
+            in_crown_square(centre, e.pos[v], hit.radius)
+        } else if on_building_square {
+            in_square(centre, e.pos[v], e.radius[v], hit.radius)
+        } else {
+            in_range_edge(centre, e.pos[v], hit.radius, edge)
+        };
         if !reached {
             continue;
         }
