@@ -6451,11 +6451,42 @@ pub struct EvoBoard {
     /// so a battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
     pub spears: Vec<(EntityId, i32)>,
+    /// Each Evo Battle Ram's charge push (`ram_pass`). `default` so a battle saved before it still loads; hashed only
+    /// when not empty.
+    #[serde(default)]
+    pub rams: Vec<RamState>,
+    /// Each unit with a rage after hits (the Evo Battle Ram's Barbarian_EV1) and its hits so far, from its first
+    /// (`evo_after_fire`).
+    /// `default` so a battle saved before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub rages: Vec<(EntityId, u32)>,
+}
+
+/// AN EVO BATTLE RAM'S CHARGE PUSH (`ram_pass`): the tick its push switches on (None while it is not charged), the
+/// troops it has struck on this charge, and whether its own recoil's ladder is running, which leaves its charge alone
+/// (`charge_pass`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RamState {
+    pub id: EntityId,
+    pub armed_at: Option<u32>,
+    pub struck: Vec<EntityId>,
+    pub recoil: bool,
 }
 
 impl EvoBoard {
     fn is_empty(&self) -> bool {
-        self.members.is_empty() && self.hits.is_empty() && self.next_group == 0 && self.snipers.is_empty() && self.spears.is_empty()
+        self.members.is_empty()
+            && self.hits.is_empty()
+            && self.next_group == 0
+            && self.snipers.is_empty()
+            && self.spears.is_empty()
+            && self.rams.is_empty()
+            && self.rages.is_empty()
+    }
+
+    /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
+    fn ram_recoiling(&self, id: EntityId) -> bool {
+        self.rams.iter().any(|r| r.id == id && r.recoil)
     }
 
     /// Is entity `id` an Evo Musketeer aiming a snipe (a target kept: a snipe left, or her last one just gone and its
@@ -8426,6 +8457,10 @@ impl BattleState {
         if evo.spear.is_some() {
             self.evo.spears.push((id, 0));
         }
+        // An Evo Battle Ram starts uncharged: its push switches on with its first charge (`ram_pass`).
+        if evo.ram.is_some() {
+            self.evo.rams.push(RamState { id, armed_at: None, struck: Vec::new(), recoil: false });
+        }
     }
 
     /// AN EVOLVED UNIT'S FIRE (`phase_attack_for`, right after `combat::fire`), `shots_from` the projectile list's
@@ -8441,6 +8476,31 @@ impl BattleState {
         let cards = self.cfg.cards.clone();
         let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
         let id = self.ents.id_of(i);
+        // A RAGE AFTER HITS (the Evo Battle Ram's Barbarian_EV1, `HitRageDef`): every `hits`-th hit lands the unit's own
+        // buff for its time, on the hit's tick. Measured on client 15.535.29 (sp-ram-alone-s0, level 11): the first
+        // Barbarian's first hit lands on t1111 (progress 1400) and its progress steps 65 from t1112 (50 x 130 / 100).
+        // The count starts at the unit's first hit: a death spawn is created by `materialise_released`, not through
+        // `evo_created`, so the entry is made here, on whatever path made the unit.
+        if let Some(r) = evo.hit_rage {
+            let n = match self.evo.rages.iter_mut().find(|(m, _)| *m == id) {
+                Some((_, n)) => {
+                    *n += 1;
+                    *n
+                }
+                None => {
+                    self.evo.rages.push((id, 1));
+                    1
+                }
+            };
+            #[cfg(not(clash_plant = "hit_rage_never"))]
+            let lands = n % r.hits == 0;
+            #[cfg(clash_plant = "hit_rage_never")]
+            let lands = false; // PLANT (regression): the Barbarian never rages.
+            if lands {
+                let h = crate::status::BuffHit::plain(id, r.apply.buff, r.apply.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            }
+        }
         if let Some(d) = evo.duplication {
             if let Some(&(_, g)) = self.evo.members.iter().find(|(m, _)| *m == id) {
                 let n = match self.evo.hits.iter_mut().find(|(k, _)| *k == g) {
@@ -8667,6 +8727,97 @@ impl BattleState {
             self.ents.attack_seq[a] = seq;
         }
         self.evo.spears = spears;
+    }
+
+    /// THE EVO BATTLE RAM'S CHARGE PUSH (card.rs `RamPushDef`), in the Move phase after the move and the charge pass,
+    /// for each ram:
+    ///   - its recoil (`RamState::recoil`) is over once its ladder is;
+    ///   - not charged: the push is off, and the next charge starts it over;
+    ///   - charged: the push switches on `delay_ms` (floor, in ticks) after the charge pass that charged it, and from then
+    ///     on every enemy ground troop, deploying ones too, whose centre stands within `radius` plus its own collision
+    ///     radius of the point `offset` ahead of the ram along its facing takes `damage` (the ram's level) once per
+    ///     charge, in this tick's Resolve, and is pushed aside: the knockback ladder of `strength` from the point on the
+    ///     ram's line beside it (spell.rs `Knock::Push`, Resolve's gates), so straight away from that line, stepping
+    ///     from the next tick. An IgnorePushback troop takes the damage alone.
+    ///
+    /// Measured on client 15.535.29 (Oracle's Evo Battle Ram scenes, level 11, the ram charging from t922 / t925):
+    ///   - the switch-on: the first charged step comes on C + 1 and the push on C + 16; a walking Knight inside the
+    ///     area from t934 is struck on t937 (C = 921), not before;
+    ///   - the area: the strike tick is the first tick on or after the switch-on with the troop's centre within 1000
+    ///     plus its radius of the point 800 ahead, on the positions after the move, for 9 of the 10 troops struck in
+    ///     the seven scenes with one (the tenth, the second of two Archers, is struck two ticks after its first frame,
+    ///     which reads a state of its own);
+    ///   - the damage: 212 (83 on the ladder), once, the Giant's too;
+    ///   - the push: a Knight or a Musketeer 238 or 762 aside steps straight away from the ram's line, 250 x 4, 225,
+    ///     200, ... 25, from the tick after the strike; the Giant (IgnorePushback) never moves;
+    ///   - OPEN: a Knight struck 576 from the point (sp-ram-side+-s0) is pushed along a turning line (18 to 70 degrees
+    ///     from the ram's heading), which no rule here reproduces.
+    fn ram_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let mut rams = std::mem::take(&mut self.evo.rams);
+        for r in rams.iter_mut() {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let a = r.id.index as usize;
+            let Some(ram) = self.cfg.cards.get(self.ents.card[a]).evo.as_ref().and_then(|v| v.ram) else { continue };
+            if r.recoil && !self.ents.push_active[a] {
+                r.recoil = false;
+            }
+            if !self.ents.charged[a] {
+                r.armed_at = None;
+                r.struck.clear();
+                continue;
+            }
+            #[cfg(not(clash_plant = "ram_push_at_charge_start"))]
+            let delay = (ram.push.delay_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+            #[cfg(clash_plant = "ram_push_at_charge_start")]
+            let delay = 0u32; // PLANT (regression): the push switches on with the charge.
+            let at = *r.armed_at.get_or_insert(self.tick + delay);
+            if self.tick < at {
+                continue;
+            }
+            let f = self.ents.facing[a];
+            let flen = isqrt(f.len2());
+            if flen == 0 {
+                continue;
+            }
+            let (team, level, card) = (self.ents.team[a], self.ents.level[a], self.ents.card[a]);
+            let rp = self.ents.pos[a];
+            let off = ram.push.offset as i64;
+            let centre = Vec2::new(rp.x + (f.x as i64 * off / flen) as i32, rp.y + (f.y as i64 * off / flen) as i32);
+            #[cfg(not(clash_plant = "ram_push_never"))]
+            let on = true;
+            #[cfg(clash_plant = "ram_push_never")]
+            let on = false; // PLANT (regression): the charge strikes and pushes nothing.
+            for v in 0..self.ents.capacity() {
+                let e = &self.ents;
+                if !on || !e.alive[v] || e.team[v] == team || e.kind[v] != EntityKind::Troop || e.flying[v] || e.attached(v) {
+                    continue;
+                }
+                let vid = e.id_of(v);
+                if r.struck.contains(&vid) {
+                    continue;
+                }
+                let reach = (ram.push.radius + e.radius[v]) as i64;
+                if e.pos[v].sub(centre).len2() > reach * reach {
+                    continue;
+                }
+                r.struck.push(vid);
+                let amount = self.cfg.cards.scaled(card, level, ram.push.damage).expect("the ram's level validated at deploy");
+                self.dmg.hits.push(Hit { target: vid, amount, ignores_hide: false, own: false });
+                if self.cfg.cards.get(e.card[v]).ignore_pushback {
+                    continue;
+                }
+                // The point on the ram's line beside the troop, NATIVE: the push runs from it straight to the troop.
+                let (rx, ry) = ((rp.x / K) as i64, (rp.y / K) as i64);
+                let (vx, vy) = ((e.pos[v].x / K) as i64, (e.pos[v].y / K) as i64);
+                let along = ((vx - rx) * f.x as i64 + (vy - ry) * f.y as i64) / flen;
+                let src = Vec2::new((rx + along * f.x as i64 / flen) as i32, (ry + along * f.y as i64 / flen) as i32);
+                self.effects.knocks.push(spell::Knock::Push { id: vid, src, strength: ram.push.strength, caster: team, now: false });
+            }
+        }
+        self.evo.rams = rams;
     }
 
     fn snipe_pass(&mut self) {
@@ -13884,6 +14035,11 @@ impl BattleState {
                     }
                     let l = self.scratch.walk_step.get(i).copied().unwrap_or(0);
                     let state1 = e.deploy_ms[i] == 0 && e.stun_ms[i] == 0;
+                    // KeepChargingAfterAttack (card.rs `RamDef`): an Evo Battle Ram's own recoil clears nothing.
+                    #[cfg(not(clash_plant = "ram_recoil_clears_charge"))]
+                    if self.evo.ram_recoiling(e.id_of(i)) {
+                        continue;
+                    }
                     if l > 0 && state1 {
                         if !e.charged[i] {
                             // the tail's own unit under the client16402 accumulator; the
@@ -14599,6 +14755,11 @@ impl BattleState {
         if !self.evo.spears.is_empty() {
             self.spear_pass();
         }
+        // THE EVO BATTLE RAM'S CHARGE PUSH (`ram_pass`), on the same positions, after the charge pass: its hits land in
+        // this tick's Resolve, its pushes step from the next tick.
+        if !self.evo.rams.is_empty() {
+            self.ram_pass();
+        }
         // status.WAITED_PRESS_CAST = client_after_move: a waited press's cast hold starts here, after her step.
         if !self.scratch.late_casts.is_empty() {
             for hero in std::mem::take(&mut self.scratch.late_casts) {
@@ -15015,7 +15176,12 @@ impl BattleState {
                 // The charged SNAP (charge.CHARGED_HIT_TIMING = first_attack_pass_no_windup)
                 // consumes the charge itself, so the hit it raised consumes the charge
                 // whatever RESET_ON_ATTACK says.
-                if (self.cfg.calib.charge_reset_on_attack || step.charge_snapped) && self.ents.charged[i] {
+                // KeepChargingAfterAttack (card.rs `RamDef`): the Evo Battle Ram's hit leaves it charged.
+                #[cfg(not(clash_plant = "ram_charge_consumed"))]
+                let keeps = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().is_some_and(|v| v.ram.is_some());
+                #[cfg(clash_plant = "ram_charge_consumed")]
+                let keeps = false; // PLANT (regression): the ram's hit consumes its charge.
+                if (self.cfg.calib.charge_reset_on_attack || step.charge_snapped) && self.ents.charged[i] && !keeps {
                     self.ents.charged[i] = false;
                     self.ents.charge_progress[i] = 0;
                 }
@@ -15037,6 +15203,11 @@ impl BattleState {
                 // whose row sets AttackPushBack (`attack_recoil`).
                 if self.cfg.calib.attack_pushback == AttackPushback::LadderAwayFromTarget {
                     self.attack_recoil(i, t);
+                    // An Evo Battle Ram's recoil: its charge rides through the ladder (`charge_pass`).
+                    let (me, pushed) = (self.ents.id_of(i), self.ents.push_active[i]);
+                    if let Some(r) = self.evo.rams.iter_mut().find(|r| r.id == me) {
+                        r.recoil = pushed;
+                    }
                 }
                 // combat.ATTACK_SELECT_MOMENT = at_swing_start: the hit ends this swing and starts the next, whose entry is
                 // chosen now, on the start-of-tick positions.
@@ -19984,6 +20155,25 @@ impl BattleState {
                     h.i32(*ms);
                 }
             }
+            // The Evo Battle Rams and the rages of their Barbarians, only when there are some.
+            if !b.rams.is_empty() || !b.rages.is_empty() {
+                h.u32(0x5241_4d31);
+                h.u32(b.rams.len() as u32);
+                for r in &b.rams {
+                    h.id(r.id);
+                    h.u32(r.armed_at.unwrap_or(u32::MAX));
+                    h.u32(r.struck.len() as u32);
+                    for s in &r.struck {
+                        h.id(*s);
+                    }
+                    h.u32(u32::from(r.recoil));
+                }
+                h.u32(b.rages.len() as u32);
+                for (id, n) in &b.rages {
+                    h.id(*id);
+                    h.u32(*n);
+                }
+            }
         }
         #[cfg(not(clash_plant = "hash_skips_scheduled"))]
         if !legacy_v3 && !self.scheduled.is_empty() {
@@ -20550,6 +20740,10 @@ impl BattleState {
 /// 20, unchanged, the Evo Zap (card.rs `SpellShape::Echo`): the table gained an evolved spell whose shape is a new
 ///    variant, so the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other
 ///    card data. No new state: its objects are an area and a fuse, saved and hashed as before.
+/// 20, unchanged, the Evo Battle Ram (card.rs `RamDef`, `HitRageDef`): EvoDef gained `ram` and `hit_rage`, and the table
+///    an evolved form and its death spawn, so the card fingerprint moves: a snapshot saved by an earlier build is
+///    refused as saved against other card data. EvoBoard gained `rams` and `rages` (serde default empty, hashed only
+///    when not empty), so a blob saved before them deserializes and hashes as it did.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

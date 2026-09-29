@@ -458,15 +458,20 @@ fn forms_take_slots_after_every_existing_card() {
             ("Cannon", "Cannon_EV1"),
             ("Musketeer", "Musketeer_EV1"),
             ("AngryBarbarians", "AngryBarbarians_EV1"),
-            ("Zap", "Zap_EV1")
+            ("Zap", "Zap_EV1"),
+            ("BattleRam", "BattleRam_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Five forms and the Elite Barbarians' second member (AngryBarbarian_EV1_2), right after its form.
-    assert_eq!(db.cards.len(), n0 + 6);
+    // Six forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, and the Evo Battle
+    // Ram's death spawn (Barbarian_EV1, with its rage) right after the ram.
+    assert_eq!(db.cards.len(), n0 + 8);
     assert_eq!(db.cards[n0 + 4].name, "AngryBarbarian_EV1_2");
     assert!(db.cards[n0 + 4].summon_only);
+    assert_eq!((db.cards[n0 + 6].name.as_str(), db.cards[n0 + 7].name.as_str()), ("BattleRam_EV1", "Barbarian_EV1"));
+    assert!(db.cards[n0 + 7].summon_only && db.cards[n0 + 7].evo.as_ref().is_some_and(|e| e.hit_rage.is_some()));
+    assert_eq!(db.cards[n0 + 6].death_spawn.map(|d| d.unit), Some((n0 + 7) as u16));
     // The whole table: the hero pass leaves every one of those slots where it was, the forms included, and loads only
     // after them.
     let full = cards();

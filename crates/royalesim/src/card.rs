@@ -1673,9 +1673,53 @@ pub struct EvoDef {
     pub snipe: Option<SnipeDef>,
     /// Evo Elite Barbarians: the spear each member throws at a target out of its melee reach.
     pub spear: Option<SpearDef>,
+    /// Evo Battle Ram: it keeps its charge through its hits, and its charge strikes and pushes aside the enemy troops
+    /// it meets.
+    pub ram: Option<RamDef>,
+    /// A RAGE AFTER HITS, on a unit a form puts down (the Evo Battle Ram's death-spawned Barbarian_EV1): its own buff
+    /// after every `HitRageDef::hits`-th hit.
+    pub hit_rage: Option<HitRageDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
+}
+
+/// THE EVO BATTLE RAM (characters_evo.toml [BattleRam_EV1]; tools/extract_cards.py `ram_block`). Its row keeps the base
+/// ram's charge and reads Kamikaze false (it lives through its hit) and AttackPushBack 2000 (the recoil of each hit,
+/// knockback.ATTACK_PUSHBACK). KeepChargingAfterAttack: a hit leaves it charged, and its own recoil's ladder does not
+/// clear the charge (state.rs `charge_pass`), so it charges on at its target once the recoil is over. Its
+/// OnStartChargingAction is `push`; its DeathSpawnCharacter, Barbarian_EV1, carries a `HitRageDef`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RamDef {
+    pub push: RamPushDef,
+}
+
+/// THE RAM'S CHARGE PUSH (actions.toml BattleRam_EV1_PushBack, an ActionDamagingPushBack; state.rs `ram_pass`): from
+/// `delay_ms` after the charge starts, while the ram stays charged, every enemy ground troop whose centre comes within
+/// `radius` plus its own collision radius of the point `offset` ahead of the ram (along its facing) takes `damage`
+/// (level-scaled) once and is pushed aside: the knockback ladder of `strength` from the point on the ram's line beside
+/// it, so straight away from that line. An IgnorePushback troop takes the damage and is not moved.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RamPushDef {
+    /// ActionDelay, ms.
+    pub delay_ms: i32,
+    /// PushBackRadius, SUBTILES.
+    pub radius: i32,
+    /// PushRadiusDirectionalOffset, SUBTILES.
+    pub offset: i32,
+    /// PushBackStrength, NATIVE (the ladder's length, as a spell's Pushback).
+    pub strength: i32,
+    /// PushBackDamage, level 1.
+    pub damage: i32,
+}
+
+/// A RAGE AFTER HITS (characters_evo.toml Barbarian_EV1 BuffAfterHitsCount / BuffAfterHitsTime / BuffAfterHits, single
+/// entries; `ram_block`'s `spawn_rage`): the unit lands `apply` on itself after every `hits`-th hit it deals (state.rs
+/// `evo_after_fire`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HitRageDef {
+    pub hits: u32,
+    pub apply: BuffApply,
 }
 
 /// THE EVO ELITE BARBARIANS' SPEAR (angry_barbarian_evo.toml; tools/extract_cards.py `spear_block`), on each member
@@ -3677,9 +3721,37 @@ struct RawEvolution {
     evo_duplication: Option<RawDuplication>,
     evo_snipe: Option<RawSnipe>,
     evo_spear: Option<RawSpear>,
+    evo_ram: Option<RawRam>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_ram` (tools/extract_cards.py `ram_block`).
+#[derive(Deserialize)]
+struct RawRam {
+    keep_charging: Option<bool>,
+    push: Option<RawRamPush>,
+    spawn_rage: Option<RawSpawnRage>,
+}
+
+/// `evo_ram.push`: the charge action's numbers.
+#[derive(Deserialize)]
+struct RawRamPush {
+    delay_ms: Option<i32>,
+    radius_milli: Option<i32>,
+    offset_milli: Option<i32>,
+    strength_milli: Option<i32>,
+    damage: Option<i32>,
+}
+
+/// `evo_ram.spawn_rage`: the death-spawned unit's rage after hits.
+#[derive(Deserialize)]
+struct RawSpawnRage {
+    unit: Option<String>,
+    hits: Option<i32>,
+    time_ms: Option<i32>,
+    buff: Option<RawBuff>,
 }
 
 /// cards.json `evolutions[].evo_spear` (tools/extract_cards.py `spear_block`).
@@ -3823,6 +3895,23 @@ fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, Strin
         bombs,
         shot: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
         crown_damage: b.buff_crown_tower_damage_per_hit.unwrap_or(0).max(0),
+    })
+}
+
+fn ram_of(r: &RawRam) -> Result<RamDef, String> {
+    if r.keep_charging != Some(true) {
+        return Err("a ram that does not keep its charge; the ram block reads KeepChargingAfterAttack alone".into());
+    }
+    let p = r.push.as_ref().ok_or("a ram with no push")?;
+    let need = |v: Option<i32>, what: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a ram push with no {what}"));
+    Ok(RamDef {
+        push: RamPushDef {
+            delay_ms: need(p.delay_ms, "ActionDelay")?,
+            radius: milli(need(p.radius_milli, "PushBackRadius")?),
+            offset: milli(need(p.offset_milli, "PushRadiusDirectionalOffset")?),
+            strength: need(p.strength_milli, "PushBackStrength")?,
+            damage: need(p.damage, "PushBackDamage")?,
+        },
     })
 }
 
@@ -8283,7 +8372,7 @@ impl CardDb {
         if bc.summon_only || bc.evo.is_some() || (!spell_form && (bc.spell.is_some() || bc.kind == CardKind::Spell)) {
             return Err(format!("its base card {} is not a troop, building or spell card", bc.name));
         }
-        let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some(), extra.evo_spear.is_some()];
+        let blocks = [extra.evo_barrage.is_some(), extra.evo_duplication.is_some(), extra.evo_snipe.is_some(), extra.evo_spear.is_some(), extra.evo_ram.is_some()];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
             return Err("a troop or building form carries exactly one mechanic block here, a spell form none".into());
@@ -8294,6 +8383,8 @@ impl CardDb {
             &["ActionGroup", "ActionMusketeerSnipe", "ActionPlayEffect"]
         } else if extra.evo_spear.is_some() {
             &SPEAR_GRAPH
+        } else if extra.evo_ram.is_some() {
+            &["ActionDamagingPushBack"]
         } else {
             &[]
         };
@@ -8316,7 +8407,45 @@ impl CardDb {
         // A SPEAR FORM'S OTHER MEMBERS (summon_members 1..): each its own unit row, loaded here as a summon-only record
         // after the form, with the form's block, and held to the form's graph. Any other unit a form needs is refused.
         let mut members: Vec<(u8, CardDef)> = Vec::new();
+        // A RAM FORM'S DEATH SPAWN (Barbarian_EV1): its own unit row, loaded here as a summon-only record after the form,
+        // carrying the rage it lands after its hits (`HitRageDef`) in an EvoDef of its own.
+        let mut death: Option<CardDef> = None;
         for (which, u) in needs {
+            if let (Some(r), UnitUse::DeathSpawn) = (extra.evo_ram.as_ref(), &which) {
+                let rage = r.spawn_rage.as_ref().ok_or("a ram with no spawn_rage")?;
+                if rage.unit.as_deref() != Some(u.as_str()) || death.is_some() {
+                    return Err(format!("death spawn {u} is not the ram's one rage unit {:?}", rage.unit));
+                }
+                let mut uv = ctx.units.get(&u).cloned().ok_or_else(|| format!("death spawn {u}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("death spawn {u}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("death spawn {u}: {e}"))?;
+                if ur.action_graph.as_ref().is_some_and(|g| g.mechanic.unwrap_or(false)) {
+                    return Err(format!("death spawn {u} runs an action graph; not simulated"));
+                }
+                let (mut m, _, dneeds) = convert(ur, buffs, ctx).map_err(|e| format!("death spawn {u}: {e}"))?;
+                if let Some((_, n)) = dneeds.first() {
+                    return Err(format!("death spawn {u} needs {n}; not simulated"));
+                }
+                let raw_buff = rage.buff.as_ref().ok_or("a spawn rage with no buff")?;
+                let apply = buffs.apply(raw_buff, rage.time_ms, &format!("death spawn {u}"))?;
+                let hits = rage.hits.and_then(|h| u32::try_from(h).ok()).filter(|h| *h >= 1).ok_or("a spawn rage with no BuffAfterHitsCount of at least 1")?;
+                m.summon_only = true;
+                m.evo = Some(EvoDef {
+                    base,
+                    cycles,
+                    barrage: None,
+                    duplication: None,
+                    snipe: None,
+                    spear: None,
+                    ram: None,
+                    hit_rage: Some(HitRageDef { hits, apply }),
+                    cloned_as: None,
+                });
+                death = Some(m);
+                continue;
+            }
             let UnitUse::SummonMember(k) = which else {
                 return Err(format!("needs unit {u} loaded; a form with units of its own is not simulated"));
             };
@@ -8349,7 +8478,17 @@ impl CardDb {
         if extra.evo_barrage.is_some() && shapes.iter().any(|d| d.is_some()) {
             return Err("a barrage on a row that carries another spell object; one spell object names one shape".into());
         }
-        let mut evo = EvoDef { base, cycles, barrage: None, duplication: None, snipe: None, spear: None, cloned_as: None };
+        let mut evo = EvoDef { base, cycles, barrage: None, duplication: None, snipe: None, spear: None, ram: None, hit_rage: None, cloned_as: None };
+        // THE RAM: a charger that lives through its hit (its row's Kamikaze false), whose death spawn loaded above.
+        if let Some(r) = &extra.evo_ram {
+            if c.charge.is_none() || c.kamikaze {
+                return Err("a ram form that does not charge, or dies on its hit".into());
+            }
+            if death.is_none() {
+                return Err("a ram form with no death spawn to rage".into());
+            }
+            evo.ram = Some(ram_of(r)?);
+        }
         if let Some(b) = &extra.evo_barrage {
             evo.barrage = Some(barrage_of(b, buffs)?);
         }
@@ -8389,6 +8528,14 @@ impl CardDb {
         if !self.rarities.iter().any(|r| r.name == c.rarity) {
             return Err(format!("rarity {} not in rarities.csv", c.rarity));
         }
+        if let Some(d) = &death {
+            if !self.rarities.iter().any(|r| r.name == d.rarity) {
+                return Err(format!("death spawn {}: rarity {} not in rarities.csv", d.name, d.rarity));
+            }
+            if self.index(&d.name).is_some() {
+                return Err(format!("death spawn {} is already loaded", d.name));
+            }
+        }
         for (_, m) in members.iter_mut() {
             if !self.rarities.iter().any(|r| r.name == m.rarity) {
                 return Err(format!("member {}: rarity {} not in rarities.csv", m.name, m.rarity));
@@ -8411,6 +8558,13 @@ impl CardDb {
             let ui = (self.cards.len() - 1) as u16;
             if let Some(ms) = self.cards[form as usize].summon_members.as_mut() {
                 ms[k as usize].unit = ui;
+            }
+        }
+        if let Some(d) = death {
+            self.push(d, None)?;
+            let ui = (self.cards.len() - 1) as u16;
+            if let Some(ds) = self.cards[form as usize].death_spawn.as_mut() {
+                ds.unit = ui;
             }
         }
         self.forms.push((base, FORM_EVOLUTION, form));

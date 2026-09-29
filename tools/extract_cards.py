@@ -3519,7 +3519,7 @@ def globals_block(v: Vintage) -> dict:
 # THE EVOLVED FORMS THIS BUILD LOADS (15.535 only), each a spells_evolved row: the evolved form of the base card
 # whose EvolvedSpells names it. Only these three: the engine runs their mechanics (card.rs `EvoDef`), and a form
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
-EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1")
+EVOLUTIONS = ("Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1")
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
 # The card tables an evolved row's base card may come from, and the kind each gives the form.
@@ -3531,6 +3531,24 @@ EVOLUTIONS_PLAYED_NOT_IN_USE = {
 # value this reader implements. A row whose value differs is a mechanic nobody has read, and the build stops.
 SPEAR_MIN_RANGE_VAR = "AngryBarbarian_EV1_min_range"
 SPEAR_CONDITION = "!target_in_range({min}) && AngryBarbarian_EV_has_projectile > 0 && target_in_range({max})"
+# THE EVO BATTLE RAM'S CHARGE ACTION (characters_evo.toml [BattleRam_EV1] OnStartChargingAction, an actions.toml row),
+# read column by column: the columns pinned to the value this reader implements, the numbers it reads, and the
+# effect-only columns. Any other column, or a pinned value that differs, is a mechanic nobody has read, and the build
+# stops. AffectInvisible and FullPushBackCollisionCheck are pinned unmeasured: no scene has an invisible victim or a
+# push into a building.
+RAM_PUSH_PINNED = {
+    "ClassType": "ActionDamagingPushBack",
+    "PushToSide": True,
+    "DistanceProportinalPush": False,
+    "ContinuosPushBack": True,
+    "AffectInvisible": True,
+    "FullPushBackCollisionCheck": True,
+    "ForceStopIfTrue": "CHARGING() == false",
+    "GameObjectFilter": "passive_hit_ground_characters_not_same",
+    "PushFilter": "normal_pushback_ground_characters_not_same",
+}
+RAM_PUSH_READ = ("ActionDelay", "PushBackRadius", "PushRadiusDirectionalOffset", "PushBackStrength", "PushBackDamage")
+RAM_PUSH_COSMETIC = {"OnPushEffect", "OnPushEffectMinInterval"}
 
 
 def col_list(tb, name: str, col: str) -> list:
@@ -3767,6 +3785,53 @@ def spear_block(t: Tables, card: dict) -> dict:
     }
 
 
+def ram_block(t: Tables, card: dict) -> dict:
+    """BattleRam_EV1's charge (characters_evo.toml [BattleRam_EV1]), read whole or the build stops:
+      - KeepChargingAfterAttack: a hit neither kills it (its row's Kamikaze is false) nor ends its charge;
+      - OnStartChargingAction: an ActionDamagingPushBack, `RAM_PUSH_PINNED`, whose numbers are the `push` block;
+      - its DeathSpawnCharacter, Barbarian_EV1: after every BuffAfterHitsCount-th hit it lands its BuffAfterHits for
+        BuffAfterHitsTime (single entries), the `spawn_rage` block."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    if row["KeepChargingAfterAttack"] is not True or row["Kamikaze"] is not False or card.get("charge") is None:
+        raise SystemExit(f"{unit}: not a charger that keeps its charge and lives through its hit")
+    name = row["OnStartChargingAction"]
+    a = t["actions"].get(name) if name else None
+    if a is None:
+        raise SystemExit(f"{unit}: OnStartChargingAction {name!r} is no actions row")
+    unread = set(a) - set(RAM_PUSH_PINNED) - set(RAM_PUSH_READ) - RAM_PUSH_COSMETIC
+    off = {k: a.get(k) for k, v in RAM_PUSH_PINNED.items() if a.get(k) != v}
+    missing = [k for k in RAM_PUSH_READ if not isinstance(a.get(k), int)]
+    if unread or off or missing:
+        raise SystemExit(f"{unit}: {name} reads {sorted(unread)} unread, {off} off the pinned values, {missing} "
+                         "missing")
+    ds = card.get("death_spawn") or {}
+    spawn = ds.get("character")
+    if spawn is None:
+        raise SystemExit(f"{unit}: no DeathSpawnCharacter")
+    key, _ = unit_record(t, spawn)
+    tb = t[key]
+    counts = col_list(tb, spawn, "BuffAfterHitsCount")
+    times = col_list(tb, spawn, "BuffAfterHitsTime")
+    names = col_list(tb, spawn, "BuffAfterHits")
+    if len(counts) != 1 or len(times) != 1 or len(names) != 1:
+        raise SystemExit(f"{spawn}: BuffAfterHits* are not single entries ({counts}, {times}, {names})")
+    buff = norm_buff(t, names[0])
+    if buff is None or buff.get("death_spawn") is not None:
+        raise SystemExit(f"{spawn}: its BuffAfterHits {names[0]} is no buff, or spawns (a duplication, not a rage)")
+    return {
+        "keep_charging": True,
+        "push": {
+            "delay_ms": a["ActionDelay"],
+            "radius_milli": a["PushBackRadius"],
+            "offset_milli": a["PushRadiusDirectionalOffset"],
+            "strength_milli": a["PushBackStrength"],
+            "damage": a["PushBackDamage"],
+        },
+        "spawn_rage": {"unit": spawn, "hits": counts[0], "time_ms": times[0], "buff": buff},
+    }
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -3815,6 +3880,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["is_a_group"] = bool(s["IsAGroup"])
         elif name == "Musketeer_EV1":
             card["evo_snipe"] = snipe_block(t, unit, u)
+        elif name == "BattleRam_EV1":
+            card["evo_ram"] = ram_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k
