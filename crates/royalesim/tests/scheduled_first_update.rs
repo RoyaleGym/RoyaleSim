@@ -131,9 +131,12 @@ fn the_old_arm_takes_the_push_a_tick_later() {
     assert_eq!(off(old[1], slot), ((-60, -137), 149), "next_tick: the second frame {:?}", old[1]);
 }
 
+/// A Skeleton's first three frames, native.
+type Frames = [(i32, i32); 3];
+
 /// The two ub-gy slots whose Skeleton overlaps the Red left princess tower (3500, 25500), and the client's first three
 /// frames of the Skeleton born on each (client 15.535.29, ub-gy3-slot-in-tower and ub-gy1-left).
-const IN_TOWER: [((i32, i32), [(i32, i32); 3]); 2] = [
+const IN_TOWER: [((i32, i32), Frames); 2] = [
     ((3000, 25500), [(2850, 25500), (2700, 25500), (2550, 25500)]),
     ((4500, 25000), [(4634, 24933), (4768, 24866), (4902, 24799)]),
 ];
