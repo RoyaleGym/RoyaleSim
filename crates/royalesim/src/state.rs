@@ -6606,6 +6606,39 @@ pub struct HeroUnit {
     pub recharge_at: u32,
 }
 
+/// A THROW UNDER WAY (card.rs `AbilityEffect::Throw`, the Hero Balloon's button; `throw_pass`): the hero, its side,
+/// its form card and level, the tick its seek runs, then the pick (None: the failsafe) and the tick the throw appears;
+/// once it flies, its point and its aim (the target's point, the last one seen once the target is gone), the fraction
+/// the step carries and the moves made. Saved and hashed (`BattleState::throws`, only when not empty).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ThrowRun {
+    pub hero: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub seek_at: u32,
+    pub target: Option<EntityId>,
+    pub appear_at: u32,
+    pub flying: bool,
+    pub pos: Vec2,
+    pub aim: Vec2,
+    pub frac: Vec2,
+    pub moves: u32,
+}
+
+/// THE HERO BALLOON'S THROW, its ticks (`throw_pass`), measured on client 15.535.29 (Oracle's sp-balloon-g6000-s0,
+/// -g4500-s0, -g2500d-s0 and -failsafe-s0; the press's first frame P, the button firing on P + 1,
+/// `ABILITY_START_TICKS`): the seek on the tick after the button fires (P + 2: the seeker's Delay 50); a throw that has
+/// a pick appears on the tick after the seek (P + 3, all four), 250 ahead of the Balloon at its pick, and moves from the
+/// next; with none, the failsafe's throw appears a tick later (P + 4) on the Balloon's own point.
+pub const THROW_SEEK_TICKS: u32 = 1;
+pub const THROW_APPEAR_TICKS: u32 = 1;
+pub const THROW_FAILSAFE_APPEAR_TICKS: u32 = 2;
+
+/// THE TICKS A THROW'S SPEED HOLDS (its ramp's Interval, 150 ms), from its first move. Measured: 12 moves at 201 native
+/// (the table's first four entries), then 3 at each of 243, 274, 299 and 320 (sp-balloon-g6000-s0).
+pub const THROW_SPEED_BLOCK_TICKS: u32 = 3;
+
 /// A DASH CHAIN UNDER WAY (card.rs `AbilityEffect::DashChain`, the Golden Knight's button; `chain_pass`): the champion,
 /// the phase and the tick it began, the target, the targets hit (OncePerTarget) and the dashes left. Saved and hashed
 /// (`BattleState::chains`, only when not empty).
@@ -7648,6 +7681,8 @@ pub struct BattleState {
     hero_units: Vec<HeroUnit>,
     /// The dash chains under way (`ChainRun`), in press order. Empty in every battle without one.
     chains: Vec<ChainRun>,
+    /// The throws under way (`ThrowRun`), in press order. Empty in every battle without one.
+    throws: Vec<ThrowRun>,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8034,6 +8069,7 @@ impl BattleState {
             evo: EvoBoard::default(),
             hero_units: Vec::new(),
             chains: Vec::new(),
+            throws: Vec::new(),
             deflects: Vec::new(),
             mana_unit,
             mana_rate,
@@ -12611,6 +12647,117 @@ impl BattleState {
         }
     }
 
+    /// THE HERO BALLOON'S THROWS (card.rs `AbilityEffect::Throw`, `ThrowRun`), in the Projectile phase before the spells
+    /// step, each on its own clock:
+    ///   - on its seek tick it picks (`throw_pick`), from the hero's point, or ends if the hero is gone;
+    ///   - on its appear tick it stands `start_offset` ahead of the hero toward its pick (the client's native arithmetic,
+    ///     combat.rs `projectile_advance` from the hero's point), or on the hero's point with no pick; it does not move;
+    ///   - each later tick it moves at `speeds[k / 3]` native (k its moves so far, the last entry held) toward its aim,
+    ///     the pick's point while the pick lives and the last one seen after, by combat.PROJECTILE_STEP; on the tick
+    ///     the step reaches the aim it lands there: `unit` is created on that point (`spawn_with`: its spawn area, the
+    ///     landing blow, is cast now and strikes in this tick's spell step) deploying `unit_deploy_ms` from the next
+    ///     tick's countdown, and the throw ends.
+    ///
+    /// Measured on client 15.535.29 (level 11; Oracle's sp-balloon-*): the flights of 5,990 and 4,442 (a standing Ice
+    /// Golemite) took 23 and 18 frames and landed on the frame after the last, 138 and 125 short; the trooper appeared
+    /// on the golem's point that frame, deploying 10 frames, and the golem lost 263 to the blow that frame (and died);
+    /// a pick killed in flight (g2500d) left its last point as the aim, the trooper appearing there on schedule; with no
+    /// enemy troop in reach one zero-length throw on the Balloon's point, the trooper there the next frame, and none
+    /// after (a golem 60 ticks later drew nothing). Unmeasured: a tie in distance (the resolver's order is taken: the
+    /// highest current hp, then the earliest created) and a hero gone before its seek (the table says the seek goes on:
+    /// AbortIfInstigatorDies false; the engine ends it).
+    fn throw_pass(&mut self) {
+        let tick = self.tick;
+        let mult = self.cfg.calib.projectile_speed_to_subtiles_per_tick;
+        let mut runs = std::mem::take(&mut self.throws);
+        let mut landed = false;
+        runs.retain_mut(|r| {
+            let Some(crate::card::AbilityEffect::Throw { radius, unit, unit_deploy_ms, start_offset, speeds }) = self.cfg.cards.get(r.card).ability.as_ref().map(|a| a.effect.clone()) else {
+                return false;
+            };
+            if tick == r.seek_at {
+                if !self.ents.is_alive(r.hero) {
+                    return false;
+                }
+                let h = r.hero.index as usize;
+                r.pos = self.ents.pos[h];
+                r.target = self.throw_pick(h, radius);
+                #[cfg(clash_plant = "throw_failsafe_on_time")]
+                let late = 0; // PLANT (regression): the failsafe's throw appears when a pick's would.
+                #[cfg(not(clash_plant = "throw_failsafe_on_time"))]
+                let late = if r.target.is_some() { 0 } else { THROW_FAILSAFE_APPEAR_TICKS - THROW_APPEAR_TICKS };
+                r.appear_at = tick + THROW_APPEAR_TICKS + late;
+                return true;
+            }
+            if !r.flying {
+                if tick != r.appear_at || r.appear_at == 0 {
+                    return true;
+                }
+                if self.ents.is_alive(r.hero) {
+                    r.pos = self.ents.pos[r.hero.index as usize];
+                }
+                r.aim = r.target.filter(|t| self.ents.is_alive(*t)).map_or(r.pos, |t| self.ents.pos[t.index as usize]);
+                if r.aim != r.pos {
+                    let mut f = Vec2::default();
+                    r.pos = combat::projectile_advance(ProjectileStep::ClientNativeTruncated, r.pos, r.aim, start_offset, &mut f, r.team);
+                }
+                r.flying = true;
+                return true;
+            }
+            if let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) {
+                r.aim = self.ents.pos[t.index as usize];
+            }
+            let block = (r.moves / THROW_SPEED_BLOCK_TICKS) as usize;
+            #[cfg(clash_plant = "throw_speed_flat")]
+            let block = {
+                let _ = block;
+                0 // PLANT (regression): the throw keeps its first speed.
+            };
+            let speed = speeds[block.min(speeds.len() - 1)] * mult;
+            r.moves += 1;
+            r.pos = combat::projectile_advance(self.cfg.calib.projectile_step, r.pos, r.aim, speed, &mut r.frac, r.team);
+            if r.pos != r.aim {
+                return true;
+            }
+            let lvl = self.cfg.cards.unit_level(r.card, unit, None, r.level).expect("the throw's unit level is validated at try_new");
+            if let Ok(id) = self.spawn_now(r.team, unit, lvl, r.aim, EntityKind::Troop) {
+                self.ents.deploy_ms[id.index as usize] = unit_deploy_ms;
+                landed = true;
+            }
+            false
+        });
+        self.throws = runs;
+        if landed {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
+    /// THE PICK OF A THROW from hero `i` (default_targets_no_towers_no_flying, the resolver's order): an enemy ground
+    /// troop (not flying, not mid-leap, not under ground, not hidden, not invisible) whose centre lies within `range` of
+    /// the hero's; the nearest by centre distance, then the highest current hp, then the earliest created. None when
+    /// none is.
+    fn throw_pick(&self, i: usize, range: i32) -> Option<EntityId> {
+        let e = &self.ents;
+        let r2 = (range as i64) * (range as i64);
+        (0..e.capacity())
+            .filter(|&j| {
+                e.alive[j]
+                    && e.hp[j] > 0
+                    && e.team[j] != e.team[i]
+                    && e.kind[j] == EntityKind::Troop
+                    && !e.in_air(j)
+                    && !e.jumping[j]
+                    && e.tunnel_dest[j].is_none()
+                    && !e.underground(j)
+                    && !e.attached(j)
+                    && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, j)
+            })
+            .map(|j| (e.pos[j].dist2(e.pos[i]), -e.hp[j], e.creation_seq[j], j))
+            .filter(|(d2, _, _, _)| *d2 <= r2)
+            .min()
+            .map(|(_, _, _, j)| e.id_of(j))
+    }
+
     /// THE CLOSEST TARGET A DASH CHAIN MAY TAKE from champion `i`: an enemy ground character (the table's
     /// GroundCharacterTargets: a troop, not flying, not mid-leap, not held by a hook, not under ground) whose centre
     /// lies within `range` of his, not in `hit` (OncePerTarget); the nearest by centre distance, then the earliest
@@ -16066,6 +16213,10 @@ impl BattleState {
         self.deflects.retain(|(id, until)| now < *until && self.ents.is_alive(*id));
         let deflecting: Vec<EntityId> = self.deflects.iter().map(|(id, _)| *id).collect();
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick, &deflecting);
+        // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
+        if !self.throws.is_empty() {
+            self.throw_pass();
+        }
         {
             let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas, tick: self.tick };
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
@@ -18960,6 +19111,24 @@ impl BattleState {
                     self.spells.push(sp);
                 }
             }
+            // THE THROW BEGINS (`ThrowRun`, `throw_pass`): its seek on the next tick.
+            crate::card::AbilityEffect::Throw { .. } => {
+                #[cfg(not(clash_plant = "throw_never"))]
+                self.throws.push(ThrowRun {
+                    hero,
+                    team,
+                    card,
+                    level,
+                    seek_at: self.tick + THROW_SEEK_TICKS,
+                    target: None,
+                    appear_at: 0,
+                    flying: false,
+                    pos,
+                    aim: pos,
+                    frac: Vec2::default(),
+                    moves: 0,
+                });
+            }
             // THE DEFLECT (the Monk's): his buff lands now (its DamageReduction cuts every hit on him), he stands for
             // `active_ms` as a cast holds a hero (the stun timer: no walk, no attack, and his neighbours still push him),
             // and his deflect is active that long (`deflects`). Measured on client 15.535.29 (sp-champ-Monk-s0, press
@@ -20452,6 +20621,29 @@ impl BattleState {
                 h.i32(c.left);
             }
         }
+        // The throws under way, only when there are some.
+        if !self.throws.is_empty() {
+            h.u32(0x5448_5257);
+            h.u32(self.throws.len() as u32);
+            for r in &self.throws {
+                h.id(r.hero);
+                h.u32(r.team as u32);
+                h.u32(u32::from(r.card));
+                h.i32(r.level);
+                h.u32(r.seek_at);
+                h.bool(r.target.is_some());
+                if let Some(t) = r.target {
+                    h.id(t);
+                }
+                h.u32(r.appear_at);
+                h.bool(r.flying);
+                for v in [r.pos, r.aim, r.frac] {
+                    h.i32(v.x);
+                    h.i32(v.y);
+                }
+                h.u32(r.moves);
+            }
+        }
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
         // pending transformation -- hashes as it did before the list.
         // The evolved units' state, only when there is some. PLANT evo_hashed_when_absent (tests/evolution.rs): in every
@@ -21213,6 +21405,9 @@ struct Snapshot {
     /// The dash chains under way (`BattleState::chains`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     chains: Vec<ChainRun>,
+    /// The throws under way (`BattleState::throws`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    throws: Vec<ThrowRun>,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -21883,6 +22078,7 @@ impl BattleState {
             evo: self.evo.clone(),
             hero_units: self.hero_units.clone(),
             chains: self.chains.clone(),
+            throws: self.throws.clone(),
             deflects: self.deflects.clone(),
             state_hash: self.state_hash(),
         };
@@ -22132,6 +22328,7 @@ impl BattleState {
             evo: snap.evo,
             hero_units: snap.hero_units,
             chains: snap.chains,
+            throws: snap.throws,
             deflects: snap.deflects,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,

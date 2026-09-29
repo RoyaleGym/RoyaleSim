@@ -773,6 +773,9 @@ class Tables(dict):
         # name, and each base card's EvolvedSpells link to its forms. Empty on every other load.
         self.abilities: dict[str, dict] = {}
         self.hero_links: dict[str, list] = {}
+        # 15.535, the hero pass only: the hero files' [TARGET_RESOLVER.*] sections, by name (the Hero Balloon's throw
+        # picks its target through one). Empty on every other load.
+        self.resolvers: dict[str, dict] = {}
 
 
 def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) -> Tables:
@@ -4267,6 +4270,7 @@ HERO_FORMS = {
     "Musketeer_hero": ("Musketeer", "musketeer_hero"),
     "IceGolemite_hero": ("IceGolemite", "ice_golemite_hero"),
     "Berserker_hero": ("Berserker", "berserker_hero"),
+    "Balloon_hero": ("Balloon", "balloon_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -4291,6 +4295,22 @@ SPAWN_AHEAD_KEYS = {
 }
 PLACEHOLDER_SET = {"Rarity", "IsBuilding", "DeployTime", "DeployDelay", "LifeTime", "OnStartingAction"}
 HERO_AREA_COSMETIC = {"ParentLoopingEffectToSelf", "ScaledEffect", "StatsTags", "OneShotEffect"}
+# THE HERO BALLOON'S THROW (`throw_effect`): the keys its seeker may set, the filter and the resolver order it
+# implements, the ramp's two strings (its variable's name in place of {v}), the projectile's pinned columns and the
+# landing area's; any other stops the build. THROW_SPEED_BLOCKS: the speed table's length, 3 ticks a block.
+THROW_SEEKER_KEYS = {
+    "ClassType", "GameTagsToSet", "OncePerTarget", "TargetSelectionMode", "TargetFilter", "Actions", "Delays", "Shape",
+    "PauseTags", "AbortIfInstigatorDies", "ActionOnSelfWhenTriggered", "ParentAsInstigatorForSelfActions",
+    "OnFinishedAction",
+}
+THROW_FILTER = "default_targets_no_towers_no_flying"
+THROW_STRATEGIES = ["RESOLVER_STRATEGY_CLOSEST_TARGET", "RESOLVER_STRATEGY_HIGHEST_CURR_HP"]
+THROW_RAMP_VALUE = "{v} + 2"
+THROW_RAMP_SPEED = "logX10000(max(5, {v} - 1)) / 80"
+THROW_PROJECTILE_PINNED = {"Speed": 1, "Homing": True, "Damage": 0, "Gravity": 0, "DeflectBehaviour": "NoDeflect"}
+THROW_PROJECTILE_COSMETIC = {"Rarity", "HitEffect", "TrailEffect", "PrefabAsset", "Name"}
+THROW_LANDING_PINNED = {"OnlyEnemies": True, "HitsGround": True, "HitsAir": False, "LifeDuration": 50, "HitSpeed": 50}
+THROW_SPEED_BLOCKS = 40
 
 
 def hero_files(v: Vintage, stem: str) -> list[Path]:
@@ -4302,9 +4322,9 @@ def hero_files(v: Vintage, stem: str) -> list[Path]:
 def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
     """Lay the hero files of `forms` over `t` (the hero pass's own load): [SPELL_HERO.*] into a new
     `spells_hero` table, [ABILITY.*] into `t.abilities`, the base row's EvolvedSpells into `t.hero_links`
-    (recorded, never applied: the base row stays as it is), [STATS.*] dropped, [SHAPE.*] and
-    [DAMAGE_TYPE.*] by name, every other section routed as the base pass routes it. A name a table
-    already holds stops the build."""
+    (recorded, never applied: the base row stays as it is), [STATS.*] dropped, [SHAPE.*], [VARIABLE.*],
+    [TARGET_RESOLVER.*] and [DAMAGE_TYPE.*] by name, every other section routed as the base pass routes it. A
+    name a table already holds stops the build."""
     t["spells_hero"] = OverlayTable("spells_hero", None)
     for _form, (_base, stem) in forms.items():
         for p in hero_files(v, stem):
@@ -4323,6 +4343,12 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
                     continue
                 if section == "SHAPE":
                     t.shapes.update(body)
+                    continue
+                if section == "VARIABLE":
+                    t.variables.update(body)
+                    continue
+                if section == "TARGET_RESOLVER":
+                    t.resolvers.update(body)
                     continue
                 if section == "DAMAGE_TYPE":
                     t.damage_types.update(body)
@@ -4529,6 +4555,20 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     if unread:
         raise SystemExit(f"hero ability {name}: sets {sorted(unread)}, which this reader does not read")
     acts = h["actions"]
+    first = acts.get(a["OnActivationAction"]) if isinstance(a["OnActivationAction"], str) else None
+    if first is not None and first["ClassType"] == "ActionRunActionListOnObjectsInShapeWithPrio":
+        effect = throw_effect(h, name, a["OnActivationAction"], units)
+        return {
+            "name": name,
+            "mana_cost": a["ManaCost"],
+            "max_charges": a.get("MaxCharges"),
+            "cooldown_ms": a.get("Cooldown"),
+            "cast_ms": a.get("CastTime") or 0,
+            "trigger_delay_ms": a.get("TriggerDelay") or 0,
+            "keep_current_target": a.get("KeepCurrentTarget") is True,
+            "is_champion": a.get("IsChampion") is True,
+            "effect": effect,
+        }
     got = _group_leaves(acts, a["OnActivationAction"])
     if got is None:
         raise SystemExit(f"hero ability {name}: OnActivationAction is not an ActionGroup")
@@ -4606,6 +4646,121 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     }
 
 
+def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
+    """THE HERO BALLOON'S BUTTON ([ABILITY.BalloonHero_Ability]), read whole or the build stops:
+      - OnActivationAction: an ActionRunActionListOnObjectsInShapeWithPrio (the seeker) that takes, after its one Delay,
+        the closest enemy ground troop in its circle Shape (`radius_milli`; filter THROW_FILTER: characters, no towers,
+        no fliers, nothing hidden or invisible), once, and runs its activation group on the hero; the per-target action
+        is an effect. OnFinishedAction, with no pick, is the failsafe;
+      - the activation group: a 500 ms tag that stops the failsafe, an animation, the target finder (a resolver over
+        the same Shape and filter, closest then highest current hp: THROW_STRATEGIES) and, `spawn_delay_ms` later, the
+        spawner: an ActionSpawn of the throw's projectile from `start_offset_milli` ahead of the hero at that target;
+      - the projectile: Speed 1, homing, no damage, released on the hit as `unit` deploying `unit_deploy_ms`; its
+        OnStartingAction an ActionInterval (`ramp_start_ms`, then every `ramp_every_ms`) of the ramp: its variable
+        up by 2, then its speed logX10000(max(5, v - 1)) / 80. `speeds` is that speed, block by block of the interval,
+        with logX10000 read as 10000 ln (measured: 201, 243, 274, 299, 320 native a tick) and the k-th block reading
+        the variable at 2k (measured: the first four blocks move at 5's speed);
+      - the failsafe: an ActionInterval (`failsafe_start_ms`, then every `failsafe_every_ms`) of the same spawner with
+        no target, stopped by the tag;
+      - the unit's SpawnAreaObject, its landing: one hit (life = pulse) on enemy ground units in `landing.radius_milli`,
+        `landing.damage` (level-scaled), `landing.crown_tower_damage_percent`.
+    The unit is added to `units`."""
+    import math
+
+    acts = h["actions"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    sk = _one_action(acts, seeker, "ActionRunActionListOnObjectsInShapeWithPrio", THROW_SEEKER_KEYS)
+    need(sk["OncePerTarget"] is True and sk["TargetSelectionMode"] == "Closest" and sk["TargetFilter"] == THROW_FILTER
+         and sk["AbortIfInstigatorDies"] is False and sk["ParentAsInstigatorForSelfActions"] is True
+         and sk["PauseTags"] == "CAPTURED", "the seeker's flags are not the ones read")
+    seek_delays = col_list(acts, seeker, "Delays")
+    need(len(seek_delays) == 1 and isinstance(seek_delays[0], int), f"the seeker's Delays {seek_delays}")
+    shape = h.shapes.get(sk["Shape"]) if isinstance(sk["Shape"], str) else None
+    need(shape is not None and shape.get("ClassType") == "Circle" and isinstance(shape.get("Radius"), int),
+         f"the seeker's Shape {sk['Shape']!r} is not a circle")
+    need(_cosmetic_action(acts, sk["Actions"]), "the seeker's per-target action is not an effect")
+    group = group_subactions(h, sk["ActionOnSelfWhenTriggered"], f"hero ability {name} activation")
+    classes = [acts.get(n)["ClassType"] for n, _ in group]
+    need(classes == ["ActionWithDuration", "ActionRunForcedAnimationOnce", "ActionWriteResolverResultToContext",
+                     "ActionSpawn", "ActionPlayEffect"], f"the activation group runs {classes}")
+    stop = _one_action(acts, group[0][0], "ActionWithDuration", {"ClassType", "ActionDuration", "GameTagsToSet"})
+    need(stop["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1", "the activation's tag is not the failsafe's stop")
+    finder_keys = {"ClassType", "Resolver", "ResultName"}
+    finder = _one_action(acts, group[2][0], "ActionWriteResolverResultToContext", finder_keys)
+    res = h.resolvers.get(finder["Resolver"])
+    need(res is not None and res.get("Shape") == sk["Shape"] and res.get("Filter") == THROW_FILTER
+         and list(res.get("StrategyList") or []) == THROW_STRATEGIES, f"the resolver {finder['Resolver']!r}")
+    keys = {
+        "ClassType", "TargetFromContextName", "SpawnType", "SpawnData", "ProjectileStartOffset", "StartPositionZOffset",
+    }
+    spawner = _one_action(acts, group[3][0], "ActionSpawn", keys)
+    need(spawner["SpawnType"] == "ProjectileType" and spawner["TargetFromContextName"] == finder["ResultName"]
+         and isinstance(spawner["ProjectileStartOffset"], int), "the spawner does not throw at the finder's pick")
+    pt = h["projectiles"]
+    pname = spawner["SpawnData"]
+    pr = pt.get(pname)
+    need(pr is not None, f"no projectile row {pname}")
+    off = {k: pr.get(k) for k, v in THROW_PROJECTILE_PINNED.items() if pr.get(k) != v}
+    unread = pt.set_fields.get(pname, set()) - set(THROW_PROJECTILE_PINNED) - THROW_PROJECTILE_COSMETIC - {
+        "SpawnCharacter", "SpawnCharacterDeployTime", "OnStartingAction", "OnHitTargetAction"}
+    need(not off and not unread, f"the projectile reads {off} off, {sorted(unread)} unread")
+    tag_keys = {"ClassType", "ActionDuration", "GameTagsToSet"}
+    need(_one_action(acts, pr["OnHitTargetAction"], "ActionWithDuration", tag_keys) is not None,
+         "the projectile's OnHitTargetAction is not a tag")
+    ramp = _one_action(acts, pr["OnStartingAction"], "ActionInterval",
+                       {"ClassType", "StartCounterAt", "Interval", "ActionToExecute"})
+    rsubs = group_subactions(h, ramp["ActionToExecute"], f"hero ability {name} ramp")
+    need(len(rsubs) == 2 and all(d == 0 for _, d in rsubs), f"the ramp group {rsubs}")
+    inc = _one_action(acts, rsubs[0][0], "ActionSetVariable", {"ClassType", "Variable", "Value"})
+    var = inc["Variable"]
+    up = _one_action(acts, rsubs[1][0], "ActionOverrideProjectileSpeed", {"ClassType", "SpeedOverride"})
+    need(inc["Value"] == THROW_RAMP_VALUE.format(v=var) and up["SpeedOverride"] == THROW_RAMP_SPEED.format(v=var)
+         and (h.variables.get(var) or {}).get("DefaultValue", 0) == 0, "the ramp's strings or its variable's start")
+    speeds = [int(10000 * math.log(max(5, 2 * k - 1))) // 80 for k in range(THROW_SPEED_BLOCKS)]
+    keys = {"ClassType", "StartCounterAt", "Interval", "ActionToExecute", "ForceStopIfTrue", "ExecuteIfTrue"}
+    fs = _one_action(acts, sk["OnFinishedAction"], "ActionInterval", keys)
+    need(fs["ForceStopIfTrue"] == "UNIT_CUSTOM_TAG_1" and fs["ExecuteIfTrue"] == "!UNIT_CUSTOM_TAG_1",
+         "the failsafe is not stopped by the activation's tag")
+    fsubs = group_subactions(h, fs["ActionToExecute"], f"hero ability {name} failsafe")
+    need([n for n, _ in fsubs] == [group[1][0], group[3][0], group[4][0], group[0][0]]
+         and all(d == 0 for _, d in fsubs), "the failsafe does not throw the same projectile")
+    unit = pr["SpawnCharacter"]
+    _, urow = unit_record(h, unit)
+    rec = norm_unit(h, unit, with_raw=True)
+    rec["spawn_area_object"] = None
+    units[unit] = rec
+    land = h["area_effect_objects"].get(urow["SpawnAreaObject"] or "")
+    need(land is not None, f"{unit}'s SpawnAreaObject is no area row")
+    off = {k: land.get(k) for k, v in THROW_LANDING_PINNED.items() if land.get(k) != v}
+    unread = h["area_effect_objects"].set_fields.get(urow["SpawnAreaObject"], set()) - set(THROW_LANDING_PINNED) - {
+        "Rarity", "Radius", "Damage", "CrownTowerDamagePercent", "StatsTags"}
+    need(not off and not unread and isinstance(land["Radius"], int) and isinstance(land["Damage"], int),
+         f"the landing area reads {off} off, {sorted(unread)} unread")
+    return {
+        "kind": "throw",
+        "radius_milli": shape["Radius"],
+        "seek_delay_ms": seek_delays[0],
+        "spawn_delay_ms": group[3][1],
+        "start_offset_milli": spawner["ProjectileStartOffset"],
+        "unit": unit,
+        "unit_deploy_ms": pr["SpawnCharacterDeployTime"],
+        "ramp_start_ms": ramp["StartCounterAt"],
+        "ramp_every_ms": ramp["Interval"],
+        "speeds": speeds,
+        "failsafe_start_ms": fs["StartCounterAt"],
+        "failsafe_every_ms": fs["Interval"],
+        "landing": {
+            "radius_milli": land["Radius"],
+            "damage": land["Damage"],
+            "crown_tower_damage_percent": ct_percent(land["CrownTowerDamagePercent"]),
+        },
+    }
+
+
 def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list[dict], list[Path]]:
     """The `hero_forms` records (HERO_FORMS, in that order) from a load of their own, and the files read."""
     h = load_tables(v, hero=HERO_FORMS)
@@ -4633,6 +4788,10 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         # Its ProjectileYOffset (the Hero Musketeer's 300) is on `card` already: summon_card copies what norm_unit
         # writes on every 15.535 row that sets it (COSMETIC keeps it out of `raw`).
         card["ability"] = ability_block(h, urow["Ability"], units, unit)
+        # ITS DEATH SPAWN (the Hero Balloon's BalloonHero_Bomb, a BalloonBomb [EXT] that changes display columns only):
+        # its own row, in the form's units, which the loader loads for it.
+        if urow["DeathSpawnCharacter"] is not None:
+            units[urow["DeathSpawnCharacter"]] = norm_unit(h, urow["DeathSpawnCharacter"], with_raw=True)
         aeos = {}
         dae = card.get("death_area_effect")
         if dae:

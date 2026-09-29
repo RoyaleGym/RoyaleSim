@@ -1194,6 +1194,12 @@ pub enum AbilityEffect {
     /// loader takes the steps at the trigger alone and refuses a group with a later one, but for the swap back from a
     /// form worn for a buff's life (`AbilityAction::FormWhileBuff`).
     ActionGroup { steps: Vec<AbilityStep> },
+    /// A UNIT THROWN AT AN ENEMY (the Hero Balloon's Skeletrooper; tools/extract_cards.py `throw_effect`; state.rs
+    /// `throw_pass`): the closest enemy ground troop whose centre lies within `radius` of the hero, then a homing
+    /// throw from `start_offset` ahead of the hero at it, whose speed steps up every 3 ticks through `speeds` (native a
+    /// tick, the last held); where it lands, `unit` deploying `unit_deploy_ms`, whose spawn area is the landing blow.
+    /// With no pick, one throw at the hero's own point. Radii in subtiles.
+    Throw { radius: i32, unit: u16, unit_deploy_ms: i32, start_offset: i32, speeds: Vec<i32> },
     /// A CHAMPION'S DEFLECT (the Monk's; `convert_champion_ability`): from the trigger, `buff` on the champion for its
     /// time, and for `active_ms` he stands (no walk, no attack; state.rs `fire_ability`, the hold) while every enemy
     /// shot that lands on him is also sent back at its firer for its full damage (combat.rs `step_projectiles`,
@@ -3727,7 +3733,8 @@ pub enum UnitRef {
     /// Entry k of a scheduled area (`SpellShape::ScheduledArea`) in the card's spell, death area or projectile area:
     /// the Graveyard's Skeletons, the Suspicious Bush's goblins.
     Scheduled(u8),
-    /// The unit a hero's button puts down (`AbilityEffect::SpawnAhead`, the Hero Musketeer's turret).
+    /// The unit a hero's button puts down (`AbilityEffect::SpawnAhead`, the Hero Musketeer's turret; `AbilityEffect::Throw`,
+    /// the Hero Balloon's Skeletrooper).
     AbilityUnit,
     /// Unit k an evolved form's own mechanic puts down (`EvoDef::ghost`: the Evo Royal Ghost's pair, 0 its left
     /// row, 1 its right).
@@ -4217,7 +4224,33 @@ struct RawAbilityEffect {
     buff: Option<RawBuff>,
     time_ms: Option<i32>,
     active_ms: Option<i32>,
+    /// `throw` (tools/extract_cards.py `throw_effect`): the throw's clock, its start, its speed table, its unit's deploy
+    /// and its landing (`radius_milli` and `unit` above).
+    seek_delay_ms: Option<i32>,
+    spawn_delay_ms: Option<i32>,
+    start_offset_milli: Option<i32>,
+    unit_deploy_ms: Option<i32>,
+    ramp_start_ms: Option<i32>,
+    ramp_every_ms: Option<i32>,
+    speeds: Option<Vec<i32>>,
+    failsafe_start_ms: Option<i32>,
+    failsafe_every_ms: Option<i32>,
+    landing: Option<RawThrowLanding>,
 }
+
+/// A `throw` effect's landing blow: its unit's SpawnAreaObject, one hit on enemy ground units.
+#[derive(Deserialize)]
+struct RawThrowLanding {
+    radius_milli: i32,
+    damage: i32,
+    crown_tower_damage_percent: i32,
+}
+
+/// THE HERO BALLOON'S THROW CLOCK the engine runs (state.rs `throw_pass`), in the table's values it was measured on:
+/// the seeker's Delay, the spawner's delay in the activation group, the ramp's interval and the failsafe's. A table with
+/// other values is refused: the engine's tick offsets were measured on these.
+const THROW_CLOCK: [(&str, i32); 6] =
+    [("seek_delay_ms", 50), ("spawn_delay_ms", 50), ("ramp_start_ms", 50), ("ramp_every_ms", 150), ("failsafe_start_ms", 50), ("failsafe_every_ms", 500)];
 
 /// One step of an `action_group` effect: `buff` (the buff row and its SpawnTime) or `form` (the character and the
 /// attack finish pair it sets of its own, null where it leaves them to the hero and on the hero's own row).
@@ -8933,7 +8966,29 @@ impl CardDb {
         if c.kind != b.kind || c.elixir != b.elixir || c.rarity != b.rarity || c.spell.is_some() {
             return Err(format!("its kind, elixir or rarity is not its base card's ({:?} {} {})", c.kind, c.elixir, c.rarity));
         }
+        // ITS DEATH SPAWN, when its row names one (the Hero Balloon's BalloonHero_Bomb): its own units record in the
+        // form's tables, a death bomb (a hitpoint-less building: `hitpointless_building`) and nothing else, loaded as a
+        // summon-only record right after the form's other rows.
+        let mut death: Option<CardDef> = None;
         for (which, name) in needs {
+            if which == UnitUse::DeathSpawn && death.is_none() {
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("death spawn {name}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("death spawn {name}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("building".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("death spawn {name}: {e}"))?;
+                let (mut d, _, dneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("death spawn {name}: {e}"))?;
+                d.summon_only = true;
+                if d.death_bomb_fuse_ms().is_none() || !dneeds.is_empty() || d.death_spawn.is_some() {
+                    return Err(format!("death spawn {name} is not a plain death bomb; not simulated on a hero form"));
+                }
+                if !self.rarities.iter().any(|r| r.name == d.rarity) {
+                    return Err(format!("death spawn {name}: rarity {} not in rarities.csv", d.rarity));
+                }
+                d.summon_only = true;
+                death = Some(d);
+                continue;
+            }
             if which != UnitUse::DeathAreaEffect {
                 return Err(format!("its unit needs {name} ({which:?}), which is not loaded for a hero form"));
             }
@@ -8996,6 +9051,59 @@ impl CardDb {
                 AbilityEffect::Areas { areas, start }
             }
             "action_group" => action_group(&what, a.effect.steps.as_deref().unwrap_or_default(), &c, buffs)?,
+            // THE THROW (the Hero Balloon's): its clock must be the measured one (THROW_CLOCK); its unit loads as the
+            // spawn-ahead unit does, with the landing as its spawn area (a one-shot area: the row's life is one pulse),
+            // which every creation of the unit casts where it appears (state.rs `spawn_with`).
+            "throw" => {
+                let e = &a.effect;
+                let got = [e.seek_delay_ms, e.spawn_delay_ms, e.ramp_start_ms, e.ramp_every_ms, e.failsafe_start_ms, e.failsafe_every_ms];
+                for ((key, want), v) in THROW_CLOCK.iter().zip(got) {
+                    if v != Some(*want) {
+                        return Err(format!("{what}: {key} {v:?}, where the throw was measured at {want}"));
+                    }
+                }
+                let name = e.unit.clone().ok_or_else(|| format!("{what}: a throw without a unit"))?;
+                let speeds = e.speeds.clone().filter(|v| !v.is_empty() && v.iter().all(|x| *x > 0)).ok_or_else(|| format!("{what}: a throw with no speeds"))?;
+                let land = e.landing.as_ref().ok_or_else(|| format!("{what}: a throw with no landing"))?;
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on an ability's unit"));
+                }
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                let hit = SpellHit {
+                    damage: land.damage,
+                    crown_pct: land.crown_tower_damage_percent,
+                    radius: milli(land.radius_milli),
+                    hits_air: false,
+                    hits_ground: true,
+                    only_enemies: true,
+                    only_own_troops: false,
+                    ignore_buildings: false,
+                    no_effect_to_crown_towers: false,
+                    knockback: None,
+                    buff: None,
+                    buff2: None,
+                    caps_buff_time: false,
+                    controls_buff: false,
+                };
+                u.spawn_area_effect = Some(SpellDef { shape: SpellShape::AreaEffect { hit }, placement: SpellPlacement::Anywhere });
+                u.summon_only = true;
+                unit = Some(u);
+                AbilityEffect::Throw {
+                    radius: milli(a.effect.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a throw with no radius"))?),
+                    unit: u16::MAX,
+                    unit_deploy_ms: e.unit_deploy_ms.filter(|d| *d > 0).ok_or_else(|| format!("{what}: a throw's unit with no deploy"))?,
+                    start_offset: milli(e.start_offset_milli.unwrap_or(0)),
+                    speeds,
+                }
+            }
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
@@ -9005,7 +9113,7 @@ impl CardDb {
             return Err(format!("rarity {} not in rarities.csv", c.rarity));
         }
         let (form_name, unit_name) = (c.name.clone(), unit.as_ref().map(|u| u.name.clone()));
-        if self.index(&form_name).is_some() || unit_name.as_ref().is_some_and(|n| self.index(n).is_some()) {
+        if self.index(&form_name).is_some() || unit_name.as_ref().is_some_and(|n| self.index(n).is_some()) || death.as_ref().is_some_and(|d| self.index(&d.name).is_some()) {
             return Err("a name already loaded".into());
         }
         self.push(c, None)?;
@@ -9013,8 +9121,15 @@ impl CardDb {
         if let Some(u) = unit {
             self.push(u, None)?;
             let ui = (self.cards.len() - 1) as u16;
-            if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. }, .. }) = self.cards[form as usize].ability.as_mut() {
+            if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. }, .. }) = self.cards[form as usize].ability.as_mut() {
                 *unit = ui;
+            }
+        }
+        if let Some(d) = death {
+            self.push(d, None)?;
+            let di = (self.cards.len() - 1) as u16;
+            if let Some(ds) = self.cards[form as usize].death_spawn.as_mut() {
+                ds.unit = di;
             }
         }
         self.hero_forms.push((base, form));
@@ -9327,7 +9442,7 @@ impl CardDb {
         // After them, so no earlier block's place moves: the unit a hero's button puts down (loaded after every other
         // record, `load_hero_forms`). A base card's hero form is not a block of the base: a form-2 deck entry plays it
         // (state.rs `try_new` checks its levels, py.rs `ids_of_indices` reports it under the base).
-        if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
+        if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. }, .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, *unit, None));
         }
         // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right
