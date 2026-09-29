@@ -57,8 +57,10 @@
 //!         0 TROOP  1 BUILDING  2 SPELL (anywhere)  3 ROLLING (troop territory, over
 //!         buildings: the Log, the Barbarian Barrel)  4 SPELL_NOT_ON_WATER (anywhere except
 //!         water: Goblin Barrel).
-//!     A spell in troop territory that keeps a troop's footprint rule (Heal, refused on a
-//!     building or a crown tower) reports 0, because it is placed exactly as a troop is.
+//!     A spell in troop territory that keeps a troop's footprint rule (Heal: it may not
+//!     stand on a building or a crown tower; a tap on an own one is moved off it as a
+//!     troop's tap is, placement.SPELL_AS_DEPLOY_TAPS, and a tap nothing moves is refused)
+//!     reports 0, because it is placed exactly as a troop is.
 //!     Code 4 is protocol.py's SPELL_NOT_ON_WATER (a Python mask without it would offer
 //!     the river to a Goblin Barrel that the engine refuses as WATER).
 //!         5 TUNNEL: a card that travels under ground (the Miner, the Goblin Drill) goes
@@ -575,9 +577,10 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
         (CardKind::Troop | CardKind::Building, (Territory::AnywhereButWater, _)) => KIND_TUNNEL,
         (CardKind::Troop, _) => 0,
         (CardKind::Building, _) => 1,
-        // A spell in troop territory that keeps a troop's footprint rule (Heal: `on_buildings` false) is refused on a
-        // building or a crown tower as a troop is, so it takes a troop's code. By the rule, not the name: code 3 alone
-        // cannot tell it from the Log, which may land on buildings.
+        // A spell in troop territory that keeps a troop's footprint rule (Heal: `on_buildings` false) may not stand on a
+        // building or a crown tower, as a troop may not: a tap on an own one is moved off it as a troop's tap is
+        // (placement.SPELL_AS_DEPLOY_TAPS), and a tap nothing moves is refused. So it takes a troop's code. By the rule,
+        // not the name: code 3 alone cannot tell it from the Log, which may land on buildings.
         #[cfg(not(clash_plant = "footprint_spell_kind_rolling"))]
         (CardKind::Spell, (Territory::EnemyTowerRects, true)) => 0,
         (CardKind::Spell, (Territory::EnemyTowerRects, _)) => 3,
