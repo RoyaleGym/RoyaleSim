@@ -161,11 +161,9 @@ disagree. Of the 369 top-level keys with a status, 249 are `measured`; one more 
 | `collision.SEPARATION_ITERATIONS` | 1 | guess, LOW | a crowd recording with per-tick positions |
 | `pathfinding.TIE_BREAK` | `ortho_first_placeholder` | guess, LOW | read only by the trace-fitted arm (`path2026.rs`); the selected arm reproduces the published node lists outright, so the key no longer gates it |
 | `combat.DAMAGE_ARITHMETIC` | `integer` | guess, LOW | hit counts to kill a tower at known levels |
-| `combat.CROWN_TOWER_DAMAGE_ROUNDING` | `ceil_kept_share` | community, MEDIUM | a crown tower's displayed hp before and after a spell at two card levels |
 | `targeting.LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET` | 25 | datamined, LOW | vendor the modern data, or measure a target held past its range |
 | `targeting.LOGIC_XPOS_BASED_TOWER_TARGETING` | true | datamined, LOW | a centre-column deploy: which tower it walks at |
 | `match.LOGIC_BATTLE_START_COOLDOWN_MS` | 4500 | datamined, LOW | any recording of a match start |
-| `match.KING_ACTIVATE_TIME_MS` | 3300 | datamined, MEDIUM | a recording of what the delay actually delays |
 | `arena.ARENA_SOURCE_VINTAGE` | ~2018 tilemap | datamined, MEDIUM | a calibrated screenshot of a live arena; bridge width varied by arena even in 2018 |
 | `knockback` (6 of 13 keys) | the measured ladder, with its duration, water, stacking, zero-vector and deploying-unit edges and the combo's melee push unfixed | guess / hypothesis, LOW-MEDIUM | each key's `promotion_rules` names the capture it needs. `DISPLACEMENT_LAW`, `ATTACK_RESET`, `PUSH_LOAD_TIMER`, `DIRECTION_ROLLING`, `ROLLING_CONTACT_RADIUS`, `ATTACK_PUSHBACK` and `DEATH_PUSHBACK` are measured |
 | `spells.*` (11 of 40 keys) | `AOE_HIT_TEST`, `ROLLING_HIT_SHAPE` and `SPAWNING_SPELL_WATER_RULE` are in `spell-spec.md`; the other eight are not, so read their ledger entries | guess / hypothesis / community | each key's own `promotion_rules` in the ledger names its deciding observation |
@@ -183,13 +181,16 @@ them at HIGH; each entry's `confidence` names the ones that are not. They are `t
 `time.SPEED_TO_SUBTILES_PER_TICK`, `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`,
 `pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the `movement.*` section except
 `BUFF_SPEED_COMPOSITION`, `SPAWN_PATHFIND_STATES`, `SPAWN_PATHFIND_START` and `JUMP_LANDING_CONTACT` (hypotheses), and the cost, goal and replan
-keys. Their evidence is in `pathfinding.md` and `movement-measurements.md`.
+keys except `pathfinding.SAMEPATH_SEGMENT` (a hypothesis: the engine ships the old arm while the
+measured one waits for its flip). Their evidence is in `pathfinding.md` and `movement-measurements.md`.
 
 These keys were measured later, on the 16.402 corpus or client 15.535.29, and are `measured` too:
 
 | Key | What it settles |
 |---|---|
 | `match.TICK_ORDER` | attack updates before move updates, the move pass in creation order |
+| `match.KING_ACTIVATE_TIME_MS` | the king's activation delay, 3550 ms |
+| `combat.CROWN_TOWER_DAMAGE_ROUNDING` | how a crown tower's reduced share of a spell's damage rounds (`ceil_kept_share`) |
 | `movement.JUMP_WATER_HOP` | a `JumpEnabled` troop's river hop |
 | `movement.DYING_UNIT_VISIBILITY` | whether a dying neighbour is still an obstacle this tick |
 | `combat.STAT_BASE_LEVEL`, `combat.TOWER_HITPOINT_LADDER` | level scaling and the crown-tower ladder |
@@ -200,10 +201,13 @@ These keys were measured later, on the 16.402 corpus or client 15.535.29, and ar
 | `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
 | `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
 
-The `hide.*` and `status.*` sections are mostly community, hypothesis and guess. `hide.RISE_LAW`,
+The `hide.*` section is mostly community (5 of its 7 keys). Half of the `status.*` section is
+community, hypothesis and guess (13 of its 26 keys). `hide.RISE_LAW`,
 `hide.TARGETABLE_WHILE_RISING`, `status.ATTRACT_LAW`, `status.ATTRACT_WHILE_HELD`,
 `status.FULL_STOP_BUFF_IS_STUN`, `status.BUFF_PULSE_AMOUNT`, `status.AREA_BUFF_SOURCE_BINDING`,
 `status.APPLY_BUFF_BEFORE_DAMAGE`, `status.BUFF_DEATH_SPAWN_DEPLOY_TIME`,
-`status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING`, `status.DAMAGE_REDUCTION` and `status.IDLE_BUFF` are measured.
-`status.DAMAGE_REDUCTION` is measured at a reduction of 100 only; what it gives at 15, 60 and 65 is a hypothesis.
+`status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING`, `status.DAMAGE_REDUCTION`, `status.IDLE_BUFF`,
+`status.STUN_CLEARS_TARGET`, `status.RESUME_RETARGET_WINDUP` and `status.WAITED_PRESS_CAST` are measured.
+`status.DAMAGE_REDUCTION` is measured at a reduction of 100 on client 15.535.29 and at 15 and 60 on
+16.402; what it gives at 65 is not measured.
 Each open key carries the observation that would settle it.

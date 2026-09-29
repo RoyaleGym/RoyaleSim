@@ -508,9 +508,15 @@ Working:
 - Evolved and hero forms for the five special cards of one deck: Evo Cannon, Evo Skeletons, Evo
   Musketeer, Hero Musketeer and Hero Ice Golem. `reset(..., forms=...)` marks a deck's card 1 for
   its evolution or 2 for its hero. Counting each card's own plays, every third play of an evolved
-  card is the evolution. A hero's ability is a button: a command on slot 4 or 5, just past the
+  card is the evolution. A hero's ability is a button: a command on slot 4, 5 or 6, just past the
   four hand slots, presses it. What each form does was measured on client 15.535.29 where the
   tests say so; the rest are named constants.
+- The Golden Knight's button, at `5f75824`. A press sends him dashing from one enemy to the next.
+  A side has at most three buttons: its heroes' first, then its champion's. The champion's charge
+  comes back 11 seconds after his dashes end, a figure not measured yet. The other champions play
+  as plain troops. A known defect: a press with no enemy on the ground within 5.5 tiles stops him
+  targeting anything until one comes that close, so against towers alone he never attacks again
+  (docs/mechanics.md, Known defects).
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
@@ -520,8 +526,9 @@ Working:
   freeze, damage over time, and what happens when several stack). Those rules come from reasoning
   about the card data, community write-ups or a best guess, and the constants file marks which.
   A few parts are measured: how much a single rage speeds a unit up, how hard a Tornado pulls
-  (speed buffs do not change the pull, and a stunned or frozen unit is still pulled), and that
-  enemies can target a Tesla as soon as it starts to rise. At `126992a` the Rage and Heal cards
+  (speed buffs do not change the pull, and a stunned or frozen unit is still pulled), what a stun
+  or a freeze does to the target and the swing of the unit it holds (at `7003b67`), and that enemies can target a
+  Tesla as soon as it starts to rise. At `126992a` the Rage and Heal cards
   load too. docs/mechanics.md lists what about them is not measured yet.
 - Same seed same battle, snapshots, and the deploy-legality query.
 - Seat symmetry is a test setting, not something the engine promises. The game itself treats the
@@ -538,8 +545,8 @@ Not modelled yet, in plain words:
   those cards show up in tests of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
   mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
-- Morph, air units beyond flying straight at their target, evolutions, champions' abilities
-  and tower troops.
+- Morph, air units beyond flying straight at their target, and tower troops. Evolutions, hero
+  forms and champions' buttons beyond the ones above.
 - The Monk's two damages. They come with no times, so the engine does not load them, and the Monk
   hits for its first damage only.
 - The Monk's Deflect ability. The card table does not carry the Monk's ability, so the Monk
