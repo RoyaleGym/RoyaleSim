@@ -101,6 +101,13 @@
 //!     BUTTONS). `state_json` gives each player an "abilities" list, one row per button, and each hero unit's
 //!     `status_flags` bit 4 (16). The catalogue's `hero` column is the button's elixir.
 //!
+//! UNITS AND THEIR LEVELS
+//!     Every entity row ends in `level` (ENTITY_FIELDS), the unified level the entity plays at: a played unit's card
+//!     level, a Mirror's copy that plus one, a Clone's copy the level spells.CLONE_LEVEL gives it (the Clone's), a
+//!     unit another puts down its parent's, a crown tower its tower level. `unit_hitpoints(card_id, level)` lists
+//!     every unit a card puts on the board as (role, unit name, hitpoints) at the level each takes, the card's own
+//!     row first; the roles are UNIT_ROLES (`unit_hitpoint_rows` says which block is which).
+//!
 //! WHAT IT CANNOT DO (raises instead of guessing)
 //!     `crowns_from_destroyed_towers = false` (crowns are derived from destroyed
 //!     towers every tick) is refused in rust_engine.py.
@@ -113,7 +120,7 @@
 
 use crate::arena::Arena;
 use crate::arena::Territory;
-use crate::card::{CardDb, CardKind, KING_TOWER, PRINCESS_TOWER};
+use crate::card::{CardDb, CardKind, UnitRef, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
@@ -226,7 +233,7 @@ pub const DEPLOY_REASONS: [&str; 18] = [
 /// ints, and a swap would decode without error and be drawn with confidence. The length
 /// is pinned to the serializer by a test in this file, so this is the half that cannot
 /// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
-pub const ENTITY_FIELDS: [&str; 21] = [
+pub const ENTITY_FIELDS: [&str; 22] = [
     "uid",
     "team",
     "kind",
@@ -252,6 +259,10 @@ pub const ENTITY_FIELDS: [&str; 21] = [
     // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit;
     // bit 4 a hero unit
     "status_flags",
+    // added 2026-09-28: the unified level the entity plays at (state.rs `EntityView::level`): a played unit's card
+    // level, a Mirror's copy that plus one, a Clone's copy the Clone's (spells.CLONE_LEVEL), a unit another puts down
+    // its parent's, a crown tower its tower level. Always reported (never -1).
+    "level",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
@@ -726,6 +737,102 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
     Ok(out)
 }
 
+/// THE ROLES `unit_hitpoint_rows` names, in the order a card's own row and its blocks come.
+pub const UNIT_ROLES: [&str; 5] = ["own", "second_summon", "spawn", "death_spawn", "release"];
+
+/// `Battle.unit_hitpoints` without Python: EVERY UNIT CARD `idx` PUTS ON THE BOARD played at unified `level`, as
+/// (role, unit name, hitpoints), each unit at the level it takes (`CardDb::unit_level`, `CardDb::spawn_level`, the
+/// walk `CardDb::check_levels` makes) and its hitpoints on its own ladder there (`CardDb::scaled` on `cards`, which the
+/// caller hands in as the battle's card data: the card-value overlay applied, `Calib::card_data`).
+///
+/// The card's OWN row comes first: ("own", its unit's row name, its hitpoints at `level`), the unit the catalogue's
+/// hitpoints column shows. A variant card (the Spirit Empress) has one own row per form, in its forms' order; a spell
+/// has none (it puts no unit of its own down: a Goblin Barrel lists its Goblins, a Fireball nothing). Then, down the
+/// whole chain in `CardDb::unit_refs` order (each record's own units right after it), one row per unit, its role the
+/// block that puts it down:
+///   * second_summon: a second summon, a member at an offset, an attached rider, a deploy spawn area's unit (the Tri
+///     Wizards' Electro Wizard and Ice Wizard, at the card's level);
+///   * spawn: a periodic spawner's, a life-state controller's wave, the building a tunneller leaves;
+///   * death_spawn: a death spawn, a death projectile's release, a death area's schedule, a hung buff's death spawn;
+///   * release: a spell's release or summon, a spell's or a shot's scheduled area.
+///
+/// A unit reached twice at one level by one role is listed once (a Tombstone's Skeleton is a spawn and a death spawn:
+/// two rows). Not listed: a death bomb (a timed impact, never a unit on the board; a container's units are), a
+/// transformation's row (the unit keeps its own hitpoints when it turns), and a hung buff's death spawn under
+/// status.BUFF_DEATH_SPAWN_LEVEL = victim_level (its level is the dying enemy's). Err, naming the level, for a level the
+/// card's ladder lacks, and for any unit of the chain whose ladder lacks the level it takes.
+pub fn unit_hitpoint_rows(cards: &CardDb, calib: &Calib, idx: u16, level: i32) -> Result<Vec<(&'static str, String, i32)>, String> {
+    cards.level_multiplier(idx, level).map_err(|e| format!("level {level}: {e}"))?;
+    let c = cards.get(idx);
+    let owns: Vec<u16> = match c.variant() {
+        Some(opts) => opts.iter().map(|o| o.card).collect(),
+        None => vec![idx],
+    };
+    let mut out: Vec<(&'static str, String, i32)> = Vec::new();
+    let mut walked: Vec<(u16, i32)> = Vec::new();
+    for &own in &owns {
+        let o = cards.get(own);
+        walked.push((own, level));
+        if o.kind != CardKind::Spell && o.death_bomb_fuse_ms().is_none() {
+            let hp = cards.scaled(own, level, o.hitpoints).map_err(|e| format!("level {level}: {e}"))?;
+            out.push((UNIT_ROLES[0], o.unit_name.clone(), hp));
+        }
+    }
+    for own in owns {
+        unit_rows_below(cards, calib, own, level, &mut walked, &mut out).map_err(|e| format!("level {level}: {e}"))?;
+    }
+    Ok(out)
+}
+
+/// `unit_hitpoint_rows` below record `idx` at `level`: each unit it names, at the level it gives that unit, then that
+/// unit's own, once per (record, level) walked.
+fn unit_rows_below(cards: &CardDb, calib: &Calib, idx: u16, level: i32, walked: &mut Vec<(u16, i32)>, out: &mut Vec<(&'static str, String, i32)>) -> Result<(), String> {
+    let c = cards.get(idx);
+    // A scheduled entry is its spell's (or its shot's) release, or its death area's death spawn: one block holds them.
+    let scheduled_role = if c.death_area_effect.as_ref().and_then(|d| d.shape.schedule()).is_some() { "death_spawn" } else { "release" };
+    let source_level = calib.buff_death_spawn_level == crate::state::BuffDeathSpawnLevel::SourceLevel;
+    for (path, unit, level_index) in cards.unit_refs(idx) {
+        let role = match path {
+            UnitRef::SecondSummon | UnitRef::SummonMember(_) | UnitRef::Attach | UnitRef::DeploySpawn(_) => Some("second_summon"),
+            UnitRef::Spawner | UnitRef::LifeState | UnitRef::Morph | UnitRef::AbilityUnit => Some("spawn"),
+            UnitRef::DeathSpawn | UnitRef::DeathProjectile => Some("death_spawn"),
+            UnitRef::BuffDeathSpawn => source_level.then_some("death_spawn"),
+            UnitRef::SpellRelease | UnitRef::SpellSummon => Some("release"),
+            UnitRef::Scheduled(_) => Some(scheduled_role),
+            // The same entity in another row: no unit of its own, but what that row puts down is walked.
+            UnitRef::Transform => None,
+            // A form is an own row (`unit_hitpoint_rows`).
+            UnitRef::VariantForm(_) => continue,
+        };
+        if role.is_none() && path == UnitRef::BuffDeathSpawn {
+            continue;
+        }
+        let at = match path {
+            UnitRef::SpellRelease => cards.spawn_level(idx, level)?,
+            _ => cards.unit_level(idx, unit, level_index, level)?,
+        };
+        // A block that names the record itself at its own level (a deploy's member 0, the Tri Wizards' TriWizard) is
+        // that record's row, already listed.
+        if (unit, at) == (idx, level) {
+            continue;
+        }
+        let u = cards.get(unit);
+        if let Some(role) = role {
+            if u.death_bomb_fuse_ms().is_none() {
+                let row = (role, u.unit_name.clone(), cards.scaled(unit, at, u.hitpoints)?);
+                if !out.contains(&row) {
+                    out.push(row);
+                }
+            }
+        }
+        if !walked.contains(&(unit, at)) {
+            walked.push((unit, at));
+            unit_rows_below(cards, calib, unit, at, walked, out)?;
+        }
+    }
+    Ok(())
+}
+
 /// `Battle.state_json` without Python (protocol.py `BattleState` as JSON text).
 pub fn state_json_text(
     s: &BattleState,
@@ -883,7 +990,7 @@ pub fn state_json_text(
         buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -899,6 +1006,7 @@ pub fn state_json_text(
             e.facing.y,
             e.shield,
             e.status_flags,
+            e.level,
         );
     }
     o.push_str("],\"spells\":[");
@@ -1252,6 +1360,26 @@ impl Battle {
     /// footprint follows placement.SPAWN_PATHFIND_DESTINATION), overrides included.
     fn catalogue_json(&self) -> PyResult<String> {
         self.catalogue_text().map_err(PyValueError::new_err)
+    }
+
+    /// EVERY UNIT A CARD PUTS ON THE BOARD, WITH ITS HITPOINTS: `unit_hitpoints(card_id, level)` for the catalogue's
+    /// `card_id` played at unified `level`, a list of (role, unit name, hitpoints) tuples. The card's own row comes
+    /// first, ("own", its unit's row name, the hitpoints the catalogue shows at that level); then every unit it puts
+    /// down, down the whole chain, each at the level it takes, role one of "second_summon", "spawn", "death_spawn" or
+    /// "release" (module-level `unit_hitpoint_rows` says which block is which, and what is left out). The hitpoints are
+    /// this object's battles' card data: the calibration they run under, cards.CLIENT16402_VALUES included, as
+    /// `catalogue_json`'s are. ValueError for an unknown card id, and for a level the card's ladder (or a unit's in
+    /// its chain) lacks, naming the level. Needs no `reset`.
+    fn unit_hitpoints(&self, card_id: i64, level: i32) -> PyResult<Vec<(String, String, i32)>> {
+        let idx = usize::try_from(card_id)
+            .ok()
+            .and_then(|c| self.catalogue.get(c))
+            .copied()
+            .ok_or_else(|| PyValueError::new_err(format!("unknown card id {card_id}")))?;
+        let calib = self.battle_calib().map_err(PyValueError::new_err)?;
+        let cards = calib.card_data(self.cards.clone()).map_err(PyValueError::new_err)?;
+        let rows = unit_hitpoint_rows(&cards, &calib, idx, level).map_err(PyValueError::new_err)?;
+        Ok(rows.into_iter().map(|(r, n, hp)| (r.to_string(), n, hp)).collect())
     }
 
     /// The unified card level every battle from this object uses (the constructor's `level`).
@@ -1908,6 +2036,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pushback_step16402, m)?)?;
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
     m.add("ENTITY_FIELDS", ENTITY_FIELDS.to_vec())?;
+    m.add("UNIT_ROLES", UNIT_ROLES.to_vec())?;
     m.add("PROJECTILE_FIELDS", PROJECTILE_FIELDS.to_vec())?;
     m.add("SPELL_FIELDS", SPELL_FIELDS.to_vec())?;
     m.add("SPELL_MOTIONS", SPELL_MOTIONS.to_vec())?;
@@ -2181,6 +2310,8 @@ mod tests {
         let (mut tower_shot, mut troop_shot, mut resolved_target, mut named_buff) = (false, false, false, false);
         let (mut spell_row, mut hidden_tesla) = (false, false);
         let status = ENTITY_FIELDS.iter().position(|f| *f == "status_flags").unwrap();
+        let level = ENTITY_FIELDS.iter().position(|f| *f == "level").unwrap();
+        let mut levels_read = 0usize;
         for _ in 0..200 {
             s.tick();
             let v: serde_json::Value =
@@ -2190,6 +2321,8 @@ mod tests {
             let uids: Vec<i64> = ents.iter().map(|r| r[0].as_i64().unwrap()).collect();
             // The engine's own hide state, per uid, for the status bits to be held against.
             let hidden: Vec<i64> = s.entities().filter(|e| e.hidden).map(|e| (e.team_seq as i64) * 2 + e.team as i64).collect();
+            // The engine's own level per uid, for the level column to be held against.
+            let engine_level: BTreeMap<i64, i32> = s.entities().map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.level)).collect();
             for r in ents {
                 let r = r.as_array().unwrap();
                 assert_eq!(r.len(), ENTITY_FIELDS.len(), "an entity row is not ENTITY_FIELDS long: {r:?}");
@@ -2210,6 +2343,10 @@ mod tests {
                 if bits & 4 != 0 && r[3].as_i64() == Some(tesla as i64) {
                     hidden_tesla = true;
                 }
+                // level: reported (never -1) and the engine's own level of that entity.
+                assert_eq!(r[level].as_i64(), engine_level.get(&r[0].as_i64().unwrap()).map(|l| *l as i64), "the level column is not the entity's level: {r:?}");
+                assert!(r[level].as_i64().unwrap() >= 1, "a level below 1: {r:?}");
+                levels_read += 1;
                 for b in r[19].as_array().unwrap() {
                     let (name, ms) = (b[0].as_str().unwrap(), b[1].as_i64().unwrap());
                     if name.split('|').any(|n| n == "Poison") && ms > 0 {
@@ -2241,6 +2378,7 @@ mod tests {
         assert!(named_buff, "no entity in 200 ticks carried a buff named Poison with time left");
         assert!(spell_row, "no spell row in 200 ticks, so SPELL_FIELDS was held against nothing");
         assert!(hidden_tesla, "the Tesla never reported status bit 2 in 200 ticks");
+        assert!(levels_read > 0, "no entity row was read, so the level column was held against nothing");
     }
 
     #[test]

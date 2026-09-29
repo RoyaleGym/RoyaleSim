@@ -6800,6 +6800,11 @@ pub struct EntityView<'a> {
     pub grounded_ms: i32,
     /// A copy the Clone made, or a copy's death spawn (entity.rs `cloned`).
     pub cloned: bool,
+    /// THE UNIFIED LEVEL the entity plays at (entity.rs `level`): a played unit's card level, a Mirror's copy its card
+    /// level plus the table's MIRROR_LEVEL_OFFSET, a Clone's copy the level spells.CLONE_LEVEL gives it, a unit another
+    /// puts down (a spawner's, a death spawn, a release) the level its parent gives it (`CardDb::unit_level`), a crown
+    /// tower its tower level. py.rs ENTITY_FIELDS `level`.
+    pub level: i32,
 }
 
 /// spells.SCHEDULED_SPAWN_INVALID_POINT: how far inside each arena edge a scheduled area's point is clamped, native.
@@ -14827,6 +14832,15 @@ impl BattleState {
         // (`scheduled_point`), deploying the action's DeployTime or its own, and released like a death spawn: measured
         // on client 15.535.29, an enemy first targets one on its 8th frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), and
         // a Graveyard Skeleton deploys 10 ticks and takes its first step on the 12th.
+        //
+        // A DEPLOY SPAWN AREA'S UNITS (card.rs `CardDef::deploy_spawn_area`, the Tri Wizards): an enemy targets them
+        // from their next frame, as it does a played unit (measured on client 15.535.29, sweep-TriWizards: the enemy
+        // Knight takes the TriWizard one tick after its first frame and the Ice Wizard one tick after its own). The area's
+        // own SpawnCharacter (`SpawnVia::OwnSpawn`, the TriWizard) is released as the Graveyard's Skeletons are,
+        // deploying its SpawnTime. An entry that makes an area (`SpawnVia::DeployArea`, the wizards) goes into the NEXT
+        // Spawn phase, where the area acts on its first update: `phase_spawn` creates the unit as a play of its card and
+        // lands that card's own deploy area (the zap, the chill) where it appears, one tick longer in its deploy
+        // (spells.DEPLOY_AREA_EFFECT, spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME).
         // spawner.SCHEDULED_UNIT_FIRST_UPDATE = client_creation_tick: each takes its first update on this tick, at the end
         // of the tick's Reap with the death spawns (`materialise_released`, `first_update`); next_tick leaves it to the
         // next tick.
@@ -14842,10 +14856,16 @@ impl BattleState {
             #[cfg(clash_plant = "scheduled_spawn_unit_deploy_time")]
             let deploy_ms: Option<i32> = None; // PLANT: the unit's own DeployTime.
             #[cfg(not(clash_plant = "scheduled_acquire_delay_dropped"))]
-            let acquire_delay = true;
+            let acquire_delay = r.via == crate::card::SpawnVia::Action;
             #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
             let acquire_delay = false; // PLANT: a target from its first frame.
-            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+            let p = PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false };
+            match r.via {
+                // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a released unit's first update (a deploy area's unit is a play
+                // of its card, in the next Spawn phase)
+                crate::card::SpawnVia::Action | crate::card::SpawnVia::OwnSpawn => self.release(PendingSpawn { first_update, ..p }),
+                crate::card::SpawnVia::DeployArea => self.spawn_queue.push(p),
+            }
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
@@ -16474,6 +16494,18 @@ impl BattleState {
             }
             // One entry: the cast. phase_spawn turns it into spell objects.
             self.spawn_queue.push(PendingSpawn { team, card: idx, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+            return;
+        }
+        // A CARD THAT IS AN AREA PUTTING ITS UNITS DOWN ITSELF (card.rs `CardDef::deploy_spawn_area`, the Tri Wizards'
+        // TriWizardSpawn): the play puts no unit down; it IS that area, cast now at the play's point under the card's
+        // index and level, as the Spawn phase casts a spell (it first steps in this tick's Projectile phase, the tick
+        // it is born on). Its entries put the TriWizard down on C + 5 and the two wizards on C + 7 (spell.rs
+        // `step_spells`, `phase_projectile`). Measured on client 15.535.29 (sweep-TriWizards): the wizards stand
+        // exactly RelativeX +5 and -5 half tiles (spawner.RELATIVE_SPAWN_OFFSET) from the tap. The TriWizard stood
+        // (0, +27) native from it, an offset no column of the area names; it stands on the play's point here.
+        if card.deploy_spawn_area.is_some() {
+            let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, idx, level, pos, self.tick).expect("level validated at enqueue");
+            self.spells.extend(area);
             return;
         }
         // A CARD THAT TUNNELS (card.rs `SpawnPathfindDef`): ONE entry, its count 1 (card.rs `convert` refuses any
@@ -18240,6 +18272,7 @@ impl BattleState {
             enchant_ms: e.enchant_ms[i],
             grounded_ms: e.grounded_ms[i],
             cloned: e.cloned[i],
+            level: e.level[i],
         }
     }
     /// Live entities in slot order.
@@ -19543,6 +19576,10 @@ impl BattleState {
 ///    where a member is created; the new stop arm writes the saved `death_slide_until` cap, hashed only when set, on a
 ///    dying troop's members, which carried none), so a blob saved before them deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arms.
+/// 20, unchanged, the Tri Wizards' three units: CardDef gained `deploy_spawn_area` and ScheduledSpawn `via`, so the
+///    card fingerprint moves (a snapshot saved by an earlier build is refused as saved against other card data); no
+///    new state (the area is a saved and hashed spell object, and its units go through the saved queue). migrate_v3
+///    strips `deploy_spawn_area` with the rest of the post-format-3 tail.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19785,12 +19822,13 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... projectile_y_offset~~ -- the evolved forms (still format 20) added `evo` after it.
                 // ~~... evo~~ -- the hero forms (still format 20) added `form_of` and `ability` after it.
                 // ~~... ability~~ -- the idle buff (still format 20) added `idle_buff` and `idle_area` after it.
+                // ~~... idle_area~~ -- the Tri Wizards (still format 20) added `deploy_spawn_area` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -19851,7 +19889,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.form_of,
                     c.ability,
                     c.idle_buff,
-                    c.idle_area
+                    c.idle_area,
+                    c.deploy_spawn_area
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))

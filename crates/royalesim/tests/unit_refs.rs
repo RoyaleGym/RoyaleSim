@@ -273,6 +273,13 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(royalesim::card::AbilityDef { effect: royalesim::card::AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
         out.push((UnitRef::AbilityUnit, *unit, None));
     }
+    // every entry of the card's deploy spawn area (the Tri Wizards' TriWizardSpawn): entry 0 the card itself, then the
+    // cards whose deploy areas its actions make
+    if let Some(SpellDef { shape: SpellShape::ScheduledArea { schedule, .. }, .. }) = &c.deploy_spawn_area {
+        for (k, e) in schedule.iter().enumerate() {
+            out.push((UnitRef::DeploySpawn(k as u8), e.unit, None));
+        }
+    }
     out
 }
 
@@ -354,7 +361,7 @@ fn every_unit_block_is_enumerated() {
         }
         assert!(refs > 0, "{file}: vacuous, no record puts a unit on the board");
     }
-    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach, UnitRef::BuffDeathSpawn, UnitRef::Transform, UnitRef::Scheduled(0)] {
+    for path in [UnitRef::SpellRelease, UnitRef::Spawner, UnitRef::DeathSpawn, UnitRef::SecondSummon, UnitRef::Attach, UnitRef::BuffDeathSpawn, UnitRef::Transform, UnitRef::Scheduled(0), UnitRef::DeploySpawn(0)] {
         assert!(seen.contains(&path), "vacuous: no shipped record carries {path:?}");
     }
 }

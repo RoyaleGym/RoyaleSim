@@ -56,6 +56,9 @@ THE 15.535 FILES ARE A CSV PLUS TOML OVERLAYS
     resolved by walking that graph -- AreaEffectObject -> OnStartingAction ->
     ActionGroup SubActions / ActionSpawn(ToLocation) SpawnData, AreaEffectType
     hops followed -- and the walk is recorded on the card as `summon_resolution`.
+    An area that carries a SpawnCharacter of its own (TriWizards' TriWizardSpawn,
+    whose own TriWizard is the card's unit and whose two actions make the Electro
+    Wizard's and the Ice Wizard's areas) is also written as `deploy_spawn_area`.
 
     EXCLUDED FROM `cards`: spells_evolved.csv (109 rows, 68 NotInUse; every row
     summons a distinct *_EV1 character from characters_evo.toml) and
@@ -2925,7 +2928,22 @@ def resolve_summon(t: dict, key: str, s: dict) -> dict:
             "others": [x for x in lst[1:] if x != lst[0]],
         }
     if "actions" in t:
-        found = spawned_characters(t, s["AreaEffectObject"])
+        area = s["AreaEffectObject"]
+        found = spawned_characters(t, area)
+        row = t["area_effect_objects"].get(area) if isinstance(area, str) and area else None
+        own = row["SpawnCharacter"] if row is not None else None
+        if isinstance(own, str) and own:
+            # THE AREA'S OWN SpawnCharacter IS THE CARD'S UNIT (15.535: TriWizards, whose TriWizardSpawn
+            # puts the TriWizard down itself and the Electro Wizard and the Ice Wizard through the two
+            # areas its OnStartingAction makes). The area is written on the card as
+            # `deploy_spawn_area` (`summon_card`), and the loader reads the whole deploy from it.
+            return {
+                "character": own,
+                "count": 1,
+                "source": f"{key}.{name}.AreaEffectObject -> area_effect_objects.{area}.SpawnCharacter",
+                "others": [c for c, _ in found if c != own],
+                "deploy_spawn_area": area,
+            }
         if found:
             first = found[0][0]
             return {
@@ -2943,8 +2961,9 @@ def deploy_area_effect(t: dict, s: dict, character: str) -> str | None:
     `character`, straight from the area with no second area in between. The Electro Wizard's
     ElectroWizardZap and the Ice Wizard's IceWizardCold: the zap and the chill land where the
     wizard appears (calibration spells.DEPLOY_AREA_EFFECT). None for every other card, and for
-    TriWizards, whose TriWizardSpawn spawns two wizards through two further areas: that is not
-    one area on one unit, and its zap and chill are not carried."""
+    TriWizards, whose TriWizardSpawn puts its own TriWizard down and two wizards through two
+    further areas: that is not one area on one unit, and it is written as `deploy_spawn_area`
+    instead (`resolve_summon`)."""
     name = s.get("AreaEffectObject")
     if not isinstance(name, str) or not name or "actions" not in t:
         return None
@@ -3054,6 +3073,11 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         # 15.535 only, so the 2018 file stays byte-identical: the card row's own AreaEffectObject
         # column when that area IS the deploy of the card's unit (`deploy_area_effect`).
         card["deploy_area_effect"] = deploy_area_effect(t, s, res["character"])
+        # 15.535 only, and only on a card whose AreaEffectObject puts the card's own unit down through
+        # its own SpawnCharacter (`resolve_summon`; TriWizards alone), so every other row is unchanged:
+        # the area's name, which card.rs reads as the whole deploy (`CardDef::deploy_spawn_area`).
+        if res.get("deploy_spawn_area"):
+            card["deploy_spawn_area"] = res["deploy_spawn_area"]
         # 15.535 only, and only on a card whose unit travels underground (`spawn_pathfind`: the Miner,
         # the Goblin Drill), so every other row and the 2018 file stay as they were: the spell row's two
         # placement flags. CanDeployOnEnemySide is read by card.rs with the walk (the territory,

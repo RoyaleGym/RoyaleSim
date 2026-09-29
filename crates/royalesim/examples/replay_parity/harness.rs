@@ -35,7 +35,9 @@
 //! MATCHING. A sim entity is reduced to its ROOT card: the card that was deployed to
 //! put it there -- itself for a deployed card, its spawner's card for a spawner
 //! emission (`spawned_by`), the card the harness deployed on that tick for a SECOND
-//! SUMMON (the Goblin Gang's Spear Goblins; card.rs `FormationDef`), the
+//! SUMMON (the Goblin Gang's Spear Goblins; card.rs `FormationDef`), the card the
+//! harness deployed within `DEPLOY_AREA_LOOKBACK` ticks for a unit its deploy spawn
+//! area puts down (the Tri Wizards' three; card.rs `CardDef::deploy_spawn_area`), the
 //! card of the unit that died within the last few ticks nearest to it for a death
 //! spawn, the spell for a released unit. The truth carries
 //! the root as `card_id` already (a Tombstone's Skeletons carry 27000009). Within one
@@ -92,6 +94,9 @@ pub const ONSET_NATIVE: i32 = 250;
 pub const DEATH_SPAWN_LOOKBACK: u32 = 3;
 /// How many ticks back a spell cast is looked for when a released unit is rooted.
 pub const SPELL_RELEASE_LOOKBACK: u32 = 200;
+/// How many ticks back a deploy is looked for when a unit its deploy spawn area puts down is rooted: the Tri Wizards'
+/// TriWizardSpawn lives 500 ms (10 ticks), and its units come 5 and 7 ticks after the play.
+pub const DEPLOY_AREA_LOOKBACK: u32 = 20;
 /// An alive mismatch whose pair had an hp disagreement within this many ticks before
 /// it is read as attack-timing (the damage arrived at different times), not death.
 pub const HP_HISTORY_TICKS: u32 = 100;
@@ -1151,6 +1156,10 @@ struct Roots {
     /// A hero button's unit (the Hero Musketeer's turret) -> the hero forms whose button puts it down: rooted to the
     /// hero's base card, as the truth names it.
     ability_of: BTreeMap<u16, Vec<u16>>,
+    /// A unit a card's deploy spawn area puts down (the Tri Wizards' TriWizard, Electro Wizard and Ice Wizard; card.rs
+    /// `CardDef::deploy_spawn_area`) -> the cards whose area does: rooted to the card the harness deployed for that team
+    /// within `DEPLOY_AREA_LOOKBACK` ticks, as the truth names all three by the card played.
+    deploy_area_of: BTreeMap<u16, Vec<u16>>,
     /// A summon-only record that itself puts units on the board (the Goblin Drill's building, the
     /// Elixir Golem's ElixirGolem2) -> the playable card at the top of its chain, so a unit its death
     /// releases is rooted to that card and not to the summon-only record.
@@ -1163,6 +1172,7 @@ impl Roots {
         let mut spell_release_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut second_summon_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut ability_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+        let mut deploy_area_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         // Every block card.rs `CardDb::unit_refs` names, matched without a wildcard: a
         // block added there does not compile here until it is rooted.
         for i in 0..db.cards.len() as u16 {
@@ -1203,6 +1213,8 @@ impl Roots {
                     // a hero button's unit (the Hero Musketeer's turret) comes from a press (a row of kind "ability"):
                     // rooted to its hero
                     UnitRef::AbilityUnit => &mut ability_of,
+                    // a deploy spawn area's units (the Tri Wizards' three) come ticks after the play that cast it
+                    UnitRef::DeploySpawn(_) => &mut deploy_area_of,
                 };
                 of.entry(unit).or_default().push(i);
             }
@@ -1226,7 +1238,7 @@ impl Roots {
             }
             frontier = next;
         }
-        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, card_of }
+        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, deploy_area_of, card_of }
     }
 
     /// The playable card a record roots to: itself when it is one, else the top of its chain.
@@ -1492,6 +1504,16 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     (e.card.to_string(), "deployed")
                 };
                 root
+            } else if let Some(cidx) = roots.deploy_area_of.get(&e.card_idx).and_then(|parents| {
+                // a unit a deploy spawn area puts down (the Tri Wizards' Electro Wizard, a playable card of its own): the
+                // card deployed for this team within the lookback whose area puts it down, unless its own card was
+                // deployed for this team on this very tick (then it is that play)
+                if deploys_issued.iter().any(|(t, team, c)| *t == tick && *team == e.team && *c == e.card_idx) {
+                    return None;
+                }
+                deploys_issued.iter().rev().find(|(t, team, c)| *t <= tick && tick - *t <= DEPLOY_AREA_LOOKBACK && *team == e.team && parents.contains(c)).map(|(_, _, c)| *c)
+            }) {
+                (db.get(cidx).name.clone(), "deploy-area")
             } else if !card.summon_only {
                 (e.card.to_string(), "deployed")
             } else if let Some(base) = card.form_of {
