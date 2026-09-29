@@ -102,7 +102,7 @@ mod common;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{milli, Vec2, SUBTILE, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardColumn;
-use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, StunClearsTarget, TapSnap, TroopTowerTaps};
+use royalesim::state::{BattleConfig, BattleState, Calib, CardValuesArm, DeployError, KnockLaw, ReleaseTiming, RollDirection, RollHitShape, StunClearsTarget, TapSnap, TroopTowerTaps};
 use royalesim::{EntityId, Team};
 use common::*;
 use serde_json::Value;
@@ -1144,6 +1144,56 @@ fn log_pierces_hits_each_victim_once_and_damage_scales() {
     let pct = int(&log_roll()["crown_tower_damage_percent"]);
     assert!((dmg * pct) % 100 != 0, "rounding not exercised");
     assert_eq!((drops, full - last), (1, crown_ceil(dmg, pct)), "princess tower: one hit of the reduced share");
+}
+
+/// A Log cast by `caster` `ahead` short of the enemy's engine-Left princess tower, on its axis; the tick CALL
+/// (1-based) on which that tower first loses more than its drain.
+fn log_tower_hit_call(cfg: BattleConfig, caster: Team, ahead: i32) -> u32 {
+    let mut s = bare(cfg);
+    let tower = s.tower_ids(caster.other())[1].unwrap();
+    let tp = s.entity(tower).unwrap().pos;
+    let dy = if caster == Team::Blue { -ahead } else { ahead };
+    let step = drain_step(&s, tower);
+    let mut last = s.entity(tower).unwrap().hp;
+    s.spawn_unit(caster, "Log", Vec2::new(tp.x, tp.y + dy), None).unwrap();
+    for k in 1..=120u32 {
+        s.tick();
+        let hp = s.entity(tower).unwrap().hp;
+        if last - hp > step {
+            return k;
+        }
+        last = hp;
+    }
+    panic!("{caster:?}'s Log never hit the tower");
+}
+
+#[test]
+fn log_front_edge_touching_a_tower_hits_only_when_it_rolls_minus_y_under_client15535_max_y_edge_open() {
+    // spells.ROLLING_HIT_SHAPE = client15535_max_y_edge_open (parity's item 60). A Log cast 11 tiles short of the enemy
+    // princess tower rolls 200 native a tick; on its 47th step its front edge (half-depth 600) lies exactly 1000 (the
+    // tower's radius) from the tower's centre. The shipped closed test hits there in both seats. Under the new arm a
+    // Blue Log (rolling +y, its front the max-y edge) misses the touch and hits on the next step; a Red Log (rolling -y)
+    // still hits on the touch. Measured on client 15.535.29: 10 of 10 and 3 of 3, the oracle's real-match replays.
+    // Plant: rolling_max_y_edge_closed.
+    let arm = |h| {
+        let mut c = config();
+        c.calib.rolling_hit_shape = h;
+        c
+    };
+    let (closed, open) = (arm(RollHitShape::RectVsCircleEdge), arm(RollHitShape::ClientMaxYEdgeOpen));
+    let touch = milli(11_000);
+    let (cb, cr) = (log_tower_hit_call(closed.clone(), Team::Blue, touch), log_tower_hit_call(closed.clone(), Team::Red, touch));
+    let (ob, or) = (log_tower_hit_call(open.clone(), Team::Blue, touch), log_tower_hit_call(open.clone(), Team::Red, touch));
+    assert_eq!(cb, cr, "the closed test hits in the same call in both seats");
+    assert_eq!(or, cr, "a -y roll hits the tower its front edge touches");
+    assert_eq!(ob, cb + 1, "a +y roll misses the touch and hits on the next step");
+    // The control: cast one native unit farther, so no step ends on an exact touch; the arms agree in both seats.
+    let far = touch + milli(1);
+    for team in [Team::Blue, Team::Red] {
+        let (c, o) = (log_tower_hit_call(closed.clone(), team, far), log_tower_hit_call(open.clone(), team, far));
+        assert_eq!(c, o, "{team:?}: with no exact touch the arms agree");
+        assert_eq!(c, cb + 1, "{team:?}: one native unit farther, the hit moves to the next step");
+    }
 }
 
 #[test]

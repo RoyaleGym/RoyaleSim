@@ -2490,8 +2490,11 @@
       "provenance": "The roll's swept axis-aligned rectangle (half-width ProjectileRadius 1950, half-depth ProjectileRadiusY 600) against the victim's collision circle, closed (touching hits) -- the engine's edge convention. A 2023-03-27 patch 'improved The Log's collision detection' changed something unspecified.",
       "candidates": [
         "rect_vs_circle_edge",
-        "rect_contains_centre"
+        "rect_contains_centre",
+        "client15535_max_y_edge_open"
       ],
+      "meaning": "rect_vs_circle_edge: the swept rectangle, closed, against the victim's collision circle (touching hits). rect_contains_centre: the victim's centre must lie inside the closed rectangle. client15535_max_y_edge_open: as rect_vs_circle_edge, except that the rectangle's max-y edge is exclusive (spell.rs covers_disc_max_y_open): a victim at or beyond that edge is hit only when strictly within its radius, so a roll toward +y (side 0) misses a victim its front edge only touches and a roll toward -y (side 1) hits it. Measured on client 15.535.29 (the oracle's real-match replays, every rolling Log against every enemy crown tower, from the projectile record and the truth hp): of the exact touches (the touch tick differs from the overlap tick), the 10 side-0 rolls hit a tick after the touch and the 3 side-1 rolls on it; the live 16.402 corpus's one such event (081819, a side-0 Log, both seats) hits a tick after the touch. So neither the closed test (refuted by the 10 + 1) nor an open one (refuted by the 3) fits.",
+      "open": "client15535_max_y_edge_open: the x edges are not tested by these events (the towers sat 0 or 1000 off the roll axis, inside the half-width) and are kept closed; the Barbarian Barrel rolls through the same code and was not read; no -y exact touch in the 16.402 corpus.",
       "promotion_rules": "Skeletons at 2.2 tiles lateral offset from the roll's centre line on both sides: hit under rect_vs_circle_edge, untouched under rect_contains_centre.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     },

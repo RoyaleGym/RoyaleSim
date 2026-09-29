@@ -2153,7 +2153,15 @@ calib_enum!(
 );
 calib_enum!(
     /// spells.ROLLING_HIT_SHAPE.
-    RollHitShape { RectVsCircleEdge = "rect_vs_circle_edge", RectContainsCentre = "rect_contains_centre" }
+    RollHitShape {
+        RectVsCircleEdge = "rect_vs_circle_edge",
+        RectContainsCentre = "rect_contains_centre",
+        /// As rect_vs_circle_edge, except that the swept rectangle's max-y edge is exclusive (spell.rs
+        /// `covers_disc_max_y_open`). Measured on client 15.535.29 (the oracle's real-match replays): a Log whose
+        /// front edge exactly touches a crown tower hits it on that tick when it rolls -y (3 of 3) and on the next when
+        /// it rolls +y (10 of 10). The live 16.402 corpus's one such +y event agrees.
+        ClientMaxYEdgeOpen = "client15535_max_y_edge_open",
+    }
 );
 calib_enum!(
     /// spells.SPAWNING_SPELL_WATER_RULE.
@@ -20219,6 +20227,9 @@ impl BattleState {
 /// 20, unchanged, movement.DYING_UNIT_VISIBILITY = client_doomed_static: a third arm of an existing Calib enum, no new
 ///    field and no new state (the doomed mask is scratch, derived afresh each tick), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 already runs a migrated battle at whole_tick.
+/// 20, unchanged, spells.ROLLING_HIT_SHAPE = client15535_max_y_edge_open: a third arm of an existing Calib enum, no new
+///    field and no new state, so a blob saved before it deserializes and hashes as it did; a saved battle keeps the
+///    arm its Calib holds.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

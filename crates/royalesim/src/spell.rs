@@ -1295,6 +1295,20 @@ fn laser(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &S
     }
 }
 
+/// spells.ROLLING_HIT_SHAPE = client15535_max_y_edge_open: `Shape::covers_disc` on the swept rectangle `b`, except that
+/// its max-y edge is exclusive -- a disc whose centre is at or beyond that edge is hit only when strictly within its
+/// radius of the rectangle. So a roll toward +y (side 0) misses a victim its front edge only touches, and a roll
+/// toward -y (side 1), whose front is the min-y edge, hits it.
+fn covers_disc_max_y_open(b: Rect, p: Vec2, r: i32) -> bool {
+    let q = Vec2::new(p.x.clamp(b.min.x, b.max.x), p.y.clamp(b.min.y, b.max.y));
+    let (d2, r2) = (p.dist2(q), (r as i64) * (r as i64));
+    if p.y >= b.max.y {
+        d2 < r2
+    } else {
+        d2 <= r2
+    }
+}
+
 /// One tick of a rolling projectile: move, sweep, hit each new victim once.
 /// Returns true while it still has distance to roll. `still`: the landing tick's sweep of
 /// spells.ROLL_FIRST_STEP = client15535_hit_on_landing_tick_step_after -- a step of 0, so the
@@ -1317,8 +1331,8 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
     *travelled += step;
     // The swept rectangle: the roll's cross-section from its previous to its current
     // centre, extended by the half-depth fore and aft. A closed Rect, so a victim
-    // touching it is hit (spells.ROLLING_HIT_SHAPE) -- and swept, so the result does
-    // not depend on TICK_MS.
+    // touching it is hit (spells.ROLLING_HIT_SHAPE; client15535_max_y_edge_open
+    // excludes the max-y edge) -- and swept, so the result does not depend on TICK_MS.
     let rect = Rect {
         min: Vec2::new(cur.x - half_width, prev.y.min(cur.y) - half_depth),
         max: Vec2::new(cur.x + half_width, prev.y.max(cur.y) + half_depth),
@@ -1347,6 +1361,10 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         let hit_shape = RollHitShape::RectContainsCentre; // PLANT: the victim's centre must be inside.
         let touched = match hit_shape {
             RollHitShape::RectVsCircleEdge => shape.covers_disc(e.pos[v], e.radius[v]),
+            #[cfg(not(clash_plant = "rolling_max_y_edge_closed"))]
+            RollHitShape::ClientMaxYEdgeOpen => covers_disc_max_y_open(rect, e.pos[v], e.radius[v]),
+            #[cfg(clash_plant = "rolling_max_y_edge_closed")]
+            RollHitShape::ClientMaxYEdgeOpen => shape.covers_disc(e.pos[v], e.radius[v]), // PLANT: the max-y edge closed.
             RollHitShape::RectContainsCentre => rect.contains_closed(e.pos[v]),
         };
         if !touched {
@@ -1378,7 +1396,7 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
                 // log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat (its
                 // Knight half a roll step ahead of the tap).
                 let edge = match hit_shape {
-                    RollHitShape::RectVsCircleEdge => e.radius[v],
+                    RollHitShape::RectVsCircleEdge | RollHitShape::ClientMaxYEdgeOpen => e.radius[v],
                     RollHitShape::RectContainsCentre => 0,
                 };
                 let (a_prev, a_cur, a_v) = (prev.y * fwd, cur.y * fwd, e.pos[v].y * fwd);
