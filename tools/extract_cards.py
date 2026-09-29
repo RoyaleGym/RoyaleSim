@@ -833,6 +833,10 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
                         t.variables.update({n: f for n, f in body.items() if isinstance(f, dict)})
                     if section == "SHAPE" and isinstance(body, dict):
                         t.shapes.update({n: f for n, f in body.items() if isinstance(f, dict)})
+                    # A champion's [ABILITY.*] is read by name by `champion_dash_chain` (the hero forms' are the hero
+                    # pass's, `overlay_hero_files`); nothing else reads it.
+                    if section == "ABILITY" and isinstance(body, dict):
+                        t.abilities.update({n: f for n, f in body.items() if isinstance(f, dict)})
                     continue
                 # A [CHARACTER.X] that says IsBuilding is a building row (none does
                 # in 15.535, every building overlay is a [BUILDING.] section; kept
@@ -2976,6 +2980,91 @@ def deploy_area_effect(t: dict, s: dict, character: str) -> str | None:
     return name
 
 
+#: The keys `champion_dash_chain` reads off the charge action (ActionRunActionListOnObjectsInShapeWithPrio); any
+#: other stops the build.
+CHAIN_CHARGE_KEYS = {
+    "ClassType", "AbortIfInstigatorDies", "ActionOnSelfWhenTriggered", "Actions", "Delays", "GameTagsToSet",
+    "OncePerTarget", "PauseTags", "Shape", "TargetFilter", "TargetSelectionMode", "WaitForTarget",
+}
+
+
+def champion_dash_chain(t, unit: str) -> dict | None:
+    """THE BUTTON OF A CHAMPION WHOSE PRESS RUNS A DASH CHAIN (15.535: the Golden Knight's GoldenKnightChain), or
+    None for a unit with no [ABILITY] or another one (it loads as a plain troop). The ability's OnActivationAction is
+    an ActionGroup whose first action is an ActionRunActionListOnObjectsInShapeWithPrio (the charge's target: a
+    Circle shape, a target filter, a selection mode, OncePerTarget, WaitForTarget) whose ActionOnSelfWhenTriggered is
+    an ActionDashingAttackChain; the rest of the group is a pending buff (an ActionSpawn of a BuffType, its
+    SpeedMultiplier carried) and the button's UI state, which is not read. The chain's own numbers are the
+    character's columns: DashCount, JumpSpeed, DashDamage, DashSecondaryRange, DashLandingTime,
+    DashImmuneToDamageTime, DashPushBack. The Cooldown is the ability's (15.535.29 names it only as a stats tag, so
+    it is carried as the table gives it, a string or null)."""
+    kind, row = None, None
+    for k in ("characters", "buildings"):
+        r = t[k].get(unit)
+        if r is not None:
+            kind, row = k, r
+            break
+    name = row["Ability"] if row is not None and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or kind != "characters":
+        return None
+    acts = t["actions"]
+    on = a.get("OnActivationAction")
+    # An inline action table (another champion's) is not a chain's group.
+    got = _group_leaves(acts, on) if isinstance(on, str) else None
+    if got is None:
+        return None
+    subs, delays = got
+    first = acts.get(subs[0]) if subs else None
+    if first is None or first["ClassType"] != "ActionRunActionListOnObjectsInShapeWithPrio":
+        return None
+    charge = _one_action(acts, subs[0], "ActionRunActionListOnObjectsInShapeWithPrio", CHAIN_CHARGE_KEYS)
+    execute = acts.get(charge["ActionOnSelfWhenTriggered"])
+    if execute is None or execute["ClassType"] != "ActionDashingAttackChain":
+        return None
+    shape = t.shapes.get(charge["Shape"])
+    if shape is None or shape.get("ClassType") != "Circle" or not isinstance(shape.get("Radius"), int):
+        raise SystemExit(f"champion ability {name}: the charge's shape {charge['Shape']!r} is not a circle")
+    filt = t.filters.get(charge["TargetFilter"])
+    if filt is None:
+        raise SystemExit(f"champion ability {name}: no filter {charge['TargetFilter']!r}")
+    speed_multiplier = None
+    for s in subs[1:]:
+        sp = acts.get(s)
+        if sp["ClassType"] == "ActionSpawn" and sp["SpawnType"] == "BuffType":
+            buff = t["character_buffs"].get(sp["SpawnData"])
+            if buff is None:
+                raise SystemExit(f"champion ability {name}: no buff {sp['SpawnData']!r}")
+            speed_multiplier = buff["SpeedMultiplier"]
+    return {
+        "name": name,
+        "mana_cost": a["ManaCost"],
+        "max_charges": a.get("MaxCharges"),
+        "cooldown_ms": a.get("Cooldown"),
+        "cast_ms": a.get("CastTime") or 0,
+        "trigger_delay_ms": a.get("TriggerDelay") or 0,
+        "keep_current_target": a.get("KeepCurrentTarget") is True,
+        "is_champion": True,
+        "effect": {
+            "kind": "dash_chain",
+            "radius_milli": shape["Radius"],
+            "target_filter": charge["TargetFilter"],
+            "filter": {k: v for k, v in sorted(filt.items())},
+            "selection": charge["TargetSelectionMode"],
+            "once_per_target": charge["OncePerTarget"] is True,
+            "wait_for_target": charge["WaitForTarget"] is True,
+            "count": row["DashCount"],
+            "speed": row["JumpSpeed"],
+            "damage": row["DashDamage"],
+            "secondary_range_milli": row["DashSecondaryRange"],
+            "landing_time_ms": row["DashLandingTime"],
+            "immune_ms": row["DashImmuneToDamageTime"],
+            "pushback_milli": row["DashPushBack"],
+            "pending_speed_multiplier": speed_multiplier,
+        },
+    }
+
+
 def summon_card(t, rarities, kind, key, s) -> dict:
     res = resolve_summon(t, key, s)
     u = norm_unit(t, res["character"])
@@ -3032,6 +3121,12 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # beside the card's `dash` (null on that row) so the card shows what it does not run.
     if "triggered_dash" in u:
         card["triggered_dash"] = u["triggered_dash"]
+    # 15.535 only: a champion whose button runs a dash chain (the Golden Knight), read whole
+    # (`champion_dash_chain`). Every other champion's button is not read, and its card loads as
+    # a plain troop, as before.
+    chain = champion_dash_chain(t, res["character"])
+    if chain is not None:
+        card["ability"] = chain
     # Only on a row that reflects (norm_unit), so every other card row is unchanged.
     if "reflected_attack" in u:
         card["reflected_attack"] = u["reflected_attack"]
