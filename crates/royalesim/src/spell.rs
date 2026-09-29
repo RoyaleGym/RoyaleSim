@@ -1124,6 +1124,8 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         buff: def.hit.buff,
         pulse: 0,
         firer_card: Some(card),
+        firer: None,
+        deflected: false,
         straight: None,
         hook: None,
         carrier: None,

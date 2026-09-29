@@ -139,6 +139,15 @@ pub struct Projectile {
     /// export writes -2 for it rather than folding it into the -1 of a crown tower.
     #[serde(default)]
     pub firer_card: Option<u16>,
+    /// THE FIRER ITSELF: the unit a shot a deflecting champion sends back flies to (card.rs `AbilityEffect::Deflect`,
+    /// `step_projectiles`). Set by the fire that made the shot and read only where the shot lands on a unit whose
+    /// deflect is active, so it is NOT in the state hash (every battle without a deflect hashes as it did); a snapshot
+    /// restores it, and one saved before the field (`default` None) sends nothing back.
+    #[serde(default)]
+    pub firer: Option<EntityId>,
+    /// A shot a deflect sent back: it is not deflected again. False on every other shot; hashed only when set.
+    #[serde(default)]
+    pub deflected: bool,
     /// A STRAIGHT SHOT (calibration combat.RANGE_PROJECTILE = straight_to_range, or a
     /// pellet of combat.MULTIPLE_PROJECTILES = client_fan): it flies to `aim`, the point
     /// ProjectileRange from its attacker, and never follows `target`, hitting what it
@@ -1151,6 +1160,8 @@ pub fn fire(
                         buff: atk_buff,
                         pulse: atk_pulse,
                         firer_card: Some(ents.card[a]),
+                        firer: Some(ents.id_of(a)),
+                        deflected: false,
                         carrier: None,
                         fixed: false,
                         straight: Some(Straight {
@@ -1273,6 +1284,8 @@ pub fn fire(
             buff: atk_buff,
             pulse: atk_pulse,
             firer_card: Some(ents.card[a]),
+            firer: Some(ents.id_of(a)),
+            deflected: false,
             straight: None,
             hook: None,
             // A carrier deals nothing itself: its sparks carry the bonus (`Carrier::bonus`).
@@ -1496,6 +1509,8 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         buff: None,
         pulse: 0,
         firer_card: Some(ents.card[a]),
+        firer: Some(ents.id_of(a)),
+        deflected: false,
         straight: None,
         hook: Some(ents.id_of(a)),
         carrier: None,
@@ -1822,6 +1837,7 @@ pub fn step_projectiles(
     areas: &mut Vec<crate::spell::AreaRelease>,
     scratch: &mut Vec<u32>,
     tick: u32,
+    deflecting: &[EntityId],
 ) {
     let rounding = calib.crown_rounding;
     // combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carriers landing this tick release,
@@ -1908,6 +1924,39 @@ pub fn step_projectiles(
         } else if alive {
             let ti = p.target.index as usize;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: false, own: false });
+            // A DEFLECT (card.rs `AbilityEffect::Deflect`, the Monk's): an enemy shot landing on a champion whose deflect
+            // is active also goes back at its firer, for its full damage, from where he stands; the hit on him stands
+            // (his buff's DamageReduction cuts it, combat.rs `reduce_hit`). Measured on client 15.535.29: a level-11
+            // Musketeer's 217 took 75 off the deflecting Monk and 217 off the Musketeer six ticks later, three shots of
+            // three. A splash shot, and a shot that was itself deflected, go nowhere (unmeasured).
+            #[cfg(not(clash_plant = "deflect_returns_nothing"))]
+            let returns = !p.deflected && deflecting.contains(&p.target);
+            #[cfg(clash_plant = "deflect_returns_nothing")]
+            let returns = {
+                let _ = deflecting;
+                false // PLANT (regression): the deflect sends nothing back.
+            };
+            if let (true, Some(f)) = (returns, p.firer.filter(|f| ents.is_alive(*f))) {
+                let fi = f.index as usize;
+                released.push(Projectile {
+                    team: ents.team[ti],
+                    pos: ents.pos[ti],
+                    target: f,
+                    aim: ents.pos[fi],
+                    frac: Vec2::default(),
+                    fresh: false,
+                    buff: None,
+                    pulse: 0,
+                    firer_card: Some(ents.card[ti]),
+                    firer: Some(p.target),
+                    deflected: true,
+                    release: None,
+                    enchant: None,
+                    bonus: 0,
+                    bonus_crown: 0,
+                    ..p.clone()
+                });
+            }
             if let Some(b) = p.buff {
                 // The shot's buff rides its arrival. A row that sets ApplyBuffBeforeDamage (the Mother Witch's) says so
                 // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills
@@ -1977,6 +2026,8 @@ fn release_sparks(
             buff: None,
             pulse: 0,
             firer_card: p.firer_card,
+            firer: p.firer,
+            deflected: false,
             carrier: None,
             fixed: false,
             straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),

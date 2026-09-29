@@ -7605,6 +7605,9 @@ pub struct BattleState {
     hero_units: Vec<HeroUnit>,
     /// The dash chains under way (`ChainRun`), in press order. Empty in every battle without one.
     chains: Vec<ChainRun>,
+    /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
+    /// press order. Empty in every battle without one, which hashes as it did before the field.
+    deflects: Vec<(EntityId, u32)>,
     mana_unit: i64,
     mana_rate: [i64; 2],
     scratch: Scratch,
@@ -7909,7 +7912,7 @@ impl BattleState {
             let champions: Vec<u16> = config.decks[t]
                 .iter()
                 .filter_map(|n| cards.index(n))
-                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. })))
+                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. })))
                 .fold(Vec::new(), |mut v, idx| {
                     if !v.contains(&idx) {
                         v.push(idx);
@@ -7988,6 +7991,7 @@ impl BattleState {
             evo: EvoBoard::default(),
             hero_units: Vec::new(),
             chains: Vec::new(),
+            deflects: Vec::new(),
             mana_unit,
             mana_rate,
             scratch: Scratch::default(),
@@ -10003,6 +10007,8 @@ impl BattleState {
                     buff: None,
                     pulse: 0,
                     firer_card: Some(self.ents.card[i]),
+                    firer: Some(self.ents.id_of(i)),
+                    deflected: false,
                     straight: None,
                     hook: None,
                     carrier: None,
@@ -15784,7 +15790,11 @@ impl BattleState {
         let mut out = spell::SpellOut::default();
         // The Rune Giant's projectiles leave before any projectile steps, so each first steps the next tick.
         self.launch_due_enchants();
-        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick);
+        // A deflect sends back what lands on its champion while it is active (`deflects`; ended ones dropped here).
+        let now = self.tick;
+        self.deflects.retain(|(id, until)| now < *until && self.ents.is_alive(*id));
+        let deflecting: Vec<EntityId> = self.deflects.iter().map(|(id, _)| *id).collect();
+        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick, &deflecting);
         {
             let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas, tick: self.tick };
             spell::step_spells(&ctx, &mut self.spells, &mut self.dmg, &mut self.effects, &mut out, &mut self.scratch.nb);
@@ -18463,8 +18473,14 @@ impl BattleState {
         Some((c, c))
     }
 
-    /// Is `form` a champion's (a recovering charge, card.rs `AbilityEffect::DashChain`) rather than a hero form's?
+    /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. }))
+    }
+
+    /// Does `form`'s used charge come back? The Golden Knight's does (combat.DASH_CHAIN_COOLDOWN); the Monk's Deflect is
+    /// one charge (measured on client 15.535.29: no second press taken within 60 s), spent as a hero's is.
+    fn charge_recovers(&self, form: u16) -> bool {
         matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. }))
     }
 
@@ -18488,7 +18504,8 @@ impl BattleState {
                 // A champion's used charge comes back: it is never `spent`, and reads its recharge instead.
                 let champion = self.champion_button(form);
                 let cooldown_ticks = hu.map_or(0, |u| u.recharge_at.saturating_sub(self.tick));
-                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !used, spent: used && !champion, cost, champion, cooldown_ticks })
+                let recovers = champion && self.charge_recovers(form);
+                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !used, spent: used && !recovers, cost, champion, cooldown_ticks })
             })
             .collect()
     }
@@ -18515,7 +18532,7 @@ impl BattleState {
         let u = self.hero_units[h];
         if u.spent {
             // A champion's charge is out while its chain runs and until it recharges.
-            return Err(if self.champion_button(form) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
+            return Err(if self.champion_button(form) && self.charge_recovers(form) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
         }
         Ok(())
     }
@@ -18658,6 +18675,23 @@ impl BattleState {
                     }
                     self.spells.push(sp);
                 }
+            }
+            // THE DEFLECT (the Monk's): his buff lands now (its DamageReduction cuts every hit on him), he stands for
+            // `active_ms` as a cast holds a hero (the stun timer: no walk, no attack, and his neighbours still push him),
+            // and his deflect is active that long (`deflects`). Measured on client 15.535.29 (sp-champ-Monk-s0, press
+            // first frame P = t197): he casts P..P + 16, is active P + 17..P + 95, stands and attacks nothing through
+            // both, and every hit on him in the active window lands at 35 % (217 -> 75, 202 -> 70, 81 -> 28).
+            crate::card::AbilityEffect::Deflect { buff, active_ms } => {
+                let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                #[cfg(not(clash_plant = "deflect_walks"))]
+                {
+                    self.ents.stun_ms[i] = self.ents.stun_ms[i].max(active_ms);
+                }
+                let ticks = (active_ms / self.cfg.calib.tick_ms.max(1)).max(1) as u32;
+                self.deflects.retain(|(id, _)| *id != hero);
+                self.deflects.push((hero, self.tick + ticks));
+                let _ = (team, level, pos);
             }
             crate::card::AbilityEffect::ActionGroup { steps } => {
                 for st in steps {
@@ -19790,6 +19824,10 @@ impl BattleState {
             h.vec(p.frac);
             if !legacy_v3 {
                 h.bool(p.fresh);
+                // A shot a deflect sent back (`Projectile::deflected`), only when set.
+                if p.deflected {
+                    h.u32(0x4446_4c44);
+                }
                 // combat.SPECIAL_HOOK: a hook's thrower, only on a hook.
                 if let Some(by) = p.hook {
                     h.id(by);
@@ -20097,6 +20135,15 @@ impl BattleState {
                     h.u32(0x5243_4847);
                     h.u32(u.recharge_at);
                 }
+            }
+        }
+        // The deflects active, only when there are some.
+        if !self.deflects.is_empty() {
+            h.u32(0x4446_4c43);
+            h.u32(self.deflects.len() as u32);
+            for (id, until) in &self.deflects {
+                h.id(*id);
+                h.u32(*until);
             }
         }
         // The dash chains under way, only when there are some.
@@ -20848,6 +20895,9 @@ struct Snapshot {
     /// The dash chains under way (`BattleState::chains`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     chains: Vec<ChainRun>,
+    /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    deflects: Vec<(EntityId, u32)>,
     state_hash: u64,
 }
 
@@ -21515,6 +21565,7 @@ impl BattleState {
             evo: self.evo.clone(),
             hero_units: self.hero_units.clone(),
             chains: self.chains.clone(),
+            deflects: self.deflects.clone(),
             state_hash: self.state_hash(),
         };
         #[cfg(clash_plant = "save_drops_path_grid")]
@@ -21763,6 +21814,7 @@ impl BattleState {
             evo: snap.evo,
             hero_units: snap.hero_units,
             chains: snap.chains,
+            deflects: snap.deflects,
             mana_unit: snap.mana_unit,
             mana_rate: snap.mana_rate,
             scratch: Scratch::default(),

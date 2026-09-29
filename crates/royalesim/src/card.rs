@@ -1194,6 +1194,11 @@ pub enum AbilityEffect {
     /// loader takes the steps at the trigger alone and refuses a group with a later one, but for the swap back from a
     /// form worn for a buff's life (`AbilityAction::FormWhileBuff`).
     ActionGroup { steps: Vec<AbilityStep> },
+    /// A CHAMPION'S DEFLECT (the Monk's; `convert_champion_ability`): from the trigger, `buff` on the champion for its
+    /// time, and for `active_ms` he stands (no walk, no attack; state.rs `fire_ability`, the hold) while every enemy
+    /// shot that lands on him is also sent back at its firer for its full damage (combat.rs `step_projectiles`,
+    /// state.rs `deflects`). One charge: measured on client 15.535.29, no second press is taken within 60 s.
+    Deflect { buff: BuffApply, active_ms: i32 },
 }
 
 /// ONE STEP OF AN ACTION GROUP (`AbilityEffect::ActionGroup`).
@@ -4015,6 +4020,11 @@ struct RawAbilityEffect {
     pending_speed_multiplier: Option<i32>,
     /// `action_group` (tools/extract_cards.py `action_group_effect`): the group's steps.
     steps: Option<Vec<RawAbilityStep>>,
+    /// `deflect` (tools/extract_cards.py `champion_deflect`): the buff hung on the champion and its time, and how long
+    /// the ability stays active.
+    buff: Option<RawBuff>,
+    time_ms: Option<i32>,
+    active_ms: Option<i32>,
 }
 
 /// One step of an `action_group` effect: `buff` (the buff row and its SpawnTime) or `form` (the character and the
@@ -6410,11 +6420,23 @@ fn convert_combo(raw: Option<RawCombo>) -> Result<Option<ComboDef>, String> {
 /// once per target, waiting for one, one charge. Anything else refuses the card, loudly, rather than run a button that
 /// is not the table's. The ability's Cooldown is not in the 15.535.29 tables as a number; the engine reads it from
 /// the ledger (combat.DASH_CHAIN_COOLDOWN, state.rs).
-fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind) -> Result<Option<AbilityDef>, String> {
+fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut BuffTable) -> Result<Option<AbilityDef>, String> {
     let Some(a) = raw else { return Ok(None) };
     let what = format!("ability {}", a.name);
     if kind != CardKind::Troop {
         return Err(format!("{what}: a champion button on a {kind:?} card is not simulated"));
+    }
+    // THE MONK'S DEFLECT: one charge, its buff on the champion, an active window; its CastTime and TriggerDelay run
+    // through the press path every hero button takes (state.rs `start_ability`, `fire_scheduled`).
+    if a.effect.kind == "deflect" {
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a deflect other than one charge with no cooldown is not simulated"));
+        }
+        let e = &a.effect;
+        let rb = e.buff.as_ref().ok_or_else(|| format!("{what}: a deflect with no buff"))?;
+        let buff = buffs.apply(rb, e.time_ms, &what)?;
+        let active_ms = e.active_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a deflect with no active time"))?;
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect: AbilityEffect::Deflect { buff, active_ms } }));
     }
     if a.max_charges != Some(1) || a.cooldown_ms.is_some() {
         return Err(format!("{what}: {:?} charges and cooldown {:?}; one charge, the cooldown from the ledger, is simulated", a.max_charges, a.cooldown_ms));
@@ -7007,7 +7029,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let variable_damage = convert_variable_damage(raw.variable_damage)?;
     let combo = convert_combo(raw.combo)?;
     let special = convert_special(raw.special, kind)?;
-    let ability = convert_champion_ability(raw.ability, kind)?;
+    let ability = convert_champion_ability(raw.ability, kind, buffs)?;
     let attack_pushback = match raw.attack_pushback_milli {
         Some(x) if x < 0 => return Err(format!("attack_pushback_milli {x} < 0")),
         Some(x) => milli(x),
