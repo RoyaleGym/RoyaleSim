@@ -2665,6 +2665,9 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
                 "use_attack_range": flag(c, "BuffWhenNotAttackingUseAttackRange"),
                 "area_damage_when_invisible": flag(c, "AllowAreaDmgWhenInvisible"),
             }
+            # StartWithBuffWhenNotAttacking (the Evo Royal Ghost's pair: false): written only where the column is set.
+            if c.get("StartWithBuffWhenNotAttacking") is not None:
+                u["idle_invisibility"]["starts_hidden"] = bool(c["StartWithBuffWhenNotAttacking"])
         # ANY OTHER IDLE BUFF (the Super Knight's shield, whose buff starts an interval of own-troop areas; the Evo
         # Knight's own DamageReduction): the buff's row, the idle time, and what its OnStartAction does
         # (`idle_buff_block`). Written only where the column is set and the buff is not an invisibility, so every
@@ -3591,7 +3594,7 @@ def globals_block(v: Vintage) -> dict:
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
-    "InfernoDragon_EV1", "BabyDragon_EV1",
+    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1",
 )
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
@@ -3641,6 +3644,19 @@ WIND_AEO_READ = ("LifeDuration", "HitSpeed")
 WIND_AEO_COSMETIC = {
     "Rarity", "LoopingEffect", "ScaledEffect", "OneShotEffect", "OnStartingAction", "DamageType", "Name",
 }
+# THE EVO ROYAL GHOST'S PAIR (characters/ghost_ev1.toml): its pair action, the action that makes the two units, its
+# damage area and the two spawn areas, each column pinned to the value this reader implements or read as a number;
+# anything else stops the build. The damage area's life and pulse are pinned to the row the one hit was measured on.
+GHOST_ACTION_PINNED = {"ClassType": "ActionGhostEvoAction", "SummonSpawnDelay": 0}
+GHOST_ACTION_READ = ("SummonDistance", "DamageAEOSpawnDelay")
+GHOST_ACTION_NAMES = ("DamageAEO", "LeftSummonAreaType", "RightSummonAreaType", "SummonActionData")
+GHOST_SPAWN_PINNED = {
+    "ClassType": "ActionGhostEvoSpawnSummon", "UseDeployForSummons": True, "InstantHitForSummons": False,
+}
+GHOST_AREA_PINNED = {"HitsAir": False, "HitsGround": True, "OnlyEnemies": True, "LifeDuration": 250, "HitSpeed": 150}
+GHOST_AREA_READ = ("Radius", "Damage")
+GHOST_MARK_PINNED = {"HitsAir": False, "HitsGround": False, "Damage": 0, "HitSpeed": 0}
+GHOST_AREA_COSMETIC = {"Rarity", "OneShotEffect", "StatsTags", "Name", "LifeDuration", "Radius"}
 
 
 def col_list(tb, name: str, col: str) -> list:
@@ -4053,6 +4069,77 @@ def wind_block(t: Tables, card: dict) -> dict:
     }
 
 
+def ghost_block(t: Tables, card: dict) -> dict:
+    """Ghost_EV1's pair (characters/ghost_ev1.toml), read whole or the build stops:
+      - OnStartingAction: an ActionGroup of the pair action and an effect, both at delay 0;
+      - the pair action (ActionGhostEvoAction): its two units `distance_milli` either side of what the ghost hits,
+        made with no delay (SummonSpawnDelay 0) by its ActionGhostEvoSpawnSummon (`left`, `right`: deployed,
+        UseDeployForSummons, and no hit on arrival, InstantHitForSummons false), and its damage area `area_delay_ms`
+        after them. Its two spawn areas hit nothing: a mark on the ground for the eye;
+      - the damage area: ground units of the other side within `area_radius_milli`, `area_damage` (level-scaled);
+      - each unit a Ghost row of its own (Name Ghost) that starts visible (StartWithBuffWhenNotAttacking false) and
+        runs no graph of consequence;
+      - ClonedVersion (`clone`): a Ghost row whose OnStartingAction hangs the plain Invisibility for good, 50 ms in."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    acts = t["actions"]
+    aeos = t["area_effect_objects"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"{unit}: {what}")
+
+    subs = group_subactions(t, row["OnStartingAction"], f"{unit} pair")
+    classes = [(acts.get(n) or {}).get("ClassType") for n, _ in subs]
+    need(sorted(classes) == ["ActionGhostEvoAction", "ActionPlayEffect"] and all(d == 0 for _, d in subs),
+         f"OnStartingAction runs {subs} ({classes}), not the pair and an effect at 0")
+    name = subs[classes.index("ActionGhostEvoAction")][0]
+    a = acts.get(name)
+    off = {k: a.get(k) for k, v in GHOST_ACTION_PINNED.items() if a.get(k) != v}
+    unread = {k for k in a if a[k] is not None} - set(GHOST_ACTION_PINNED) - set(GHOST_ACTION_READ)
+    unread -= set(GHOST_ACTION_NAMES)
+    need(not off and not unread and all(isinstance(a.get(k), int) for k in GHOST_ACTION_READ),
+         f"the pair action reads {off} off, {sorted(unread)} unread")
+    sp = acts.get(a["SummonActionData"] or "")
+    need(sp is not None, f"SummonActionData {a['SummonActionData']!r} is no action")
+    off = {k: sp.get(k) for k, v in GHOST_SPAWN_PINNED.items() if sp.get(k) != v}
+    unread = {k for k in sp if sp[k] is not None} - set(GHOST_SPAWN_PINNED) - {"LeftSummonType", "RightSummonType"}
+    need(not off and not unread, f"the pair's spawn reads {off} off, {sorted(unread)} unread")
+
+    def area(n: str, pinned: dict, read: tuple) -> dict:
+        r = aeos.get(n or "")
+        need(r is not None, f"{n!r} is no area row")
+        off = {k: r.get(k) for k, v in pinned.items() if r.get(k) != v}
+        unread = {k for k in r if r[k] is not None} - set(pinned) - set(read) - GHOST_AREA_COSMETIC
+        need(not off and not unread and all(isinstance(r.get(k), int) and r[k] > 0 for k in read),
+             f"area {n} reads {off} off, {sorted(unread)} unread")
+        return r
+
+    hit = area(a["DamageAEO"], GHOST_AREA_PINNED, GHOST_AREA_READ)
+    for side in ("LeftSummonAreaType", "RightSummonAreaType"):
+        area(a[side], GHOST_MARK_PINNED, ())
+    for side in ("LeftSummonType", "RightSummonType"):
+        _, u = unit_record(t, sp[side])
+        need(u["Name"] == "Ghost" and u["StartWithBuffWhenNotAttacking"] is False,
+             f"{sp[side]} is not a Ghost row that starts visible")
+    clone = row["ClonedVersion"]
+    _, cr = unit_record(t, clone)
+    csubs = group_subactions(t, cr["OnStartingAction"], f"{unit} clone {clone}")
+    inv = acts.get(csubs[0][0]) if len(csubs) == 1 else None
+    need(cr["Name"] == "Ghost" and inv is not None and inv["ClassType"] == "ActionSpawn"
+         and inv["SpawnType"] == "BuffType" and inv["SpawnData"] == "Invisibility" and inv["SpawnTime"] == 999999,
+         f"ClonedVersion {clone} is not a Ghost row that hangs the Invisibility for good")
+    return {
+        "distance_milli": a["SummonDistance"],
+        "left": sp["LeftSummonType"],
+        "right": sp["RightSummonType"],
+        "area_delay_ms": a["DamageAEOSpawnDelay"],
+        "area_radius_milli": hit["Radius"],
+        "area_damage": hit["Damage"],
+        "clone": clone,
+    }
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -4107,6 +4194,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_stages"] = stages_block(t, card)
         elif name == "BabyDragon_EV1":
             card["evo_wind"] = wind_block(t, card)
+        elif name == "Ghost_EV1":
+            card["evo_ghost"] = ghost_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

@@ -1688,6 +1688,8 @@ pub struct EvoDef {
     pub stages: Option<StagesDef>,
     /// Evo Baby Dragon: each attack (re)starts a wind around it that slows enemies and speeds its own side.
     pub wind: Option<WindDef>,
+    /// Evo Royal Ghost: a hit it makes while hidden puts two small ghosts down beside what it hit, and a blow there.
+    pub ghost: Option<GhostDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -1752,6 +1754,31 @@ pub struct WindDef {
     pub stay_ms: i32,
     pub enemy: BuffApply,
     pub ally: BuffApply,
+}
+
+/// THE EVO ROYAL GHOST'S PAIR (characters/ghost_ev1.toml; tools/extract_cards.py `ghost_block`; state.rs `ghost_pair`):
+/// a hit it makes while hidden (its first, or one after its idle window ran out: target.rs `invisible_at`'s window)
+/// puts its `pair` down on the next tick, `distance` either side of the unit it hit, across the line from the
+/// ghost to that unit, each deploying for its own DeployTime; `strike`, its damage area, lands on that unit's point
+/// `strike_delay_ms` after them. Its ClonedVersion is a Ghost row that stays invisible for good: a Clone copies the
+/// form as its base card, and that lasting invisibility is not simulated.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct GhostDef {
+    /// SummonDistance, NATIVE: the offset is taken in native units, truncated (state.rs `ghost_pair`).
+    pub distance: i32,
+    /// The two units, `Ghost_EV1_Summon_Left` then `_Right`: summon-only records loaded right after the form.
+    pub pair: [PairUnit; 2],
+    /// DamageAEOSpawnDelay, ms.
+    pub strike_delay_ms: i32,
+    /// The damage area: `strike.shape` is a `SpellShape::Projectile` whose hit is the area's Radius, its filters
+    /// (ground units of the other side) and its Damage (level 1, scaled at the hit). spell.rs `shape_of` names it.
+    pub strike: SpellDef,
+}
+
+/// ONE UNIT OF THE EVO ROYAL GHOST'S PAIR (`GhostDef::pair`): its CardDb index, u16::MAX until it loads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PairUnit {
+    pub unit: u16,
 }
 
 /// THE EVO INFERNO DRAGON'S STAGES (characters/inferno_dragon_ev1.toml; tools/extract_cards.py `stages_block`): its hit
@@ -2139,6 +2166,10 @@ pub struct CardDef {
     /// the entity's `reveal_from`. `Some(0)` on a kamikaze whose row leaves the time blank (the Bush): its first hit is
     /// its death, so it is invisible for its whole life.
     pub invisible_when_idle: Option<i32>,
+    /// StartWithBuffWhenNotAttacking false (the Evo Royal Ghost's pair): an invisible-when-idle unit visible from its
+    /// creation, its idle time counted from then (state.rs `spawn_with` sets its `reveal_from`), where every other one
+    /// is hidden from its first frame to its first hit. False on every other card.
+    pub starts_visible: bool,
     /// THE UNDERGROUND SPAWN WALK (`SpawnPathfindDef`; state.rs `phase_tunnel`): a played card
     /// whose unit is born at its owner's King and travels under ground to the destination the
     /// play resolved (the Miner; the Goblin Drill, whose dig leaves its building there). None on
@@ -2869,6 +2900,8 @@ pub struct LifeStateDef {
 struct RawIdleInvisibility {
     time_ms: Option<i32>,
     area_damage_when_invisible: Option<bool>,
+    /// StartWithBuffWhenNotAttacking, written only where the row sets it (`CardDef::starts_visible`).
+    starts_hidden: Option<bool>,
 }
 
 /// cards.json `idle_buff` (tools/extract_cards.py `idle_buff_block`), every field nullable.
@@ -3691,6 +3724,9 @@ pub enum UnitRef {
     Scheduled(u8),
     /// The unit a hero's button puts down (`AbilityEffect::SpawnAhead`, the Hero Musketeer's turret).
     AbilityUnit,
+    /// Unit k an evolved form's own mechanic puts down (`EvoDef::ghost`: the Evo Royal Ghost's pair, 0 its left
+    /// row, 1 its right).
+    EvoUnit(u8),
     /// Entry k of the card's deploy spawn area (`CardDef::deploy_spawn_area`, the Tri Wizards' TriWizardSpawn): entry
     /// 0 the card's own unit (the TriWizard, `SpawnVia::OwnSpawn`), then the cards whose deploy areas its actions make
     /// (the Electro Wizard, the Ice Wizard; `SpawnVia::DeployArea`).
@@ -3716,6 +3752,7 @@ impl UnitRef {
             UnitRef::Transform => "a transformation",
             UnitRef::Scheduled(_) => "a scheduled spawn",
             UnitRef::AbilityUnit => "a hero ability's unit",
+            UnitRef::EvoUnit(_) => "an evolved form's unit",
             UnitRef::DeploySpawn(_) => "a deploy spawn area's unit",
         }
     }
@@ -3781,9 +3818,49 @@ struct RawEvolution {
     evo_ram: Option<RawRam>,
     evo_stages: Option<RawStages>,
     evo_wind: Option<RawWind>,
+    evo_ghost: Option<RawGhost>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_ghost` (tools/extract_cards.py `ghost_block`).
+#[derive(Deserialize)]
+struct RawGhost {
+    distance_milli: Option<i32>,
+    left: Option<String>,
+    right: Option<String>,
+    area_delay_ms: Option<i32>,
+    area_radius_milli: Option<i32>,
+    area_damage: Option<i32>,
+    clone: Option<String>,
+}
+
+/// THE PAIR'S DEF with its units' indices left at u16::MAX: `load_evolution` writes them once they load.
+fn ghost_of(r: &RawGhost) -> Result<GhostDef, String> {
+    let need = |v: Option<i32>, what: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a ghost pair with no {what}"));
+    let hit = SpellHit {
+        damage: need(r.area_damage, "damage")?,
+        crown_pct: 100,
+        radius: milli(need(r.area_radius_milli, "radius")?),
+        hits_air: false,
+        hits_ground: true,
+        only_enemies: true,
+        only_own_troops: false,
+        ignore_buildings: false,
+        no_effect_to_crown_towers: false,
+        knockback: None,
+        buff: None,
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    Ok(GhostDef {
+        distance: need(r.distance_milli, "distance")?,
+        pair: [PairUnit { unit: u16::MAX }; 2],
+        strike_delay_ms: r.area_delay_ms.filter(|d| *d >= 0).ok_or("a ghost pair with no area delay")?,
+        strike: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
+    })
 }
 
 /// cards.json `evolutions[].evo_wind` (tools/extract_cards.py `wind_block`).
@@ -5221,6 +5298,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_area: None,
         life_state: None,
         invisible_when_idle: None,
+        starts_visible: false,
         spawn_pathfind: None,
         can_deploy_on_enemy_side: false,
         mana: None,
@@ -6966,6 +7044,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             }
         }
     };
+    let starts_visible = invisible_when_idle.is_some() && raw.idle_invisibility.as_ref().is_some_and(|iv| iv.starts_hidden == Some(false));
     // THE IDLE BUFF (status.IDLE_BUFF): any other BuffWhenNotAttacking, its buff row through the refusal every buff
     // meets and its area a need of the card (`idle_buff_of`). A row carrying both readings is a shape the extractor
     // does not write.
@@ -7456,6 +7535,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         projectile_area: None,
         life_state: life_state.map(|(d, _)| d),
         invisible_when_idle,
+        starts_visible,
         // Its morph resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
         // Read with `spawn_pathfind` alone: a card that does not tunnel keeps false.
@@ -8512,6 +8592,7 @@ impl CardDb {
             extra.evo_ram.is_some(),
             extra.evo_stages.is_some(),
             extra.evo_wind.is_some(),
+            extra.evo_ghost.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -8529,6 +8610,8 @@ impl CardDb {
             &["ActionAnimatorLayer", "ActionInterval", "ActionPlayEffect", "ActionSelect", "ActionSetVariable"]
         } else if extra.evo_wind.is_some() {
             &["ActionSpawnResetableAeO"]
+        } else if extra.evo_ghost.is_some() {
+            &["ActionAnimatorLayer", "ActionGhostEvoAction", "ActionGhostEvoSpawnSummon", "ActionGroup", "ActionPlayEffect"]
         } else {
             &[]
         };
@@ -8588,6 +8671,7 @@ impl CardDb {
                     hit_rage: Some(HitRageDef { hits, apply }),
                     stages: None,
                     wind: None,
+                    ghost: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -8618,12 +8702,43 @@ impl CardDb {
             m.summon_only = true;
             members.push((k, m));
         }
+        // A GHOST FORM'S PAIR (Ghost_EV1_Summon_Left and _Right): each its own unit row, loaded here as a summon-only
+        // record after the form. Neither runs a graph of consequence nor needs a unit of its own.
+        let mut pair: Vec<CardDef> = Vec::new();
+        if let Some(g) = &extra.evo_ghost {
+            for u in [&g.left, &g.right] {
+                let u = u.as_deref().ok_or("a ghost pair with an unnamed unit")?;
+                let mut uv = ctx.units.get(u).cloned().ok_or_else(|| format!("pair unit {u}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("pair unit {u}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("pair unit {u}: {e}"))?;
+                if ur.action_graph.as_ref().is_some_and(|g| g.mechanic.unwrap_or(false)) {
+                    return Err(format!("pair unit {u} runs an action graph; not simulated"));
+                }
+                let (mut m, _, pneeds) = convert(ur, buffs, ctx).map_err(|e| format!("pair unit {u}: {e}"))?;
+                if let Some((_, n)) = pneeds.first() {
+                    return Err(format!("pair unit {u} needs {n}; not simulated"));
+                }
+                if !self.rarities.iter().any(|r| r.name == m.rarity) {
+                    return Err(format!("pair unit {u}: rarity {} not in rarities.csv", m.rarity));
+                }
+                if self.index(&m.name).is_some() {
+                    return Err(format!("pair unit {u} is already loaded"));
+                }
+                m.summon_only = true;
+                pair.push(m);
+            }
+        }
         if c.kind != bc.kind || c.elixir != bc.elixir || c.rarity != bc.rarity {
             return Err(format!("a {:?} of {} elixir ({}) against its base's {:?} of {} ({})", c.kind, c.elixir, c.rarity, bc.kind, bc.elixir, bc.rarity));
         }
         let shapes = [&c.spell, &c.death_area_effect, &c.deploy_projectile, &c.death_projectile, &c.deploy_area_effect, &c.spawn_area_effect, &c.projectile_area];
         if extra.evo_barrage.is_some() && shapes.iter().any(|d| d.is_some()) {
             return Err("a barrage on a row that carries another spell object; one spell object names one shape".into());
+        }
+        if extra.evo_ghost.is_some() && shapes.iter().any(|d| d.is_some()) {
+            return Err("a ghost pair on a row that carries another spell object; one spell object names one shape".into());
         }
         let mut evo = EvoDef {
             base,
@@ -8636,8 +8751,12 @@ impl CardDb {
             hit_rage: None,
             stages: None,
             wind: None,
+            ghost: None,
             cloned_as: None,
         };
+        if let Some(g) = &extra.evo_ghost {
+            evo.ghost = Some(ghost_of(g)?);
+        }
         // THE WIND: its buffs interned now, and the dragon's IgnoreBuff (the ally buff alone, which the extractor
         // checks) set here, as the table pass sets every other row's.
         if let Some(w) = &extra.evo_wind {
@@ -8692,9 +8811,12 @@ impl CardDb {
             c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
             evo.spear = Some(spear_of(sp)?);
         }
-        // ClonedVersion names the base card's own unit row: the Clone copies the base card.
+        // ClonedVersion names the base card's own unit row: the Clone copies the base card. The Evo Royal Ghost's names a
+        // row of its own, a Ghost that stays invisible for good (tools/extract_cards.py `ghost_block` pins it): the
+        // Clone copies the base card for it too, and the lasting invisibility is not simulated (`GhostDef`).
         if let Some(cv) = extra.cloned_version.as_deref() {
-            if bc.unit_name != cv {
+            let ghost_clone = extra.evo_ghost.as_ref().and_then(|g| g.clone.as_deref()) == Some(cv);
+            if bc.unit_name != cv && !ghost_clone {
                 return Err(format!("ClonedVersion {cv} is not its base card's unit {}", bc.unit_name));
             }
             evo.cloned_as = Some(base);
@@ -8740,6 +8862,14 @@ impl CardDb {
             if let Some(ds) = self.cards[form as usize].death_spawn.as_mut() {
                 ds.unit = ui;
             }
+        }
+        let mut units = Vec::new();
+        for m in pair {
+            self.push(m, None)?;
+            units.push((self.cards.len() - 1) as u16);
+        }
+        if let (Some(g), [l, r]) = (self.cards[form as usize].evo.as_mut().and_then(|v| v.ghost.as_mut()), units.as_slice()) {
+            g.pair = [PairUnit { unit: *l }, PairUnit { unit: *r }];
         }
         self.forms.push((base, FORM_EVOLUTION, form));
         Ok(())
@@ -9057,6 +9187,7 @@ impl CardDb {
                 | UnitRef::Transform
                 | UnitRef::Scheduled(_)
                 | UnitRef::AbilityUnit
+                | UnitRef::EvoUnit(_)
                 | UnitRef::DeploySpawn(_) => self.unit_level(idx, unit, level_index, level)?,
                 // A variant's form is a card of its own, played at the same unified level: checked whole (its own
                 // units included) by the walk below, at that level. A form is never itself a variant (the loader
@@ -9182,6 +9313,13 @@ impl CardDb {
         if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, *unit, None));
         }
+        // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right
+        // after the form, `load_evolution`): the Evo Royal Ghost's pair.
+        if let Some(g) = c.evo.as_ref().and_then(|v| v.ghost.as_ref()) {
+            for (k, p) in g.pair.iter().enumerate() {
+                out.push((UnitRef::EvoUnit(k as u8), p.unit, None));
+            }
+        }
         // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
         // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.
         if let Some(entries) = c.deploy_spawn_area.as_ref().and_then(|d| d.shape.schedule()) {
@@ -9233,6 +9371,7 @@ impl CardDb {
                 UnitRef::Scheduled(_) => card.spell = None,
                 // Never reached: the forms load after every cleanup.
                 UnitRef::AbilityUnit => card.ability = None,
+                UnitRef::EvoUnit(_) => card.evo = None,
                 // An area that lost a unit goes whole, as a spell's schedule does.
                 UnitRef::DeploySpawn(_) => card.deploy_spawn_area = None,
             }

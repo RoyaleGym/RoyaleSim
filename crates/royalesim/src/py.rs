@@ -806,7 +806,7 @@ fn unit_rows_below(cards: &CardDb, calib: &Calib, idx: u16, level: i32, walked: 
     for (path, unit, level_index) in cards.unit_refs(idx) {
         let role = match path {
             UnitRef::SecondSummon | UnitRef::SummonMember(_) | UnitRef::Attach | UnitRef::DeploySpawn(_) => Some("second_summon"),
-            UnitRef::Spawner | UnitRef::LifeState | UnitRef::Morph | UnitRef::AbilityUnit => Some("spawn"),
+            UnitRef::Spawner | UnitRef::LifeState | UnitRef::Morph | UnitRef::AbilityUnit | UnitRef::EvoUnit(_) => Some("spawn"),
             UnitRef::DeathSpawn | UnitRef::DeathProjectile => Some("death_spawn"),
             UnitRef::BuffDeathSpawn => source_level.then_some("death_spawn"),
             UnitRef::SpellRelease | UnitRef::SpellSummon => Some("release"),

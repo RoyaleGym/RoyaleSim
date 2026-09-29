@@ -6532,6 +6532,12 @@ struct EvoCopy {
     pos: Vec2,
 }
 
+/// THE EVO ROYAL GHOST'S DAMAGE AREA lands this many ticks past its DamageAEOSpawnDelay after the hit (state.rs
+/// `ghost_pair`): one for the pair, made on the tick after the hit, which the delay counts from, and one for the area,
+/// whose one hit comes on its first update after it is made. Measured on client 15.535.29: the hit's tick + 6 at a
+/// delay of 200 ms, on the two units it struck (an Elixir Collector and a crown tower).
+pub const GHOST_STRIKE_EXTRA_TICKS: i32 = 2;
+
 /// WHERE AN EVO SKELETONS COPY APPEARS, native: this far ahead of the skeleton whose hit earned it, toward the enemy
 /// in the arena's y (+ for side 0, - for side 1), whatever it faces. Measured on client 15.535.29, both sides.
 pub const EVO_COPY_AHEAD_MILLI: i32 = 1000;
@@ -8165,6 +8171,12 @@ impl BattleState {
         if appearance && c.ability.is_some() {
             self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0 });
         }
+        // StartWithBuffWhenNotAttacking false (card.rs `starts_visible`, the Evo Royal Ghost's pair): visible from its
+        // creation, its idle time counted from now (target.rs `invisible_at`).
+        #[cfg(not(clash_plant = "pair_starts_hidden"))]
+        if c.starts_visible {
+            self.ents.reveal_from[i] = self.tick;
+        }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -8504,10 +8516,26 @@ impl BattleState {
     ///     with 3 or 5 alive make two; a hit on a crown tower counts, and so does a copy's.
     ///   - Evo Musketeer: a shot at the target she aims a snipe at is the snipe (AttackSequenceList entry 1): its speed
     ///     and damage are the snipe projectile's, and it spends one snipe.
-    fn evo_after_fire(&mut self, i: usize, shots_from: usize) {
+    fn evo_after_fire(&mut self, i: usize, shots_from: usize, hit: EntityId, revealed_from: u32) {
         let cards = self.cfg.cards.clone();
         let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
         let id = self.ents.id_of(i);
+        // THE EVO ROYAL GHOST'S PAIR (card.rs `GhostDef`): a hit it made while hidden, by its own idle window whatever
+        // targeting.INVISIBILITY says: its first hit, or one INVIS_VISIBLE_AFTER_HIT_EXTRA ticks or more past its idle
+        // time after the tick its last hit revealed it from (target.rs `invisible_at`).
+        if let Some(g) = evo.ghost.as_ref() {
+            let idle = cards.get(self.ents.card[i]).invisible_when_idle.unwrap_or(0);
+            let until = revealed_from + (idle / self.cfg.calib.tick_ms.max(1)) as u32 + crate::target::INVIS_VISIBLE_AFTER_HIT_EXTRA;
+            #[cfg(not(clash_plant = "ghost_pair_every_hit"))]
+            let hidden = revealed_from == 0 || self.tick >= until;
+            #[cfg(clash_plant = "ghost_pair_every_hit")]
+            let hidden = until > 0; // PLANT (regression): a pair on every hit, hidden or not.
+            #[cfg(clash_plant = "ghost_pair_never")]
+            let hidden = hidden && false; // PLANT (regression): no pair ever.
+            if hidden && self.ents.is_alive(hit) {
+                self.ghost_pair(i, hit, g);
+            }
+        }
         // A RAGE AFTER HITS (the Evo Battle Ram's Barbarian_EV1, `HitRageDef`): every `hits`-th hit lands the unit's own
         // buff for its time, on the hit's tick. Measured on client 15.535.29 (sp-ram-alone-s0, level 11): the first
         // Barbarian's first hit lands on t1111 (progress 1400) and its progress steps 65 from t1112 (50 x 130 / 100).
@@ -8610,6 +8638,65 @@ impl BattleState {
                     s.1 = s.1.saturating_sub(1);
                 }
             }
+        }
+    }
+
+    /// THE EVO ROYAL GHOST'S PAIR (card.rs `GhostDef`), made by ghost `i`'s hit on `hit` while it was hidden, in the
+    /// hit's Attack phase:
+    ///   - the two units go into the spawn queue, so they are created in the next tick's Spawn phase, deploying for
+    ///     their own DeployTime from the tick after (an action's units, `action_made`:
+    ///     spawner.ABILITY_UNIT_FIRST_UPDATE withholds the creation tick's countdown), and targetable at once: `pair[0]`
+    ///     at the unit's point plus
+    ///     `distance` x (dy, -dx) / |(dx, dy)|, `pair[1]` minus it, where (dx, dy) runs from the ghost to the unit in
+    ///     native units and each part of the offset is truncated;
+    ///   - the damage area is a zero-length flight of the form card (spell.rs `shape_of` names its hit) on the unit's
+    ///     point, landing `strike_delay_ms` plus `GHOST_STRIKE_EXTRA_TICKS` ticks after the hit.
+    ///
+    /// Measured on client 15.535.29 (level 11; oracle scenes sp-ghost-summons-s0, sp-ghost-ab-s0 and
+    /// sp-form-Ghost-evo-s0): four pairs, each first seen on the tick after the hit, deploying through its 16th frame,
+    /// targeted by the enemy tower from its 2nd (sp-ghost-summons-s0 t830, sp-ghost-ab-s0 t832), hp 81,
+    /// at the offsets above to the unit (an Elixir Collector hit from (-207, -2780) away: (+1994, -148) and
+    /// (-1994, +148)); the damage area struck the unit it was made on, once, 81, on the hit's tick + 6, a crown tower
+    /// included (sp-ghost-ab-s0 t1062); a Princess the hit killed left its pair on her point all the same. A
+    /// hit 35 or 36 ticks after the last made none; hits 82 and 83 ticks after it did. Unmeasured: a pair from a ghost
+    /// its hit's tick killed, a unit on a point off the board, and which of the two rows stands on which side (they
+    /// are one row's copies).
+    fn ghost_pair(&mut self, i: usize, hit: EntityId, g: &crate::card::GhostDef) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (team, card, level) = (self.ents.team[i], self.ents.card[i], self.ents.level[i]);
+        let (me, at) = (self.ents.pos[i], self.ents.pos[hit.index as usize]);
+        let (dx, dy) = ((at.x / K - me.x / K) as i64, (at.y / K - me.y / K) as i64);
+        let len = crate::fixed::isqrt(dx * dx + dy * dy);
+        let d = i64::from(g.distance);
+        let off = if len == 0 { Vec2::default() } else { Vec2::new((dy * d / len) as i32 * K, (-dx * d / len) as i32 * K) };
+        for (unit, pos) in [(g.pair[0].unit, at.add(off)), (g.pair[1].unit, at.sub(off))] {
+            self.spawn_queue.push(PendingSpawn {
+                team,
+                card: unit,
+                level,
+                pos,
+                deploy_ms: None,
+                owner: None,
+                stagger_ms: 0,
+                slide_centre: Vec2::default(),
+                slide_radius: 0,
+                slide_ticks: 0,
+                slide_end: Vec2::default(),
+                acquire_delay: false,
+                first_update: false,
+                facing: None,
+                summon_x: None,
+                morph_birth: false,
+                cloned: false,
+                action_made: true,
+            });
+        }
+        #[cfg(not(clash_plant = "ghost_strike_dropped"))]
+        if let crate::card::SpellShape::Projectile { hit: Some(h), .. } = &g.strike.shape {
+            let damage = self.cfg.cards.scaled(card, level, h.damage).expect("level validated at spawn");
+            let delay_ms = g.strike_delay_ms + GHOST_STRIKE_EXTRA_TICKS * self.cfg.calib.tick_ms;
+            let motion = spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms };
+            self.spells.push(Spell { team, card, level, damage, pulse: 0, motion, depth: 0 });
         }
     }
 
@@ -15210,6 +15297,8 @@ impl BattleState {
             }
             self.ents.attack_ms[i] = step.ms;
             self.ents.attack_load_ms[i] = step.load_ms;
+            // The tick this unit was last revealed from, before this tick's hit moves it (`evo_after_fire`).
+            let revealed_from = self.ents.reveal_from[i];
             // targeting.INVISIBILITY: a hit reveals an invisible-when-idle unit from the next tick (target.rs
             // `invisible`).
             #[cfg(not(clash_plant = "reveal_never"))]
@@ -15275,7 +15364,7 @@ impl BattleState {
                 );
                 // AN EVOLVED UNIT'S HIT (`evo_after_fire`): the group's count, the snipe.
                 if self.cfg.cards.get(self.ents.card[i]).evo.is_some() {
-                    self.evo_after_fire(i, shots_from);
+                    self.evo_after_fire(i, shots_from, t, revealed_from);
                 }
                 // THE COMBO (card.rs `ComboDef`; combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK): `fire` dealt the entry
                 // the count names; the next hit deals the next one, whatever it hits (the count runs across targets).

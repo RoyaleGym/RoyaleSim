@@ -461,14 +461,18 @@ fn forms_take_slots_after_every_existing_card() {
             ("Zap", "Zap_EV1"),
             ("BattleRam", "BattleRam_EV1"),
             ("InfernoDragon", "InfernoDragon_EV1"),
-            ("BabyDragon", "BabyDragon_EV1")
+            ("BabyDragon", "BabyDragon_EV1"),
+            ("Ghost", "Ghost_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Eight forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, and the Evo Battle
-    // Ram's death spawn (Barbarian_EV1, with its rage) right after the ram.
-    assert_eq!(db.cards.len(), n0 + 10);
+    // Nine forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // death spawn (Barbarian_EV1, with its rage) right after the ram, and the Evo Royal Ghost's pair right after it.
+    assert_eq!(db.cards.len(), n0 + 13);
+    let pair: Vec<&str> = db.cards[n0 + 10..n0 + 13].iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(pair, ["Ghost_EV1", "Ghost_EV1_Summon_Left", "Ghost_EV1_Summon_Right"]);
+    assert!(db.cards[n0 + 11].summon_only && db.cards[n0 + 12].summon_only && db.cards[n0 + 11].starts_visible);
     assert_eq!((db.cards[n0 + 8].name.as_str(), db.cards[n0 + 9].name.as_str()), ("InfernoDragon_EV1", "BabyDragon_EV1"));
     assert_eq!(db.cards[n0 + 4].name, "AngryBarbarian_EV1_2");
     assert!(db.cards[n0 + 4].summon_only);

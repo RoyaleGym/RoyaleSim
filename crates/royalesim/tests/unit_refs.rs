@@ -274,6 +274,12 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(royalesim::card::AbilityDef { effect: royalesim::card::AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
         out.push((UnitRef::AbilityUnit, *unit, None));
     }
+    // the units an evolved form's own mechanic puts down (the Evo Royal Ghost's pair, left then right)
+    if let Some(g) = c.evo.as_ref().and_then(|v| v.ghost.as_ref()) {
+        for (k, p) in g.pair.iter().enumerate() {
+            out.push((UnitRef::EvoUnit(k as u8), p.unit, None));
+        }
+    }
     // every entry of the card's deploy spawn area (the Tri Wizards' TriWizardSpawn): entry 0 the card itself, then the
     // cards whose deploy areas its actions make
     if let Some(SpellDef { shape: SpellShape::ScheduledArea { schedule, .. }, .. }) = &c.deploy_spawn_area {

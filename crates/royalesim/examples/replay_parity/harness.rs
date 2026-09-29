@@ -1156,6 +1156,9 @@ struct Roots {
     /// A hero button's unit (the Hero Musketeer's turret) -> the hero forms whose button puts it down: rooted to the
     /// hero's base card, as the truth names it.
     ability_of: BTreeMap<u16, Vec<u16>>,
+    /// A unit an evolved form's own mechanic puts down (the Evo Royal Ghost's pair) -> the forms that do: rooted to the
+    /// form's base card, as the truth names it.
+    evo_unit_of: BTreeMap<u16, Vec<u16>>,
     /// A unit a card's deploy spawn area puts down (the Tri Wizards' TriWizard, Electro Wizard and Ice Wizard; card.rs
     /// `CardDef::deploy_spawn_area`) -> the cards whose area does: rooted to the card the harness deployed for that team
     /// within `DEPLOY_AREA_LOOKBACK` ticks, as the truth names all three by the card played.
@@ -1172,6 +1175,7 @@ impl Roots {
         let mut spell_release_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut second_summon_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut ability_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+        let mut evo_unit_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut deploy_area_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         // Every block card.rs `CardDb::unit_refs` names, matched without a wildcard: a
         // block added there does not compile here until it is rooted.
@@ -1213,6 +1217,8 @@ impl Roots {
                     // a hero button's unit (the Hero Musketeer's turret) comes from a press (a row of kind "ability"):
                     // rooted to its hero
                     UnitRef::AbilityUnit => &mut ability_of,
+                    // an evolved form's own unit (the Evo Royal Ghost's pair) comes from the form's hit: rooted to it
+                    UnitRef::EvoUnit(_) => &mut evo_unit_of,
                     // a deploy spawn area's units (the Tri Wizards' three) come ticks after the play that cast it
                     UnitRef::DeploySpawn(_) => &mut deploy_area_of,
                 };
@@ -1238,7 +1244,7 @@ impl Roots {
             }
             frontier = next;
         }
-        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, deploy_area_of, card_of }
+        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, evo_unit_of, deploy_area_of, card_of }
     }
 
     /// The playable card a record roots to: itself when it is one, else the top of its chain.
@@ -1521,6 +1527,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 (db.get(base).name.clone(), "deployed")
             } else if let Some(heroes) = roots.ability_of.get(&e.card_idx) {
                 (db.get(heroes[0]).name.clone(), "ability")
+            } else if let Some(forms) = roots.evo_unit_of.get(&e.card_idx) {
+                // the Evo Royal Ghost's pair: the truth names each by the form's card (its base, `base_of_form`)
+                (db.get(forms[0]).name.clone(), "evo-unit")
             } else if let Some(mount) = e.attached_to {
                 // an attached rider: its mount's root (the mount is registered first, its team_seq
                 // being the rider's minus one)

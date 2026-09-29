@@ -208,6 +208,8 @@ PROLOGUE = {
     "BuffWhenNotAttackingTime": "idle_invisibility.time_ms",
     "BuffWhenNotAttackingUseAttackRange": "idle_invisibility.use_attack_range",
     "AllowAreaDmgWhenInvisible": "idle_invisibility.area_damage_when_invisible",
+    # Written only where the row sets it (the Evo Royal Ghost's pair: false).
+    "StartWithBuffWhenNotAttacking": "idle_invisibility.starts_hidden",
     "Invisible": "idle_invisibility",
     # The attached rider (the Ram Rider's rider, the Goblin Giant's Spear Goblins), written after
     # the literal on the 15.535 rows that set each column: the spawner block's SpawnAttach, and the
