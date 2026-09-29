@@ -56,7 +56,7 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Rect, Shape};
-use crate::card::{AbilityEffect, AttachedArea, CardDb, KnockbackDef, SelectorDef, SpawnDef, SpawnOffset, SpellHit, SpellShape, StrikeDef, StrikePick};
+use crate::card::{AbilityEffect, AttachedArea, CardDb, KnockbackDef, SelectorDef, SpawnDef, SpawnOffset, SpawnVia, SpellHit, SpellShape, StrikeDef, StrikePick};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
@@ -126,7 +126,7 @@ pub struct Spell {
 
 /// A unit a scheduled area releases (`SpellMotion::Scheduled`): unit `unit` at unified `level` for `team`, at the
 /// point `offset` gives from the area's `centre` (state.rs `scheduled_point`), deploying `deploy_ms` (None: its own
-/// DeployTime).
+/// DeployTime), through the path `via` names (state.rs `phase_projectile`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScheduledRelease {
     pub team: Team,
@@ -135,6 +135,7 @@ pub struct ScheduledRelease {
     pub centre: Vec2,
     pub offset: SpawnOffset,
     pub deploy_ms: Option<i32>,
+    pub via: SpawnVia,
 }
 
 /// A unit a landing spell releases, for the deferred spawn queue.
@@ -340,6 +341,7 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.projectile_area.as_ref())
         .or(def.evo.as_ref().and_then(|v| v.barrage.as_ref()).map(|b| &b.shot))
         .or(def.idle_area.as_ref())
+        .or(def.deploy_spawn_area.as_ref())
 }
 
 /// The shape `depth` steps down `root`'s chain (`SpellShape::child`), or None past its end.
@@ -1770,21 +1772,35 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // death's area is created in the Reap of the death tick D and first steps on D + 1, so the Bush's goblins
             // come on D + 12 (625 ms) and D + 13 (675 ms) (12 of 12). `born` carries that difference. The area ends
             // once its LifeDuration, counted the same way, has run; an entry not yet due then never acts.
+            //
+            // THE AREA'S OWN SpawnCharacter (`SpawnVia::OwnSpawn`, the Tri Wizards' TriWizard) comes one tick after an
+            // action of the same delay would: its clock first runs on the tick after the area's creation. Measured on
+            // client 15.535.29 (sweep-TriWizards, the play's cast tick C): the TriWizard, due at SpawnInterval 300 -
+            // SpawnTime 100, first stands on C + 5, and the area's two actions (SubActionsDelay 300) make the wizards'
+            // areas on C + 6, which put the wizards down on C + 7 (`SpawnVia::DeployArea`, state.rs `phase_projectile`).
             (SpellMotion::Scheduled { pos, born, fired }, SpellShape::ScheduledArea { life_ms, schedule }) => {
                 let age = ctx.tick.saturating_sub(*born);
-                let delays: Vec<i32> = schedule.iter().map(|e| e.delay_ms).collect();
+                // The group's delays are its actions' alone: an own spawn keeps its own clock (`SpawnVia::OwnSpawn`).
+                let delays: Vec<i32> = schedule.iter().filter(|e| e.via != SpawnVia::OwnSpawn).map(|e| e.delay_ms).collect();
+                let mut a = 0usize;
                 for (k, e) in schedule.iter().enumerate() {
+                    let own = e.via == SpawnVia::OwnSpawn;
+                    let at = a;
+                    if !own {
+                        a += 1;
+                    }
                     #[cfg(not(clash_plant = "schedule_cumulative"))]
-                    let delay = crate::state::sub_action_delay_ms(ctx.calib, &delays, k);
+                    let delay = if own { e.delay_ms } else { crate::state::sub_action_delay_ms(ctx.calib, &delays, at) };
                     #[cfg(clash_plant = "schedule_cumulative")]
-                    let delay: i32 = delays[..=k].iter().sum(); // PLANT: the delays read as gaps.
-                    if *fired & (1 << k) != 0 || delay_ticks(ctx.calib, delay) > age {
+                    let delay: i32 = if own { e.delay_ms } else { delays[..=at].iter().sum() }; // PLANT: the delays read as gaps.
+                    let late = u32::from(own);
+                    if *fired & (1 << k) != 0 || delay_ticks(ctx.calib, delay) + late > age {
                         continue;
                     }
                     *fired |= 1 << k;
                     // The entry's unit at the area's level (the owner's unified level; levels validated at deploy).
                     if let Ok(level) = ctx.cards.unit_level(s.card, e.unit, None, s.level) {
-                        out.scheduled.push(ScheduledRelease { team: s.team, unit: e.unit, level, centre: *pos, offset: e.offset, deploy_ms: e.deploy_time_ms });
+                        out.scheduled.push(ScheduledRelease { team: s.team, unit: e.unit, level, centre: *pos, offset: e.offset, deploy_ms: e.deploy_time_ms, via: e.via });
                     }
                 }
                 age + 1 < delay_ticks(ctx.calib, *life_ms).max(1)

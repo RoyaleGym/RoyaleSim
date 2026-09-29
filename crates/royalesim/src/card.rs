@@ -330,6 +330,32 @@ pub struct ScheduledSpawn {
     pub deploy_time_ms: Option<i32>,
     /// Where the unit stands, from the area's centre.
     pub offset: SpawnOffset,
+    /// How the area puts the unit down: when it comes, and through which path it is created.
+    pub via: SpawnVia,
+}
+
+/// HOW A SCHEDULED AREA PUTS ONE ENTRY'S UNIT DOWN (`ScheduledSpawn::via`; spell.rs `step_spells`, state.rs
+/// `phase_projectile`). The Graveyard's and the Suspicious Bush's entries are all `Action`; the Tri Wizards'
+/// TriWizardSpawn (`CardDef::deploy_spawn_area`) has one `OwnSpawn` and two `DeployArea` entries.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpawnVia {
+    /// An ActionSpawnToLocation of a CharacterType: the unit comes on the area's creation tick plus floor(delay /
+    /// TICK_MS) (actions.SUB_ACTIONS_DELAY), released at the end of that tick, and an enemy may target it from its 8th
+    /// frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY).
+    Action,
+    /// The area's own SpawnCharacter (`delay_ms` = SpawnInterval x (j + 1) - SpawnTime for spawn j, `deploy_time_ms`
+    /// = SpawnTime): the unit comes one tick later than an action of the same delay would (the area's spawn clock
+    /// first runs on the tick after its creation), released at the end of that tick, a target from its next frame.
+    /// Measured on client 15.535.29 (sweep-TriWizards): the TriWizard's first frame is the play's C + 5 (SpawnInterval
+    /// 300, SpawnTime 100), it leaves its deploy on C + 7, and the enemy Knight takes it on C + 6.
+    OwnSpawn,
+    /// An ActionSpawnToLocation of an AreaEffectType whose area puts `unit` down through its own OnStartingAction:
+    /// that area is made on the entry's tick (as an `Action` would come) and acts on its first update, the next
+    /// tick, where the unit is created in the Spawn phase as a play of its card is, its card's own deploy area
+    /// (`CardDef::deploy_area_effect`) landing where it appears (state.rs `phase_spawn`). Measured on client 15.535.29
+    /// (sweep-TriWizards): the Electro Wizard and the Ice Wizard first stand on the play's C + 7 (SubActionsDelay 300),
+    /// RelativeX +5 and -5 from the tap (spawner.RELATIVE_SPAWN_OFFSET), and leave their deploy on C + 27.
+    DeployArea,
 }
 
 /// WHERE ONE SCHEDULED SPAWN STANDS, from its area's centre (`ScheduledSpawn::offset`).
@@ -1988,6 +2014,14 @@ pub struct CardDef {
     /// acting from the next Projectile phase like every area born outside it. Resolved by `CardDb::from_json_str` against
     /// the file's `area_effect_objects`, like `spawn_area_effect`. None on every other card.
     pub idle_area: Option<SpellDef>,
+    /// THE AREA THIS CARD IS WHEN THE AREA PUTS ITS UNITS DOWN ITSELF (spells_characters AreaEffectObject, when that
+    /// area carries a SpawnCharacter of its own; cards.json `deploy_spawn_area`, resolved against `area_effect_objects`
+    /// by `convert_deploy_spawn_area`): the Tri Wizards' TriWizardSpawn. A `SpellShape::ScheduledArea` whose
+    /// `SpawnVia::OwnSpawn` entry is this card's own unit (the TriWizard) and whose `SpawnVia::DeployArea` entries are
+    /// the cards whose own deploy areas its actions make (the Electro Wizard, the Ice Wizard). A play of the card
+    /// casts it at the play's point instead of putting a unit down (state.rs `enqueue_with`); a scenario spawn of the
+    /// card puts its own unit down alone. None on every other card.
+    pub deploy_spawn_area: Option<SpellDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -2354,6 +2388,10 @@ struct RawCard {
     /// AreaEffectObject; the Electro Wizard's ElectroWizardZap). `from_json_str` resolves it into
     /// `CardDef::deploy_area_effect`. Absent reads as none.
     deploy_area_effect: Option<String>,
+    /// cards.json `deploy_spawn_area` (15.535 only; the Tri Wizards alone): the NAME of the `area_effect_objects` row
+    /// the card IS when that area puts the card's own unit down through its own SpawnCharacter.
+    /// `from_json_str` resolves it into `CardDef::deploy_spawn_area`. Absent reads as none.
+    deploy_spawn_area: Option<String>,
     /// cards.json `spawn_area_object`: the NAME of the `area_effect_objects` row the unit puts
     /// down where it appears (characters SpawnAreaObject; the Battle Healer's
     /// BattleHealerSpawnHeal). `from_json_str` resolves it into `CardDef::spawn_area_effect`.
@@ -3306,6 +3344,13 @@ enum UnitUse {
     /// The unit of entry k of a scheduled area (`SpellShape::ScheduledArea`: the Graveyard's Skeletons, the Suspicious
     /// Bush's goblins), resolved onto the first of the card's spell objects whose entry k is still unresolved.
     Scheduled(u8),
+    /// The AreaEffectObject a card IS when that area puts the card's units down itself (`deploy_spawn_area`, the Tri
+    /// Wizards' TriWizardSpawn). Not a unit: resolved against `area_effect_objects` by `convert_deploy_spawn_area`.
+    DeploySpawnArea,
+    /// The unit of entry k of the card's deploy spawn area (`CardDef::deploy_spawn_area`, a `SpawnVia::DeployArea`
+    /// entry: the Tri Wizards' Electro Wizard and Ice Wizard), which must resolve to a card whose own deploy area is
+    /// the area the entry makes.
+    DeploySpawn(u8),
 }
 
 impl UnitUse {
@@ -3313,7 +3358,10 @@ impl UnitUse {
     /// projectile), not loaded as a unit: it adds no summon-only record, and the units IT needs
     /// are queued at the end of its owner's level of the worklist.
     fn is_table(self) -> bool {
-        matches!(self, UnitUse::DeathAreaEffect | UnitUse::ProjectileArea | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea)
+        matches!(
+            self,
+            UnitUse::DeathAreaEffect | UnitUse::ProjectileArea | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea | UnitUse::DeploySpawnArea
+        )
     }
 }
 
@@ -3390,6 +3438,10 @@ pub enum UnitRef {
     Scheduled(u8),
     /// The unit a hero's button puts down (`AbilityEffect::SpawnAhead`, the Hero Musketeer's turret).
     AbilityUnit,
+    /// Entry k of the card's deploy spawn area (`CardDef::deploy_spawn_area`, the Tri Wizards' TriWizardSpawn): entry
+    /// 0 the card's own unit (the TriWizard, `SpawnVia::OwnSpawn`), then the cards whose deploy areas its actions make
+    /// (the Electro Wizard, the Ice Wizard; `SpawnVia::DeployArea`).
+    DeploySpawn(u8),
 }
 
 impl UnitRef {
@@ -3411,6 +3463,7 @@ impl UnitRef {
             UnitRef::Transform => "a transformation",
             UnitRef::Scheduled(_) => "a scheduled spawn",
             UnitRef::AbilityUnit => "a hero ability's unit",
+            UnitRef::DeploySpawn(_) => "a deploy spawn area's unit",
         }
     }
 }
@@ -4173,6 +4226,11 @@ struct RawAreaEffect {
     maximum_targets: Option<i32>,
     projectile: Option<serde_json::Value>,
     spawn_character: Option<String>,
+    /// SpawnInterval, SpawnMaxCount and SpawnInitialDelay, ms: the clock of the area's own SpawnCharacter, read by
+    /// `convert_deploy_spawn_area` alone (the Tri Wizards' TriWizardSpawn: 300, blank, blank).
+    spawn_interval_ms: Option<i32>,
+    spawn_max_count: Option<i32>,
+    spawn_initial_delay_ms: Option<i32>,
     action_graph: Option<RawActionGraph>,
     /// area_effect_objects CapBuffTimeToAreaEffectTime (`SpellHit::caps_buff_time`).
     cap_buff_time_to_area_effect_time: Option<bool>,
@@ -4652,6 +4710,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         ability: None,
         idle_buff: None,
         idle_area: None,
+        deploy_spawn_area: None,
     }
 }
 
@@ -4899,7 +4958,7 @@ fn scheduled_area(aeo: &RawAreaEffect) -> Option<Result<(SpellShape, UnitNeeds),
             (None, None, Some(_)) => return refuse(format!("its action {name} sets a RelativeY")),
             _ => return refuse(format!("its action {name} places {unit} by neither both position expressions nor a RelativeX")),
         };
-        schedule.push(ScheduledSpawn { delay_ms, unit: u16::MAX, deploy_time_ms: e.deploy_time_ms, offset });
+        schedule.push(ScheduledSpawn { delay_ms, unit: u16::MAX, deploy_time_ms: e.deploy_time_ms, offset, via: SpawnVia::Action });
         needs.push((UnitUse::Scheduled(k as u8), unit));
     }
     Some(Ok((SpellShape::ScheduledArea { life_ms, schedule }, needs)))
@@ -5052,6 +5111,110 @@ fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut 
         refuse_action_mechanic(&aeo.action_graph, &format!("deploy area effect {what}"))?;
     }
     area_effect_shape(aeo, buffs, ctx)
+}
+
+/// THE AREA A CARD IS WHEN THE AREA PUTS THE CARD'S UNITS DOWN ITSELF (cards.json `deploy_spawn_area`;
+/// `CardDef::deploy_spawn_area`): the Tri Wizards' TriWizardSpawn -- LifeDuration 500, no hit; SpawnCharacter TriWizard
+/// every SpawnInterval 300 with SpawnTime 100; an OnStartingAction group of two ActionSpawnToLocation entries,
+/// ElectroWizardAOE and IceWizardAOE, at SubActionsDelay 300 and 300 and RelativeX +5 and -5, each making an area
+/// (ElectroWizardZap, IceWizardCold) whose own OnStartingAction puts its wizard down. Read as a
+/// `SpellShape::ScheduledArea`:
+///   * spawn j of the area's own SpawnCharacter, which must be the card's own unit (`own_unit`, the entry's unit
+///     `own_idx`), for each j whose SpawnInterval x (j + 1) - SpawnTime is below the life: `SpawnVia::OwnSpawn` at the
+///     centre, deploying SpawnTime;
+///   * then each action entry in the group's order: `SpawnVia::DeployArea` at its RelativeX, its unit the one character
+///     its area's graph spawns, a need of the card (`UnitUse::DeploySpawn(k)`) that must resolve to a card whose own
+///     deploy area is that area (`CardDb::from_json_str`, against the names this returns as (k, area)).
+///
+/// Refused, naming the area, unless: it lands nothing but its units (no hit flag, Damage, Buff, Pushback, Projectile,
+/// MaximumTargets, child area, positive HitSpeed or HitBiggestTargets) and names no OnHitAction; it has a LifeDuration
+/// and a SpawnInterval above its SpawnTime, and sets neither SpawnInitialDelay nor SpawnMaxCount (not read); its graph
+/// is its schedule, every action entry an ActionSpawnToLocation of an AreaEffectType with nothing unread, due inside
+/// the life, at a RelativeX with no RelativeY; and it has at most MAX_SCHEDULED_SPAWNS entries in all. cards.json does
+/// not carry the area's SpawnMinRadius, SpawnMaxRadius or SpawnAngleShift; the TriWizardSpawn row leaves all three blank.
+fn convert_deploy_spawn_area(aeo: &RawAreaEffect, own_unit: &str, own_idx: u16, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds, Vec<(u8, String)>), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: String| -> Result<(SpellShape, UnitNeeds, Vec<(u8, String)>), String> { Err(format!("area effect {what}: {why}; not simulated")) };
+    let lands = aeo.hits_ground.unwrap_or(false)
+        || aeo.hits_air.unwrap_or(false)
+        || aeo.damage.is_some()
+        || aeo.buff.is_some()
+        || aeo.pushback_milli.is_some()
+        || aeo.projectile.as_ref().is_some_and(|p| !p.is_null())
+        || aeo.maximum_targets.is_some()
+        || aeo.spawn_area_effect_object.is_some()
+        || aeo.hit_speed_ms.is_some_and(|h| h > 0)
+        || aeo.hit_biggest_targets == Some(true);
+    if lands || aeo.on_hit.is_some() {
+        return refuse("an area that puts a card's units down also lands something of its own".into());
+    }
+    let Some(life_ms) = aeo.life_duration_ms.filter(|l| *l > 0) else {
+        return refuse("no LifeDuration".into());
+    };
+    if aeo.spawn_character.as_deref() != Some(own_unit) {
+        return refuse(format!("its SpawnCharacter {:?} is not the card's own unit {own_unit}", aeo.spawn_character));
+    }
+    if aeo.spawn_initial_delay_ms.is_some() || aeo.spawn_max_count.is_some() {
+        return refuse("it sets SpawnInitialDelay or SpawnMaxCount".into());
+    }
+    let spawn_time_ms = aeo.spawn_time_ms.unwrap_or(0);
+    if spawn_time_ms < 0 {
+        return refuse(format!("a negative SpawnTime {spawn_time_ms}"));
+    }
+    let Some(interval_ms) = aeo.spawn_interval_ms.filter(|i| *i > spawn_time_ms) else {
+        return refuse("its SpawnInterval is blank or not above its SpawnTime".into());
+    };
+    let mut schedule: Vec<ScheduledSpawn> = Vec::new();
+    let mut due = interval_ms - spawn_time_ms;
+    while due < life_ms {
+        if schedule.len() >= MAX_SCHEDULED_SPAWNS {
+            return refuse(format!("more than {MAX_SCHEDULED_SPAWNS} spawns"));
+        }
+        schedule.push(ScheduledSpawn { delay_ms: due, unit: own_idx, deploy_time_ms: Some(spawn_time_ms), offset: SpawnOffset::Relative { x: 0, y: 0 }, via: SpawnVia::OwnSpawn });
+        due += interval_ms;
+    }
+    let mut needs: UnitNeeds = Vec::new();
+    let mut areas: Vec<(u8, String)> = Vec::new();
+    match &aeo.schedule {
+        None if aeo.action_graph.is_some() => return refuse("its action graph is not read".into()),
+        None => {}
+        Some(sched) => {
+            if !graph_is_its_schedule(aeo, sched) {
+                return refuse("its action graph runs more than its schedule".into());
+            }
+            for e in sched.entries.iter().filter(|e| !e.is_cosmetic()) {
+                let name = e.action.clone().unwrap_or_else(|| "(inline)".to_string());
+                if e.class.as_deref() != Some("ActionSpawnToLocation") || e.spawn_type.as_deref() != Some("AreaEffectType") || !e.unread.is_empty() {
+                    return refuse(format!("its action {name} is not an ActionSpawnToLocation of an area read whole"));
+                }
+                let delay_ms = e.delay_ms.unwrap_or(0);
+                if delay_ms < 0 || delay_ms >= life_ms {
+                    return refuse(format!("its action {name} is due at {delay_ms} ms, outside the area's life of {life_ms}"));
+                }
+                let x = match (&e.x, &e.y, &e.relative) {
+                    (None, None, Some(r)) if r.y.unwrap_or(0) == 0 => r.x.unwrap_or(0),
+                    _ => return refuse(format!("its action {name} places its area by anything but a RelativeX")),
+                };
+                let Some(area) = e.spawn.clone() else { return refuse(format!("its action {name} names no area")) };
+                let child = ctx.aeos.get(&area).ok_or_else(|| format!("area effect {what}: its action {name} makes {area}, which has no area_effect_objects record"))?;
+                // The child's graph must be one ActionSpawn of one character: the shape a card's deploy area has
+                // (`convert_deploy_area_effect`), which is how the engine runs it (the unit's own card's).
+                let unit = match child.action_graph.as_ref() {
+                    Some(g) if g.class_types == ["ActionSpawn"] && g.spawns.len() == 1 => g.spawns[0].strip_prefix("CharacterType:").map(str::to_string),
+                    _ => None,
+                };
+                let Some(unit) = unit else { return refuse(format!("its action {name} makes {area}, which does not put one character down")) };
+                if schedule.len() >= MAX_SCHEDULED_SPAWNS {
+                    return refuse(format!("more than {MAX_SCHEDULED_SPAWNS} spawns"));
+                }
+                let k = schedule.len() as u8;
+                schedule.push(ScheduledSpawn { delay_ms, unit: u16::MAX, deploy_time_ms: None, offset: SpawnOffset::Relative { x, y: 0 }, via: SpawnVia::DeployArea });
+                needs.push((UnitUse::DeploySpawn(k), unit));
+                areas.push((k, area));
+            }
+        }
+    }
+    Ok((SpellShape::ScheduledArea { life_ms, schedule }, needs, areas))
 }
 
 /// THE AREA EFFECT A UNIT PUTS DOWN WHERE IT APPEARS (characters SpawnAreaObject;
@@ -6397,6 +6560,27 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     if let Some(a) = &raw.deploy_area_effect {
         units.push((UnitUse::DeployAreaEffect, a.clone()));
     }
+    // A CARD THAT IS AN AREA PUTTING ITS UNITS DOWN ITSELF (the Tri Wizards): the area is the whole deploy, so the card
+    // is one unit of its own (the area's SpawnCharacter) and nothing a play lays beside it. Anything else beside it
+    // would be played as a different card, so it is refused.
+    if let Some(a) = &raw.deploy_spawn_area {
+        let count = raw.count.unwrap_or(1);
+        let beside = if kind != CardKind::Troop {
+            Some(format!("a card of kind {kind:?}"))
+        } else if count != 1 {
+            Some(format!("a count of {count}"))
+        } else if second_summon.is_some() || summon_members.is_some() {
+            Some("a second summon or members at offsets".to_string())
+        } else if spawn_pathfind.is_some() || attach.is_some() || raw.deploy_area_effect.is_some() {
+            Some("an underground walk, attached riders or a deploy area effect".to_string())
+        } else {
+            None
+        };
+        if let Some(what) = beside {
+            return Err(format!("{what} beside a deploy spawn area is not simulated"));
+        }
+        units.push((UnitUse::DeploySpawnArea, a.clone()));
+    }
     if let Some(a) = &raw.spawn_area_object {
         units.push((UnitUse::SpawnAreaEffect, a.clone()));
     }
@@ -6613,6 +6797,8 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         idle_buff: idle.map(|(d, _)| d),
         // Resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         idle_area: None,
+        // Resolved the same way (`convert_deploy_spawn_area`).
+        deploy_spawn_area: None,
     }, display, units))
 }
 
@@ -6800,6 +6986,11 @@ impl CardDb {
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
         let ctx = LoadCtx { aeos: &file.area_effect_objects, units: &file.units, projectiles: &file.projectiles, globals: &globals };
         let mut spawns: Vec<(u16, UnitUse, String)> = Vec::new();
+        // THE DEPLOY AREA EACH CARD ROW NAMES (`deploy_area_effect`), by card name, and the area each entry of a deploy
+        // spawn area makes (card, entry, area; filled by `convert_deploy_spawn_area`): a `UnitUse::DeploySpawn` unit
+        // must resolve to a card whose own deploy area is that area (the Tri Wizards' Electro Wizard, ElectroWizardZap).
+        let deploy_area_names: BTreeMap<String, String> = file.cards.iter().filter_map(|c| Some((c.name.clone(), c.deploy_area_effect.clone()?))).collect();
+        let mut deploy_spawn_areas: Vec<(u16, u8, String)> = Vec::new();
         // Cards refused AFTER their push, each with its reason (filled from here on; see below).
         let mut unloadable: Vec<(u16, String)> = Vec::new();
         // Each loaded record's IgnoreBuff names, resolved once every buff is interned (below).
@@ -6930,6 +7121,49 @@ impl CardDb {
                 }
                 continue;
             }
+            if which == UnitUse::DeploySpawnArea {
+                // THE DEPLOY SPAWN AREA IS NOT A UNIT either (`convert_deploy_spawn_area`; the Tri Wizards'
+                // TriWizardSpawn): a row of the file's areas, stored on the card as a `SpellDef` and run as ONE spell
+                // object (spell.rs `shape_of`), so a card that already carries another is refused, as below. Its
+                // DeployArea entries' units are the card's needs at its own level of the worklist, each held to the
+                // area its entry makes when it resolves (`deploy_spawn_areas`).
+                if unloadable.iter().any(|(i, _)| *i == spell_idx) {
+                    continue;
+                }
+                let c = &db.cards[spell_idx as usize];
+                let blocks = [
+                    c.spell.is_some(),
+                    c.death_area_effect.is_some(),
+                    c.deploy_projectile.is_some(),
+                    c.death_projectile.is_some(),
+                    c.deploy_area_effect.is_some(),
+                    c.spawn_area_effect.is_some(),
+                    c.projectile_area.is_some(),
+                    c.idle_area.is_some(),
+                    c.deploy_spawn_area.is_some(),
+                ];
+                let own_unit = c.unit_name.clone();
+                let got = if blocks.contains(&true) {
+                    Err("the card already carries a spell, an area or a projectile, and one spell object names one".to_string())
+                } else {
+                    match ctx.aeos.get(&unit) {
+                        Some(aeo) => convert_deploy_spawn_area(aeo, &own_unit, spell_idx, &ctx),
+                        None => Err(format!("no area_effect_objects record in cards.json (the file lists {})", ctx.aeos.len())),
+                    }
+                };
+                match got {
+                    Ok((shape, needs, areas)) => {
+                        db.cards[spell_idx as usize].deploy_spawn_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+                        deploy_spawn_areas.extend(areas.into_iter().map(|(k, a)| (spell_idx, k, a)));
+                        let at = work.iter().position(|q| q.3 > depth).unwrap_or(work.len());
+                        for (k, (w, u)) in needs.into_iter().enumerate() {
+                            work.insert(at + k, (spell_idx, w, u, depth));
+                        }
+                    }
+                    Err(e) => unloadable.push((spell_idx, format!("deploy spawn area {unit}: {e}"))),
+                }
+                continue;
+            }
             if matches!(which, UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea) {
                 // THE DEATH PROJECTILE, THE DEPLOY AREA AND THE SPAWN AREA ARE NOT UNITS either:
                 // each is a row of one of the file's own tables, resolved here and stored on the
@@ -6959,6 +7193,7 @@ impl CardDb {
                     c.deploy_area_effect.is_some(),
                     c.spawn_area_effect.is_some(),
                     c.idle_area.is_some(),
+                    c.deploy_spawn_area.is_some(),
                 ];
                 let members = c.count.max(1) + c.formation.second_summon.map_or(0, |s| s.count);
                 let own_unit = c.unit_name.clone();
@@ -7252,6 +7487,16 @@ impl CardDb {
                 Ok(u) if which == UnitUse::Transform && !db.cards[u as usize].summon_only => {
                     unloadable.push((spell_idx, format!("units.{unit}: a transformation into a playable card is not simulated")));
                 }
+                // A DEPLOY SPAWN AREA'S ENTRY puts its unit down through the area the entry makes, and the engine runs
+                // that area as the unit's own card's deploy area (state.rs `phase_spawn`): the unit must be a card
+                // whose row names that very area (the Electro Wizard, ElectroWizardZap), or the card is refused.
+                Ok(u) if matches!(which, UnitUse::DeploySpawn(k) if {
+                    let rec = &db.cards[u as usize];
+                    let area = deploy_spawn_areas.iter().find(|(i, e, _)| *i == spell_idx && *e == k).map(|(_, _, a)| a);
+                    rec.summon_only || area.is_none() || deploy_area_names.get(&rec.name) != area
+                }) => {
+                    unloadable.push((spell_idx, format!("units.{unit}: a deploy spawn area's entry whose unit is not a card deploying through the area the entry makes is not simulated")));
+                }
                 Ok(u) => {
                     let card = &mut db.cards[spell_idx as usize];
                     match which {
@@ -7295,7 +7540,18 @@ impl CardDb {
                                 e.unit = u;
                             }
                         }
-                        UnitUse::DeathAreaEffect | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::ProjectileArea | UnitUse::IdleArea => {
+                        UnitUse::DeploySpawn(k) => {
+                            if let Some(e) = card.deploy_spawn_area.as_mut().and_then(|d| d.shape.schedule_mut()).and_then(|s| s.get_mut(k as usize)) {
+                                e.unit = u;
+                            }
+                        }
+                        UnitUse::DeathAreaEffect
+                        | UnitUse::DeathProjectile
+                        | UnitUse::DeployAreaEffect
+                        | UnitUse::SpawnAreaEffect
+                        | UnitUse::ProjectileArea
+                        | UnitUse::IdleArea
+                        | UnitUse::DeploySpawnArea => {
                             unreachable!("never resolved here: resolved against the file's tables above")
                         }
                         UnitUse::VariantForm(_) => unreachable!("a variant form never enters the worklist"),
@@ -7754,7 +8010,7 @@ impl CardDb {
     /// So an attacker card is matched through the unit it puts on the board (`CardDef::unit_name`), never through its
     /// own name: its direct hits by the unit row's CustomFirstProjectile (when it differs from its Projectile), its
     /// Projectile, then the unit row itself, the first listed name giving the per mille; its sparks by the Projectile
-    /// row's SpawnProjectile. The TriWizards card (unit ElectroWizard) takes the Electro Wizard's 500. Only registered
+    /// row's SpawnProjectile. The Ram Rider's rider (units.RamRider) takes its bola's 0. Only registered
     /// cards and summon-only units are resolved; spells deal no attack.
     fn resolve_enchants(&mut self, ctx: &LoadCtx) {
         let live: BTreeSet<u16> = self.by_name.values().copied().collect();
@@ -7907,7 +8163,8 @@ impl CardDb {
                 | UnitRef::BuffDeathSpawn
                 | UnitRef::Transform
                 | UnitRef::Scheduled(_)
-                | UnitRef::AbilityUnit => self.unit_level(idx, unit, level_index, level)?,
+                | UnitRef::AbilityUnit
+                | UnitRef::DeploySpawn(_) => self.unit_level(idx, unit, level_index, level)?,
                 // A variant's form is a card of its own, played at the same unified level: checked whole (its own
                 // units included) by the walk below, at that level. A form is never itself a variant (the loader
                 // refuses one).
@@ -8032,6 +8289,13 @@ impl CardDb {
         if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. }, .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, *unit, None));
         }
+        // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
+        // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.
+        if let Some(entries) = c.deploy_spawn_area.as_ref().and_then(|d| d.shape.schedule()) {
+            for (k, e) in entries.iter().enumerate() {
+                out.push((UnitRef::DeploySpawn(k as u8), e.unit, None));
+            }
+        }
         out
     }
 
@@ -8076,6 +8340,8 @@ impl CardDb {
                 UnitRef::Scheduled(_) => card.spell = None,
                 // Never reached: the forms load after every cleanup.
                 UnitRef::AbilityUnit => card.ability = None,
+                // An area that lost a unit goes whole, as a spell's schedule does.
+                UnitRef::DeploySpawn(_) => card.deploy_spawn_area = None,
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -8084,6 +8350,7 @@ impl CardDb {
         card.deploy_area_effect = None;
         card.spawn_area_effect = None;
         card.projectile_area = None;
+        card.deploy_spawn_area = None;
     }
 
     /// Register a card under its internal name, and under its display name

@@ -18,9 +18,9 @@
 //!
 //! WHAT IS PINNED, each with its precondition (F is the Rune Giant's creation tick; each test names the arms it runs
 //! through its config, `shipped()` or `with()`):
-//!   1. the loader reads his EnchantDef, and resolves the multipliers by the rows each card's unit fires (TriWizards,
-//!      whose unit is the Electro Wizard, takes 500; the Ram Rider's rider, units.RamRider, takes its bola's 0) and the
-//!      tagged PhoenixEgg into `excluded`;
+//!   1. the loader reads his EnchantDef, and resolves the multipliers by the rows each card's unit fires (the Ram
+//!      Rider's rider, units.RamRider, takes its bola's 0; TriWizards, whose own unit is the TriWizard and whose row
+//!      fires the Wizard's projectile, takes nothing) and the tagged PhoenixEgg into `excluded`;
 //!   2. the first projectile appears at the end of F + 27 on his post-move position and is 600 (+-1) nearer the friend
 //!      one tick later; under the named arms at_deploy_end F + 47 and buff_delay_ceil F + 26;
 //!   3. alone past his first look, a Knight created on F + 36 is sent a projectile on F + 43 (restart_cooldown: F + 88);
@@ -255,14 +255,14 @@ fn the_rune_giant_loads_with_his_enchant() {
     );
     let db = s.cards();
     let idx = |n: &str| db.index(n).unwrap_or_else(|| panic!("{n} loads"));
-    // The names-differ case: TriWizards puts the Electro Wizard on the board, and the multiplier names that row.
-    assert_eq!(db.get(idx("TriWizards")).unit_name, "ElectroWizard", "the scene: TriWizards' unit is the Electro Wizard");
+    // The names-differ case where no multiplier names the row: TriWizards' own unit is the TriWizard, which fires the
+    // Wizard's projectile, and no multiplier names it (its Electro Wizard is the ElectroWizard card's record).
+    assert_eq!(db.get(idx("TriWizards")).unit_name, "TriWizard", "the scene: TriWizards' own unit is the TriWizard");
     // A spawned unit's row: the Ram Rider's rider (units.RamRider, the row RamRider) fires RamRiderBola, which the table
     // lists at 0. The bola releases no spark, so the spark keeps 1000. The card's own unit, the Ram, fires nothing listed.
     assert_eq!(db.get(idx("units.RamRider")).unit_name, "RamRider", "the scene: the rider is the RamRider row");
     let mut want = vec![
         (idx("ElectroWizard"), 500, 1000),
-        (idx("TriWizards"), 500, 1000),
         (idx("Hunter"), 100, 1000),
         (idx("Firecracker"), 1000, 200),
         (idx("units.RamRider"), 0, 1000),
