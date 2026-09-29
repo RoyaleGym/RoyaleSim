@@ -156,8 +156,8 @@ pub struct Body {
     /// the separation scan still meets it as a troop): a member waiting out its stagger
     /// under movement.WAITING_HEADING = static_obstacle.
     pub avoid_static: bool,
-    /// Creation order (`Entities::creation_seq`): what breaks a tie between two entities first sighted in one group
-    /// (`Index::query`), as on the client.
+    /// The body's place in CREATION order (`Entities::creation_seq`), which breaks a tie between two bodies first
+    /// sighted in one group (`Index::query`).
     pub seq: u32,
 }
 
@@ -195,16 +195,21 @@ impl Index {
     }
 
     /// The neighbours of a circle, in visit order: every collidable entity, both
-    /// sides, no class filtered out. Two entities first sighted in one group are met
-    /// in CREATION order (`Body::seq`), then by index; returns indices.
+    /// sides, no class filtered out. Two bodies first sighted in one group are met in
+    /// UPDATE order, which is creation order (`Body::seq`; the move pass runs in it,
+    /// calibration match.TICK_ORDER), then by index; returns indices.
     ///
-    /// Measured on client 16.402 (RoyaleLive traces): over the 21 avoidance starts of the
-    /// corpus whose candidate blockers disagree on the sign, this order names the client's
-    /// sign on 20; creation order alone names 18 and "the nearest decides" 19. The
-    /// engine's bodies are its SLOTS, which a LIFO free list reuses, so the index alone met
-    /// two blockers in one group in slot order once anything had died
-    /// (20260918-130203.b2 t1568: a deploying Ice Spirit between two waiting Goblins, +190
-    /// where the client has -190).
+    /// The tie goes by `seq`, not by the index into `bodies`: the engine builds
+    /// `bodies` over its entity SLOTS, which a LIFO free list reuses, so once anything
+    /// has died the index is not creation order. Read on client 16.402
+    /// (20260918-130203.b2 t1568): a deploying Ice Spirit whose look circle lies in one
+    /// group with two waiting Goblins, mirror images across its heading, both created
+    /// that tick; the later-created one is met last and decides, -190, where the
+    /// slot order met the other one last and gave +190.
+    ///
+    /// Over the 21 avoidance starts of the 16.402 corpus whose candidate blockers disagree on the
+    /// sign, this order names the client's sign on 20; creation order alone names 18 and "the
+    /// nearest decides" 19.
     pub fn query(&self, bodies: &[Body], x: i32, y: i32, r: i32, out: &mut Vec<usize>) {
         out.clear();
         let (qc0, qc1) = (((x - r) >> 10).max(0), ((x + r) >> 10).min(self.cols - 1));
@@ -227,7 +232,7 @@ impl Index {
                 #[cfg(not(clash_plant = "slot_order_group_tie"))]
                 hits.push((fc, fr, b.seq, i));
                 #[cfg(clash_plant = "slot_order_group_tie")]
-                hits.push((fc, fr, 0, i)); // PLANT (regression): a tie inside one group goes by slot, as before.
+                hits.push((fc, fr, 0, i)); // PLANT (regression): a tie inside one group goes by slot, as before the fix.
             }
         }
         hits.sort_unstable();

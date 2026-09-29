@@ -70,7 +70,7 @@ equally well checked.
 
 A re-read on 2026-09-22 went through 24 entries against the corpus, of the 148 the ledger held
 that day. The ledger has grown since. Counted against it today, the re-read
-went through 24 of the 360 entries. It moved no status and no value. What it turned up was in
+went through 24 of the 363 entries. It moved no status and no value. What it turned up was in
 the evidence the statuses rest on: 42 places where a cited number, recording name or piece of
 arithmetic does not hold. Take that as a reason to re-derive, not as 42 established defects.
 Only a handful of the 42 have since been recomputed by hand, and one of those did not survive
@@ -83,17 +83,17 @@ pinned by 34 members over 17 clean groups, the two seats' back-edge bounds are a
 rather than half a row, side 1's river bound is one native unit looser than the rotation rather
 than tighter, and side 0's range is pinned by nothing at all, which the entry now says.
 
-336 entries have not been re-read. So, concretely (every count on this page comes from
+339 entries have not been re-read. So, concretely (every count on this page comes from
 `python tools/ledger_census.py`, and `tests/test_ledger_census.py` fails when the page and the
 ledger disagree, because these figures went stale twice in one afternoon before that gate existed):
 
 - **The status on a key is worth trusting.** No status moved in the re-read.
 - **The shape of an entry is worth trusting where a judgement was made, but it is not
-  universal, so check rather than assume.** All 360 carry a status. That 360 counts TOP-LEVEL
+  universal, so check rather than assume.** All 363 carry a status. That 363 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
-  another and carries its own `measured` status, so counting every status in the file gives 361
-  and 236 measured. The tools agree on 360 by convention, and the convention undercounts by one. 305 name the rivals the
-  value was chosen against and 314 state what would move it, and 297 do both. The gap is mostly
+  another and carries its own `measured` status, so counting every status in the file gives 364
+  and 236 measured. The tools agree on 363 by convention, and the convention undercounts by one. 308 name the rivals the
+  value was chosen against and 317 state what would move it, and 300 do both. The gap is mostly
   the 31 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 22 of
@@ -152,13 +152,14 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 360 top-level keys with a status, 235 are `measured`; one more entry, nested inside another, is measured too (361 in all).
+disagree. Of the 363 top-level keys with a status, 235 are `measured`; one more entry, nested inside another, is measured too (364 in all).
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
 | `collision.PUSH_MODEL` | `mass_weighted` | guess, LOW | a mass-ladder recording: units of known Mass pushing each other |
 | `collision.BUILDING_FOOTPRINT_MODEL` | `collision_radius_circle` | guess, LOW | a walk past a building; note that circle and 2x2 box differ by 0.044 tile at best, so only 3x3-vs-not is separable |
 | `collision.SEPARATION_ITERATIONS` | 1 | guess, LOW | a crowd recording with per-tick positions |
+| `collision.HELD_UNIT_AVOIDANCE` | `scanned` | hypothesis, LOW | parity's corpus score with `masked` switched on; its registered prediction is 20260918-124946's Ice Golem turning -190 on t2302, as the client's does |
 | `pathfinding.TIE_BREAK` | `ortho_first_placeholder` | guess, LOW | read only by the trace-fitted arm (`path2026.rs`); the selected arm reproduces the published node lists outright, so the key no longer gates it |
 | `combat.DAMAGE_ARITHMETIC` | `integer` | guess, LOW | hit counts to kill a tower at known levels |
 | `combat.CROWN_TOWER_DAMAGE_ROUNDING` | `ceil_kept_share` | community, MEDIUM | a crown tower's displayed hp before and after a spell at two card levels |
@@ -196,7 +197,7 @@ These keys were measured later, on the 16.402 corpus or client 15.535.29, and ar
 | `combat.ATTACK_CYCLE`, `combat.PROJECTILE_LAUNCH`, `combat.KAMIKAZE_DEATH` | the attack cycle, the launch point, the kamikaze death |
 | `lifetime.HP_DECAY` | a building's hit-point drain over its lifetime |
 | `formation.LAYOUT`, `DEPLOY_STAGGER`, `GROUND_Y_CLAMP` | where a card's summons stand, and when each appears |
-| `spawner` (29 of 37 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
+| `spawner` (29 of 39 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
 | `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
 | `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
 

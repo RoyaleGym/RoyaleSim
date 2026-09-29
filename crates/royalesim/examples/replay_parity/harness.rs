@@ -452,13 +452,14 @@ pub fn issue_row(s: &mut BattleState, db: &CardDb, d: &Deploy, team: Team, name:
 }
 
 /// A CORPUS TROOP row whose point the capture SAW: its `tap` is no [x, y] pair (a live capture's) and its `source`
-/// is an observed point (the maker's "centroid" or "creation_point"), which the client already resolved; it goes
-/// down through `spawn_unit_resolved`. A corpus row played from its logged tap (source "tap_tile" or
+/// is an observed point (the maker's "centroid" or "creation_point", or "laid_point", a single seen after its creation
+/// tick put back on the tile point it was created on), which the client already resolved; it goes down through
+/// `spawn_unit_resolved`. A corpus row played from its logged tap (source "tap_tile" or
 /// "recovered_tile": a group laid around the tile), a spell row (an approximate landing point, which the snap puts
 /// on the tile the cast was aimed at) and every scenario row (a tap) do not.
 pub fn observed_row(d: &Deploy, db: &CardDb) -> bool {
     let corpus_row = !d.tap.as_ref().is_some_and(|t| t.is_array());
-    let seen = matches!(d.source.as_str(), "centroid" | "creation_point");
+    let seen = matches!(d.source.as_str(), "centroid" | "creation_point" | "laid_point");
     corpus_row && seen && db.index(&deploy_play(d, db)).is_some_and(|i| db.get(i).kind == CardKind::Troop)
 }
 

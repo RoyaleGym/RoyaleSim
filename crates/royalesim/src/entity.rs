@@ -354,9 +354,11 @@ pub struct Entities {
     #[serde(default)]
     pub death_slide_radius: Vec<i32>,
     /// THE SLIDE'S LAST TICK (a container's member: state.rs `release_fuse_end`,
-    /// `move16402::CONTAINER_SLIDE_TICKS`): the slide ends after its step on this tick, whether or not
-    /// the member has reached its radius (`death_slide_capped`). 0 = no cap (a dying troop's slide),
-    /// and 0 on every unit that is not sliding. Hashed only while a slide runs and only when set.
+    /// `move16402::CONTAINER_SLIDE_TICKS`; a dying troop's member under spawner.DEATH_SLIDE_STOP =
+    /// move_count: its move count, state.rs `slide_move_count`): the slide ends after its step on this
+    /// tick, whether or not the member has reached its radius (`death_slide_capped`). 0 = no cap (a
+    /// dying troop's slide under on_reach), and 0 on every unit that is not sliding. Hashed only while a
+    /// slide runs and only when set.
     /// `default` and sized on load like `death_slide_radius`.
     #[serde(default)]
     pub death_slide_until: Vec<u32>,
@@ -632,11 +634,12 @@ impl Entities {
         self.death_slide_radius[i] > 0
     }
 
-    /// Has entity `i`'s slide run out of ticks on `tick` (`death_slide_until`, a container's member)? Its step on
-    /// that tick is its last, whether or not it reached its radius. Measured on client 15.535.29: a container's
-    /// members move on T + 13 to T + 16 and never after, the last-created one resting at 1301 of its 1480. False
-    /// on every slide with no cap (a dying troop's). PLANT container_slide_uncapped (tests/skeleton_barrel.rs):
-    /// never, so every member slides on to its radius.
+    /// Has entity `i`'s slide run out of ticks on `tick` (`death_slide_until`: a container's member, or a dying
+    /// troop's under spawner.DEATH_SLIDE_STOP = move_count)? Its step on that tick is its last, whether or not it
+    /// reached its radius. Measured on client 15.535.29: a container's members move on T + 13 to T + 16 and never
+    /// after, the last-created one resting at 1301 of its 1480. False on every slide with no cap (a dying troop's
+    /// under on_reach). PLANT container_slide_uncapped (tests/skeleton_barrel.rs): never, so every member slides on
+    /// to its radius.
     #[inline]
     pub fn death_slide_capped(&self, i: usize, tick: u32) -> bool {
         #[cfg(clash_plant = "container_slide_uncapped")]
