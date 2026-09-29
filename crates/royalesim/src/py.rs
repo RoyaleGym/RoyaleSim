@@ -205,7 +205,7 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
-pub const DEPLOY_REASONS: [&str; 18] = [
+pub const DEPLOY_REASONS: [&str; 19] = [
     "OK",
     "BAD_TEAM",
     "BAD_SLOT",
@@ -234,6 +234,8 @@ pub const DEPLOY_REASONS: [&str; 18] = [
     "NO_HERO",
     "ABILITY_NOT_READY",
     "ABILITY_SPENT",
+    // CARD_PENDING, index 18: a card or button with a delayed command waiting (state.rs `command_delay_ticks`).
+    "CARD_PENDING",
 ];
 
 /// THE ENTITY ROW'S FIELDS, in exactly the order `state_json` writes them, named as
@@ -863,8 +865,8 @@ pub fn state_json_text(
     let c = &s.config().calib;
     let tick_ms = c.tick_ms as i64;
     let regular_ms = (c.regular_time_s as i64) * 1000;
-    let elapsed = (s.tick_count() as i64) * tick_ms;
-    let double = s.is_overtime() || regular_ms - elapsed <= (c.mana_speed_up_remaining_s as i64) * 1000;
+    // The regen's multiple the next tick runs (state.rs `elixir_multiplier`: 1, 2, or 3 from 60 s into overtime).
+    let rate = s.elixir_multiplier();
     let winner = match s.outcome() {
         None => -1,
         Some(Outcome::Winner(t)) => t as i32,
@@ -879,7 +881,7 @@ pub fn state_json_text(
         tick_ms,
         ceil_div(regular_ms, tick_ms),
         ceil_div((c.overtime_s as i64) * 1000, tick_ms),
-        if double { 2 } else { 1 },
+        rate,
         s.is_overtime(),
         s.is_done(),
         winner,
@@ -928,6 +930,23 @@ pub fn state_json_text(
         let hc = s.hand_costs(team);
         let mirror_target = s.mirror_target(team).map_or(-1, |i| id_of_idx.get(i as usize).copied().unwrap_or(-1));
         let _ = write!(o, "],\"hand_costs\":[{},{},{},{}],\"mirror_target\":{mirror_target}", hc[0], hc[1], hc[2], hc[3]);
+        // THE SIDE'S WAITING COMMANDS (state.rs `pending_commands`, `BattleConfig::command_delay_ticks`), keyed like the
+        // two above: [kind, what, x, y, ticks left, cost] each, kind 0 a play (what: the catalogue card id, x y the tap)
+        // and 1 a press (what: the button's action slot). The elixir above is the bar's state, which a waiting command
+        // has not touched (measured on the live client: it changes when the command runs); `pending_cost` is what the
+        // waiting commands have spoken for. Empty and 0 with no delay.
+        let now = s.tick_count();
+        let pend = s.pending_commands(team);
+        let _ = write!(o, ",\"pending_cost\":{},\"pending\":[", pend.iter().map(|c| c.cost).sum::<i32>());
+        for (k, c) in pend.iter().enumerate() {
+            let left = c.due.saturating_sub(now);
+            let (kind, what, x, y) = match c.kind {
+                crate::state::CommandKind::Deploy { card, pos } => (0, id_of_idx.get(card as usize).copied().unwrap_or(-1) as i64, pos.x, pos.y),
+                crate::state::CommandKind::Ability { button } => (1, (HAND_SIZE + button) as i64, 0, 0),
+            };
+            let _ = write!(o, "{}[{kind},{what},{x},{y},{left},{}]", if k > 0 { "," } else { "" }, c.cost);
+        }
+        o.push(']');
         // THE EVOLVED DECK CARDS (module doc, EVOLVED AND HERO FORMS): [card id, plays, next play evolved], keyed like the
         // two above.
         o.push_str(",\"evo\":[");
@@ -2136,6 +2155,39 @@ mod tests {
     //! `Battle.step` call (grep the call sites; nothing else is in between).
     use super::*;
     use crate::state::BattleConfig;
+
+    /// EVERY REASON CODE HAS A NAME: `reason_of` over every DeployError variant lands inside DEPLOY_REASONS. The
+    /// array is length-annotated and grows by editing two places; TOO_EARLY and CARD_PENDING each once grew one half.
+    #[test]
+    fn every_reason_code_has_a_name() {
+        use crate::state::DeployError as E;
+        let all = [
+            E::GameOver,
+            E::TooEarly { tick: 0, until: 1 },
+            E::UnknownCard(String::new()),
+            E::UnsupportedCard(String::new(), String::new()),
+            E::NotInHand,
+            E::BadSlot,
+            E::EmptySlot,
+            E::NotEnoughElixir { have: 0, need: 1 },
+            E::OutOfArena,
+            E::Water,
+            E::NoDeploy,
+            E::OutOfTerritory,
+            E::Occupied,
+            E::InvalidLevel(String::new()),
+            E::NothingToMirror,
+            E::NoHero,
+            E::AbilityNotReady,
+            E::AbilitySpent,
+            E::CardPending,
+        ];
+        for e in all {
+            let code = super::reason_of(&Err(e.clone())) as usize;
+            assert!(code < super::DEPLOY_REASONS.len(), "{e:?} returns {code}, past DEPLOY_REASONS");
+        }
+        assert_eq!(super::DEPLOY_REASONS[super::reason_of(&Err(E::CardPending)) as usize], "CARD_PENDING");
+    }
 
     fn cards() -> Arc<CardDb> {
         Arc::new(CardDb::load_repo().expect("data/derived/cards.json (run tools/extract_cards.py)"))

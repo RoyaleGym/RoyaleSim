@@ -36,6 +36,9 @@ fn the_regen_triples_from_the_step_into_tick_4801() {
     let mut steps: Vec<(u32, i64, i64)> = Vec::new();
     let mut prev = (raw_milli(&s, Team::Blue), raw_milli(&s, Team::Red));
     for _ in 0..40 {
+        // The multiple the next tick runs, as `state_json` reports it (`elixir_multiplier`).
+        let next = s.tick_count() + 1;
+        assert_eq!(s.elixir_multiplier(), if next <= 4800 { 2 } else { 3 }, "the multiple reported before the step into t{next}");
         s.tick();
         let now = (raw_milli(&s, Team::Blue), raw_milli(&s, Team::Red));
         steps.push((s.tick_count(), now.0 - prev.0, now.1 - prev.1));

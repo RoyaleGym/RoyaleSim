@@ -10918,6 +10918,18 @@ impl BattleState {
         }
     }
 
+    /// THE REGEN'S MULTIPLE the next tick runs: 3 under `triple_elixir`, 2 under `double_elixir`, else 1. The one
+    /// answer `state_json`'s `elixir_rate` reports.
+    pub fn elixir_multiplier(&self) -> i32 {
+        if self.triple_elixir() {
+            3
+        } else if self.double_elixir() {
+            2
+        } else {
+            1
+        }
+    }
+
     fn phase_upkeep(&mut self) {
         let double = self.double_elixir();
         let triple = self.triple_elixir();

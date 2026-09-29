@@ -5,6 +5,8 @@ a play then waits in ``pending_commands`` and runs k ticks on, checked again in 
 (CardPending). With no delay, nothing waits: the default is the engine as it always ran.
 """
 
+import json
+
 import pytest
 
 royalesim = pytest.importorskip("royalesim")
@@ -41,6 +43,12 @@ def test_a_play_waits_then_runs():
     assert pending[0][0] == "deploy", pending
     assert pending[0][4] == 22, f"22 ticks left: {pending}"
     assert b.check_deploy(0, 0, 9500 * SUB, 9500 * SUB) == 18, "the waiting card reads CardPending"
+    assert royalesim.DEPLOY_REASONS[18] == "CARD_PENDING"
+    blue = json.loads(b.state_json())["players"][0]
+    assert blue["pending_cost"] == 3, blue["pending_cost"]
+    assert len(blue["pending"]) == 1, blue["pending"]
+    assert blue["pending"][0][0] == 0, "a play"
+    assert blue["pending"][0][4] == 22, "22 ticks left"
     b.step([], 22)
     assert len(b.pending_commands(0)) == 1, "it has not run after 22 ticks: it runs at the top of the next"
     b.step([], 1)
