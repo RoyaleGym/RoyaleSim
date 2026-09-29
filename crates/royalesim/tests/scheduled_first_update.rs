@@ -41,7 +41,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, ScheduledUnitFirstUpdate};
+use royalesim::state::{BattleConfig, BattleState, Calib, ScheduledUnitFirstUpdate, TapSnap};
 use royalesim::{EntityId, Team};
 
 const NEW: ScheduledUnitFirstUpdate = ScheduledUnitFirstUpdate::ClientCreationTick;
@@ -55,6 +55,9 @@ const NEIGHBOUR_DY: i32 = 290;
 fn with(arm: ScheduledUnitFirstUpdate) -> BattleConfig {
     let mut cfg = config();
     cfg.calib.scheduled_unit_first_update = arm;
+    // The Graveyard goes down on its raw point, as the fixtures' casts were read: the tile-centre snap
+    // (placement.TAP_SNAP) would move its slots half a tile.
+    cfg.calib.placement_tap_snap = TapSnap::None;
     cfg
 }
 

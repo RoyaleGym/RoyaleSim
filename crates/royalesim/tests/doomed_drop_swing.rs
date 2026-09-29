@@ -30,7 +30,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, DoomedDropSwing, DoomedTargetDrop, RetargetProgress};
+use royalesim::state::{BattleState, Calib, DoomedDropSwing, DoomedTargetDrop, EqualDistanceTie, RetargetProgress};
 use royalesim::target::in_attack_range;
 use royalesim::{EntityId, Team};
 
@@ -69,6 +69,9 @@ const CONTROL_HP: i32 = 2000;
 fn play(arm: DoomedDropSwing, spawns: &[Spawn], ticks: u32) -> (Vec<EntityId>, Vec<Tick>, i32) {
     let mut cfg = config();
     cfg.calib.doomed_drop_swing = arm;
+    // The Minion's two targets stand at one distance from it: the scenes were written on the tie by the lower
+    // own-frame x (targeting.EQUAL_DISTANCE_TIE = own_frame_low_x), which picks X; the shipped higher-x tie picks Y.
+    cfg.calib.equal_distance_tie = EqualDistanceTie::OwnFrameLowX;
     let range = cfg.cards.cards.iter().find(|c| c.name == "Minions").expect("Minions is simulable").range;
     let mut s = BattleState::new(0, cfg);
     s.scenario_set_tick(200);

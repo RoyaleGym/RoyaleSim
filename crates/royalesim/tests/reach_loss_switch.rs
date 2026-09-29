@@ -33,7 +33,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, PreserveTargetScope, RetargetProgress};
+use royalesim::state::{BattleConfig, BattleState, Calib, EqualDistanceTie, PreserveTargetScope, RetargetProgress};
 use royalesim::{EntityId, Team};
 
 /// (lock on, its scope, the progress arm)
@@ -46,6 +46,9 @@ fn with_arms(arms: Arms) -> BattleConfig {
     cfg.calib.preserve_target_if_hit_started = arms.0;
     cfg.calib.preserve_target_scope = arms.1;
     cfg.calib.retarget_progress = arms.2;
+    // A scene's Hog stands on x 9000, where both princess towers are at one distance: the scenes were written on
+    // the tie by the lower own-frame x (targeting.EQUAL_DISTANCE_TIE = own_frame_low_x).
+    cfg.calib.equal_distance_tie = EqualDistanceTie::OwnFrameLowX;
     cfg
 }
 

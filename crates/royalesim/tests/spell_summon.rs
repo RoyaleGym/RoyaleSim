@@ -66,7 +66,7 @@ mod common;
 use common::*;
 use royalesim::card::{SpellDef, SpellPlacement, SpellShape};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, Calib, OwnSideScope, PulseAmount};
+use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, Calib, OwnSideScope, PulseAmount, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -260,6 +260,9 @@ fn the_rage_buff_ends_sooner_when_bound_to_its_area() {
 fn walk_out(binding: AreaBuffSourceBinding) -> (Vec<i64>, Vec<i32>) {
     let mut cfg: BattleConfig = config();
     cfg.calib.area_buff_source_binding = binding;
+    // The Rage goes down on its raw point, 3000 ahead of the Knight: the tile-centre snap (placement.TAP_SNAP) would
+    // move its area and the tick the Knight walks out of it.
+    cfg.calib.placement_tap_snap = TapSnap::None;
     let mut s = BattleState::new(0, cfg);
     let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 9000)), None).expect("spawn");
     for _ in 0..3 {
