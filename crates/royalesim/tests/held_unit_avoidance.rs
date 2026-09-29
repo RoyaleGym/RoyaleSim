@@ -18,11 +18,13 @@
 //!      Knight first on that row, starts -190 and stands on (3863, 11321);
 //!   2. scanned (the old arm, non-vacuity): the held Knight starts +190 on row 18, the tick the Hog Rider enters its
 //!      look circle, then 180 on row 19, and on row 19 the Hog Rider reads that sign and starts +190 on (3637, 11321);
-//!   3. masked: a unit held with a running offset still decays 10 a tick (a Knight frozen just after it started one
-//!      walking past a Cannon: 180, 170, ... 50 on the first 14 held rows);
+//!   3. masked: a unit held with a running offset while a static lies in its look circle still decays 10 a tick and is
+//!      not refreshed: a Knight walking past a Blue Cannon at (3600, 11500), its offset running since the Cannon first
+//!      turned it, frozen after its 18th tick, goes -70, -60, ... 0 on the 14 held rows; scanned (the old arm,
+//!      non-vacuity) refreshes it from the Cannon, -70, -80, ... -190;
 //!   4. the shipped value is scanned.
 //!
-//! PLANT (regression): `held_avoidance_scanned` runs the scan for a held unit under masked: (1) goes red.
+//! PLANT (regression): `held_avoidance_scanned` runs the scan for a held unit under masked: (1) and (3) go red.
 //!     RUSTFLAGS='--cfg clash_plant="held_avoidance_scanned"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test held_unit_avoidance
 
 mod common;
@@ -123,14 +125,23 @@ fn the_old_arm_starts_the_held_units_offset_and_the_walker_reads_its_sign() {
     );
 }
 
+/// Plant: held_avoidance_scanned.
 #[test]
-fn a_held_units_running_offset_still_decays() {
-    // A Knight walking past a Blue Cannon starts +190 on its 16th tick; the Freeze cast after that tick holds it from
-    // the next, with the offset running.
-    let rows = scene(NEW, (3500, 10000), None, Some((3500, 11500)), 16, 14);
-    assert!(rows.iter().all(|r| r.held_stun > 0), "the scene drifted: the Knight is not held on every row");
-    let offsets: Vec<i32> = rows.iter().map(|r| r.held_offset).collect();
-    assert_eq!(offsets, (0..14).map(|k| 180 - 10 * k).collect::<Vec<i32>>(), "masked: the held Knight's offset, row by row");
+fn a_held_units_running_offset_decays_and_the_static_in_its_look_circle_does_not_refresh_it() {
+    // A Knight walking past a Blue Cannon at (3600, 11500) starts -190 on its 7th tick and lets it decay; the Cannon is
+    // back in its look circle from its 20th. The Freeze cast after its 18th tick holds it with the offset running, the
+    // Cannon in its look circle from the second held row on.
+    let held = |arm| {
+        let rows = scene(arm, (3500, 10000), None, Some((3600, 11500)), 18, 14);
+        assert!(rows.iter().all(|r| r.held_stun > 0), "the scene drifted: the Knight is not held on every row");
+        rows.iter().map(|r| r.held_offset).collect::<Vec<i32>>()
+    };
+    assert_eq!(held(NEW), [-70, -60, -50, -40, -30, -20, -10, 0, 0, 0, 0, 0, 0, 0], "masked: the held Knight's offset, row by row");
+    assert_eq!(
+        held(OLD),
+        [-70, -80, -90, -100, -110, -120, -130, -140, -150, -160, -170, -180, -190, -190],
+        "scanned (non-vacuity): the Cannon refreshes the held Knight's offset, row by row"
+    );
 }
 
 #[test]
