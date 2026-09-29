@@ -1733,6 +1733,8 @@ pub fn step_projectiles(
         if alive && follows {
             p.aim = ents.pos[p.target.index as usize];
         }
+        // combat.HOOK_LANDING: where a hook stood at the start of this tick, before its step.
+        let start = p.pos;
         // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
         let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
         p.pos = np;
@@ -1756,7 +1758,7 @@ pub fn step_projectiles(
         // whose target died in flight lands on nothing.
         if let Some(by) = p.hook {
             if alive {
-                fx.hooks.push((p.target, by));
+                fx.hooks.push((p.target, by, start));
             }
             return false;
         }

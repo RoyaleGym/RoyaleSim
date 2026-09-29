@@ -271,6 +271,34 @@ pub struct Calib {
     /// troop relocations (`places_as_troop`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "spell_as_deploy_taps_default")]
     pub placement_spell_as_deploy_taps: SpellAsDeployTaps,
+    /// combat.HOOK_BUILDINGS (`special_step`, `apply_effects`, `step_hook_drags`): whether a hook takes a building and
+    /// pulls its thrower to it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "hook_buildings_default")]
+    pub hook_buildings: HookBuildings,
+    /// combat.HOOK_LANDING (`apply_effects`, a landed hook): where the hook's victim stands on the landing tick. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "hook_landing_default")]
+    pub hook_landing: HookLanding,
+    /// status.ATTRACT_ONSET (`phase_path16402`'s attract pre-pass; spell.rs `step_spells`): the tick a pulling area's first
+    /// pull moves a unit. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "attract_onset_default")]
+    pub attract_onset: AttractOnset,
+    /// combat.RETARGET_WAIT_WHILE_HELD (`phase_target`): whether a stun or freeze pauses the post-kill wait. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "retarget_wait_while_held_default")]
+    pub retarget_wait_while_held: RetargetWaitWhileHeld,
+    /// combat.RETARGET_WAIT_REACH_LOSS (`phase_target`): whether the post-kill wait also follows a live target that left
+    /// the attacker's reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "retarget_wait_reach_loss_default")]
+    pub retarget_wait_reach_loss: RetargetWaitReachLoss,
+    /// spells.CLONE_COPY_DEPLOY (`materialise_clones`): the deploy a Clone's copy is born with. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm.
+    #[serde(default = "clone_copy_deploy_default")]
+    pub clone_copy_deploy: CloneCopyDeploy,
+    /// spawner.SCHEDULED_UNIT_FIRST_UPDATE (`phase_projectile`, the scheduled area's units): whether a Graveyard's Skeleton
+    /// takes an update on the tick it is created. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "scheduled_unit_first_update_default")]
+    pub scheduled_unit_first_update: ScheduledUnitFirstUpdate,
     /// spells.ILLEGAL_SPELL_TAP. Added after SNAPSHOT_FORMAT 20; the `default` is `Refuse`,
     /// what a battle saved before it actually ran.
     #[serde(default = "illegal_spell_tap_default")]
@@ -1157,6 +1185,34 @@ fn troop_building_taps_default() -> TroopBuildingTaps {
 
 fn spell_as_deploy_taps_default() -> SpellAsDeployTaps {
     SpellAsDeployTaps::SpellPoint
+}
+
+fn hook_buildings_default() -> HookBuildings {
+    HookBuildings::TroopsOnly
+}
+
+fn hook_landing_default() -> HookLanding {
+    HookLanding::OnVictim
+}
+
+fn attract_onset_default() -> AttractOnset {
+    AttractOnset::AreaFirstTick
+}
+
+fn retarget_wait_while_held_default() -> RetargetWaitWhileHeld {
+    RetargetWaitWhileHeld::RunsThrough
+}
+
+fn retarget_wait_reach_loss_default() -> RetargetWaitReachLoss {
+    RetargetWaitReachLoss::KillOnly
+}
+
+fn clone_copy_deploy_default() -> CloneCopyDeploy {
+    CloneCopyDeploy::Deployed
+}
+
+fn scheduled_unit_first_update_default() -> ScheduledUnitFirstUpdate {
+    ScheduledUnitFirstUpdate::NextTick
 }
 
 fn illegal_spell_tap_default() -> IllegalSpellTap {
@@ -2982,13 +3038,140 @@ calib_enum!(
     }
 );
 
+calib_enum!(
+    /// spawner.SCHEDULED_UNIT_FIRST_UPDATE -- whether a unit a scheduled area puts down (`SpellShape::ScheduledArea`: the
+    /// Graveyard's Skeletons, and the Suspicious Bush's goblins by the same path) takes an update on the tick it is created
+    /// (`phase_projectile` releases it; `materialise_released` runs `first_update`), as a death spawn and a spawner's
+    /// emission do under spawner.SPAWNED_FIRST_STEP.
+    ScheduledUnitFirstUpdate {
+        /// Today's engine: the unit stands on its point on its first frame and takes its first update, the contact push
+        /// included, on the next tick.
+        NextTick = "next_tick",
+        /// The unit takes its first update on its creation tick (`first_update`): a deploying Skeleton does not walk, but
+        /// a neighbour's contact push moves it there. Read off client 15.535.29's ten Graveyard fixtures: 9 of 120
+        /// Skeletons are born overlapping a body (a crown tower 7, the sweep's Knight, an older Skeleton) and appear
+        /// pushed off their slot, 150 at the contact cap (the sweep's t318 one (139, -55)); the other 111 appear on their
+        /// slots under either arm.
+        ClientCreationTick = "client_creation_tick",
+    }
+);
+calib_enum!(
+    /// spells.CLONE_COPY_DEPLOY -- the deploy time a Clone's copy is born with (`materialise_clones`), which matters only
+    /// when its original is still deploying at the cast.
+    CloneCopyDeploy {
+        /// Today's engine: the copy is born deployed, so it takes a target and walks when the Clone's hold ends.
+        Deployed = "deployed",
+        /// The copy is born with its original's remaining deploy time, so a pair cloned mid-deploy acts when the
+        /// original's deploy ends. Read off client 15.535.29's sp-m5-clone-s0: three Skeletons played on t807 (deploying
+        /// to t827) are cloned on t812; all six stand without a target through t826 and walk from t827, where the engine's
+        /// copies target and walk on t823, when the hold ends.
+        ClientOriginalRemaining = "client_original_remaining",
+    }
+);
+calib_enum!(
+    /// combat.RETARGET_WAIT_REACH_LOSS -- whether combat.POST_KILL_RETARGET_WAIT's wait also follows the loss of a LIVE
+    /// target (`phase_target`): a unit in its attack whose target, still on the board, has left its attack reach.
+    RetargetWaitReachLoss {
+        /// Today's engine: only a dead target starts the wait; a unit whose live target leaves its reach takes the
+        /// decision's next target on the same tick.
+        KillOnly = "kill_only",
+        /// For a unit whose row sets VariableDamage (the Inferno Dragon), the loss starts the same wait, under the same
+        /// exemptions but the doomed one (the target lives), unless the decision's new target already stands in its
+        /// reach: no target and no walk for five Target phases, the next target on the sixth. Its attack progress is 0
+        /// at once. Read off the 16.402 corpus, 20260920-082459 (both seats): an Inferno Dragon whose Giant walks out of
+        /// its reach on t3012 reads no target t3012..t3016 and takes the Skeletons on t3017 without moving, where they
+        /// had stood inside its reach since the t3013 frame. Every other unit retargets at once, as the corpus shows (a
+        /// Spear Goblin and a Skeleton whose targets left their reach), and a new target in reach is taken at once
+        /// (client 15.535.29's reach-loss scenarios: a Knight switches to a Cannon in its reach on the next tick).
+        ClientAfterReachLoss = "client_after_reach_loss",
+    }
+);
+calib_enum!(
+    /// combat.RETARGET_WAIT_WHILE_HELD -- whether the post-kill wait (combat.POST_KILL_RETARGET_WAIT) counts the Target
+    /// phases on which its unit is held by a stun or a freeze (`Entities::held`) (`phase_target`).
+    RetargetWaitWhileHeld {
+        /// Today's engine: the wait counts every Target phase, held or not, and a unit frozen through it rescans on
+        /// resume (status.STUN_RETARGET_ON_RESUME).
+        RunsThrough = "runs_through",
+        /// The wait counts only the Target phases on which the unit is not held: a freeze pauses it, and it resumes
+        /// with what was left. Read off client 15.535.29's sp-scene-b-s1: a princess tower loses its target on t316, is
+        /// frozen t317..t338, reads progress 0 on t343 and takes its next target on t344, the loss + 6 in unfrozen
+        /// ticks; the engine took it on t340, the first tick after the freeze.
+        ClientPaused = "client_paused",
+    }
+);
+calib_enum!(
+    /// status.ATTRACT_ONSET -- on which ticks a pulling area effect (status.ATTRACT_LAW; the Tornado) moves its victims:
+    /// the ticks of its own life, or each one a tick later (`phase_path16402`'s attract pre-pass; spell.rs `step_spells`,
+    /// which keeps such an area one more tick, applying nothing, so its last pull still moves).
+    AttractOnset {
+        /// Today's engine: a unit is pulled on every tick the area lives, from the area's first tick (its cast tick D):
+        /// 21 moves, D..D + 20.
+        AreaFirstTick = "area_first_tick",
+        /// The pull is written on one tick and moves the unit on the next: each of the area's ticks moves its victims one
+        /// tick later, D + 1..D + 21, the same 21 moves. Read off client 15.535.29's sweep-Tornado (a Knight pulled on
+        /// D + 1..D + 21, damage on D + 11 in both engines) and the two casts of the 16.402 corpus's 20260920-081819,
+        /// where the client's collision accumulator holds the pull a tick before the unit moves by it.
+        ClientNextTick = "client_next_tick",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_LANDING -- where a hook's victim (combat.SPECIAL_HOOK) stands on the tick the hook lands on it
+    /// (`apply_effects`), the point its drag starts from on the next tick.
+    HookLanding {
+        /// Today's engine: the hook lands on the victim, which stands where it walked that tick.
+        OnVictim = "on_victim",
+        /// The hook stays where it stood at the start of the landing tick and the victim is set onto that point, which
+        /// overrides its walk of that tick. Read off client 15.535.29's Fisherman scenes and the 16.402 corpus's
+        /// 20260920-081819: the recorded hook stands still on the landing tick and the victim stands on it, 42 to 759
+        /// nearer the thrower than it walked.
+        ClientHookPoint = "client_hook_point",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_BUILDINGS -- whether a unit whose row sets SpecialRange (combat.SPECIAL_HOOK; the Fisherman) hooks an
+    /// enemy BUILDING, a crown tower included, and what the hook then does (`special_step`, `apply_effects`,
+    /// `step_hook_drags`).
+    HookBuildings {
+        /// Today's engine: the special takes enemy ground troops only, and the Fisherman walks to a building to melee it.
+        TroopsOnly = "troops_only",
+        /// An enemy building is a hook target too, by the troop trigger (centre within SpecialRange plus the target's
+        /// radius, outside SpecialMinRange plus it). The hook does not move the building: from the tick after it lands
+        /// the thrower is dragged to it, HOOK_SELF_DRAG_STEP a tick, straight, until the edges are DragMargin apart; the
+        /// drag's last step stops on that point. Read off the 16.402 corpus's 20260920-081051 (both seats): a Fisherman
+        /// 7,989 from a princess tower's centre stops (8,000 = 7,000 + the tower's 1,000), throws 26 ticks later, is
+        /// pulled from 11 ticks after the throw at 449-450 a tick, lands 1,699 from the centre (1,000 + 500 + 200) and
+        /// hits the tower on the tick after he stops.
+        ClientPullSelf = "client_pull_self",
+    }
+);
 /// combat.SPECIAL_HOOK = client_hook_drag: may the hook unit `by` throws take unit `t`? An enemy GROUND TROOP
-/// that no other hook holds. The rule a special starts by (`BattleState::special_step`) and the one a landing hook
-/// drags by (`BattleState::apply_effects`), so a target that stopped being one while the hook flew (a Cannon Cart
-/// that became its building) is a miss.
-fn hookable(e: &Entities, by: usize, t: usize) -> bool {
-    e.kind[t] == EntityKind::Troop && !e.flying[t] && e.team[t] != e.team[by] && e.hooked_by[t].is_none()
+/// that no other hook holds, or under combat.HOOK_BUILDINGS = client_pull_self an enemy building (`pulls_self`).
+/// The rule a special starts by (`BattleState::special_step`) and the one a landing hook drags by
+/// (`BattleState::apply_effects`), so a target that stopped being one while the hook flew (a Cannon Cart that became
+/// its building, under the old arm) is a miss.
+fn hookable(e: &Entities, calib: &Calib, by: usize, t: usize) -> bool {
+    e.team[t] != e.team[by] && ((e.kind[t] == EntityKind::Troop && !e.flying[t] && e.hooked_by[t].is_none()) || pulls_self(e, calib, t))
 }
+
+/// combat.HOOK_BUILDINGS = client_pull_self: is `t` a target a hook pulls its thrower to (a building, crown towers
+/// included), rather than one it drags?
+fn pulls_self(e: &Entities, calib: &Calib, t: usize) -> bool {
+    #[cfg(not(clash_plant = "hook_buildings_unread"))]
+    let on = calib.hook_buildings == HookBuildings::ClientPullSelf;
+    #[cfg(clash_plant = "hook_buildings_unread")]
+    let on = {
+        let _ = calib;
+        false // PLANT (regression): the new arm hooks troops only.
+    };
+    on && e.kind[t].is_building()
+}
+
+/// combat.HOOK_BUILDINGS = client_pull_self: the thrower's own step toward the building its hook took, NATIVE units
+/// per tick (`BattleState::step_hook_drags`). Measured on the 16.402 corpus, 20260920-081051 (both seats): 12 steps of
+/// 449 and two of 450, the special projectile's DragSelfSpeed 450 (not carried into cards.json). A constant of the
+/// measured law, like HOOK_DRAG_STEP.
+const HOOK_SELF_DRAG_STEP: i32 = 450;
 
 /// combat.SPECIAL_HOOK = client_hook_drag: the drag's step, NATIVE units per tick
 /// (`BattleState::step_hook_drags`). Measured on client 15.535.29, 5 of 5 drags of a Knight:
@@ -5160,6 +5343,13 @@ impl Calib {
             placement_live_bottle_taps: pick(&v, &["placement", "LIVE_BOTTLE_TAPS", "value"], LiveBottleTaps::from_calibration_name)?,
             placement_troop_building_taps: pick(&v, &["placement", "TROOP_BUILDING_TAPS", "value"], TroopBuildingTaps::from_calibration_name)?,
             placement_spell_as_deploy_taps: pick(&v, &["placement", "SPELL_AS_DEPLOY_TAPS", "value"], SpellAsDeployTaps::from_calibration_name)?,
+            hook_buildings: pick(&v, &["combat", "HOOK_BUILDINGS", "value"], HookBuildings::from_calibration_name)?,
+            hook_landing: pick(&v, &["combat", "HOOK_LANDING", "value"], HookLanding::from_calibration_name)?,
+            attract_onset: pick(&v, &["status", "ATTRACT_ONSET", "value"], AttractOnset::from_calibration_name)?,
+            retarget_wait_while_held: pick(&v, &["combat", "RETARGET_WAIT_WHILE_HELD", "value"], RetargetWaitWhileHeld::from_calibration_name)?,
+            retarget_wait_reach_loss: pick(&v, &["combat", "RETARGET_WAIT_REACH_LOSS", "value"], RetargetWaitReachLoss::from_calibration_name)?,
+            clone_copy_deploy: pick(&v, &["spells", "CLONE_COPY_DEPLOY", "value"], CloneCopyDeploy::from_calibration_name)?,
+            scheduled_unit_first_update: pick(&v, &["spawner", "SCHEDULED_UNIT_FIRST_UPDATE", "value"], ScheduledUnitFirstUpdate::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
@@ -7930,12 +8120,24 @@ impl BattleState {
             #[cfg(clash_plant = "clone_level_from_original")]
             let level = own_level; // PLANT: the copy takes the original's level.
             let level = if self.cfg.cards.level_multiplier(card, level).is_ok() { level } else { own_level };
+            // spells.CLONE_COPY_DEPLOY = client_original_remaining: the copy is born with what is left of its original's
+            // deploy (read before the copy is spawned), and leaves it on the same tick; deployed (today's engine): born
+            // deployed.
+            #[cfg(not(clash_plant = "clone_copy_born_deployed"))]
+            let deploy_left = match self.cfg.calib.clone_copy_deploy {
+                CloneCopyDeploy::ClientOriginalRemaining => self.ents.deploy_ms[i].max(0),
+                CloneCopyDeploy::Deployed => 0,
+            };
+            #[cfg(clash_plant = "clone_copy_born_deployed")]
+            let deploy_left = 0; // PLANT (regression): the new arm's copy is born deployed.
             let Ok(id) = self.spawn_with(team, card, level, pos, kind, false) else { continue };
             let j = id.index as usize;
             self.make_copy(j);
             self.ents.facing[j] = facing;
-            self.ents.deploy_ms[j] = 0;
-            self.on_deployed(j);
+            self.ents.deploy_ms[j] = deploy_left;
+            if deploy_left == 0 {
+                self.on_deployed(j);
+            }
             // A rider the copy carries (the loader's attached riders) is a copy too.
             for r in 0..self.ents.capacity() {
                 if self.ents.alive[r] && self.ents.attached_to[r] == Some(id) {
@@ -10883,6 +11085,60 @@ impl BattleState {
                 }
             }
             if wait_arm {
+                // combat.RETARGET_WAIT_WHILE_HELD = client_paused: a Target phase on which the unit is held (a stun, a
+                // freeze) does not count toward its wait; it holds with no target and the count resumes after.
+                #[cfg(not(clash_plant = "retarget_wait_runs_while_held"))]
+                let paused = calib.retarget_wait_while_held == RetargetWaitWhileHeld::ClientPaused
+                    && e.retarget_wait[i] > 0
+                    && e.held(&cards.buffs, i, calib.full_stop_buff_is_stun);
+                #[cfg(clash_plant = "retarget_wait_runs_while_held")]
+                let paused = false; // PLANT (regression): the new arm counts the held ticks too.
+                if paused {
+                    e.target[i] = None;
+                    continue;
+                }
+                // combat.RETARGET_WAIT_REACH_LOSS = client_after_reach_loss: a unit whose row sets VariableDamage (the
+                // Inferno Dragon's inferno), in its attack, whose live target has left its attack reach on this phase's
+                // start-of-tick positions, and which the decision does not keep nor replace by an enemy already in that
+                // reach, starts the wait here as a kill would (the exemptions (a) and (b) below; (c) needs a dead
+                // target), with its attack progress 0 at once. Other units retarget at once: the 16.402 corpus shows it
+                // (a Spear Goblin, a Skeleton), and the arm read on every unit lost 3,207 within 250 there.
+                #[cfg(not(clash_plant = "reach_loss_no_wait"))]
+                let reach_wait = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::ClientAfterReachLoss;
+                #[cfg(clash_plant = "reach_loss_no_wait")]
+                let reach_wait = false; // PLANT (regression): the new arm retargets at once after a reach loss.
+                if reach_wait && e.retarget_wait[i] == 0 && !d.resumed && e.attack_phase[i] != AttackPhase::Idle {
+                    if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && d.target != Some(*t)) {
+                        let (ti, c) = (t.index as usize, cards.get(e.card[i]));
+                        let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
+                        // A new target already in reach is taken at once, as client 15.535.29's reach-loss scenarios show
+                        // a Knight doing (the Cannon it switched to stood in its reach).
+                        let next_in_reach = d.target.filter(|n| e.standing(*n, struck)).is_some_and(|n| {
+                            let ni = n.index as usize;
+                            target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ni], e.radius[ni])
+                        });
+                        #[cfg(not(clash_plant = "reach_loss_any_unit"))]
+                        let inferno = c.variable_damage.is_some();
+                        #[cfg(clash_plant = "reach_loss_any_unit")]
+                        let inferno = true; // PLANT (regression): every unit waits after a reach loss, not the inferno's alone.
+                        let waits = match wait_mode {
+                            PostKillWait::MeasuredList => wait_units.contains(&c.unit_name),
+                            PostKillWait::AttackFinish => !override_units.contains(&c.unit_name) && e.attack_ms[i] != 0,
+                            PostKillWait::None => false,
+                        };
+                        if inferno && left && !next_in_reach && waits {
+                            e.retarget_wait[i] = wait_ticks - 1;
+                            e.target[i] = None;
+                            e.target_locked[i] = false;
+                            e.attack_phase[i] = AttackPhase::Idle;
+                            e.attack_ms[i] = 0;
+                            if e.retarget_wait[i] > 0 {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 if e.retarget_wait[i] > 0 {
                     e.retarget_wait[i] -= 1;
                     if e.retarget_wait[i] > 0 {
@@ -11259,20 +11515,29 @@ impl BattleState {
         // THE SOURCE IS THE LIVE AREA EFFECT, NEVER THE BUFF SLOT. With BuffTime 500 ms
         // and CapBuffTimeToAreaEffectTime false, the last application outlives the area
         // by ten ticks -- and the Giant's displacement is exactly (0, 0) on two of them.
+        // status.ATTRACT_ONSET = client_next_tick: an area pulls on the tick AFTER each of its updates, so the pre-pass
+        // takes an area once it has updated (its life below the whole) and still on the tick after its last update,
+        // when spell.rs `step_spells` has kept it with its life at 0 (`attract_lags`). area_first_tick (today's engine)
+        // takes it from its first tick through its last.
+        #[cfg(not(clash_plant = "attract_onset_area_first_tick"))]
+        let lag = self.cfg.calib.attract_onset == AttractOnset::ClientNextTick;
+        #[cfg(clash_plant = "attract_onset_area_first_tick")]
+        let lag = false; // PLANT (regression): the new arm pulls from the area's first tick.
         let attract: Vec<(i32, i32)> = {
             let sources: Vec<AttractSource> = self
                 .spells
                 .iter()
                 .filter_map(|s| {
                     let crate::spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
-                    if p.life_ms <= 0 {
-                        return None;
-                    }
-                    let Some(crate::card::SpellShape::PulsingAreaEffect { hit, .. }) =
+                    let Some(crate::card::SpellShape::PulsingAreaEffect { hit, life_ms: whole, .. }) =
                         crate::spell::shape_of(self.cfg.cards.get(s.card)).and_then(|d| crate::spell::shape_at(&d.shape, s.depth))
                     else {
                         return None;
                     };
+                    let live = if lag { p.life_ms < *whole && p.life_ms > -self.cfg.calib.tick_ms } else { p.life_ms > 0 };
+                    if !live {
+                        return None;
+                    }
                     // `buff` or `buff2`, whichever pulls (the loader's second buff never does today).
                     let pct = [hit.buff, hit.buff2].into_iter().flatten().map(|b| self.cfg.cards.buffs[b.buff as usize].attract_pct).find(|p| *p != 0).unwrap_or(0);
                     if pct == 0 {
@@ -14029,7 +14294,7 @@ impl BattleState {
         let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return false };
         let ti = t.index as usize;
         #[cfg(not(clash_plant = "special_hook_unread"))]
-        let hooks = hookable(e, i, ti);
+        let hooks = hookable(e, &self.cfg.calib, i, ti);
         #[cfg(clash_plant = "special_hook_unread")]
         let hooks = false; // PLANT (regression): the special never starts; the Fisherman walks to melee range.
         let (from, to, rt) = (e.pos[i], e.pos[ti], e.radius[ti]);
@@ -14059,13 +14324,38 @@ impl BattleState {
 
     /// Unit `i`'s drag by the hook `by` threw is over: `i` is free from the next tick, and `by`'s special
     /// ends when it is still on `i` (`end_special`). The one way a drag ends while both live: at its
-    /// margin (`step_hook_drags`) and when the victim becomes a building (`rebind_unit`).
+    /// margin (`step_hook_drags`, which then primes the thrower's first hit: `prime_after_release`) and
+    /// when the victim becomes a building (`rebind_unit`).
     fn end_drag(&mut self, i: usize, by: EntityId) {
         self.ents.hooked_by[i] = None;
         let bi = by.index as usize;
         if self.ents.is_alive(by) && self.ents.special_on[bi] == Some(self.ents.id_of(i)) {
             self.end_special(bi);
         }
+    }
+
+    /// THE FIRST HIT AFTER A DRAG (combat.SPECIAL_HOOK = client_hook_drag): the drag of thrower `bi` ended on its
+    /// margin on this tick, the stop tick S, and its victim is free from S + 1. Its attack cycle stands one tick short
+    /// of the hit, HitSpeed - TICK_MS in the attack, so its next attack pass, on S + 1, lands the first ordinary hit
+    /// with no fresh load. The ledger's provenance states it ("his first melee hit lands on the release tick"), and
+    /// the client shows it on both builds: over the 8 drags that end in his reach, read in 9 seat views (the Fisherman
+    /// scenes on client 15.535.29, 6 drags; the 16.402 corpus's 20260920-081819, 2, one read in both seats), the first
+    /// hit lands on S + 1 in all 9, with his attack_progress_ms held at 1,250 (HitSpeed 1,300 less one tick) from the
+    /// throw to the release. The engine had left the special with a fresh cycle, whose entry credit (LoadTime +
+    /// TICK_MS) put the first hit on S + 2 in all 9. Under the progress_credit cycle only (combat.ATTACK_CYCLE), the
+    /// one the measurement read.
+    fn prime_after_release(&mut self, bi: usize) {
+        if self.cfg.calib.attack_cycle != AttackCycle::ProgressCredit {
+            return;
+        }
+        let hs = self.cfg.cards.get(self.ents.card[bi]).hit_speed_ms;
+        #[cfg(not(clash_plant = "hook_release_fresh_cycle"))]
+        if hs > self.cfg.calib.tick_ms {
+            self.ents.attack_phase[bi] = AttackPhase::Windup;
+            self.ents.attack_ms[bi] = hs - self.cfg.calib.tick_ms;
+        }
+        #[cfg(clash_plant = "hook_release_fresh_cycle")]
+        let _ = hs; // PLANT (regression): the special ends with a fresh cycle; the first hit lands on S + 2.
     }
 
     /// THE DRAG (calibration combat.SPECIAL_HOOK = client_hook_drag), the Move phase's step of
@@ -14090,6 +14380,37 @@ impl BattleState {
                 continue;
             }
             let bi = by.index as usize;
+            // combat.HOOK_BUILDINGS = client_pull_self: `i` is a thrower its hook's building pulls (`hooked_by` names the
+            // building, `special_on` the same). It steps HOOK_SELF_DRAG_STEP straight at the building, the last step
+            // stopping where the edges are DragMargin apart, and on the tick it stands there the pull is over: its
+            // special ends and its first hit lands on the next tick (`prime_after_release`). A building gone ends the
+            // pull where the thrower stands.
+            if self.ents.special_on[i] == Some(by) && self.ents.kind[bi].is_building() {
+                let Some(sp) = self.cfg.cards.get(self.ents.card[i]).special.filter(|_| self.ents.is_alive(by)) else {
+                    self.ents.hooked_by[i] = None;
+                    self.end_special(i);
+                    continue;
+                };
+                // A knockback on the pulled thrower runs first while the pull waits, as a victim's drag does.
+                if self.ents.push_active[i] || self.ents.knock_ms[i] > 0 {
+                    continue;
+                }
+                let (p, q) = (self.ents.pos[i], self.ents.pos[bi]);
+                let d = q.sub(p);
+                let len = isqrt(d.len2()) as i32;
+                let left = len - (sp.drag_margin + self.ents.radius[i] + self.ents.radius[bi]);
+                if left <= 0 {
+                    self.ents.hooked_by[i] = None;
+                    self.end_special(i);
+                    self.prime_after_release(i);
+                    continue;
+                }
+                let step = (HOOK_SELF_DRAG_STEP * K).min(left);
+                let np = Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32);
+                self.ents.pos[i] = Vec2::new(np.x.clamp(0, width), np.y.clamp(0, height));
+                moved = true;
+                continue;
+            }
             let special = if self.ents.is_alive(by) { self.cfg.cards.get(self.ents.card[bi]).special } else { None };
             let Some(sp) = special else {
                 self.ents.hooked_by[i] = None;
@@ -14108,7 +14429,13 @@ impl BattleState {
             #[cfg(clash_plant = "hook_drag_steps_inside_margin")]
             let room = len > stop; // PLANT (regression): the drag takes the step that ends inside the margin.
             if !room || len <= 0 {
+                // The victim is free from the next tick, and the thrower whose special was on it lands its first hit
+                // then (`prime_after_release`).
+                let releases = self.ents.special_on[bi] == Some(self.ents.id_of(i));
                 self.end_drag(i, by);
+                if releases {
+                    self.prime_after_release(bi);
+                }
                 // combat.HOOK_DRAG_ROUTE = client16402_dropped: the drag left the unit off the route it was walking,
                 // and its next waypoint can lie behind it. The route is dropped here, as the knockback ladder's end
                 // drops it (phase_path16402_for), and the replan gate plans a fresh one from where the unit stands.
@@ -14236,6 +14563,13 @@ impl BattleState {
         // (`scheduled_point`), deploying the action's DeployTime or its own, and released like a death spawn: measured
         // on client 15.535.29, an enemy first targets one on its 8th frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), and
         // a Graveyard Skeleton deploys 10 ticks and takes its first step on the 12th.
+        // spawner.SCHEDULED_UNIT_FIRST_UPDATE = client_creation_tick: each takes its first update on this tick, at the end
+        // of the tick's Reap with the death spawns (`materialise_released`, `first_update`); next_tick leaves it to the
+        // next tick.
+        #[cfg(not(clash_plant = "scheduled_first_update_unread"))]
+        let first_update = self.cfg.calib.scheduled_unit_first_update == ScheduledUnitFirstUpdate::ClientCreationTick;
+        #[cfg(clash_plant = "scheduled_first_update_unread")]
+        let first_update = false; // PLANT (regression): the new arm's units take their first update on the next tick.
         for r in scheduled {
             let flying = self.cfg.cards.get(r.unit).is_flying();
             let pos = self.scheduled_point(r.team, r.centre, r.offset, flying);
@@ -14247,7 +14581,7 @@ impl BattleState {
             let acquire_delay = true;
             #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
             let acquire_delay = false; // PLANT: a target from its first frame.
-            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+            self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
         }
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
@@ -14789,7 +15123,7 @@ impl BattleState {
         // that survived this Resolve, when the thrower lives and its special is still on that
         // victim and no other hook holds it. The first step is the next tick's Move phase
         // (`step_hook_drags`). Empty under the shipped not_read.
-        for &(v, by) in &fx.hooks {
+        for &(v, by, hook_at) in &fx.hooks {
             if !self.ents.is_alive(by) {
                 continue;
             }
@@ -14803,16 +15137,33 @@ impl BattleState {
             // here: left running, it would stand on a live victim it can never pull (two hooks on one
             // victim are not measured; an engine choice).
             #[cfg(not(clash_plant = "hook_lands_on_any_kind"))]
-            let takes = survivor(&self.ents, v) && hookable(&self.ents, bi, vi);
+            let takes = survivor(&self.ents, v) && hookable(&self.ents, &self.cfg.calib, bi, vi);
             #[cfg(clash_plant = "hook_lands_on_any_kind")]
             let takes = survivor(&self.ents, v) && self.ents.hooked_by[vi].is_none(); // PLANT (regression): it drags whatever it lands on.
             if !takes {
                 self.end_special(bi);
                 continue;
             }
+            // combat.HOOK_BUILDINGS = client_pull_self: a hook that lands on a building pulls its thrower, from the next
+            // tick (`step_hook_drags`); the thrower is held by the building it hooked.
+            if pulls_self(&self.ents, &self.cfg.calib, vi) {
+                self.ents.hooked_by[bi] = Some(v);
+                continue;
+            }
             #[cfg(not(clash_plant = "hook_drag_unread"))]
             {
                 self.ents.hooked_by[vi] = Some(by);
+                // combat.HOOK_LANDING = client_hook_point: the victim is set onto the point the hook stood on at the
+                // start of this tick, over its walk of this tick; its drag starts from there on the next tick.
+                #[cfg(not(clash_plant = "hook_lands_on_victim"))]
+                let onto_hook = self.cfg.calib.hook_landing == HookLanding::ClientHookPoint;
+                #[cfg(clash_plant = "hook_lands_on_victim")]
+                let onto_hook = false; // PLANT (regression): the new arm leaves the victim where it walked.
+                if onto_hook {
+                    let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
+                    self.ents.pos[vi] = Vec2::new(hook_at.x.clamp(0, w), hook_at.y.clamp(0, h));
+                    self.hash.rebuild(&self.ents);
+                }
             }
             #[cfg(clash_plant = "hook_drag_unread")]
             self.end_special(bi); // PLANT (regression): the hook lands and drags nothing.
@@ -15068,6 +15419,11 @@ impl BattleState {
             .iter()
             .filter_map(|s| {
                 let spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
+                // An area kept one tick past its life for its last pull (status.ATTRACT_ONSET = client_next_tick) has
+                // ended: its bound buffs go as they did before that key.
+                if p.life_ms <= 0 {
+                    return None;
+                }
                 let def = spell::shape_of(self.cfg.cards.get(s.card))?;
                 let crate::card::SpellShape::PulsingAreaEffect { hit, .. } = &def.shape else { return None };
                 Some([hit.buff, hit.buff2].into_iter().flatten().map(|b| (p.pos, b.buff + 1)).collect::<Vec<_>>())
@@ -18242,9 +18598,10 @@ impl BattleState {
             // hashes as it did before the buffer.
             if !self.effects.hooks.is_empty() {
                 h.u32(self.effects.hooks.len() as u32);
-                for (v, by) in &self.effects.hooks {
+                for (v, by, at) in &self.effects.hooks {
                     h.id(*v);
                     h.id(*by);
+                    h.vec(*at);
                 }
             }
             // The Rune Giant's landed projectiles, only when one is pending.
@@ -18848,6 +19205,29 @@ impl BattleState {
 ///    `damage_reduction` and CardDef `idle_buff` and `idle_area`, so the card fingerprint moves: a snapshot saved by an
 ///    earlier build is refused as saved against other card data. migrate_v3 strips `idle_buff` and `idle_area` with
 ///    the rest of the post-format-3 tail and runs a migrated battle at both old arms.
+/// 20, unchanged, spawner.SCHEDULED_UNIT_FIRST_UPDATE: Calib gained scheduled_unit_first_update (serde default the old
+///    arm, next_tick), no new state (the new arm sets the release's existing `first_update` flag, which no queue saved
+///    between ticks holds), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, spells.CLONE_COPY_DEPLOY: Calib gained clone_copy_deploy (serde default the old arm, deployed), no new
+///    state (the new arm writes the saved and hashed deploy_ms of a copy on its creation tick), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS: Calib gained retarget_wait_reach_loss (serde default the old arm,
+///    kill_only), no new state (the new arm writes the saved and hashed retarget_wait on other ticks), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RETARGET_WAIT_WHILE_HELD: Calib gained retarget_wait_while_held (serde default the old arm,
+///    runs_through), no new state (the new arm holds the saved and hashed retarget_wait on held ticks), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.ATTRACT_ONSET: Calib gained attract_onset (serde default the old arm, area_first_tick), no new
+///    state (under the new arm a pulling area stays in the saved and hashed spell list one more tick, with its life at 0),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_LANDING: Calib gained hook_landing (serde default the old arm, on_victim), and a landed
+///    hook's entry in the effect buffer (`EffectBuffer::hooks`) gained the hook's start-of-tick point: the buffer is
+///    drained in the tick that fills it, so no blob saved between ticks holds one, and a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_BUILDINGS: Calib gained hook_buildings (serde default the old arm, troops_only), no new
+///    state (the new arm holds the pulled thrower through the saved and hashed `hooked_by`, naming the building), so a
+///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -19354,6 +19734,27 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // building's box, and a Heal, where tapped; it keeps the old arms whatever the ledger ships (the same rule).
     sh.insert("placement_troop_building_taps".into(), serde_json::to_value(TroopBuildingTaps::NotRelocated).map_err(|e| e.to_string())?);
     sh.insert("placement_spell_as_deploy_taps".into(), serde_json::to_value(SpellAsDeployTaps::SpellPoint).map_err(|e| e.to_string())?);
+    // combat.HOOK_BUILDINGS: a format-3 battle's hooks took troops only; it keeps that whatever the ledger ships (the same
+    // rule).
+    sh.insert("hook_buildings".into(), serde_json::to_value(HookBuildings::TroopsOnly).map_err(|e| e.to_string())?);
+    // combat.HOOK_LANDING: a format-3 battle's hooks landed on their victims; it keeps that whatever the ledger ships (the
+    // same rule).
+    sh.insert("hook_landing".into(), serde_json::to_value(HookLanding::OnVictim).map_err(|e| e.to_string())?);
+    // status.ATTRACT_ONSET: a format-3 battle pulled from the area's first tick; it keeps that whatever the ledger ships
+    // (the same rule).
+    sh.insert("attract_onset".into(), serde_json::to_value(AttractOnset::AreaFirstTick).map_err(|e| e.to_string())?);
+    // combat.RETARGET_WAIT_WHILE_HELD: a format-3 battle's wait counted every tick; it keeps that whatever the ledger ships
+    // (the same rule).
+    sh.insert("retarget_wait_while_held".into(), serde_json::to_value(RetargetWaitWhileHeld::RunsThrough).map_err(|e| e.to_string())?);
+    // combat.RETARGET_WAIT_REACH_LOSS: a format-3 battle waited after a kill only; it keeps that whatever the ledger ships
+    // (the same rule).
+    sh.insert("retarget_wait_reach_loss".into(), serde_json::to_value(RetargetWaitReachLoss::KillOnly).map_err(|e| e.to_string())?);
+    // spells.CLONE_COPY_DEPLOY: a format-3 battle's copies were born deployed; it keeps that whatever the ledger ships (the
+    // same rule).
+    sh.insert("clone_copy_deploy".into(), serde_json::to_value(CloneCopyDeploy::Deployed).map_err(|e| e.to_string())?);
+    // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a format-3 battle's scheduled units took their first update on the next tick;
+    // it keeps that whatever the ledger ships (the same rule).
+    sh.insert("scheduled_unit_first_update".into(), serde_json::to_value(ScheduledUnitFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
