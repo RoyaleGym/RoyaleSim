@@ -3046,11 +3046,13 @@ DEFLECT_ABILITY_READ = {
     "OnActivationAction", "TriggerDelay", "GameTagsWhileAbilityActive", "StatsTags", "Stats",
 }
 DEFLECT_ABILITY_COSMETIC = {
-    "KeepIconEvenWhenOutOfCharges", "HideChargesTextField", "DeployedClip", "DeployedEffect", "IconExportName", "IconSWF",
-    "TID", "TID_INFO",
+    "KeepIconEvenWhenOutOfCharges", "HideChargesTextField", "DeployedClip", "DeployedEffect", "IconExportName",
+    "IconSWF", "TID", "TID_INFO",
 }
-DEFLECT_AEO_READ = {"DeflectProjectilesEnabled", "FollowBehaviour", "HitsAir", "HitsGround", "IgnoreBuildings", "LifeDuration",
-                    "Name", "OnlyEnemies", "Radius", "Rarity"}
+DEFLECT_AEO_READ = {
+    "DeflectProjectilesEnabled", "FollowBehaviour", "HitsAir", "HitsGround", "IgnoreBuildings", "LifeDuration", "Name",
+    "OnlyEnemies", "Radius", "Rarity",
+}
 DEFLECT_AEO_COSMETIC = {"DeflectedProjectileEffect", "DeflectionFBEffect", "SpawnDeployBaseAnim"}
 # The tags the Deflect holds its champion with while it is active: he stands (no move; an attract still moves him).
 DEFLECT_HOLD_TAGS = "AVOIDANCE_AS_OBSTACLE,NO_MOVE_ALLOW_ATTRACT"
@@ -3078,7 +3080,9 @@ def champion_deflect(t, unit: str) -> dict | None:
         return None
     on = a.get("OnActivationAction")
     act = t["actions"].get(on) if isinstance(on, str) else None
-    if act is None or act["ClassType"] != "ActionWithDuration" or t["actions"].set_fields.get(on, set()) != {"ActionDuration", "ClassType", "GameTagsToSet"}:
+    if act is None or act["ClassType"] != "ActionWithDuration":
+        return None
+    if t["actions"].set_fields.get(on, set()) != {"ActionDuration", "ClassType", "GameTagsToSet"}:
         return None
     buff = norm_buff(t, a.get("Buff"))
     ints = [a.get(k) for k in ("AbilityStateDuration", "BuffTime", "CastTime", "TriggerDelay", "ManaCost")]
