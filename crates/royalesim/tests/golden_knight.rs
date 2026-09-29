@@ -21,20 +21,28 @@
 //!   4. the button: charged from his first frame, the press takes it, a press while it is out is AbilityNotReady, it
 //!      comes back combat.DASH_CHAIN_COOLDOWN after the chain's end, and never under "none";
 //!   5. combat.DASH_CHAIN_END = client15535_no_target_two_ticks: at the chain's end (H + 2) he holds no target, on
-//!      H + 3 still none, and on H + 4 he takes one by the ordinary rule; keep_last_target keeps the Knight.
+//!      H + 3 still none, and on H + 4 he takes one by the ordinary rule; keep_last_target keeps the Knight;
+//!   6. combat.DASH_CHAIN_PENDING = client15535_run_to_current_target: alone on the field, pressed with nothing in
+//!      the charge's circle, he runs 2 x his walk toward his target (a princess tower) and dashes from the tick after
+//!      the one whose run brings its centre within DashRange + its radius; wait_for_ground_character never dashes;
+//!   7. the same arm re-decides his target while he runs: a Knight put down near him mid-run becomes his target, and
+//!      his dash goes at it.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test golden_knight`):
 //!   chain_whole_step    one range test a tick, after the whole JumpSpeed: (1) goes red.
 //!   chain_blow_unscaled the blow at DashDamage's level-1 figure: (1) goes red.
 //!   chain_retakes_hit   the chain takes a target it hit again: (3) goes red.
 //!   chain_end_keeps_target the measured end keeps the last dash target: (5) goes red.
+//!   pending_run_walks   the waiting press walks at his own speed: (6) goes red.
+//!   pending_trigger_without_radius the trigger reads DashRange alone: (6) goes red.
+//!   pending_target_frozen the waiting press keeps its target from the press: (7) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashChainEnd, DeployError};
+use royalesim::state::{BattleConfig, BattleState, DashChainEnd, DashChainPending, DeployError};
 use royalesim::{EntityId, Team};
 
 const GK_AT: (i32, i32) = (3500, 9000);
@@ -224,4 +232,83 @@ fn under_the_measured_end_he_holds_no_target_for_two_ticks_then_takes_one_by_the
     let rows = run(&mut s, gk, &ids, 30);
     let h2 = rows.iter().position(|r| r.hp[1] < knight_hp).expect("the Knight was hit");
     assert_eq!((rows[h2 + 2].target, rows[h2 + 3].target), (Some(ids[1]), Some(ids[1])), "keep_last_target keeps the Knight");
+}
+
+/// A lone Golden Knight on Red's side of the river, pressed with no Red unit on the field, under `pending`:
+/// per tick after the press, his move and his centre distance to his target (both native), and his target.
+fn lone_press(pending: DashChainPending) -> (Vec<(i64, i64)>, i64) {
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_pending = pending;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    // Red's side, on the princess tower's line, 8,000 short of it: a straight run, no bridge.
+    let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n((3500, 17500)), None).expect("the Golden Knight");
+    s.tick();
+    s.press_ability_button(Team::Blue, 0).expect("the press is taken with nothing in reach");
+    let tower_r = {
+        let t = s.entity(gk).unwrap().target.expect("he targets a tower");
+        (s.entity(t).unwrap().radius / K) as i64
+    };
+    let mut prev = s.entity(gk).unwrap().pos;
+    let rows = (0..60)
+        .map(|_| {
+            s.tick();
+            let g = s.entity(gk).expect("he lives");
+            let t = g.target.and_then(|t| s.entity(t)).expect("a target");
+            let row = (dist(prev, g.pos), dist(g.pos, t.pos));
+            prev = g.pos;
+            row
+        })
+        .collect();
+    (rows, tower_r)
+}
+
+#[test]
+fn a_press_with_nothing_in_reach_runs_him_at_twice_his_walk_and_dashes_at_his_target_in_reach() {
+    let (rows, tower_r) = lone_press(DashChainPending::ClientRunToCurrentTarget);
+    let reach = 5500 + tower_r;
+    let d = rows.iter().position(|r| r.0 >= 390).unwrap_or_else(|| panic!("he never dashed: {rows:?}"));
+    assert!(d >= 3, "the scene drifted: he dashed within two ticks of the press ({rows:?})");
+    assert!(rows[d - 1].1 <= reach && rows[d - 2].1 > reach, "the dash starts the tick after his run brings the target within {reach}: {rows:?}");
+    assert!(rows[1..d].iter().all(|r| (115..=125).contains(&r.0)), "he runs 2 x his walk until the dash: {rows:?}");
+    let (rows, _) = lone_press(DashChainPending::WaitForGroundCharacter);
+    assert!(rows.iter().all(|r| r.0 < 390), "wait_for_ground_character dashed at a tower: {rows:?}");
+}
+
+#[test]
+fn a_waiting_press_re_decides_its_target_each_tick_and_dashes_at_a_knight_put_down_mid_run() {
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_pending = DashChainPending::ClientRunToCurrentTarget;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n((3500, 17500)), None).expect("the Golden Knight");
+    s.tick();
+    s.press_ability_button(Team::Blue, 0).expect("the press is taken with nothing in reach");
+    for _ in 0..3 {
+        s.tick();
+    }
+    let tower = s.entity(gk).unwrap().target.expect("he runs at a tower");
+    // Nearer than the tower, inside DashRange + its radius (6,000), outside his melee reach (Range 1,200 + both
+    // radii): he takes it, and his first dash step is a whole 400.
+    s.spawn_unit(Team::Red, "Knight", n((5500, 21500)), None).expect("a Red Knight");
+    let mut knight = None;
+    let mut dashed_at_knight = false;
+    let mut seen = Vec::new();
+    for _ in 0..12 {
+        let before = s.entity(gk).unwrap().pos;
+        s.tick();
+        knight = knight.or_else(|| s.entities().find(|e| e.team == Team::Red && e.card == "Knight").map(|e| e.id));
+        let g = s.entity(gk).unwrap();
+        let step = dist(before, g.pos);
+        seen.push((g.target == knight && knight.is_some(), g.target == Some(tower), step));
+        if knight.is_some() && g.target == knight && step >= 390 {
+            dashed_at_knight = true;
+            break;
+        }
+    }
+    assert!(knight.is_some(), "the scene drifted: no Knight on the board");
+    assert_ne!(Some(tower), knight, "the scene drifted");
+    assert!(dashed_at_knight, "his target was not re-decided to the Knight, or he never dashed at it: (on the Knight, on the tower, step) {seen:?}");
 }

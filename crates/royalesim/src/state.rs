@@ -657,6 +657,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "dash_chain_end_default")]
     pub dash_chain_end: DashChainEnd,
+    /// combat.DASH_CHAIN_PENDING: what a champion does while its press waits for a target (`chain_pass`, the move
+    /// pass). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "dash_chain_pending_default")]
+    pub dash_chain_pending: DashChainPending,
     /// status.DAMAGE_REDUCTION (combat.rs `reduce_hit`): how a hit on a unit carrying a DamageReduction buff is
     /// scaled. status.IDLE_BUFF (`idle_buff_pass`, combat.rs `damage_reduction_of`): whether a BuffWhenNotAttacking
     /// that is not an invisibility runs. Added after SNAPSHOT_FORMAT 20; each `default` is the old arm, not_read,
@@ -1733,6 +1737,10 @@ fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
 
 fn waited_press_cast_default() -> WaitedPressCast {
     WaitedPressCast::StatusStart
+}
+
+fn dash_chain_pending_default() -> DashChainPending {
+    DashChainPending::WaitForGroundCharacter
 }
 
 fn dash_chain_end_default() -> DashChainEnd {
@@ -3189,6 +3197,22 @@ calib_enum!(
         /// the launch + 10 with 550 for the Firecracker), so launches are 79 ticks apart instead
         /// of 80, and 59 instead of 60.
         LadderAwayFromTarget = "ladder_away_from_target",
+    }
+);
+calib_enum!(
+    /// combat.DASH_CHAIN_PENDING -- a champion whose press found no target in the charge's circle (`chain_pass`'s
+    /// Seek; the table's WaitForTarget): the press is taken and paid under both arms.
+    DashChainPending {
+        /// The engine before this key: he walks as before, and the chain starts on the tick the closest enemy ground
+        /// character is within the charge's circle (DashRange, centre to centre).
+        WaitForGroundCharacter = "wait_for_ground_character",
+        /// Measured on client 15.535.29 (sp-champ-GK-empty-s0): he runs at his pending SpeedMultiplier (the Golden
+        /// Knight's 200: 120 a tick against his 59-60 walk) toward his current target, and his dash starts on the tick
+        /// after the one whose move brings that target's centre within DashRange + the TARGET's radius (a princess
+        /// tower: 6,500; 6,590 at the end of t259, 6,470 after t260's run, 400 a tick from t261). His target is
+        /// re-decided each tick while he runs (sp-champ-GK-empty-knight40-s0: a Knight placed on t201 was his target
+        /// on t202, 5,337 away, inside 5,500 + its 500, and he dashed from t203).
+        ClientRunToCurrentTarget = "client15535_run_to_current_target",
     }
 );
 calib_enum!(
@@ -5731,6 +5755,7 @@ impl Calib {
             waited_press_cast: pick(&v, &["status", "WAITED_PRESS_CAST", "value"], WaitedPressCast::from_calibration_name)?,
             dash_chain_cooldown_ms: dash_chain_cooldown(&v)?,
             dash_chain_end: pick(&v, &["combat", "DASH_CHAIN_END", "value"], DashChainEnd::from_calibration_name)?,
+            dash_chain_pending: pick(&v, &["combat", "DASH_CHAIN_PENDING", "value"], DashChainPending::from_calibration_name)?,
             damage_reduction: pick(&v, &["status", "DAMAGE_REDUCTION", "value"], DamageReductionLaw::from_calibration_name)?,
             idle_buff: pick(&v, &["status", "IDLE_BUFF", "value"], IdleBuffLaw::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
@@ -11472,6 +11497,10 @@ impl BattleState {
             // decision until the next (measured on client 15.535.29: no target on the Goblin Demolisher's switch tick,
             // a building the tick after, 3 of 3).
             let switched = &self.scratch.switched_reset;
+            #[cfg(not(clash_plant = "pending_target_frozen"))]
+            let pending_redecides = self.cfg.calib.dash_chain_pending == DashChainPending::ClientRunToCurrentTarget;
+            #[cfg(clash_plant = "pending_target_frozen")]
+            let pending_redecides = false; // PLANT (regression): the waiting press keeps the target it had at the press.
             for i in 0..self.ents.capacity() {
                 if self.ents.alive[i]
                     && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0
@@ -11479,8 +11508,10 @@ impl BattleState {
                     && !switched.contains(&self.ents.id_of(i))
                     // An Evo Musketeer aiming a snipe keeps it: `snipe_pass` judges it.
                     && !self.evo.aiming(self.ents.id_of(i))
-                    // A champion's dash chain keeps its own target (`chain_pass`).
-                    && !self.chains.iter().any(|c| c.id == self.ents.id_of(i))
+                    // A champion's dash chain keeps its own target (`chain_pass`) -- but for a press that waits under
+                    // combat.DASH_CHAIN_PENDING = client15535_run_to_current_target, whose target is re-decided each tick
+                    // (measured on client 15.535.29: a Knight placed mid-run became his target on its first tick).
+                    && !self.chains.iter().any(|c| c.id == self.ents.id_of(i) && !(c.phase == ChainPhase::Seek && pending_redecides))
                 {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
@@ -11958,6 +11989,24 @@ impl BattleState {
                 continue;
             };
             match c.phase {
+                // combat.DASH_CHAIN_PENDING = client15535_run_to_current_target: the waiting press dashes, from this
+                // tick, once his current target's centre stands within DashRange + its radius on the positions the
+                // last move pass left (its run is the move pass's, at the pending SpeedMultiplier).
+                ChainPhase::Seek if self.cfg.calib.dash_chain_pending == DashChainPending::ClientRunToCurrentTarget => {
+                    let t = self.ents.target[i].filter(|t| self.ents.is_alive(*t) && self.ents.team[t.index as usize] != self.ents.team[i]);
+                    if let Some(t) = t {
+                        let ti = t.index as usize;
+                        #[cfg(not(clash_plant = "pending_trigger_without_radius"))]
+                        let reach = (radius + self.ents.radius[ti]) as i64;
+                        #[cfg(clash_plant = "pending_trigger_without_radius")]
+                        let reach = radius as i64; // PLANT (regression): DashRange alone, centre to centre.
+                        if self.ents.pos[i].dist2(self.ents.pos[ti]) <= reach * reach {
+                            c.phase = ChainPhase::Dash;
+                            c.mark = tick;
+                            c.target = Some(t);
+                        }
+                    }
+                }
                 ChainPhase::Seek => {
                     if let Some(t) = self.chain_pick(i, radius, &c.hit) {
                         c.phase = ChainPhase::Aim;
@@ -13169,6 +13218,19 @@ impl BattleState {
                 // returns `speed` itself for every card without a buff, so this arm
                 // is unchanged for the whole contact corpus
                 let native_speed = if paused || dash_stand { 0 } else { self.effective_speed(i) / K };
+                // combat.DASH_CHAIN_PENDING = client15535_run_to_current_target: a champion whose press waits runs at its
+                // pending SpeedMultiplier (`chain_pass`'s Seek; the Golden Knight's 200).
+                #[cfg(not(clash_plant = "pending_run_walks"))]
+                let pending_pct = match (chain_at[i], self.cfg.calib.dash_chain_pending) {
+                    (Some((ChainPhase::Seek, _, _)), DashChainPending::ClientRunToCurrentTarget) => match card.ability.as_ref().map(|a| &a.effect) {
+                        Some(crate::card::AbilityEffect::DashChain { pending_speed_pct, .. }) => *pending_speed_pct,
+                        _ => 100,
+                    },
+                    _ => 100,
+                };
+                #[cfg(clash_plant = "pending_run_walks")]
+                let pending_pct = 100; // PLANT (regression): the waiting press walks at his own speed.
+                let native_speed = native_speed * pending_pct / 100;
                 // a held unit (`held_walk`) aims at itself at speed 0, as an attacking one does: the separation
                 // mean alone moves it and its facing stays
                 #[cfg(not(clash_plant = "held_contact_walks"))]
@@ -20499,7 +20561,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
     sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
     sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
-    // combat.DASH_CHAIN_END: a format-3 battle ran no champion; the same rule.
+    // combat.DASH_CHAIN_END and DASH_CHAIN_PENDING: a format-3 battle ran no champion; the same rule.
+    sh.insert("dash_chain_pending".into(), serde_json::to_value(DashChainPending::WaitForGroundCharacter).map_err(|e| e.to_string())?);
     sh.insert("dash_chain_end".into(), serde_json::to_value(DashChainEnd::KeepLastTarget).map_err(|e| e.to_string())?);
     // combat.ATTACK_COMBO and knockback.COMBO_PUSHBACK: a format-3 battle ran no combo; it keeps the old arms whatever
     // the ledger ships (the same rule).

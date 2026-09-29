@@ -1173,7 +1173,7 @@ pub enum AbilityEffect {
     /// one not yet hit within `second_range`, up to `count` targets (state.rs `chain_pass`). `speed` is JumpSpeed,
     /// native a tick, moved in sub-steps of at most the walk's 250. `damage` is level 1. `immune_ms`: the table's
     /// DashImmuneToDamageTime (unmeasured on the chain; not run). Radii in subtiles.
-    DashChain { radius: i32, count: i32, speed: i32, damage: i32, second_range: i32, immune_ms: Option<i32> },
+    DashChain { radius: i32, count: i32, speed: i32, damage: i32, second_range: i32, immune_ms: Option<i32>, pending_speed_pct: i32 },
     /// A UNIT PUT DOWN AHEAD OF THE HERO (the Hero Musketeer's turret): `unit` (a summon-only record) at the
     /// ActionSpawnToLocation's RelativeX / RelativeY from the hero, read as a scheduled area's relative offset is
     /// (state.rs `scheduled_point`), deploying its own DeployTime. The table's 50 ms placeholder building, whose only
@@ -3805,6 +3805,8 @@ struct RawAbilityEffect {
     damage: Option<i32>,
     secondary_range_milli: Option<i32>,
     immune_ms: Option<i32>,
+    /// The pending buff's SpeedMultiplier (per cent): his speed while a press waits for its target.
+    pending_speed_multiplier: Option<i32>,
 }
 
 /// One area of a `parent_areas` effect (tools/extract_cards.py `hero_area`).
@@ -6056,6 +6058,8 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind) -> Result<O
         damage: need(e.damage, "DashDamage")?,
         second_range: milli(need(e.secondary_range_milli, "DashSecondaryRange")?),
         immune_ms: e.immune_ms,
+        // Blank reads as 100 (no change): the Golden Knight's is 200.
+        pending_speed_pct: e.pending_speed_multiplier.unwrap_or(100),
     };
     Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: 0, trigger_ms: 0, keep_target: a.keep_current_target, effect }))
 }
