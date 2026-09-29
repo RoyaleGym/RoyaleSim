@@ -611,6 +611,10 @@ pub struct Calib {
     /// default is `OnLandingTick`, what a battle saved before it ran.
     #[serde(default = "roll_first_step_default")]
     pub roll_first_step: RollFirstStep,
+    /// spawner.EVO_COPY_POINT (`BattleState::evo_copy_point`). Added after SNAPSHOT_FORMAT 20; the default is the old
+    /// arm, `AheadOnly`, what a battle saved before it ran.
+    #[serde(default = "evo_copy_point_default")]
+    pub evo_copy_point: EvoCopyPoint,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -1698,6 +1702,10 @@ fn strike_area_end_default() -> StrikeAreaEnd {
 
 fn roll_first_step_default() -> RollFirstStep {
     RollFirstStep::OnLandingTick
+}
+
+fn evo_copy_point_default() -> EvoCopyPoint {
+    EvoCopyPoint::AheadOnly
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -5330,6 +5338,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.EVO_COPY_POINT -- where an Evo Skeletons copy is made, from where its hitter stands
+    /// (`BattleState::evo_copy_point`).
+    EvoCopyPoint {
+        /// The engine before this key: `EVO_COPY_AHEAD_MILLI` ahead of the hitter in the arena's y, toward the enemy,
+        /// whatever lies there.
+        AheadOnly = "ahead_only",
+        /// Measured on client 15.535.29 (the oracle's fixtures and its river-bank scenes on both bridges, each copy
+        /// matched to the skeleton whose attack load timer reset on its tick): the first of three points
+        /// `EVO_COPY_AHEAD_MILLI` from the hitter where a ground unit's centre can stand (`Arena::is_passable_ground`)
+        /// -- AHEAD (toward the enemy in y), then OUTWARD (in x, toward the nearer side of the arena: -x left of its
+        /// centre line, +x right of it), then BEHIND. 239 of 239 copies: 197 ahead, 28 outward, 14 behind.
+        ClientAheadOutwardBehind = "client15535_ahead_outward_behind",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -5783,6 +5806,7 @@ impl Calib {
             strike_reach: pick(&v, &["spells", "STRIKE_REACH", "value"], StrikeReach::from_calibration_name)?,
             strike_area_end: pick(&v, &["spells", "STRIKE_AREA_END", "value"], StrikeAreaEnd::from_calibration_name)?,
             roll_first_step: pick(&v, &["spells", "ROLL_FIRST_STEP", "value"], RollFirstStep::from_calibration_name)?,
+            evo_copy_point: pick(&v, &["spawner", "EVO_COPY_POINT", "value"], EvoCopyPoint::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -8369,11 +8393,8 @@ impl BattleState {
                     }
                 };
                 if n % d.hits_per_copy == 0 {
-                    use crate::fixed::SUBTILE_PER_MILLITILE as K;
                     let team = self.ents.team[i];
-                    let ahead = if team == Team::Blue { EVO_COPY_AHEAD_MILLI } else { -EVO_COPY_AHEAD_MILLI };
-                    let at = self.ents.pos[i];
-                    let pos = Vec2::new(at.x, at.y + ahead * K);
+                    let pos = self.evo_copy_point(self.ents.pos[i], team);
                     self.scratch.evo_copies.push(EvoCopy { hitter: id, group: g, team, card: self.ents.card[i], level: self.ents.level[i], pos });
                 }
             }
@@ -8394,6 +8415,32 @@ impl BattleState {
                 }
             }
         }
+    }
+
+    /// WHERE AN EVO SKELETONS COPY IS MADE from its hitter's point `at` (spawner.EVO_COPY_POINT). Under ahead_only,
+    /// `EVO_COPY_AHEAD_MILLI` ahead of it in the arena's y, toward the enemy. Under client15535_ahead_outward_behind,
+    /// the first of AHEAD, OUTWARD (in x toward the nearer side of the arena: -x left of the centre line, +x on or
+    /// right of it) and BEHIND, each `EVO_COPY_AHEAD_MILLI` away, where a ground unit's centre can stand
+    /// (`Arena::is_passable_ground`: in bounds, touching no water). Unmeasured, and kept to the ahead point: none of
+    /// the three standing, and the side for a hitter exactly on the centre line.
+    pub fn evo_copy_point(&self, at: Vec2, team: Team) -> Vec2 {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let d = EVO_COPY_AHEAD_MILLI * K;
+        let fwd = if team == Team::Blue { 1 } else { -1 };
+        let ahead = Vec2::new(at.x, at.y + fwd * d);
+        #[cfg(not(clash_plant = "evo_copy_ahead_only"))]
+        let arm = self.cfg.calib.evo_copy_point;
+        #[cfg(clash_plant = "evo_copy_ahead_only")]
+        let arm = EvoCopyPoint::AheadOnly; // PLANT: the copy is made ahead whatever lies there.
+        if arm == EvoCopyPoint::AheadOnly {
+            return ahead;
+        }
+        let arena = &self.cfg.arena;
+        let out = if at.x < arena.width / 2 { -1 } else { 1 };
+        [ahead, Vec2::new(at.x + out * d, at.y), Vec2::new(at.x, at.y - fwd * d)]
+            .into_iter()
+            .find(|p| arena.is_passable_ground(*p))
+            .unwrap_or(ahead)
     }
 
     /// THE EVO SKELETONS COPIES this tick earned (`evo_after_fire`), in hit order, at the end of Reap: each a Skeleton_EV1
@@ -8434,10 +8481,7 @@ impl BattleState {
             // Ahead of the hitter where the move pass left it.
             #[cfg(not(clash_plant = "evo_copy_stands"))]
             let pos = if self.ents.is_alive(c.hitter) {
-                use crate::fixed::SUBTILE_PER_MILLITILE as K;
-                let ahead = if c.team == Team::Blue { EVO_COPY_AHEAD_MILLI } else { -EVO_COPY_AHEAD_MILLI };
-                let at = self.ents.pos[c.hitter.index as usize];
-                Vec2::new(at.x, at.y + ahead * K)
+                self.evo_copy_point(self.ents.pos[c.hitter.index as usize], c.team)
             } else {
                 c.pos
             };
@@ -20230,6 +20274,9 @@ impl BattleState {
 /// 20, unchanged, spells.ROLLING_HIT_SHAPE = client15535_max_y_edge_open: a third arm of an existing Calib enum, no new
 ///    field and no new state, so a blob saved before it deserializes and hashes as it did; a saved battle keeps the
 ///    arm its Calib holds.
+/// 20, unchanged, spawner.EVO_COPY_POINT: Calib gained evo_copy_point (serde default the old arm, ahead_only), no new
+///    state (the point is computed when a copy is made), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -20752,6 +20799,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pathfinding.SAMEPATH_SEGMENT: a format-3 battle kept the segment through a SAMEPATH replan; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("samepath_segment".into(), serde_json::to_value(SamepathSegment::Kept).map_err(|e| e.to_string())?);
+    // spawner.EVO_COPY_POINT: a format-3 battle made every Evo Skeletons copy straight ahead of its hitter; it keeps
+    // that whatever the ledger ships (the same rule).
+    sh.insert("evo_copy_point".into(), serde_json::to_value(EvoCopyPoint::AheadOnly).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

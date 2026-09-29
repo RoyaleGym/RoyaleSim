@@ -21,6 +21,9 @@
 //!   evo_copy_stands         an Evo Skeletons copy is made ahead of its hitter's point at its hit and takes no first
 //!                           update: evo_skeletons_copy_on_every_group_hit and
 //!                           an_evo_copy_is_made_exactly_ahead_of_its_hitter_after_the_move go red.
+//!   evo_copy_ahead_only     spawner.EVO_COPY_POINT = client15535_ahead_outward_behind still makes every copy ahead:
+//!                           an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahead_outward_behind
+//!                           goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -28,7 +31,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{barrage_spells, BattleConfig, BattleState, SpawnedFirstStep, TapSnap, EVO_BASIC_PLAYS};
+use royalesim::state::{barrage_spells, BattleConfig, BattleState, EvoCopyPoint, SpawnedFirstStep, TapSnap, EVO_BASIC_PLAYS};
 use royalesim::Team;
 
 /// A native point, in subtiles.
@@ -347,6 +350,51 @@ fn an_evo_copy_is_made_exactly_ahead_of_its_hitter_after_the_move() {
     }
     // Not vacuous: some copy's hitter was moved on its hit's tick, so the point at its hit would miss.
     assert!(copies >= 5 && moved >= 1, "{copies} copies, {moved} of them where the hitter moved on its hit's tick");
+}
+
+/// Evo Skeletons swarming a Red Cannon held on Blue's river bank between the bridges, under spawner.EVO_COPY_POINT
+/// `arm` and no first update (so a copy stands exactly where it was made): (copies, copies off every hitter's ahead
+/// point, copies standing where a ground unit cannot).
+fn copies_on_the_bank(arm: EvoCopyPoint) -> (usize, usize, usize) {
+    let mut cfg = config();
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    cfg.calib.evo_copy_point = arm;
+    let mut s = battle(cfg);
+    let form = idx(&s, "Skeletons_EV1");
+    s.scenario_spawn_now(Team::Red, "Cannon", n(6000, 14400), None).unwrap();
+    s.spawn_unit(Team::Blue, "Skeletons_EV1", n(6000, 12600), None).unwrap();
+    let (mut copies, mut off_ahead, mut wet) = (0, 0, 0);
+    for _ in 0..400 {
+        let before: Vec<_> = s.entities().filter(|e| e.card_idx == form).map(|e| e.id).collect();
+        s.tick();
+        if before.is_empty() {
+            continue;
+        }
+        let hitters: Vec<Vec2> = s.entities().filter(|e| before.contains(&e.id) && e.attack_phase == AttackPhase::Cooldown).map(|e| e.pos).collect();
+        let made: Vec<Vec2> = hitters.iter().map(|p| s.evo_copy_point(*p, Team::Blue)).collect();
+        let ahead: Vec<Vec2> = hitters.iter().map(|p| Vec2::new(p.x, p.y + 1000 * K)).collect();
+        for copy in s.entities().filter(|e| e.card_idx == form && !before.contains(&e.id)) {
+            assert!(made.contains(&copy.pos), "{arm:?}: a copy stands at {:?}, not at a hitter's copy point: {made:?}", copy.pos);
+            copies += 1;
+            off_ahead += usize::from(!ahead.contains(&copy.pos));
+            wet += usize::from(!s.arena().is_passable_ground(copy.pos));
+        }
+    }
+    (copies, off_ahead, wet)
+}
+
+#[test]
+fn an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahead_outward_behind() {
+    // spawner.EVO_COPY_POINT (parity's item 61). A hitter beside the Cannon has its ahead point in the river. Under the
+    // new arm each copy is made at the first of ahead, outward (-x here, left of the centre line) and behind where a
+    // ground unit can stand; under ahead_only at the ahead point, river or not. Measured on client 15.535.29: 239 of
+    // 239 copies, the real-match replay 208a8647's t1219 among them. Plant: evo_copy_ahead_only.
+    let (copies, off_ahead, wet) = copies_on_the_bank(EvoCopyPoint::ClientAheadOutwardBehind);
+    assert!(copies >= 3 && off_ahead >= 1, "vacuous: {copies} copies, {off_ahead} off the ahead point");
+    assert_eq!(wet, 0, "no copy is made in the river");
+    let (old, old_off, old_wet) = copies_on_the_bank(EvoCopyPoint::AheadOnly);
+    assert_eq!(old_off, 0, "ahead_only makes every copy ahead");
+    assert!(old_wet >= 1, "vacuous: ahead_only made no copy in the river ({old} copies)");
 }
 
 #[test]

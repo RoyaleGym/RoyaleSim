@@ -3917,6 +3917,20 @@
       "open": "RelativeY is set on no row: its direction (the owner's forward) is inferred, and the loader refuses a row that sets it.",
       "promotion_rules": "Settled for the Suspicious Bush.",
       "engine": "state.rs scheduled_point"
+    },
+    "EVO_COPY_POINT": {
+      "value": "ahead_only",
+      "candidates": [
+        "ahead_only",
+        "client15535_ahead_outward_behind"
+      ],
+      "status": "measured",
+      "confidence": "MEDIUM: 239 of 239 oracle copies fit client15535_ahead_outward_behind; the OUTWARD side rests on the right-bridge scenes (13 copies at +x) and the left-bridge ones (15 at -x); ahead_only is right for the 197 whose ahead point stands.",
+      "provenance": "MEASURED on client 15.535.29, the oracle's fixtures (its real-match replays, sp-scene-b, sp-m4, sp-m5) and its designed river-bank scenes sp-esk-bank-{1500,3500,5500,8500,9500,12500,14500,16500}-s{0,1} (Evo Skeletons swarming a Giant held at an Elixir Collector on and beside each bridge). Each copy is matched to the skeleton whose attack load timer reset on the copy's tick. Every one of the 239 matched copies stands, on its first frame, within 400 (the first update's push, up to ~150) of the first of: 1000 ahead of the hitter in y toward the enemy (197), 1000 in x toward the nearer side of the arena (28: -x for every hitter left of x 9000, +x for every one right of it), 1000 behind (14, each where both earlier points were water). No candidate that a ground unit could stand on was ever skipped; occupancy does not refuse one (chosen points had units as close as 21). Found on the real-match replay 208a8647 t1219, whose copy the engine made in the river.",
+      "meaning": "ahead_only: the copy is made EVO_COPY_AHEAD_MILLI (1000) ahead of where its hitter stands after the tick's move, in the arena's y toward the enemy, whatever lies there (the engine before this key). client15535_ahead_outward_behind: the first of AHEAD, OUTWARD (x toward the nearer side: -x when the hitter stands left of the centre line, +x otherwise) and BEHIND, each 1000 from the hitter, where a ground unit's centre can stand (Arena::is_passable_ground: in bounds, touching no water); none standing keeps the ahead point.",
+      "open": "A hitter exactly on the centre line (the engine takes +x). All three points refused (the engine keeps ahead). A building, a king block or a crown tower on a candidate point (no case). The fourth, INWARD point was never used.",
+      "promotion_rules": "Score every population with Evo Skeletons by override (the real-match replays and the sp scenes); 208a8647's first split at t1219 should go.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum EvoCopyPoint); state.rs BattleState::evo_copy_point, used by evo_after_fire and evo_copies; tests/evolution.rs an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahead_outward_behind (plant evo_copy_ahead_only)."
     }
   },
   "economy": {
