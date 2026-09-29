@@ -184,6 +184,19 @@ fn calib() -> Calib {
     Calib::shipped()
 }
 
+/// THE ARMS THIS FILE'S SPELL TESTS WERE WRITTEN ON, pinned since the round-12 flip (a test that names one arm
+/// inherits the rest): the Log's first step, push direction and hit shape, and the building reach. It shadows
+/// `common::config`. The tests of the flipped arms name theirs (`log_pair`, the max-y edge test, and
+/// tests/building_spell_reach.rs).
+fn config() -> BattleConfig {
+    let mut c = common::config();
+    c.calib.roll_first_step = royalesim::state::RollFirstStep::TickAfterLanding;
+    c.calib.knock_direction_rolling = RollDirection::RadialFromCentre;
+    c.calib.rolling_hit_shape = royalesim::state::RollHitShape::RectVsCircleEdge;
+    c.calib.building_spell_reach = royalesim::state::BuildingSpellReach::AoeHitTest;
+    c
+}
+
 /// Shipped registry values these tests depend on, asserted so a registry change
 /// reads as "re-point the test", never as a mysterious failure.
 fn assert_registry(key: &str, got: String, want: &str) {
@@ -1096,7 +1109,7 @@ fn log_width_edge_is_rect_vs_circle_to_the_subtile() {
     // Lateral offsets: disc edge exactly on the half-width (hit), one subtile beyond
     // (miss). Registry spells.ROLLING_HIT_SHAPE = rect_vs_circle_edge. Plant:
     // rolling_centre_in_rect.
-    assert_registry("spells.ROLLING_HIT_SHAPE", format!("{:?}", calib().rolling_hit_shape), "RectVsCircleEdge");
+    assert_registry("spells.ROLLING_HIT_SHAPE", format!("{:?}", config().calib.rolling_hit_shape), "RectVsCircleEdge");
     let s0 = bare(config());
     let (_, _, _, _, hw, _) = log_numbers(&s0);
     let r = card_stat(&s0, "Cannon").collision_radius;
@@ -1409,7 +1422,7 @@ fn log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat() {
     // is at the end of the landing tick, which is already past the Knight.
     // Plants: rolling_push_travel_direction (the Knights behind go forward),
     // rolling_push_from_tick_end (the Knight ahead goes back).
-    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", calib().knock_direction_rolling), "RadialFromCentre");
+    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", config().calib.knock_direction_rolling), "RadialFromCentre");
     assert_registry("placement.TAP_SNAP", format!("{:?}", calib().placement_tap_snap), "TileCentre");
     let cfg = config();
     let s0 = bare(cfg.clone());

@@ -21,8 +21,8 @@
 //!   6. the arm's reach: under client16402_no_own_radius_walking the Inferno Dragon's row walks with no own radius,
 //!      and the Mighty Miner's (a ground row that also sets VariableDamage2, unmeasured) keeps its own under both
 //!      values;
-//!   7. the shipped value is client16402_no_own_radius_walking (range_plus_both_radii, the old arm, shipped until
-//!      parity scored the flip).
+//!   7. the shipped value is client15535_no_own_radius_walking_every_row since the round-12 flip (the Inferno
+//!      Dragon's arm, client16402_no_own_radius_walking, before it; range_plus_both_radii before that).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test variable_damage_walk_reach`):
 //!   * `walk_reach_keeps_own_radius` -- the new value still adds the walker's own radius: (1), (3) and (6) go red.
@@ -188,6 +188,6 @@ fn the_new_value_reaches_the_inferno_dragons_row_and_not_the_mighty_miners() {
 }
 
 #[test]
-fn the_shipped_value_is_client16402_no_own_radius_walking() {
-    assert_eq!(Calib::shipped().variable_damage_walk_reach, NEW);
+fn the_shipped_value_is_the_every_row_arm_since_the_round_12_flip() {
+    assert_eq!(Calib::shipped().variable_damage_walk_reach, VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow);
 }

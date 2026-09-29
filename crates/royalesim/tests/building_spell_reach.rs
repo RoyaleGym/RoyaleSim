@@ -11,7 +11,7 @@
 //!      away) hits it; aoe_hit_test misses it;
 //!   2. a troop keeps the disc under both arms: a Knight at the Cannon's place is missed from the same point;
 //!   3. the square is strict: a Fireball whose distance to the square is exactly its radius misses under the new arm;
-//!   4. the shipped value is aoe_hit_test.
+//!   4. the shipped value is client_square_radius_strict, since the round-12 flip.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test building_spell_reach`):
 //!   building_spell_disc   an ordinary building is a disc under the new arm too: (1) goes red.
@@ -99,6 +99,6 @@ fn the_square_is_strict() {
 }
 
 #[test]
-fn the_shipped_value_is_the_disc() {
-    assert_eq!(Calib::shipped().building_spell_reach, BuildingSpellReach::AoeHitTest);
+fn the_shipped_value_is_the_square_since_the_round_12_flip() {
+    assert_eq!(Calib::shipped().building_spell_reach, BuildingSpellReach::SquareRadiusStrict);
 }

@@ -182,6 +182,10 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // No kwarg: {"placement.TROOP_BUILDING_TAPS": "not_relocated"}. The shipped as_tower_tap moves a tap off an own
     // building by the axis push, measured in arena coordinates; not_relocated is symmetric.
     "placement_troop_building_taps",
+    // No kwarg: {"spells.ROLLING_HIT_SHAPE": "rect_vs_circle_edge"}. The shipped client15535_max_y_edge_open opens the
+    // swept rectangle's max-y edge in ARENA coordinates (client 15.535.29), so a Log touching a victim exactly with its
+    // front edge misses it rolling +y and hits it rolling -y; rect_vs_circle_edge is the same for both seats.
+    "rolling_hit_shape",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

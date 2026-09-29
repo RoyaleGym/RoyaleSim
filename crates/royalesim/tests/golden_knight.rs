@@ -68,6 +68,7 @@ fn cfg_with(cooldown: Option<i32>) -> BattleConfig {
     // those keys name theirs.
     cfg.calib.dash_chain_end = DashChainEnd::KeepLastTarget;
     cfg.calib.dash_chain_pending = DashChainPending::WaitForGroundCharacter;
+    cfg.calib.dash_chain_attack_cycle = royalesim::state::DashChainAttackCycle::Kept;
     cfg
 }
 
@@ -323,6 +324,7 @@ fn the_shipped_values_are_the_measured_arms_since_the_round_10_ship() {
     let c = royalesim::state::Calib::shipped();
     assert_eq!(c.dash_chain_end, DashChainEnd::ClientNoTargetTwoTicks);
     assert_eq!(c.dash_chain_pending, DashChainPending::ClientRunToCurrentTarget);
+    assert_eq!(c.dash_chain_attack_cycle, DashChainAttackCycle::ClientRestartFromLoad, "since the round-12 flip");
 }
 
 #[test]

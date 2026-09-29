@@ -19,7 +19,7 @@
 //!      not_read the Knight stands;
 //!   3. the every-row arm: a walking Monk's attack starts within Range + the Knight's radius and a walking Mighty
 //!      Miner's too, and neither does under the shipped arm; a Knight's starts where it did;
-//!   4. the shipped values are the old arms of the two new keys, and the shipped walk reach is unchanged.
+//!   4. the shipped values are the measured arms, since the round-12 flip.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test monk_combo`):
 //!   combo_unread                       every hit deals Damage under the new arm: (1) goes red.
@@ -34,7 +34,7 @@ use royalesim::state::{AttackCombo, BattleConfig, BattleState, Calib, ComboPushb
 use royalesim::{EntityId, Team};
 
 const ME_AT: (i32, i32) = (3500, 9000);
-const SHIPPED_REACH: VariableDamageWalkReach = VariableDamageWalkReach::Client16402NoOwnRadiusWalking;
+const DRAGON_ONLY_REACH: VariableDamageWalkReach = VariableDamageWalkReach::Client16402NoOwnRadiusWalking;
 const EVERY_ROW: VariableDamageWalkReach = VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow;
 
 fn n(p: (i32, i32)) -> Vec2 {
@@ -106,7 +106,7 @@ type Drops = Vec<(usize, i32)>;
 
 /// The Skeleton-and-Knight scene: the Skeleton's hp drops and the Knight's.
 fn skeleton_then_knight(combo: AttackCombo) -> (Drops, Drops) {
-    let (mut s, monk, reds) = scene(cfg_with(combo, ComboPushback::NotRead, SHIPPED_REACH), "Monk", &[("Skeletons", (3500, 10300)), ("Knight", (3500, 12500))]);
+    let (mut s, monk, reds) = scene(cfg_with(combo, ComboPushback::NotRead, DRAGON_ONLY_REACH), "Monk", &[("Skeletons", (3500, 10300)), ("Knight", (3500, 12500))]);
     let hp: Vec<i32> = reds.iter().map(|r| s.entity(*r).expect("on the board").hp).collect();
     let rows = run(&mut s, monk, &reds, 200);
     (drops(hp[0], &rows, 0), drops(hp[1], &rows, 1))
@@ -127,7 +127,7 @@ fn the_hits_run_140_140_422_across_a_kill() {
 
 /// The Knight scene under `combo` and `push`: the Knight's hp drops, and its point and the Monk's per row.
 fn knight_pushed(combo: AttackCombo, push: ComboPushback) -> (Drops, Vec<Row>) {
-    let (mut s, monk, reds) = scene(cfg_with(combo, push, SHIPPED_REACH), "Monk", &[("Knight", (3500, 11000))]);
+    let (mut s, monk, reds) = scene(cfg_with(combo, push, DRAGON_ONLY_REACH), "Monk", &[("Knight", (3500, 11000))]);
     let hp = s.entity(reds[0]).expect("the Knight").hp;
     let rows = run(&mut s, monk, &reds, 120);
     (drops(hp, &rows, 0), rows)
@@ -187,16 +187,16 @@ fn the_every_row_arm_starts_a_walking_monk_and_mighty_miner_within_range_plus_th
         let (d, walked) = attack_start(me, EVERY_ROW);
         assert!(walked, "{me}: the scene drifted: it never walked");
         assert!(d <= short, "{me}: every-row arm: the attack started {d} from the Knight, outside Range + its radius ({short})");
-        let (d, _) = attack_start(me, SHIPPED_REACH);
+        let (d, _) = attack_start(me, DRAGON_ONLY_REACH);
         assert!(d > short && d <= short + 500, "{me}: shipped arm: the attack started {d}, not within Range + both radii and outside Range + the Knight's radius");
     }
-    assert_eq!(attack_start("Knight", EVERY_ROW), attack_start("Knight", SHIPPED_REACH), "a Knight's start moved with the arm");
+    assert_eq!(attack_start("Knight", EVERY_ROW), attack_start("Knight", DRAGON_ONLY_REACH), "a Knight's start moved with the arm");
 }
 
 #[test]
-fn the_shipped_values_are_the_old_arms() {
+fn the_shipped_values_are_the_measured_arms_since_the_round_12_flip() {
     let c = Calib::shipped();
-    assert_eq!(c.attack_combo, AttackCombo::NotRead);
-    assert_eq!(c.combo_pushback, ComboPushback::NotRead);
-    assert_eq!(c.variable_damage_walk_reach, SHIPPED_REACH);
+    assert_eq!(c.attack_combo, AttackCombo::SequenceAcrossTargets);
+    assert_eq!(c.combo_pushback, ComboPushback::LadderFromAttackerHitTick);
+    assert_eq!(c.variable_damage_walk_reach, EVERY_ROW);
 }

@@ -108,6 +108,11 @@ pub fn symmetric_config() -> BattleConfig {
     // coordinates. not_relocated, the old arm, judges the tap where it is for both seats. No kwarg:
     // {"placement.TROOP_BUILDING_TAPS": "not_relocated"}.
     c.calib.placement_troop_building_taps = royalesim::state::TroopBuildingTaps::NotRelocated;
+    // A rolling hit's shape (spells.ROLLING_HIT_SHAPE): the shipped client15535_max_y_edge_open leaves the swept
+    // rectangle's max-y edge open in ARENA coordinates, as measured, so an exact front-edge touch is a miss for a +y
+    // roll and a hit for its rotated twin. rect_vs_circle_edge, the old arm, closes every edge for both seats. No
+    // kwarg: {"spells.ROLLING_HIT_SHAPE": "rect_vs_circle_edge"} (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
+    c.calib.rolling_hit_shape = royalesim::state::RollHitShape::RectVsCircleEdge;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }
