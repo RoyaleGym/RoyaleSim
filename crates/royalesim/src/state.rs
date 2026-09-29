@@ -12541,6 +12541,10 @@ impl BattleState {
                     let d_pre = move16402::distance(bodies[i].x, bodies[i].y, tgt.0, tgt.1).max(1);
                     let m = move16402::pushback_step_extra((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), deploying && !flying, is_water, arena.cols, arena.rows, attract[i]);
                     walk_step[i] = rem.min(d_pre).min(250);
+                    // the DIAGNOSTIC contact push this ladder step took, as a walk step writes it: a ladder tick's row
+                    // otherwise read (0, 0) whatever the separation did
+                    push_applied[i] = Vec2::new(m.push.0, m.push.1);
+                    push_neighbours[i] = m.push_count;
                     // the facing is not updated and the offset neither scanned nor
                     // decayed: `offsets[i]` stays what it was
                     debug_assert!(m.dir.is_none());
