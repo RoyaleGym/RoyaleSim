@@ -326,9 +326,9 @@
           "ticks": 490
         }
       },
-      "bytes": 2128571,
+      "bytes": 2130602,
       "file": "cards.json",
-      "fnv1a64": "35d6ebaa62b3612e",
+      "fnv1a64": "f6539d6c6ac2d4e3",
       "slots": [
         "Knight",
         "Archer",
