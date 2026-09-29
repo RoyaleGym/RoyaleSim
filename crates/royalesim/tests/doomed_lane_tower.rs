@@ -5,8 +5,9 @@
 //! provenance): on the tick after the engine's doomed set first holds a princess tower, every walker whose card fires a
 //! projectile takes the king and walks to it, even where the other princess stands nearer, and every walker without
 //! one keeps the princess. Attackers keep it. projectile_walkers_take_king is that reading; walkers_take_king is
-//! parity's proposal as written (every walker takes the king), which the same records refute; standing, the shipped
-//! arm, is today's engine, where a unit the doom drop makes let go of the princess walks on to it.
+//! parity's proposal as written (every walker takes the king), which the same records refute; standing, the engine
+//! before the 2026-09-28 round 9 flip, walks a unit the doom drop makes let go of the princess on to it. The flip ships
+//! projectile_walkers_take_king.
 //!
 //! The scene: the Red engine-right princess tower on 40 hp, a Blue Musketeer in its reach whose first shot dooms it,
 //! and four Blue walkers in the right lane: a Baby Dragon (a projectile) and a Knight (none) in sight of the princess,
@@ -21,7 +22,7 @@
 //!      Under standing all four walk to the princess, and the Musketeer keeps it;
 //!   2. a walker without a projectile at the doomed princess: the near Knight keeps it under standing and
 //!      projectile_walkers_take_king, and lets go of it under walkers_take_king;
-//!   3. the shipped value is standing.
+//!   3. the shipped value is projectile_walkers_take_king (since the 2026-09-28 round 9 flip).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test doomed_lane_tower`):
 //!   * `doomed_lane_tower_standing` -- the new arms still walk on to a doomed princess tower: (1) goes red.
@@ -190,6 +191,7 @@ fn a_walker_without_a_projectile_keeps_a_doomed_princess_unless_every_walker_let
 }
 
 #[test]
-fn the_shipped_value_is_standing() {
-    assert_eq!(Calib::shipped().doomed_lane_tower, DoomedLaneTower::Standing);
+fn the_shipped_value_is_projectile_walkers_take_king() {
+    assert_eq!(Calib::shipped().doomed_lane_tower, DoomedLaneTower::ProjectileWalkersTakeKing);
+    assert_eq!(config().calib.doomed_lane_tower, DoomedLaneTower::ProjectileWalkersTakeKing);
 }

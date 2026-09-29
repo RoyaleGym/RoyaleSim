@@ -13,8 +13,11 @@
 //! than that, unmeasured: every other periodic spawner's troops and any building a death spawn
 //! creates. OPEN: the Barbarian Hut loads and is exempt with the Tombstone, yet its row carries
 //! the same SpawnCharacter and SpawnInterval columns as the Goblin Hut's, whose waves wait for
-//! F + 7. The key SHIPS at client_8th_frame. Under none, the engine before its flip, the same
-//! idle Cannon targets the Brawler and a Golemite on F + 1; every scene here names its arm.
+//! F + 7. The key ships client_8th_frame_action_buildings since the 2026-09-28 round 9 flip: client_8th_frame, and a
+//! building an action makes (the Hero Musketeer's turret) waits too (tests/hero_turret.rs). Every scene here is a death
+//! spawn, a hand-played unit or a spawner's, which the two arms treat alike, so the scenes name client_8th_frame (NEW).
+//! Under none, the engine before its 2026-09-26 flip, the same idle Cannon targets the Brawler and a Golemite on F + 1;
+//! every scene here names its arm.
 //!
 //! FRAMES ARE COUNTED AS THE MEASUREMENT COUNTS THEM: a unit's first frame F is the state after
 //! the tick that created it, and a looker "targets it on F + k" when its target is that unit in
@@ -42,7 +45,7 @@
 //!      Cannons (no loaded row pairs a death spawn with a building) has them targeted on F + 1
 //!      -- acquire_delay_on_buildings;
 //!   7. the old arm, none: the Cannon on the Brawler and a Golemite on F + 1, and no unit
-//!      carries a delay -- acquire_delay_ignores_arm; the shipped arm is client_8th_frame;
+//!      carries a delay -- acquire_delay_ignores_arm; the shipped arm is client_8th_frame_action_buildings;
 //!   8. OPEN, the engine's reading (the Phoenix egg is the only evidence): a Zap lands on a unit
 //!      inside its delay -- acquire_delay_blocks_area;
 //!   9. a snapshot taken mid-delay resumes hash for hash, and the Cannon still waits for F + 7
@@ -80,6 +83,8 @@ const EIGHTH: u32 = 7;
 
 const NEW: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::Client8thFrame;
 const OLD: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::None;
+/// The shipped arm since the 2026-09-28 round 9 flip: NEW, and an action-made building waits too.
+const SHIPPED: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::Client8thFrameActionBuildings;
 
 fn with_arm(mut cfg: BattleConfig, arm: SpawnedUnitAcquireDelay) -> BattleConfig {
     cfg.calib.spawned_unit_acquire_delay = arm;
@@ -399,8 +404,8 @@ fn open_a_death_spawned_building_is_targeted_at_once() {
 #[test]
 fn the_old_arm_targets_on_f1_and_the_new_arm_ships() {
     // Plant acquire_delay_ignores_arm: the Cannon waits for F + 7 under none as well.
-    assert_eq!(Calib::shipped().spawned_unit_acquire_delay, NEW, "the ledger ships client_8th_frame");
-    assert_eq!(config().calib.spawned_unit_acquire_delay, NEW);
+    assert_eq!(Calib::shipped().spawned_unit_acquire_delay, SHIPPED, "the ledger ships client_8th_frame_action_buildings");
+    assert_eq!(config().calib.spawned_unit_acquire_delay, SHIPPED);
     for parent in ["GoblinCage", "Golem"] {
         let mut sc = death_scene(with_arm(config(), OLD), Team::Blue, parent);
         sc.run(3 * EIGHTH);

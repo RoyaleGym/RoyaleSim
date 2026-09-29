@@ -1,11 +1,12 @@
 //! A CARD'S DEPLOY EFFECTS BELONG TO ITS PLAY. A UNIT'S SPAWN AREA BELONGS TO ITS CREATION.
 //!
-//! combat.DEPLOY_PROJECTILE = client_on_landing: a played Mega Knight lands its deploy projectile (MegaKnightAppear) on
-//! its own position on the 6th tick after its first frame (combat.rs `DEPLOY_PROJECTILE_DELAY_TICKS`). Measured on client
-//! 15.535.29: a Knight 560 away loses 430 at level 11. spells.DEPLOY_AREA_EFFECT (the Electro Wizard's zap) is the same
-//! kind of effect. Both are what PLAYING the card does, so both fire where a play's units are created (state.rs
-//! `phase_spawn`): a play from the hand, and `spawn_unit`, which queues the card as a play does (the replay harness
-//! plays every deploy through it).
+//! combat.DEPLOY_PROJECTILE = client_on_landing_action_at_2, the shipped arm (config()), lands a PLAYED unit's blow as
+//! client_on_landing does: a played Mega Knight lands its deploy projectile (MegaKnightAppear) on its own position on the
+//! 6th tick after its first frame (combat.rs `DEPLOY_PROJECTILE_DELAY_TICKS`). Measured on client 15.535.29: a Knight
+//! 560 away loses 430 at level 11. The shipped arm moves only the blow of a unit an action makes (tests/hero_turret.rs).
+//! spells.DEPLOY_AREA_EFFECT (the Electro Wizard's zap) is the same kind of effect. Both are what PLAYING the card does,
+//! so both fire where a play's units are created (state.rs `phase_spawn`): a play from the hand, and `spawn_unit`, which
+//! queues the card as a play does (the replay harness plays every deploy through it).
 //!
 //! A unit the scenario setup puts down (`scenario_spawn_now`, `scenario_spawn_batch`, the Python `reset(spawns)`)
 //! stands as if it had been played earlier. It lands no blow and casts no zap. The blow used to fire from `spawn_now`,

@@ -2410,9 +2410,10 @@ calib_enum!(
     /// targeting.DOOMED_TARGET_DROP, combat.rs `doomed_by_shots_in_flight`) is still the tower a unit walks to (target.rs
     /// `default_tower`, `lane_fallen`, `can_target`). A doomed king is kept under every arm: it has no next tower.
     DoomedLaneTower {
-        /// Today's engine: a princess tower is the lane tower while it stands, doomed or not. A unit the doom drop makes
-        /// let go of it (DOOMED_TARGET_DROP) walks on to it with no target.
+        /// The engine before the 2026-09-28 round 9 flip: a princess tower is the lane tower while it stands, doomed or
+        /// not. A unit the doom drop makes let go of it (DOOMED_TARGET_DROP) walks on to it with no target.
         Standing = "standing",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// A unit that DOOMED_TARGET_DROP makes let go of a doomed princess tower, or not take it (a card that fires a
         /// projectile and has not launched at it), treats it as fallen: its default tower is the next one, the king,
         /// wherever it stands. A unit with no projectile keeps it, walking or attacking. Read off client 15.535.29 and
@@ -2713,17 +2714,19 @@ calib_enum!(
     /// combat.DEPLOY_PROJECTILE -- whether a unit whose card carries a deploy projectile fires it
     /// (state.rs `spawn_now`).
     DeployProjectile {
-        /// Nothing fires.
+        /// Nothing fires (the engine before the 2026-09-26 flip).
         NotRead = "not_read",
+        /// The engine before the 2026-09-28 round 9 flip.
         /// Measured on client 15.535.29 (the Mega Knight, both sides): on the 6th tick after its
         /// first frame the projectile lands at the unit's position as an area impact, through the
         /// spell impact and knockback path.
         ClientOnLanding = "client_on_landing",
+        /// Shipped since the 2026-09-28 round 9 flip (its action half measured on few hits).
         /// client_on_landing, and the blow of a unit an ACTION makes (the Hero Musketeer's turret, whose PendingSpawn
         /// carries `action_made`) lands on the 2nd tick after its creation (combat.rs
         /// ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), not the 6th. Read on client 15.535.29's hero scenes: every enemy hp
         /// drop within 2,600 of a new turret falls on its c + 2 (two Knights at -204; three Goblins it kills vanish on
-        /// c + 2), where the engine lands it on c + 6.
+        /// c + 2), where client_on_landing lands it on c + 6.
         ClientOnLandingActionAt2 = "client_on_landing_action_at_2",
     }
 );
@@ -3997,9 +4000,10 @@ calib_enum!(
     /// is not this key's, and later waves, and the wave of a hut waking from sleep, read the aim's post-move position
     /// under either arm.
     LifeStateFirstLookAim {
-        /// Today's engine (shipped): every wave, the first look's included, reads the aim's post-move position, the
-        /// pass running after this tick's move.
+        /// The engine before the 2026-09-28 round 9 flip: every wave, the first look's included, reads the aim's
+        /// post-move position, the pass running after this tick's move.
         PostMove = "post_move",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// The first look reads the aim's START-OF-TICK position, where it stood on the previous frame
         /// (`note_first_looks`). Read off the 16.402 corpus: of the first waves on ActionDelay's end, 5 fit the
         /// start-of-tick point only, none the post-move point only and 8 both; of the waves of a hut waking from
@@ -4012,9 +4016,10 @@ calib_enum!(
     /// `life_wave`). Which enemy a pick takes (the nearest waker by edge, a tie to the earliest created) and where the
     /// aim is read are not this key's.
     LifeStateAimRepick {
-        /// Today's engine (shipped): the aim is re-picked only when a wave is due: the last wave's aim while it still
-        /// wakes the hut, else the nearest waker then.
+        /// The engine before the 2026-09-28 round 9 flip: the aim is re-picked only when a wave is due: the last
+        /// wave's aim while it still wakes the hut, else the nearest waker then.
         OnWave = "on_wave",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// The hut re-picks on the tick its aim dies or leaves its reach (the nearest waker on that tick, or none), and
         /// its waves hold that aim while it wakes the hut (`life_repick_lost_aim`). Read off the 16.402 corpus: one hut
         /// in one battle, whose next three waves only this arm puts on their client points.
@@ -4027,10 +4032,11 @@ calib_enum!(
     /// the unit's PendingSpawn carrying `action_made`). A unit a play or a scenario puts down is not this key's, nor is
     /// the turret's deploy blow (`deploy_blow`).
     AbilityUnitFirstUpdate {
-        /// Today's engine: the turret is created in the Spawn phase of the tick its ability fires and takes that tick's
-        /// deploy countdown, as a played building does: it leaves its deploy on c + 19 and first loses lifetime hp on
-        /// c + 20, c being its first frame.
+        /// The engine before the 2026-09-28 round 9 flip: the turret is created in the Spawn phase of the tick its
+        /// ability fires and takes that tick's deploy countdown, as a played building does: it leaves its deploy on
+        /// c + 19 and first loses lifetime hp on c + 20, c being its first frame.
         CreationTick = "creation_tick",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// It does not: its first countdown is on c + 1, so it leaves its deploy on c + 20 and first loses lifetime hp
         /// on c + 21. Measured on client 15.535.29 over every ability-made turret of the hero scenes; a played Cannon or
         /// Tesla leaves on c + 19 and decays from c + 20 there, as in the engine.
@@ -4381,9 +4387,10 @@ calib_enum!(
     /// movement.JUMP_LANDING_CONTACT -- when a unit landing from a river jump becomes a contact body (the leap's
     /// landing in `phase_path16402_for`). A jumper is out of the contact pass while it leaps, under both arms.
     JumpLandingContact {
-        /// Today's engine (shipped): the lander is a contact body for the units the move pass updates after it on its
-        /// landing tick L, so a neighbour updated later is pushed on L.
+        /// The engine before the 2026-09-28 round 9 flip: the lander is a contact body for the units the move pass
+        /// updates after it on its landing tick L, so a neighbour updated later is pushed on L.
         LandingTick = "landing_tick",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// It is not one until L + 1, when the pass rebuilds the bodies. Read on client 15.535.29 (sweep-RoyalHogs t291:
         /// a Hog lands overlapping another, neither is pushed on L, and the lander takes a walk-plus-push step on
         /// L + 1) and client 16.402 (20260920-002736, both seats, t545: the neighbour walks its plain step on L and
@@ -4556,10 +4563,11 @@ calib_enum!(
     /// members are not this key's. Read by the 16.402 move pass only: the frame-planned Path arms
     /// (`frame_planned_slide`) keep the radial step under either arm.
     DeathSlideAim {
-        /// Today's engine (shipped): `move16402::death_slide_to`, DEATH_SLIDE_STEP out along the ray from the death
-        /// point through where the member now stands, stopping `radius` out, so a contact push that turned the member
-        /// is kept to the end of the slide.
+        /// The engine before the 2026-09-28 round 9 flip: `move16402::death_slide_to`, DEATH_SLIDE_STEP out along the
+        /// ray from the death point through where the member now stands, stopping `radius` out, so a contact push that
+        /// turned the member is kept to the end of the slide.
         CurrentRay = "current_ray",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// `move16402::death_slide_toward`: DEATH_SLIDE_STEP toward the member's END POINT, fixed at birth (entity.rs
         /// `death_slide_end`, `slide_end_points`): the death point + its ring direction x DeathSpawnRadius, the
         /// container ring's direction for a container's member; the step through the walk's 1/256 direction, and
@@ -4721,6 +4729,7 @@ calib_enum!(
         /// every building (`delay_acquisition`). Area damage still lands on the unit meanwhile,
         /// because it is not a target scan; that is the engine's reading, not a measurement.
         Client8thFrame = "client_8th_frame",
+        /// Shipped since the 2026-09-28 round 9 flip.
         /// client_8th_frame, and a BUILDING an action makes waits too: the unit a hero's button puts down (the Hero
         /// Musketeer's turret, whose PendingSpawn carries `action_made`) is nobody's target before F + 7. A played
         /// building and a death-spawned one stay exempt. Measured on client 15.535.29: in the 4 hero scenes where an
@@ -9225,7 +9234,8 @@ impl BattleState {
     /// THE FIXED END POINT OF EACH MEMBER'S SLIDE (spawner.DEATH_SLIDE_AIM = fixed_end_point; entity.rs
     /// `death_slide_end`), member k in creation order as `death_spawn_points` lays them, WORLD subtiles: the ring
     /// `ring` starts on, at DeathSpawnRadius (`slide_end_points`). Empty when nothing slides (`slide_radius` 0) and
-    /// under the shipped current_ray, which reads no end point: the members then carry (0, 0).
+    /// under current_ray (the arm before the 2026-09-28 round 9 flip), which reads no end point: the members then
+    /// carry (0, 0).
     fn slide_ends(&self, team: Team, pos: Vec2, ring: DeathSpawnRing, slide_radius: i32) -> Vec<Vec2> {
         if slide_radius <= 0 || !ring.slide || self.cfg.calib.death_slide_aim != DeathSlideAim::FixedEndPoint {
             return Vec::new();
@@ -11593,8 +11603,9 @@ impl BattleState {
                     let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
                     move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
                     let c = slide_c[i];
-                    // spawner.DEATH_SLIDE_AIM: fixed_end_point steps toward the end point fixed at birth (entity.rs
-                    // `death_slide_end`); the shipped current_ray along the ray through where the member stands.
+                    // spawner.DEATH_SLIDE_AIM: the shipped fixed_end_point steps toward the end point fixed at birth
+                    // (entity.rs `death_slide_end`); current_ray, the arm before the 2026-09-28 round 9 flip, along the
+                    // ray through where the member stands.
                     let end = match calib.death_slide_aim {
                         DeathSlideAim::FixedEndPoint => Some((e.death_slide_end[i].x / K, e.death_slide_end[i].y / K)),
                         DeathSlideAim::CurrentRay => None,
@@ -16840,13 +16851,15 @@ impl BattleState {
     ///
     /// Measured on client 15.535.29: the turret's first frame is at the hero + (0, 2500) in Blue's arena y whatever
     /// her facing (Red: -2500, read as the team frame, unmeasured), in the river and across the bridge alike; the
-    /// storm's waves land on P + 2, P + 32 and P + 62. Unmeasured or open: a turret point on the side's own princess
-    /// tower is moved behind the hero on the client (hero (3499, 3500) gives (3481, 2000)), which `scheduled_point`
-    /// does not do; the tick the turret's blow lands. The engine lands it as the Mega Knight's deploy projectile, 6
-    /// ticks after the turret appears (combat.rs DEPLOY_PROJECTILE_DELAY_TICKS), under either arm of
-    /// spawner.ABILITY_UNIT_FIRST_UPDATE. On client 15.535.29 it lands on c + 2, c being the turret's first frame: in
-    /// the three hero scenes with an enemy in its reach (sp-h2, sp-h2l9 and sp-scene-d, a Knight losing the blow's
-    /// 204 at level 11 and 169 at level 9 and sliding), where the engine lands it on c + 6.
+    /// storm's waves land on P + 2, P + 32 and P + 62; the turret's blow lands on c + 2, c being the turret's first
+    /// frame, in the three hero scenes with an enemy in its reach (sp-h2, sp-h2l9 and sp-scene-d, a Knight losing the
+    /// blow's 204 at level 11 and 169 at level 9 and sliding). The engine lands it there under the shipped
+    /// combat.DEPLOY_PROJECTILE = client_on_landing_action_at_2 (combat.rs ACTION_DEPLOY_PROJECTILE_DELAY_TICKS), and
+    /// on c + 6, as the Mega Knight's, under client_on_landing (DEPLOY_PROJECTILE_DELAY_TICKS); either way under both
+    /// arms of spawner.ABILITY_UNIT_FIRST_UPDATE (tests/hero_turret.rs). Unmeasured or open: a turret point on the
+    /// side's own princess tower is moved behind the hero on the client (hero (3499, 3500) gives (3481, 2000)), which
+    /// `scheduled_point` does not do; whether the blow's 2 ticks belong to the turret or to its dummy building's
+    /// action.
     fn fire_ability(&mut self, hero: EntityId) {
         let i = hero.index as usize;
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
@@ -17865,7 +17878,8 @@ impl BattleState {
                         h.u32(e.death_slide_until[i]);
                     }
                     // spawner.DEATH_SLIDE_AIM = fixed_end_point: the end point the slide steps toward, only under that arm, so
-                    // a battle at the shipped current_ray (which carries none) hashes as it did before the column.
+                    // a battle at current_ray, the arm before the 2026-09-28 round 9 flip (which carries none), hashes
+                    // as it did before the column.
                     // PLANT hash_skips_slide_end (tests/death_slide_aim.rs).
                     #[cfg(not(clash_plant = "hash_skips_slide_end"))]
                     if self.cfg.calib.death_slide_aim == DeathSlideAim::FixedEndPoint {

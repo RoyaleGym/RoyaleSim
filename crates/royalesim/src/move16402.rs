@@ -573,9 +573,9 @@ pub const CONTAINER_SLIDE_TICKS: u8 = 4;
 /// whether that point is AT `radius`, which is the slide's last tick. Unit-free: the 16.402
 /// move pass calls it in native units (`death_slide_step`), the frame-planned path arms in
 /// subtiles. The ray is the member's CURRENT direction from the death point, so a contact
-/// push that turned it is kept (spawner.DEATH_SLIDE_AIM = current_ray, shipped; its candidate
-/// fixed_end_point steps toward the member's end point instead, `death_slide_toward`, which the
-/// captures fit). A point on the centre has no ray: it stays, and the slide
+/// push that turned it is kept (spawner.DEATH_SLIDE_AIM = current_ray, the arm before the
+/// 2026-09-28 round 9 flip; the shipped fixed_end_point steps toward the member's end point
+/// instead, `death_slide_toward`, which the captures fit). A point on the centre has no ray: it stays, and the slide
 /// ends. A point already AT OR PAST `radius` (a push carried it out mid-slide) also stays
 /// where it is, and the slide ends: nothing measured puts a member past the radius
 /// mid-slide, and this reading moves it nowhere rather than pull it back in by any

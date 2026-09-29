@@ -1,6 +1,7 @@
 //! movement.JUMP_LANDING_CONTACT, read off the engine: whether a unit landing from a river jump is a contact body for
 //! the units the move pass updates after it on its landing tick L (state.rs `phase_path16402_for`, the leap's landing).
-//! Shipped at its old arm landing_tick; client_next_tick keeps the lander out of L's contact pass.
+//! client_next_tick, shipped since the 2026-09-28 round 9 flip, keeps the lander out of L's contact pass; landing_tick
+//! is the engine before the flip.
 //!
 //! THE EVIDENCE (the ledger has the rows): on client 15.535.29 (sweep-RoyalHogs t291) and client 16.402
 //! (20260920-002736, both seats, t545) a Hog lands overlapping or beside another; neither is pushed on L and the pair
@@ -17,7 +18,7 @@
 //!   1. `a_lander_is_no_contact_body_on_its_landing_tick_under_client_next_tick`: under client_next_tick the Knight
 //!      takes no push on L and the pair touch on L + 1; under landing_tick the Knight is pushed on L
 //!      -- lander_collides_on_landing (the lander is a contact body on L under both arms);
-//!   2. `landing_tick_ships`.
+//!   2. `client_next_tick_ships`.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -84,7 +85,7 @@ fn a_lander_is_no_contact_body_on_its_landing_tick_under_client_next_tick() {
 }
 
 #[test]
-fn landing_tick_ships() {
-    assert_eq!(Calib::shipped().jump_landing_contact, JumpLandingContact::LandingTick, "movement.JUMP_LANDING_CONTACT ships landing_tick");
-    assert_eq!(config().calib.jump_landing_contact, JumpLandingContact::LandingTick);
+fn client_next_tick_ships() {
+    assert_eq!(Calib::shipped().jump_landing_contact, JumpLandingContact::NextTick, "movement.JUMP_LANDING_CONTACT ships client_next_tick");
+    assert_eq!(config().calib.jump_landing_contact, JumpLandingContact::NextTick);
 }

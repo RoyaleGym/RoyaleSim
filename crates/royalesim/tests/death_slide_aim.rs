@@ -2,7 +2,8 @@
 //! client_ring_slide; move16402.rs `death_slide_step`, `death_slide_toward`; state.rs `slide_end_points`,
 //! `slide_ends`, `phase_path16402`; entity.rs `death_slide_end`).
 //!
-//! THE READING (arm fixed_end_point, status hypothesis; the old arm current_ray ships): each tick a member steps
+//! THE READING (arm fixed_end_point, shipped since the 2026-09-28 round 9 flip; current_ray is the old arm): each
+//! tick a member steps
 //! move16402::DEATH_SLIDE_STEP toward its END POINT, fixed at birth -- the death point + its ring direction x
 //! DeathSpawnRadius, the container ring's direction for a container's member -- through the walk's 1/256 direction
 //! and truncation, and its slide ends on the step that reaches it; the contact push is added after, as before. So a
@@ -31,7 +32,7 @@
 //!   5. the step itself, pure, on the client's own steps of 20260920-071744-B, where the current ray misses each;
 //!   6. a snapshot mid-slide under fixed_end_point resumes hash for hash, and the end point is hashed under that arm
 //!      and not under current_ray (whose battles hash as before the column) -- hash_skips_slide_end;
-//!   7. the ledger ships current_ray.
+//!   7. the ledger ships fixed_end_point.
 //!
 //! NOT PINNED: where the client ENDS a slide short of its end point. In every capture the four diagonal Pups stop
 //! after 8 moves (1, 41, 96 and 126 short of their ends) and the two axis Pups take a 9th; neither arm has that stop.
@@ -339,7 +340,7 @@ fn a_snapshot_mid_slide_resumes_and_the_end_point_is_hashed_under_fixed_end_poin
 // (7) the ledger
 
 #[test]
-fn the_ledger_ships_current_ray() {
-    assert_eq!(Calib::shipped().death_slide_aim, DeathSlideAim::CurrentRay, "current_ray ships until parity scores fixed_end_point");
-    assert_eq!(config().calib.death_slide_aim, DeathSlideAim::CurrentRay);
+fn the_ledger_ships_fixed_end_point() {
+    assert_eq!(Calib::shipped().death_slide_aim, DeathSlideAim::FixedEndPoint, "fixed_end_point ships since the round 9 flip");
+    assert_eq!(config().calib.death_slide_aim, DeathSlideAim::FixedEndPoint);
 }

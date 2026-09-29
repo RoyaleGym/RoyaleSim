@@ -10,9 +10,11 @@ arm lets an idle Cannon target the Brawler and a Golemite on F+1.
 WHY THE CONTROL IS HERE. A hand-played unit is targeted on its first frame, on client 15.535.29 (a Barbarian beside the
 Goblin Cage scenario) and on both arms (a Knight). An implementation that delays every new unit fails it.
 
-WHICH ARM. client_8th_frame is the SHIPPED arm since the 2026-09-26 flip. none is the engine before the flip. The
-tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last one
-runs the shipped build with no override at all.
+WHICH ARM. client_8th_frame_action_buildings is the SHIPPED arm since the 2026-09-28 round 9 flip: client_8th_frame
+(shipped from the 2026-09-26 flip), and a building an action makes (the Hero Musketeer's turret) waits too. The scenes
+here are death spawns and hand-played units, which the two treat alike. none is the engine before the 2026-09-26 flip.
+The tests below pin each arm BY NAME through the battle's calibration, never through the shipped value, and the last
+one runs the shipped build with no override at all.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.SPAWNED_UNIT_ACQUIRE_DELAY"
-SHIPPED_ARM, NONE_ARM = "client_8th_frame", "none"
+SHIPPED_ARM, NONE_ARM = "client_8th_frame_action_buildings", "none"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 #: the 8th frame of a unit whose first frame is F
 EIGHTH = 7
