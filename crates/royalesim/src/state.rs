@@ -6341,6 +6341,11 @@ pub struct EntityView<'a> {
     pub grounded_ms: i32,
     /// A copy the Clone made, or a copy's death spawn (entity.rs `cloned`).
     pub cloned: bool,
+    /// THE UNIFIED LEVEL the entity plays at (entity.rs `level`): a played unit's card level, a Mirror's copy its card
+    /// level plus the table's MIRROR_LEVEL_OFFSET, a Clone's copy the level spells.CLONE_LEVEL gives it, a unit another
+    /// puts down (a spawner's, a death spawn, a release) the level its parent gives it (`CardDb::unit_level`), a crown
+    /// tower its tower level. py.rs ENTITY_FIELDS `level`.
+    pub level: i32,
 }
 
 /// spells.SCHEDULED_SPAWN_INVALID_POINT: how far inside each arena edge a scheduled area's point is clamped, native.
@@ -17257,6 +17262,7 @@ impl BattleState {
             enchant_ms: e.enchant_ms[i],
             grounded_ms: e.grounded_ms[i],
             cloned: e.cloned[i],
+            level: e.level[i],
         }
     }
     /// Live entities in slot order.

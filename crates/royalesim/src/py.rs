@@ -99,6 +99,11 @@
 //!     BUTTONS). `state_json` gives each player an "abilities" list, one row per button, and each hero unit's
 //!     `status_flags` bit 4 (16). The catalogue's `hero` column is the button's elixir.
 //!
+//! UNITS AND THEIR LEVELS
+//!     Every entity row ends in `level` (ENTITY_FIELDS), the unified level the entity plays at: a played unit's card
+//!     level, a Mirror's copy that plus one, a Clone's copy the level spells.CLONE_LEVEL gives it (the Clone's), a
+//!     unit another puts down its parent's, a crown tower its tower level.
+//!
 //! WHAT IT CANNOT DO (raises instead of guessing)
 //!     `crowns_from_destroyed_towers = false` (crowns are derived from destroyed
 //!     towers every tick) is refused in rust_engine.py.
@@ -214,7 +219,7 @@ pub const DEPLOY_REASONS: [&str; 18] = [
 /// ints, and a swap would decode without error and be drawn with confidence. The length
 /// is pinned to the serializer by a test in this file, so this is the half that cannot
 /// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
-pub const ENTITY_FIELDS: [&str; 21] = [
+pub const ENTITY_FIELDS: [&str; 22] = [
     "uid",
     "team",
     "kind",
@@ -240,6 +245,10 @@ pub const ENTITY_FIELDS: [&str; 21] = [
     // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit;
     // bit 4 a hero unit
     "status_flags",
+    // added 2026-09-28: the unified level the entity plays at (state.rs `EntityView::level`): a played unit's card
+    // level, a Mirror's copy that plus one, a Clone's copy the Clone's (spells.CLONE_LEVEL), a unit another puts down
+    // its parent's, a crown tower its tower level. Always reported (never -1).
+    "level",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
@@ -868,7 +877,7 @@ pub fn state_json_text(
         buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -884,6 +893,7 @@ pub fn state_json_text(
             e.facing.y,
             e.shield,
             e.status_flags,
+            e.level,
         );
     }
     o.push_str("],\"spells\":[");
@@ -2137,6 +2147,8 @@ mod tests {
         let (mut tower_shot, mut troop_shot, mut resolved_target, mut named_buff) = (false, false, false, false);
         let (mut spell_row, mut hidden_tesla) = (false, false);
         let status = ENTITY_FIELDS.iter().position(|f| *f == "status_flags").unwrap();
+        let level = ENTITY_FIELDS.iter().position(|f| *f == "level").unwrap();
+        let mut levels_read = 0usize;
         for _ in 0..200 {
             s.tick();
             let v: serde_json::Value =
@@ -2146,6 +2158,8 @@ mod tests {
             let uids: Vec<i64> = ents.iter().map(|r| r[0].as_i64().unwrap()).collect();
             // The engine's own hide state, per uid, for the status bits to be held against.
             let hidden: Vec<i64> = s.entities().filter(|e| e.hidden).map(|e| (e.team_seq as i64) * 2 + e.team as i64).collect();
+            // The engine's own level per uid, for the level column to be held against.
+            let engine_level: BTreeMap<i64, i32> = s.entities().map(|e| ((e.team_seq as i64) * 2 + e.team as i64, e.level)).collect();
             for r in ents {
                 let r = r.as_array().unwrap();
                 assert_eq!(r.len(), ENTITY_FIELDS.len(), "an entity row is not ENTITY_FIELDS long: {r:?}");
@@ -2166,6 +2180,10 @@ mod tests {
                 if bits & 4 != 0 && r[3].as_i64() == Some(tesla as i64) {
                     hidden_tesla = true;
                 }
+                // level: reported (never -1) and the engine's own level of that entity.
+                assert_eq!(r[level].as_i64(), engine_level.get(&r[0].as_i64().unwrap()).map(|l| *l as i64), "the level column is not the entity's level: {r:?}");
+                assert!(r[level].as_i64().unwrap() >= 1, "a level below 1: {r:?}");
+                levels_read += 1;
                 for b in r[19].as_array().unwrap() {
                     let (name, ms) = (b[0].as_str().unwrap(), b[1].as_i64().unwrap());
                     if name.split('|').any(|n| n == "Poison") && ms > 0 {
@@ -2197,6 +2215,7 @@ mod tests {
         assert!(named_buff, "no entity in 200 ticks carried a buff named Poison with time left");
         assert!(spell_row, "no spell row in 200 ticks, so SPELL_FIELDS was held against nothing");
         assert!(hidden_tesla, "the Tesla never reported status bit 2 in 200 ticks");
+        assert!(levels_read > 0, "no entity row was read, so the level column was held against nothing");
     }
 
     #[test]

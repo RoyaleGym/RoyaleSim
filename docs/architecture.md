@@ -169,6 +169,9 @@ The crate itself has no Python dependency and builds alone.
   selects the frame-planned arm and `ground_y_clamp="deploy_column_range_own_frame"` the own-frame
   summon clamp (see "Selectable model arms"); each defaults to the ledger's value,
   `pathfinding.PATH_SEARCH` and `formation.GROUND_Y_CLAMP`.
+- **Units and their levels.** Each entity row of `state_json()` ends in `level`, the unified level
+  the entity plays at: a played unit's card level, a Mirror's copy one above it, a Clone's copy the
+  Clone's, a unit another unit puts down its parent's, a crown tower its tower level.
 - **Deploy rules as data.** The alive-enemy-tower no-deploy rects, water, the arena bitmask and
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
   `tower_positions`), so a learner can build its action mask from the engine's own numbers and
