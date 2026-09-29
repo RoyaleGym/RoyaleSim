@@ -28,6 +28,8 @@
 //!          the_phase_trace_is_the_orders_own_list
 //!   slot_order_move_pass   the pass back to (spawn tick, slot)
 //!       -> the_move_pass_runs_in_creation_order_not_slot_order
+//!   doomed_static_mover    client_doomed_static meets a doomed troop as a mover
+//!       -> a_troop_killed_before_the_move_pass_is_a_static_obstacle_under_client_doomed_static
 mod common;
 
 use royalesim::entity::AttackPhase;
@@ -409,6 +411,64 @@ fn a_unit_dying_this_tick_is_seen_by_earlier_movers_and_not_by_later_ones() {
     assert_eq!(w1_live, w1_dead);
     assert_eq!(w3_live, w3_dead, "under whole_tick every mover sees the dying unit");
     assert_eq!(s3_live, w3_live, "the live run is the same under both candidates");
+}
+
+/// A Red Knight; a Blue Skeleton S2 held at a Skeleton's range from it, so both attack; a Blue Skeleton W held
+/// 2.4 radii behind S2 on the same line, walking at the Knight with S2 inside its look circle every tick. S2's hp
+/// is forced to `s2_hp` before every tick. Returns W's avoidance offset after each tick, up to and including the
+/// tick the Knight's first hit lands on S2 (the last entry), and whether S2 was gone by then.
+fn walker_behind_a_melee_kill(cfg: BattleConfig, s2_hp: i32) -> (Vec<i32>, bool) {
+    let mut s = bare(cfg);
+    let skel = card_stat(&s, "Skeleton").clone();
+    let r = skel.collision_radius;
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", t(900, 900), None).unwrap();
+    let ahead = skel.range + r;
+    let spots = |k: Vec2| (Vec2::new(k.x, k.y - ahead), Vec2::new(k.x, k.y - ahead - r * 24 / 10));
+    let (s2_at, w_at) = spots(s.entity(knight).unwrap().pos);
+    let s2 = s.scenario_spawn_now(Team::Blue, "Skeleton", s2_at, None).unwrap();
+    let w = s.scenario_spawn_now(Team::Blue, "Skeleton", w_at, None).unwrap();
+    let mut offsets = Vec::new();
+    for k in 0..40u32 {
+        let (s2_at, w_at) = spots(s.entity(knight).unwrap().pos);
+        assert!(s.debug_set_pos(s2, s2_at) && s.debug_set_pos(w, w_at));
+        assert!(s.debug_set_hp(s2, s2_hp)); // nothing but the kill reads it
+        let before = s.entity(knight).unwrap();
+        if k > 0 {
+            assert_eq!(before.target, Some(s2), "the Knight's target is S2 (tick {k})");
+        }
+        let was_windup = before.attack_phase == AttackPhase::Windup;
+        s.tick();
+        offsets.push(s.entity(w).expect("W lives").avoid_offset);
+        if was_windup && s.entity(knight).unwrap().attack_phase == AttackPhase::Cooldown {
+            return (offsets, s.entity(s2).is_none());
+        }
+    }
+    panic!("the Knight never fired");
+}
+
+#[test]
+fn a_troop_killed_before_the_move_pass_is_a_static_obstacle_under_client_doomed_static() {
+    // movement.DYING_UNIT_VISIBILITY = client_doomed_static (parity's item 59, from sweep-SkeletonArmy t252). S2,
+    // attacking, is a MOVING blocker with its heading zeroed in W's look circle, so W's running offset only decays.
+    // On the tick the Knight's melee hit kills it, the new arm meets it as STATIC: the offset is refreshed by 20
+    // before the decay, where whole_tick decays it. Plant: doomed_static_mover.
+    assert_shipped_arms();
+    let sturdy = 100 * card_stat(&bare(config()), "Knight").damage;
+    let whole = with_calib(|c| c.dying_unit_visibility = DyingUnitVisibility::WholeTick);
+    let stat = with_calib(|c| c.dying_unit_visibility = DyingUnitVisibility::ClientDoomedStatic);
+    let (whole_live, gone_live) = walker_behind_a_melee_kill(whole.clone(), sturdy);
+    let (stat_live, _) = walker_behind_a_melee_kill(stat.clone(), sturdy);
+    let (whole_dead, gone_dead) = walker_behind_a_melee_kill(whole, 1);
+    let (stat_dead, gone) = walker_behind_a_melee_kill(stat, 1);
+    assert!(!gone_live && gone_dead && gone, "vacuous: S2 must survive the hit when padded and die at 1 hp");
+    let n = whole_dead.len();
+    assert!(n >= 3 && [whole_live.len(), stat_live.len(), stat_dead.len()] == [n; 3], "the four runs fire on one tick");
+    assert_eq!(stat_live, whole_live, "with nobody dying the arms are one battle");
+    assert_eq!(stat_dead[..n - 1], whole_dead[..n - 1], "the arms agree up to the kill tick");
+    let before = whole_dead[n - 2];
+    assert!(before.abs() >= 20, "vacuous: W carries no running offset into the kill tick ({before})");
+    assert_eq!(whole_dead[n - 1].abs(), before.abs() - 10, "whole_tick: a moving blocker leaves the offset to decay");
+    assert_eq!((stat_dead[n - 1] - whole_dead[n - 1]).abs(), 20, "client_doomed_static: the dying troop refreshes it by 20");
 }
 
 #[test]

@@ -230,7 +230,8 @@ pub struct Calib {
     pub tick_order: TickOrder,
     /// movement.DYING_UNIT_VISIBILITY -- whether a troop that dies this tick is
     /// dropped from the scans of the movers after it in the sequential move pass
-    /// (`doomed_mask`, `phase_path16402`), or seen by every mover.
+    /// (`doomed_mask`, `phase_path16402`), seen by every mover, or seen by every
+    /// mover as a static obstacle when its death is settled before the pass.
     pub dying_unit_visibility: DyingUnitVisibility,
     /// globals.csv MANA_SPEED_UP_WHEN_REMAINING_SECONDS (not in calibration.json).
     pub mana_speed_up_remaining_s: i32,
@@ -4909,6 +4910,15 @@ calib_enum!(
         CreationOrderBeforeVictim = "creation_order_before_victim",
         /// Seen by every mover for the whole pass (the earlier engine).
         WholeTick = "whole_tick",
+        /// As whole_tick, except that a troop the doomed mask marks (this tick's Attack-phase hits, the lifetime
+        /// expiries and the previous Reap's death damage: the deaths settled before the move pass) is a STATIC
+        /// obstacle to every avoidance scan and the grouping for the whole pass (`move16402::Body::avoid_static`).
+        /// It still walks, and the separation scan still meets it as a troop. Measured on client 15.535.29 (the
+        /// oracle's raw frames, which carry every unit's avoidance offset): a walker whose scan circle holds one unit,
+        /// which dies on the tick, refreshes its running offset as off a static blocker when a melee hit or its own
+        /// attack killed it (33 of 43) and decays it as past a mover when a projectile landing after the move pass
+        /// did (58 of 60).
+        ClientDoomedStatic = "client_doomed_static",
     }
 );
 calib_enum!(
@@ -11831,7 +11841,8 @@ impl BattleState {
     /// a shield absorbs the tick's sum before hp is touched. Buildings are never
     /// masked (a dying building is seen by every mover, 3 / 3 on the corpus: nothing
     /// drops it inside the pass). A read: no hp is written here.
-    /// Under `whole_tick` the mask is all false.
+    /// Under `whole_tick` the mask is all false. Under `client_doomed_static` it is derived as here, and the pass
+    /// meets a marked troop as a static obstacle instead of dropping it.
     ///
     /// Under match.TICK_ORDER = client_sequential_strike a direct strike has already landed
     /// (`land_strike`), so a troop it killed is alive at 0 hp with no hit left in the buffer:
@@ -12366,6 +12377,10 @@ impl BattleState {
             let buried = |i: usize| calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable && e.underground(i);
             #[cfg(clash_plant = "tunnel_targetable")]
             let buried = |_: usize| false; // PLANT: a unit under ground is an ordinary body.
+            #[cfg(not(clash_plant = "doomed_static_mover"))]
+            let doomed_static = calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic;
+            #[cfg(clash_plant = "doomed_static_mover")]
+            let doomed_static = false; // PLANT (regression): the new arm still meets a doomed troop as a mover.
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -12416,9 +12431,12 @@ impl BattleState {
                         // movement.WAITING_HEADING = static_obstacle: a member still waiting out its
                         // stagger is static to the avoidance scan and the grouping, and a troop to
                         // separation.
-                        avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle
+                        avoid_static: (calib.waiting_heading == WaitingHeading::StaticObstacle
                             && calib.formation_stagger_wait == StaggerWait::Client16402
-                            && e.stagger_ms[i] > 0,
+                            && e.stagger_ms[i] > 0)
+                            // movement.DYING_UNIT_VISIBILITY = client_doomed_static: a troop whose death is
+                            // settled before the pass (`doomed_mask`) is static to the avoidance scan too.
+                            || (doomed_static && self.scratch.doomed.get(i).copied().unwrap_or(false)),
                         // creation order breaks a tie inside one group (`move16402::Index::query`): a slot is
                         // reused, a creation order is not
                         seq: e.creation_seq[i],
@@ -12488,8 +12506,11 @@ impl BattleState {
                     });
                 }
             }
+            // Only the creation-order arm drops a doomed troop at its place in the pass; under
+            // client_doomed_static it walks like any other, and only its `avoid_static` differs.
+            let drops_doomed = calib.dying_unit_visibility == DyingUnitVisibility::CreationOrderBeforeVictim;
             for i in order {
-                if doomed.get(i).copied().unwrap_or(false) {
+                if drops_doomed && doomed.get(i).copied().unwrap_or(false) {
                     // ---- A UNIT DYING THIS TICK (calibration movement.DYING_UNIT_VISIBILITY
                     // = creation_order_before_victim; `doomed_mask`): the movers before it
                     // saw it at its start-of-tick position; here, at its own place in the
@@ -20169,6 +20190,9 @@ impl BattleState {
 /// 20, unchanged, pathfinding.SAMEPATH_SEGMENT: Calib gained samepath_segment (serde default the old arm, kept), no
 ///    new state (the new arm clears the saved `seg_dir` column, which the step refreezes in the same tick), so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DYING_UNIT_VISIBILITY = client_doomed_static: a third arm of an existing Calib enum, no new
+///    field and no new state (the doomed mask is scratch, derived afresh each tick), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 already runs a migrated battle at whole_tick.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
