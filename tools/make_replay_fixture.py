@@ -288,10 +288,16 @@ LATE SINGLE
     as `laid_tile` reads a ring), the tile centre for a flyer. Only when that point is off
     the first frame's centroid (a unit that stood still is left as it is), the capture shows
     it deploying (behavior_state 4 or 11) on its first frame, and x2, y2 lies within
-    LATE_SINGLE_PUSH_PER_TICK per missed tick of the laid point on both axes (a unit a tower
-    tap put on the king's back row at y 31000, for one, is not on a tile's laid point and
-    keeps its centroid). Measured on the 16.402 corpus: a Bomber of 20260918-122757.b1
-    deployed on t588 and first seen on t589 at (5660, 25656), 161 and 157 off the laid point
+    LATE_SINGLE_PUSH_PER_TICK per missed tick of the laid point on each axis. That box holds
+    every push the contact law can add on the missed ticks (at most 150 on either axis a
+    tick) and more: one tick's push is at most about 151 long ((150, 15), for one: the
+    engine's own push lays 20260918-134739-B's Ice Spirit there from its laid point on
+    t1935), while the box's corners lie 212 off a tick. A unit a tower tap put on the king's
+    back row at y 31000 is on no tile's laid point, 499 in y from its tile's: the box leaves
+    it on its centroid when it is seen 1 to 3 ticks late and takes it from 4 ticks late
+    (4 x 150 = 600); none of the rows the maker lays over the 16.402 captures is such a unit.
+    Measured on the 16.402 corpus: a Bomber of 20260918-122757.b1 deployed on t588 and first
+    seen on t589 at (5660, 25656), its x2, y2 (5610, 25601), 111 and 102 off the laid point
     (5499, 25499) of its tile; played there, the engine puts it on the client's point on
     t589 and on every frame after, where from its first frame it stood 97 off. The same holds
     for the seven such units of the corpus's playable fixtures whose first frame is off their
@@ -514,9 +520,11 @@ NOMINAL_CENTRED_NATIVE = 60
 #: native per axis. The measured offsets are first-frame positions after the first tick's contact push, so two siblings
 #: that overlap at creation stand a few units off their ring (the Minions' 577 ring, 2 apart).
 RECOVER_TOLERANCE = 3
-#: How far one tick's contact push can move a unit, native per axis: the contact law's cap on the push it adds a tick
-#: (150, move16402.rs `collision_mean`). A single first seen late is played on its tile's laid point only when its first
-#: frame's creation point lies within this many units per missed tick of it (module doc, LATE SINGLE).
+#: How far one tick's contact push can move a unit on one axis, native: move16402.rs `collision_mean` scales a push
+#: longer than 150 to length 150 through a truncating isqrt (so up to about 151 long), and neither axis of it passes
+#: 150. A single first seen late is played on its tile's laid point only when its first frame's creation point lies
+#: within this many units per missed tick of it on each axis, a box that also admits points no push reaches (its
+#: corners lie 212 off a tick; module doc, LATE SINGLE).
 LATE_SINGLE_PUSH_PER_TICK = 150
 # Spell casts: the effects stream lists every projectile OBJECT on every frame it
 # exists (a Fireball 15 frames, a Log's airborne object then its rolling object, Arrows
