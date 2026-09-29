@@ -1633,7 +1633,9 @@ fn spell_placement_follows_the_card_data() {
 //      ahead: forward; 1,500 behind: untouched);
 //   3. under the pair, a Knight off the axis ahead, hit mid-roll, is pushed along the line from the Log's tick-end
 //      centre, which the contact point's line is not;
-//   4. either arm alone is refused.
+//   4. either arm alone is accepted: the ledger ships them together, and a configuration that selects one is a
+//      documented combination, not a refused one (a refusal would refuse every config that sets the other key back
+//      once the pair ships).
 // Plants: roll_landing_tick_unswept (1 goes red), roll_tick_end_arm_from_contact (3 goes red).
 
 fn log_pair(mut cfg: BattleConfig) -> BattleConfig {
@@ -1758,12 +1760,14 @@ fn log_pair_pushes_a_mid_roll_hit_from_the_tick_end_centre() {
 }
 
 #[test]
-fn log_pair_arms_are_refused_alone() {
+fn log_pair_arms_are_accepted_alone_and_together() {
     let mut c = config();
     c.calib.roll_first_step = royalesim::state::RollFirstStep::HitOnLandingTickStepAfter;
-    assert!(c.calib.validate().is_err(), "the landing-tick hit alone was accepted");
+    c.calib.knock_direction_rolling = RollDirection::RadialFromCentre;
+    assert!(c.calib.validate().is_ok(), "the landing-tick hit alone was refused");
     let mut c = config();
+    c.calib.roll_first_step = royalesim::state::RollFirstStep::TickAfterLanding;
     c.calib.knock_direction_rolling = RollDirection::RadialFromTickEndCentre;
-    assert!(c.calib.validate().is_err(), "the tick-end push alone was accepted");
+    assert!(c.calib.validate().is_ok(), "the tick-end push alone was refused");
     assert!(log_pair(config()).calib.validate().is_ok(), "the pair is refused");
 }
