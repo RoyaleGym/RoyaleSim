@@ -13,7 +13,8 @@
 //!   1. the column is ENTITY_FIELDS' last but the mount, and a Knight played at 12 reads 12 while every crown tower of a battle
 //!      whose towers are at 13 reads 13;
 //!   2. a Mirror after a level-11 Knight: the Knight reads 11, its copy 12;
-//!   3. a level-11 Clone on a level-12 Knight: the copy reads 11 (spell_level), and 12 under original_level;
+//!   3. a level-11 Clone on a level-12 Knight in a battle whose cards are at 13 and whose towers are at 14: the copy
+//!      reads 11 (spell_level), and 12 under original_level;
 //!   4. a level-13 Tombstone in a battle at 11: its Skeletons read 13; a level-13 Golem: its Golemites read 13.
 mod common;
 
@@ -99,9 +100,14 @@ fn a_mirrors_copy_reads_its_card_level_plus_one() {
 // ---------------------------------------------------------------------------
 // 3. a Clone's copy
 
-/// A level-12 Knight, then a level-11 Clone on it: the copy's level column.
-fn copy_level(cfg: BattleConfig) -> i64 {
+/// A level-12 Knight, then a level-11 Clone on it, in a battle whose cards are at 13 and whose towers are at 14, so
+/// that no level but the Clone's and the Knight's is 11 or 12: the copy's level column.
+fn copy_level(mut cfg: BattleConfig) -> i64 {
+    cfg.card_level = [13, 13];
+    cfg.tower_level = [14, 14];
     let mut s = BattleState::new(0, cfg);
+    let towers: Vec<i64> = [Team::Blue, Team::Red].into_iter().flat_map(|t| s.tower_ids(t)).flatten().map(|id| level_of(&s, id)).collect();
+    assert_eq!((s.config().card_level, towers), ([13, 13], vec![14; 6]), "scene: the side's card level and every tower's level");
     s.spawn_unit(Team::Blue, "Knight", at((9500, 9500)), Some(12)).expect("a level-12 Knight");
     for _ in 0..25 {
         s.tick();

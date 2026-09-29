@@ -14833,10 +14833,12 @@ impl BattleState {
         // on client 15.535.29, an enemy first targets one on its 8th frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), and
         // a Graveyard Skeleton deploys 10 ticks and takes its first step on the 12th.
         //
-        // A DEPLOY SPAWN AREA'S UNITS (card.rs `CardDef::deploy_spawn_area`, the Tri Wizards): an enemy targets them
-        // from their next frame, as it does a played unit (measured on client 15.535.29, sweep-TriWizards: the enemy
-        // Knight takes the TriWizard one tick after its first frame and the Ice Wizard one tick after its own). The area's
-        // own SpawnCharacter (`SpawnVia::OwnSpawn`, the TriWizard) is released as the Graveyard's Skeletons are,
+        // A DEPLOY SPAWN AREA'S UNITS (card.rs `CardDef::deploy_spawn_area`, the Tri Wizards) carry no acquire delay:
+        // none waits for its 8th frame (measured on client 15.535.29, sweep-TriWizards: the enemy Knight takes the
+        // TriWizard on C + 6, one tick after its first frame, and the Ice Wizard on C + 8, one tick after its own). The
+        // engine gives the TriWizard the client's frame and a wizard one frame early: created in the Spawn phase, a
+        // wizard may be targeted on its first frame, C + 7, as a played troop is (tests/tri_wizards.rs pins both). The
+        // area's own SpawnCharacter (`SpawnVia::OwnSpawn`, the TriWizard) is released as the Graveyard's Skeletons are,
         // deploying its SpawnTime. An entry that makes an area (`SpawnVia::DeployArea`, the wizards) goes into the NEXT
         // Spawn phase, where the area acts on its first update: `phase_spawn` creates the unit as a play of its card and
         // lands that card's own deploy area (the zap, the chill) where it appears, one tick longer in its deploy
@@ -14855,10 +14857,12 @@ impl BattleState {
             let deploy_ms = r.deploy_ms;
             #[cfg(clash_plant = "scheduled_spawn_unit_deploy_time")]
             let deploy_ms: Option<i32> = None; // PLANT: the unit's own DeployTime.
-            #[cfg(not(clash_plant = "scheduled_acquire_delay_dropped"))]
+            #[cfg(not(any(clash_plant = "scheduled_acquire_delay_dropped", clash_plant = "deploy_spawn_area_acquire_delayed")))]
             let acquire_delay = r.via == crate::card::SpawnVia::Action;
             #[cfg(clash_plant = "scheduled_acquire_delay_dropped")]
             let acquire_delay = false; // PLANT: a target from its first frame.
+            #[cfg(clash_plant = "deploy_spawn_area_acquire_delayed")]
+            let acquire_delay = true; // PLANT: a deploy spawn area's units wait for their 8th frame, as the Graveyard's do.
             let p = PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false };
             match r.via {
                 // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a released unit's first update (a deploy area's unit is a play
