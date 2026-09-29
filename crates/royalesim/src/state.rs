@@ -588,6 +588,11 @@ pub struct Calib {
     /// it ran.
     #[serde(default = "ability_unit_first_update_default")]
     pub ability_unit_first_update: AbilityUnitFirstUpdate,
+    /// status.WAITED_PRESS_CAST (`fire_scheduled`, `phase_move`): where on her first free tick a hero press that waited
+    /// for her starts its cast hold. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved
+    /// before it ran.
+    #[serde(default = "waited_press_cast_default")]
+    pub waited_press_cast: WaitedPressCast,
     /// status.DAMAGE_REDUCTION (combat.rs `reduce_hit`): how a hit on a unit carrying a DamageReduction buff is
     /// scaled. status.IDLE_BUFF (`idle_buff_pass`, combat.rs `damage_reduction_of`): whether a BuffWhenNotAttacking
     /// that is not an invisibility runs. Added after SNAPSHOT_FORMAT 20; each `default` is the old arm, not_read,
@@ -1582,6 +1587,10 @@ fn jump_landing_contact_default() -> JumpLandingContact {
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
     AbilityUnitFirstUpdate::CreationTick
+}
+
+fn waited_press_cast_default() -> WaitedPressCast {
+    WaitedPressCast::StatusStart
 }
 
 fn damage_reduction_default() -> DamageReductionLaw {
@@ -4044,6 +4053,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.WAITED_PRESS_CAST -- where a hero press that had to WAIT for her starts its cast hold (`start_ability`) on
+    /// her first free tick. A press waits when the Status phase that first reads it finds her deploying or held
+    /// (`hero_free`). A press on a free hero starts at the top of the Status phase under either arm. The effect's clock
+    /// (`ScheduledAction::Ability`) starts on her first free tick under either arm, so the effect comes on the same
+    /// tick. The hold ends on the same tick too: the hold timer counts down in Resolve (or at the top of Status), after
+    /// (or before) both points.
+    WaitedPressCast {
+        /// Today's engine (shipped): at the top of the Status phase, as a free press's, so she takes no step that tick.
+        StatusStart = "status_start",
+        /// After that tick's move pass (`phase_move`): she takes one step first, and her hold starts where it leaves
+        /// her. Read on client 15.535.29 on 6 of 6 waited presses (parity, round 9 item 43).
+        AfterMove = "client_after_move",
+    }
+);
+calib_enum!(
     /// status.DAMAGE_REDUCTION -- what a hit of `a` (> 0) does to a unit carrying a buff whose DamageReduction is `r`
     /// (1..=100; the strongest one the unit carries, combat.rs `damage_reduction_of`), per hit, before the unit's
     /// shield takes the tick's sum (combat.rs `reduce_hit`, `resolve`, `land_at_once`). A unit's own drains and deaths
@@ -5220,6 +5244,7 @@ impl Calib {
             life_state_first_look_aim: pick(&v, &["spawner", "LIFE_STATE_FIRST_LOOK_AIM", "value"], LifeStateFirstLookAim::from_calibration_name)?,
             life_state_aim_repick: pick(&v, &["spawner", "LIFE_STATE_AIM_REPICK", "value"], LifeStateAimRepick::from_calibration_name)?,
             ability_unit_first_update: pick(&v, &["spawner", "ABILITY_UNIT_FIRST_UPDATE", "value"], AbilityUnitFirstUpdate::from_calibration_name)?,
+            waited_press_cast: pick(&v, &["status", "WAITED_PRESS_CAST", "value"], WaitedPressCast::from_calibration_name)?,
             damage_reduction: pick(&v, &["status", "DAMAGE_REDUCTION", "value"], DamageReductionLaw::from_calibration_name)?,
             idle_buff: pick(&v, &["status", "IDLE_BUFF", "value"], IdleBuffLaw::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
@@ -6007,6 +6032,11 @@ pub enum ScheduledAction {
         /// clock has run since (`fire_scheduled`). `default` false.
         #[serde(default)]
         started: bool,
+        /// The press WAITED for its hero: a Status phase read it while she was not free, so its cast hold starts after
+        /// the move pass of her first free tick (status.WAITED_PRESS_CAST = client_after_move). Set only under that arm
+        /// and hashed only when set; `default` false.
+        #[serde(default)]
+        waited: bool,
     },
 }
 
@@ -6399,6 +6429,9 @@ struct Scratch {
     /// tick (target.rs `TargetCtx::lane_doomed`). Written by every Target pass under those arms before anything reads it,
     /// so it never carries a reading into the next tick; empty under standing.
     lane_doomed: Vec<bool>,
+    /// status.WAITED_PRESS_CAST = client_after_move: the heroes whose waited press started this tick (`fire_scheduled`),
+    /// whose cast holds start after the move pass (`phase_move`). Pushed and emptied inside one tick.
+    late_casts: Vec<EntityId>,
     /// spawner.SPAWNED_FIRST_STEP: the units (buildings and troops) that died in this Reap and left a death spawn
     /// that takes its first update, native (x, y, radius, side, flying): `first_update`'s avoidance-only blockers.
     /// Filled and drained inside one `phase_reap`, so it never outlives the phase.
@@ -9688,7 +9721,8 @@ impl BattleState {
     /// A HERO'S PRESS (`ScheduledAction::Ability`) is read first: its hero gone (it died after the press, before the
     /// effect), the entry is dropped and the press's elixir given back, here, on the tick after the death; not yet
     /// started and its hero deploying or held (`hero_free`), its clock does not run; else it starts now, if it had
-    /// not, and the hero takes its cast hold (`start_ability`). Measured on client 15.535.29: a Hero
+    /// not, and the hero takes its cast hold (`start_ability`), here, or after this tick's move pass for a press that
+    /// waited under status.WAITED_PRESS_CAST = client_after_move (`Scratch::late_casts`). Measured on client 15.535.29: a Hero
     /// Musketeer pressed 2 ticks before a Rocket killed her got her 3 back on the tick after her death and no turret;
     /// a press on her first frame, while she deployed, put the turret down 4 ticks after her first free tick, and so
     /// did a press under a Freeze after the Freeze ended.
@@ -9700,20 +9734,22 @@ impl BattleState {
         let dt = self.cfg.calib.tick_ms;
         let mut due: Vec<ScheduledAction> = Vec::new();
         let mut refunds: Vec<(Team, i32)> = Vec::new();
-        let mut starts: Vec<EntityId> = Vec::new();
+        let mut starts: Vec<(EntityId, bool)> = Vec::new();
+        let after_move = self.cfg.calib.waited_press_cast == WaitedPressCast::AfterMove;
         let (ents, buffs) = (&self.ents, &self.cfg.cards.buffs);
         self.scheduled.retain_mut(|s| {
-            if let ScheduledAction::Ability { hero, team, cost, started } = &mut s.action {
+            if let ScheduledAction::Ability { hero, team, cost, started, waited } = &mut s.action {
                 if !ents.is_alive(*hero) {
                     refunds.push((*team, *cost));
                     return false;
                 }
                 if !*started {
                     if !hero_free(ents, buffs, hero.index as usize) {
+                        *waited |= after_move;
                         return true;
                     }
                     *started = true;
-                    starts.push(*hero);
+                    starts.push((*hero, *waited));
                 }
             }
             s.ms -= dt;
@@ -9724,8 +9760,15 @@ impl BattleState {
                 true
             }
         });
-        for hero in starts {
-            self.start_ability(hero);
+        for (hero, waited) in starts {
+            // PLANT (regression): a waited press starts its hold here, as a free one does, whatever the arm.
+            #[cfg(clash_plant = "waited_press_casts_before_move")]
+            let waited = false;
+            if waited {
+                self.scratch.late_casts.push(hero);
+            } else {
+                self.start_ability(hero);
+            }
         }
         for a in due {
             match a {
@@ -13228,6 +13271,14 @@ impl BattleState {
         // countdown: a snipe target taken here is shot at from the next tick's attack pass.
         if !self.evo.snipers.is_empty() {
             self.snipe_pass();
+        }
+        // status.WAITED_PRESS_CAST = client_after_move: a waited press's cast hold starts here, after her step.
+        if !self.scratch.late_casts.is_empty() {
+            for hero in std::mem::take(&mut self.scratch.late_casts) {
+                if self.ents.is_alive(hero) {
+                    self.start_ability(hero);
+                }
+            }
         }
         if self.tick_order() != TickOrder::LegacyMoveBeforeAttack {
             // the deploy countdown after the move pass, as measured (client16402, and
@@ -16791,7 +16842,7 @@ impl BattleState {
         let id = self.hero_units[h].id;
         // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay.
         let ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + a.trigger_ms;
-        self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false } });
+        self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
         Ok(id)
     }
 
@@ -16805,7 +16856,8 @@ impl BattleState {
     /// (sp-h2 and sp-h2l9: a Minion 3,556 away, the kept Knight 4,361); the first attacking tick after it reads
     /// progress 350 and load 300 (4 of 4), as a fresh entry does. Her row has no KeepCurrentTarget; the heroes whose
     /// rows set it are unmeasured and take the same. She is casting from the tick after a free press, and from the
-    /// tick after the thaw under a Freeze.
+    /// tick after the thaw under a Freeze. A press that waited for her (deploying or held) starts here after that
+    /// tick's move pass under status.WAITED_PRESS_CAST = client_after_move, so she takes one step first.
     ///
     /// The hold stops her walk and her attack, NOT her target search (`casting_heroes`, `phase_target_with`): she keeps
     /// a live target as any unit does, and takes a new one when it is lost. Measured on client 15.535.29: sp-scene-d,
@@ -18338,12 +18390,16 @@ impl BattleState {
                         h.i32(amount);
                         h.i32(crown_pct);
                     }
-                    ScheduledAction::Ability { hero, team, cost, started } => {
+                    ScheduledAction::Ability { hero, team, cost, started, waited } => {
                         h.u32(0x4142_4c54);
                         h.id(hero);
                         h.u32(team as u32);
                         h.i32(cost);
                         h.bool(started);
+                        // status.WAITED_PRESS_CAST: only when set, so a battle under the old arm hashes as before.
+                        if waited {
+                            h.u32(0x5741_4954);
+                        }
                     }
                     ScheduledAction::Buff { target, buff, time_ms } => {
                         h.u32(0x4255_4646);
@@ -18766,6 +18822,10 @@ impl BattleState {
 ///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
 ///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.WAITED_PRESS_CAST: Calib gained waited_press_cast (serde default the old arm, status_start)
+///    and ScheduledAction::Ability gained waited (serde default false, set only under the new arm and hashed only when
+///    set); the late starts (`Scratch::late_casts`) are pushed and read inside one tick, so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.DOOMED_LANE_TOWER: Calib gained doomed_lane_tower (serde default the old arm, standing),
 ///    no new state (the new arms' doomed set, `Scratch::lane_doomed`, is taken by a Target pass and read by the same
 ///    tick's Path phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
@@ -19245,6 +19305,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("life_state_aim_repick".into(), serde_json::to_value(LifeStateAimRepick::OnWave).map_err(|e| e.to_string())?);
     // spawner.ABILITY_UNIT_FIRST_UPDATE: a format-3 battle held no hero; it keeps the old arm whatever the ledger ships.
     sh.insert("ability_unit_first_update".into(), serde_json::to_value(AbilityUnitFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
+    // status.WAITED_PRESS_CAST: the same.
+    sh.insert("waited_press_cast".into(), serde_json::to_value(WaitedPressCast::StatusStart).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("jump_landing_contact".into(), serde_json::to_value(JumpLandingContact::LandingTick).map_err(|e| e.to_string())?);

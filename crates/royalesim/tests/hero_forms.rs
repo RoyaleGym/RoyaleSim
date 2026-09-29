@@ -35,6 +35,8 @@
 //! `--cfg clash_plant="cast_releases_target"` -> `a_cast_keeps_her_target_and_restarts_her_attack_clock` red (the
 //! cast lets her target go for a rescan at its end). `--cfg clash_plant="cast_blinds_target_search"` ->
 //! `a_cast_does_not_stop_her_target_search` red (the cast holds her search as a stun does).
+//! `--cfg clash_plant="waited_press_casts_before_move"` -> `a_waited_press_steps_once_before_its_hold` red (a waited
+//! press starts its hold before the move pass, whatever status.WAITED_PRESS_CAST says).
 #![allow(unexpected_cfgs)]
 
 mod common;
@@ -43,7 +45,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::py::{apply_commands, ids_of_indices, state_json_text};
-use royalesim::state::{BattleConfig, BattleState, DeployError, TapSnap, HAND_SIZE};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, TapSnap, WaitedPressCast, HAND_SIZE};
 use royalesim::{EntityId as EntityIdOf, Team};
 use std::collections::BTreeMap;
 
@@ -309,6 +311,73 @@ fn a_press_while_she_deploys_waits_for_her_deploy_end() {
     // Her deploy timer reads 0 after 19 ticks, so the first Status phase that finds her deployed is the 20th tick's
     // (the oracle's deploy end, 121 - 101); the press starts there and the turret comes 4 ticks later (125 - 101).
     assert_eq!((deployed, turret), (Some(19), Some(24)), "her deploy end and the turret, from her first frame");
+}
+
+/// A press on her first frame, while she deploys, under `arm`: per tick from the press, her position after the tick,
+/// whether she is held, and whether the turret is down.
+fn waited_press(arm: WaitedPressCast) -> Vec<(Vec2, bool, bool)> {
+    let mut cfg = config();
+    cfg.calib.waited_press_cast = arm;
+    let (mut s, hid) = hero_on_first_frame(cfg, vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    s.press_ability_button(Team::Blue, 0).expect("a press while she deploys is taken");
+    (1..=60u32)
+        .map(|_| {
+            s.tick();
+            let e = s.entity(hid).expect("she lives");
+            (e.pos, e.stun_ms > 0, !find_live(&s, Team::Blue, "MusketeerTurret").is_empty())
+        })
+        .collect()
+}
+
+#[test]
+fn a_waited_press_steps_once_before_its_hold() {
+    // status.WAITED_PRESS_CAST (parity, round 9 item 43; sp-h4king8500: pressed while she deploys, her first free tick
+    // t121 she steps (8499, 500) -> (8457, 542) and then casts, the turret on t125 either way). Her first free tick is
+    // the 20th from her first frame (a_press_while_she_deploys_waits_for_her_deploy_end), index 19 from the press.
+    assert_eq!(Calib::shipped().waited_press_cast, WaitedPressCast::StatusStart, "the shipped arm");
+    let old = waited_press(WaitedPressCast::StatusStart);
+    let new = waited_press(WaitedPressCast::AfterMove);
+    let free = 19;
+    assert!(!old[free - 1].1 && !new[free - 1].1, "the scene drifted: she is held before her first free tick");
+    assert_eq!(old[free - 1].0, new[free - 1].0, "the arms part before her first free tick");
+    // The old arm holds her from the top of that tick's Status phase: no step. The new one lets her step first.
+    assert_eq!(old[free].0, old[free - 1].0, "status_start: she stepped on her first free tick");
+    assert_ne!(new[free].0, new[free - 1].0, "client_after_move: she took no step on her first free tick");
+    let d = new[free].0.sub(new[free - 1].0);
+    assert!(d.x.abs() + d.y.abs() <= 2 * 250 * K, "one step, not more: {d:?}");
+    // Held from the end of that tick under both, and still where the step left her while held.
+    assert!(old[free].1 && new[free].1, "both hold her from her first free tick");
+    assert_eq!(new[free + 1].0, new[free].0, "client_after_move: she moved while held");
+    // The effect's tick and the hold's end are the arm's to keep: the same ticks under both.
+    let turret = |v: &[(Vec2, bool, bool)]| v.iter().position(|r| r.2).expect("the turret comes");
+    let unheld = |v: &[(Vec2, bool, bool)]| (free..v.len()).find(|&k| !v[k].1).expect("the hold ends");
+    assert_eq!(turret(&old), free + 4, "the turret 4 ticks after her first free tick");
+    assert_eq!((turret(&new), unheld(&new)), (turret(&old), unheld(&old)), "the arm moved the turret's tick or the hold's end");
+}
+
+#[test]
+fn a_free_press_holds_before_it_moves() {
+    // A press on a free, walking hero starts at the top of the next tick's Status phase under both arms: she takes no
+    // step that tick (parity, round 9 item 43: 8 of 8 free presses).
+    for arm in [WaitedPressCast::StatusStart, WaitedPressCast::AfterMove] {
+        let mut cfg = config();
+        cfg.calib.waited_press_cast = arm;
+        let (mut s, hid) = hero_on_first_frame(cfg, vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+        run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
+        let mut walked = false;
+        for _ in 0..3 {
+            let at = s.entity(hid).unwrap().pos;
+            s.tick();
+            walked |= s.entity(hid).unwrap().pos != at;
+        }
+        assert!(walked, "the scene drifted: she does not walk once deployed ({arm:?})");
+        let at = s.entity(hid).unwrap().pos;
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        s.tick();
+        let e = s.entity(hid).unwrap();
+        assert!(e.stun_ms > 0, "{arm:?}: the press did not hold her");
+        assert_eq!(e.pos, at, "{arm:?}: a free press let her step before its hold");
+    }
 }
 
 #[test]
