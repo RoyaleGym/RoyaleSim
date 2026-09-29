@@ -19,7 +19,8 @@
 //!   barrage_lands_after_the_move  an Evo Cannon bomb lands after the move pass and only its survivors step:
 //!                           a_barrage_bomb_lands_before_the_move_pass goes red.
 //!   evo_copy_stands         an Evo Skeletons copy is made ahead of its hitter's point at its hit and takes no first
-//!                           update: evo_skeletons_copy_on_every_group_hit goes red.
+//!                           update: evo_skeletons_copy_on_every_group_hit and
+//!                           an_evo_copy_is_made_exactly_ahead_of_its_hitter_after_the_move go red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -27,7 +28,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{barrage_spells, BattleConfig, BattleState, TapSnap, EVO_BASIC_PLAYS};
+use royalesim::state::{barrage_spells, BattleConfig, BattleState, SpawnedFirstStep, TapSnap, EVO_BASIC_PLAYS};
 use royalesim::Team;
 
 /// A native point, in subtiles.
@@ -309,6 +310,38 @@ fn evo_skeletons_copy_on_every_group_hit() {
     let (dx, dy) = ((at.x - made.x) / K, (at.y - made.y) / K);
     assert!(dx * dx + dy * dy <= 150 * 150 + 2, "copy at {at:?}, made at {made:?}: its first update moved it ({dx}, {dy})");
     assert!(at_hit.iter().all(|p| *p != Vec2::new(at.x, at.y - 1000 * K)), "the copy stands where the hitter was at its hit plus 1000: {at:?}, {at_hit:?}");
+}
+
+#[test]
+fn an_evo_copy_is_made_exactly_ahead_of_its_hitter_after_the_move() {
+    // The point the copy is MADE at, exactly: evo_skeletons_copy_on_every_group_hit reads it through the copy's first
+    // update, so within one push. Under spawner.SPAWNED_FIRST_STEP = none no first update runs (a target, no step,
+    // no push), and the first copy stands exactly 1000 ahead (toward side 1) of where a hitter stands after the
+    // tick's move pass; the scene is the same Giant and group, and the hitter's point at its hit is elsewhere.
+    let mut cfg = config();
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    let mut s = battle(cfg);
+    let form = idx(&s, "Skeletons_EV1");
+    s.spawn_unit(Team::Red, "Giant", n(9000, 13500), None).unwrap();
+    s.spawn_unit(Team::Blue, "Skeletons_EV1", n(9000, 12000), None).unwrap();
+    let (mut copies, mut moved) = (0, 0);
+    for _ in 0..400 {
+        let before: Vec<_> = s.entities().filter(|e| e.card_idx == form).map(|e| (e.id, e.pos)).collect();
+        s.tick();
+        if before.is_empty() {
+            continue;
+        }
+        let hitters: Vec<_> = s.entities().filter(|e| e.card_idx == form && e.attack_phase == AttackPhase::Cooldown).map(|e| e.id).collect();
+        let made: Vec<Vec2> = hitters.iter().filter_map(|id| s.entity(*id)).map(|h| Vec2::new(h.pos.x, h.pos.y + 1000 * K)).collect();
+        let at_hit: Vec<Vec2> = before.iter().filter(|(id, _)| hitters.contains(id)).map(|(_, p)| Vec2::new(p.x, p.y + 1000 * K)).collect();
+        for copy in s.entities().filter(|e| e.card_idx == form && !before.iter().any(|(id, _)| *id == e.id)) {
+            assert!(made.contains(&copy.pos), "a copy stands at {:?}, not 1000 ahead of a hitter after the move: {made:?}", copy.pos);
+            copies += 1;
+            moved += usize::from(!at_hit.contains(&copy.pos));
+        }
+    }
+    // Not vacuous: some copy's hitter was moved on its hit's tick, so the point at its hit would miss.
+    assert!(copies >= 5 && moved >= 1, "{copies} copies, {moved} of them where the hitter moved on its hit's tick");
 }
 
 #[test]
