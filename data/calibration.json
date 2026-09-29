@@ -2999,6 +2999,17 @@
       "promotion_rules": "A locked Musketeer with a nearer valid target placed after the lock switches target 0.5 s after a Zap.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     },
+    "STUN_CLEARS_TARGET": {
+      "value": "kept",
+      "candidates": ["kept", "client_cleared"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm kept, today's engine: a held unit keeps its target through a stun or a freeze, so the target's death while it is held counts as its kill and the post-kill wait follows. HIGH for client_cleared on client 15.535.29 (23 of 24 Zap hits on a unit holding a live target read no target on the hit tick, and the frozen tower of sp-m4-towerhit-s0), with the carried windup a separate key's",
+      "provenance": "READ on client 15.535.29 (parity, round 9 item 30). sp-m4-towerhit-s0, its first divergence t357 (1,275 lost): an Ice Spirit freezes the princess tower on t320 (held t320..t341); the client's tower reads no target from t320 though its Fire Spirit lives to t332, holds its attack progress at 250, takes a Skeleton on t343 with 300 carried and fires at 800 on t353, the Skeleton dead on t357. The engine keeps the Fire Spirit through the freeze, counts its jump on t333 as a kill, serves the post-kill wait, and starts the Skeleton's windup from 0 (dead on t362). Over the 15.535.29 scenes, 23 of 24 Zap hits on a unit holding a live target read no target on the hit tick. status.RESUME_RETARGET_WINDUP = carry alone changes nothing in that scene (the kill path runs first); the two keys together give the client's ticks, so they are scored together.",
+      "meaning": "What a stun or a freeze landing on a unit does to its target on the landing tick: kept, the unit keeps it through the hold; client_cleared, the target is cleared (and the lock released) on that tick, so nothing it targeted dies as its kill while it is held and the resume rescan (status.STUN_RETARGET_ON_RESUME) takes a fresh one. What the rescan does with the paused windup is status.RESUME_RETARGET_WINDUP's.",
+      "open": "The one Zap hit of 24 that kept its target. Whether a Clone's hold clears it (the Clone keeps it, measured, and is not this key's). A stun on a unit whose target is a building.",
+      "promotion_rules": "The test file passes (crates/royalesim/tests/stun_clears_target.rs). Flip to client_cleared together with status.RESUME_RETARGET_WINDUP = carry when parity's scoring by override of the pair agrees with the reading above (sp-m4-towerhit-s0 and the Zap scenes) with nothing else moving.",
+      "engine": "state.rs land_stun (every hold that lands: apply_effects' stuns and full-stop buffs, reflect_melee_hit)"
+    },
     "RESUME_RETARGET_WINDUP": {
       "value": "cancel",
       "status": "guess",

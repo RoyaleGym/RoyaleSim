@@ -864,6 +864,10 @@ pub struct Calib {
     pub stun_attack_timer: StunTimerModel,
     /// status.STUN_RETARGET_ON_RESUME.
     pub stun_retarget_on_resume: bool,
+    /// status.STUN_CLEARS_TARGET (`land_stun`): whether a hold landing on a unit clears its target on that tick. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "stun_clears_target_default")]
+    pub stun_clears_target: StunClearsTarget,
     /// status.RESUME_RETARGET_WINDUP.
     pub resume_retarget_windup: ResumeWindup,
     /// combat.RETARGET_PROGRESS.
@@ -1668,6 +1672,10 @@ fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
 
 fn waited_press_cast_default() -> WaitedPressCast {
     WaitedPressCast::StatusStart
+}
+
+fn stun_clears_target_default() -> StunClearsTarget {
+    StunClearsTarget::Kept
 }
 
 fn crown_tower_spell_reach_default() -> CrownTowerSpellReach {
@@ -4305,6 +4313,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.STUN_CLEARS_TARGET -- what a stun or a freeze landing on a unit (`land_stun`: a full-stop buff, a Zap's
+    /// stun, a reflected stun) does to the unit's target on the tick it lands. The resume rescan
+    /// (status.STUN_RETARGET_ON_RESUME) and what the rescan does with the paused windup (status.RESUME_RETARGET_WINDUP)
+    /// are those keys'.
+    StunClearsTarget {
+        /// Today's engine (shipped): the unit keeps its target through the hold, so the target's death while it is held
+        /// is its kill (the post-kill wait follows, combat.POST_KILL_RETARGET_WAIT).
+        Kept = "kept",
+        /// The target is cleared on the landing tick: the unit holds no target through the hold, so nothing it
+        /// targeted dies as its kill, and the resume rescan takes a fresh one. Read on client 15.535.29 (parity, round
+        /// 9 item 30): 23 of 24 Zap hits on a unit holding a live target read no target on the hit tick; sp-m4-towerhit-s0,
+        /// a princess tower frozen by an Ice Spirit from t320, reads no target from t320 though its Fire Spirit lives to
+        /// t332.
+        ClientCleared = "client_cleared",
+    }
+);
+calib_enum!(
     /// status.WAITED_PRESS_CAST -- where a hero press that had to WAIT for her starts its cast hold (`start_ability`) on
     /// her first free tick. A press waits when the Status phase that first reads it finds her deploying or held
     /// (`hero_free`). A press on a free hero starts at the top of the Status phase under either arm. The effect's clock
@@ -5597,6 +5622,7 @@ impl Calib {
             knock_rolling_contact_radius: int(&v, &["knockback", "ROLLING_CONTACT_RADIUS", "value"])?,
             stun_attack_timer: pick(&v, &["status", "STUN_ATTACK_TIMER_MODEL", "value"], StunTimerModel::from_calibration_name)?,
             stun_retarget_on_resume: boolean(&v, &["status", "STUN_RETARGET_ON_RESUME", "value"])?,
+            stun_clears_target: pick(&v, &["status", "STUN_CLEARS_TARGET", "value"], StunClearsTarget::from_calibration_name)?,
             resume_retarget_windup: pick(&v, &["status", "RESUME_RETARGET_WINDUP", "value"], ResumeWindup::from_calibration_name)?,
             retarget_progress: pick(&v, &["combat", "RETARGET_PROGRESS", "value"], RetargetProgress::from_calibration_name)?,
             corpse_switch_reach: pick(&v, &["combat", "CORPSE_SWITCH_REACH", "value"], CorpseSwitchReach::from_calibration_name)?,
@@ -7210,6 +7236,13 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     if c.stun_retarget_on_resume {
         e.target_locked[i] = false;
         e.retarget_on_resume[i] = true;
+    }
+    // status.STUN_CLEARS_TARGET = client_cleared: no target from the landing tick; the paused cycle is the
+    // stun model's (status.STUN_ATTACK_TIMER_MODEL) and the resume rescan's (status.RESUME_RETARGET_WINDUP).
+    #[cfg(not(clash_plant = "stun_keeps_target"))]
+    if c.stun_clears_target == StunClearsTarget::ClientCleared {
+        e.target[i] = None;
+        e.target_locked[i] = false;
     }
     #[cfg(not(clash_plant = "stun_resets_attack"))]
     let model = c.stun_attack_timer;
@@ -19251,6 +19284,9 @@ impl BattleState {
 ///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
 ///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.STUN_CLEARS_TARGET: Calib gained stun_clears_target (serde default the old arm, kept), no
+///    new state (the new arm writes the saved target), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.CHASE_DROP_WALKING_AWAY: Calib gained chase_drop_walking_away (serde default the old arm,
 ///    any_target), no new state (the new arm reads the saved facings, phases and timers), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -19773,6 +19809,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ability_unit_first_update".into(), serde_json::to_value(AbilityUnitFirstUpdate::CreationTick).map_err(|e| e.to_string())?);
     // status.WAITED_PRESS_CAST: the same.
     sh.insert("waited_press_cast".into(), serde_json::to_value(WaitedPressCast::StatusStart).map_err(|e| e.to_string())?);
+    // status.STUN_CLEARS_TARGET: a format-3 battle's held units kept their targets; it keeps the old arm whatever the
+    // ledger ships (the same rule).
+    sh.insert("stun_clears_target".into(), serde_json::to_value(StunClearsTarget::Kept).map_err(|e| e.to_string())?);
     // spells.CROWN_TOWER_SPELL_REACH: a format-3 battle's spells reached a crown tower as a disc; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("crown_tower_spell_reach".into(), serde_json::to_value(CrownTowerSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
