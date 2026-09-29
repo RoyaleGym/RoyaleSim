@@ -3933,6 +3933,20 @@
       "open": "A hitter exactly on the centre line (the engine takes +x). All three points refused (the engine keeps ahead). A building, a king block or a crown tower on a candidate point (no case). The fourth, INWARD point was never used.",
       "promotion_rules": "Score every population with Evo Skeletons by override (the real-match replays and the sp scenes); 208a8647's first split at t1219 should go.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum EvoCopyPoint); state.rs BattleState::evo_copy_point, used by evo_after_fire and evo_copies; tests/evolution.rs an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahead_outward_behind (plant evo_copy_ahead_only)."
+    },
+    "RING_CREATION_ORDER": {
+      "value": "ascending_angle",
+      "candidates": [
+        "ascending_angle",
+        "client_descending_angle"
+      ],
+      "status": "measured",
+      "confidence": "HIGH for the order: 37 of 37 readable waves on both clients, none the other way. The effect is one tick of contact pushes between siblings.",
+      "provenance": "MEASURED on client 16.402 (the live corpus) and on client 15.535.29 (the oracle's scenario fixtures and the sweep): the truth's keys follow the client's creation order. Every Witch ring (four Skeletons at SpawnRadius 2000, no SpawnAngleShift) is created south, west, north, east, the reverse of the engine's east, north, west, south: 9 of 9 live, 9 of 9 oracle. Every Night Witch pair (two Bats, SpawnAngleShift 90 on its facing) whose spawner was walking puts its first-created Bat on the facing's right, where the engine makes k = 0 on its left: 16 of 16 live, 3 of 3 oracle. The positions are the engine's in every case; only the order differs. Found on 20260918-122757.b2 under spells.ROLL_FIRST_STEP's and knockback.DIRECTION_ROLLING's pair: sibling Skeletons of the t2356 wave pushed a tick early (51 off 52, t2408) and a tick late (50 off 49, t2418), each pair updated in the other order.",
+      "meaning": "ascending_angle: a ring wave's member k (at angle shift + k x 360 / n) is created k-th, so it updates k-th. client_descending_angle: the same points, created from the last angle to the first.",
+      "open": "A wave of one member (nothing to order); a SpawnLimit that cuts a wave short (which points are dropped: under client_descending_angle, the lowest angles).",
+      "promotion_rules": "Score the corpus and every scenario population by override: every Witch, Night Witch and ring-spawning building battle moves.",
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum RingCreationOrder); state.rs spawner pass (the ring's point list, created in create_emissions' k order); tests/spawner.rs a_witch_ring_is_created_south_west_north_east_under_client_descending_angle (plant ring_created_ascending)."
     }
   },
   "economy": {

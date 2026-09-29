@@ -615,6 +615,10 @@ pub struct Calib {
     /// arm, `AheadOnly`, what a battle saved before it ran.
     #[serde(default = "evo_copy_point_default")]
     pub evo_copy_point: EvoCopyPoint,
+    /// spawner.RING_CREATION_ORDER (a SpawnRadius spawner's ring wave). Added after SNAPSHOT_FORMAT 20; the default is
+    /// the old arm, `AscendingAngle`, what a battle saved before it ran.
+    #[serde(default = "ring_creation_order_default")]
+    pub ring_creation_order: RingCreationOrder,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -1706,6 +1710,10 @@ fn roll_first_step_default() -> RollFirstStep {
 
 fn evo_copy_point_default() -> EvoCopyPoint {
     EvoCopyPoint::AheadOnly
+}
+
+fn ring_creation_order_default() -> RingCreationOrder {
+    RingCreationOrder::AscendingAngle
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -5354,6 +5362,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.RING_CREATION_ORDER -- the order a SpawnRadius spawner's ring wave is CREATED in (and so the order its
+    /// members update in, match.TICK_ORDER), the ring's points unchanged (`measured_ring_points`).
+    RingCreationOrder {
+        /// The engine before this key: member k at angle shift + k x 360 / n created k-th (the Witch: east, north, west,
+        /// south).
+        AscendingAngle = "ascending_angle",
+        /// Measured on client 16.402 and on client 15.535.29: the same points created last angle first (the Witch:
+        /// south, west, north, east; the Night Witch: the Bat on its facing's right, then its left). 37 of 37 waves
+        /// whose order can be read: 18 Witch rings by angle, 19 Night Witch pairs against the Night Witch's facing.
+        ClientDescendingAngle = "client_descending_angle",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -5808,6 +5829,7 @@ impl Calib {
             strike_area_end: pick(&v, &["spells", "STRIKE_AREA_END", "value"], StrikeAreaEnd::from_calibration_name)?,
             roll_first_step: pick(&v, &["spells", "ROLL_FIRST_STEP", "value"], RollFirstStep::from_calibration_name)?,
             evo_copy_point: pick(&v, &["spawner", "EVO_COPY_POINT", "value"], EvoCopyPoint::from_calibration_name)?,
+            ring_creation_order: pick(&v, &["spawner", "RING_CREATION_ORDER", "value"], RingCreationOrder::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -9108,7 +9130,18 @@ impl BattleState {
                 None
             };
             let grid = match ring {
-                Some(points) => points,
+                // spawner.RING_CREATION_ORDER = client_descending_angle: the same points, created last angle first
+                // (the wave's k follows this list, and create_emissions creates in k order).
+                Some(mut points) => {
+                    #[cfg(not(clash_plant = "ring_created_ascending"))]
+                    let descending = self.cfg.calib.ring_creation_order == RingCreationOrder::ClientDescendingAngle;
+                    #[cfg(clash_plant = "ring_created_ascending")]
+                    let descending = false; // PLANT: the new arm still creates the ring in ascending angle.
+                    if descending {
+                        points.reverse();
+                    }
+                    points
+                }
                 None if sp.interval_ms == 0 => self.formation_points(e.team[i], sp.number, unit.collision_radius, unit.is_flying(), point),
                 None => self.formation_points(e.team[i], 1, unit.collision_radius, unit.is_flying(), point),
             };
@@ -20280,6 +20313,9 @@ impl BattleState {
 /// 20, unchanged, spawner.EVO_COPY_POINT: Calib gained evo_copy_point (serde default the old arm, ahead_only), no new
 ///    state (the point is computed when a copy is made), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.RING_CREATION_ORDER: Calib gained ring_creation_order (serde default the old arm,
+///    ascending_angle), no new state (it orders the wave's creations within the tick), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -20805,6 +20841,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spawner.EVO_COPY_POINT: a format-3 battle made every Evo Skeletons copy straight ahead of its hitter; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("evo_copy_point".into(), serde_json::to_value(EvoCopyPoint::AheadOnly).map_err(|e| e.to_string())?);
+    // spawner.RING_CREATION_ORDER: a format-3 battle created a ring wave in ascending angle; it keeps that whatever the
+    // ledger ships (the same rule).
+    sh.insert("ring_creation_order".into(), serde_json::to_value(RingCreationOrder::AscendingAngle).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

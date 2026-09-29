@@ -78,7 +78,7 @@ use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnPushback, DeathSpawnRadius,
     FirstWave, PauseAnchor,
-    ReleaseTiming, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
+    ReleaseTiming, RingCreationOrder, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
 };
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
@@ -386,6 +386,46 @@ fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_act
     // Vacuity: the Witch is alive and the wave state is readable through the view.
     let w = s.entity(witch).expect("the Witch survives the scene");
     assert!(w.spawn_ms > 0 && w.spawn_ms <= sp.pause_time_ms, "spawn_ms {} is a countdown toward the next wave", w.spawn_ms);
+}
+
+/// A lone Blue Witch's first wave under spawner.RING_CREATION_ORDER `arm`: each Skeleton's side of the Witch, as the
+/// dominant axis of its offset, in creation order. In a fresh battle slots are handed out in creation order.
+fn witch_ring_in_creation_order(arm: RingCreationOrder) -> Vec<(i32, i32)> {
+    let mut s = bare(with_calib(|c| c.ring_creation_order = arm));
+    let sp = spawner(&s, "Witch");
+    let unit = unit_name(&s, sp.unit);
+    let witch = s.scenario_spawn_now(Team::Blue, "Witch", blue_spot(&s), None).unwrap();
+    let seen = first_seen(&mut s, first_wave_tick(&sp), Team::Blue, &unit);
+    assert_eq!(seen.len(), 4, "the first wave is four Skeletons, all new on one tick");
+    let w = s.entity(witch).expect("the Witch lives").pos;
+    let mut ids: Vec<EntityId> = seen.iter().map(|(_, id)| *id).collect();
+    ids.sort_by_key(|id| id.index);
+    ids.iter()
+        .map(|id| {
+            let p = s.entity(*id).expect("a Skeleton of the wave lives").pos;
+            let (dx, dy) = (p.x - w.x, p.y - w.y);
+            if dx.abs() > dy.abs() {
+                (dx.signum(), 0)
+            } else {
+                (0, dy.signum())
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn a_witch_ring_is_created_south_west_north_east_under_client_descending_angle() {
+    // spawner.RING_CREATION_ORDER (parity's item 63). The Witch's wave is four Skeletons on a ring of SpawnRadius around
+    // her, at 0, 90, 180 and 270 degrees. The engine created them in that order (east, north, west, south); the client
+    // creates the same points last angle first (south, west, north, east): 18 of 18 Witch rings on client 16.402 and
+    // client 15.535.29. The order is the update order, so it decides which sibling meets which at its new position.
+    // Plant: ring_created_ascending.
+    assert_eq!(witch_ring_in_creation_order(RingCreationOrder::AscendingAngle), vec![(1, 0), (0, 1), (-1, 0), (0, -1)], "ascending_angle: east, north, west, south");
+    assert_eq!(
+        witch_ring_in_creation_order(RingCreationOrder::ClientDescendingAngle),
+        vec![(0, -1), (-1, 0), (0, 1), (1, 0)],
+        "client_descending_angle: south, west, north, east"
+    );
 }
 
 // ---------------------------------------------------------------------------
