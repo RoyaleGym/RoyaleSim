@@ -102,7 +102,9 @@
 //!     `status_flags` bit 4 (16). The catalogue's `hero` column is the button's elixir.
 //!
 //! UNITS AND THEIR LEVELS
-//!     Every entity row ends in `level` (ENTITY_FIELDS), the unified level the entity plays at: a played unit's card
+//!     Every entity row ends in `level` (ENTITY_FIELDS) and `mount_uid`. `level` is the unified level the entity plays
+//!     at, and `mount_uid` the uid of the unit a rider rides (the Ram Rider's rider on its ram, as `rider_states` pairs
+//!     them), -1 for every other entity. The level: a played unit's card
 //!     level, a Mirror's copy that plus one, a Clone's copy the level spells.CLONE_LEVEL gives it (the Clone's), a
 //!     unit another puts down its parent's, a crown tower its tower level. `unit_hitpoints(card_id, level)` lists
 //!     every unit a card puts on the board as (role, unit name, hitpoints) at the level each takes, the card's own
@@ -233,7 +235,7 @@ pub const DEPLOY_REASONS: [&str; 18] = [
 /// ints, and a swap would decode without error and be drawn with confidence. The length
 /// is pinned to the serializer by a test in this file, so this is the half that cannot
 /// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
-pub const ENTITY_FIELDS: [&str; 22] = [
+pub const ENTITY_FIELDS: [&str; 23] = [
     "uid",
     "team",
     "kind",
@@ -263,6 +265,9 @@ pub const ENTITY_FIELDS: [&str; 22] = [
     // level, a Mirror's copy that plus one, a Clone's copy the Clone's (spells.CLONE_LEVEL), a unit another puts down
     // its parent's, a crown tower its tower level. Always reported (never -1).
     "level",
+    // added 2026-09-28: the uid of the unit this one rides (a rider on its mount, entity.rs `attached_to`, the pairs
+    // `rider_states` gives), -1 for an entity that rides nothing.
+    "mount_uid",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
@@ -979,6 +984,7 @@ pub fn state_json_text(
         // card data, `|`-joined where one engine buff stands for several (card.rs
         // `CardDb::buff_names`), with the milliseconds left.
         let target_uid = e.target.and_then(|t| s.entity(t)).map(|t| (t.team_seq as i64) * 2 + t.team as i64).unwrap_or(-1);
+        let mount_uid = e.attached_to.and_then(|m| s.entity(m)).map(|m| (m.team_seq as i64) * 2 + m.team as i64).unwrap_or(-1);
         let mut buffs = String::from("[");
         for b in e.buffs.iter().filter(|b| b.id > 0) {
             if buffs.len() > 1 {
@@ -990,7 +996,7 @@ pub fn state_json_text(
         buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{},{mount_uid}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,

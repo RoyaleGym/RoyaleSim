@@ -1,7 +1,7 @@
 """The entity row's `level` column (py.rs ENTITY_FIELDS, state_json): the unified level each entity plays at.
 
 WHAT IS PINNED:
-  1. `level` is ENTITY_FIELDS' last name, right after `status_flags`;
+  1. `level` follows `status_flags`, and the row ends in `mount_uid` after it;
   2. in a battle whose cards run at 12 and whose towers run at 13, a spawned Knight's row reads 12 and every crown
      tower's reads 13 (a column that read the card level, or a constant, would read one of them wrong);
   3. the prefix rule the Gym's decoder holds (royalegym.protocol EntityState): the engine's ENTITY_FIELDS is a prefix
@@ -22,9 +22,9 @@ SLOTS = [[0, 1, 2], [0, 1, 2]]
 CARDS = ["Knight", "Giant"]
 
 
-def test_level_is_the_last_entity_field():
+def test_level_then_the_mount_end_the_entity_fields():
     fields = list(royalesim.ENTITY_FIELDS)
-    assert fields[-2:] == ["status_flags", "level"]
+    assert fields[-3:] == ["status_flags", "level", "mount_uid"]
 
 
 def test_a_units_row_reads_its_card_level_and_a_towers_its_tower_level():

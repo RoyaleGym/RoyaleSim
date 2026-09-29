@@ -10,7 +10,7 @@
 //!
 //! WHAT IS PINNED, each at a level no other rule in the scene gives, so a column that read the side's card level (or
 //! a constant) goes red:
-//!   1. the column is ENTITY_FIELDS' last, and a Knight played at 12 reads 12 while every crown tower of a battle
+//!   1. the column is ENTITY_FIELDS' last but the mount, and a Knight played at 12 reads 12 while every crown tower of a battle
 //!      whose towers are at 13 reads 13;
 //!   2. a Mirror after a level-11 Knight: the Knight reads 11, its copy 12;
 //!   3. a level-11 Clone on a level-12 Knight: the copy reads 11 (spell_level), and 12 under original_level;
@@ -59,7 +59,7 @@ fn first_of(s: &BattleState, team: Team, card: &str) -> EntityId {
 
 #[test]
 fn a_played_unit_reads_its_card_level_and_a_tower_its_tower_level() {
-    assert_eq!(ENTITY_FIELDS.last(), Some(&"level"), "the level is the row's last column (the Gym's EntityState ends in it)");
+    assert_eq!(ENTITY_FIELDS[ENTITY_FIELDS.len() - 2..], ["level", "mount_uid"], "the level, then the mount, end the row (the Gym's EntityState ends in them)");
     let mut cfg = config();
     cfg.card_level = [12, 12];
     cfg.tower_level = [13, 13];
@@ -145,4 +145,34 @@ fn a_spawned_and_a_death_spawned_unit_read_their_parents_level() {
     run_until(&mut s, 20, |s| !find_live(s, Team::Blue, "Golemite").is_empty());
     let mites: Vec<i64> = find_live(&s, Team::Blue, "Golemite").iter().map(|e| e.id).collect::<Vec<_>>().into_iter().map(|id| level_of(&s, id)).collect();
     assert_eq!(mites, vec![13, 13], "the Golem's two Golemites at its 13");
+}
+
+// ---------------------------------------------------------------------------
+// the mount column
+
+/// The mount_uid column of every entity row `state_json_text` writes, by uid.
+fn mount_column(s: &BattleState) -> BTreeMap<i64, i64> {
+    let db = s.cards();
+    let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| !db.get(*i).summon_only && db.index(&db.get(*i).name) == Some(*i)).collect();
+    let ids = ids_of_indices(db, &catalogue);
+    let text = state_json_text(s, db, &ids, &[[0, 1, 2], [0, 1, 2]], &BTreeMap::new()).expect("state_json");
+    let v: serde_json::Value = serde_json::from_str(&text).expect("state_json is JSON");
+    let col = ENTITY_FIELDS.iter().position(|f| *f == "mount_uid").expect("ENTITY_FIELDS names the mount");
+    v["entities"].as_array().expect("entities").iter().map(|r| (r[0].as_i64().unwrap(), r[col].as_i64().expect("a mount uid is an int"))).collect()
+}
+
+#[test]
+fn a_rider_reads_its_mounts_uid_and_every_other_entity_minus_one() {
+    let mut s = BattleState::new(0, config());
+    past_deploy_lockout(&mut s);
+    s.spawn_unit(Team::Blue, "RamRider", at((9500, 9500)), None).expect("play a Ram Rider");
+    s.tick();
+    let col = mount_column(&s);
+    let riders: Vec<(i64, i64)> = s.entities().filter_map(|e| e.attached_to.and_then(|m| s.entity(m)).map(|m| (uid(&e), uid(&m)))).collect();
+    assert_eq!(riders.len(), 1, "the scene drifted: the Ram Rider put down {} riders", riders.len());
+    for (rider, mount) in &riders {
+        assert_eq!(col[rider], *mount, "the rider's row names its mount");
+    }
+    let others: Vec<i64> = col.iter().filter(|(u, _)| !riders.iter().any(|(r, _)| r == *u)).map(|(_, m)| *m).collect();
+    assert!(!others.is_empty() && others.iter().all(|m| *m == -1), "an entity that rides nothing reads -1: {others:?}");
 }
