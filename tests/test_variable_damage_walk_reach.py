@@ -137,8 +137,9 @@ def test_a_baby_dragon_stops_inside_both_radii(arm):
     assert SHORT < d <= LONG, f"{arm}: on {t} the Baby Dragon stopped {d:.1f} from the Knight, not in ({SHORT}, {LONG}]"
 
 
-def test_the_shipped_value_is_the_new_arm():
+def test_the_shipped_value_is_the_every_row_arm():
+    # Since the round-12 flip the every-row arm ships (the Monk and the Mighty Miner too); for the Inferno Dragon it is
+    # this file's NEW_ARM, which the scenes above select by name.
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["VARIABLE_DAMAGE_WALK_REACH"]
-    assert entry["value"] == NEW_ARM
-    # The every-row arm (the Monk and the Mighty Miner too) is a candidate beside them, not shipped.
+    assert entry["value"] == "client15535_no_own_radius_walking_every_row"
     assert entry["candidates"] == [OLD_ARM, NEW_ARM, "client15535_no_own_radius_walking_every_row"]
