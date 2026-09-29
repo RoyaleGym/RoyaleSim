@@ -1708,6 +1708,23 @@ def test_a_spells_level_is_read_off_its_first_hit(m):
     assert (d["level"], d["level_source"]) == (3, "side mode"), "no level fits a 500 drop: the side mode stays"
     assert "fitting levels []" in d["level_evidence"]
 
+    # A KILL BOUNDS THE LEVEL (item 58, 20260918-115249.b1): the hut, 358 before the hit, is gone on the hit's frame;
+    # level 3's 326 cannot have killed it, level 4's 357 (with the hut's decay tick) can.
+    def killed(last):
+        r = rows(0)
+        r[1] = {7: row(6500, 17500, last), 8: row(6500, 18000, 3000), 9: row(6500, 17000, 600)}
+        r[2] = {8: row(6500, 18000, 2900), 9: row(6500, 17000, 600)}
+        r[3] = dict(r[2])
+        return r
+
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, killed(358), ticks)
+    assert (d["level"], d["level_source"]) == (4, "damage"), d
+    assert "kills of last hp [358]" in d["level_evidence"], d["level_evidence"]
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, killed(300), ticks)
+    assert (d["level"], d["level_source"]) == (3, "side mode"), "a kill the side mode's 326 covers keeps it"
+
     # ONE LEVEL PER CARD PER SIDE (20260918-112751's side 0: Fireballs read at 4, 4, and a third unread): a cast whose
     # hit is not read takes the side's read level of that card; the other side's unread Fireball keeps its own mode.
     read = [cast(), cast()]

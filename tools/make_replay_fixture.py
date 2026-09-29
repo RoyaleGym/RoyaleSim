@@ -1604,7 +1604,12 @@ def spell_levels_from_damage(
     tick), its ladder's level 4, where the side mode 3 plays 325. The spell's HIT is the first frame, from its row's
     tick on, on which an enemy that is not a tower (card id >= 0) and stood within the spell's radius +
     SPELL_VICTIM_MARGIN of its point loses at least the spell's least damage and lives. A level fits when every such
-    drop is its damage at that level up to SPELL_HIT_SLACK more. One fitting level replaces the side mode
+    drop is its damage at that level up to SPELL_HIT_SLACK more, and, where the hit KILLS an enemy in reach (it is gone
+    or at 0 on the hit's frame, its last hp at least the least damage), the damage up to SPELL_HIT_SLACK more covers
+    that last hp (item 58: 20260918-115249.b1's side-0 Fireballs of t2074 and t3183 kill a 358-hp Goblin Hut, its
+    decay tick included, and a 351-hp Musketeer, where the side mode's level 3 lands 326; level 4's 357 covers both,
+    and at level 4 the report reaches the bar). A kill another hit shares the tick with reads as the spell's alone.
+    One fitting level replaces the side mode
     (`level_source` "damage"); several are settled by the one nearest the side mode; none keep the side mode. The drops
     are in `level_evidence` either way.
 
@@ -1637,15 +1642,21 @@ def spell_levels_from_damage(
         least = min(x for lv in range(1, 17) if (x := spell_damage_at(doc, card, lv)) is not None)
         hit = None
         for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
-            drops = []
+            drops, kills = [], []
             for e in foes:
                 a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
-                if a is None or b is None or a[ihp] - b[ihp] < least or b[ihp] <= 0:
+                if a is None or a[ihp] <= 0 or math.dist((a[ix], a[iy]), d["pos"]) > reach:
                     continue
-                if math.dist((a[ix], a[iy]), d["pos"]) <= reach:
+                # A KILL BOUNDS THE LEVEL (item 58): an enemy in reach whose last hp is at least the spell's least
+                # damage and that is gone (or at 0) on the hit's frame took at least that much.
+                if b is None or b[ihp] <= 0:
+                    if a[ihp] >= least:
+                        kills.append(a[ihp])
+                    continue
+                if a[ihp] - b[ihp] >= least:
                     drops.append(a[ihp] - b[ihp])
-            if drops:
-                hit = (ticks[i], sorted(drops))
+            if drops or kills:
+                hit = (ticks[i], sorted(drops), sorted(kills))
                 break
         if hit is None:
             d["level_evidence"] = "no enemy within its reach lost hp inside the window"
@@ -1654,8 +1665,10 @@ def spell_levels_from_damage(
             lv for lv in range(1, 17)
             if (dmg := spell_damage_at(doc, card, lv)) is not None
             and all(dmg <= x <= dmg + SPELL_HIT_SLACK for x in hit[1])
+            and all(dmg + SPELL_HIT_SLACK >= k for k in hit[2])
         ]
-        d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}; fitting levels {fits}"
+        kill_note = f"; kills of last hp {hit[2]}" if hit[2] else ""
+        d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}{kill_note}; fitting levels {fits}"
         if fits:
             best = min(fits, key=lambda lv: (abs(lv - d["level"]), lv))
             read[(d["side"], d["card"])][best] += 1
