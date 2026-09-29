@@ -434,6 +434,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "target_rank_distance_default")]
     pub target_rank_distance: TargetRankDistance,
+    /// targeting.EQUAL_DISTANCE_TIE: which of two candidates a scan ranks at one distance takes first (target.rs
+    /// `key`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "equal_distance_tie_default")]
+    pub equal_distance_tie: EqualDistanceTie,
     /// targeting.FIRST_TOWER_PICK: where a troop's first default tower comes from (target.rs `default_tower`,
     /// `spawn_now`, `summon_lane_flip`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "first_tower_pick_default")]
@@ -1346,6 +1350,10 @@ fn held_unit_contact_default() -> HeldUnitContact {
 
 fn target_rank_distance_default() -> TargetRankDistance {
     TargetRankDistance::CentreMinusTargetRadius
+}
+
+fn equal_distance_tie_default() -> EqualDistanceTie {
+    EqualDistanceTie::OwnFrameLowX
 }
 
 fn first_tower_pick_default() -> FirstTowerPick {
@@ -2635,6 +2643,20 @@ calib_enum!(
         /// client took the centre-nearest (21 of 21 acquisitions; 92 of 95 walking ticks, and on the other 3 it took
         /// neither).
         Client16402Centre = "client16402_centre",
+    }
+);
+calib_enum!(
+    /// targeting.EQUAL_DISTANCE_TIE -- which of two candidates at one ranked distance (targeting.TARGET_RANK_DISTANCE)
+    /// a scan takes first (target.rs `key`: the distance, then the candidate's x in the ATTACKER's own frame, then its
+    /// y, then its creation order). Seat-symmetric under both arms: each reads the attacker's own frame.
+    EqualDistanceTie {
+        /// Today's engine (shipped): the lower own-frame x first, so a Blue unit on x 9000 with both enemy princess
+        /// towers at one distance takes the left one.
+        OwnFrameLowX = "own_frame_low_x",
+        /// The higher own-frame x first. Read on the 16.402 corpus (parity, round 9 item 36): sweep-GoblinDrill's
+        /// Goblin created on x 9000 exactly (a Blue unit, both Red princess towers 6,519 away) holds the right tower on
+        /// its first frame and steps toward it. One event, one seat; a Red unit on x 9000 is unmeasured.
+        OwnFrameHighX = "own_frame_high_x",
     }
 );
 calib_enum!(
@@ -5402,6 +5424,7 @@ impl Calib {
             variable_damage_walk_reach: pick(&v, &["targeting", "VARIABLE_DAMAGE_WALK_REACH", "value"], VariableDamageWalkReach::from_calibration_name)?,
             held_unit_contact: pick(&v, &["collision", "HELD_UNIT_CONTACT", "value"], HeldUnitContact::from_calibration_name)?,
             target_rank_distance: pick(&v, &["targeting", "TARGET_RANK_DISTANCE", "value"], TargetRankDistance::from_calibration_name)?,
+            equal_distance_tie: pick(&v, &["targeting", "EQUAL_DISTANCE_TIE", "value"], EqualDistanceTie::from_calibration_name)?,
             first_tower_pick: pick(&v, &["targeting", "FIRST_TOWER_PICK", "value"], FirstTowerPick::from_calibration_name)?,
             fallen_lane_tower_pick: pick(&v, &["targeting", "FALLEN_LANE_TOWER_PICK", "value"], FallenLaneTowerPick::from_calibration_name)?,
             tower_cancel_range: tower_cancel_value(&v)?,
@@ -19203,6 +19226,9 @@ impl BattleState {
 ///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
 ///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.EQUAL_DISTANCE_TIE: Calib gained equal_distance_tie (serde default the old arm,
+///    own_frame_low_x), no new state (the new arm reads the saved positions), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -19684,6 +19710,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // targeting.TARGET_RANK_DISTANCE: a format-3 battle ranked by centre minus the candidate's radius; it keeps that
     // whatever the ledger ships (the same rule).
     sh.insert("target_rank_distance".into(), serde_json::to_value(TargetRankDistance::CentreMinusTargetRadius).map_err(|e| e.to_string())?);
+    // targeting.EQUAL_DISTANCE_TIE: a format-3 battle broke a distance tie by the lower own-frame x; it keeps that
+    // whatever the ledger ships (the same rule).
+    sh.insert("equal_distance_tie".into(), serde_json::to_value(EqualDistanceTie::OwnFrameLowX).map_err(|e| e.to_string())?);
     // targeting.PROJECTILE_HOLD_SCOPE: a format-3 battle held a projectile attacker's target on every tick; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("projectile_hold_scope".into(), serde_json::to_value(ProjectileHoldScope::EveryTick).map_err(|e| e.to_string())?);

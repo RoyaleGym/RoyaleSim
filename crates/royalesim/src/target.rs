@@ -45,7 +45,7 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, DeprioritizedTargetBuff, LeapingUnitTargetability, MinimumRange,
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, DeprioritizedTargetBuff, EqualDistanceTie, LeapingUnitTargetability, MinimumRange,
     PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
@@ -669,8 +669,13 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i64, i32, i32, u32) {
         // PLANT: tie-break on raw slot index -- a deploy-order asymmetry.
         return (edge, 0, 0, c as u32);
     }
+    // targeting.EQUAL_DISTANCE_TIE: at one distance, the lower own-frame x first, or under own_frame_high_x the higher.
+    #[cfg(not(clash_plant = "equal_distance_tie_low_x"))]
+    let fx = if ctx.calib.equal_distance_tie == EqualDistanceTie::OwnFrameHighX { -f.x } else { f.x };
+    #[cfg(clash_plant = "equal_distance_tie_low_x")]
+    let fx = f.x; // PLANT (regression): the lower own-frame x first, whatever the arm.
     #[allow(unreachable_code)]
-    (edge, f.x, f.y, e.team_seq[c])
+    (edge, fx, f.y, e.team_seq[c])
 }
 
 /// A candidate's rank in `scan_with`: (deprioritized, `key`), lowest first.
