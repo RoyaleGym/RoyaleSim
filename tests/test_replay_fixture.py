@@ -1673,6 +1673,17 @@ def test_a_spells_level_is_read_off_its_first_hit(m):
     assert (d["level"], d["level_source"]) == (3, "side mode"), "no level fits a 500 drop: the side mode stays"
     assert "fitting levels []" in d["level_evidence"]
 
+    # ONE LEVEL PER CARD PER SIDE (20260918-112751's side 0: Fireballs read at 4, 4, and a third unread): a cast whose
+    # hit is not read takes the side's read level of that card; the other side's unread Fireball keeps its own mode.
+    read = [cast(), cast()]
+    far = dict(cast(), pos=[1000, 1000])
+    other = dict(cast(), side=1, level=2, pos=[1000, 1000])
+    m.spell_levels_from_damage([*read, far, other], doc, cards, ents, rows(530 - 358), ticks)
+    assert [(d["level"], d["level_source"]) for d in read] == [(4, "damage"), (4, "damage")]
+    assert (far["level"], far["level_source"]) == (4, "card level"), far
+    assert "levels {4: 2}" in far["level_evidence"], far["level_evidence"]
+    assert (other["level"], other["level_source"]) == (2, "side mode"), "the other side's cast took side 0's level"
+
 
 def test_a_key_the_capture_reused_for_another_unit_is_split(m):
     """005517-A's key 22: a Skeleton last seen at (13690, 8449) and seen again 15 ticks later at (12457, 28019), another

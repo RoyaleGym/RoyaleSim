@@ -1551,9 +1551,18 @@ def spell_levels_from_damage(
     SPELL_VICTIM_MARGIN of its point loses at least the spell's least damage and lives. A level fits when every such
     drop is its damage at that level up to SPELL_HIT_SLACK more. One fitting level replaces the side mode
     (`level_source` "damage"); several are settled by the one nearest the side mode; none keep the side mode. The drops
-    are in `level_evidence` either way."""
+    are in `level_evidence` either way.
+
+    ONE LEVEL PER CARD PER SIDE: a cast whose hit is not read (no drop inside the window, or none any level fits) takes
+    the level its side's other casts of the same card were read at (`level_source` "card level"; the most read, the
+    lowest on a tie), and the side mode only when none was read. 20260918-112751's side 0 cast three Fireballs: the
+    first two read level 4, and the third (tick 3032) fell to the side mode 3; at 4 the fixture gains 1,186 unit-ticks
+    within 250 and 1,130 hp exact (parity, round 9 item 39). It is the one card in the 73 fixtures cast at two levels by
+    one side."""
     ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
     index_of = {t: i for i, t in enumerate(ticks)}
+    read: dict[tuple, Counter] = defaultdict(Counter)
+    read_rows: set[int] = set()
     for d in deploys:
         if d["kind"] != "spell" or d.get("level_source") != "side mode" or d.get("level") is None:
             continue
@@ -1594,9 +1603,24 @@ def spell_levels_from_damage(
         d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}; fitting levels {fits}"
         if fits:
             best = min(fits, key=lambda lv: (abs(lv - d["level"]), lv))
+            read[(d["side"], d["card"])][best] += 1
+            read_rows.add(id(d))
             if best != d["level"]:
                 d["level"] = best
                 d["level_source"] = "damage"
+    # one level per card per side: an unread cast takes its side's read level of that card
+    for d in deploys:
+        if d["kind"] != "spell" or d.get("level_source") != "side mode" or id(d) in read_rows:
+            continue
+        levels = read.get((d["side"], d["card"]))
+        if not levels:
+            continue
+        top = max(levels.values())
+        level = min(lv for lv, n in levels.items() if n == top)
+        note = f"the side's read casts of {d['card']}: levels {dict(sorted(levels.items()))}"
+        d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
+        d["level"] = level
+        d["level_source"] = "card level"
 
 
 def tunnel_destinations(deploys: list[dict], ents: dict, per_tick_rows: list, cards_by_name: dict) -> None:
