@@ -460,15 +460,16 @@ fn forms_take_slots_after_every_existing_card() {
             ("AngryBarbarians", "AngryBarbarians_EV1"),
             ("Zap", "Zap_EV1"),
             ("BattleRam", "BattleRam_EV1"),
-            ("InfernoDragon", "InfernoDragon_EV1")
+            ("InfernoDragon", "InfernoDragon_EV1"),
+            ("BabyDragon", "BabyDragon_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Seven forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, and the Evo Battle
+    // Eight forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, and the Evo Battle
     // Ram's death spawn (Barbarian_EV1, with its rage) right after the ram.
-    assert_eq!(db.cards.len(), n0 + 9);
-    assert_eq!(db.cards[n0 + 8].name, "InfernoDragon_EV1");
+    assert_eq!(db.cards.len(), n0 + 10);
+    assert_eq!((db.cards[n0 + 8].name.as_str(), db.cards[n0 + 9].name.as_str()), ("InfernoDragon_EV1", "BabyDragon_EV1"));
     assert_eq!(db.cards[n0 + 4].name, "AngryBarbarian_EV1_2");
     assert!(db.cards[n0 + 4].summon_only);
     assert_eq!((db.cards[n0 + 6].name.as_str(), db.cards[n0 + 7].name.as_str()), ("BattleRam_EV1", "Barbarian_EV1"));

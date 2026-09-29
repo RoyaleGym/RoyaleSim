@@ -6464,6 +6464,24 @@ pub struct EvoBoard {
     /// before it still loads; hashed only when not empty.
     #[serde(default)]
     pub stages: Vec<(EntityId, u32)>,
+    /// Each Evo Baby Dragon's wind (`wind_pass`). `default` so a battle saved before it still loads; hashed only when
+    /// not empty.
+    #[serde(default)]
+    pub winds: Vec<WindState>,
+}
+
+/// AN EVO BABY DRAGON'S WIND (card.rs `WindDef`; `wind_pass`): its dragon, side and card, the dragon's point (where it
+/// stands once the dragon dies), the ms of life left, the ms to its next pulse, and after the dragon's death the ms it
+/// stays.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WindState {
+    pub id: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub at: Vec2,
+    pub life_ms: i32,
+    pub next_ms: i32,
+    pub stay_ms: Option<i32>,
 }
 
 /// AN EVO BATTLE RAM'S CHARGE PUSH (`ram_pass`): the tick its push switches on (None while it is not charged), the
@@ -6487,6 +6505,7 @@ impl EvoBoard {
             && self.rams.is_empty()
             && self.rages.is_empty()
             && self.stages.is_empty()
+            && self.winds.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -8492,6 +8511,22 @@ impl BattleState {
         // A RAGE AFTER HITS (the Evo Battle Ram's Barbarian_EV1, `HitRageDef`): every `hits`-th hit lands the unit's own
         // buff for its time, on the hit's tick. Measured on client 15.535.29 (sp-ram-alone-s0, level 11): the first
         // Barbarian's first hit lands on t1111 (progress 1400) and its progress steps 65 from t1112 (50 x 130 / 100).
+        // THE EVO BABY DRAGON'S WIND (card.rs `WindDef`): each attack starts it anew (Singleton): a full life, its pulse
+        // clock kept when it is still up, its first pulse one HitSpeed away when it is not (`wind_pass`).
+        #[cfg(not(clash_plant = "wind_never"))]
+        if let Some(w) = evo.wind {
+            let (team, card, at) = (self.ents.team[i], self.ents.card[i], self.ents.pos[i]);
+            match self.evo.winds.iter_mut().find(|s| s.id == id) {
+                Some(s) => s.life_ms = w.life_ms,
+                None => {
+                    #[cfg(not(clash_plant = "wind_pulses_at_once"))]
+                    let next_ms = w.hit_speed_ms;
+                    #[cfg(clash_plant = "wind_pulses_at_once")]
+                    let next_ms = 0; // PLANT (regression): the wind's first pulse on the attack's own tick.
+                    self.evo.winds.push(WindState { id, team, card, at, life_ms: w.life_ms, next_ms, stay_ms: None });
+                }
+            }
+        }
         // THE EVO INFERNO DRAGON'S COUNT (card.rs `StagesDef`): one more per hit, to its cap, across targets; the hit
         // restarts the decay (`stages_pass`).
         if let Some(st) = evo.stages {
@@ -8874,6 +8909,67 @@ impl BattleState {
             }
         }
         self.evo.stages = st;
+    }
+
+    /// THE EVO BABY DRAGON'S WIND (card.rs `WindDef`), in the Move phase, for each wind: it rides on its dragon (or
+    /// stands where the dragon died, for `stay_ms` or what is left of its life); on a tick its pulse falls due, every
+    /// troop inside its rectangle, the arena's axes, around the point `ahead` along the owner's forward, grown by the
+    /// troop's radius, takes the enemy or the ally buff through the tick's buffer (Resolve's gates, the dragon's
+    /// IgnoreBuff included).
+    ///
+    /// Measured on client 15.535.29 (sp-form-BabyDragon-evo-s0; Oracle's sp-bdw-red-6500-6500, -blue-6500-6500 and
+    /// -red-9500-6500, level 11):
+    ///   - a red Knight walking 60 a tick takes 42-47 from two ticks after the dragon's attack (t1079: 56 on t1081, 41
+    ///     on t1082), and a blue one 78-79 inside it;
+    ///   - the red Knight slows on the tick it comes within 5000 in y of the dragon's point plus 1500 forward (4,947 on
+    ///     t1213; 4,998 on t1195 with the dragon standing 1000 further up), the Height's half and its radius 500;
+    ///   - the rectangle keeps the arena's axes: a dragon facing 37 degrees off the axis slows the same Knight on the
+    ///     tick the axis-aligned rectangle says.
+    ///
+    /// Unmeasured: the x edge's exact tick, the 2000 ms after the dragon's death, the pulse clock across attacks.
+    fn wind_pass(&mut self) {
+        let tick = self.cfg.calib.tick_ms;
+        let mut winds = std::mem::take(&mut self.evo.winds);
+        winds.retain_mut(|w| {
+            let Some(def) = self.cfg.cards.get(w.card).evo.as_ref().and_then(|v| v.wind) else { return false };
+            if self.ents.is_alive(w.id) {
+                w.at = self.ents.pos[w.id.index as usize];
+            } else if w.stay_ms.is_none() {
+                w.stay_ms = Some(def.stay_ms.min(w.life_ms));
+            }
+            if w.next_ms <= 0 {
+                let c = Vec2::new(w.at.x, w.at.y + crate::spell::forward_dy(w.team) * def.ahead);
+                for v in 0..self.ents.capacity() {
+                    let e = &self.ents;
+                    if !e.alive[v] || e.kind[v] != EntityKind::Troop {
+                        continue;
+                    }
+                    let (dx, dy) = ((e.pos[v].x - c.x).abs(), (e.pos[v].y - c.y).abs());
+                    if dx > def.half_w + e.radius[v] || dy > def.half_h + e.radius[v] {
+                        continue;
+                    }
+                    #[cfg(not(clash_plant = "wind_ally_unbuffed"))]
+                    let b = if e.team[v] == w.team { Some(def.ally) } else { Some(def.enemy) };
+                    #[cfg(clash_plant = "wind_ally_unbuffed")]
+                    let b = if e.team[v] == w.team { None } else { Some(def.enemy) }; // PLANT (regression): allies untouched.
+                    if let Some(b) = b {
+                        let vid = e.id_of(v);
+                        self.effects.buffs.push(crate::status::BuffHit::plain(vid, b.buff, b.time_ms, 0));
+                    }
+                }
+                w.next_ms += def.hit_speed_ms.max(tick);
+            }
+            w.next_ms -= tick;
+            w.life_ms -= tick;
+            if let Some(s) = w.stay_ms.as_mut() {
+                *s -= tick;
+                if *s <= 0 {
+                    return false;
+                }
+            }
+            w.life_ms > 0
+        });
+        self.evo.winds = winds;
     }
 
     /// Restart an Evo Inferno Dragon's decay (`stages_pass`): its hit, its attack's start.
@@ -14830,6 +14926,11 @@ impl BattleState {
         if !self.evo.stages.is_empty() {
             self.stages_pass();
         }
+        // THE EVO BABY DRAGON'S WIND (`wind_pass`), on the positions after the move: its buffs land in this tick's
+        // Resolve.
+        if !self.evo.winds.is_empty() {
+            self.wind_pass();
+        }
         // status.WAITED_PRESS_CAST = client_after_move: a waited press's cast hold starts here, after her step.
         if !self.scratch.late_casts.is_empty() {
             for hero in std::mem::take(&mut self.scratch.late_casts) {
@@ -20270,6 +20371,21 @@ impl BattleState {
                     h.i32(*ms);
                 }
             }
+            // The Evo Baby Dragons' winds, only when there are some.
+            if !b.winds.is_empty() {
+                h.u32(0x5749_4e44);
+                h.u32(b.winds.len() as u32);
+                for w in &b.winds {
+                    h.id(w.id);
+                    h.u32(w.team as u32);
+                    h.u32(w.card as u32);
+                    h.i32(w.at.x);
+                    h.i32(w.at.y);
+                    h.i32(w.life_ms);
+                    h.i32(w.next_ms);
+                    h.i32(w.stay_ms.unwrap_or(i32::MIN));
+                }
+            }
             // The Evo Inferno Dragons' decays, only when there are some.
             if !b.stages.is_empty() {
                 h.u32(0x5354_4731);
@@ -20872,6 +20988,9 @@ impl BattleState {
 ///    the card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
 ///    EvoBoard gained `stages` (serde default empty, hashed only when not empty); the count is the saved and hashed
 ///    `combo_ix`.
+/// 20, unchanged, the Evo Baby Dragon (card.rs `WindDef`): EvoDef gained `wind` and the table an evolved form, so the
+///    card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
+///    EvoBoard gained `winds` (serde default empty, hashed only when not empty).
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

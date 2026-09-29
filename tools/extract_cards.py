@@ -3591,7 +3591,7 @@ def globals_block(v: Vintage) -> dict:
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
-    "InfernoDragon_EV1",
+    "InfernoDragon_EV1", "BabyDragon_EV1",
 )
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
@@ -3627,6 +3627,20 @@ RAM_PUSH_COSMETIC = {"OnPushEffect", "OnPushEffectMinInterval"}
 STAGE_COUNT = "InfernoDragon_EV1_AttackCount"
 STAGE_DECAY = "InfernoDragon_EV1_AttackDecayCounter"
 STAGE_DECAY_TIME = "InfernoDragon_EV1_DecayTime"
+# THE EVO BABY DRAGON'S WIND (characters/baby_dragon_ev1.toml): its OnAttackAction, its area, the area's shape and the
+# team split, each column pinned to the value this reader implements or read as a number; anything else stops the build.
+WIND_ACTION_PINNED = {
+    "ClassType": "ActionSpawnResetableAeO", "Singleton": True, "StopAeoIfParentHasCombatDisabled": False,
+}
+WIND_ACTION_READ = ("OffsetX", "OffsetY", "StayAliveAfterParentDiesDuration")
+WIND_AEO_PINNED = {
+    "FollowBehaviour": "FollowParent", "StayAfterParentDies": True, "Filter": "all_characters_from_both_teams",
+    "HitsAir": True, "HitsGround": True,
+}
+WIND_AEO_READ = ("LifeDuration", "HitSpeed")
+WIND_AEO_COSMETIC = {
+    "Rarity", "LoopingEffect", "ScaledEffect", "OneShotEffect", "OnStartingAction", "DamageType", "Name",
+}
 
 
 def col_list(tb, name: str, col: str) -> list:
@@ -3976,6 +3990,69 @@ def stages_block(t: Tables, card: dict) -> dict:
     return {"damages": damages, "below": below, "cap": int(m.group(1)), "decay_ms": decay}
 
 
+def wind_block(t: Tables, card: dict) -> dict:
+    """BabyDragon_EV1's wind (characters/baby_dragon_ev1.toml), read whole or the build stops:
+      - OnAttackAction: an ActionSpawnResetableAeO, one at a time (Singleton: each attack makes it anew), `offset` ahead
+        of the dragon, which outlives the dragon by StayAliveAfterParentDiesDuration (`stay_ms`);
+      - the area: FollowParent, `life_ms`, a pulse every `hit_speed_ms`, on every character of both sides (air and
+        ground) inside its Rectangle shape (`width` x `height`), no damage;
+      - its OnHitAction: ActionFilterByEnemy, an enemy takes `enemy` for its SpawnTime, a unit of the dragon's side
+        `ally` for its SpawnTime; the dragon's IgnoreBuff names the ally buff.
+    The area's OnStartingAction plays effects only (an effect and a timed end effect)."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"{unit}: {what}")
+
+    a = acts.get(row["OnAttackAction"] or "")
+    need(a is not None, f"OnAttackAction {row['OnAttackAction']!r} is no action")
+    off = {k: a.get(k) for k, v in WIND_ACTION_PINNED.items() if a.get(k) != v}
+    unread = set(a) - set(WIND_ACTION_PINNED) - set(WIND_ACTION_READ) - {"Aeo"}
+    need(not off and not unread and all(isinstance(a.get(k), int) for k in WIND_ACTION_READ),
+         f"the wind action reads {off} off, {sorted(unread)} unread")
+    aeo = t["area_effect_objects"].get(a["Aeo"])
+    need(aeo is not None, f"the wind area {a['Aeo']!r} is no area row")
+    set_cols = {k for k in aeo if aeo[k] is not None}
+    off = {k: aeo.get(k) for k, v in WIND_AEO_PINNED.items() if aeo.get(k) != v}
+    unread = set_cols - set(WIND_AEO_PINNED) - set(WIND_AEO_READ) - WIND_AEO_COSMETIC - {"Shape", "OnHitAction"}
+    need(not off and not unread and all(isinstance(aeo.get(k), int) for k in WIND_AEO_READ),
+         f"the wind area reads {off} off, {sorted(unread)} unread")
+    shape = t.shapes.get(aeo["Shape"]) or {}
+    need(shape.get("ClassType") == "Rectangle" and isinstance(shape.get("Width"), int)
+         and isinstance(shape.get("Height"), int), f"the wind's shape {shape!r}")
+    split = acts.get(aeo["OnHitAction"] or "")
+    need(split is not None and split["ClassType"] == "ActionFilterByEnemy", "the wind's OnHitAction is no team split")
+
+    def buff_of(name: str) -> tuple[dict, int]:
+        g = acts.get(name or "")
+        need(g is not None and g["ClassType"] == "ActionSpawn" and g["SpawnType"] == "BuffType"
+             and isinstance(g["SpawnTime"], int), f"{name} does not hang a buff for a time")
+        b = norm_buff(t, g["SpawnData"])
+        need(b is not None, f"{g['SpawnData']} is no buff")
+        return b, g["SpawnTime"]
+
+    enemy, enemy_ms = buff_of(split["IsEnemyAction"])
+    ally, ally_ms = buff_of(split["IsSameTeamAction"])
+    ignores = col_list(t["characters"], unit, "IgnoreBuff")
+    need(ignores == [ally["name"]], f"IgnoreBuff {ignores} is not the ally buff alone")
+    return {
+        "offset_x_milli": a["OffsetX"],
+        "offset_y_milli": a["OffsetY"],
+        "stay_ms": a["StayAliveAfterParentDiesDuration"],
+        "life_ms": aeo["LifeDuration"],
+        "hit_speed_ms": aeo["HitSpeed"],
+        "width_milli": shape["Width"],
+        "height_milli": shape["Height"],
+        "enemy": enemy,
+        "enemy_ms": enemy_ms,
+        "ally": ally,
+        "ally_ms": ally_ms,
+    }
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -4028,6 +4105,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_ram"] = ram_block(t, card)
         elif name == "InfernoDragon_EV1":
             card["evo_stages"] = stages_block(t, card)
+        elif name == "BabyDragon_EV1":
+            card["evo_wind"] = wind_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

@@ -1686,6 +1686,8 @@ pub struct EvoDef {
     pub hit_rage: Option<HitRageDef>,
     /// Evo Inferno Dragon: its hits deal the entry its hit count has reached, in place of the VariableDamage ramp.
     pub stages: Option<StagesDef>,
+    /// Evo Baby Dragon: each attack (re)starts a wind around it that slows enemies and speeds its own side.
+    pub wind: Option<WindDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -1727,6 +1729,29 @@ pub struct RamPushDef {
 pub struct HitRageDef {
     pub hits: u32,
     pub apply: BuffApply,
+}
+
+/// THE EVO BABY DRAGON'S WIND (characters/baby_dragon_ev1.toml; tools/extract_cards.py `wind_block`; state.rs
+/// `wind_pass`): each attack (re)starts it for `life_ms`, riding on the dragon; its first pulse comes `hit_speed_ms`
+/// after it starts and one every `hit_speed_ms` after, and each hangs `enemy` on every enemy troop and `ally` on every
+/// troop of the dragon's side (the dragon's IgnoreBuff keeps its own off it) whose centre stands inside the rectangle
+/// `half_w` by `half_h`, grown by the troop's collision radius, around the point `ahead` in front of the dragon. The
+/// rectangle keeps the arena's axes and the owner's forward, whatever the dragon faces. When the dragon dies the wind
+/// stands where it was for `stay_ms` more, or what is left of its life.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WindDef {
+    /// OffsetY, SUBTILES, along the owner's forward.
+    pub ahead: i32,
+    /// Half the shape's Width (x) and Height (y), SUBTILES.
+    pub half_w: i32,
+    pub half_h: i32,
+    /// LifeDuration and HitSpeed, ms.
+    pub life_ms: i32,
+    pub hit_speed_ms: i32,
+    /// StayAliveAfterParentDiesDuration, ms.
+    pub stay_ms: i32,
+    pub enemy: BuffApply,
+    pub ally: BuffApply,
 }
 
 /// THE EVO INFERNO DRAGON'S STAGES (characters/inferno_dragon_ev1.toml; tools/extract_cards.py `stages_block`): its hit
@@ -3755,9 +3780,45 @@ struct RawEvolution {
     evo_spear: Option<RawSpear>,
     evo_ram: Option<RawRam>,
     evo_stages: Option<RawStages>,
+    evo_wind: Option<RawWind>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_wind` (tools/extract_cards.py `wind_block`).
+#[derive(Deserialize)]
+struct RawWind {
+    offset_x_milli: Option<i32>,
+    offset_y_milli: Option<i32>,
+    stay_ms: Option<i32>,
+    life_ms: Option<i32>,
+    hit_speed_ms: Option<i32>,
+    width_milli: Option<i32>,
+    height_milli: Option<i32>,
+    enemy: Option<RawBuff>,
+    enemy_ms: Option<i32>,
+    ally: Option<RawBuff>,
+    ally_ms: Option<i32>,
+}
+
+fn wind_of(r: &RawWind, buffs: &mut BuffTable) -> Result<WindDef, String> {
+    let need = |v: Option<i32>, what: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a wind with no {what}"));
+    if r.offset_x_milli.unwrap_or(0) != 0 {
+        return Err("a wind offset sideways; only OffsetY is read".into());
+    }
+    let enemy = r.enemy.as_ref().ok_or("a wind with no enemy buff")?;
+    let ally = r.ally.as_ref().ok_or("a wind with no ally buff")?;
+    Ok(WindDef {
+        ahead: milli(r.offset_y_milli.unwrap_or(0)),
+        half_w: milli(need(r.width_milli, "Width")?) / 2,
+        half_h: milli(need(r.height_milli, "Height")?) / 2,
+        life_ms: need(r.life_ms, "LifeDuration")?,
+        hit_speed_ms: need(r.hit_speed_ms, "HitSpeed")?,
+        stay_ms: r.stay_ms.unwrap_or(0).max(0),
+        enemy: buffs.apply(enemy, r.enemy_ms, "the wind's enemy buff")?,
+        ally: buffs.apply(ally, r.ally_ms, "the wind's ally buff")?,
+    })
 }
 
 /// cards.json `evolutions[].evo_stages` (tools/extract_cards.py `stages_block`).
@@ -8450,6 +8511,7 @@ impl CardDb {
             extra.evo_spear.is_some(),
             extra.evo_ram.is_some(),
             extra.evo_stages.is_some(),
+            extra.evo_wind.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -8465,6 +8527,8 @@ impl CardDb {
             &["ActionDamagingPushBack"]
         } else if extra.evo_stages.is_some() {
             &["ActionAnimatorLayer", "ActionInterval", "ActionPlayEffect", "ActionSelect", "ActionSetVariable"]
+        } else if extra.evo_wind.is_some() {
+            &["ActionSpawnResetableAeO"]
         } else {
             &[]
         };
@@ -8523,6 +8587,7 @@ impl CardDb {
                     ram: None,
                     hit_rage: Some(HitRageDef { hits, apply }),
                     stages: None,
+                    wind: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -8570,8 +8635,16 @@ impl CardDb {
             ram: None,
             hit_rage: None,
             stages: None,
+            wind: None,
             cloned_as: None,
         };
+        // THE WIND: its buffs interned now, and the dragon's IgnoreBuff (the ally buff alone, which the extractor
+        // checks) set here, as the table pass sets every other row's.
+        if let Some(w) = &extra.evo_wind {
+            let wind = wind_of(w, buffs)?;
+            c.ignore_buffs = vec![wind.ally.buff];
+            evo.wind = Some(wind);
+        }
         // THE STAGES: the first entry is the row's own Damage.
         if let Some(r) = &extra.evo_stages {
             let st = stages_of(r)?;
