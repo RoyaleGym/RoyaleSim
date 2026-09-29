@@ -169,7 +169,8 @@ The crate itself has no Python dependency and builds alone.
   selects the frame-planned arm and `ground_y_clamp="deploy_column_range_own_frame"` the own-frame
   summon clamp (see "Selectable model arms"); each defaults to the ledger's value,
   `pathfinding.PATH_SEARCH` and `formation.GROUND_Y_CLAMP`.
-- **Units and their levels.** Each entity row of `state_json()` ends in `level`, the unified level
+- **Units and their levels.** Each entity row of `state_json()` carries `level` second to last,
+  before `mount_uid` (the unit a rider rides, -1 for any other entity). `level` is the unified level
   the entity plays at: a played unit's card level, a Mirror's copy one above it, a Clone's copy the
   Clone's, a unit another unit puts down its parent's, a crown tower its tower level.
   `unit_hitpoints(card_id, level)` lists every unit a card puts on the board, as (role, unit name,
@@ -180,9 +181,11 @@ The crate itself has no Python dependency and builds alone.
   occupancy are queryable (`check_deploy`, `tower_no_deploy_rects`, `passable_half_cells`,
   `tower_positions`), so a learner can build its action mask from the engine's own numbers and
   check it against `check_deploy`, which gives the engine's answer for any tap. `check_deploy(team, slot, x, y)` returns an index into `DEPLOY_REASONS`, which
-  holds fifteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
+  holds eighteen codes: `OK`, `BAD_TEAM`, `BAD_SLOT`, `EMPTY_SLOT`, `NOT_ENOUGH_ELIXIR`,
   `OUT_OF_ARENA`, `WATER`, `NO_DEPLOY`, `OUT_OF_TERRITORY`, `OCCUPIED`, `GAME_OVER`,
-  `DUPLICATE_TEAM`, `ENGINE_ERROR`, `TOO_EARLY`, `NOTHING_TO_MIRROR`. A match refuses every
+  `DUPLICATE_TEAM`, `ENGINE_ERROR`, `TOO_EARLY`, `NOTHING_TO_MIRROR`, and three that answer a
+  press of an ability button rather than a tap: `NO_HERO`, `ABILITY_NOT_READY` (a champion's
+  charge has not come back yet) and `ABILITY_SPENT` (a hero has used its charge). A match refuses every
   deploy for its opening `match.DEPLOY_LOCKOUT_TICKS` (90 ticks), so at tick 0 every answer is
   `TOO_EARLY`. For example, with a Giant in hand slot 0, once those 90 ticks have passed (re-run
   2026-09-26 on RoyaleSim `126992a`):

@@ -146,7 +146,8 @@ previous-tick position reproduces only 0.462 of the contact ticks. What the clie
   unit after another in **creation order** against a bucket index of collision circles (each grown
   by 250 for movers) built from the start-of-tick positions. Unit *i* sees units before it already
   moved.
-- **Avoidance** (walking and deploying units, not attacking ones): the entities whose circle
+- **Avoidance** (walking and deploying units, not attacking ones, and not ones a stun or a freeze
+  holds, `collision.HELD_UNIT_AVOIDANCE`): the entities whose circle
   overlaps the circle of radius `min(R, 500)` around `pos + facing` vote; a static wins over
   movers and the last seen wins; the offset goes 0 -> +-200; a running offset moves +-20 only when
   a static is seen, clamped to +-200; then decays by 10 toward zero every walk tick. A static
