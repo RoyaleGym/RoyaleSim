@@ -6871,6 +6871,10 @@ struct Scratch {
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
     parry: Vec<ParryCand>,
+    /// THE TICK'S BUFF HEALS (`buff_pulse_pass`), each (unit, hitpoints): landed in this tick's Resolve after its hits
+    /// (`land_buff_heals`). Cleared at the top of every `buff_pulse_pass` and drained in the Resolve of the same tick,
+    /// so it never outlives its tick: not saved, not hashed.
+    heals: Vec<(EntityId, i32)>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -10017,11 +10021,18 @@ impl BattleState {
     /// already-level-scaled amount; the amount is negative for a heal, and a heal
     /// never takes a unit above its max hp.
     ///
+    /// A HEAL LANDS AFTER THE TICK'S HITS: its clock runs here, but it goes to `Scratch::heals` and lands in this tick's
+    /// Resolve (`land_buff_heals`), capped at the hitpoints missing once the hits are in. Measured on client 15.535.29
+    /// (sweep-Heal, parity item 54): the Heal Spirit's area pulses +100 on t296 on a full-hp Knight that the enemy
+    /// Knight hits for 202 that tick, and the Knight ends the tick on 1664, not 1564; its pulses of t301 and t306
+    /// follow on the same 5-tick clock. One event: nothing else in the scenes lands a hit and a heal on one tick.
+    ///
     /// The per-pulse figure is `BuffDef::pulse_base` scaled by the caster
     /// (status.BUFF_PULSE_AMOUNT); the crown-tower percent and BuildingDamagePercent
     /// of the BUFF apply to it, not the spell's. A pulse that would deal 0 after
     /// those percents still consumes its period.
     fn buff_pulse_pass(&mut self) {
+        self.scratch.heals.clear();
         let dt = self.cfg.calib.tick_ms;
         let rounding = self.cfg.calib.crown_rounding;
         let table = &self.cfg.cards.buffs;
@@ -10087,11 +10098,17 @@ impl BattleState {
                         self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: slot.reach_hidden, own: false });
                     }
                 } else {
-                    // A HEAL, capped at the missing hitpoints. It is applied here rather
-                    // than buffered, because the damage buffer is a buffer of DAMAGE and
-                    // a negative hit would make every shield and death test read a sign.
-                    let room = (self.ents.max_hp[i] - self.ents.hp[i]).max(0);
-                    self.ents.hp[i] += room.min(-amount);
+                    // A HEAL. Not in the damage buffer, because that is a buffer of DAMAGE and a negative hit would make
+                    // every shield and death test read a sign: its own list, landed after the hits (`land_buff_heals`).
+                    #[cfg(not(clash_plant = "heal_pulse_before_the_hits"))]
+                    self.scratch.heals.push((id, -amount));
+                    // PLANT (regression): the heal lands here, before the tick's hits, capped at the hitpoints missing
+                    // at the start of the tick (sweep-Heal's t296 pulse is lost on the full-hp Knight).
+                    #[cfg(clash_plant = "heal_pulse_before_the_hits")]
+                    {
+                        let room = (self.ents.max_hp[i] - self.ents.hp[i]).max(0);
+                        self.ents.hp[i] += room.min(-amount);
+                    }
                 }
             }
         }
@@ -15547,6 +15564,7 @@ impl BattleState {
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
         let out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
+        self.land_buff_heals();
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -15566,6 +15584,26 @@ impl BattleState {
         self.apply_effects();
         self.release_orphaned_buffs();
         self.idle_buff_pass();
+    }
+
+    /// THE TICK'S BUFF HEALS (`Scratch::heals`, `buff_pulse_pass`), right after its hits land: each capped at the
+    /// hitpoints its unit is missing now, so a hit and a heal on one tick leave a full-hp unit short by the hit less the
+    /// heal. A unit the hits left on 0 or below takes none: it is dying (unmeasured; the one measured tick, sweep-Heal's
+    /// t296, leaves its Knight alive). Empty under the plant heal_pulse_before_the_hits, which heals in the pulse pass.
+    fn land_buff_heals(&mut self) {
+        let mut heals = std::mem::take(&mut self.scratch.heals);
+        for (id, h) in heals.drain(..) {
+            if !self.ents.is_alive(id) {
+                continue;
+            }
+            let i = id.index as usize;
+            if self.ents.hp[i] <= 0 {
+                continue;
+            }
+            let room = (self.ents.max_hp[i] - self.ents.hp[i]).max(0);
+            self.ents.hp[i] += room.min(h);
+        }
+        self.scratch.heals = heals;
     }
 
     /// THE IDLE BUFF (status.IDLE_BUFF = off_after_hit_while_attacking; card.rs `IdleBuffDef`), at the end of Resolve,
@@ -20816,5 +20854,42 @@ mod tests {
         assert_ne!(edited, json, "edit did not apply; the JSON layout changed");
         let err = Calib::from_json(&edited).expect_err("a card-values block with no table loaded");
         assert!(err.contains("CLIENT16402_VALUES.value.table"), "{err}");
+    }
+
+    /// Parity item 54 (plant heal_pulse_before_the_hits): a buff heal lands after the tick's hits. A full-hp Knight that
+    /// takes a 202 hit and a +100 heal pulse on one tick ends it 102 short, as sweep-Heal's Knight does on t296 (client
+    /// 15.535.29: 1766 -> 1664). Healing first loses the pulse to the cap and leaves it 202 short (the engine's 1564).
+    /// A Knight the hit kills takes no heal: it stays on 0 or below and is in the tick's deaths.
+    #[test]
+    fn a_heal_pulse_lands_after_the_ticks_hits() {
+        let k = crate::fixed::SUBTILE_PER_MILLITILE;
+        let mut s = BattleState::new(1, BattleConfig::with_cards(CardDb::load_repo().expect("cards.json")));
+        let spirit = s.cards().index("HealSpirit").expect("the Heal Spirit loads");
+        let area = s.cards().get(spirit).projectile_area.as_ref().expect("the Heal Spirit's shot carries its heal area");
+        let SpellShape::AreaEffect { hit } = &area.shape else { panic!("the heal area: {:?}", area.shape) };
+        let heal = hit.buff.expect("the heal area hangs a buff");
+        let dt = s.cfg.calib.tick_ms;
+        for (start, want_alive) in [(None, true), (Some(150), false)] {
+            let ids = s
+                .scenario_spawn_batch(&[(Team::Blue, "Knight", Vec2::new(9000 * k, 12000 * k), None)])
+                .unwrap_or_else(|(j, e)| panic!("spawn {j}: {e:?}"));
+            let (id, i) = (ids[0], ids[0].index as usize);
+            let max = s.ents.max_hp[i];
+            s.ents.hp[i] = start.unwrap_or(max);
+            let before = s.ents.hp[i];
+            // One heal slot whose pulse falls this tick (+100), and one 202 hit buffered for this tick's Resolve.
+            s.ents.buffs[i * crate::status::MAX_BUFFS_PER_ENTITY] =
+                crate::status::BuffSlot { id: heal.buff + 1, ms: heal.time_ms, pulse_ms: dt, pulse_amount: -100, ..Default::default() };
+            s.buff_pulse_pass();
+            s.dmg.hits.push(Hit { target: id, amount: 202, ignores_hide: false, own: false });
+            s.phase_resolve();
+            if want_alive {
+                assert_eq!(s.ents.hp[i], max - 202 + 100, "a full-hp Knight hit for 202 and healed 100 on one tick (max {max})");
+            } else {
+                assert!(s.ents.hp[i] <= 0, "the hit killed it (from {before}); the heal brought it back to {}", s.ents.hp[i]);
+                assert!(s.death_queue.contains(&id), "the killed Knight is not in the tick's deaths");
+            }
+            assert!(s.scratch.heals.is_empty(), "the heal list outlived its Resolve");
+        }
     }
 }
