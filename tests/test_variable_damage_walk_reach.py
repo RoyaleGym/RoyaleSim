@@ -140,4 +140,5 @@ def test_a_baby_dragon_stops_inside_both_radii(arm):
 def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["VARIABLE_DAMAGE_WALK_REACH"]
     assert entry["value"] == NEW_ARM
-    assert entry["candidates"] == [OLD_ARM, NEW_ARM]
+    # The every-row arm (the Monk and the Mighty Miner too) is a candidate beside them, not shipped.
+    assert entry["candidates"] == [OLD_ARM, NEW_ARM, "client15535_no_own_radius_walking_every_row"]

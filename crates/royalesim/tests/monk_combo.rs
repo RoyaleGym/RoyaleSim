@@ -89,7 +89,7 @@ fn run(s: &mut BattleState, me: EntityId, reds: &[EntityId], ticks: u32) -> Vec<
 }
 
 /// Red unit `k`'s hp drops, in order, with the row each lands on.
-fn drops(start: i32, rows: &[Row], k: usize) -> Vec<(usize, i32)> {
+fn drops(start: i32, rows: &[Row], k: usize) -> Drops {
     let mut prev = start;
     let mut out = Vec::new();
     for (t, r) in rows.iter().enumerate() {
@@ -101,8 +101,11 @@ fn drops(start: i32, rows: &[Row], k: usize) -> Vec<(usize, i32)> {
     out
 }
 
+/// A unit's hp drops, in order, with the row each lands on (`drops`).
+type Drops = Vec<(usize, i32)>;
+
 /// The Skeleton-and-Knight scene: the Skeleton's hp drops and the Knight's.
-fn skeleton_then_knight(combo: AttackCombo) -> (Vec<(usize, i32)>, Vec<(usize, i32)>) {
+fn skeleton_then_knight(combo: AttackCombo) -> (Drops, Drops) {
     let (mut s, monk, reds) = scene(cfg_with(combo, ComboPushback::NotRead, SHIPPED_REACH), "Monk", &[("Skeletons", (3500, 10300)), ("Knight", (3500, 12500))]);
     let hp: Vec<i32> = reds.iter().map(|r| s.entity(*r).expect("on the board").hp).collect();
     let rows = run(&mut s, monk, &reds, 200);
@@ -123,7 +126,7 @@ fn the_hits_run_140_140_422_across_a_kill() {
 }
 
 /// The Knight scene under `combo` and `push`: the Knight's hp drops, and its point and the Monk's per row.
-fn knight_pushed(combo: AttackCombo, push: ComboPushback) -> (Vec<(usize, i32)>, Vec<Row>) {
+fn knight_pushed(combo: AttackCombo, push: ComboPushback) -> (Drops, Vec<Row>) {
     let (mut s, monk, reds) = scene(cfg_with(combo, push, SHIPPED_REACH), "Monk", &[("Knight", (3500, 11000))]);
     let hp = s.entity(reds[0]).expect("the Knight").hp;
     let rows = run(&mut s, monk, &reds, 120);

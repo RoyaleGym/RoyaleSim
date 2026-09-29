@@ -17,7 +17,7 @@
 //!      direction from the start-of-tick position toward the next waypoint;
 //!   2. under kept (the old arm) no hold changes the segment;
 //!   3. without the Cannon the two arms walk the same track;
-//!   4. the shipped value is kept, until parity scores the flip.
+//!   4. the shipped value is client_restarted, since the round-10 flip (scored +5,717 within 250, 9 reports up).
 //!
 //! PLANT (regression):
 //!   * `samepath_keeps_segment` keeps the segment under either arm: (1) goes red.
@@ -124,6 +124,6 @@ fn without_a_building_change_the_two_arms_walk_the_same_track() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm_until_parity_scores_the_flip() {
-    assert_eq!(Calib::shipped().samepath_segment, SamepathSegment::Kept);
+fn the_shipped_value_is_client_restarted_since_the_round_10_flip() {
+    assert_eq!(Calib::shipped().samepath_segment, SamepathSegment::ClientRestarted);
 }
