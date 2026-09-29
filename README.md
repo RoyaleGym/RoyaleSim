@@ -488,8 +488,8 @@ As of 2026-09-22, except where an item names a later commit.
 Working:
 
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
-  Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime, the
-  3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
+  Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime with
+  triple elixir in its last minute, the 3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
 - Cards. **Of the card table's 144 rows the engine loads 132 and refuses 12**, with a reason for
   each refusal. The engine's own census reports **143 loadable, 12 rejected and 40 summon-only**,
   and those do not sum to 144 for a reason worth stating: the 143 is the 132 plus the King and

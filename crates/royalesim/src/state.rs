@@ -202,6 +202,13 @@ pub struct Calib {
     pub jump_landing_contact: JumpLandingContact,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
+    /// match.MANA_REGEN_MS_OVERTIME: the late-overtime regen, ms for a full bar (0: no third rate, the engine before
+    /// the reading). `default` so a record written before the field reads as that engine.
+    #[serde(default)]
+    pub mana_regen_ms_3x: i32,
+    /// match.MANA_TRIPLE_AFTER_OVERTIME_S: how far into overtime the third rate starts (`triple_elixir`).
+    #[serde(default = "mana_triple_after_overtime_s_default")]
+    pub mana_triple_after_overtime_s: i32,
     pub start_mana: i32,
     pub max_mana: i32,
     pub king_activate_time_ms: i32,
@@ -1750,6 +1757,10 @@ fn life_state_first_look_aim_default() -> LifeStateFirstLookAim {
 
 fn life_state_aim_repick_default() -> LifeStateAimRepick {
     LifeStateAimRepick::OnWave
+}
+
+fn mana_triple_after_overtime_s_default() -> i32 {
+    60
 }
 
 fn jump_landing_contact_default() -> JumpLandingContact {
@@ -5739,6 +5750,8 @@ impl Calib {
             jump_landing_contact: pick(&v, &["movement", "JUMP_LANDING_CONTACT", "value"], JumpLandingContact::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
+            mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
+            mana_triple_after_overtime_s: int(&v, &["match", "MANA_TRIPLE_AFTER_OVERTIME_S", "value"])?,
             start_mana: int(&v, &["match", "START_MANA", "value"])?,
             max_mana: int(&v, &["match", "MAX_MANA", "value"])?,
             king_activate_time_ms: int(&v, &["match", "KING_ACTIVATE_TIME_MS", "value"])?,
@@ -10800,10 +10813,32 @@ impl BattleState {
         self.overtime || regular - elapsed <= (c.mana_speed_up_remaining_s as i64) * 1000
     }
 
+    /// TRIPLE ELIXIR: does the regen run at its third rate this tick? From MANA_TRIPLE_AFTER_OVERTIME_S into overtime,
+    /// counted as the double rate's start is (`double_elixir`). Measured on client 15.535.29 (a Ladder match that ran
+    /// to t6092, both bars below full): 357 raw a tick on the steps into t4797..t4800, 537 from the step into t4801,
+    /// as the double rate's 357 starts on the step into t2401.
+    fn triple_elixir(&self) -> bool {
+        let c = &self.cfg.calib;
+        #[cfg(clash_plant = "triple_elixir_never")]
+        return false; // PLANT (regression): overtime runs the double rate to its end.
+        #[allow(unreachable_code)]
+        {
+            let regular = (c.regular_time_s as i64) * 1000;
+            c.mana_regen_ms_3x > 0 && self.overtime && self.elapsed_ms(self.tick) - regular >= (c.mana_triple_after_overtime_s as i64) * 1000
+        }
+    }
+
     fn phase_upkeep(&mut self) {
         let double = self.double_elixir();
+        let triple = self.triple_elixir();
         let c = &self.cfg.calib;
-        let rate = self.mana_rate[usize::from(double)];
+        // The third rate in the same units as the two (`mana_unit`), truncated: 537.5 of the game's 1/10000 elixir a
+        // tick at 9300 ms, against the game's 537 (the 2x step is 357.14 against 357, the same kind of remainder).
+        let rate = if triple {
+            (c.tick_ms as i64) * (c.max_mana as i64) * self.mana_unit / (c.mana_regen_ms_3x as i64)
+        } else {
+            self.mana_rate[usize::from(double)]
+        };
         let cap = (c.max_mana as i64) * self.mana_unit;
         for p in self.players.iter_mut() {
             p.mana = (p.mana + rate).min(cap);
