@@ -92,12 +92,12 @@ ledger disagree, because these figures went stale twice in one afternoon before 
   universal, so check rather than assume.** All 363 carry a status. That 363 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
   another and carries its own `measured` status, so counting every status in the file gives 364
-  and 241 measured. The tools agree on 363 by convention, and the convention undercounts by one. 308 name the rivals the
+  and 249 measured. The tools agree on 363 by convention, and the convention undercounts by one. 308 name the rivals the
   value was chosen against and 317 state what would move it, and 300 do both. The gap is mostly
   the 31 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 22 of
-  the 240 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 248 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -152,14 +152,13 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 363 top-level keys with a status, 240 are `measured`; one more entry, nested inside another, is measured too (364 in all).
+disagree. Of the 363 top-level keys with a status, 248 are `measured`; one more entry, nested inside another, is measured too (364 in all).
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
 | `collision.PUSH_MODEL` | `mass_weighted` | guess, LOW | a mass-ladder recording: units of known Mass pushing each other |
 | `collision.BUILDING_FOOTPRINT_MODEL` | `collision_radius_circle` | guess, LOW | a walk past a building; note that circle and 2x2 box differ by 0.044 tile at best, so only 3x3-vs-not is separable |
 | `collision.SEPARATION_ITERATIONS` | 1 | guess, LOW | a crowd recording with per-tick positions |
-| `collision.HELD_UNIT_AVOIDANCE` | `scanned` | hypothesis, LOW | parity's corpus score with `masked` switched on; its registered prediction is 20260918-124946's Ice Golem turning -190 on t2302, as the client's does |
 | `pathfinding.TIE_BREAK` | `ortho_first_placeholder` | guess, LOW | read only by the trace-fitted arm (`path2026.rs`); the selected arm reproduces the published node lists outright, so the key no longer gates it |
 | `combat.DAMAGE_ARITHMETIC` | `integer` | guess, LOW | hit counts to kill a tower at known levels |
 | `combat.CROWN_TOWER_DAMAGE_ROUNDING` | `ceil_kept_share` | community, MEDIUM | a crown tower's displayed hp before and after a spell at two card levels |
@@ -197,7 +196,7 @@ These keys were measured later, on the 16.402 corpus or client 15.535.29, and ar
 | `combat.ATTACK_CYCLE`, `combat.PROJECTILE_LAUNCH`, `combat.KAMIKAZE_DEATH` | the attack cycle, the launch point, the kamikaze death |
 | `lifetime.HP_DECAY` | a building's hit-point drain over its lifetime |
 | `formation.LAYOUT`, `DEPLOY_STAGGER`, `GROUND_Y_CLAMP` | where a card's summons stand, and when each appears |
-| `spawner` (29 of 39 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
+| `spawner` (32 of 39 keys) | emission timing, the first wave, the start-time origin, the two deploy-time defaults, the death-spawn layout, an emission's water turn, and more. The Goblin Hut's wake reach, wake targets and spawn speed (`LIFE_STATE_WAKE_REACH`, `LIFE_STATE_WAKE_TARGETS`, `ACTION_SPAWNER_SPAWN_SPEED`) were measured on client 15.535.29 only |
 | `knockback.DISPLACEMENT_LAW`, `ATTACK_RESET` | the push ladder and what a landed push does to the attack |
 | `charge.CHARGE_RANGE_UNIT`, `CHARGED_HIT_TIMING` | the run-up's unit and when the charged hit lands |
 

@@ -18,7 +18,7 @@
 //!      where on_reach (the old arm, non-vacuity) walks them on to their end points with a 9th move;
 //!   2. both arms: a Golem's Golemites make 5 moves and end on their end points, (-1500, 0) and (1500, 0);
 //!   3. move_count is inert under current_ray: every Pup's slide is the same under both stop arms;
-//!   4. the shipped value is on_reach.
+//!   4. the shipped value is move_count (since the 2026-09-28 round 9 lanes flip).
 //!
 //! PLANT (regression): `death_slide_count_ignored` lays no cap under move_count: (1) goes red.
 //!     RUSTFLAGS='--cfg clash_plant="death_slide_count_ignored"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test death_slide_stop
@@ -112,6 +112,6 @@ fn the_move_count_is_inert_under_current_ray() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm() {
-    assert_eq!(Calib::shipped().death_slide_stop, OLD);
+fn the_shipped_value_is_the_new_arm() {
+    assert_eq!(Calib::shipped().death_slide_stop, NEW);
 }

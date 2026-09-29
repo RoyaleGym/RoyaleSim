@@ -25,7 +25,7 @@
 //!   3. next_tick (the old arm), with the Knight: the first frame is the slot, and the push comes on the second frame,
 //!      (-60, -137), 149 off the slot. The two pushes are not the same vector: the Knight has taken a push of its own by
 //!      then;
-//!   4. the shipped value is next_tick;
+//!   4. the shipped value is client_creation_tick (since the 2026-09-28 round 9 lanes flip);
 //!   5. client_creation_tick, a slot whose Skeleton overlaps the Red left princess tower: the first three frames are
 //!      the client's (ub-gy3-slot-in-tower: (2850, 25500), (2700, 25500), (2550, 25500); ub-gy1-left: (4634, 24933),
 //!      (4768, 24866), (4902, 24799));
@@ -169,6 +169,6 @@ fn the_old_arm_runs_a_push_behind_on_a_crown_tower() {
 }
 
 #[test]
-fn the_shipped_value_is_next_tick() {
-    assert_eq!(Calib::shipped().scheduled_unit_first_update, OLD);
+fn the_shipped_value_is_client_creation_tick() {
+    assert_eq!(Calib::shipped().scheduled_unit_first_update, NEW);
 }

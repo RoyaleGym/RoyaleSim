@@ -19,7 +19,7 @@
 //!      and under sine_table on the sine table's seven (three differ);
 //!   3. both arms: the Pups' end points are the same (the death point + the sine table's ring direction x 2500);
 //!   4. both arms: a Golem's two Golemites, on the axis, are born on (-250, 0) and (250, 0) (the control);
-//!   5. the shipped value is sine_table.
+//!   5. the shipped value is step_toward_end (since the 2026-09-28 round 9 lanes flip).
 //!
 //! PLANT (regression): `death_birth_sine_table` lays the sine table's ring under step_toward_end: (1) and (2) go red.
 //!     RUSTFLAGS='--cfg clash_plant="death_birth_sine_table"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test death_slide_birth
@@ -146,6 +146,6 @@ fn the_container_members_are_born_one_step_toward_their_end_points() {
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm() {
-    assert_eq!(Calib::shipped().death_slide_birth, OLD);
+fn the_shipped_value_is_the_new_arm() {
+    assert_eq!(Calib::shipped().death_slide_birth, NEW);
 }

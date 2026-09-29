@@ -21,7 +21,7 @@
 //!      step, 60, short of it), stands 26 ticks, is then pulled in steps of 449 to 450 (the last one shorter or equal)
 //!      and stops 1,700 (within 1) from the tower's centre; the tower loses his first hit on the tick after the stop tick;
 //!   2. troops_only (the old arm): nothing moves him faster than a walk, and he walks within melee range of the tower;
-//!   3. the shipped value is troops_only.
+//!   3. the shipped value is client_pull_self (since the 2026-09-28 round 9 lanes flip).
 //!
 //! PLANTS (regression):
 //!   * `hook_buildings_unread` -- the new arm hooks troops only: (1) goes red.
@@ -95,6 +95,6 @@ fn the_old_arm_walks_to_melee_range() {
 }
 
 #[test]
-fn the_shipped_value_is_troops_only() {
-    assert_eq!(Calib::shipped().hook_buildings, HookBuildings::TroopsOnly);
+fn the_shipped_value_is_client_pull_self() {
+    assert_eq!(Calib::shipped().hook_buildings, HookBuildings::ClientPullSelf);
 }

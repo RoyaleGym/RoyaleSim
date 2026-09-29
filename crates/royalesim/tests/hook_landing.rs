@@ -16,7 +16,7 @@
 //!   1. on_victim: the Knight's move on X is a walk (55 to 61), and the drag takes 10 steps;
 //!   2. client_hook_point: the Knight's move on X is the hook's shortfall, 572 toward the Fisherman, and the drag takes
 //!      9 steps, one fewer, as the client's near-s1 drag does against the engine's;
-//!   3. the shipped value is on_victim.
+//!   3. the shipped value is client_hook_point (since the 2026-09-28 round 9 lanes flip).
 //!
 //! PLANT (regression):
 //!   * `hook_lands_on_victim` -- the new arm leaves the victim where it walked: (2) goes red.
@@ -75,6 +75,6 @@ fn the_new_arm_sets_the_victim_onto_the_hook() {
 }
 
 #[test]
-fn the_shipped_value_is_on_victim() {
-    assert_eq!(Calib::shipped().hook_landing, HookLanding::OnVictim);
+fn the_shipped_value_is_client_hook_point() {
+    assert_eq!(Calib::shipped().hook_landing, HookLanding::ClientHookPoint);
 }

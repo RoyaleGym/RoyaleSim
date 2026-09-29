@@ -7,7 +7,7 @@
 //! frames not one offset starts, where the walking rate predicts about 14, and a running offset decays 10 a frame while
 //! held. The event it settles, 20260918-124946 t2298-t2302: an enemy Knight frozen by an Ice Spirit keeps offset 0 in
 //! the client, and a walking Ice Golem meeting it reads 0 and turns by its own side test (-190); the engine's frozen
-//! Knight (scanned, the shipped arm) starts +190 on t2298, and the Golem reads that sign and turns +190.
+//! Knight (scanned, the old arm) starts +190 on t2298, and the Golem reads that sign and turns +190.
 //!
 //! THE SCENE, that event in miniature: a Blue Knight at (3500, 10000) and a Red Hog Rider at (3750, 14000), set down
 //! together; a Red Freeze on the Knight's point three ticks later holds the Knight (not the Hog Rider, its caster's
@@ -145,6 +145,6 @@ fn a_held_units_running_offset_decays_and_the_static_in_its_look_circle_does_not
 }
 
 #[test]
-fn the_shipped_value_is_the_old_arm() {
-    assert_eq!(Calib::shipped().held_unit_avoidance, OLD);
+fn the_shipped_value_is_the_new_arm() {
+    assert_eq!(Calib::shipped().held_unit_avoidance, NEW);
 }
