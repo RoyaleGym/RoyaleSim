@@ -6273,9 +6273,11 @@ fn slide_birth_toward_end(arena: &crate::arena::Arena, team: Team, pos: Vec2, co
 /// `birth` (WORLD subtiles), native. The member's slide runs on the N ticks after its birth tick and ends after the
 /// last of them wherever it stands (entity.rs `death_slide_until`, `death_slide_capped`), or earlier on the step that
 /// reaches its end point. Read off client 16.402 and 15.535.29 (20260920-071744, ub-b1-tm2-air, the ub-ds3 family):
-/// the axis Pups (birth 250, end 2500 out) make 9 moves, the four diagonal ones 8, three of them ending 41, 95 and 127
-/// short after a push bent their paths; the Golemites (250 to 1500) make 5. The captured rings have two angle classes,
-/// the axes and 60 degrees; this rule is the one fitted on them. Capped at u8::MAX.
+/// the axis Pups (birth 250, end 2500 out) make 9 moves, the four diagonal ones 8, three of them ending 41, 96 and 126
+/// short after a push bent their paths; the Golemites (250 to 1500) make 5. It does not give the ub-ds3 family's
+/// arena-edge Pup (one in each of its four fixtures), which stops after 4 moves near x 250 or 17600: 38 of the 42
+/// captured Pup slides fit it. The captured rings have two angle classes, the axes and 60 degrees; this rule is the one
+/// fitted on them. Capped at u8::MAX.
 fn slide_move_count(birth: Vec2, end: Vec2) -> u8 {
     use crate::fixed::SUBTILE_PER_MILLITILE as K;
     let (dx, dy) = (((end.x - birth.x) / K).abs(), ((end.y - birth.y) / K).abs());
@@ -11705,8 +11707,10 @@ impl BattleState {
                 // CONTACT UPDATE. A unit held by a freeze or a stun -- not knocked back, not dragged, not mid-leap,
                 // not held by its attack under the `frozen` arm of movement.ATTACKING_UNIT_MOVEMENT -- takes its
                 // ordinary update below at speed 0: no path request, no stomp clock, no step and no facing change of
-                // its own, but the avoidance scan while it is not attacking, the offset's decay in both states, and
-                // the separation scan whose mean moves it (a unit under ground is not in this pass). Measured on the
+                // its own, but the avoidance scan while it is not attacking (under collision.HELD_UNIT_AVOIDANCE =
+                // scanned, the shipped arm; masked leaves a held unit out of it, `held_masked` below), the offset's
+                // decay in both states, and the separation scan whose mean moves it (a unit under ground is not in
+                // this pass). Measured on the
                 // 16.402 corpus: a held
                 // troop moved on 52 of 52 held unit-ticks with a ground neighbour overlapping it (6 Goblins frozen by
                 // Ice Spirits, 3 battles) and stood still on 353 of 353 with none; a nonzero avoidance offset shrank

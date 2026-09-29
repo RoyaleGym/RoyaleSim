@@ -5,8 +5,9 @@
 //! (dx, dy) the member's end point less its birth point, and ends after move N wherever the member stands (or earlier,
 //! on the step that reaches its end point). Read off client 16.402 and 15.535.29 (20260920-071744, ub-b1-tm2-air, the
 //! ub-ds3 family): the axis Lava Pups (birth 250 out, end 2500 out) make 9 moves, the diagonal ones 8, three of those
-//! ending 41, 95 and 127 short of their end points after a contact push bent their paths; the Golemites (250 to 1500)
-//! make 5, the measured 650, 900, 1150, 1400, 1500.
+//! ending 41, 96 and 126 short of their end points after a contact push bent their paths; the Golemites (250 to 1500)
+//! make 5, the measured 650, 900, 1150, 1400, 1500. The rule does not give the ub-ds3 family's arena-edge Pup (one in
+//! each of its four fixtures), which stops after 4 moves: 38 of the 42 captured Pup slides fit it.
 //!
 //! THE SCENE: a Blue Lava Hound at (9000, 9000) killed on the first tick. Its Pups push each other as they slide (the
 //! 180-degree one goes more than 100 off its line on the way, tests/death_slide_aim.rs).

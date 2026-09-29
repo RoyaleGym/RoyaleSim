@@ -159,6 +159,7 @@ disagree. Of the 351 top-level keys with a status, 230 are `measured`; one more 
 | `collision.PUSH_MODEL` | `mass_weighted` | guess, LOW | a mass-ladder recording: units of known Mass pushing each other |
 | `collision.BUILDING_FOOTPRINT_MODEL` | `collision_radius_circle` | guess, LOW | a walk past a building; note that circle and 2x2 box differ by 0.044 tile at best, so only 3x3-vs-not is separable |
 | `collision.SEPARATION_ITERATIONS` | 1 | guess, LOW | a crowd recording with per-tick positions |
+| `collision.HELD_UNIT_AVOIDANCE` | `scanned` | hypothesis, LOW | parity's corpus score with `masked` switched on; its registered prediction is 20260918-124946's Ice Golem turning -190 on t2302, as the client's does |
 | `pathfinding.TIE_BREAK` | `ortho_first_placeholder` | guess, LOW | read only by the trace-fitted arm (`path2026.rs`); the selected arm reproduces the published node lists outright, so the key no longer gates it |
 | `combat.DAMAGE_ARITHMETIC` | `integer` | guess, LOW | hit counts to kill a tower at known levels |
 | `combat.CROWN_TOWER_DAMAGE_ROUNDING` | `ceil_kept_share` | community, MEDIUM | a crown tower's displayed hp before and after a spell at two card levels |
