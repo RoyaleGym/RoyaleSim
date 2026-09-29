@@ -138,6 +138,26 @@ pub struct BuffDef {
     /// `default` so a record written before the field still reads.
     #[serde(default)]
     pub damage_reduction: i32,
+    /// character_buffs DamageMultiplier, RAW per cent (0 = blank): the CARRIER's own hits deal
+    /// `damage x damage_pct / 100`, truncated, on its level-scaled damage (combat.rs `fire`, `own_damage`). Read on a
+    /// buff a hero's button hangs on the hero itself alone (card.rs `RawBuff::convert_own`, `AbilityEffect::ActionGroup`);
+    /// the loader refuses it on every other row. Measured on client 15.535.29 (sp-form-Berserker-hero-s0): the Hero
+    /// Berserker's 102 at level 11 lands as 167 under BerserkerHero_buff's 164, 10 hits of 10. `default` so a record
+    /// written before the field still reads.
+    #[serde(default)]
+    pub damage_pct: i32,
+    /// character_buffs GameTagsToSet UNKILLABLE: the carrier keeps at least 1 hitpoint while the buff lasts, whatever
+    /// a hit takes (combat.rs `unkillable_floor`, in `resolve` and `land_at_once`). Read where `damage_pct` is. Measured
+    /// on client 15.535.29 (sp-form-Berserker-hero-s0): a Musketeer's 217 on the raged hero's 43 leaves it at 1 for the
+    /// rest of the buff, and it dies after it.
+    #[serde(default)]
+    pub unkillable: bool,
+    /// character_buffs CharacterCrownTowerDamagePercent, EFFECTIVE per cent (0 = blank): the carrier's own hit on a
+    /// crown tower takes this percent in place of its card's CrownTowerDamagePercent while the buff lasts (combat.rs
+    /// `fire`). Read where `damage_pct` is. UNMEASURED: no scene has the raged Hero Berserker (25; its stat screen
+    /// reads -75 %) hit a tower; the percent applies after `damage_pct`, as the card's own does.
+    #[serde(default)]
+    pub char_crown_pct: i32,
 }
 
 /// A UNIT THAT DIES WITH THIS BUFF LIVE RELEASES `count` of `unit` (character_buffs DeathSpawn,
@@ -163,7 +183,8 @@ impl BuffDef {
     /// loader refuses the card that carries it rather than running it as a no-op.
     /// A buff that releases a unit when its carrier dies does something: that is its
     /// whole mechanic (the curses). So does one that reduces the damage its carrier
-    /// takes (status.DAMAGE_REDUCTION).
+    /// takes (status.DAMAGE_REDUCTION), and one that multiplies its carrier's damage or
+    /// keeps it alive (`damage_pct`, `unkillable`).
     pub fn is_inert(&self) -> bool {
         self.speed_pct == 0
             && self.hit_speed_pct == 0
@@ -173,6 +194,8 @@ impl BuffDef {
             && self.attract_pct == 0
             && self.death_spawn.is_none()
             && self.damage_reduction == 0
+            && self.damage_pct == 0
+            && !self.unkillable
     }
 
     /// Does this buff pulse damage or healing?

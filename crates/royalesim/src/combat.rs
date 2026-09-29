@@ -967,7 +967,11 @@ pub fn fire(
         }
         _ => stage_damage(ents, cards, calib, a),
     };
-    let pct = card.crown_tower_damage_percent;
+    // THE CARRIER'S OWN BUFF (status.rs `BuffDef::damage_pct`, `char_crown_pct`; the Hero Berserker's rage): the hit
+    // is scaled by the strongest DamageMultiplier the attacker carries, and a crown tower takes the buff's own percent
+    // of it in place of the card's. Nothing moves for a unit without such a buff.
+    let amount = own_damage(ents, cards, a, amount);
+    let pct = own_crown_pct(ents, cards, a).unwrap_or(card.crown_tower_damage_percent);
     let splash_r = if card.area_damage_radius > 0 {
         card.area_damage_radius
     } else {
@@ -2064,6 +2068,7 @@ pub fn resolve(
             ents.shield[i] = (ents.shield[i] as i64 - s).max(0) as i32;
         } else {
             ents.hp[i] = (ents.hp[i] as i64 - s).max(i32::MIN as i64) as i32;
+            unkillable_floor(ents, cards, i);
         }
     }
     // Every live entity at or below zero dies, however it got there.
@@ -2073,6 +2078,43 @@ pub fn resolve(
         }
     }
     out
+}
+
+/// Hit `amount` of attacker `a` through the DamageMultiplier of the buffs it carries (status.rs `BuffDef::damage_pct`,
+/// raw per cent, 0 = blank): amount x the strongest / 100, truncated as every percentage buff's is (status.rs
+/// `compose`), on the level-scaled figure. Measured on client 15.535.29 (sp-form-Berserker-hero-s0): 102 x 164 / 100 =
+/// 167, 10 hits of 10; on the level-1 figure it would be 166 or 168. Unchanged for a unit that carries none.
+pub fn own_damage(ents: &Entities, cards: &CardDb, a: usize, amount: i32) -> i32 {
+    #[cfg(not(clash_plant = "own_damage_multiplier_ignored"))]
+    let m = ents.buff_slots(a).iter().filter(|s| !s.is_empty()).map(|s| cards.buffs[(s.id - 1) as usize].damage_pct).max().unwrap_or(0);
+    #[cfg(clash_plant = "own_damage_multiplier_ignored")]
+    let m = {
+        let _ = (ents, cards, a);
+        0 // PLANT (regression): the carrier's DamageMultiplier is not read.
+    };
+    if m <= 0 {
+        return amount;
+    }
+    ((amount as i64) * (m as i64) / 100) as i32
+}
+
+/// The CharacterCrownTowerDamagePercent of a buff attacker `a` carries (status.rs `BuffDef::char_crown_pct`), the
+/// lowest if several: its hit's share on a crown tower in place of its card's. None for a unit that carries none.
+fn own_crown_pct(ents: &Entities, cards: &CardDb, a: usize) -> Option<i32> {
+    ents.buff_slots(a).iter().filter(|s| !s.is_empty()).map(|s| cards.buffs[(s.id - 1) as usize].char_crown_pct).filter(|p| *p > 0).min()
+}
+
+/// GameTagsToSet UNKILLABLE (status.rs `BuffDef::unkillable`; the Hero Berserker's rage): unit `i`, carrying such a
+/// buff, keeps at least 1 hitpoint whatever a hit took (`resolve`, `land_at_once`). Measured on client 15.535.29
+/// (sp-form-Berserker-hero-s0): a Musketeer's 217 on the raged hero's 43 leaves it at 1 through the rest of the buff;
+/// it dies after. Every other unit is untouched.
+fn unkillable_floor(ents: &mut Entities, cards: &CardDb, i: usize) {
+    #[cfg(not(clash_plant = "unkillable_not_read"))]
+    if ents.hp[i] < 1 && ents.buff_slots(i).iter().any(|s| !s.is_empty() && cards.buffs[(s.id - 1) as usize].unkillable) {
+        ents.hp[i] = 1;
+    }
+    #[cfg(clash_plant = "unkillable_not_read")]
+    let _ = (ents, cards, i); // PLANT (regression): the tag is not read; the carrier dies as any unit.
 }
 
 /// A BODY NO HIT LANDS ON, now: unit `v` is under ground under movement.SPAWN_PATHFIND_BODY =
@@ -2130,6 +2172,7 @@ pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[
             ents.shield[t] = (ents.shield[t] as i64 - amount).max(0) as i32;
         } else {
             ents.hp[t] = (ents.hp[t] as i64 - amount).max(i32::MIN as i64) as i32;
+            unkillable_floor(ents, cards, t);
         }
     }
     king_hit

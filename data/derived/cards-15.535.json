@@ -292,6 +292,12 @@
    "characters/healspirit.toml": {
     "sha256": "d9eabb38289448590892e5e692a62c44f9150741e17555d08154e18024fdbbed"
    },
+   "characters/hero_form/berserker_hero.toml": {
+    "sha256": "bb8dc98739f42089adeae16f632b2649eed51535cde0f1f73abd34b4e3ad6bf3"
+   },
+   "characters/hero_form/berserker_hero_spell.toml": {
+    "sha256": "a145ac25aace90e7135df6b46431ae37a72cc9dbe57ea43ea095a8fd75c516de"
+   },
    "characters/hero_form/ice_golemite_hero.toml": {
     "sha256": "6a2b8923893402281059bf399cedd44e75a1fcf8b281407e6901cd8d64547914"
    },
@@ -78636,6 +78642,299 @@
       "spawn_time_ms": null
      }
     }
+   }
+  },
+  {
+   "name": "Berserker_hero",
+   "display_name": "Hero Berserker",
+   "kind": "troop",
+   "elixir": 2,
+   "rarity": "Common",
+   "summon_character": "BerserkerHero",
+   "hitpoints": 350,
+   "damage": 40,
+   "damage_source": "characters.BerserkerHero.AttackSequenceList.Damage",
+   "hit_speed_ms": 600,
+   "load_time_ms": 400,
+   "load_first_hit": false,
+   "speed": 90,
+   "stop_movement_after_ms": null,
+   "wait_ms": null,
+   "range_milli": 800,
+   "minimum_range_milli": null,
+   "sight_range_milli": 5500,
+   "collision_radius_milli": 450,
+   "mass": 2,
+   "deploy_time_ms": 1000,
+   "attacks_air": false,
+   "attacks_ground": true,
+   "target_only_buildings": false,
+   "flying_height": 0,
+   "area_damage_radius_milli": 0,
+   "self_as_aoe_center": false,
+   "projectile": null,
+   "shield_hitpoints": 0,
+   "crown_tower_damage_percent": 100,
+   "lifetime_ms": null,
+   "ignore_pushback": false,
+   "death_damage": null,
+   "death_damage_radius_milli": null,
+   "death_spawn": null,
+   "death_area_effect": null,
+   "spawner": null,
+   "spawn_radius_milli": null,
+   "spawn_angle_shift_deg": null,
+   "projectile_start_radius_milli": 350,
+   "kamikaze": false,
+   "kamikaze_time_ms": null,
+   "spawn_pathfind": null,
+   "charge": null,
+   "dash": null,
+   "jump": null,
+   "hides_when_not_attacking": false,
+   "hide_time_ms": null,
+   "up_time_ms": null,
+   "buff_on_damage": null,
+   "defaults_applied": [
+    "crown_tower_damage_percent",
+    "area_damage_radius_milli",
+    "flying_height",
+    "shield_hitpoints"
+   ],
+   "death_spawn_projectile": null,
+   "spawn_area_object": null,
+   "hovering": false,
+   "variable_damage": null,
+   "attack_pushback_milli": null,
+   "special": null,
+   "ignore_buffs": null,
+   "death_pushback_milli": null,
+   "action_graph": {
+    "roots": {
+     "VisualActions": "Healthbar_Medium"
+    },
+    "class_types": [],
+    "spawns": [],
+    "mechanic": false
+   },
+   "death_spawn_pushback": false,
+   "count": 1,
+   "summon_radius_milli": null,
+   "summon_width_milli": null,
+   "summon_deploy_delay_ms": null,
+   "summon_deploy_delay_second_ms": null,
+   "second_summon": null,
+   "deploy_area_effect": null,
+   "deploy_projectile": null,
+   "level_scaling": {
+    "rarity": "Common",
+    "level_count": 16,
+    "multiplier_percent_by_level": [
+     100,
+     110,
+     121,
+     133,
+     146,
+     160,
+     176,
+     193,
+     212,
+     233,
+     256,
+     281,
+     309,
+     339,
+     372,
+     409
+    ],
+    "applies_to": [
+     "hitpoints",
+     "damage"
+    ],
+    "rounding": "floor -- MEASURED on the 16.402 live captures' max_hp (tests/levels.rs); the composition with crown-tower percent and shields is still calibration.json combat.DAMAGE_ARITHMETIC",
+    "relative_level": 0,
+    "reading": "object_rarity_local_1",
+    "ladder_rarity": "Common",
+    "base_level": 1
+   },
+   "form_of": "Berserker",
+   "ability": {
+    "name": "BerserkerHeroAbility",
+    "mana_cost": 3,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 1450,
+    "trigger_delay_ms": 100,
+    "keep_current_target": false,
+    "is_champion": false,
+    "effect": {
+     "kind": "action_group",
+     "steps": [
+      {
+       "delay_ms": 0,
+       "do": "buff",
+       "buff": {
+        "name": "BerserkerHero_buff",
+        "speed_multiplier_raw": 150,
+        "hit_speed_multiplier_raw": 300,
+        "spawn_speed_multiplier_raw": 200,
+        "damage_per_second": null,
+        "hit_frequency_ms": null,
+        "heal_per_second": null,
+        "damage_reduction": null,
+        "damage_multiplier": 164,
+        "crown_tower_damage_percent": null,
+        "immune_to_anti_magic": null,
+        "no_effect_to_crown_towers": false,
+        "attract_percentage": null,
+        "building_damage_percent": null,
+        "enable_stacking": false,
+        "hit_tick_from_source": false,
+        "controlled_by_parent": false,
+        "death_spawn": null,
+        "ignore_buildings": false,
+        "crown_tower_damage_per_hit": null,
+        "not_cloned": true,
+        "unkillable": true,
+        "character_crown_tower_damage_percent": 25
+       },
+       "time_ms": 4000
+      },
+      {
+       "delay_ms": 0,
+       "do": "form",
+       "form": "BerserkerHero_BearForm",
+       "override_attack_finish": true,
+       "attack_finish_time_ms": 0
+      },
+      {
+       "delay_ms": 4000,
+       "do": "form",
+       "form": "BerserkerHero",
+       "override_attack_finish": null,
+       "attack_finish_time_ms": null
+      }
+     ]
+    }
+   },
+   "tables": {
+    "units": {
+     "BerserkerHero": {
+      "name": "BerserkerHero",
+      "source_table": "characters",
+      "rarity": "Common",
+      "hitpoints": 350,
+      "damage": 40,
+      "damage_source": "characters.BerserkerHero.AttackSequenceList.Damage",
+      "hit_speed_ms": 600,
+      "load_time_ms": 400,
+      "load_first_hit": false,
+      "speed": 90,
+      "stop_movement_after_ms": null,
+      "wait_ms": null,
+      "range_milli": 800,
+      "minimum_range_milli": null,
+      "sight_range_milli": 5500,
+      "collision_radius_milli": 450,
+      "mass": 2,
+      "deploy_time_ms": 1000,
+      "attacks_air": false,
+      "attacks_ground": true,
+      "target_only_buildings": false,
+      "flying_height": 0,
+      "area_damage_radius_milli": 0,
+      "self_as_aoe_center": false,
+      "projectile": null,
+      "shield_hitpoints": 0,
+      "crown_tower_damage_percent": 100,
+      "lifetime_ms": null,
+      "ignore_pushback": false,
+      "tile_size_override": null,
+      "death_damage": null,
+      "death_damage_radius_milli": null,
+      "death_spawn": null,
+      "death_area_effect": null,
+      "death_spawn_projectile": null,
+      "spawner": null,
+      "spawn_area_object": null,
+      "spawn_radius_milli": null,
+      "spawn_angle_shift_deg": null,
+      "projectile_start_radius_milli": 350,
+      "kamikaze": false,
+      "kamikaze_time_ms": null,
+      "spawn_pathfind": null,
+      "charge": null,
+      "dash": null,
+      "jump": null,
+      "hovering": false,
+      "hides_when_not_attacking": false,
+      "hide_time_ms": null,
+      "up_time_ms": null,
+      "buff_on_damage": null,
+      "ignore_buffs": null,
+      "variable_damage": null,
+      "attack_pushback_milli": null,
+      "death_pushback_milli": null,
+      "special": null,
+      "attached_character": null,
+      "defaults_applied": [
+       "crown_tower_damage_percent",
+       "area_damage_radius_milli",
+       "flying_height",
+       "shield_hitpoints"
+      ],
+      "action_graph": {
+       "roots": {
+        "VisualActions": "Healthbar_Medium"
+       },
+       "class_types": [],
+       "spawns": [],
+       "mechanic": false
+      },
+      "death_spawn_pushback": false,
+      "raw": {
+       "Rarity": "Common",
+       "SightRange": 5500,
+       "DeployTime": 1000,
+       "Speed": 90,
+       "Hitpoints": 350,
+       "HitSpeed": 600,
+       "LoadTime": 400,
+       "Range": 800,
+       "AttacksGround": true,
+       "CollisionRadius": 450,
+       "Mass": 2,
+       "AttackSequence": 0,
+       "Ability": "BerserkerHeroAbility",
+       "AttackSequenceMode": "None"
+      },
+      "list_columns": {
+       "AttackSequence": [
+        0,
+        1,
+        2
+       ],
+       "AttackSequenceList": [
+        {
+         "Damage": 40,
+         "StatsTags": {
+          "Damage": "damage"
+         }
+        },
+        {
+         "Damage": 40
+        },
+        {
+         "Damage": 40
+        }
+       ]
+      },
+      "overlays": [
+       "characters/hero_form/berserker_hero.toml [EXT]"
+      ]
+     }
+    },
+    "area_effect_objects": {}
    }
   }
  ]

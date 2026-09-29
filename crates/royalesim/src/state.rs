@@ -11760,7 +11760,7 @@ impl BattleState {
                         let inferno = true; // PLANT (regression): every unit waits after a reach loss, not the inferno's alone.
                         let waits = match wait_mode {
                             PostKillWait::MeasuredList => wait_units.contains(&c.unit_name),
-                            PostKillWait::AttackFinish => !override_units.contains(&c.unit_name) && e.attack_ms[i] != 0,
+                            PostKillWait::AttackFinish => !(override_units.contains(&c.unit_name) || wears_finish_override(cards, e, i)) && e.attack_ms[i] != 0,
                             PostKillWait::None => false,
                         };
                         if inferno && left && !next_in_reach && waits {
@@ -11788,12 +11788,15 @@ impl BattleState {
                 } else if e.target[i].is_some_and(|t| !e.standing(t, struck))
                     && match wait_mode {
                         PostKillWait::MeasuredList => wait_units.iter().any(|u| *u == cards.get(e.card[i]).unit_name),
-                        // (a) an OverrideAttackFinishTime card, (b) progress 0 at the loss (the engine's
+                        // (a) an OverrideAttackFinishTime card, or a hero wearing such a form for its buff
+                        // (`wears_finish_override`), (b) progress 0 at the loss (the engine's
                         // progress runs on after a hit, as the game's does: a Knight reads 1200 at its
                         // kill), (c) a projectile card whose victim was doomed: any one skips the wait.
                         PostKillWait::AttackFinish => {
                             let c = cards.get(e.card[i]);
-                            !override_units.contains(&c.unit_name) && e.attack_ms[i] != 0 && !(c.projectile.is_some() && e.target_doomed[i])
+                            !(override_units.contains(&c.unit_name) || wears_finish_override(cards, e, i))
+                                && e.attack_ms[i] != 0
+                                && !(c.projectile.is_some() && e.target_doomed[i])
                         }
                         PostKillWait::None => false,
                     }
@@ -18276,6 +18279,10 @@ impl BattleState {
     ///   - `Areas` (the Hero Ice Golem's storm): each starting area is made on the hero now and acts from the NEXT
     ///     tick, as an area another area makes does (spell.rs `SpellMotion::Attached`, `SpellOut::born`): its life and
     ///     its first hit start one tick on (ABILITY_AREA_FIRST_UPDATE_TICKS).
+    ///   - `ActionGroup` (the Hero Berserker's rage): each buff lands on the hero now, as any buff lands (`land_buff`),
+    ///     for its SpawnTime. A form worn for a buff's life does nothing here: the hero wears it while it carries the
+    ///     buff (`wears_finish_override`). Measured on client 15.535.29 (sp-form-Berserker-hero-s0, press P = t188):
+    ///     the hero walks at 134 against 89 from its cast's end to P + 81, 4,000 ms after the trigger.
     ///
     /// Measured on client 15.535.29: the turret's first frame is at the hero + (0, 2500) in Blue's arena y whatever
     /// her facing (Red: -2500, read as the team frame, unmeasured), in the river and across the bridge alike; the
@@ -18330,6 +18337,17 @@ impl BattleState {
                         *next_ms += late;
                     }
                     self.spells.push(sp);
+                }
+            }
+            crate::card::AbilityEffect::ActionGroup { steps } => {
+                for st in steps {
+                    match st.action {
+                        crate::card::AbilityAction::OwnBuff(b) => {
+                            let h = crate::status::BuffHit::plain(hero, b.buff, b.time_ms, 0);
+                            land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                        }
+                        crate::card::AbilityAction::FormWhileBuff { .. } => {}
+                    }
                 }
             }
         }
@@ -20354,6 +20372,10 @@ impl BattleState {
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, the Hero Berserker (card.rs `AbilityEffect::ActionGroup`): BuffDef gained `damage_pct`, `unkillable`
+///    and `char_crown_pct` (serde default 0 and false) and the table a hero form, so the card fingerprint moves: a
+///    snapshot saved by an earlier build is refused as saved against other card data. No new state (the rage is a
+///    saved and hashed buff slot) and no Calib field.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -20459,6 +20481,26 @@ struct Snapshot {
     #[serde(default)]
     chains: Vec<ChainRun>,
     state_hash: u64,
+}
+
+/// DOES UNIT `i` WEAR A FORM THAT SETS OverrideAttackFinishTime (card.rs `AbilityAction::FormWhileBuff`: the Hero
+/// Berserker's bear, worn while it carries its rage)? Such a unit is freed from combat.POST_KILL_RETARGET_WAIT's wait
+/// as clause (a) frees the units on value.attack_finish_override_units. Measured on client 15.535.29
+/// (sp-form-Berserker-hero-s0): the raged hero, its attack progress above 0 at both losses, took its next target on the
+/// loss + 1 twice (a Skeleton lost on t218, the Knight on t267), where an unlisted unit waits to the loss + 6. The form
+/// comes and goes with the buff's slot; a tick of difference at the buff's end would not show in the scene.
+fn wears_finish_override(cards: &CardDb, e: &Entities, i: usize) -> bool {
+    #[cfg(not(clash_plant = "form_finish_override_ignored"))]
+    let read = true;
+    #[cfg(clash_plant = "form_finish_override_ignored")]
+    let read = false; // PLANT (regression): the worn form is not read; the hero waits after a kill as its own row does.
+    let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::ActionGroup { steps }, .. }) = &cards.get(e.card[i]).ability else {
+        return false;
+    };
+    read && steps.iter().any(|st| match st.action {
+        crate::card::AbilityAction::FormWhileBuff { buff, finish_override: true } => e.buff_slots(i).iter().any(|s| !s.is_empty() && s.id - 1 == buff),
+        _ => false,
+    })
 }
 
 /// A card only a play resolves (`BattleState::resolve_play`): the Mirror, a variant card. Never an entity, a cast, a

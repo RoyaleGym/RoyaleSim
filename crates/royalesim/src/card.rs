@@ -1184,6 +1184,36 @@ pub enum AbilityEffect {
     /// AREAS RIDING ON THE HERO (the Hero Ice Golem's storm): `start` are made at the trigger, each an index into
     /// `areas`; an area's `end` is made where it stands when its life runs out.
     Areas { areas: Vec<AttachedArea>, start: Vec<u8> },
+    /// AN ACTION GROUP ON THE HERO (the Hero Berserker's rage; tools/extract_cards.py `action_group_effect`): its
+    /// steps, in the table's SubActions order, each `delay_ms` after the trigger (state.rs `fire_ability`). The
+    /// loader takes the steps at the trigger alone and refuses a group with a later one, but for the swap back from a
+    /// form worn for a buff's life (`AbilityAction::FormWhileBuff`).
+    ActionGroup { steps: Vec<AbilityStep> },
+}
+
+/// ONE STEP OF AN ACTION GROUP (`AbilityEffect::ActionGroup`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AbilityStep {
+    /// SubActionsDelay, ms after the trigger (0 on every step that loads today).
+    pub delay_ms: i32,
+    pub action: AbilityAction,
+}
+
+/// What an action group's step does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AbilityAction {
+    /// An ActionSpawn of a BuffType: the buff on the hero itself for its SpawnTime, landed as any buff lands (state.rs
+    /// `land_buff`), its carrier's own columns read (`RawBuff::convert_own`).
+    OwnBuff(BuffApply),
+    /// A FORM WORN FOR AN OWN BUFF'S LIFE: two ActionChangeGameObjectData, one to another character at the trigger and
+    /// one back to the hero at the buff's SpawnTime, so the hero wears the form exactly while it carries buff `buff`
+    /// (the Hero Berserker's bear). A form may differ from the hero only in display columns and the attack finish
+    /// pair (the extractor refuses any other). `finish_override`: its OverrideAttackFinishTime, which frees the wearer
+    /// from combat.POST_KILL_RETARGET_WAIT's wait as clause (a) frees the units on value.attack_finish_override_units
+    /// (state.rs `wears_finish_override`). Its AttackFinishTime is read only where OverrideAttackFinishTime is set, and
+    /// then it changes nothing: no override unit waits in the engine (the listed units take their next target on the
+    /// loss + 1 whatever their AttackFinishTime, 100 to 200 on their rows).
+    FormWhileBuff { buff: u16, finish_override: bool },
 }
 
 /// AN ABILITY AREA'S DAMAGE SCALES WITH THE HERO'S LEVEL even when its damage type says EnableLevelScaling = false
@@ -3807,6 +3837,22 @@ struct RawAbilityEffect {
     immune_ms: Option<i32>,
     /// The pending buff's SpeedMultiplier (per cent): his speed while a press waits for its target.
     pending_speed_multiplier: Option<i32>,
+    /// `action_group` (tools/extract_cards.py `action_group_effect`): the group's steps.
+    steps: Option<Vec<RawAbilityStep>>,
+}
+
+/// One step of an `action_group` effect: `buff` (the buff row and its SpawnTime) or `form` (the character and the
+/// attack finish pair it sets of its own, null where it leaves them to the hero and on the hero's own row).
+#[derive(Deserialize)]
+struct RawAbilityStep {
+    delay_ms: i32,
+    #[serde(rename = "do")]
+    action: String,
+    buff: Option<RawBuff>,
+    time_ms: Option<i32>,
+    form: Option<String>,
+    override_attack_finish: Option<bool>,
+    attack_finish_time_ms: Option<i32>,
 }
 
 /// One area of a `parent_areas` effect (tools/extract_cards.py `hero_area`).
@@ -4060,6 +4106,10 @@ struct RawBuff {
     /// character_buffs Clone and NotCloned (`BuffDef::clone`, `BuffDef::not_cloned`); 15.535 only, written where set.
     clone: Option<bool>,
     not_cloned: Option<bool>,
+    /// character_buffs GameTagsToSet UNKILLABLE and CharacterCrownTowerDamagePercent (`BuffDef::unkillable`,
+    /// `BuffDef::char_crown_pct`); 15.535 only, written where set.
+    unkillable: Option<bool>,
+    character_crown_tower_damage_percent: Option<i32>,
 }
 
 /// cards.json buff `death_spawn` block, every field nullable (the extractor writes the whole block whenever
@@ -4073,6 +4123,60 @@ struct RawBuffDeathSpawn {
     deploy_delay: Option<bool>,
     same_location: Option<bool>,
     other_buff_death_spawn_allowed: Option<bool>,
+}
+
+/// A HERO'S ACTION GROUP (`AbilityEffect::ActionGroup`), read whole or refused: `hero` is the hero form's own card.
+/// Taken: buffs at the trigger (each on the hero, `BuffTable::apply_own`), and at most one form worn for a buff's life
+/// (a swap to the form at the trigger and one back to the hero's own unit at exactly the one buff's SpawnTime; an
+/// AttackFinishTime only under OverrideAttackFinishTime). A buff that multiplies the hero's
+/// damage is refused on a hero whose attack is not a direct hit of its own damage (a projectile, an attack selector):
+/// `own_damage` scales that hit alone.
+fn action_group(what: &str, raw: &[RawAbilityStep], hero: &CardDef, buffs: &mut BuffTable) -> Result<AbilityEffect, String> {
+    let mut steps = Vec::new();
+    let mut swaps: Vec<(i32, &str, bool)> = Vec::new();
+    for (k, st) in raw.iter().enumerate() {
+        let at = format!("{what}: step {k}");
+        match st.action.as_str() {
+            "buff" => {
+                if st.delay_ms != 0 {
+                    return Err(format!("{at}: a buff {} ms after the trigger is not scheduled; not simulated", st.delay_ms));
+                }
+                let rb = st.buff.as_ref().ok_or_else(|| format!("{at}: a buff step with no buff"))?;
+                let b = buffs.apply_own(rb, st.time_ms, &at)?;
+                let def = buffs.defs[b.buff as usize];
+                if def.damage_pct != 0 && (hero.projectile.is_some() || hero.attack_select.is_some()) {
+                    return Err(format!("{at}: a DamageMultiplier on a hero that does not strike with its own damage; not simulated"));
+                }
+                steps.push(AbilityStep { delay_ms: 0, action: AbilityAction::OwnBuff(b) });
+            }
+            "form" => {
+                let form = st.form.as_deref().filter(|f| !f.is_empty()).ok_or_else(|| format!("{at}: a form step with no form"))?;
+                let over = st.override_attack_finish.unwrap_or(false);
+                // An attack finish time on a form that waits after a kill would change the wait's length, which the
+                // engine holds at value.ticks: refused. Under the override nothing waits, so it changes nothing.
+                if st.attack_finish_time_ms.is_some() && !over {
+                    return Err(format!("{at}: form {form} sets an AttackFinishTime without OverrideAttackFinishTime; not simulated"));
+                }
+                swaps.push((st.delay_ms, form, over));
+            }
+            other => return Err(format!("{at}: a step that does {other}; not simulated")),
+        }
+    }
+    let own: Vec<BuffApply> = steps.iter().map(|s| match s.action {
+        AbilityAction::OwnBuff(b) => b,
+        AbilityAction::FormWhileBuff { .. } => unreachable!("no form step pushed yet"),
+    }).collect();
+    if own.is_empty() {
+        return Err(format!("{what}: an action group that hangs no buff; not simulated"));
+    }
+    match swaps.as_slice() {
+        [] => {}
+        [(0, form, over), (back, home, false)] if *home == hero.unit_name && own.len() == 1 && *back == own[0].time_ms && *form != hero.unit_name => {
+            steps.push(AbilityStep { delay_ms: 0, action: AbilityAction::FormWhileBuff { buff: own[0].buff, finish_override: *over } });
+        }
+        other => return Err(format!("{what}: form swaps {other:?} are not one form worn for the one buff's life; not simulated")),
+    }
+    Ok(AbilityEffect::ActionGroup { steps })
 }
 
 impl RawBuff {
@@ -4089,6 +4193,17 @@ impl RawBuff {
     /// `convert`, with `marker` taking a row with no effect column (a MARKER whose mechanic lives in an action) rather
     /// than refusing it: the idle buff whose action puts down an area (`idle_buff_of`). Every other refusal stands.
     fn convert_with(&self, what: &str, marker: bool) -> Result<BuffDef, String> {
+        self.convert_opts(what, marker, false)
+    }
+
+    /// `convert` for a buff a hero's button hangs on the HERO ITSELF (`AbilityEffect::ActionGroup`): the columns that
+    /// act through the carrier's own hits and hitpoints, DamageMultiplier, UNKILLABLE and CharacterCrownTowerDamagePercent,
+    /// are read (`BuffDef::damage_pct`, `unkillable`, `char_crown_pct`); every other refusal stands.
+    fn convert_own(&self, what: &str) -> Result<BuffDef, String> {
+        self.convert_opts(what, false, true)
+    }
+
+    fn convert_opts(&self, what: &str, marker: bool, own: bool) -> Result<BuffDef, String> {
         let name = self.name.clone().unwrap_or_default();
         // AttractPercentage came off this list on 2026-09-23: it is the Tornado's pull
         // and it is now measured and implemented (status.ATTRACT_LAW, state.rs
@@ -4097,11 +4212,22 @@ impl RawBuff {
         // (status.DAMAGE_REDUCTION, combat.rs `reduce_hit`). DamageMultiplier stays, and
         // the rule behind the list is unchanged -- a card is REFUSED rather than run
         // without a mechanic it carries, so nothing here may be removed before the
-        // mechanic exists.
-        for (col, set) in [("DamageMultiplier", self.damage_multiplier.is_some())] {
-            if set {
+        // mechanic exists. DamageMultiplier, UNKILLABLE and CharacterCrownTowerDamagePercent
+        // are read since 2026-09-29 on a buff a hero's button hangs on the hero itself
+        // (`convert_own`: the Hero Berserker's rage, measured on client 15.535.29), where
+        // the carrier is the unit whose hits and hitpoints they act on; on every other
+        // row they stay refused.
+        for (col, set) in [
+            ("DamageMultiplier", self.damage_multiplier.is_some()),
+            ("the UNKILLABLE tag", self.unkillable == Some(true)),
+            ("CharacterCrownTowerDamagePercent", self.character_crown_tower_damage_percent.is_some()),
+        ] {
+            if set && !own {
                 return Err(format!("{what}: buff {name} carries {col}, which is not simulated"));
             }
+        }
+        if self.damage_multiplier.is_some_and(|m| m <= 0) || self.character_crown_tower_damage_percent.is_some_and(|p| p < 0) {
+            return Err(format!("{what}: buff {name}: a DamageMultiplier below 1 or a negative CharacterCrownTowerDamagePercent; not simulated"));
         }
         // A DamageReduction the arithmetic reads is 1..=100 (0 reads as blank). A negative one is a damage INCREASE
         // (the Dark Elixir event bottle's DarkElixirBuff, -100) and one above 100 would heal: neither is measured, so
@@ -4133,6 +4259,9 @@ impl RawBuff {
             clone_hold: self.clone.unwrap_or(false),
             not_cloned: self.not_cloned.unwrap_or(false),
             damage_reduction,
+            damage_pct: self.damage_multiplier.unwrap_or(0),
+            unkillable: self.unkillable.unwrap_or(false),
+            char_crown_pct: self.character_crown_tower_damage_percent.unwrap_or(0),
         };
         // CrownTowerDamagePerHit replaces a PULSE's crown-tower damage (state.rs `buff_pulse_pass`); on a buff that
         // does not pulse it would have nothing to replace.
@@ -4258,6 +4387,16 @@ impl BuffTable {
     /// Intern `raw` with `time_ms` as a `BuffApply`, refusing a buff with no time.
     fn apply(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
         let def = raw.convert(what)?;
+        self.apply_def(def, raw, time_ms, what)
+    }
+
+    /// `apply` for a buff a hero's button hangs on the hero itself (`RawBuff::convert_own`).
+    fn apply_own(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
+        let def = raw.convert_own(what)?;
+        self.apply_def(def, raw, time_ms, what)
+    }
+
+    fn apply_def(&mut self, def: BuffDef, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
         let time_ms = time_ms.filter(|t| *t > 0).ok_or_else(|| format!("{what}: buff {} without BuffTime", raw.name.clone().unwrap_or_default()))?;
         let death = raw.death_spawn.as_ref().and_then(|d| d.character.as_deref());
         Ok(BuffApply { buff: self.intern(def, raw.name.as_deref().unwrap_or(""), death)?, time_ms })
@@ -8062,7 +8201,7 @@ impl CardDb {
     /// One hero form (`load_hero_forms`). Everything is converted before anything is pushed. The form must name a
     /// loaded troop or building card as its base, carry that card's kind, elixir and rarity, and read whole: its unit's
     /// needs (its death area, from its own `tables` or the file's) and its button (one charge, no cooldown, one of the
-    /// two effects). The form and its ability's unit load as summon-only records: a deck names the base card with form
+    /// three effects). The form and its ability's unit load as summon-only records: a deck names the base card with form
     /// 2 (state.rs `BattleConfig::forms`), never the form.
     fn load_hero_form(&mut self, v: serde_json::Value, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(), String> {
         let extra: RawHeroForm = serde_json::from_value(v.clone()).map_err(|e| format!("hero form: {e}"))?;
@@ -8148,6 +8287,7 @@ impl CardDb {
                 }
                 AbilityEffect::Areas { areas, start }
             }
+            "action_group" => action_group(&what, a.effect.steps.as_deref().unwrap_or_default(), &c, buffs)?,
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });

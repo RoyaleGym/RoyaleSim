@@ -2091,6 +2091,13 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
             out["not_cloned"] = True
         if b["AttachedInheritAs"]:
             out["attached_inherit_as"] = b["AttachedInheritAs"]
+        # UNKILLABLE among GameTagsToSet: the carrier's hitpoints do not fall below 1 while the buff lasts (the Hero
+        # Berserker's rage). CharacterCrownTowerDamagePercent: the carrier's own hits deal this percent to a crown
+        # tower while the buff lasts. Each written only where set, so every other buff is unchanged.
+        if "UNKILLABLE" in str(b["GameTagsToSet"] or "").split(","):
+            out["unkillable"] = True
+        if b["CharacterCrownTowerDamagePercent"] is not None:
+            out["character_crown_tower_damage_percent"] = b["CharacterCrownTowerDamagePercent"]
     return out
 
 
@@ -3707,6 +3714,7 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
 HERO_FORMS = {
     "Musketeer_hero": ("Musketeer", "musketeer_hero"),
     "IceGolemite_hero": ("IceGolemite", "ice_golemite_hero"),
+    "Berserker_hero": ("Berserker", "berserker_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -3892,7 +3900,70 @@ def hero_select_buff(h: Tables, name: str) -> tuple[dict, int]:
     return first, ms
 
 
-def ability_block(h: Tables, name: str, units: dict) -> dict:
+# An `action_group` ability's actions: the cosmetic effect it plays, a buff it spawns on the hero, a character swap.
+SELF_BUFF_EFFECT_KEYS = {"ClassType", "Effect", "EffectFlags", "OverrideDuration", "OverrideScale"}
+SELF_BUFF_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"}
+SELF_BUFF_SWAP_KEYS = {"ClassType", "NewCharacterData"}
+# The columns an action group's swapped form may set of its own (the [EXT.*] that extends the hero): display ones,
+# and the attack finish pair, which the record carries as `override_attack_finish` and `attack_finish_time_ms`.
+SELF_BUFF_FORM_COSMETIC = {"Base", "ClonedVersion", "PrefabAsset", "DamageEffect"}
+SELF_BUFF_FORM_COLUMNS = {"OverrideAttackFinishTime", "AttackFinishTime"}
+
+
+def action_group_effect(h: Tables, name: str, subs: list[str], delays: list[int], hero_unit: str) -> dict:
+    """`action_group` (the Hero Berserker's rage): the ActionGroup's sub-actions as STEPS, each at its SubActionsDelay
+    from the trigger, in SubActions order. The steps read:
+      - ActionPlayEffect: cosmetic, no step;
+      - ActionSpawn of a BuffType with a SpawnTime: `buff`, the buff on the hero for SpawnTime ms;
+      - ActionChangeGameObjectData: `form`, the hero wears another character (or its own again). A form must differ
+        from the hero only in display columns and the attack finish pair, whose values the step carries as
+        `override_attack_finish` and `attack_finish_time_ms` (null where the form leaves them to the hero, and on the
+        hero's own row).
+    Any other sub-action, or a form that sets any other column, stops the build."""
+    acts = h["actions"]
+    steps: list[dict] = []
+    for sub, d in zip(subs, delays, strict=True):
+        cls = acts.get(sub)["ClassType"]
+        if cls == "ActionPlayEffect":
+            _one_action(acts, sub, cls, SELF_BUFF_EFFECT_KEYS)
+        elif cls == "ActionSpawn":
+            sp = _one_action(acts, sub, cls, SELF_BUFF_SPAWN_KEYS)
+            buff, time = norm_buff(h, sp["SpawnData"]), sp["SpawnTime"]
+            if sp["SpawnType"] != "BuffType" or buff is None or not isinstance(time, int) or time <= 0:
+                raise SystemExit(f"hero ability {name}: {sub} is not a buff row spawned with a SpawnTime")
+            steps.append({"delay_ms": d, "do": "buff", "buff": buff, "time_ms": time})
+        elif cls == "ActionChangeGameObjectData":
+            form = _one_action(acts, sub, cls, SELF_BUFF_SWAP_KEYS)["NewCharacterData"]
+            override, finish = None, None
+            if form != hero_unit:
+                own = h["characters"].set_fields.get(form)
+                if own is None:
+                    raise SystemExit(f"hero ability {name}: form {form} is not a character row")
+                extra = set(own) - SELF_BUFF_FORM_COSMETIC - SELF_BUFF_FORM_COLUMNS
+                if extra:
+                    raise SystemExit(
+                        f"hero ability {name}: form {form} sets {sorted(extra)}, which this reader does not read"
+                    )
+                row = h["characters"].get(form)
+                override = row["OverrideAttackFinishTime"] if "OverrideAttackFinishTime" in own else None
+                finish = row["AttackFinishTime"] if "AttackFinishTime" in own else None
+            steps.append(
+                {
+                    "delay_ms": d,
+                    "do": "form",
+                    "form": form,
+                    "override_attack_finish": override,
+                    "attack_finish_time_ms": finish,
+                }
+            )
+        else:
+            raise SystemExit(f"hero ability {name}: {sub} is an {cls}, which an action group does not read")
+    if not any(st["do"] == "buff" for st in steps):
+        raise SystemExit(f"hero ability {name}: an action group with no buff is not read")
+    return {"kind": "action_group", "steps": steps}
+
+
+def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = None) -> dict:
     """THE BUTTON of a hero form ([ABILITY.<name>]), read whole or the build stops: its cost, charges,
     cooldown, cast and trigger times, KeepCurrentTarget, and what OnActivationAction does, one of two
     shapes -- `spawn_ahead` (an ActionGroup of one ActionSpawnToLocation of a placeholder building whose only
@@ -3910,10 +3981,20 @@ def ability_block(h: Tables, name: str, units: dict) -> dict:
     if got is None:
         raise SystemExit(f"hero ability {name}: OnActivationAction is not an ActionGroup")
     subs, delays = got
-    if any(d != 0 for d in delays):
-        raise SystemExit(f"hero ability {name}: a delayed sub-action is not read")
     classes = [acts.get(s)["ClassType"] for s in subs]
-    if classes == ["ActionSpawnToLocation"]:
+    group_classes = {"ActionSpawn", "ActionPlayEffect", "ActionChangeGameObjectData"}
+    if (
+        "ActionSpawn" in classes
+        and set(classes) <= group_classes
+        and any(acts.get(s)["SpawnType"] == "BuffType" for s in subs if acts.get(s)["ClassType"] == "ActionSpawn")
+    ):
+        effect = action_group_effect(h, name, subs, delays, hero_unit or "")
+        classes = []
+    elif any(d != 0 for d in delays):
+        raise SystemExit(f"hero ability {name}: a delayed sub-action is not read")
+    if not classes:
+        pass
+    elif classes == ["ActionSpawnToLocation"]:
         outer = _one_action(acts, subs[0], "ActionSpawnToLocation", SPAWN_AHEAD_KEYS)
         if outer["SpawnType"] != "CharacterType" or outer["UseDeploy"] is not False:
             raise SystemExit(f"hero ability {name}: the placeholder is not a character spawned without its deploy")
@@ -3958,7 +4039,7 @@ def ability_block(h: Tables, name: str, units: dict) -> dict:
                 raise SystemExit(f"hero ability {name}: {s} is not an area on the hero")
             areas.append(hero_area(h, sp["SpawnData"]))
         effect = {"kind": "parent_areas", "areas": areas}
-    else:
+    elif classes:
         raise SystemExit(f"hero ability {name}: OnActivationAction runs {classes}, which this reader does not read")
     return {
         "name": name,
@@ -3999,7 +4080,7 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         units = {unit: norm_unit(h, unit, with_raw=True)}
         # Its ProjectileYOffset (the Hero Musketeer's 300) is on `card` already: summon_card copies what norm_unit
         # writes on every 15.535 row that sets it (COSMETIC keeps it out of `raw`).
-        card["ability"] = ability_block(h, urow["Ability"], units)
+        card["ability"] = ability_block(h, urow["Ability"], units, unit)
         aeos = {}
         dae = card.get("death_area_effect")
         if dae:

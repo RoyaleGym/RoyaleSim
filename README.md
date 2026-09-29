@@ -505,8 +505,8 @@ Working:
   and the Mirror included.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
-- Evolved and hero forms for the five special cards of one deck: Evo Cannon, Evo Skeletons, Evo
-  Musketeer, Hero Musketeer and Hero Ice Golem. `reset(..., forms=...)` marks a deck's card 1 for
+- Evolved and hero forms for six special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Hero
+  Musketeer, Hero Ice Golem and Hero Berserker. `reset(..., forms=...)` marks a deck's card 1 for
   its evolution or 2 for its hero. Counting each card's own plays, every third play of an evolved
   card is the evolution. A hero's ability is a button: a command on slot 4, 5 or 6, just past the
   four hand slots, presses it. What each form does was measured on client 15.535.29 where the
