@@ -413,6 +413,11 @@ pub struct Calib {
     /// chase_drop_range = client_sight_minus_1000. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "chase_drop_knocked_default")]
     pub chase_drop_knocked: ChaseDropKnocked,
+    /// targeting.CHASE_DROP_WALKING_AWAY: which troops past the chase-drop limit a chaser lets go and a rescan passes
+    /// over (target.rs `decide`, `scan_with`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a
+    /// battle saved before it ran.
+    #[serde(default = "chase_drop_walking_away_default")]
+    pub chase_drop_walking_away: ChaseDropWalkingAway,
     /// targeting.LEAPING_UNIT_TARGETABILITY: who may target a troop in its river leap (target.rs `can_target`).
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "leaping_unit_targetability_default")]
@@ -1309,6 +1314,10 @@ fn chase_drop_range_default() -> ChaseDropRange {
 
 fn chase_drop_knocked_default() -> ChaseDropKnocked {
     ChaseDropKnocked::DropsKnocked
+}
+
+fn chase_drop_walking_away_default() -> ChaseDropWalkingAway {
+    ChaseDropWalkingAway::AnyTarget
 }
 
 fn push_load_timer_default() -> PushLoadTimer {
@@ -2561,6 +2570,21 @@ calib_enum!(
         /// 327 past (20260920-081819, walking; crossing over 1687-1688).
         /// A push by anything else, and a nearer enemy in sight during the slide, are inferred, not measured.
         ClientHoldsKnocked = "client_holds_knocked",
+    }
+);
+calib_enum!(
+    /// targeting.CHASE_DROP_WALKING_AWAY -- which troops past the chase-drop limit (targeting.CHASE_DROP_RANGE =
+    /// client_sight_minus_1000) a chaser lets go, and which a rescan passes over (target.rs `decide`, `scan_with`). A
+    /// troop WALKS AWAY when it walks (not attacking, deploying, held or sliding) with its facing pointing away from
+    /// the chaser: a positive component along (it - chaser), on the start-of-tick positions (`walks_away`).
+    ChaseDropWalkingAway {
+        /// Today's engine (shipped): a held troop is let go on the first tick it stands past the limit after one within
+        /// it, whatever it does, and the rescan passes over the troop it let go while it stands past the limit.
+        AnyTarget = "any_target",
+        /// Read on both clients (parity, round 9 item 32 corrected): the edge lets a held troop go only when it walks
+        /// away, and a rescan passes over every troop past the limit that walks away. A troop past the limit for any
+        /// other reason (it stands attacking, it slides, the chaser's own step took it there) is kept, and taken.
+        ClientWalkingAway = "client_walking_away",
     }
 );
 calib_enum!(
@@ -5419,6 +5443,7 @@ impl Calib {
             doomed_lane_tower: pick(&v, &["targeting", "DOOMED_LANE_TOWER", "value"], DoomedLaneTower::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
+            chase_drop_walking_away: pick(&v, &["targeting", "CHASE_DROP_WALKING_AWAY", "value"], ChaseDropWalkingAway::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
             minimum_range: pick(&v, &["targeting", "MINIMUM_RANGE", "value"], MinimumRange::from_calibration_name)?,
             variable_damage_walk_reach: pick(&v, &["targeting", "VARIABLE_DAMAGE_WALK_REACH", "value"], VariableDamageWalkReach::from_calibration_name)?,
@@ -19226,6 +19251,9 @@ impl BattleState {
 ///    arm, creation_tick) and PendingSpawn gained action_made (serde default false), no new state (the new arm puts one
 ///    tick more on the saved deploy timer; the flag is pushed and read inside one tick, and hashed only when set), so a
 ///    blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.CHASE_DROP_WALKING_AWAY: Calib gained chase_drop_walking_away (serde default the old arm,
+///    any_target), no new state (the new arm reads the saved facings, phases and timers), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.EQUAL_DISTANCE_TIE: Calib gained equal_distance_tie (serde default the old arm,
 ///    own_frame_low_x), no new state (the new arm reads the saved positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -19699,6 +19727,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // targeting.CHASE_DROP_KNOCKED_TARGET: read only under client_sight_minus_1000, which a format-3 battle never ran;
     // it keeps the old arm whatever the ledger ships (the same rule).
     sh.insert("chase_drop_knocked".into(), serde_json::to_value(ChaseDropKnocked::DropsKnocked).map_err(|e| e.to_string())?);
+    // targeting.CHASE_DROP_WALKING_AWAY: the same.
+    sh.insert("chase_drop_walking_away".into(), serde_json::to_value(ChaseDropWalkingAway::AnyTarget).map_err(|e| e.to_string())?);
     sh.insert("leaping_unit_targetability".into(), serde_json::to_value(LeapingUnitTargetability::Ground).map_err(|e| e.to_string())?);
     sh.insert("minimum_range".into(), serde_json::to_value(MinimumRange::NotRead).map_err(|e| e.to_string())?);
     // targeting.VARIABLE_DAMAGE_WALK_REACH: a format-3 battle walked every unit to Range + both radii; it keeps that
