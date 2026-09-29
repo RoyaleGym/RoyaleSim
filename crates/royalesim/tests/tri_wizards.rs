@@ -51,7 +51,6 @@ use royalesim::card::{CardDb, CardSource, SpawnOffset, SpawnVia, SpellShape, Uni
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
 use royalesim::state::{BattleConfig, BattleState};
-use royalesim::py::{ids_of_indices, state_json_text};
 use royalesim::{EntityId, Team};
 use std::collections::BTreeMap;
 
@@ -358,49 +357,4 @@ fn in_the_clients_scene_the_knight_takes_the_triwizard_on_c_plus_6_and_the_ice_w
         got, want,
         "the Knight's target from C + 4: the TriWizard on C + 6, as the client's Knight; the Ice Wizard on C + 7, a frame before the client's C + 8"
     );
-}
-
-/// Every Blue unit's card_id in `state_json_text`'s rows, by card name, the catalogue every card that loads.
-fn reported_ids(s: &BattleState) -> BTreeMap<String, Vec<i64>> {
-    let db = s.cards();
-    let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| !db.get(*i).summon_only && db.index(&db.get(*i).name) == Some(*i)).collect();
-    let ids = ids_of_indices(db, &catalogue);
-    let text = state_json_text(s, db, &ids, &[[0, 1, 2], [0, 1, 2]], &BTreeMap::new()).expect("state_json");
-    let v: serde_json::Value = serde_json::from_str(&text).expect("state_json is JSON");
-    let uid_of = |e: &royalesim::state::EntityView| (e.team_seq as i64) * 2 + e.team as i64;
-    let mut out: BTreeMap<String, Vec<i64>> = BTreeMap::new();
-    for e in s.entities().filter(|e| e.team == Team::Blue && s.tower_ids(Team::Blue).iter().all(|t| *t != Some(e.id))) {
-        let row = v["entities"].as_array().unwrap().iter().find(|r| r[0].as_i64() == Some(uid_of(&e))).expect("a row per entity");
-        out.entry(e.card.to_string()).or_default().push(row[3].as_i64().unwrap());
-    }
-    out
-}
-
-/// A deploy spawn area's units report the card played (state.rs `PendingSpawn::played_as`), as every other card's
-/// units do: the Tri Wizards' TriWizard, Electro Wizard and Ice Wizard all read the Tri Wizards' catalogue id, where an
-/// Electro Wizard played as its own card reads its own. RoyaleGym prices a play by the card its units report.
-#[test]
-fn every_unit_of_the_play_reports_the_tri_wizards() {
-    let mut s = BattleState::new(7, config());
-    past_deploy_lockout(&mut s);
-    s.spawn_unit(Team::Blue, "TriWizards", at(TAP), Some(LEVEL)).expect("the play is taken");
-    for _ in 0..12 {
-        s.tick();
-    }
-    s.spawn_unit(Team::Blue, "ElectroWizard", at((3500, 9500)), Some(LEVEL)).expect("an Electro Wizard played alone");
-    for _ in 0..3 {
-        s.tick();
-    }
-    let db = s.cards();
-    let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| !db.get(*i).summon_only && db.index(&db.get(*i).name) == Some(*i)).collect();
-    let ids = ids_of_indices(db, &catalogue);
-    let (tri, ew) = (ids[db.index("TriWizards").unwrap() as usize] as i64, ids[db.index("ElectroWizard").unwrap() as usize] as i64);
-    let got = reported_ids(&s);
-    assert_eq!(got.get("IceWizard"), Some(&vec![tri]), "the Ice Wizard of the play: {got:?}");
-    let mut electro = got.get("ElectroWizard").cloned().unwrap_or_default();
-    electro.sort();
-    let mut want = vec![tri, ew];
-    want.sort();
-    assert_eq!(electro, want, "the play's Electro Wizard reads the Tri Wizards, the lone one its own card: {got:?}");
-    assert!(got.iter().filter(|(n, _)| n.as_str() != "ElectroWizard" && n.as_str() != "IceWizard").all(|(_, v)| v.iter().all(|x| *x == tri)), "the TriWizard reads the Tri Wizards: {got:?}");
 }

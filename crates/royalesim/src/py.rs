@@ -964,9 +964,7 @@ pub fn state_json_text(
         let tower_k = ids[ti].iter().position(|t| *t == Some(e.id));
         let (card_id, slot) = match tower_k {
             Some(k) => (-1, slot_of_k[ti][k]),
-            // A deploy area's unit reports the card played (`played_as`: the Tri Wizards' wizards, 82), as every
-            // other card's units report the card played.
-            None => (id_of_idx[e.played_as.unwrap_or(e.card_idx) as usize], -1),
+            None => (id_of_idx[e.card_idx as usize], -1),
         };
         // uid: the entity's spawn ordinal within its team, interleaved by team.
         // Never reused (team counters only grow) and equal for mirror twins up

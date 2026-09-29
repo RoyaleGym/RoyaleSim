@@ -41,6 +41,10 @@ fn n(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * K, p.1 * K)
 }
 
+fn native(v: Vec2) -> (i32, i32) {
+    (v.x / K, v.y / K)
+}
+
 fn dist(a: Vec2, b: Vec2) -> i64 {
     royalesim::fixed::isqrt(a.dist2(b)) / K as i64
 }
