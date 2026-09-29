@@ -1026,6 +1026,8 @@ pub fn fire(
             buff: None,
             pulse: 0,
             firer_card: Some(ents.card[a]),
+            firer: Some(ents.id_of(a)),
+            deflected: false,
             straight: None,
             hook: None,
             bonus: 0,
@@ -1928,7 +1930,8 @@ pub fn step_projectiles(
             // is active also goes back at its firer, for its full damage, from where he stands; the hit on him stands
             // (his buff's DamageReduction cuts it, combat.rs `reduce_hit`). Measured on client 15.535.29: a level-11
             // Musketeer's 217 took 75 off the deflecting Monk and 217 off the Musketeer six ticks later, three shots of
-            // three. A splash shot, and a shot that was itself deflected, go nowhere (unmeasured).
+            // three. A splash shot, and a shot that was itself deflected, go nowhere; a returned shot carries its damage
+            // only, not the shot's buff, area or trail (an Evo Elite Barbarian's spear comes back bare); all unmeasured.
             #[cfg(not(clash_plant = "deflect_returns_nothing"))]
             let returns = !p.deflected && deflecting.contains(&p.target);
             #[cfg(clash_plant = "deflect_returns_nothing")]
@@ -1952,6 +1955,7 @@ pub fn step_projectiles(
                     deflected: true,
                     release: None,
                     enchant: None,
+                    trail: None,
                     bonus: 0,
                     bonus_crown: 0,
                     ..p.clone()
