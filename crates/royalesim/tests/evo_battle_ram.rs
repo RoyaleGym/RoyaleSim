@@ -30,7 +30,7 @@
 mod common;
 
 use common::*;
-use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
@@ -189,7 +189,7 @@ fn the_ram_lives_through_its_hit_recoils_and_charges_on() {
     let st: Vec<i32> = (h + 1..hits[1]).map(|k| {
         let (a, b) = (fr[k - 1].0.unwrap(), fr[k].0.unwrap());
         let (dx, dy) = step(a, b);
-        ((dx as f64).hypot(dy as f64)) as i32
+        isqrt((dx as i64).pow(2) + (dy as i64).pow(2)) as i32
     }).collect();
     // The recoil's ladder, then the charge at once: every step after the ladder's back-step is a charged one.
     // The recoil's ladder (AttackPushBack 2000), its first step on the hit's own frame: from the next frame the recorded

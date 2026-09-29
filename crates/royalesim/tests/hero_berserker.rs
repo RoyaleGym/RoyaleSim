@@ -33,7 +33,7 @@ mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
-use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState, DeployError};
 use royalesim::{EntityId, Team};
 
@@ -126,7 +126,7 @@ fn steps(start: Vec2, fr: &[Frame]) -> Vec<i32> {
             let d = p.sub(prev);
             prev = p;
             let (dx, dy) = ((d.x / K) as i64, (d.y / K) as i64);
-            (((dx * dx + dy * dy) as f64).sqrt()) as i32
+            isqrt(dx * dx + dy * dy) as i32
         })
         .collect()
 }
@@ -280,7 +280,7 @@ fn the_bear_walks_at_a_successor_out_of_its_reach() {
         };
         let d = h.pos.sub(c.pos);
         let (dx, dy) = ((d.x / K) as i64, (d.y / K) as i64);
-        let dist = ((dx * dx + dy * dy) as f64).sqrt() as i32;
+        let dist = isqrt(dx * dx + dy * dy) as i32;
         // A blow: more than the Collector's own decay.
         if col_hp - c.hp > 50 {
             struck.push((k, dist, col_hp - c.hp));

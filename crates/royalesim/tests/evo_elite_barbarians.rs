@@ -30,7 +30,7 @@
 mod common;
 
 use common::*;
-use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
@@ -134,7 +134,7 @@ fn each_member_throws_its_spear_at_the_end_of_its_windup() {
         assert!(still, "member {m} stands through its windup");
         let sp = spears.iter().find(|sp| sp.0 == throw).unwrap();
         let d = sp.1.sub(fr[throw as usize].pos);
-        let gap = ((((d.x / K) as i64).pow(2) + ((d.y / K) as i64).pow(2)) as f64).sqrt() as i32;
+        let gap = isqrt(((d.x / K) as i64).pow(2) + ((d.y / K) as i64).pow(2)) as i32;
         assert!((195..=205).contains(&gap), "member {m}'s spear leaves {gap} from it");
         assert!(!fr[throw as usize].deploying);
         let _ = fr[throw as usize].target;
@@ -160,12 +160,12 @@ fn a_throw_under_way_is_thrown_though_its_target_leaves_the_window() {
             let (mp, mr) = (m.pos, m.radius);
             let d = cp.sub(mp);
             let (dx, dy) = ((d.x / K) as i64, (d.y / K) as i64);
-            let len = (((dx * dx + dy * dy) as f64).sqrt() as i64).max(1);
+            let len = isqrt(dx * dx + dy * dy).max(1);
             let to = 5200 + ((mr + cr) / K) as i64;
             let at = Vec2::new(mp.x + (dx * to / len) as i32 * K, mp.y + (dy * to / len) as i32 * K);
             assert!(s.debug_set_pos(cid, at));
             let e = at.sub(mp);
-            let centre = ((((e.x / K) as i64).pow(2) + ((e.y / K) as i64).pow(2)) as f64).sqrt() as i32;
+            let centre = isqrt(((e.x / K) as i64).pow(2) + ((e.y / K) as i64).pow(2)) as i32;
             gap_after = Some(centre - (mr + cr) / K);
         }
     });
@@ -189,7 +189,7 @@ fn the_thrower_walks_raged_from_11_frames_after_its_throw() {
     let step = |k: usize| {
         let d = fr[k].pos.sub(fr[k - 1].pos);
         let (dx, dy) = ((d.x / K) as i64, (d.y / K) as i64);
-        (((dx * dx + dy * dy) as f64).sqrt()) as i32
+        isqrt(dx * dx + dy * dy) as i32
     };
     let steps: Vec<i32> = (throw + 1..throw + 16).map(step).collect();
     // Unraged 89-90 through throw + 10, raged 115-117 from throw + 11.
