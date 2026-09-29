@@ -81,7 +81,10 @@ fn scene(arm: SamepathSegment, cannon: bool) -> Vec<Vec<Row>> {
 
 /// (Barbarian, row index, segment before, segment after, the start-of-tick refreeze) for every hold that changed the
 /// segment: the route the same after the tick as before it, the segment not.
-fn restarts(rows: &[Vec<Row>]) -> Vec<(usize, usize, (i32, i32), (i32, i32), (i32, i32))> {
+/// One restart `restarts` reads (Barbarian, row index, segment before, segment after, the start-of-tick refreeze).
+type Restart = (usize, usize, (i32, i32), (i32, i32), (i32, i32));
+
+fn restarts(rows: &[Vec<Row>]) -> Vec<Restart> {
     let mut out = Vec::new();
     for (n, one) in rows.iter().enumerate() {
         for (k, pair) in one.windows(2).enumerate() {

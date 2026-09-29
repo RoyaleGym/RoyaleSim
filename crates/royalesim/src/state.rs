@@ -11849,6 +11849,7 @@ impl BattleState {
     ///     (DashCount), the chain ends on H + 2 and he melees from H + 3 (gk1: the Giant hit t169, still t170, walking
     ///     state t171, attacking t172; gk2: the Giant hit t185, t186 still, the Knight taken t187, dashes t188-189);
     ///   - a target gone mid-dash ends that dash as a landing with no blow (unmeasured).
+    ///
     /// At the chain's end his charge's recharge starts: combat.DASH_CHAIN_COOLDOWN from that tick (the length and its
     /// start unmeasured). A champion gone ends his chain.
     fn chain_pass(&mut self) {

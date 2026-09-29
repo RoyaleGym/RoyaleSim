@@ -9,6 +9,7 @@
 //!     after 250: the tick moves 250);
 //!   - after a blow he stands one tick, takes the closest ground character NOT YET HIT within 5,500 on the next and
 //!     dashes from the one after; with none the chain ends that tick, and he attacks from the next.
+//!
 //! The button: available and charged from his first frame, the press takes the one charge, and a press while it is
 //! out is refused (AbilityNotReady); whether and when it comes back is combat.DASH_CHAIN_COOLDOWN's open question.
 //!
@@ -39,10 +40,6 @@ const DECK: [&str; 8] = ["GoldenKnight", "Knight", "Archers", "Musketeer", "Fire
 
 fn n(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * K, p.1 * K)
-}
-
-fn native(v: Vec2) -> (i32, i32) {
-    (v.x / K, v.y / K)
 }
 
 fn dist(a: Vec2, b: Vec2) -> i64 {
