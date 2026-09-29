@@ -3014,7 +3014,7 @@ def champion_dash_chain(t, unit: str) -> dict | None:
     got = _group_leaves(acts, on) if isinstance(on, str) else None
     if got is None:
         return None
-    subs, delays = got
+    subs, _delays = got
     first = acts.get(subs[0]) if subs else None
     if first is None or first["ClassType"] != "ActionRunActionListOnObjectsInShapeWithPrio":
         return None
