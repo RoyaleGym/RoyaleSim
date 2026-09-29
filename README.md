@@ -513,10 +513,9 @@ Working:
   tests say so; the rest are named constants.
 - The Golden Knight's button, at `5f75824`. A press sends him dashing from one enemy to the next.
   A side has at most three buttons: its heroes' first, then its champion's. The champion's charge
-  comes back 11 seconds after his dashes end, a figure not measured yet. The other champions play
-  as plain troops. A known defect: a press with no enemy on the ground within 5.5 tiles stops him
-  targeting anything until one comes that close, so against towers alone he never attacks again
-  (docs/mechanics.md, Known defects).
+  comes back 11 seconds after his dashes end, a figure not measured yet. Pressed with no enemy
+  near, he runs at his target at twice his speed and dashes when it is in reach, as in the game.
+  The other champions play as plain troops.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
