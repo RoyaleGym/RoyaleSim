@@ -653,6 +653,10 @@ pub struct Calib {
     /// was added.
     #[serde(default = "dash_chain_cooldown_default")]
     pub dash_chain_cooldown_ms: Option<i32>,
+    /// combat.DASH_CHAIN_END: what a champion's target is when its dash chain ends (`chain_pass`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "dash_chain_end_default")]
+    pub dash_chain_end: DashChainEnd,
     /// status.DAMAGE_REDUCTION (combat.rs `reduce_hit`): how a hit on a unit carrying a DamageReduction buff is
     /// scaled. status.IDLE_BUFF (`idle_buff_pass`, combat.rs `damage_reduction_of`): whether a BuffWhenNotAttacking
     /// that is not an invisibility runs. Added after SNAPSHOT_FORMAT 20; each `default` is the old arm, not_read,
@@ -1729,6 +1733,10 @@ fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
 
 fn waited_press_cast_default() -> WaitedPressCast {
     WaitedPressCast::StatusStart
+}
+
+fn dash_chain_end_default() -> DashChainEnd {
+    DashChainEnd::KeepLastTarget
 }
 
 fn dash_chain_cooldown_default() -> Option<i32> {
@@ -3181,6 +3189,19 @@ calib_enum!(
         /// the launch + 10 with 550 for the Firecracker), so launches are 79 ticks apart instead
         /// of 80, and 59 instead of 60.
         LadderAwayFromTarget = "ladder_away_from_target",
+    }
+);
+calib_enum!(
+    /// combat.DASH_CHAIN_END -- a champion's target when its dash chain ends (`chain_pass`: on H + 2 after its last
+    /// blow, with no target left to take or no dash left).
+    DashChainEnd {
+        /// The engine before this key: he keeps the last target he dashed at, and attacks it from H + 3.
+        KeepLastTarget = "keep_last_target",
+        /// Measured on client 15.535.29 (item 53's correction, the Golden Knight's gk1, gk2 and gk3): he holds NO
+        /// target on H + 2 and H + 3 and takes one by the ordinary rule on H + 4 -- the nearest enemy, which in gk2 and
+        /// gk3 is the Giant at 1,566, not the Knight he last hit at 2,504. Run through the post-kill wait's counter
+        /// (entity.rs `retarget_wait`), so it needs combat.POST_KILL_WAIT's counting arms (`Calib::validate`).
+        ClientNoTargetTwoTicks = "client15535_no_target_two_ticks",
     }
 );
 calib_enum!(
@@ -5709,6 +5730,7 @@ impl Calib {
             ability_unit_first_update: pick(&v, &["spawner", "ABILITY_UNIT_FIRST_UPDATE", "value"], AbilityUnitFirstUpdate::from_calibration_name)?,
             waited_press_cast: pick(&v, &["status", "WAITED_PRESS_CAST", "value"], WaitedPressCast::from_calibration_name)?,
             dash_chain_cooldown_ms: dash_chain_cooldown(&v)?,
+            dash_chain_end: pick(&v, &["combat", "DASH_CHAIN_END", "value"], DashChainEnd::from_calibration_name)?,
             damage_reduction: pick(&v, &["status", "DAMAGE_REDUCTION", "value"], DamageReductionLaw::from_calibration_name)?,
             idle_buff: pick(&v, &["status", "IDLE_BUFF", "value"], IdleBuffLaw::from_calibration_name)?,
             invisibility: pick(&v, &["targeting", "INVISIBILITY", "value"], Invisibility::from_calibration_name)?,
@@ -6018,6 +6040,9 @@ impl Calib {
         // the caster, where the client pushes it forward.
         if (c.roll_first_step == RollFirstStep::HitOnLandingTickStepAfter) != (c.knock_direction_rolling == RollDirection::RadialFromTickEndCentre) {
             return Err("spells.ROLL_FIRST_STEP = client15535_hit_on_landing_tick_step_after and knockback.DIRECTION_ROLLING = client15535_radial_from_tick_end_centre run only together".into());
+        }
+        if c.dash_chain_end == DashChainEnd::ClientNoTargetTwoTicks && c.post_kill_wait == PostKillWait::None {
+            return Err("combat.DASH_CHAIN_END = client15535_no_target_two_ticks runs through the post-kill wait's counter, which combat.POST_KILL_WAIT = none does not run".into());
         }
         if c.attack_pushback == AttackPushback::LadderAwayFromTarget && c.knock_law != KnockLaw::Client16402 {
             return Err("knockback.ATTACK_PUSHBACK = ladder_away_from_target has no engine implementation under knockback.DISPLACEMENT_LAW other than client16402".into());
@@ -11975,6 +12000,23 @@ impl BattleState {
             }
         }
         runs.retain(|c| !ended.contains(&c.id));
+        // combat.DASH_CHAIN_END = client15535_no_target_two_ticks: the chain's end drops the target, and the post-kill
+        // wait's counter holds the champion with none through the next Target phase (H + 3); the one after (H + 4)
+        // takes the ordinary decision. Under keep_last_target he keeps the last dash target and attacks it.
+        #[cfg(not(clash_plant = "chain_end_keeps_target"))]
+        let drop = self.cfg.calib.dash_chain_end == DashChainEnd::ClientNoTargetTwoTicks;
+        #[cfg(clash_plant = "chain_end_keeps_target")]
+        let drop = false; // PLANT (regression): the new arm keeps the last dash target.
+        if drop {
+            for id in &ended {
+                if self.ents.is_alive(*id) {
+                    let i = id.index as usize;
+                    self.ents.target[i] = None;
+                    self.ents.target_locked[i] = false;
+                    self.ents.retarget_wait[i] = 2;
+                }
+            }
+        }
         if let Some(cooldown) = cooldown {
             for id in ended {
                 if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == id) {
@@ -20457,6 +20499,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
     sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
     sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
+    // combat.DASH_CHAIN_END: a format-3 battle ran no champion; the same rule.
+    sh.insert("dash_chain_end".into(), serde_json::to_value(DashChainEnd::KeepLastTarget).map_err(|e| e.to_string())?);
     // combat.ATTACK_COMBO and knockback.COMBO_PUSHBACK: a format-3 battle ran no combo; it keeps the old arms whatever
     // the ledger ships (the same rule).
     sh.insert("attack_combo".into(), serde_json::to_value(AttackCombo::NotRead).map_err(|e| e.to_string())?);

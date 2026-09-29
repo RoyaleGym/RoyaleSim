@@ -19,19 +19,22 @@
 //!   2. one tick standing, the chain's end, and his attack from the tick after;
 //!   3. the chain takes the next closest ground character not yet hit, and never the Giant again;
 //!   4. the button: charged from his first frame, the press takes it, a press while it is out is AbilityNotReady, it
-//!      comes back combat.DASH_CHAIN_COOLDOWN after the chain's end, and never under "none".
+//!      comes back combat.DASH_CHAIN_COOLDOWN after the chain's end, and never under "none";
+//!   5. combat.DASH_CHAIN_END = client15535_no_target_two_ticks: at the chain's end (H + 2) he holds no target, on
+//!      H + 3 still none, and on H + 4 he takes one by the ordinary rule; keep_last_target keeps the Knight.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test golden_knight`):
 //!   chain_whole_step    one range test a tick, after the whole JumpSpeed: (1) goes red.
 //!   chain_blow_unscaled the blow at DashDamage's level-1 figure: (1) goes red.
 //!   chain_retakes_hit   the chain takes a target it hit again: (3) goes red.
+//!   chain_end_keeps_target the measured end keeps the last dash target: (5) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DeployError};
+use royalesim::state::{BattleConfig, BattleState, DashChainEnd, DeployError};
 use royalesim::{EntityId, Team};
 
 const GK_AT: (i32, i32) = (3500, 9000);
@@ -58,7 +61,12 @@ fn cfg_with(cooldown: Option<i32>) -> BattleConfig {
 /// The scene: the Golden Knight deployed, Red's `reds` put down deploying, the press issued. Returns the battle, his id
 /// and theirs.
 fn scene(cooldown: Option<i32>, reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<EntityId>) {
-    let mut s = BattleState::try_new(0, cfg_with(cooldown)).expect("the decks load");
+    scene_in(cfg_with(cooldown), reds)
+}
+
+/// `scene` under a config of the caller's.
+fn scene_in(cfg: BattleConfig, reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<EntityId>) {
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     s.scenario_set_tower_hp(Team::Blue, 1, 0).unwrap();
@@ -196,4 +204,24 @@ fn the_charge_comes_back_the_cooldown_after_the_chain_ends_and_never_under_none(
     assert!(ended > 0, "the button never read a cooldown");
     assert!((19..=21).contains(&(back - ended)), "back about 20 ticks (1000 ms) after the chain's end: ended {ended}, back {back}");
     assert_eq!(recharge(None, 400).0, None, "under none the charge never comes back");
+}
+
+#[test]
+fn under_the_measured_end_he_holds_no_target_for_two_ticks_then_takes_one_by_the_ordinary_rule() {
+    let reds = [("Giant", GIANT_AT), ("Knight", (5500, 14500))];
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_end = DashChainEnd::ClientNoTargetTwoTicks;
+    let (mut s, gk, ids) = scene_in(cfg, &reds);
+    let knight_hp = s.entity(ids[1]).unwrap().hp;
+    let rows = run(&mut s, gk, &ids, 30);
+    let h2 = rows.iter().position(|r| r.hp[1] < knight_hp).expect("the Knight was hit");
+    assert_eq!(rows[h2 + 1].target, Some(ids[1]), "H + 1: the chain still runs on the Knight");
+    assert_eq!((rows[h2 + 2].target, rows[h2 + 3].target), (None, None), "H + 2 and H + 3: no target");
+    assert!(rows[h2 + 4].target.is_some(), "H + 4: a target by the ordinary rule");
+    assert_eq!(rows[h2 + 3].phase, AttackPhase::Idle, "H + 3: no attack without a target");
+    // keep_last_target: the chain ends on the Knight and he keeps it.
+    let (mut s, gk, ids) = scene(Some(11_000), &reds);
+    let rows = run(&mut s, gk, &ids, 30);
+    let h2 = rows.iter().position(|r| r.hp[1] < knight_hp).expect("the Knight was hit");
+    assert_eq!((rows[h2 + 2].target, rows[h2 + 3].target), (Some(ids[1]), Some(ids[1])), "keep_last_target keeps the Knight");
 }

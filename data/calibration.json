@@ -1524,6 +1524,17 @@
       "promotion_rules": "The test file (crates/royalesim/tests/hook_landing.rs) passes. Switch on when parity's score is positive (replay_parity --calibration-override combat.HOOK_LANDING=\"client_hook_point\", every other key at its shipped value). Registered prediction: every Fisherman drag in the scenes and in 20260920-081819 lands on the client's point and runs its 510 steps on the client's ticks.",
       "engine": "combat.rs step_projectiles (a landed hook carries its start-of-tick point, EffectBuffer::hooks) and state.rs apply_effects (the victim set onto it). Plant hook_lands_on_victim. Test: crates/royalesim/tests/hook_landing.rs."
     },
+    "DASH_CHAIN_END": {
+      "value": "keep_last_target",
+      "candidates": ["keep_last_target", "client15535_no_target_two_ticks"],
+      "status": "hypothesis",
+      "confidence": "LOW for the shipped arm keep_last_target, which is today's engine: at the chain's end the Golden Knight keeps the last target he dashed at and attacks it from the next tick. MEDIUM for client15535_no_target_two_ticks: three measured chain ends fit it, two of them where the nearest enemy was not the one he last hit.",
+      "provenance": "MEASURED on client 15.535.29 (the Golden Knight scenes gk1, gk2 and gk3): after the chain's last blow on H he stands on H + 1, and on H + 2 and H + 3 his target pointer names nothing; on H + 4 he takes a target by the ordinary rule, the nearest enemy. In gk2 and gk3 that is the Giant at 1,566, not the Knight he had just hit at 2,504. Under keep_last_target the engine melees the Knight, which costs 99 unit-ticks within 250 in gk2 and in gk3. Not yet scored against the recordings.",
+      "meaning": "client15535_no_target_two_ticks: when a champion's dash chain ends (H + 2 after the last blow, with no target left to take or no dash left), it drops its target and holds with none through the next Target phase; the one after takes the ordinary decision. It runs through the post-kill wait's counter. keep_last_target: it keeps the last target it dashed at and attacks it from H + 3.",
+      "open": "Whether the two ticks are the post-kill wait itself (the counter the engine borrows) or a chain rule of their own; a chain that ends on a target already dead; the other champions' chains (the Golden Knight's is the only one the engine runs).",
+      "promotion_rules": "The test file (crates/royalesim/tests/golden_knight.rs) passes. Then score with this arm switched on alone; the registered prediction: only scenes with a pressed Golden Knight move, gk2, gk3 and the champion scene up.",
+      "engine": "state.rs chain_pass (the chain's end), phase_target (the post-kill wait's counter)"
+    },
     "DASH_CHAIN_COOLDOWN": {
       "value": 11000,
       "candidates": [11000],
