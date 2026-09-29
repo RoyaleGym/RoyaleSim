@@ -740,6 +740,7 @@ pub const UNIT_ROLES: [&str; 5] = ["own", "second_summon", "spawn", "death_spawn
 ///   * spawn: a periodic spawner's, a life-state controller's wave, the building a tunneller leaves;
 ///   * death_spawn: a death spawn, a death projectile's release, a death area's schedule, a hung buff's death spawn;
 ///   * release: a spell's release or summon, a spell's or a shot's scheduled area.
+///
 /// A unit reached twice at one level by one role is listed once (a Tombstone's Skeleton is a spawn and a death spawn:
 /// two rows). Not listed: a death bomb (a timed impact, never a unit on the board; a container's units are), a
 /// transformation's row (the unit keeps its own hitpoints when it turns), and a hung buff's death spawn under

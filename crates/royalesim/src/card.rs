@@ -5113,6 +5113,10 @@ fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut 
     area_effect_shape(aeo, buffs, ctx)
 }
 
+/// What `convert_deploy_spawn_area` reads: the area's shape, the card's needs, and the area each DeployArea entry makes
+/// as (entry, area name).
+type DeploySpawnArea = (SpellShape, UnitNeeds, Vec<(u8, String)>);
+
 /// THE AREA A CARD IS WHEN THE AREA PUTS THE CARD'S UNITS DOWN ITSELF (cards.json `deploy_spawn_area`;
 /// `CardDef::deploy_spawn_area`): the Tri Wizards' TriWizardSpawn -- LifeDuration 500, no hit; SpawnCharacter TriWizard
 /// every SpawnInterval 300 with SpawnTime 100; an OnStartingAction group of two ActionSpawnToLocation entries,
@@ -5132,9 +5136,9 @@ fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut 
 /// is its schedule, every action entry an ActionSpawnToLocation of an AreaEffectType with nothing unread, due inside
 /// the life, at a RelativeX with no RelativeY; and it has at most MAX_SCHEDULED_SPAWNS entries in all. cards.json does
 /// not carry the area's SpawnMinRadius, SpawnMaxRadius or SpawnAngleShift; the TriWizardSpawn row leaves all three blank.
-fn convert_deploy_spawn_area(aeo: &RawAreaEffect, own_unit: &str, own_idx: u16, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds, Vec<(u8, String)>), String> {
+fn convert_deploy_spawn_area(aeo: &RawAreaEffect, own_unit: &str, own_idx: u16, ctx: &LoadCtx) -> Result<DeploySpawnArea, String> {
     let what = aeo.name.clone().unwrap_or_default();
-    let refuse = |why: String| -> Result<(SpellShape, UnitNeeds, Vec<(u8, String)>), String> { Err(format!("area effect {what}: {why}; not simulated")) };
+    let refuse = |why: String| -> Result<DeploySpawnArea, String> { Err(format!("area effect {what}: {why}; not simulated")) };
     let lands = aeo.hits_ground.unwrap_or(false)
         || aeo.hits_air.unwrap_or(false)
         || aeo.damage.is_some()

@@ -13,6 +13,7 @@
 //!   - the Electro Wizard, 714 hp, at (7000, 11500), and the Ice Wizard, 688 hp, at (12000, 11500), both first on C + 7,
 //!     leaving their deploy on C + 27;
 //!   - nothing of the card before C + 5.
+//!
 //! The TriWizard stood at (9500, 11527), (0, +27) from the tap, an offset no column of the area names; the engine stands
 //! it on the play's point.
 //!
@@ -74,7 +75,10 @@ fn play(cfg: BattleConfig, team: Team, tap: (i32, i32)) -> Seen {
     seen
 }
 
-fn want(rows: &[(&str, u32, (i32, i32), i32, u32)]) -> Seen {
+/// One expected unit: (card name, first frame, first point, max hp, first frame out of deploy).
+type Want<'a> = (&'a str, u32, (i32, i32), i32, u32);
+
+fn want(rows: &[Want]) -> Seen {
     rows.iter().map(|(n, f, p, hp, d)| (n.to_string(), (*f, *p, *hp, Some(*d)))).collect()
 }
 
