@@ -2196,6 +2196,12 @@ pub fn resolve(
         if riders_immune && ents.attached(h.target.index as usize) {
             continue;
         }
+        // NO_DAMAGE (card.rs `CardDef::no_damage`, the Evo Skeleton Army's Spectral): no hit lands on it. Measured on client
+        // 15.535.29 (sp-esa-spectrals-s0): two Spectrals 1025 and 1319 from a Zap's centre kept their 2 hp.
+        #[cfg(not(clash_plant = "spectral_takes_damage"))]
+        if cards.get(ents.card[h.target.index as usize]).no_damage {
+            continue;
+        }
         // status.DAMAGE_REDUCTION: each hit is scaled on its own, before the tick's sum meets the shield.
         let r = damage_reduction_of(ents, cards, calib, tick, h.target.index as usize);
         sums[h.target.index as usize] += landed(&h, r, calib.damage_reduction) as i64;

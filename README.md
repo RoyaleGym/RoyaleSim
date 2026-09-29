@@ -506,9 +506,9 @@ Working:
   and the Mirror included.
   A clone reads the same 144-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
-- Evolved and hero forms for thirteen special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
+- Evolved and hero forms for fourteen special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
   Elite Barbarians, Evo Zap, Evo Battle Ram, Evo Inferno Dragon, Evo Baby Dragon, Evo Royal Ghost,
-  Hero Musketeer, Hero Ice Golem, Hero Berserker and Hero Balloon. `reset(..., forms=...)` marks
+  Evo Skeleton Army, Hero Musketeer, Hero Ice Golem, Hero Berserker and Hero Balloon. `reset(..., forms=...)` marks
   a deck's card 1 for its evolution or 2 for its hero. Counting each card's own plays, an evolved
   card plays its evolution after its cycle of basic plays: two for most, one for the Elite
   Barbarians. A hero's ability is a button: a command on slot 4, 5 or 6, just past the

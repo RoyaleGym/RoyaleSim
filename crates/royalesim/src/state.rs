@@ -6538,6 +6538,27 @@ pub struct EvoBoard {
     /// not empty.
     #[serde(default)]
     pub winds: Vec<WindState>,
+    /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
+    /// still loads; hashed only when not empty.
+    #[serde(default)]
+    pub armies: Vec<ArmyMember>,
+}
+
+/// ONE UNIT OF AN EVO SKELETON ARMY'S PLAY (card.rs `ArmyDef`): the unit, its group (one a play, `evo_created`) and its
+/// role.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ArmyMember {
+    pub id: EntityId,
+    pub group: u32,
+    pub role: ArmyRole,
+}
+
+/// What an army unit is: a soldier (the form's own row), the General, or a Spectral a dead soldier left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ArmyRole {
+    Soldier,
+    General,
+    Spectral,
 }
 
 /// AN EVO BABY DRAGON'S WIND (card.rs `WindDef`; `wind_pass`): its dragon, side and card, the dragon's point (where it
@@ -6576,6 +6597,7 @@ impl EvoBoard {
             && self.rages.is_empty()
             && self.stages.is_empty()
             && self.winds.is_empty()
+            && self.armies.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -6730,6 +6752,10 @@ pub enum ChainPhase {
 /// client 15.535.29 (item 53): the Golden Knight's 400 as 250 and then 150; a hit on the Giant after the first 250 (5 of
 /// 5), on a Knight after 250 + 148 (2 of 2).
 pub const CHAIN_SUB_STEP: i32 = 250;
+
+/// A Spectral the Evo Skeleton Army's deaths leave (`army_deaths`, `army_spectrals`): its side, its card, its level, its
+/// point and its group.
+type SpectralToMake = (Team, u16, i32, Vec2, u32);
 
 /// ONE ABILITY BUTTON as a side sees it (`BattleState::ability_buttons`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -8620,6 +8646,15 @@ impl BattleState {
         // An Evo Battle Ram starts uncharged: its push switches on with its first charge (`ram_pass`).
         if evo.ram.is_some() {
             self.evo.rams.push(RamState { id, armed_at: None, struck: Vec::new(), recoil: false });
+        }
+        // AN EVO SKELETON ARMY'S SOLDIER OR GENERAL joins its play's group, the one this phase gave its side.
+        if let Some(a) = evo.army {
+            let g = *groups[team as usize].get_or_insert_with(|| {
+                self.evo.next_group += 1;
+                self.evo.next_group
+            });
+            let role = if card == a.general.unit { ArmyRole::General } else { ArmyRole::Soldier };
+            self.evo.armies.push(ArmyMember { id, group: g, role });
         }
     }
 
@@ -17700,6 +17735,9 @@ impl BattleState {
                 }
             }
         }
+        // THE EVO SKELETON ARMY (`army_deaths`): the Spectrals this tick's dead soldiers leave, and the Spectrals a dead
+        // General takes with it, decided before the dead go.
+        let (deaths, spectrals) = if self.evo.armies.is_empty() { (deaths, Vec::new()) } else { self.army_deaths(deaths) };
         for id in deaths {
             self.ents.despawn(id);
         }
@@ -17715,7 +17753,82 @@ impl BattleState {
         if !self.scratch.evo_copies.is_empty() || !self.evo.is_empty() {
             self.evo_copies();
         }
+        // THE SPECTRALS this tick's dead soldiers left, after the copies (`army_deaths`).
+        if !spectrals.is_empty() {
+            self.army_spectrals(spectrals);
+        }
         self.hash.rebuild(&self.ents);
+    }
+
+    /// THE EVO SKELETON ARMY'S DEATHS (card.rs `ArmyDef`), on this tick's dead `deaths` before they are despawned:
+    ///   - a soldier (or a Spectral) of a group whose General lives and is not among the dead leaves a Spectral where it
+    ///     died, made after the despawn (`army_spectrals`);
+    ///   - a General among the dead takes every living Spectral of its group with it, this tick: they join the dead.
+    ///
+    /// Returns the dead to despawn and the Spectrals to make (`SpectralToMake`).
+    ///
+    /// Measured on client 15.535.29 (sp-form-SkeletonArmy-evo-s0, sp-esa-spectrals-s0; level 11): each soldier death
+    /// before the General's left one Spectral (hp 2) whose first frame is the frame the soldier is first gone, near its
+    /// last point; the General's death took all 15 and all 14 living Spectrals on its own frame; soldiers dying after it
+    /// left none. Unmeasured: the exact point (offsets of 14 to 37 past the soldier's own last step, the crowd's), and a
+    /// Spectral's own death while its General lives (nothing but the General's death ever took one).
+    fn army_deaths(&mut self, mut deaths: Vec<EntityId>) -> (Vec<EntityId>, Vec<SpectralToMake>) {
+        let mut make = Vec::new();
+        let armies = self.evo.armies.clone();
+        let lives = |g: u32, deaths: &[EntityId], ents: &crate::entity::Entities| {
+            armies.iter().any(|m| m.group == g && m.role == ArmyRole::General && ents.is_alive(m.id) && !deaths.contains(&m.id))
+        };
+        for m in armies.iter().filter(|m| m.role != ArmyRole::General && deaths.contains(&m.id)) {
+            #[cfg(clash_plant = "army_spectral_never")]
+            let _ = m;
+            #[cfg(clash_plant = "army_spectral_never")]
+            continue; // PLANT (regression): a dead soldier leaves nothing.
+            #[cfg(not(clash_plant = "army_spectral_never"))]
+            {
+                let i = m.id.index as usize;
+                if !self.ents.alive[i] || !lives(m.group, &deaths, &self.ents) {
+                    continue;
+                }
+                if let Some(a) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.army) {
+                    make.push((self.ents.team[i], a.spectral.unit, self.ents.level[i], self.ents.pos[i], m.group));
+                }
+            }
+        }
+        let fallen: Vec<u32> = armies.iter().filter(|m| m.role == ArmyRole::General && deaths.contains(&m.id)).map(|m| m.group).collect();
+        #[cfg(clash_plant = "army_spectrals_outlive_general")]
+        let fallen: Vec<u32> = {
+            let _ = fallen;
+            Vec::new() // PLANT (regression): the General's death takes nothing with it.
+        };
+        for m in armies.iter().filter(|m| m.role == ArmyRole::Spectral && fallen.contains(&m.group)) {
+            if self.ents.is_alive(m.id) && !deaths.contains(&m.id) {
+                deaths.push(m.id);
+            }
+        }
+        self.evo.armies.retain(|m| !deaths.contains(&m.id));
+        (deaths, make)
+    }
+
+    /// THE SPECTRALS `army_deaths` decided, made at the end of Reap where their soldiers died, deployed (the row's
+    /// ActionSpawnToLocation puts the unit down with no deploy: measured, a Spectral walks on its first frame), each in
+    /// its soldier's group.
+    fn army_spectrals(&mut self, make: Vec<SpectralToMake>) {
+        for (team, card, level, pos, group) in make {
+            let Ok(id) = self.spawn_now(team, card, level, pos, EntityKind::Troop) else { continue };
+            let j = id.index as usize;
+            self.ents.deploy_ms[j] = 0;
+            self.on_deployed(j);
+            // Its Invisible buff, for good (card.rs `ArmyDef::spectral_buff`): nothing targets it from its first frame.
+            #[cfg(not(clash_plant = "spectral_visible"))]
+            if let Some(a) = self.cfg.cards.get(card).evo.as_ref().and_then(|v| v.army) {
+                let h = crate::status::BuffHit::plain(id, a.spectral_buff.buff, a.spectral_buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
+            }
+            self.evo.armies.push(ArmyMember { id, group, role: ArmyRole::Spectral });
+        }
+        self.hash.rebuild(&self.ents);
+        let ents = &self.ents;
+        self.evo.armies.retain(|m| ents.is_alive(m.id));
     }
 
     fn phase_judge(&mut self) {
@@ -18046,6 +18159,19 @@ impl BattleState {
         }
         for m in self.formation_members_with(team, idx, level, pos, observed) {
             self.spawn_queue.push(m);
+        }
+        // THE EVO SKELETON ARMY'S GENERAL (card.rs `ArmyDef`), after the soldiers: at its explicit offset from the play's
+        // point, in the owner's frame and negated as the Three Musketeers' members are (formation.EXPLICIT_OFFSETS_FRAME).
+        // Measured on client 15.535.29 (sp-form-SkeletonArmy-evo-s0, side 0): the tap (9500, 11500), the General at
+        // (9500, 10500) on the play's first frame, created after the 15 soldiers. Unmeasured: the ring's clamps (the
+        // ground point, the column's y range, the water) on the General's point; none is taken.
+        #[cfg(not(clash_plant = "army_general_dropped"))]
+        if let Some(a) = self.cfg.cards.get(idx).evo.as_ref().and_then(|v| v.army) {
+            use crate::fixed::SUBTILE_PER_MILLITILE as K;
+            let own = self.cfg.arena.to_frame(team, pos);
+            let at = self.cfg.arena.from_frame(team, Vec2::new(own.x - a.general_offset_x * K, own.y - a.general_offset_y * K));
+            let lvl = self.cfg.cards.unit_level(idx, a.general.unit, None, level).expect("the General's level is validated at try_new");
+            self.spawn_queue.push(PendingSpawn { team, card: a.general.unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
         }
     }
 
@@ -20871,6 +20997,16 @@ impl BattleState {
                 for (id, ms) in &b.spears {
                     h.id(*id);
                     h.i32(*ms);
+                }
+            }
+            // The Evo Skeleton Armies' units, only when there are some.
+            if !b.armies.is_empty() {
+                h.u32(0x4152_4d59);
+                h.u32(b.armies.len() as u32);
+                for m in &b.armies {
+                    h.id(m.id);
+                    h.u32(m.group);
+                    h.u32(m.role as u32);
                 }
             }
             // The Evo Baby Dragons' winds, only when there are some.

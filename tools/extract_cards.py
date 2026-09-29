@@ -3643,7 +3643,7 @@ def globals_block(v: Vintage) -> dict:
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
-    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1",
+    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1",
 )
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
@@ -4189,6 +4189,79 @@ def ghost_block(t: Tables, card: dict) -> dict:
     }
 
 
+def army_block(t: Tables, card: dict, s: dict) -> dict:
+    """SkeletonArmy_EV1's General and Spectrals (characters/skeleton_army_ev1.toml, spells_evolved.toml), read whole or
+    the build stops:
+      - the play's SummonCharactersList: ONE General (`general`), at SummonCharactersOffsetsX / Y (`general_offset_*`,
+        millitiles, the owner's frame as the Three Musketeers' members), beside the row's own soldiers;
+      - each soldier's OnDeathAction: while its group holds the General (ActionRunActionIfUnitGroupContains over a
+        filter naming the General alone) one `spectral` where it died (ActionSpawnToLocation, AddToSourceGroup); else
+        an effect;
+      - the General's OnDeathAction: every Spectral of its group killed (ActionRunOnMatchingUnitsInGroup over a
+        filter naming the Spectral alone, ActionKill);
+      - the Spectral: a soldier row with NO_DAMAGE (it takes none) whose OnStartingAction hangs an Invisible buff for
+        good (SpawnTime 999999) beside an effect; its own OnDeathAction is the soldier's."""
+    unit = card["summon_character"]
+    acts = t["actions"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"{unit}: {what}")
+
+    # The play's list lives in csv_logic/spells_evolved.toml's flat [SkeletonArmy_EV1] section, which the table loader
+    # does not lay over the csv: read here, every key pinned or read.
+    sec = tomllib.load((t.vintage.raw / "spells_evolved.toml").open("rb")).get(s["Name"]) or {}
+    need(set(sec) <= {"SummonCharactersList", "SummonCharactersOffsetsX", "SummonCharactersOffsetsY", "Stats"},
+         f"spells_evolved.toml [{s['Name']}] sets {sorted(sec)}")
+    lst = sec.get("SummonCharactersList")
+    xs, ys = sec.get("SummonCharactersOffsetsX"), sec.get("SummonCharactersOffsetsY")
+    need(isinstance(lst, list) and len(lst) == 1 and xs is not None and ys is not None and len(xs) == len(ys) == 1
+         and all(isinstance(v, int) for v in [*xs, *ys]), f"the play's summon list {lst} {xs} {ys}")
+    members = [{"character": lst[0], "offset_x_milli": xs[0], "offset_y_milli": ys[0]}]
+    general = members[0]["character"]
+
+    def names(filt: str) -> list:
+        f = t.filters.get(filt) or {}
+        need(f.get("MatchTeamOwn") is True and f.get("MatchTeamEnemy") is False
+             and f.get("MatchTypeCharacters") is True, f"filter {filt} {f}")
+        return list(f.get("IncludeCharactersWithData") or [])
+
+    _, srow = unit_record(t, unit)
+    check = acts.get(srow["OnDeathAction"] or "")
+    need(check is not None and check["ClassType"] == "ActionRunActionIfUnitGroupContains"
+         and names(check["ObjectFilter"]) == [general] and _cosmetic_action(acts, check["ActionIfNoMatch"]),
+         "the soldier's death does not check its group for the General")
+    keys = {"ClassType", "SpawnType", "SpawnData", "AddToSourceGroup"}
+    spawn = _one_action(acts, check["Action"], "ActionSpawnToLocation", keys)
+    need(spawn["SpawnType"] == "CharacterType" and spawn["AddToSourceGroup"] is True, "the soldier's death spawn")
+    spectral = spawn["SpawnData"]
+    _, grow = unit_record(t, general)
+    kill = _one_action(acts, grow["OnDeathAction"], "ActionRunOnMatchingUnitsInGroup",
+                       {"ClassType", "ObjectFilter", "ActionToRun"})
+    need(names(kill["ObjectFilter"]) == [spectral], "the General's death does not name the Spectral")
+    _one_action(acts, kill["ActionToRun"], "ActionKill", {"ClassType"})
+    _, prow = unit_record(t, spectral)
+    need(prow["GameTagsToSet"] == "NO_DAMAGE" and prow["OnDeathAction"] == srow["OnDeathAction"],
+         "the Spectral is not a NO_DAMAGE soldier")
+    subs = group_subactions(t, prow["OnStartingAction"], f"{spectral} start")
+    buffs = [acts.get(n) for n, d in subs if (acts.get(n) or {}).get("ClassType") == "ActionSpawn"]
+    need(len(subs) == 2 and all(d == 0 for _, d in subs) and len(buffs) == 1
+         and all(_cosmetic_action(acts, n) for n, _ in subs if acts.get(n)["ClassType"] != "ActionSpawn"),
+         f"the Spectral's start {subs}")
+    b = buffs[0]
+    brow = t["character_buffs"].get(b["SpawnData"] or "")
+    need(b["SpawnType"] == "BuffType" and b["SpawnTime"] == 999999 and brow is not None and flag(brow, "Invisible"),
+         "the Spectral's start does not hang an Invisible buff for good")
+    return {
+        "general": general,
+        "general_offset_x_milli": members[0]["offset_x_milli"],
+        "general_offset_y_milli": members[0]["offset_y_milli"],
+        "spectral": spectral,
+        "spectral_buff": norm_buff(t, b["SpawnData"]),
+        "spectral_buff_ms": b["SpawnTime"],
+    }
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -4245,6 +4318,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_wind"] = wind_block(t, card)
         elif name == "Ghost_EV1":
             card["evo_ghost"] = ghost_block(t, card)
+        elif name == "SkeletonArmy_EV1":
+            card["evo_army"] = army_block(t, card, s)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

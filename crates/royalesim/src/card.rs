@@ -1701,6 +1701,10 @@ pub struct EvoDef {
     pub wind: Option<WindDef>,
     /// Evo Royal Ghost: a hit it makes while hidden puts two small ghosts down beside what it hit, and a blow there.
     pub ghost: Option<GhostDef>,
+    /// Evo Skeleton Army: a General beside the soldiers; while it lives a dead soldier leaves a Spectral. Carried by the
+    /// form and by its General and Spectral records alike, so each registers in its play's group (state.rs
+    /// `evo_created`).
+    pub army: Option<ArmyDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -1784,6 +1788,28 @@ pub struct GhostDef {
     /// The damage area: `strike.shape` is a `SpellShape::Projectile` whose hit is the area's Radius, its filters
     /// (ground units of the other side) and its Damage (level 1, scaled at the hit). spell.rs `shape_of` names it.
     pub strike: SpellDef,
+}
+
+/// THE EVO SKELETON ARMY'S GENERAL AND SPECTRALS (characters/skeleton_army_ev1.toml; tools/extract_cards.py
+/// `army_block`; state.rs `army_deaths`): the play puts `general` down beside its soldiers at `general_offset_*`
+/// (millitiles, the Three Musketeers' explicit offsets, formation.EXPLICIT_OFFSETS_FRAME); while a play's General lives,
+/// each of its soldiers that dies leaves a `spectral` where it died, in the play's group; the General's death takes every
+/// Spectral of its group with it. The Spectral takes no damage (its row's NO_DAMAGE: `CardDef::no_damage`) and nothing
+/// targets it: it hangs `spectral_buff`, an Invisible buff, on itself for good (target.rs `invisible_at`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ArmyDef {
+    pub general: FormUnit,
+    pub general_offset_x: i32,
+    pub general_offset_y: i32,
+    pub spectral: FormUnit,
+    /// The buff a Spectral hangs on itself when made: an Invisible one (status.rs `BuffDef::invisible`), for good.
+    pub spectral_buff: BuffApply,
+}
+
+/// A UNIT AN EVOLVED FORM'S OWN MECHANIC PUTS DOWN (`ArmyDef`): its CardDb index, u16::MAX until it loads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FormUnit {
+    pub unit: u16,
 }
 
 /// ONE UNIT OF THE EVO ROYAL GHOST'S PAIR (`GhostDef::pair`): its CardDb index, u16::MAX until it loads.
@@ -2181,6 +2207,9 @@ pub struct CardDef {
     /// creation, its idle time counted from then (state.rs `spawn_with` sets its `reveal_from`), where every other one
     /// is hidden from its first frame to its first hit. False on every other card.
     pub starts_visible: bool,
+    /// NO_DAMAGE (the Evo Skeleton Army's Spectral, `ArmyDef`): no hit lands on it (combat.rs `resolve`). False on
+    /// every other card.
+    pub no_damage: bool,
     /// THE UNDERGROUND SPAWN WALK (`SpawnPathfindDef`; state.rs `phase_tunnel`): a played card
     /// whose unit is born at its owner's King and travels under ground to the destination the
     /// play resolved (the Miner; the Goblin Drill, whose dig leaves its building there). None on
@@ -3831,10 +3860,30 @@ struct RawEvolution {
     evo_stages: Option<RawStages>,
     evo_wind: Option<RawWind>,
     evo_ghost: Option<RawGhost>,
+    evo_army: Option<RawArmy>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
 }
+
+/// cards.json `evolutions[].evo_army` (tools/extract_cards.py `army_block`).
+#[derive(Deserialize)]
+struct RawArmy {
+    general: Option<String>,
+    general_offset_x_milli: Option<i32>,
+    general_offset_y_milli: Option<i32>,
+    spectral: Option<String>,
+    /// The Invisible buff the Spectral's OnStartingAction hangs on it, and for how long (999999: for good).
+    spectral_buff: Option<RawBuff>,
+    spectral_buff_ms: Option<i32>,
+}
+
+/// THE ACTION CLASSES THE ARMY'S ROWS RUN, which `army_block` reads whole: the soldier's (and the Spectral's) death check
+/// and spawn, the General's kill, the Spectral's start group (its buff and an effect).
+const ARMY_GRAPH: [&str; 7] = [
+    "ActionGroup", "ActionKill", "ActionPlayEffect", "ActionRunActionIfUnitGroupContains", "ActionRunOnMatchingUnitsInGroup",
+    "ActionSpawn", "ActionSpawnToLocation",
+];
 
 /// cards.json `evolutions[].evo_ghost` (tools/extract_cards.py `ghost_block`).
 #[derive(Deserialize)]
@@ -5340,6 +5389,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         life_state: None,
         invisible_when_idle: None,
         starts_visible: false,
+        no_damage: false,
         spawn_pathfind: None,
         can_deploy_on_enemy_side: false,
         mana: None,
@@ -7586,6 +7636,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         life_state: life_state.map(|(d, _)| d),
         invisible_when_idle,
         starts_visible,
+        no_damage: false,
         // Its morph resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
         // Read with `spawn_pathfind` alone: a card that does not tunnel keeps false.
@@ -8643,6 +8694,7 @@ impl CardDb {
             extra.evo_stages.is_some(),
             extra.evo_wind.is_some(),
             extra.evo_ghost.is_some(),
+            extra.evo_army.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -8662,6 +8714,8 @@ impl CardDb {
             &["ActionSpawnResetableAeO"]
         } else if extra.evo_ghost.is_some() {
             &["ActionAnimatorLayer", "ActionGhostEvoAction", "ActionGhostEvoSpawnSummon", "ActionGroup", "ActionPlayEffect"]
+        } else if extra.evo_army.is_some() {
+            &ARMY_GRAPH
         } else {
             &[]
         };
@@ -8674,8 +8728,13 @@ impl CardDb {
         if extra.evo_spear.is_some() {
             raw.projectile = None;
         }
+        // THE ARMY'S SPAWNS are its own block's (the Spectral and its buff): `army_block` reads them whole.
+        let army_spawns = |g: &RawActionGraph| extra.evo_army.as_ref().is_some_and(|a| {
+            let sp = a.spectral.as_deref().unwrap_or_default();
+            g.spawns.iter().all(|s| s == &format!("CharacterType:{sp}") || s.starts_with("BuffType:"))
+        });
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if !g.spawns.is_empty() || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -8722,6 +8781,7 @@ impl CardDb {
                     stages: None,
                     wind: None,
                     ghost: None,
+                    army: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -8780,6 +8840,38 @@ impl CardDb {
                 pair.push(m);
             }
         }
+        // AN ARMY FORM'S GENERAL AND SPECTRAL: each its own unit row, loaded here as a summon-only record after the form,
+        // its graph the one `army_block` reads (ARMY_GRAPH); the Spectral takes no damage (NO_DAMAGE).
+        let mut army_units: Vec<CardDef> = Vec::new();
+        if let Some(a) = &extra.evo_army {
+            let spectral = a.spectral.clone().ok_or("an army with no spectral")?;
+            for u in [a.general.as_deref().ok_or("an army with no general")?, spectral.as_str()] {
+                let mut uv = ctx.units.get(u).cloned().ok_or_else(|| format!("army unit {u}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("army unit {u}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("army unit {u}: {e}"))?;
+                if let Some(g) = ur.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
+                    if !army_spawns(g) || g.class_types.iter().any(|c| !ARMY_GRAPH.contains(&c.as_str())) {
+                        return Err(format!("army unit {u} runs an action graph the army does not read ({})", g.class_types.join(", ")));
+                    }
+                }
+                ur.action_graph = None;
+                let (mut m, _, aneeds) = convert(ur, buffs, ctx).map_err(|e| format!("army unit {u}: {e}"))?;
+                if let Some((_, n)) = aneeds.first() {
+                    return Err(format!("army unit {u} needs {n}; not simulated"));
+                }
+                if !self.rarities.iter().any(|r| r.name == m.rarity) {
+                    return Err(format!("army unit {u}: rarity {} not in rarities.csv", m.rarity));
+                }
+                if self.index(&m.name).is_some() {
+                    return Err(format!("army unit {u} is already loaded"));
+                }
+                m.summon_only = true;
+                m.no_damage = u == spectral;
+                army_units.push(m);
+            }
+        }
         if c.kind != bc.kind || c.elixir != bc.elixir || c.rarity != bc.rarity {
             return Err(format!("a {:?} of {} elixir ({}) against its base's {:?} of {} ({})", c.kind, c.elixir, c.rarity, bc.kind, bc.elixir, bc.rarity));
         }
@@ -8802,10 +8894,24 @@ impl CardDb {
             stages: None,
             wind: None,
             ghost: None,
+            army: None,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
             evo.ghost = Some(ghost_of(g)?);
+        }
+        if let Some(a) = &extra.evo_army {
+            let (x, y) = (a.general_offset_x_milli.ok_or("an army with no offset")?, a.general_offset_y_milli.ok_or("an army with no offset")?);
+            let raw = a.spectral_buff.as_ref().ok_or("an army whose Spectral hangs no buff")?;
+            // A MARKER row whose one column is Invisible (status.rs `BuffDef::invisible`, which target.rs `invisible_at`
+            // reads on any carried buff): taken as a marker (`RawBuff::convert_with`), and refused if it sets anything
+            // else. Every other buff with no effect column stays refused.
+            let def = raw.convert_with("the Spectral's buff", true)?;
+            if !def.invisible || !def.is_inert() {
+                return Err("the Spectral's buff is not an Invisible marker alone".into());
+            }
+            let spectral_buff = buffs.apply_def(def, raw, a.spectral_buff_ms, "the Spectral's buff")?;
+            evo.army = Some(ArmyDef { general: FormUnit { unit: u16::MAX }, general_offset_x: x, general_offset_y: y, spectral: FormUnit { unit: u16::MAX }, spectral_buff });
         }
         // THE WIND: its buffs interned now, and the dragon's IgnoreBuff (the ally buff alone, which the extractor
         // checks) set here, as the table pass sets every other row's.
@@ -8920,6 +9026,23 @@ impl CardDb {
         }
         if let (Some(g), [l, r]) = (self.cards[form as usize].evo.as_mut().and_then(|v| v.ghost.as_mut()), units.as_slice()) {
             g.pair = [PairUnit { unit: *l }, PairUnit { unit: *r }];
+        }
+        // The General and the Spectral after the form, each carrying the form's EvoDef with both indices written, so a
+        // General or a Spectral registers in its play's group as the soldiers do (state.rs `evo_created`).
+        if !army_units.is_empty() {
+            let first = self.cards.len() as u16;
+            for m in army_units {
+                self.push(m, None)?;
+            }
+            let (gi, si) = (first, first + 1);
+            let mut evo = self.cards[form as usize].evo.clone().expect("the form's EvoDef");
+            if let Some(a) = evo.army.as_mut() {
+                a.general = FormUnit { unit: gi };
+                a.spectral = FormUnit { unit: si };
+            }
+            for k in [form, gi, si] {
+                self.cards[k as usize].evo = Some(evo.clone());
+            }
         }
         self.forms.push((base, FORM_EVOLUTION, form));
         Ok(())
@@ -9451,6 +9574,13 @@ impl CardDb {
             for (k, p) in g.pair.iter().enumerate() {
                 out.push((UnitRef::EvoUnit(k as u8), p.unit, None));
             }
+        }
+        // The army's General and Spectral. The two records carry the form's EvoDef too, so each names both, itself
+        // included, as its Debug text does; every walk of these blocks keeps a seen set, and the replay harness roots
+        // them by the first record that names them, the form (`load_evolution` pushes it first).
+        if let Some(a) = c.evo.as_ref().and_then(|v| v.army.as_ref()) {
+            out.push((UnitRef::EvoUnit(0), a.general.unit, None));
+            out.push((UnitRef::EvoUnit(1), a.spectral.unit, None));
         }
         // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
         // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.
