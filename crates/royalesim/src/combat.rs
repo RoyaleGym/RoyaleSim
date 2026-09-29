@@ -45,7 +45,7 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
-    AttackCycle, Calib, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
+    AttackCombo, AttackCycle, Calib, ComboPushback, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
@@ -1253,6 +1253,24 @@ pub fn fire(
             if let Some(b) = atk_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
+            // knockback.COMBO_PUSHBACK = client15535_ladder_from_attacker_hit_tick: a combo hit whose entry carries a
+            // melee pushback (card.rs `ComboStage::pushback`; the Monk's third, 1800) pushes its target straight away
+            // from the attacker's start-of-tick centre along the knockback ladder, the first step on this tick
+            // (`push_from` with `now`). Measured on client 15.535.29: both of a level-11 Monk's third hits on a Knight
+            // stepped 249 on the hit's tick. Only a troop is pushed (spell.rs `pushable`), and the entry's
+            // IsMeleePushbackAll overrides the target's IgnorePushback. The single-target hit alone: no combo row
+            // splashes.
+            #[cfg(not(clash_plant = "combo_push_next_tick"))]
+            let now = true;
+            #[cfg(clash_plant = "combo_push_next_tick")]
+            let now = false; // PLANT (regression): the push's first step is the next tick's, as a Fireball's.
+            if let (ComboPushback::LadderFromAttackerHitTick, Some(c)) = (calib.combo_pushback, card.combo) {
+                let stage = c.entry(ents.combo_ix[a]).1;
+                if stage.pushback > 0 {
+                    let ctx = SpellCtx { ents, hash, cards, calib, steps: &[], tick };
+                    push_from(&ctx, ents.team[a], ti, ents.pos[a], &KnockbackDef { distance: stage.pushback, all: stage.pushback_all }, now, fx);
+                }
+            }
         }
         // combat.MULTIPLE_TARGETS = client_bolts_per_target: every other bolt of the attack is
         // the whole hit again, damage and buff, on its own victim (state.rs `extra_bolts`
@@ -1284,7 +1302,29 @@ pub fn fire(
 /// so the first hit reads 400 and every later one 400 more. It restarts where that counter
 /// restarts: a new target (the post-kill wait zeroes it, a switch resets a swing) and, under
 /// the same key, a stun (state.rs `apply_effects`). The old arm is Damage on every hit.
+///
+/// THE COMBO comes first (combat.ATTACK_COMBO = client15535_sequence_across_targets; card.rs `ComboDef`): a combo
+/// row's hit deals the damage of the entry its count has reached (entity.rs `combo_ix`, moved on by state.rs
+/// `phase_attack` after the hit), stage 0 the entity's own Damage and the others VariableDamage2 / VariableDamage3
+/// scaled like it. Measured on client 15.535.29: a level-11 Monk's hits run 140, 140, 422, 140, ..., and the count
+/// runs across targets (his first hit killed a Skeleton, his second and third fell on a Knight as 140 and 422).
 fn stage_damage(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> i32 {
+    #[cfg(not(clash_plant = "combo_unread"))]
+    let combo = calib.attack_combo == AttackCombo::SequenceAcrossTargets;
+    #[cfg(clash_plant = "combo_unread")]
+    let combo = {
+        // PLANT (regression): every Monk hit deals Damage under the new arm too.
+        let _ = calib.attack_combo;
+        false
+    };
+    if let Some(c) = cards.get(ents.card[a]).combo.filter(|_| combo) {
+        let (s, stage) = c.entry(ents.combo_ix[a]);
+        if s == 0 {
+            return ents.damage[a];
+        }
+        // A level-1 stat like Damage; the level was validated at spawn.
+        return cards.scaled(ents.card[a], ents.level[a], stage.damage).expect("level validated at spawn");
+    }
     #[cfg(not(clash_plant = "variable_damage_first_stage"))]
     let ramps = calib.variable_damage == VariableDamage::AttackProgressStages;
     #[cfg(clash_plant = "variable_damage_first_stage")]
@@ -1306,6 +1346,14 @@ fn stage_damage(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize) -> i32
     };
     // A level-1 stat like Damage; the level was validated at spawn.
     cards.scaled(ents.card[a], ents.level[a], base).expect("level validated at spawn")
+}
+
+/// Does the combo count run (entity.rs `combo_ix`)? Under either combo key's new arm (combat.ATTACK_COMBO,
+/// knockback.COMBO_PUSHBACK), so each can be switched on alone; under both old arms the count stays 0 and a battle
+/// hashes as it did before the column.
+#[inline]
+pub fn combo_counts(calib: &Calib) -> bool {
+    calib.attack_combo != AttackCombo::NotRead || calib.combo_pushback != ComboPushback::NotRead
 }
 
 /// Where attacker `a`'s shot at entity `ti` is born, and whether its first step is the
@@ -1511,7 +1559,7 @@ fn straight_hits(
         }
         #[cfg(not(clash_plant = "range_shot_unpushed"))]
         if s.push > 0 {
-            push_from(&ctx, team, v, at, &KnockbackDef { distance: s.push, all: s.push_all }, fx);
+            push_from(&ctx, team, v, at, &KnockbackDef { distance: s.push, all: s.push_all }, false, fx);
         }
         #[cfg(clash_plant = "range_shot_unpushed")]
         let _ = (&ctx, s.push_all); // PLANT (regression): a straight shot's Pushback moves nothing.

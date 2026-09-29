@@ -1534,6 +1534,50 @@ pub struct VariableDamageDef {
     pub time2_ms: i32,
 }
 
+/// The most entries a combo's sequence may hold (`ComboDef`); the loader refuses a longer one.
+pub const COMBO_MAX: usize = 8;
+
+/// THE COMBO (characters AttackSequence with no AttackSequenceMode and no AttackSequenceList, VariableDamage2 and
+/// VariableDamage3 with no VariableDamageTime1, MeleePushback / MeleePushback2 / MeleePushback3 and
+/// IsMeleePushbackAll / 2 / 3; cards.json `combo`). The unit's hits run through `order`: entry k deals stage
+/// `order[k]`'s damage and pushes by its melee pushback, and the entry after the last is the first again
+/// (calibration combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK; the count is entity.rs `combo_ix`). The Monk: [0, 1, 2],
+/// 55 / 55 / 165, the third pushing 1800; the Mega Monk the same shape. The damages are level-1 values scaled like
+/// Damage, and stage 0's is the row's Damage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComboDef {
+    /// The stage of each entry, in sequence order; the first `len` are used.
+    pub order: [u8; COMBO_MAX],
+    pub len: u8,
+    pub stages: [ComboStage; 3],
+}
+
+/// One stage of a combo (`ComboDef`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct ComboStage {
+    /// The stage's damage, level 1 (Damage, VariableDamage2, VariableDamage3).
+    pub damage: i32,
+    /// The stage's melee pushback (MeleePushback, MeleePushback2, MeleePushback3), SUBTILES; 0 on a blank.
+    pub pushback: i32,
+    /// IsMeleePushbackAll (2, 3): the push overrides the target's IgnorePushback, as a spell's PushbackAll does.
+    pub pushback_all: bool,
+}
+
+impl ComboDef {
+    /// Entry `k`'s stage index and stage (`k` wraps at `len`).
+    #[inline]
+    pub fn entry(&self, k: u8) -> (u8, ComboStage) {
+        let s = self.order[(k % self.len.max(1)) as usize];
+        (s, self.stages[s as usize])
+    }
+
+    /// The entry after `k`.
+    #[inline]
+    pub fn next(&self, k: u8) -> u8 {
+        (k % self.len.max(1) + 1) % self.len.max(1)
+    }
+}
+
 /// THE HOOK SPECIAL (characters.csv SpecialRange, SpecialMinRange, SpecialLoadTime and the
 /// ProjectileSpecial row's Speed and DragMargin; cards.json `special`). The Fisherman:
 /// 7000, 3500, 1300 ms, FishermanProjectile at 800 with DragMargin 200. Run under
@@ -2034,6 +2078,11 @@ pub struct CardDef {
     /// casts it at the play's point instead of putting a unit down (state.rs `enqueue_with`); a scenario spawn of the
     /// card puts its own unit down alone. None on every other card.
     pub deploy_spawn_area: Option<SpellDef>,
+    /// THE COMBO (`ComboDef`; the Monk, the Mega Monk); None on every other card. Acted on only under
+    /// combat.ATTACK_COMBO = client15535_sequence_across_targets and knockback.COMBO_PUSHBACK =
+    /// client15535_ladder_from_attacker_hit_tick; read as "the row sets VariableDamage2" by
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH = client15535_no_own_radius_walking_every_row.
+    pub combo: Option<ComboDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -2383,6 +2432,8 @@ struct RawCard {
     /// cards.json `attack_pushback_milli` (characters.csv AttackPushBack):
     /// `CardDef::attack_pushback`. Not yet written by the extractor; absent reads as 0.
     attack_pushback_milli: Option<i32>,
+    /// cards.json `combo` (tools/extract_cards.py `combo`; 15.535 only): `CardDef::combo`. Absent reads as none.
+    combo: Option<RawCombo>,
     /// cards.json `death_pushback_milli` (characters / buildings DeathPushBack, millitiles; 15.535
     /// rows only): `CardDef::death_pushback`. Absent reads as 0.
     death_pushback_milli: Option<i32>,
@@ -2531,6 +2582,23 @@ struct RawVariableDamage {
     damage3: Option<i32>,
     time1_ms: Option<i32>,
     time2_ms: Option<i32>,
+}
+
+/// cards.json `combo` block: `sequence` the AttackSequence, `stages` the three stages in column order.
+#[derive(Deserialize)]
+struct RawCombo {
+    sequence: Vec<i64>,
+    stages: Vec<RawComboStage>,
+}
+
+/// One stage of cards.json `combo`: its damage (level 1), melee pushback (millitiles) and IsMeleePushbackAll.
+#[derive(Deserialize)]
+struct RawComboStage {
+    damage: Option<i32>,
+    #[serde(default)]
+    pushback_milli: i32,
+    #[serde(default)]
+    pushback_all: bool,
 }
 
 /// cards.json `special` block, every field nullable (the extractor is to write the whole
@@ -4741,6 +4809,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         idle_buff: None,
         idle_area: None,
         deploy_spawn_area: None,
+        combo: None,
     }
 }
 
@@ -5911,6 +5980,40 @@ fn convert_variable_damage(raw: Option<RawVariableDamage>) -> Result<Option<Vari
     }))
 }
 
+/// THE COMBO half of the loader (`ComboDef`): three stages, a sequence of 1 to COMBO_MAX entries that each name a
+/// stage, a damage on every stage the sequence names, nothing negative. Anything else refuses the card, loudly, rather
+/// than run a combo the table does not have.
+fn convert_combo(raw: Option<RawCombo>) -> Result<Option<ComboDef>, String> {
+    let Some(b) = raw else { return Ok(None) };
+    if b.stages.len() != 3 {
+        return Err(format!("combo: {} stages, not 3", b.stages.len()));
+    }
+    if b.sequence.is_empty() || b.sequence.len() > COMBO_MAX {
+        return Err(format!("combo: a sequence of {} entries", b.sequence.len()));
+    }
+    let mut order = [0u8; COMBO_MAX];
+    for (k, s) in b.sequence.iter().enumerate() {
+        order[k] = match *s {
+            0..=2 => *s as u8,
+            x => return Err(format!("combo: sequence entry {x} names no stage")),
+        };
+    }
+    let mut stages = [ComboStage::default(); 3];
+    for (k, st) in b.stages.iter().enumerate() {
+        let damage = match st.damage {
+            Some(x) if x >= 0 => x,
+            Some(x) => return Err(format!("combo: stage {k}'s damage {x} is negative")),
+            None if b.sequence.contains(&(k as i64)) => return Err(format!("combo: stage {k} has no damage")),
+            None => 0,
+        };
+        if st.pushback_milli < 0 {
+            return Err(format!("combo: stage {k}'s pushback {} is negative", st.pushback_milli));
+        }
+        stages[k] = ComboStage { damage, pushback: milli(st.pushback_milli), pushback_all: st.pushback_all };
+    }
+    Ok(Some(ComboDef { order, len: b.sequence.len() as u8, stages }))
+}
+
 /// THE HOOK SPECIAL half of the loader: the `special` block is all-or-nothing on
 /// SpecialRange, SpecialLoadTime, the special projectile's Speed and its DragMargin
 /// (SpecialMinRange blank reads as no minimum). Only a TROOP hooks: the measured law
@@ -6515,6 +6618,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // combat.SPECIAL_HOOK, knockback.ATTACK_PUSHBACK). Each is inert under its key's old
     // arm; a half-blank block refuses the card like any other.
     let variable_damage = convert_variable_damage(raw.variable_damage)?;
+    let combo = convert_combo(raw.combo)?;
     let special = convert_special(raw.special, kind)?;
     let ability = convert_champion_ability(raw.ability, kind)?;
     let attack_pushback = match raw.attack_pushback_milli {
@@ -6875,6 +6979,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         idle_area: None,
         // Resolved the same way (`convert_deploy_spawn_area`).
         deploy_spawn_area: None,
+        combo,
     }, display, units))
 }
 

@@ -163,8 +163,13 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
 /// targeting.VARIABLE_DAMAGE_WALK_REACH: the attacker radius a WALKING unit's reach adds, where `own` is its
 /// collision radius (subtiles). Under client16402_no_own_radius_walking, 0 for a FLYING card whose row sets
 /// VariableDamage2 (card.rs `CardDef::variable_damage`, `is_flying`): in the 15.535.29 tables that is the Inferno
-/// Dragon's row alone. `own` for every other card (the Mighty Miner, a ground row with the column, is unmeasured and
-/// keeps its own radius) and under the old arm. The caller decides what "walking" is (the Path phase's goal cell and
+/// Dragon's row alone. Under client15535_no_own_radius_walking_every_row, 0 for EVERY card whose row sets
+/// VariableDamage2, ground or flying: a ramp (`variable_damage`: the Inferno Dragon, the Mighty Miner) or a combo
+/// (`combo`: the Monk, the Mega Monk). Measured on client 15.535.29: a walking Monk's attack started 1,575, 1,652
+/// and 1,696 from a target of radius 500 (Range 1,200 + the target's radius: 1,700; Range + both radii: 2,200) and
+/// a Mighty Miner's 2,050 (Range 1,600 + 500: 2,100), where the Golden Knight, the Skeleton King, the Knight, the
+/// Skeletons, the Musketeer, the Mini P.E.K.K.A and the Valkyrie started at Range + both radii. `own` for every other
+/// card and under the old arm. The caller decides what "walking" is (the Path phase's goal cell and
 /// direct aim, which run only for a unit about to walk; a unit holding a walking goal, entity.rs `route_goal`, in the
 /// Path phase's in-range test and the attack cycle's range gate). A STANDING unit's reach adds its own radius under
 /// both arms.
@@ -179,10 +184,18 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
 /// sweep); every other flyer's reach Range + its radius.
 #[inline]
 pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
+    use crate::state::VariableDamageWalkReach as W;
     #[cfg(not(clash_plant = "walk_reach_keeps_own_radius"))]
-    let no_own = calib.variable_damage_walk_reach == crate::state::VariableDamageWalkReach::Client16402NoOwnRadiusWalking
-        && card.variable_damage.is_some()
-        && card.is_flying();
+    let no_own = match calib.variable_damage_walk_reach {
+        W::RangePlusBothRadii => false,
+        W::Client16402NoOwnRadiusWalking => card.variable_damage.is_some() && card.is_flying(),
+        #[cfg(not(clash_plant = "walk_reach_every_row_flyers_only"))]
+        W::Client15535NoOwnRadiusWalkingEveryRow => card.variable_damage.is_some() || card.combo.is_some(),
+        // PLANT (regression): the every-row arm still reads flyers alone, so the Monk and the Mighty Miner walk to
+        // Range + both radii.
+        #[cfg(clash_plant = "walk_reach_every_row_flyers_only")]
+        W::Client15535NoOwnRadiusWalkingEveryRow => card.variable_damage.is_some() && card.is_flying(),
+    };
     #[cfg(clash_plant = "walk_reach_keeps_own_radius")]
     let no_own = {
         let _ = (calib, card);

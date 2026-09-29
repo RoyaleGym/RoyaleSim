@@ -252,8 +252,9 @@ pub enum Knock {
     /// point one unit behind the victim on the roll axis, so the source-to-victim line
     /// IS the travel direction), the strength (Pushback, native) and the caster (the
     /// forward axis of the zero-vector fallback). `now`: the ladder's first step is taken on the hit's own tick
-    /// (state.rs `ladder_step_now`), which only an Evo Cannon bomb does (measured on client 15.535.29: all 6 barrage
-    /// pushes step on their damage tick, a Fireball's one tick after, as every other push here).
+    /// (state.rs `ladder_step_now`), which an Evo Cannon bomb does (measured on client 15.535.29: all 6 barrage
+    /// pushes step on their damage tick, a Fireball's one tick after, as every other push here) and a combo's melee
+    /// pushback (knockback.COMBO_PUSHBACK: the Monk's third hit, both measured pushes stepping on the hit's tick).
     Push {
         id: EntityId,
         src: Vec2,
@@ -710,7 +711,10 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
 /// (`pushable`) and the same two laws `impact` runs: under client16402 the ladder armed
 /// from `centre` in native units with Pushback, under fixed_distance the displacement
 /// along the radial with `impact`'s zero-vector fallback.
-pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &KnockbackDef, fx: &mut EffectBuffer) {
+///
+/// `now`: the ladder's first step is taken on the hit's own tick (`Knock::Push`), which a combo's melee pushback
+/// does (knockback.COMBO_PUSHBACK); false for every other caller. The fixed_distance law has no ladder to step.
+pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &KnockbackDef, now: bool, fx: &mut EffectBuffer) {
     if !pushable(ctx, v, k) {
         return;
     }
@@ -727,7 +731,7 @@ pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &
                 fx.knocks.push(Knock::Displacement(id, d));
             }
         }
-        KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team, now: false }),
+        KnockLaw::Client16402 => fx.knocks.push(Knock::Push { id, src: Vec2::new(centre.x / K, centre.y / K), strength: k.distance / K, caster: team, now }),
     }
 }
 

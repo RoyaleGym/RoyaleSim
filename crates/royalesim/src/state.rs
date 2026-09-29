@@ -484,6 +484,14 @@ pub struct Calib {
     /// `None`, what a battle saved before it actually ran.
     #[serde(default = "attack_pushback_default")]
     pub attack_pushback: AttackPushback,
+    /// combat.ATTACK_COMBO: whether a combo row's hits run through its sequence (combat.rs `stage_damage`, card.rs
+    /// `ComboDef`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "attack_combo_default")]
+    pub attack_combo: AttackCombo,
+    /// knockback.COMBO_PUSHBACK: whether a combo hit whose entry carries a melee pushback pushes its target (combat.rs
+    /// `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "combo_pushback_default")]
+    pub combo_pushback: ComboPushback,
     /// combat.SPECIAL_HOOK: whether a unit whose row sets SpecialRange stands, hooks and drags
     /// (`special_step`, `step_hook_drags`). Added after SNAPSHOT_FORMAT 20; the `default` is
     /// `NotRead`, what a battle saved before it actually ran.
@@ -1465,6 +1473,14 @@ fn load_first_hit_default() -> LoadFirstHit {
 
 fn attack_pushback_default() -> AttackPushback {
     AttackPushback::None
+}
+
+fn attack_combo_default() -> AttackCombo {
+    AttackCombo::NotRead
+}
+
+fn combo_pushback_default() -> ComboPushback {
+    ComboPushback::NotRead
 }
 
 fn special_hook_default() -> SpecialHook {
@@ -2681,9 +2697,10 @@ calib_enum!(
 );
 calib_enum!(
     /// targeting.VARIABLE_DAMAGE_WALK_REACH -- whether a WALKING flyer whose row sets VariableDamage2 (the Inferno
-    /// Dragon's row alone in the 15.535.29 tables) adds its own collision radius to the reach it walks to and stops at
-    /// (target.rs `walking_own_radius`, read by the Path phase's goal cell, direct aim and in-range test and by the
-    /// attack cycle's range gate). The Mighty Miner, a ground row with the column, keeps its own radius under both.
+    /// Dragon's row alone in the 15.535.29 tables), or under the third arm every row that sets it, adds its own
+    /// collision radius to the reach it walks to and stops at (target.rs `walking_own_radius`, read by the Path
+    /// phase's goal cell, direct aim and in-range test and by the attack cycle's range gate). The Mighty Miner and the
+    /// Monk, ground rows with the column, keep their own radius under the first two.
     VariableDamageWalkReach {
         /// Today's engine: every unit walks to and stops at Range + its own radius + the target's radius
         /// (targeting.ATTACK_RANGE_RULE), walking or standing.
@@ -2694,6 +2711,11 @@ calib_enum!(
         /// its reach is Range + both radii again, as for every other unit. "Walking" is the state the previous
         /// tick's Path phase left: a unit that holds a walking goal (entity.rs `route_goal`).
         Client16402NoOwnRadiusWalking = "client16402_no_own_radius_walking",
+        /// Measured on client 15.535.29: the same law for EVERY row that sets VariableDamage2, ground or flying -- a
+        /// ramp (the Inferno Dragon, the Mighty Miner) or a combo (the Monk, the Mega Monk). A walking Monk's attack
+        /// starts within Range + the target's radius (1,575, 1,652, 1,696 against 1,700), a Mighty Miner's too (2,050
+        /// against 2,100), where every other walker measured starts at Range + both radii.
+        Client15535NoOwnRadiusWalkingEveryRow = "client15535_no_own_radius_walking_every_row",
     }
 );
 calib_enum!(
@@ -3155,6 +3177,31 @@ calib_enum!(
         /// the launch + 10 with 550 for the Firecracker), so launches are 79 ticks apart instead
         /// of 80, and 59 instead of 60.
         LadderAwayFromTarget = "ladder_away_from_target",
+    }
+);
+calib_enum!(
+    /// combat.ATTACK_COMBO -- what a unit whose row carries a combo (card.rs `ComboDef`: the Monk, the Mega Monk) deals
+    /// on each hit (combat.rs `stage_damage`).
+    AttackCombo {
+        /// Today's engine: Damage on every hit; the sequence and its VariableDamage2 / VariableDamage3 are not read.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29: each hit deals the damage of the entry the unit's count has reached (entry
+        /// k's stage: Damage, VariableDamage2, VariableDamage3, scaled like Damage), and the count moves on after every
+        /// hit, wrapping at the sequence's end, across targets (entity.rs `combo_ix`): a level-11 Monk's hits run
+        /// 140, 140, 422.
+        SequenceAcrossTargets = "client15535_sequence_across_targets",
+    }
+);
+calib_enum!(
+    /// knockback.COMBO_PUSHBACK -- what a combo hit whose entry carries a melee pushback (card.rs
+    /// `ComboStage::pushback`; the Monk's third hit, MeleePushback3 1800) does to its target (combat.rs `fire`).
+    ComboPushback {
+        /// Today's engine: nothing; MeleePushback / 2 / 3 are not read.
+        NotRead = "not_read",
+        /// Measured on client 15.535.29 (both of a level-11 Monk's third hits on a Knight): the hit arms the knockback
+        /// ladder (knockback.DISPLACEMENT_LAW) on the target for the entry's melee pushback, straight away from the
+        /// attacker's start-of-tick centre, its first step on the hit's own tick.
+        LadderFromAttackerHitTick = "client15535_ladder_from_attacker_hit_tick",
     }
 );
 calib_enum!(
@@ -5601,6 +5648,8 @@ impl Calib {
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
             attack_pushback: pick(&v, &["knockback", "ATTACK_PUSHBACK", "value"], AttackPushback::from_calibration_name)?,
+            attack_combo: pick(&v, &["combat", "ATTACK_COMBO", "value"], AttackCombo::from_calibration_name)?,
+            combo_pushback: pick(&v, &["knockback", "COMBO_PUSHBACK", "value"], ComboPushback::from_calibration_name)?,
             special_hook: pick(&v, &["combat", "SPECIAL_HOOK", "value"], SpecialHook::from_calibration_name)?,
             hook_drag_route: pick(&v, &["combat", "HOOK_DRAG_ROUTE", "value"], HookDragRoute::from_calibration_name)?,
             waiting_heading: pick(&v, &["movement", "WAITING_HEADING", "value"], WaitingHeading::from_calibration_name)?,
@@ -11962,7 +12011,7 @@ impl BattleState {
                         for &v in self.scratch.nb.iter() {
                             let v = v as usize;
                             if self.ents.team[v] != team && self.ents.hp[v] > 0 {
-                                spell::push_from(&ctx, team, v, centre, &k, &mut self.effects);
+                                spell::push_from(&ctx, team, v, centre, &k, false, &mut self.effects);
                             }
                         }
                     }
@@ -14466,6 +14515,13 @@ impl BattleState {
                 // AN EVOLVED UNIT'S HIT (`evo_after_fire`): the group's count, the snipe.
                 if self.cfg.cards.get(self.ents.card[i]).evo.is_some() {
                     self.evo_after_fire(i, shots_from);
+                }
+                // THE COMBO (card.rs `ComboDef`; combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK): `fire` dealt the entry
+                // the count names; the next hit deals the next one, whatever it hits (the count runs across targets).
+                if combat::combo_counts(&self.cfg.calib) {
+                    if let Some(c) = self.cfg.cards.get(self.ents.card[i]).combo {
+                        self.ents.combo_ix[i] = c.next(self.ents.combo_ix[i]);
+                    }
                 }
                 // enchant.BONUS_ATTACKS = first_three_attacks (refuted, kept runnable): the enchant ends with its
                 // AttackAmount-th attack.
@@ -18952,6 +19008,12 @@ impl BattleState {
                         h.u32(f.map_or(0, |t| t.generation));
                     }
                 }
+                // THE COMBO'S COUNT (combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK), only when not 0: it moves only
+                // under either key's new arm, so a battle under the old arms hashes as it did before the column.
+                if e.combo_ix[i] != 0 {
+                    h.u32(0x434f_4d42);
+                    h.u32(e.combo_ix[i] as u32);
+                }
                 // targeting.FIRST_TOWER_PICK = client_spawn_lane: the spawn lane and its window, written under that arm
                 // only.
                 if self.cfg.calib.first_tower_pick.spawn_lane() {
@@ -19905,6 +19967,10 @@ impl BattleState {
 /// 20, unchanged, targeting.EQUAL_DISTANCE_TIE: Calib gained equal_distance_tie (serde default the old arm,
 ///    own_frame_low_x), no new state (the new arm reads the saved positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, the combo (card.rs `ComboDef`): Calib gained attack_combo (combat.ATTACK_COMBO) and combo_pushback
+///    (knockback.COMBO_PUSHBACK), serde default the old arms; Entities gained combo_ix (serde default, sized on load,
+///    hashed only when not 0); CardDef gained combo, so the card fingerprint moves and a snapshot saved by an earlier
+///    build is refused as saved against other card data; a migrated format-3 battle takes the old arms.
 /// 20, unchanged, the Golden Knight's button (card.rs `AbilityEffect::DashChain`): Calib gained dash_chain_cooldown_ms
 ///    (combat.DASH_CHAIN_COOLDOWN, serde default Some(11000)), HeroUnit gained recharge_at (serde default 0, hashed only when
 ///    set), PlayerState gained champions and BattleState chains (serde default empty, hashed only when not empty); the
@@ -20223,12 +20289,13 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // ~~... evo~~ -- the hero forms (still format 20) added `form_of` and `ability` after it.
                 // ~~... ability~~ -- the idle buff (still format 20) added `idle_buff` and `idle_area` after it.
                 // ~~... idle_area~~ -- the Tri Wizards (still format 20) added `deploy_spawn_area` after it.
+                // ~~... deploy_spawn_area~~ -- the combo (still format 20) added `combo` after it.
                 // That keeps the strip itself working and does NOT make a format-3 blob load:
                 // `unit_name`, declared second, is in the head this leaves, and format 3 never
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -20290,7 +20357,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.ability,
                     c.idle_buff,
                     c.idle_area,
-                    c.deploy_spawn_area
+                    c.deploy_spawn_area,
+                    c.combo
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -20374,6 +20442,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
     sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
     sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
+    // combat.ATTACK_COMBO and knockback.COMBO_PUSHBACK: a format-3 battle ran no combo; it keeps the old arms whatever
+    // the ledger ships (the same rule).
+    sh.insert("attack_combo".into(), serde_json::to_value(AttackCombo::NotRead).map_err(|e| e.to_string())?);
+    sh.insert("combo_pushback".into(), serde_json::to_value(ComboPushback::NotRead).map_err(|e| e.to_string())?);
     sh.insert("special_hook".into(), serde_json::to_value(SpecialHook::NotRead).map_err(|e| e.to_string())?);
     // combat.HOOK_DRAG_ROUTE: a format-3 battle ran no hook, so it dropped no route; it keeps the old arm whatever the
     // ledger ships (the same rule).
@@ -20843,6 +20915,7 @@ impl BattleState {
         snap.ents.idle_back.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
+        snap.ents.combo_ix.resize(n, 0);
         snap.ents.spawn_lane.resize(n, 0);
         snap.ents.lane_window_end.resize(n, 0);
         snap.ents.stagger_ms.resize(n, 0);
