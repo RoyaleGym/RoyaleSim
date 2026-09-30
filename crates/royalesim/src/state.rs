@@ -6553,6 +6553,14 @@ pub struct EvoBoard {
     /// tick's Resolve (`attack_areas`): empty between ticks. `default` so a battle saved before it still loads.
     #[serde(default)]
     pub attack_areas: Vec<EntityId>,
+    /// Each Evo Mega Knight's attack count (`uppercut_count`). `default` so a battle saved before it still loads; hashed
+    /// only when not empty.
+    #[serde(default)]
+    pub uppercut_counts: Vec<(EntityId, u8)>,
+    /// Each uppercut under way (`uppercut_pass`). `default` so a battle saved before it still loads; hashed only when not
+    /// empty.
+    #[serde(default)]
+    pub uppercuts: Vec<UppercutRun>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6626,6 +6634,18 @@ pub struct RamState {
     pub recoil: bool,
 }
 
+/// AN UPPERCUT UNDER WAY (card.rs `UppercutDef`, `uppercut_pass`): its target, the hit's tick, the push, and the root's
+/// window (ticks) with the point it keeps (taken on the root's first tick).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UppercutRun {
+    pub id: EntityId,
+    pub mark: u32,
+    pub push: i32,
+    pub root_from: u32,
+    pub root_until: u32,
+    pub pin: Option<Vec2>,
+}
+
 impl EvoBoard {
     fn is_empty(&self) -> bool {
         self.members.is_empty()
@@ -6638,6 +6658,8 @@ impl EvoBoard {
             && self.stages.is_empty()
             && self.winds.is_empty()
             && self.attack_areas.is_empty()
+            && self.uppercut_counts.is_empty()
+            && self.uppercuts.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -8954,6 +8976,10 @@ impl BattleState {
         #[cfg(not(clash_plant = "attack_area_never"))]
         if evo.attack_area.is_some() {
             self.evo.attack_areas.push(id);
+        }
+        // THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): this attack is one.
+        if evo.uppercut.is_some() {
+            self.uppercut_count(i, hit);
         }
         // THE EVO INFERNO DRAGON'S COUNT (card.rs `StagesDef`): one more per hit, to its cap, across targets; the hit
         // restarts the decay (`stages_pass`).
@@ -13456,6 +13482,86 @@ impl BattleState {
         }
     }
 
+    /// THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): one more for each of unit `i`'s attacks, its dash's blow
+    /// included (the table's counter, `(V + 1) % every`); on 0 the attack's target, a live troop, is uppercut from this
+    /// tick (`UppercutRun`, a new one replacing any it is under). A unit of any other card counts nothing.
+    fn uppercut_count(&mut self, i: usize, target: EntityId) {
+        let Some(u) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.uppercut) else { return };
+        let id = self.ents.id_of(i);
+        let n = match self.evo.uppercut_counts.iter_mut().find(|(m, _)| *m == id) {
+            Some((_, n)) => {
+                *n = (*n + 1) % u.every;
+                *n
+            }
+            None => {
+                let n = 1 % u.every;
+                self.evo.uppercut_counts.push((id, n));
+                n
+            }
+        };
+        #[cfg(not(clash_plant = "uppercut_never"))]
+        if n == 0 && self.ents.is_alive(target) && self.ents.kind[target.index as usize] == EntityKind::Troop {
+            let tick_ms = self.cfg.calib.tick_ms.max(1);
+            let root_from = self.tick + (u.root_delay_ms / tick_ms) as u32;
+            self.evo.uppercuts.retain(|r| r.id != target);
+            self.evo.uppercuts.push(UppercutRun { id: target, mark: self.tick, push: u.push, root_from, root_until: root_from + (u.root_ms / tick_ms) as u32, pin: None });
+        }
+        #[cfg(clash_plant = "uppercut_never")]
+        let _ = n; // PLANT: no uppercut.
+    }
+
+    /// THE UPPERCUTS (card.rs `UppercutDef`), in the Projectile phase after the move: on step k from the hit's tick + 2
+    /// (k = 1) the target moves toward its own king tower by the ladder's remaining `ladder_speed(push) - 25 k`, capped at
+    /// SLAP_FLIGHT_STEP, the step at -25 its last (the step back), each truncated on each axis, inside the arena; held
+    /// from its first step through its last; from `root_from` to `root_until` its point is kept (it may still attack). A
+    /// gone target ends its run; so do the Evo Mega Knights gone, their counts.
+    fn uppercut_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let decel = crate::move16402::PUSHBACK_DECEL;
+        let ents = &self.ents;
+        self.evo.uppercut_counts.retain(|(m, _)| ents.is_alive(*m));
+        let mut runs = std::mem::take(&mut self.evo.uppercuts);
+        let mut moved = false;
+        runs.retain_mut(|r| {
+            if !self.ents.is_alive(r.id) {
+                return false;
+            }
+            let ti = r.id.index as usize;
+            let v = crate::move16402::ladder_speed(r.push);
+            let last = v / decel + 1;
+            let k = tick as i32 - r.mark as i32 - 1;
+            #[cfg(not(clash_plant = "uppercut_throw_never"))]
+            if (1..=last).contains(&k) {
+                if k == 1 {
+                    self.ents.stun_ms[ti] = self.ents.stun_ms[ti].max(last * tick_ms);
+                }
+                let step = (v - decel * k).min(crate::card::SLAP_FLIGHT_STEP);
+                let king = self.cfg.arena.king_tower_pos(self.ents.team[ti]);
+                let p = self.ents.pos[ti];
+                let (dx, dy) = (i64::from((king.x - p.x) / K), i64::from((king.y - p.y) / K));
+                let len = crate::fixed::isqrt(dx * dx + dy * dy).max(1);
+                let (sx, sy) = ((dx * i64::from(step) / len) as i32, (dy * i64::from(step) / len) as i32);
+                let rad = self.ents.radius[ti];
+                let np = Vec2::new((p.x + sx * K).clamp(rad, self.cfg.arena.width - rad), (p.y + sy * K).clamp(rad, self.cfg.arena.height - rad));
+                self.ents.pos[ti] = np;
+                moved = true;
+            }
+            if tick >= r.root_from && tick < r.root_until {
+                let keep = *r.pin.get_or_insert(self.ents.pos[ti]);
+                if self.ents.pos[ti] != keep {
+                    self.ents.pos[ti] = keep;
+                    moved = true;
+                }
+            }
+            k < last || tick + 1 < r.root_until
+        });
+        self.evo.uppercuts = runs;
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
     /// THE WARP'S PICK from hero `i` (card.rs `WarpDef`; the resolver default_targets_no_towers, LOWEST_MAX_HP then
     /// FURTHEST_TARGET): an enemy troop, air or ground, alive, visible, above ground, not mid-leap, not a rider; the
     /// lowest max hitpoints, then the furthest centre, then the earliest created. None when none is.
@@ -14238,6 +14344,10 @@ impl BattleState {
 
     fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
         for (a, target, centre) in blows {
+            // THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): his dash's blow is one of his attacks.
+            if let Some(t) = target {
+                self.uppercut_count(a, t);
+            }
             let card = self.cfg.cards.get(self.ents.card[a]);
             let Some(d) = card.dash else { continue };
             let amount = self.cfg.cards.scaled(self.ents.card[a], self.ents.level[a], d.damage).expect("level validated at spawn");
@@ -17630,6 +17740,10 @@ impl BattleState {
         // The Hero Giant's slaps, on this tick's moved points, before the spells step (`slap_pass`).
         if !self.slaps.runs.is_empty() {
             self.slap_pass();
+        }
+        // The Evo Mega Knights' uppercuts, on this tick's moved points (`uppercut_pass`).
+        if !self.evo.uppercuts.is_empty() || !self.evo.uppercut_counts.is_empty() {
+            self.uppercut_pass();
         }
         // The Hero Valkyrie's spins after the move, before the spells step, so a blow strikes on its own tick (`spin_pass`).
         if !self.spins.is_empty() {
@@ -22630,6 +22744,27 @@ impl BattleState {
                     h.u32(r.taken.len() as u32);
                     for t in &r.taken {
                         h.id(*t);
+                    }
+                }
+            }
+            // The Evo Mega Knights' counts and uppercuts, only when there are some.
+            if !b.uppercut_counts.is_empty() || !b.uppercuts.is_empty() {
+                h.u32(0x5550_4354);
+                h.u32(b.uppercut_counts.len() as u32);
+                for (id, n) in &b.uppercut_counts {
+                    h.id(*id);
+                    h.u32(u32::from(*n));
+                }
+                h.u32(b.uppercuts.len() as u32);
+                for r in &b.uppercuts {
+                    h.id(r.id);
+                    h.u32(r.mark);
+                    h.i32(r.push);
+                    h.u32(r.root_from);
+                    h.u32(r.root_until);
+                    if let Some(p) = r.pin {
+                        h.i32(p.x);
+                        h.i32(p.y);
                     }
                 }
             }

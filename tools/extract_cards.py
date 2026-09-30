@@ -3697,7 +3697,7 @@ EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
-    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1",
+    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4357,6 +4357,50 @@ FALL_GROUNDED_SET = {
 DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", "ClonedVersion"}
 DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"},
                     ["idle_buff"])
+
+
+def uppercut_block(t: Tables, card: dict) -> dict:
+    """THE EVO MEGA KNIGHT'S UPPERCUT (characters_evo MegaKnight_EV1), read whole or the build stops:
+      - OnAttackAction: an ActionGroup, both at 0, of the counter and the uppercut;
+      - the counter: an ActionSetVariable of its VARIABLE (DefaultValue 0) to `(V + 1) % N` (`every`), whose waited
+        NextAction selects the attack entry by the same count; the row's AttackSequenceList entries are each its own
+        Damage alone, so the entry changes nothing;
+      - the uppercut: an ActionMegaKnightUppercut on `V % N == 0`, IgnorePushbackChecks, no follow-up jump, its
+        PushBackStrength (`push_milli`), on its targets a group of an ActionKnockback (Duration `flight_ms`), effects,
+        and an ActionWithDuration of NO_MOVE alone (`root_ms`) at `root_delay_ms`."""
+    unit = card["summon_character"]
+    tb, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    subs = group_subactions(t, row["OnAttackAction"], f"{unit} attack")
+    classes = [(acts.get(n) or {}).get("ClassType") for n, _ in subs]
+    need(classes == ["ActionSetVariable", "ActionMegaKnightUppercut"] and all(d == 0 for _, d in subs), f"OnAttackAction runs {subs}")
+    counter, upper = acts.get(subs[0][0]), acts.get(subs[1][0])
+    var = counter["Variable"]
+    m = re.fullmatch(rf"\({re.escape(str(var))} \+ 1\) % (\d+)", str(counter["Value"]))
+    need(m is not None and (t.variables.get(var) or {}).get("DefaultValue") == 0, f"the counter {counter['Value']!r}")
+    every = int(m.group(1))
+    sel = acts.get(counter["NextAction"] or "")
+    need(counter["NextActionWait"] is True and sel is not None and sel["ClassType"] == "ActionSelect", "the counter's select")
+    seq = t[tb].arrays.get(unit, {}).get("AttackSequenceList")
+    need(isinstance(seq, list) and all(e == {"Damage": row["Damage"]} for e in seq), f"the attack entries {seq}")
+    need(upper["ExecuteIfTrue"] == f"{var} % {every} == 0" and upper["IgnorePushbackChecks"] is True and upper["DoFollowUpJump"] is False
+         and isinstance(upper["PushBackStrength"], int) and upper["PushBackStrength"] > 0, "the uppercut")
+    tsubs = group_subactions(t, upper["ActionOnTargets"], f"{unit} uppercut target")
+    kb = [(n, d) for n, d in tsubs if acts.get(n)["ClassType"] == "ActionKnockback"]
+    root = [(n, d) for n, d in tsubs if acts.get(n)["ClassType"] == "ActionWithDuration"]
+    rest = [n for n, _ in tsubs if acts.get(n)["ClassType"] not in ("ActionKnockback", "ActionWithDuration")]
+    need(len(kb) == 1 and kb[0][1] == 0 and len(root) == 1 and all(_cosmetic_action(acts, n) for n in rest), f"the target group {tsubs}")
+    k = acts.get(kb[0][0])
+    r = acts.get(root[0][0])
+    need(isinstance(k["Duration"], int) and str(r["GameTagsToSet"]).strip() == "NO_MOVE" and isinstance(r["ActionDuration"], int),
+         "the knock or the root")
+    return {"every": every, "push_milli": upper["PushBackStrength"], "flight_ms": k["Duration"], "root_delay_ms": root[0][1],
+            "root_ms": r["ActionDuration"]}
 
 
 def far_shot_block(t: Tables, card: dict) -> dict:
@@ -5078,6 +5122,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ)
         elif name == "RoyalGiant_EV1":
             card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ_PUSH)
+        elif name == "MegaKnight_EV1":
+            card["evo_uppercut"] = uppercut_block(t, card)
         elif name == "Archer_EV1":
             card["evo_far_shot"] = far_shot_block(t, card)
         elif name == "AngryBarbarians_EV1":

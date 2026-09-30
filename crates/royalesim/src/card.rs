@@ -1924,6 +1924,8 @@ pub struct EvoDef {
     pub attack_area: Option<AttackAreaDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
+    /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
+    pub uppercut: Option<UppercutDef>,
     /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
     /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
     /// recruits lost their shields in melee and never ran up.
@@ -4182,6 +4184,8 @@ struct RawEvolution {
     evo_attack_area: Option<RawAttackArea>,
     /// The Evo Archer's power shot (`far_shot_block`).
     evo_far_shot: Option<RawFarShot>,
+    /// The Evo Mega Knight's uppercut (`uppercut_block`).
+    evo_uppercut: Option<RawUppercut>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4215,6 +4219,15 @@ struct RawAttackArea {
 struct RawFarShot {
     range_milli: Option<i32>,
     damage: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_uppercut` (tools/extract_cards.py `uppercut_block`).
+#[derive(Deserialize)]
+struct RawUppercut {
+    every: Option<i32>,
+    push_milli: Option<i32>,
+    root_delay_ms: Option<i32>,
+    root_ms: Option<i32>,
 }
 
 /// THE EVO BOMBER'S BOUNCE (tools/extract_cards.py `bounce_block`; combat.rs `BounceHop`, the bounce in
@@ -4267,6 +4280,25 @@ pub const EVO_ATTACK_AREA: u8 = u8::MAX;
 pub struct FarShotDef {
     pub range: i32,
     pub damage: i32,
+}
+
+/// THE EVO MEGA KNIGHT'S UPPERCUT (tools/extract_cards.py `uppercut_block`; state.rs `uppercut_count`, `UppercutRun`,
+/// `uppercut_pass`): every `every`-th of his attacks, his dash's blow among them, throws the attack's target toward its
+/// own king tower, a pushback ladder of `push` (native; move16402.rs `ladder_speed`) whose every step is capped at
+/// SLAP_FLIGHT_STEP (the Hero Giant's slap's cap), first on the hit's tick + 2, its last the ladder's step back, held
+/// through it; `root_delay_ms` after the hit it cannot move for `root_ms`. A building is not thrown.
+///
+/// Measured on client 15.535.29 (sp-form-MegaKnight-evo-s0, level 11): his deploy's dash blow, then his first hit on
+/// t1078 (268 off a Knight, 105 on the ladder), threw it on t1080-t1087 250 a tick toward its king tower ((-94, 230) from
+/// (14102, 16641): the line to the king at (9000, 29000)), then 225, 200, 175, 150, 125 ...; his next hit (t1143) threw
+/// none, the one after (t1177) threw the Knight again the same way, and the Musketeer his splash hit with it stayed.
+/// Read off the table, not measured: the root, and his dash's blow counting.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UppercutDef {
+    pub every: u8,
+    pub push: i32,
+    pub root_delay_ms: i32,
+    pub root_ms: i32,
 }
 
 /// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
@@ -9413,6 +9445,7 @@ impl CardDb {
             extra.evo_bounce.is_some(),
             extra.evo_attack_area.is_some(),
             extra.evo_far_shot.is_some(),
+            extra.evo_uppercut.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9456,6 +9489,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_uppercut.is_some() {
+            // The uppercut's counter, its entries, the throw and the root (`uppercut_block` reads them whole).
+            &["ActionGroup", "ActionKnockback", "ActionMegaKnightUppercut", "ActionPlayEffect", "ActionSelect", "ActionSetAttackSequenceIndex", "ActionSetVariable", "ActionWithDuration"]
         } else {
             &[]
         };
@@ -9579,6 +9615,7 @@ impl CardDb {
                     bounce: None,
                     attack_area: None,
                     far_shot: None,
+                    uppercut: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9751,6 +9788,7 @@ impl CardDb {
             bounce: None,
             attack_area: None,
             far_shot: None,
+            uppercut: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9845,6 +9883,13 @@ impl CardDb {
                 return Err("a power shot on a card with no projectile or with a selector of its own; not simulated".into());
             }
             evo.far_shot = Some(FarShotDef { range: milli(range), damage });
+        }
+        // THE UPPERCUT (the Evo Mega Knight's): on a card whose attack hits a target.
+        if let Some(u) = &extra.evo_uppercut {
+            let every = u.every.and_then(|n| u8::try_from(n).ok()).filter(|n| *n >= 1).ok_or("an uppercut with no count")?;
+            let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
+            let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
+            evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
         }
         // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
         if let Some(rage) = &extra.evo_hit_rage {
