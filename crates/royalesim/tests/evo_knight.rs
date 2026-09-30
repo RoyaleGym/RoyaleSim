@@ -37,6 +37,10 @@ fn a_musketeers_217_lands_as_86_while_it_has_not_hit() {
     // Knight never reaching it): each of its shots takes 86 off the Knight, 217 x 40 / 100.
     let mut s = battle();
     s.spawn_unit(Team::Blue, "Knight_EV1", n(9000, 10000), None).expect("the Knight");
+    // The Knight deployed and idle (its buff up) before the Musketeer comes.
+    for _ in 0..60 {
+        s.tick();
+    }
     let musk = s.scenario_spawn_now(Team::Red, "Musketeer", n(9000, 14500), None).expect("a red Musketeer");
     s.tick();
     let knight = find_live(&s, Team::Blue, "Knight_EV1")[0].id;

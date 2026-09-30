@@ -40,7 +40,12 @@ fn arrows(first: i32, then: i32, k: usize) -> Vec<i32> {
     let at = n(9000, 9000);
     s.spawn_unit(Team::Blue, "Archer_EV1", at, None).expect("the Archer");
     s.tick();
-    let archer = find_live(&s, Team::Blue, "Archer_EV1").first().expect("the Archer").id;
+    // The form lays two archers; one of them is taken off, so every arrow is the held one's.
+    let pair: Vec<_> = find_live(&s, Team::Blue, "Archer_EV1").iter().map(|e| e.id).collect();
+    assert_eq!(pair.len(), 2, "the form's two archers");
+    let archer = pair[0];
+    assert!(s.debug_set_hp(pair[1], 0));
+    s.tick();
     let knight = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 9000 + first), None).expect("a red Knight");
     let (mut out, mut fired) = (Vec::new(), false);
     for _ in 0..400 {

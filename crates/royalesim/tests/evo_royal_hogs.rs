@@ -51,15 +51,20 @@ struct Frame {
 /// The four hogs of one evolved play put down at AT and held on their first points (all but the first moved west along
 /// AT's line when `park`); red `units` put (dx, dy) from the first hog and held there, their hitpoints topped up;
 /// `before(k, s, hog)` runs before frame k's tick.
-fn scene(units: &[(&str, (i32, i32))], park: bool, frames: usize, mut before: impl FnMut(usize, &mut BattleState, EntityId)) -> Vec<Frame> {
+fn scene(units: &[(&str, (i32, i32))], park: bool, frames: usize, before: impl FnMut(usize, &mut BattleState, EntityId)) -> Vec<Frame> {
+    scene_at(AT, units, park, frames, before)
+}
+
+/// `scene` with the play at `at`.
+fn scene_at(at: (i32, i32), units: &[(&str, (i32, i32))], park: bool, frames: usize, mut before: impl FnMut(usize, &mut BattleState, EntityId)) -> Vec<Frame> {
     let mut s = battle();
-    s.spawn_unit(Team::Blue, "RoyalHogs_EV1", n(AT.0, AT.1), None).expect("the hogs");
+    s.spawn_unit(Team::Blue, "RoyalHogs_EV1", n(at.0, at.1), None).expect("the hogs");
     s.tick();
     let mut hogs: Vec<(EntityId, Vec2)> = find_live(&s, Team::Blue, "RoyalHogs_EV1").iter().map(|e| (e.id, e.pos)).collect();
     assert_eq!(hogs.len(), 4, "four hogs");
     if park {
         for (k, h) in hogs.iter_mut().enumerate().skip(1) {
-            h.1 = n(2500 + 1500 * k as i32, AT.1);
+            h.1 = n(2500 + 1500 * k as i32, at.1);
         }
     }
     let first = hogs[0].1;
@@ -135,8 +140,9 @@ fn under_99_percent_a_hog_lands_12_ticks_on_and_its_blow_takes_43() {
 
 #[test]
 fn a_hog_that_strikes_lands_11_ticks_after_its_first_hit() {
-    // A red Cannon behind the first hog, off the river (a Cannon shoots no flier), the other three parked away from it.
-    let f = scene(&[("Cannon", (0, -1400))], true, 90, |_, _, _| {});
+    // A red Cannon in front of the first hog, on red's half out of every crown tower's reach (a Cannon shoots no flier),
+    // the other three parked away from it.
+    let f = scene_at((9500, 16300), &[("Cannon", (0, 1400))], true, 90, |_, _, _| {});
     let d = f.iter().position(|x| x.losses[0] == 74).expect("the first hog's first hit on the Cannon (29 at level 1)");
     assert!(f[..d + 11].iter().all(|x| x.flying), "in the air to frame {}", d + 10);
     assert_eq!((f[d + 11].card.as_str(), f[d + 11].flying), ("RoyalHog_EV1_Grounded", false), "landed 11 ticks after its hit (the client's t1278 -> t1289)");

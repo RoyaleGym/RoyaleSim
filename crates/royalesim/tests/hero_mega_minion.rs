@@ -81,7 +81,8 @@ fn the_warp_steps_up_to_its_speed_and_stands_on_its_pick() {
     let mut prev = s.entity(hero).expect("the hero").pos;
     let (mut arrived, mut gone) = (None, None);
     for f in 0..30 {
-        for (id, p) in &reds {
+        // Held until the hero stands on its pick; then let go, as the client's (a held Minion would push the hero off it).
+        for (id, p) in reds.iter().filter(|_| arrived.is_none()) {
             if s.entity(*id).is_some() {
                 assert!(s.debug_set_pos(*id, *p));
             }

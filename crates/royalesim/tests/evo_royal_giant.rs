@@ -17,6 +17,16 @@ use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState};
 use royalesim::Team;
 
+/// Blue's princess towers down (its king wakes; its reach stops short of y 12000): no crown tower reaches the scene.
+fn blue_towers_down(s: &mut BattleState) {
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
+}
+
 fn n(x: i32, y: i32) -> Vec2 {
     Vec2::new(x * K, y * K)
 }
@@ -32,12 +42,13 @@ fn battle() -> BattleState {
     s
 }
 
-/// `card` held at (9000, 11000) shooting a red Cannon held 4000 above him; a red Knight held 2000 above him (within
-/// the push's 3000), both topped up, out of every crown tower's reach. Per frame: whether a shot of his left on it, what
-/// the Knight lost, and its move off its point.
+/// `card` held at (9000, 11000) shooting a red Cannon held at (11000, 14000); a red Knight held 2000 above him (within
+/// the push's 3000), both topped up, blue's princess towers down (no crown tower reaches the scene). Per frame: whether
+/// a shot of his left on it, what the Knight lost, and its move off its point.
 fn scene(card: &str) -> Vec<(bool, i32, Vec2)> {
     let mut s = battle();
-    let (at, kn_at, cannon_at) = (n(9000, 11000), n(9000, 13000), n(9000, 15000));
+    blue_towers_down(&mut s);
+    let (at, kn_at, cannon_at) = (n(9000, 11000), n(9000, 13000), n(11000, 14000));
     s.spawn_unit(Team::Blue, card, at, None).expect("the Royal Giant");
     let cannon = s.scenario_spawn_now(Team::Red, "Cannon", cannon_at, None).expect("a red Cannon");
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");

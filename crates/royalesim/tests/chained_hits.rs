@@ -63,12 +63,12 @@ fn scene(attacker: &str, at: (i32, i32), units: &[(&str, (i32, i32))], frames: u
 
 #[test]
 fn an_electro_dragon_shot_hits_three_along_a_line_of_knights() {
-    // Four red Knights 1500 apart on one row, the first 3500 ahead of the dragon (in its reach), out of every crown
-    // tower's: its first shot hits the first, then the second (1500 on) and the third, never the fourth. 75 at level 1
-    // is 192 at 11, on each.
-    let row = [(6500, 14500), (8000, 14500), (9500, 14500), (11000, 14500)];
+    // Four red Knights 1500 apart on one row of red's half, the first 3500 ahead of the dragon (in its reach; blue's
+    // half), out of every crown tower's reach: its first shot hits the first, then the second (1500 on) and the third,
+    // never the fourth. 75 at level 1 is 192 at 11, on each.
+    let row = [(6500, 18000), (8000, 18000), (9500, 18000), (11000, 18000)];
     let units: Vec<(&str, (i32, i32))> = row.iter().map(|p| ("Knight", *p)).collect();
-    let f = scene("ElectroDragon", (6500, 11000), &units, 120);
+    let f = scene("ElectroDragon", (6500, 14500), &units, 120);
     let first = f.iter().position(|x| x[0] == Some(192)).expect("the dragon's first shot on the first Knight");
     // Up to the next shot (HitSpeed 2100: 42 ticks), each of the first three loses 192 once, the fourth nothing.
     let window = &f[first..(first + 40).min(f.len())];
@@ -83,8 +83,8 @@ fn an_electro_dragon_shot_hits_three_along_a_line_of_knights() {
 fn each_hop_waits_three_ticks_then_flies_at_the_shot_s_speed() {
     // Three red Knights on the row, 2000 and then 3000 apart (the third 5000 from the first: only a hop from the second
     // reaches it). The dragon's shot (2000 a tick) hits the second 3 + 1 ticks after the first, the third 3 + 2 after.
-    let units = [("Knight", (6500, 14500)), ("Knight", (8500, 14500)), ("Knight", (11500, 14500))];
-    let f = scene("ElectroDragon", (6500, 11000), &units, 120);
+    let units = [("Knight", (6500, 18000)), ("Knight", (8500, 18000)), ("Knight", (11500, 18000))];
+    let f = scene("ElectroDragon", (6500, 14500), &units, 120);
     let first = |u: usize| f.iter().position(|x| x[u] == Some(192)).unwrap_or_else(|| panic!("Knight {u} hit by the chain"));
     let (a, b, c) = (first(0), first(1), first(2));
     assert_eq!((b - a, c - b), (4, 5), "hops of 2000 and 3000: frames {a}, {b}, {c}");
@@ -92,12 +92,12 @@ fn each_hop_waits_three_ticks_then_flies_at_the_shot_s_speed() {
 
 #[test]
 fn an_electro_spirit_hits_nine_along_a_line_of_skeletons() {
-    // Ten red Skeletons 1700 apart on one row (81 hitpoints: each hit, 39 at level 1 or 100 at 11, kills), the spirit
-    // beside the first: nine die, the tenth stands.
-    let units: Vec<(&str, (i32, i32))> = (0..10).map(|k| ("Skeleton", (1000 + 1700 * k, 14500))).collect();
-    let f = scene("ElectroSpirit", (1000, 13000), &units, 120);
+    // Ten red Skeletons 1700 apart on one row of red's half, out of every crown tower's reach (81 hitpoints: each hit,
+    // 39 at level 1 or 100 at 11, kills), the spirit on the left bridge 2500 from the second: nine die, one stands.
+    let units: Vec<(&str, (i32, i32))> = (0..10).map(|k| ("Skeleton", (1800 + 1700 * k, 18000))).collect();
+    let f = scene("ElectroSpirit", (3500, 15500), &units, 120);
     let last = f.last().expect("frames");
-    let dead = last.iter().take(9).filter(|x| x.is_none()).count();
-    assert_eq!(dead, 9, "the first nine killed: {last:?}");
-    assert_eq!(last[9], Some(0), "the tenth untouched (9 targets)");
+    let dead = last.iter().filter(|x| x.is_none()).count();
+    assert_eq!(dead, 9, "nine killed: {last:?}");
+    assert!(last.iter().any(|x| *x == Some(0)), "one untouched (9 targets): {last:?}");
 }

@@ -441,7 +441,8 @@ fn without(lists: &[&str]) -> CardDb {
 fn forms_take_slots_after_every_existing_card() {
     // The table with its evolved forms against the table without them, both without the hero forms: every card of
     // the parent build, and nothing else. The hero pass loads after the evolved forms (tests/hero_forms.rs holds it),
-    // and may add its row's name to a buff the table already has, which is why it is left out here.
+    // and may add its row's name to a buff the table already has, which is why it is left out here. An evolved form may
+    // too (the Evo Tesla's ring stop is the Freeze's buff): a slot's names may gain one after its own, never lose one.
     let (db, db0) = (without(&["hero_forms"]), without(&["evolutions", "hero_forms"]));
     assert_eq!(db.rejected_evolutions, Vec::<(String, String)>::new());
     assert_eq!(db0.forms.len(), 0);
@@ -449,7 +450,9 @@ fn forms_take_slots_after_every_existing_card() {
     let names = |d: &CardDb, n: usize| d.cards[..n].iter().map(|c| format!("{c:?}")).collect::<Vec<_>>();
     assert_eq!(names(&db, n0), names(&db0, n0), "a card slot of the table without forms moved");
     assert_eq!(db.buffs[..db0.buffs.len()], db0.buffs[..], "a buff slot moved");
-    assert_eq!(db.buff_names[..db0.buff_names.len()], db0.buff_names[..], "a buff's names moved");
+    for (k, (now, was)) in db.buff_names.iter().zip(&db0.buff_names).enumerate() {
+        assert!(now == was || now.starts_with(&format!("{was}|")), "buff {k}'s names moved: {was} -> {now}");
+    }
     let forms: Vec<(String, String)> = db.forms.iter().map(|(b, _, f)| (db.get(*b).name.clone(), db.get(*f).name.clone())).collect();
     assert_eq!(
         forms,

@@ -28,6 +28,16 @@ use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
+/// Blue's princess towers down (its king wakes; its reach stops short of y 12000): no crown tower reaches the scene.
+fn blue_towers_down(s: &mut BattleState) {
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
+}
+
 fn n(x: i32, y: i32) -> Vec2 {
     Vec2::new(x * K, y * K)
 }
@@ -57,6 +67,7 @@ type Red = (EntityId, (i32, i32), i32);
 /// hero and the red units.
 fn start(units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<Red>) {
     let mut s = battle();
+    blue_towers_down(&mut s);
     s.spawn_unit(Team::Blue, "MiniPekka_hero", n(AT.0, AT.1), None).expect("the hero");
     for (card, p) in units {
         s.spawn_unit_resolved(Team::Red, card, n(p.0, p.1), None).expect("a red unit");

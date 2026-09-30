@@ -20,7 +20,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{AttractOnset, BattleConfig, BattleState};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -33,6 +33,9 @@ fn battle() -> BattleState {
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
+    // status.ATTRACT_ONSET = client_next_tick, the client's reading (the shipped area_first_tick pulls a tick early, as
+    // it does the Tornado's).
+    cfg.calib.attract_onset = AttractOnset::ClientNextTick;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     s

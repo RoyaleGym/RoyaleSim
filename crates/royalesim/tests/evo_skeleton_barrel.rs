@@ -95,11 +95,12 @@ fn under_75_percent_it_drops_seven_skeletons_13_ticks_on() {
     let first = skel.iter().position(|v| !v.is_empty()).expect("a drop");
     assert_eq!(first, 5 + 12, "the Skeletons on the 13th frame from the hit's (t974 -> t987)");
     assert_eq!(skel[first].len(), 7, "seven");
-    // A ring about 1,480 around the drop point, (-350, 450) from the barrel in the owner's frame.
+    // A ring about 250 around the drop point, (-350, 450) from the barrel in the owner's frame: the client's seven of the
+    // death drop stood 249-250 from their centre (sp-form-SkeletonBalloon-evo-s0 t1045).
     let c = n(AT.0 - 350, AT.1 + 450);
     for p in &skel[first] {
         let d = p.dist(c) / K;
-        assert!((1200..=1600).contains(&d), "about 1,480 from the drop point: {d}");
+        assert!((200..=300).contains(&d), "about 250 from the drop point: {d}");
     }
     assert!(skel[first..].iter().all(|v| v.len() <= 7), "one drop at the line, not one a tick");
 }
