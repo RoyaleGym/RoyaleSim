@@ -455,7 +455,9 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # 95 -> 94 when card.rs began reading OverrideAttackFinishTime off the row (CardDef::override_attack_finish, the
     # Hero Valkyrie's patch): MINISPARKYS leave, their only flag. The WHOLE delta: the outside sets before and after
     # differ by MiniSparkys alone. The Electro Dragon, the Princess and the Bowler lose the key and stay for others.
-    outside_by_vintage = {"2018": 40, "15.535": 94}
+    # 94 -> 95 with the Minion Giant, a card appended from a later client's table (data/client_additions): its one
+    # flag is projectile.only_enemies (its shot's OnlyEnemies, unread).
+    outside_by_vintage = {"2018": 40, "15.535": 95}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

@@ -29,7 +29,7 @@ def _battle(**kw):
 def test_the_own_row_is_the_catalogues_hitpoints():
     b, _ = _battle()
     rows = json.loads(b.catalogue_json())
-    assert len(rows) == 132
+    assert len(rows) == 133
     for cid, row in enumerate(rows):
         got = b.unit_hitpoints(cid, 11)
         assert all(r[0] in royalesim.UNIT_ROLES for r in got), (row[0], got)
