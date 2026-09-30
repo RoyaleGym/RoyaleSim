@@ -15794,6 +15794,12 @@ impl BattleState {
         }
         for (i, gain, need) in due {
             let e = &mut self.ents;
+            // THE EVO ROYAL RECRUITS' CHARGE (card.rs `EvoDef::charge_after_shield`): no run-up while the shield holds.
+            #[cfg(not(clash_plant = "charge_before_shield_loss"))]
+            if e.shield[i] > 0 && self.cfg.cards.get(e.card[i]).evo.as_ref().is_some_and(|v| v.charge_after_shield) {
+                e.charge_progress[i] = 0;
+                continue;
+            }
             if gain <= 0 {
                 if stop == ChargeStopRule::Reset {
                     e.charge_progress[i] = 0;
@@ -21414,6 +21420,16 @@ impl BattleState {
             return false;
         }
         self.ents.hp[id.index as usize] = hp;
+        true
+    }
+
+    /// Test/scenario entry point: overwrite an entity's shield (entity.rs `shield`), for a scenario that starts after a
+    /// shield has broken (the Evo Royal Recruits' charge waits for that).
+    pub fn debug_set_shield(&mut self, id: EntityId, shield: i32) -> bool {
+        if !self.ents.is_alive(id) {
+            return false;
+        }
+        self.ents.shield[id.index as usize] = shield;
         true
     }
 

@@ -1910,6 +1910,10 @@ pub struct EvoDef {
     pub first_hit: Option<BuffApply>,
     /// Evo Tesla: the ring it makes at its creation and each time it comes up (`RingDef`).
     pub ring: Option<RingDef>,
+    /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
+    /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
+    /// recruits lost their shields in melee and never ran up.
+    pub charge_after_shield: bool,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -4150,6 +4154,8 @@ struct RawEvolution {
     evo_first_hit: Option<RawFirstHit>,
     /// The Evo Tesla's ring (`ring_block`).
     evo_ring: Option<RawRing>,
+    /// The Evo Royal Recruits' charge after the shield (`charge_after_shield_block`): the buff it spawns.
+    evo_charge_after_shield: Option<RawChargeAfterShield>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4160,6 +4166,13 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_charge_after_shield` (tools/extract_cards.py `charge_after_shield_block`).
+#[derive(Deserialize)]
+struct RawChargeAfterShield {
+    range_raw: Option<i32>,
+    buff: Option<String>,
 }
 
 /// cards.json `evolutions[].evo_ring` (tools/extract_cards.py `ring_block`).
@@ -9274,6 +9287,7 @@ impl CardDb {
             extra.evo_fall.is_some(),
             extra.evo_first_hit.is_some(),
             extra.evo_ring.is_some(),
+            extra.evo_charge_after_shield.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9305,6 +9319,9 @@ impl CardDb {
         } else if extra.evo_ring.is_some() {
             // The ring's spawn and effects (`ring_block` reads them whole).
             &["ActionPlayEffect", "ActionSpawn"]
+        } else if extra.evo_charge_after_shield.is_some() {
+            // The shield's loss: the charge-range buff's spawn (`charge_after_shield_block` reads it whole).
+            &["ActionSpawn"]
         } else {
             &[]
         };
@@ -9331,12 +9348,16 @@ impl CardDb {
             let name = extra.evo_first_hit.as_ref().and_then(|f| f.buff.as_ref()).and_then(|b| b.name.as_deref());
             name.is_some_and(|n| g.spawns.iter().all(|s| s == &format!("BuffType:{n}")))
         };
+        // THE CHARGE-RANGE BUFF is its block's too (`charge_after_shield_block` reads it whole).
+        let charge_spawns = |g: &RawActionGraph| {
+            extra.evo_charge_after_shield.as_ref().and_then(|c| c.buff.as_deref()).is_some_and(|b| g.spawns.iter().all(|s| s == &format!("BuffType:{b}")))
+        };
         // THE RING'S AREA is its block's too (`ring_block` reads it whole).
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9406,6 +9427,7 @@ impl CardDb {
                     fall: None,
                     first_hit: None,
                     ring: None,
+                    charge_after_shield: false,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -9572,6 +9594,7 @@ impl CardDb {
             fall: None,
             first_hit: None,
             ring: None,
+            charge_after_shield: false,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
@@ -9626,6 +9649,14 @@ impl CardDb {
                 crown_hit: r.crown_hit.unwrap_or(0).max(0),
                 stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
             });
+        }
+        // THE CHARGE AFTER THE SHIELD: the card's charge carries the buff's range; a card with no charge or no shield
+        // is refused.
+        if let Some(r) = &extra.evo_charge_after_shield {
+            if !c.charge.as_ref().is_some_and(|ch| Some(ch.range_raw) == r.range_raw) || c.shield_hitpoints <= 0 {
+                return Err("a charge after the shield on a card with no such charge or no shield; not simulated".into());
+            }
+            evo.charge_after_shield = true;
         }
         // THE GHOST: the buff the unit's first damage lands, interned now; it must keep every hit off its carrier.
         if let Some(f) = &extra.evo_first_hit {

@@ -3671,7 +3671,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
-    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1",
+    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4326,6 +4326,38 @@ FALL_GROUNDED_SET = {
 }
 
 
+def charge_after_shield_block(t: Tables, card: dict) -> dict:
+    """THE EVO ROYAL RECRUITS' CHARGE (spells_evolved RoyalRecruits_EV1; characters_evo Recruit_EV1), read whole or the
+    build stops. The unit row sets ChargeSpeedMultiplier and DamageSpecial and no ChargeRange; its ShieldLostAction is an
+    ActionSpawn on itself of a buff for good (SpawnTime past any battle) whose one column is OverrideChargeRange: the
+    charge's range from the shield's loss (`range_raw`). The card's charge block is completed with it (its `charge`),
+    and the block says the run-up waits for the shield's loss."""
+    acts = t["actions"]
+    unit = card["summon_character"]
+    _, urow = unit_record(t, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"RoyalRecruits_EV1: {what}")
+
+    need(urow["ChargeRange"] in (None, 0) and isinstance(urow["ChargeSpeedMultiplier"], int)
+         and isinstance(urow["DamageSpecial"], int), "the row's charge columns")
+    sp = acts.get(urow["ShieldLostAction"]) if isinstance(urow["ShieldLostAction"], str) else None
+    need(sp is not None and sp["ClassType"] == "ActionSpawn" and sp["SpawnType"] == "BuffType"
+         and isinstance(sp["SpawnTime"], int) and sp["SpawnTime"] >= 99999, "ShieldLostAction is not a buff for good")
+    need(_present(sp) <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ParentGOAsSource"}, "ShieldLostAction's keys")
+    bt = t["character_buffs"]
+    b = bt.get(sp["SpawnData"])
+    need(b is not None and bt.set_fields.get(sp["SpawnData"], set()) <= {"Rarity", "OverrideChargeRange"}
+         and isinstance(b["OverrideChargeRange"], int) and b["OverrideChargeRange"] > 0, f"the buff {sp['SpawnData']}")
+    card["charge"] = {
+        "charge_range_raw": b["OverrideChargeRange"],
+        "damage_special": urow["DamageSpecial"],
+        "charge_speed_multiplier_percent": urow["ChargeSpeedMultiplier"],
+    }
+    return {"range_raw": b["OverrideChargeRange"], "buff": sp["SpawnData"]}
+
+
 # THE EVO TESLA'S RING (`ring_block`): the columns its area may set beside the cosmetic ones.
 RING_AREA_READ = {
     "Rarity", "OnlyEnemies", "HitsGround", "HitsAir", "Radius", "MaxRadius", "LifeDuration", "HitSpeed", "Damage",
@@ -4779,6 +4811,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_first_hit"] = first_hit_block(t, card)
         elif name == "Tesla_EV1":
             card["evo_ring"] = ring_block(t, card)
+        elif name == "RoyalRecruits_EV1":
+            card["evo_charge_after_shield"] = charge_after_shield_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k
