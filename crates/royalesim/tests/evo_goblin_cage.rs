@@ -36,10 +36,14 @@ fn n(x: i32, y: i32) -> Vec2 {
 /// The cage's point: clear of blue's king's reach once blue's princess towers are down.
 const CAGE: (i32, i32) = (9500, 12500);
 
-/// A point's distance from the cage's centre, millitiles.
-fn d(p: (i32, i32)) -> f64 {
-    (f64::from(p.0 - CAGE.0).powi(2) + f64::from(p.1 - CAGE.1).powi(2)).sqrt()
+/// A point's squared distance from the cage's centre (millitiles squared: the engine is integer-only).
+fn d(p: (i32, i32)) -> i64 {
+    let (dx, dy) = (i64::from(p.0 - CAGE.0), i64::from(p.1 - CAGE.1));
+    dx * dx + dy * dy
 }
+
+/// The cage's grab circle, squared: 3000 plus a radius of 500 (the Knight's and the Skeleton's).
+const GRAB2: i64 = 3500 * 3500;
 
 /// Blue's princess towers down (no crown tower reaches the scene) and the form put down on CAGE: the battle and the
 /// cage.
@@ -93,7 +97,7 @@ fn grabbed() -> (BattleState, EntityId, EntityId, Vec<(i32, i32)>, Vec<i32>, usi
 fn a_knight_is_grabbed_3_ticks_after_it_comes_in_reach_held_dragged_and_hit_every_20_ticks() {
     let (_, _, _, pts, hps, g) = grabbed();
     // First within 3000 + 500 of the centre on G - 3; walks on through G.
-    assert!(g >= 4 && d(pts[g - 3]) <= 3500.0 && d(pts[g - 4]) > 3500.0, "grabbed on {g}: {:?}", &pts[..=g]);
+    assert!(g >= 4 && d(pts[g - 3]) <= GRAB2 && d(pts[g - 4]) > GRAB2, "grabbed on {g}: {:?}", &pts[..=g]);
     assert!((g - 2..=g).all(|k| pts[k] != pts[k - 1]), "walks on through G: {:?}", &pts[..=g]);
     // Stands through G + 10.
     assert!(pts[g..=g + 10].iter().all(|p| *p == pts[g]), "stands through G + 10: {:?}", &pts[g..g + 12]);
@@ -180,7 +184,7 @@ fn after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on() {
             assert!(s.debug_set_pos(b, fb));
         }
         s.tick();
-        if !taken && point(&s, a).is_some_and(|p| d(p) <= 3500.0) {
+        if !taken && point(&s, a).is_some_and(|p| d(p) <= GRAB2) {
             taken = true;
             assert!(s.debug_set_pos(b, side));
         }
