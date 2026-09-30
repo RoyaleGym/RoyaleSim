@@ -4312,9 +4312,9 @@ struct RawRing {
 /// set, not under ground) once: `damage` (level 1, on the Tesla's ladder; `crown_hit` on a crown tower) and `stop` for
 /// its time. Radii in subtiles.
 ///
-/// Measured on client 15.535.29 (sp-form-Tesla-evo-s0; the Tesla up on t1103, level 11): a Knight lost 148 (58 at level
-/// 1) and stood still t1134 to t1143 (500 ms), and three enemies were taken on t1129, t1131 and t1134 and missed on
-/// the ticks before, at start-of-tick centre distances 5242, 5862 and 6260 against 5330, 5951 and 6317: all six fit
+/// Measured on client 15.535.29 (sp-form-Tesla-evo-s0; the Tesla up on t1103, level 11): a Knight lost 148 (58 at
+/// level 1) and stood still t1134 to t1143 (500 ms), and three enemies were taken on t1129, t1131 and t1134 and missed
+/// on the ticks before, at start-of-tick centre distances 5242, 5862 and 6260 against 5330, 5951 and 6317: all six fit
 /// radius = Radius + (MaxRadius - Radius) x age / LifeDuration from age 0 on t1104, plus the enemy's own radius (500),
 /// and no other integer start. Read off the table, not measured: the ring at the Tesla's creation, on a crown tower.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -4394,7 +4394,7 @@ fn capture_of(r: &RawCapture, flight_speed: i32, buffs: &mut BuffTable) -> Resul
     }
     let hit_buff = buffs.apply(need(&r.hit_buff, "hit buff")?, r.hit_buff_ms, "the roll's hit buff")?;
     let hold = buffs.apply(need(&r.hold_buff, "hold buff")?, Some(CAPTURE_DRAG_MS), "the capture's hold")?.buff;
-    if buffs.defs.get(hold as usize).is_none_or(|b| b.speed_pct != -100 || b.hit_speed_pct != -100) {
+    if buffs.defs.get(hold as usize).map_or(true, |b| b.speed_pct != -100 || b.hit_speed_pct != -100) {
         return Err(format!("{what}: a hold that is not a full stop"));
     }
     let release = buffs.apply(need(&r.release_buff, "release buff")?, r.release_ms, "the release's buff")?;
