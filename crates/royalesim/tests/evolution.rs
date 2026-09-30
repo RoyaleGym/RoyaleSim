@@ -486,19 +486,27 @@ fn forms_take_slots_after_every_existing_card() {
             ("Bats", "Bats_EV1"),
             ("Wallbreakers", "Wallbreakers_EV1"),
             ("IceSpirits", "IceSpirits_EV1"),
-            ("Firecracker", "Firecracker_EV1")
+            ("Firecracker", "Firecracker_EV1"),
+            ("Witch", "Witch_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Thirty forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Thirty-one forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
-    // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, then the Evo Firecracker.
-    assert_eq!(db.cards.len(), n0 + 40);
+    // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, then
+    // the Evo Witch.
+    assert_eq!(db.cards.len(), n0 + 41);
+    assert_eq!(db.cards[n0 + 40].name, "Witch_EV1");
+    let sd = db.cards[n0 + 40].evo.as_ref().and_then(|e| e.soul_drain).expect("the Evo Witch's soul drain");
+    let hb = db.buffs[sd.heal.buff as usize];
+    assert!(sd.flight_ms == 1000 && sd.heal.time_ms == 50 && hb.heal_per_second == 1200 && hb.over_heal_pct == 173);
+    let sp = db.cards[n0 + 40].spawner.expect("her spawner");
+    assert!(db.cards[sp.unit as usize].name == "Skeleton" && sp.pause_time_ms == 7000 && sp.number == 4);
     assert_eq!(db.cards[n0 + 39].name, "Firecracker_EV1");
     let fw = db.cards[n0 + 39].evo.as_ref().and_then(|e| e.fireworks).expect("the Evo Firecracker's fireworks");
     assert!(fw.big.life_ms == 3000 && fw.big.hit_speed_ms == 250 && fw.small.life_ms == 2500 && fw.big.first_ms == 250);

@@ -1930,6 +1930,8 @@ pub struct EvoDef {
     pub impact_area: Option<AttachedArea>,
     /// Evo Firecracker: the fireworks its rocket and its sparks leave (`FireworksDef`).
     pub fireworks: Option<FireworksDef>,
+    /// Evo Witch: a unit she spawned dying heals her (`SoulDrainDef`).
+    pub soul_drain: Option<SoulDrainDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4216,6 +4218,8 @@ struct RawEvolution {
     evo_impact_area: Option<RawImpactArea>,
     /// The Evo Firecracker's fireworks (`fireworks_block`).
     evo_fireworks: Option<RawFireworks>,
+    /// The Evo Witch's soul drain (`soul_drain_block`).
+    evo_soul_drain: Option<RawSoulDrain>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4264,6 +4268,16 @@ struct RawUppercut {
 /// down (the record's death spawn; the blow is in the record's death columns).
 #[derive(Deserialize)]
 struct RawDeathAction {
+    unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_soul_drain` (tools/extract_cards.py `soul_drain_block`).
+#[derive(Deserialize)]
+struct RawSoulDrain {
+    flight_ms: Option<i32>,
+    heal: Option<RawBuff>,
+    heal_ms: Option<i32>,
+    /// The interval's unit row (the graph gate's spawn).
     unit: Option<String>,
 }
 
@@ -4336,6 +4350,21 @@ pub const EVO_IMPACT_AREA: u8 = u8::MAX - 1;
 /// rocket lands, and where each spark's flight ends.
 pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
+
+/// THE EVO WITCH'S SOUL DRAIN (tools/extract_cards.py `soul_drain_block`; state.rs EvoBoard `souls`, `soul_heals`): a
+/// unit she spawned (`spawned_by`) dying sends a soul that reaches her `flight_ms` on and heals her one pulse of `heal`
+/// (its HealPerSecond, level-scaled on her card and level, times its HitFrequency) a tick after, up to its
+/// AllowedOverHealPerc of her maximum; each soul its own heal. Her spawner is the base Witch's, on the interval's clock.
+///
+/// Measured on client 15.535.29 (sp-form-Witch-evo-s0, level 11, 839 max): four of her Skeletons died on t880, t900,
+/// t911 and t922 and she healed 153 on t901, t921, t932 and t943 (1200 a second, 3072 at level 11, for 50 ms), to 992,
+/// 1145, 1298 and 1451 (173 % of 839, floored); her first wave came on t861, the second on t1002 (141 ticks on; the
+/// base spawner's clock gives 140). Read off the table, not measured: a soul reaching a Witch that has died.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SoulDrainDef {
+    pub flight_ms: i32,
+    pub heal: BuffApply,
+}
 
 /// THE EVO FIRECRACKER'S FIREWORKS (tools/extract_cards.py `fireworks_block`; combat.rs `step_projectiles`): an area
 /// where its rocket lands (`big`, released with its sparks) and one where each spark's flight ends (`small`), each
@@ -9564,6 +9593,7 @@ impl CardDb {
             extra.evo_death_action.is_some(),
             extra.evo_impact_area.is_some(),
             extra.evo_fireworks.is_some(),
+            extra.evo_soul_drain.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9607,6 +9637,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_soul_drain.is_some() {
+            // The soul's trigger, flight and heal, the interval's spawn, and the gem's layer (`soul_drain_block`).
+            &["ActionAnimatorLayer", "ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionRunActionOnTroopDestroyed", "ActionSoulDrain", "ActionSpawn", "ActionSpawnToLocation"]
         } else if extra.evo_death_action.is_some() {
             // The death's spawns (`death_action_block` reads them whole, into the record's death columns).
             &["ActionSpawn"]
@@ -9660,6 +9693,13 @@ impl CardDb {
                 g.spawns.iter().all(|x| x == &format!("AreaEffectType:{area}") || x == &format!("BuffType:{buff}"))
             })
         };
+        // THE SOUL'S HEAL AND THE INTERVAL'S UNIT are their block's too (`soul_drain_block` reads them whole).
+        let soul_spawns = |g: &RawActionGraph| {
+            extra.evo_soul_drain.as_ref().is_some_and(|d| {
+                let (buff, unit) = (d.heal.as_ref().and_then(|b| b.name.as_deref()).unwrap_or(""), d.unit.as_deref().unwrap_or(""));
+                g.spawns.iter().all(|s| s == &format!("BuffType:{buff}") || s == &format!("CharacterType:{unit}"))
+            })
+        };
         // THE DEATH'S UNIT is its block's too (`death_action_block` reads it, and its blow, whole).
         let death_spawns = |g: &RawActionGraph| {
             extra.evo_death_action.as_ref().and_then(|d| d.unit.as_deref()).is_some_and(|u| {
@@ -9671,7 +9711,7 @@ impl CardDb {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9704,6 +9744,12 @@ impl CardDb {
         // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
         let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // THE EVO WITCH'S SPAWNER: the base Witch's Skeleton, a loaded unit record found by name.
+            if let (Some(_), UnitUse::Spawner) = (extra.evo_soul_drain.as_ref(), &which) {
+                let idx = self.index(&u).filter(|&i| self.get(i).kind == CardKind::Troop).ok_or_else(|| format!("its spawner's unit {u} is not a loaded troop"))?;
+                c.spawner.as_mut().ok_or("a spawner need with no spawner block")?.unit = idx;
+                continue;
+            }
             // THE SHOT'S AREA (the Evo Ice Spirits'): the form's `projectile_area`, converted as a death's area is; one
             // pulsing area that hits once, at its life's end, and rides on the shot's target.
             if let (Some(ia), UnitUse::ProjectileArea) = (extra.evo_impact_area.as_ref(), &which) {
@@ -9769,6 +9815,7 @@ impl CardDb {
                     kill_heal: None,
                     impact_area: None,
                     fireworks: None,
+                    soul_drain: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9967,6 +10014,7 @@ impl CardDb {
             kill_heal: None,
             impact_area: None,
             fireworks: None,
+            soul_drain: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10068,6 +10116,19 @@ impl CardDb {
             let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
             let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
             evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
+        }
+        // THE SOUL DRAIN (the Evo Witch's): on a card with a spawner, a heal over time as its buff.
+        if let Some(sd) = &extra.evo_soul_drain {
+            if c.spawner.is_none() {
+                return Err("a soul drain on a card that spawns nothing".into());
+            }
+            let flight_ms = sd.flight_ms.filter(|m| *m > 0).ok_or("a soul drain with no flight")?;
+            let heal = buffs.apply(sd.heal.as_ref().ok_or("a soul drain with no heal")?, sd.heal_ms, "the soul's heal")?;
+            let d = buffs.defs[heal.buff as usize];
+            if d.heal_per_second <= 0 || d.hit_frequency_ms <= 0 || d.damage_per_second != 0 {
+                return Err("a soul drain whose buff is not a heal over time".into());
+            }
+            evo.soul_drain = Some(SoulDrainDef { flight_ms, heal });
         }
         // THE FIREWORKS (the Evo Firecracker's): each area a plain pulsing one that hangs a buff, standing where it is made
         // and first hitting one HitSpeed after; on a card whose rocket releases sparks.

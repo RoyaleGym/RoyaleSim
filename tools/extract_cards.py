@@ -3702,7 +3702,7 @@ EVOLUTIONS = (
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
-    "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1",
+    "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4586,6 +4586,81 @@ def hit_rage_block(t: Tables, card: dict, stats: frozenset | set = frozenset()) 
     return {"unit": unit, "hits": counts[0], "time_ms": times[0], "buff": buff}
 
 
+# THE EVO WITCH (`soul_drain_block`): the unit row's columns it reads besides display, and the keys of the actions it
+# reads (the soul's flight's other keys only address its effects and their path).
+SOUL_DRAIN_ROW = {"OnStartingAction", "SpawnCharacter", "SpawnStartTime", "SpawnPauseTime", "VisualActions",
+                  "Projectile", "ClonedVersion", "StatsTags"}
+SOUL_DRAIN_ON_DESTROYED = {"ClassType", "ActionToRun", "TroopFilter", "MatchOnlyOwnSpawnedTroops", "StatsTags"}
+SOUL_DRAIN_FLIGHT_READ = {"ClassType", "ConstantFlightDuration", "ActionOnTargetReached"}
+SOUL_DRAIN_INTERVAL = {"ClassType", "Interval", "StartCounterAt", "ActionToExecute", "AffectedBySpawnSpeed", "PauseTag",
+                       "StatsTags"}
+SOUL_DRAIN_SPAWN = {"ClassType", "SpawnType", "SpawnData", "Count", "SpawnRadius", "IsDeathSpawn", "UseDeploy"}
+
+
+def soul_drain_block(t: Tables, card: dict) -> dict:
+    """THE EVO WITCH (characters/witch_ev1.toml Witch_EV1), read whole or the build stops:
+      - OnStartingAction: an ActionGroup of an ActionRunActionOnTroopDestroyed at 0 (MatchOnlyOwnSpawnedTroops) whose
+        ActionSoulDrain flies for ConstantFlightDuration (`flight_ms`) and on reaching her runs a group, at 0, of
+        effects and an ActionSpawn of a heal buff on her (`heal`, for its SpawnTime `heal_ms`); and an ActionInterval
+        (after `interval_delay_ms`) running an ActionSpawnToLocation of Count units of a Skeleton row (only a spawn
+        effect of its own) at SpawnRadius, both as the row's spawner's number and radius;
+      - SpawnCharacter a Skeleton row whose only own columns are a StartingBuff of display alone and its time.
+    The record's spawner is written as the base row's (Skeleton, SpawnPauseTime the interval's Interval): its first
+    wave is the row's own, the later ones the interval's, read as one spawner on the interval's clock."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, bf = t["actions"], t["character_buffs"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - SOUL_DRAIN_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    subs = group_subactions(t, row["OnStartingAction"], f"{unit} start")
+    by = {(acts.get(n) or {}).get("ClassType"): (n, d) for n, d in subs}
+    need(sorted(by) == ["ActionInterval", "ActionRunActionOnTroopDestroyed"]
+         and by["ActionRunActionOnTroopDestroyed"][1] == 0,
+         f"its start runs {subs}")
+    od = acts.get(by["ActionRunActionOnTroopDestroyed"][0])
+    need(_present(od) <= SOUL_DRAIN_ON_DESTROYED and od["MatchOnlyOwnSpawnedTroops"] is True, "the soul's trigger")
+    fl = acts.get(od["ActionToRun"])
+    need(fl is not None and fl["ClassType"] == "ActionSoulDrain" and isinstance(fl["ConstantFlightDuration"], int),
+         "the soul's flight")
+    reach = group_subactions(t, fl["ActionOnTargetReached"], f"{unit} soul")
+    spawns = [(n, d) for n, d in reach if acts.get(n)["ClassType"] == "ActionSpawn"]
+    need(len(spawns) == 1 and all(d == 0 for _, d in reach)
+         and all(_cosmetic_action(acts, n) for n, _ in reach if (n, 0) not in spawns), f"the soul's arrival {reach}")
+    hs = _one_action(acts, spawns[0][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+    heal = norm_buff(t, hs["SpawnData"])
+    need(hs["SpawnType"] == "BuffType" and heal is not None and heal["heal_per_second"]
+         and isinstance(hs["SpawnTime"], int),
+         "the soul's heal")
+    iv_name, iv_delay = by["ActionInterval"]
+    iv = acts.get(iv_name)
+    need(_present(iv) <= SOUL_DRAIN_INTERVAL, "the interval's keys")
+    sp = acts.get(iv["ActionToExecute"])
+    sp_ok = sp is not None and sp["ClassType"] == "ActionSpawnToLocation" and _present(sp) <= SOUL_DRAIN_SPAWN
+    need(sp_ok and sp["SpawnType"] == "CharacterType" and sp["UseDeploy"] is False, "the interval's spawn")
+    ctab, _ = unit_record(t, sp["SpawnData"])
+    htab, _ = unit_record(t, row["SpawnCharacter"])
+    spawner = card["spawner"]
+    need(t[ctab].get(sp["SpawnData"])["Base"] == "CHARACTER.Skeleton"
+         and t[ctab].set_fields.get(sp["SpawnData"], set()) <= {"Base", "SpawnEffect"}, "the interval's unit")
+    tint = t[htab].get(row["SpawnCharacter"])["StartingBuff"]
+    need(t[htab].get(row["SpawnCharacter"])["Base"] == "CHARACTER.Skeleton"
+         and t[htab].set_fields.get(row["SpawnCharacter"], set()) <= {"Base", "StartingBuff", "StartingBuffTime"}
+         and bf.set_fields.get(tint, set()) <= {"Rarity", "FilterFile", "FilterExportName"}, "the first wave's unit")
+    need(spawner["number"] == sp["Count"] and spawner["radius_milli"] == sp["SpawnRadius"], "the interval's wave")
+    spawner["character"] = "Skeleton"
+    spawner["pause_time_ms"] = iv["Interval"]
+    return {"flight_ms": fl["ConstantFlightDuration"], "heal": heal, "heal_ms": hs["SpawnTime"],
+            "unit": sp["SpawnData"],
+            "interval_ms": iv["Interval"], "start_counter_at_ms": iv["StartCounterAt"], "interval_delay_ms": iv_delay}
+
+
 # THE EVO FIRECRACKER'S FIREWORKS (`fireworks_block`): the columns each area row may set besides cosmetic ones.
 FIREWORKS_AREA = {"Rarity", "LifeDuration", "Radius", "HitSpeed", "Buff", "BuffTime", "OnlyEnemies", "HitsGround",
                   "HitsAir"}
@@ -5304,6 +5379,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_impact_area"] = impact_area_block(t, card)
         elif name == "Firecracker_EV1":
             card["evo_fireworks"] = fireworks_block(t, card)
+        elif name == "Witch_EV1":
+            card["evo_soul_drain"] = soul_drain_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

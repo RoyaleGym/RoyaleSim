@@ -6561,6 +6561,10 @@ pub struct EvoBoard {
     /// empty.
     #[serde(default)]
     pub uppercuts: Vec<UppercutRun>,
+    /// Each Evo Witch's souls in flight, (the Witch, the tick the soul's heal lands) (`soul_heals`). `default` so a
+    /// battle saved before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub souls: Vec<(EntityId, u32)>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6660,6 +6664,7 @@ impl EvoBoard {
             && self.attack_areas.is_empty()
             && self.uppercut_counts.is_empty()
             && self.uppercuts.is_empty()
+            && self.souls.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -13506,6 +13511,33 @@ impl BattleState {
         }
     }
 
+    /// THE EVO WITCH'S SOUL HEALS (card.rs `SoulDrainDef`), in the Resolve before the tick's heals land: each soul due this
+    /// tick on a Witch still alive heals her one pulse of her heal (on her card and level), capped at its overheal
+    /// (`land_buff_heals`); souls on a Witch that has died are dropped. Each soul is its own heal (AddAsIndividualBuff).
+    fn soul_heals(&mut self) {
+        let tick = self.tick;
+        let cards = self.cfg.cards.clone();
+        let mut keep = Vec::new();
+        for (w, due) in std::mem::take(&mut self.evo.souls) {
+            if !self.ents.is_alive(w) || self.ents.hp[w.index as usize] <= 0 {
+                continue;
+            }
+            if due > tick {
+                keep.push((w, due));
+                continue;
+            }
+            let i = w.index as usize;
+            let Some(sd) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.soul_drain) else { continue };
+            let (card, level) = (self.ents.card[i], self.ents.level[i]);
+            let def = cards.buffs[sd.heal.buff as usize];
+            let Ok(pulse) = def.pulse_amount(self.cfg.calib.buff_pulse_amount, |m| cards.scaled(card, level, m)) else { continue };
+            if pulse < 0 {
+                self.scratch.heals.push((w, -pulse, def.over_heal_pct));
+            }
+        }
+        self.evo.souls = keep;
+    }
+
     /// THE HEALS ON A KILL (card.rs `KillHealDef`), in the Resolve, after the tick's hits: each watched hit whose target
     /// the tick's hits left on 0 or below, its hitter alive, hangs on the hitter the heal the victim's size picks: its
     /// card's hitpoints at the block's level (a card with none: its maximum). The heal's pulse is scaled on the hitter's
@@ -18634,6 +18666,10 @@ impl BattleState {
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
         let out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
+        // THE EVO WITCH'S SOULS due this tick heal her with the tick's other heals (`soul_heals`).
+        if !self.evo.souls.is_empty() {
+            self.soul_heals();
+        }
         self.land_buff_heals();
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
@@ -19193,6 +19229,15 @@ impl BattleState {
         self.spells.append(&mut released);
         for id in &deaths {
             let i = id.index as usize;
+            // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit she spawned dying sends one, due its flight and a
+            // tick on (the heal's pulse).
+            #[cfg(not(clash_plant = "soul_drain_never"))]
+            if let Some(w) = self.ents.spawned_by[i].filter(|w| self.ents.is_alive(*w) && self.ents.hp[w.index as usize] > 0) {
+                if let Some(sd) = self.cfg.cards.get(self.ents.card[w.index as usize]).evo.as_ref().and_then(|e| e.soul_drain) {
+                    let due = self.tick + (sd.flight_ms / self.cfg.calib.tick_ms.max(1)) as u32 + 1;
+                    self.evo.souls.push((w, due));
+                }
+            }
             let card = self.cfg.cards.get(self.ents.card[i]);
             if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
                 // The blow's own crown-tower percent where it has one (card.rs `CardDef::death_crown_pct`: the Evo Wall
@@ -22841,6 +22886,15 @@ impl BattleState {
                     for t in &r.taken {
                         h.id(*t);
                     }
+                }
+            }
+            // The Evo Witches' souls in flight, only when there are some.
+            if !b.souls.is_empty() {
+                h.u32(0x534f_554c);
+                h.u32(b.souls.len() as u32);
+                for (id, due) in &b.souls {
+                    h.id(*id);
+                    h.u32(*due);
                 }
             }
             // The Evo Mega Knights' counts and uppercuts, only when there are some.
