@@ -244,6 +244,8 @@ const LOADABLE_15535: &[&str] = &[
     "GoblinCurse",
     "MergeMaiden",
     "Vines",
+    // A live-client card the 15.535.29 tables lack, from its datamined 16.402 rows (data/client_additions), last.
+    "MinionGiant",
     "PrincessTower",
     "KingTower",
 ];

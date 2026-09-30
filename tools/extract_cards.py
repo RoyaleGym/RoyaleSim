@@ -6555,7 +6555,7 @@ def build(t: Tables) -> dict:
     # A CLIENT ADDITION'S CARD GOES LAST (`load_tables`), whatever its kind: a card's place in this list is its id in a
     # catalogue built from it, so an addition moves no card the pack carries.
     added = {
-        n for n, labels in t["spells_characters"].overlaid.items()
+        n for n, labels in getattr(t["spells_characters"], "overlaid", {}).items()
         if any(lb.startswith("client_additions/") for lb in labels)
     }
     cards = [c for c in cards if c["name"] not in added] + [c for c in cards if c["name"] in added]
