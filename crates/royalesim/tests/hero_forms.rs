@@ -100,13 +100,13 @@ fn the_forms_load_after_every_other_slot() {
     }
     assert_eq!(bare.buffs[..], full.buffs[..bare.buffs.len()], "a buff index moved");
     assert_eq!(bare.rejected, full.rejected);
-    // After them: the five forms, each with its base, the turret after the Hero Musketeer, and the Hero Balloon's
+    // After them: the six forms, each with its base, the turret after the Hero Musketeer, and the Hero Balloon's
     // Skeletrooper and bomb after it; every one summon-only, so no deck or catalogue names one.
     assert!(full.rejected_forms.is_empty(), "refused forms: {:?}", full.rejected_forms);
     let names: Vec<&str> = full.cards[n..].iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, ["Musketeer_hero", "MusketeerTurret", "IceGolemite_hero", "Berserker_hero", "Balloon_hero", "SkeletonTrooper", "BalloonHero_Bomb", "Valkyrie_hero"]);
+    assert_eq!(names, ["Musketeer_hero", "MusketeerTurret", "IceGolemite_hero", "Berserker_hero", "Balloon_hero", "SkeletonTrooper", "BalloonHero_Bomb", "Valkyrie_hero", "Wizard_hero", "WizardHero_air"]);
     assert!(full.cards[n..].iter().all(|c| c.summon_only));
-    for base in ["Musketeer", "IceGolemite", "Berserker", "Balloon", "Valkyrie"] {
+    for base in ["Musketeer", "IceGolemite", "Berserker", "Balloon", "Valkyrie", "Wizard"] {
         let b = full.index(base).unwrap();
         let f = full.form_card(b, FORM_HERO).unwrap_or_else(|| panic!("{base} has no hero form"));
         assert_eq!(full.get(f).form_of, Some(b));

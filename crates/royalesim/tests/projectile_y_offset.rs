@@ -194,7 +194,9 @@ fn the_shipped_value_is_client_forward_y_and_the_king_tower_is_the_only_loaded_r
         rows.map(|(_, c)| c.name.as_str()).collect()
     };
     assert_eq!(set(false), ["KingTower"], "the loaded rows outside the hero pass that set ProjectileYOffset");
-    assert_eq!(set(true), ["Musketeer_hero", "MusketeerTurret"], "the hero pass's rows that set ProjectileYOffset");
+    // The Hero Wizard's two rows carry their table's 300 (its air form's shot lands on the client's tick in
+    // tests/hero_wizard.rs; the offset alone is unmeasured on them).
+    assert_eq!(set(true), ["Musketeer_hero", "MusketeerTurret", "Wizard_hero", "WizardHero_air"], "the hero pass's rows that set ProjectileYOffset");
 }
 
 /// A Blue `name` at (9000, 9000) native with a Red Knight 5000 ahead of it: (where its first shot is born, the plain

@@ -2103,6 +2103,10 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
         # tower while the buff lasts. Each written only where set, so every other buff is unchanged.
         if "UNKILLABLE" in str(b["GameTagsToSet"] or "").split(","):
             out["unkillable"] = True
+        # NO_PUSHED_BY_ALLY among GameTagsToSet: the carrier's own side does not push it while the buff lasts (the Hero
+        # Wizard's shot's HeroWizardNoMove). Written only where set.
+        if "NO_PUSHED_BY_ALLY" in [x.strip() for x in str(b["GameTagsToSet"] or "").split(",")]:
+            out["no_pushed_by_ally"] = True
         if b["CharacterCrownTowerDamagePercent"] is not None:
             out["character_crown_tower_damage_percent"] = b["CharacterCrownTowerDamagePercent"]
     return out
@@ -4454,6 +4458,7 @@ HERO_FORMS = {
     "Berserker_hero": ("Berserker", "berserker_hero"),
     "Balloon_hero": ("Balloon", "balloon_hero"),
     "Valkyrie_hero": ("Valkyrie", "valkyrie_hero"),
+    "Wizard_hero": ("Wizard", "wizard_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -4510,6 +4515,14 @@ SPIN_INTERVAL_KEYS = {"ClassType", "Interval", "ActionToExecute", "GameTagsToSet
 SPIN_FILTER = "GroundCharacterTargetsNoInactive"
 SPIN_AREA_READ = {"LifeDuration", "Radius", "HitsGround", "HitsAir", "OnlyEnemies", "Damage", "CrownTowerDamagePercent"}
 SPIN_AREA_COSMETIC = {"Rarity", "ScaledEffect", "ExtraHitEffect", "StatsTags"}
+# THE HERO WIZARD'S LIFT (`ground_to_air_effect`): the keys its lift and its shot's area spawns may set, and the columns
+# its air form may set of its own; any other stops the build.
+GROUND_TO_AIR_KEYS = {
+    "ClassType", "FlyingHeight", "TransitionDuration", "TotalDuration", "ResetPathInAir", "ResetPathWhenBackToGround",
+    "ActionOnFlyHeightReached", "ActionOnStartDescending", "GameTagsToSetOnToAirState", "GameTagsToSetOnToGroundState",
+}
+REACH_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "OffsetY"}
+AIR_FORM_COLUMNS = {"Base", "Projectile", "ClonedVersion", "FlyingHeight", "PrefabAsset"}
 
 
 def hero_files(v: Vintage, stem: str) -> list[Path]:
@@ -4539,6 +4552,10 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
                     t.abilities.update(body)
                     continue
                 if section == "STATS":
+                    continue
+                # [CARD_GROUP.*] (the Hero Wizard's): the cards an ActionActivateOnCardDeploy listens for, which only
+                # the button's display reads.
+                if section == "CARD_GROUP":
                     continue
                 if section == "SHAPE":
                     t.shapes.update(body)
@@ -4778,6 +4795,9 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     if "ActionRunActionListOnObjectsInShapeWithPrio" in classes:
         effect = spin_chain_effect(h, name, subs, delays)
         classes = []
+    elif "ActionGroundToAir" in classes:
+        effect = ground_to_air_effect(h, name, subs, delays, units, hero_unit or "")
+        classes = []
     elif (
         "ActionSpawn" in classes
         and set(classes) <= group_classes
@@ -4960,6 +4980,89 @@ def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
             "radius_milli": land["Radius"],
             "damage": land["Damage"],
             "crown_tower_damage_percent": ct_percent(land["CrownTowerDamagePercent"]),
+        },
+    }
+
+
+def ground_to_air_effect(h: Tables, name: str, subs: list[str], delays: list[int], units: dict, hero_unit: str) -> dict:
+    """THE HERO WIZARD'S BUTTON ([ABILITY.WizardHeroAbility]), read whole or the build stops:
+      - OnActivationAction: an ActionGroup, all at 0, of the lift (ActionGroundToAir), the hero's own buff (an
+        ActionSpawn of a BuffType for its SpawnTime: `buff`, `buff_ms`) and an ActionSetInstantHit if its target is in
+        range (`instant_range_milli`, the number in its target_in_range);
+      - the lift: FlyingHeight (`flying_height_milli`), TransitionDuration (`transition_ms`), TotalDuration
+        (`total_ms`), NO_ATTACK on both transitions; at its height (ActionOnFlyHeightReached) the hero becomes
+        `air_unit` (an ActionChangeGameObjectData) beside a display variable, a listener that only resets it and the
+        button's display; at its descent's start (ActionOnStartDescending) it becomes its own row again beside the
+        variable and an animation;
+      - the air form: the hero's row but for FlyingHeight and its Projectile (AIR_FORM_COLUMNS), whose
+        OnTargetReachedAction is an ActionGroup, at 0, of two ActionSpawns of areas OffsetY (`reach.offset_y_milli`,
+        the owner's forward) from the hit: a pulling area (`reach.tornado`) and a one-hit damage area (`reach.damage`).
+    The air form is added to `units`, its projectile's reach group carried here, not on the projectile."""
+    import re
+
+    acts = h["actions"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    classes = [acts.get(s)["ClassType"] for s in subs]
+    need(classes == ["ActionGroundToAir", "ActionSpawn", "ActionSetInstantHit"] and all(d == 0 for d in delays),
+         f"the activation group runs {classes} at {delays}")
+    lift = _one_action(acts, subs[0], "ActionGroundToAir", GROUND_TO_AIR_KEYS)
+    need(lift["GameTagsToSetOnToAirState"] == "NO_ATTACK" and lift["GameTagsToSetOnToGroundState"] == "NO_ATTACK",
+         "the lift's transition tags")
+    sp = _one_action(acts, subs[1], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"})
+    buff = norm_buff(h, sp["SpawnData"])
+    need(sp["SpawnType"] == "BuffType" and buff is not None and isinstance(sp["SpawnTime"], int), "the hero's buff")
+    instant = _one_action(acts, subs[2], "ActionSetInstantHit", {"ClassType", "ExecuteIfTrue"})
+    m = re.fullmatch(r"target_in_range\((\d+)\)", str(instant["ExecuteIfTrue"]))
+    need(m is not None, f"the instant hit's condition {instant['ExecuteIfTrue']!r}")
+    up = group_subactions(h, lift["ActionOnFlyHeightReached"], f"hero ability {name} height")
+    down = group_subactions(h, lift["ActionOnStartDescending"], f"hero ability {name} descent")
+    need(all(d == 0 for _, d in up + down), "a delayed step at the height or the descent")
+    ui = {"ActionSetVariable", "ActionActivateOnCardDeploy", "ActionOverrideAbilityButtonState",
+          "ActionRunForcedAnimationOnce"}
+    swaps = []
+    for part, steps in (("height", up), ("descent", down)):
+        forms = [n for n, _ in steps if acts.get(n)["ClassType"] == "ActionChangeGameObjectData"]
+        rest = {acts.get(n)["ClassType"] for n, _ in steps} - {"ActionChangeGameObjectData"}
+        need(len(forms) == 1 and rest <= ui, f"the {part}'s group")
+        swaps.append(_one_action(acts, forms[0], "ActionChangeGameObjectData",
+                                 {"ClassType", "NewCharacterData"})["NewCharacterData"])
+    air, back = swaps
+    need(back == hero_unit, f"the descent's form {back} is not the hero's own row")
+    own = h["characters"].set_fields.get(air, set())
+    need(bool(own) and own <= AIR_FORM_COLUMNS, f"the air form {air} sets {sorted(own - AIR_FORM_COLUMNS)}")
+    _, arow = unit_record(h, air)
+    need(arow["FlyingHeight"] == lift["FlyingHeight"], "the air form's FlyingHeight is not the lift's")
+    rec = norm_unit(h, air, with_raw=True)
+    pr = h["projectiles"].get(arow["Projectile"])
+    need(pr is not None and pr["OnTargetReachedAction"] is not None, f"the air form's shot {arow['Projectile']}")
+    reach = group_subactions(h, pr["OnTargetReachedAction"], f"hero ability {name} shot's reach")
+    need(len(reach) == 2 and all(d == 0 for _, d in reach), f"the shot's reach group {reach}")
+    spawns = [_one_action(acts, n, "ActionSpawn", REACH_SPAWN_KEYS) for n, _ in reach]
+    need(all(s["SpawnType"] in (None, "AreaEffectType") for s in spawns)
+         and spawns[0]["OffsetY"] == spawns[1]["OffsetY"], "the shot's reach spawns")
+    rows = [h["area_effect_objects"].get(s["SpawnData"]) for s in spawns]
+    need(all(r is not None for r in rows), "a reach spawn names no area row")
+    pulls = [s["SpawnData"] for s, r in zip(spawns, rows, strict=True) if r["Buff"] is not None]
+    hits = [s["SpawnData"] for s, r in zip(spawns, rows, strict=True) if r["Buff"] is None]
+    need(len(pulls) == 1 and len(hits) == 1, "the reach is not one pulling area and one damage area")
+    units[air] = rec
+    return {
+        "kind": "ground_to_air",
+        "flying_height_milli": lift["FlyingHeight"],
+        "transition_ms": lift["TransitionDuration"],
+        "total_ms": lift["TotalDuration"],
+        "air_unit": air,
+        "buff": buff,
+        "buff_ms": sp["SpawnTime"],
+        "instant_range_milli": int(m.group(1)),
+        "reach": {
+            "offset_y_milli": spawns[0]["OffsetY"],
+            "tornado": norm_aeo(h, pulls[0]),
+            "damage": norm_aeo(h, hits[0]),
         },
     }
 

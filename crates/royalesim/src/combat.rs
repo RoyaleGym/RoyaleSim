@@ -1981,7 +1981,10 @@ pub fn step_projectiles(
         // this Projectile phase, so it first acts next tick (state.rs `phase_projectile`).
         #[cfg(not(clash_plant = "projectile_area_dropped"))]
         if let Some((card, level)) = p.release {
-            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: p.aim });
+            // `CardDef::projectile_area_ahead` along the owner's forward (the Hero Wizard's air form's 1000; 0 on every
+            // other card).
+            let ahead = cards.get(card).projectile_area_ahead * crate::spell::forward_dy(p.team);
+            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: Vec2::new(p.aim.x, p.aim.y + ahead) });
         }
         #[cfg(clash_plant = "projectile_area_dropped")]
         let _ = &areas; // PLANT: the shot's area is dropped.

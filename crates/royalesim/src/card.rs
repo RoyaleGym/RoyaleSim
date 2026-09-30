@@ -1226,6 +1226,13 @@ pub enum AbilityEffect {
     /// trigger and lasts to the spin's end. The last blow ends the spin: she drops her target and holds `rest_ms` (the
     /// rest buff's SpawnTime: its HitSpeedMultiplier -100 stops her attack). Radii in subtiles.
     SpinChain { radius: i32, count: i32, pending_delay_ms: i32, every_ms: i32, spin_ms: i32, pending_buff: BuffApply, chain_buff: BuffApply, guard_buff: BuffApply, rest_ms: i32, area: AttachedArea },
+    /// A LIFT INTO THE AIR (the Hero Wizard's; tools/extract_cards.py `ground_to_air_effect`; state.rs `LiftRun`,
+    /// `lift_pass`): from the trigger the hero is in the air (no ground-only attacker keeps it) and carries `buff`; its
+    /// row becomes `unit` (a summon-only record: the hero's own but for its FlyingHeight and its shot, whose area
+    /// `CardDef::projectile_area` is put `projectile_area_ahead` ahead of the hit) `transition_ms` on, and its own again
+    /// `total_ms` - `transition_ms` on, its attack held from then until it lands, `total_ms` on. When its target stands
+    /// within `instant_range` (its attack reach's rule) at the trigger, its first swing fires on its first free tick.
+    GroundToAir { unit: u16, transition_ms: i32, total_ms: i32, buff: BuffApply, instant_range: i32 },
 }
 
 /// THE EVO GIANT SNOWBALL (tools/extract_cards.py `capture_block`; spell.rs `SpellMotion::CaptureRoll`, `capture_roll`):
@@ -2268,6 +2275,9 @@ pub struct CardDef {
     /// NO_DAMAGE (the Evo Skeleton Army's Spectral, `ArmyDef`): no hit lands on it (combat.rs `resolve`). False on
     /// every other card.
     pub no_damage: bool,
+    /// WHERE THE AREA THIS CARD'S SHOT LEAVES IS PUT (`projectile_area`): this far ahead of the hit along the owner's
+    /// forward, SUBTILES (the Hero Wizard's air form: its reach areas' OffsetY 1000). 0 on every other card.
+    pub projectile_area_ahead: i32,
     /// THE UNDERGROUND SPAWN WALK (`SpawnPathfindDef`; state.rs `phase_tunnel`): a played card
     /// whose unit is born at its owner's King and travels under ground to the destination the
     /// play resolved (the Miner; the Goblin Drill, whose dig leaves its building there). None on
@@ -4416,6 +4426,15 @@ struct RawAbilityEffect {
     failsafe_start_ms: Option<i32>,
     failsafe_every_ms: Option<i32>,
     landing: Option<RawThrowLanding>,
+    /// `ground_to_air` (tools/extract_cards.py `ground_to_air_effect`): the lift's clock, its air form, the hero's buff's
+    /// time (the buff in `buff` above), the instant hit's range and the air form's reach areas.
+    flying_height_milli: Option<i32>,
+    transition_ms: Option<i32>,
+    total_ms: Option<i32>,
+    air_unit: Option<String>,
+    buff_ms: Option<i32>,
+    instant_range_milli: Option<i32>,
+    reach: Option<RawReach>,
     /// `spin_chain` (tools/extract_cards.py `spin_chain_effect`): the spin's clock, its four buffs and their times, and
     /// its blow's area (`radius_milli` and `count` above).
     pending_delay_ms: Option<i32>,
@@ -4429,6 +4448,14 @@ struct RawAbilityEffect {
     rest_buff: Option<RawBuff>,
     rest_ms: Option<i32>,
     area: Option<RawSpinArea>,
+}
+
+/// A `ground_to_air` effect's reach: the air form's shot's two areas, OffsetY ahead of the hit.
+#[derive(Deserialize)]
+struct RawReach {
+    offset_y_milli: i32,
+    tornado: RawAreaEffect,
+    damage: RawAreaEffect,
 }
 
 /// A `spin_chain` effect's blow: an area with one hit.
@@ -4725,6 +4752,8 @@ struct RawBuff {
     not_cloned: Option<bool>,
     /// character_buffs Invisible (`BuffDef::invisible`); 15.535 only, written where set.
     invisible: Option<bool>,
+    /// character_buffs GameTagsToSet NO_PUSHED_BY_ALLY (`BuffDef::no_pushed_by_ally`); 15.535 only, written where set.
+    no_pushed_by_ally: Option<bool>,
     /// character_buffs GameTagsToSet UNKILLABLE and CharacterCrownTowerDamagePercent (`BuffDef::unkillable`,
     /// `BuffDef::char_crown_pct`); 15.535 only, written where set.
     unkillable: Option<bool>,
@@ -4878,6 +4907,7 @@ impl RawBuff {
             clone_hold: self.clone.unwrap_or(false),
             not_cloned: self.not_cloned.unwrap_or(false),
             invisible: self.invisible.unwrap_or(false),
+            no_pushed_by_ally: self.no_pushed_by_ally.unwrap_or(false),
             damage_reduction,
             damage_pct: self.damage_multiplier.unwrap_or(0),
             unkillable: self.unkillable.unwrap_or(false),
@@ -5547,6 +5577,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         invisible_when_idle: None,
         starts_visible: false,
         no_damage: false,
+        projectile_area_ahead: 0,
         spawn_pathfind: None,
         can_deploy_on_enemy_side: false,
         mana: None,
@@ -7795,6 +7826,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         invisible_when_idle,
         starts_visible,
         no_damage: false,
+        projectile_area_ahead: 0,
         // Its morph resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
         // Read with `spawn_pathfind` alone: a card that does not tunnel keeps false.
@@ -9462,6 +9494,64 @@ impl CardDb {
                     area,
                 }
             }
+            // THE LIFT (the Hero Wizard's): its air form loads as an ability's unit does, summon-only, its button none of
+            // its own; its shot's reach group (the table's OnTargetReachedAction, which the block carries) becomes the
+            // shot's area: the damage area and the pulling area made together on one point (`SpellShape::Echo`), so both
+            // first act on the tick after the hit, `projectile_area_ahead` ahead of it.
+            "ground_to_air" => {
+                let e = &a.effect;
+                let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a lift with no {k}"));
+                let (transition_ms, total_ms) = (pos(e.transition_ms, "transition")?, pos(e.total_ms, "total time")?);
+                if total_ms <= 2 * transition_ms {
+                    return Err(format!("{what}: a lift of {total_ms} ms is no longer than its two transitions"));
+                }
+                let raw_buff = e.buff.as_ref().ok_or_else(|| format!("{what}: a lift with no buff"))?;
+                let buff = buffs.apply_own(raw_buff, e.buff_ms, &format!("{what} buff"))?;
+                let name = e.air_unit.clone().ok_or_else(|| format!("{what}: a lift with no air form"))?;
+                let reach = e.reach.as_ref().ok_or_else(|| format!("{what}: a lift whose air form's shot reaches nothing"))?;
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                if let Some(p) = obj.get_mut("projectile").and_then(|v| v.as_object_mut()) {
+                    p.remove("action_graph");
+                }
+                let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                ur.ability = None;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on an air form"));
+                }
+                if !u.is_flying() || u.projectile.is_none() || u.projectile_area.is_some() {
+                    return Err(format!("{what}: {name} is not a flying shooter whose shot leaves nothing of its own"));
+                }
+                // The lift's FlyingHeight is its air form's own, which the form carries (no height of its own is kept).
+                if e.flying_height_milli != Some(u.flying_height) {
+                    return Err(format!("{what}: a lift to {:?}, where its air form flies at {}", e.flying_height_milli, u.flying_height));
+                }
+                let (dmg_shape, dneeds) = convert_area_effect(&reach.damage, buffs, &fctx).map_err(|e| format!("{what}: its damage area: {e}"))?;
+                let (pull_shape, pneeds) = convert_area_effect(&reach.tornado, buffs, &fctx).map_err(|e| format!("{what}: its pulling area: {e}"))?;
+                let SpellShape::AreaEffect { hit } = dmg_shape else {
+                    return Err(format!("{what}: its damage area is not one hit"));
+                };
+                if !dneeds.is_empty() || !pneeds.is_empty() || !matches!(pull_shape, SpellShape::PulsingAreaEffect { child: None, .. }) {
+                    return Err(format!("{what}: its pulling area is not a plain pulsing area"));
+                }
+                u.projectile_area = Some(SpellDef { shape: SpellShape::Echo { hit, then: Box::new(pull_shape) }, placement: SpellPlacement::Anywhere });
+                u.projectile_area_ahead = milli(reach.offset_y_milli);
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                u.summon_only = true;
+                unit = Some(u);
+                AbilityEffect::GroundToAir {
+                    unit: u16::MAX,
+                    transition_ms,
+                    total_ms,
+                    buff,
+                    instant_range: milli(pos(e.instant_range_milli, "instant range")?),
+                }
+            }
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
@@ -9479,7 +9569,7 @@ impl CardDb {
         if let Some(u) = unit {
             self.push(u, None)?;
             let ui = (self.cards.len() - 1) as u16;
-            if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. }, .. }) = self.cards[form as usize].ability.as_mut() {
+            if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. } | AbilityEffect::GroundToAir { unit, .. }, .. }) = self.cards[form as usize].ability.as_mut() {
                 *unit = ui;
             }
         }
@@ -9800,7 +9890,7 @@ impl CardDb {
         // After them, so no earlier block's place moves: the unit a hero's button puts down (loaded after every other
         // record, `load_hero_forms`). A base card's hero form is not a block of the base: a form-2 deck entry plays it
         // (state.rs `try_new` checks its levels, py.rs `ids_of_indices` reports it under the base).
-        if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. }, .. }) = &c.ability {
+        if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. } | AbilityEffect::GroundToAir { unit, .. }, .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, *unit, None));
         }
         // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right

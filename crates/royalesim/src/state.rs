@@ -6757,6 +6757,15 @@ pub const CHAIN_SUB_STEP: i32 = 250;
 /// point and its group.
 type SpectralToMake = (Team, u16, i32, Vec2, u32);
 
+/// A HERO WIZARD'S LIFT UNDER WAY (card.rs `AbilityEffect::GroundToAir`; `lift_pass`): the hero, the tick its button
+/// fired and its own row. Saved and hashed (`BattleState::lifts`, only when not empty).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LiftRun {
+    pub id: EntityId,
+    pub fired: u32,
+    pub ground: u16,
+}
+
 /// A HERO VALKYRIE'S SPIN UNDER WAY (card.rs `AbilityEffect::SpinChain`; `spin_seek`, `spin_pass`): the hero, the tick
 /// her button fired, whether its pending buff has landed, the tick her spin began (None while she waits for a first
 /// target), whether her chain still runs, its target, the targets she has reached and the links left, and the blows
@@ -7785,6 +7794,8 @@ pub struct BattleState {
     throws: Vec<ThrowRun>,
     /// The spins under way (`SpinRun`), in press order. Empty in every battle without one.
     spins: Vec<SpinRun>,
+    /// The lifts under way (`LiftRun`), in press order. Empty in every battle without one.
+    lifts: Vec<LiftRun>,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8180,6 +8191,7 @@ impl BattleState {
             chains: Vec::new(),
             throws: Vec::new(),
             spins: Vec::new(),
+            lifts: Vec::new(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -11606,6 +11618,10 @@ impl BattleState {
         // drain below reads the entity's LifeTime (measured on client 15.535.29: the Goblin Demolisher's switch and
         // its first drain on the same tick).
         self.fire_scheduled();
+        // The Hero Wizard's lifts, after the tick's presses fired (`lift_pass`).
+        if !self.lifts.is_empty() {
+            self.lift_pass();
+        }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
             self.hero_units.retain(|h| ents.is_alive(h.id));
@@ -12923,6 +12939,50 @@ impl BattleState {
             .map(|(_, _, _, j)| e.id_of(j))
     }
 
+    /// Is lift `l` in its descent (`AbilityEffect::GroundToAir`: its last `transition_ms`)?
+    fn lift_descending(&self, l: &LiftRun) -> bool {
+        let Some(crate::card::AbilityEffect::GroundToAir { transition_ms, total_ms, .. }) = self.cfg.cards.get(l.ground).ability.as_ref().map(|a| &a.effect) else {
+            return false;
+        };
+        let tick = self.cfg.calib.tick_ms.max(1);
+        self.tick >= l.fired + ((total_ms - transition_ms) / tick) as u32
+    }
+
+    /// THE HERO WIZARD'S LIFTS (card.rs `AbilityEffect::GroundToAir`, `LiftRun`), in the Status phase after the tick's
+    /// presses fired: `transition_ms` after the trigger the hero's row becomes its air form (`rebind_unit`, its target and
+    /// its swing kept: transform.ATTACK_STATE), `total_ms` - `transition_ms` after it its own row again and its attack
+    /// held (`lift_descending`), and `total_ms` after it the hero lands (no longer in the air) and the lift ends. A hero
+    /// gone ends its lift. Unmeasured: the descent (sp-form-Wizard-hero-s0's Wizard died on P + 80, in the air).
+    fn lift_pass(&mut self) {
+        let tick = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.lifts);
+        let mut keep = Vec::new();
+        for l in runs {
+            if !self.ents.is_alive(l.id) {
+                continue;
+            }
+            let i = l.id.index as usize;
+            let Some(crate::card::AbilityEffect::GroundToAir { unit: air_unit, transition_ms, total_ms, .. }) = self.cfg.cards.get(l.ground).ability.as_ref().map(|a| a.effect.clone()) else {
+                continue;
+            };
+            let at = |ms: i32| l.fired + (ms / tick) as u32;
+            if self.tick == at(transition_ms) {
+                self.rebind_unit(i, air_unit, false);
+            }
+            if self.tick == at(total_ms - transition_ms) {
+                self.rebind_unit(i, l.ground, false);
+                // Its own row is a ground row: it stays in the air to the lift's end.
+                self.ents.flying[i] = true;
+            }
+            if self.tick >= at(total_ms) {
+                self.ents.flying[i] = self.cfg.cards.get(self.ents.card[i]).is_flying();
+                continue;
+            }
+            keep.push(l);
+        }
+        self.lifts = keep;
+    }
+
     /// THE CLOSEST TARGET THE HERO VALKYRIE'S SPIN MAY TAKE from hero `i` (card.rs `AbilityEffect::SpinChain`; the
     /// table's GroundCharacterTargetsNoInactive): an enemy troop that is not flying, mid-leap, held by a hook, under
     /// ground or invisible, whose centre lies within `range` of hers, not in `reached`; the nearest by centre distance,
@@ -13509,6 +13569,10 @@ impl BattleState {
         let mut dash_ended: Vec<usize> = Vec::new();
         // THE DASH CHAINS this tick (`chain_pass` set their phases): per entity, (phase, target, JumpSpeed).
         let mut chain_at: Vec<Option<(ChainPhase, Option<EntityId>, i32)>> = vec![None; self.ents.capacity()];
+        // A unit its own side does not push (a carried NO_PUSHED_BY_ALLY buff: move16402.rs `separation_scan_with`).
+        let no_ally: Vec<bool> = (0..self.ents.capacity())
+            .map(|i| self.ents.alive[i] && self.ents.buffs_of(&self.cfg.cards.buffs, i).any(|b| b.no_pushed_by_ally))
+            .collect();
         for c in &self.chains {
             let ci = c.id.index as usize;
             if let Some(crate::card::AbilityEffect::DashChain { speed, .. }) = self.cfg.cards.get(self.ents.card[ci]).ability.as_ref().map(|a| a.effect.clone()) {
@@ -13709,7 +13773,7 @@ impl BattleState {
                     if rem > 0 {
                         // the separation scan while the speed is still positive (the
                         // NO_CHECKCOLLISIONS tag is not modelled: no card here carries it)
-                        move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
+                        move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                         // a GROUND unit standing on a blocked or water cell is put on
                         // the nearest land first (knockback.WATER_RESOLUTION =
                         // eject_to_nearest_land)
@@ -13783,7 +13847,7 @@ impl BattleState {
                 let sliding = false; // PLANT (regression): the member walks from where it was born.
                 if sliding {
                     let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
-                    move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
+                    move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                     let c = slide_c[i];
                     // spawner.DEATH_SLIDE_AIM: the shipped fixed_end_point steps toward the end point fixed at birth
                     // (entity.rs `death_slide_end`); current_ray, the arm before the 2026-09-28 round 9 flip, along the
@@ -14384,7 +14448,7 @@ impl BattleState {
                     }
                 }
                 move16402::decay_offset(&mut con);
-                move16402::separation_scan(&index, &bodies, i, &mut con, &mut scratch);
+                move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                 // ---- 4. the step (move16402::move_towards)
                 let paused = if !deploying && !attacking && !held_walk && !routes[i].is_empty() {
                     // THE STOMP CLOCK (movement.STOMP_PAUSE_SCHEDULE). Both arms run
@@ -15736,7 +15800,10 @@ impl BattleState {
             // A champion whose dash chain runs does not attack (`chain_pass`): the press row walks, the rest dash
             // or stand.
             // A hero whose spin has begun does not attack either (`SpinRun`: the chain's and the blows' NO_ATTACK).
-            let chaining = self.chains.iter().any(|c| c.id == e.id_of(i)) || self.spins.iter().any(|r| r.id == e.id_of(i) && r.began.is_some());
+            let chaining = self.chains.iter().any(|c| c.id == e.id_of(i))
+                || self.spins.iter().any(|r| r.id == e.id_of(i) && r.began.is_some())
+                // A lift's descent holds the attack (its NO_ATTACK), `lift_pass`.
+                || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l));
             let can_act = e.deploy_ms[i] == 0
                 && !held
                 && !chaining
@@ -19602,6 +19669,31 @@ impl BattleState {
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                 let _ = (team, level, pos);
             }
+            // THE LIFT (the Hero Wizard's; `LiftRun`, `lift_pass`): in the air from the trigger (a ground-only attacker drops it
+            // on this tick's Target phase), its buff on it now; and when its target stands within the instant hit's range
+            // (its attack reach's rule), its swing is set one tick short of its HitSpeed, so the first tick it can act fires.
+            // Measured on client 15.535.29 (sp-form-Wizard-hero-s0, press P = t215): the Knight took a tower on P + 5 (the
+            // trigger, TriggerDelay 200); the cast held the Wizard P .. P + 17; its first shot was seen on P + 19.
+            crate::card::AbilityEffect::GroundToAir { buff, instant_range, .. } => {
+                let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                #[cfg(not(clash_plant = "lift_never"))]
+                {
+                    self.ents.flying[i] = true;
+                    self.lifts.retain(|l| l.id != hero);
+                    self.lifts.push(LiftRun { id: hero, fired: self.tick, ground: card });
+                }
+                #[cfg(not(clash_plant = "instant_hit_dropped"))]
+                if let Some(t) = self.ents.target[i].filter(|t| self.ents.is_alive(*t)) {
+                    let ti = t.index as usize;
+                    if target::in_attack_range(&self.cfg.calib, pos, instant_range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]) {
+                        let (hs, tick) = (self.cfg.cards.get(card).hit_speed_ms, self.cfg.calib.tick_ms);
+                        self.ents.attack_phase[i] = AttackPhase::Windup;
+                        self.ents.attack_ms[i] = (hs - tick).max(tick);
+                    }
+                }
+                let _ = (team, level);
+            }
             // THE SPIN IS PRESSED (`SpinRun`): it takes its first target and begins in this tick's Path phase, or waits for
             // one (`spin_seek`).
             crate::card::AbilityEffect::SpinChain { .. } => {
@@ -21204,6 +21296,16 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The lifts under way, only when there are some.
+        if !self.lifts.is_empty() {
+            h.u32(0x4c49_4654);
+            h.u32(self.lifts.len() as u32);
+            for l in &self.lifts {
+                h.id(l.id);
+                h.u32(l.fired);
+                h.u32(u32::from(l.ground));
+            }
+        }
         // The spins under way, only when there are some.
         if !self.spins.is_empty() {
             h.u32(0x5350_494e);
@@ -22006,6 +22108,9 @@ struct Snapshot {
     /// The spins under way (`BattleState::spins`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     spins: Vec<SpinRun>,
+    /// The lifts under way (`BattleState::lifts`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    lifts: Vec<LiftRun>,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -22685,6 +22790,7 @@ impl BattleState {
             chains: self.chains.clone(),
             throws: self.throws.clone(),
             spins: self.spins.clone(),
+            lifts: self.lifts.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -22939,6 +23045,7 @@ impl BattleState {
             chains: snap.chains,
             throws: snap.throws,
             spins: snap.spins,
+            lifts: snap.lifts,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),

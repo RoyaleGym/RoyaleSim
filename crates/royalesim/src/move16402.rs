@@ -334,6 +334,13 @@ pub fn decay_offset(con: &mut Contact) {
 /// The separation scan over the CURRENT
 /// positions of every overlapping neighbour.
 pub fn separation_scan(index: &Index, bodies: &[Body], me: usize, con: &mut Contact, scratch: &mut Vec<usize>) {
+    separation_scan_with(index, bodies, me, con, scratch, false);
+}
+
+/// `separation_scan` for a unit its own side does not push when `skip_allies` (a carried NO_PUSHED_BY_ALLY buff, status.rs
+/// `BuffDef::no_pushed_by_ally`: the Hero Wizard's shot's HeroWizardNoMove): its neighbours of its own side are passed
+/// over. The table's word; unmeasured on its own.
+pub fn separation_scan_with(index: &Index, bodies: &[Body], me: usize, con: &mut Contact, scratch: &mut Vec<usize>, skip_allies: bool) {
     let u = bodies[me];
     if u.r == 0 || !u.collidable {
         return;
@@ -348,8 +355,12 @@ pub fn separation_scan(index: &Index, bodies: &[Body], me: usize, con: &mut Cont
         if u.air != e.air || !e.collidable || !e.alive {
             continue;
         }
-        // (NO_PUSHED_BY_ALLY / _ENEMY are not modelled: no card in data/derived/cards.json
-        // carries them)
+        // NO_PUSHED_BY_ALLY: `skip_allies` (NO_PUSHED_BY_ENEMY is not modelled: no card in data/derived/cards.json
+        // carries it)
+        #[cfg(not(clash_plant = "ally_push_kept"))]
+        if skip_allies && e.side == u.side {
+            continue;
+        }
         let my_r = if e.mover { u.r } else { r_static };
         let sum_r = e.r + my_r;
         let (mut dx, mut dy) = (u.x - e.x, u.y - e.y);

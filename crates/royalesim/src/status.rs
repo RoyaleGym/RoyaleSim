@@ -138,6 +138,11 @@ pub struct BuffDef {
     /// written before the field still reads.
     #[serde(default)]
     pub invisible: bool,
+    /// NO_PUSHED_BY_ALLY among the row's GameTagsToSet (the Hero Wizard's shot's HeroWizardNoMove): while it lasts the
+    /// carrier's own side does not push it (move16402.rs `separation_scan_with`). `default` so a record written before
+    /// the field still reads.
+    #[serde(default)]
+    pub no_pushed_by_ally: bool,
     /// character_buffs DamageReduction, RAW, 1..=100 (0 = blank; the loader refuses any other value): every hit a
     /// carrier takes is scaled by (100 - DamageReduction) / 100 under status.DAMAGE_REDUCTION (combat.rs
     /// `reduce_hit`, `damage_reduction_of`). The Super Knight's shield area hangs 100, the Evo Knight's idle buff 60.
@@ -202,6 +207,7 @@ impl BuffDef {
             && self.damage_reduction == 0
             && self.damage_pct == 0
             && !self.unkillable
+            && !self.no_pushed_by_ally
     }
 
     /// Does this buff pulse damage or healing?
