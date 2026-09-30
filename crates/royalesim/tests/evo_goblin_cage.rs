@@ -70,10 +70,14 @@ fn point(s: &BattleState, id: EntityId) -> Option<(i32, i32)> {
     s.entity(id).map(|e| (e.pos.x / K, e.pos.y / K))
 }
 
+/// The grab scene (`grabbed`): the battle, the cage, the Knight, the Knight's points and hitpoints by tick, and the
+/// index of the grab's tick.
+type Grab = (BattleState, EntityId, EntityId, Vec<(i32, i32)>, Vec<i32>, usize);
+
 /// A red Knight held 3700 to the cage's right (out of its 3500 reach) until the cage is up, then let walk in for 80
 /// ticks (its fifth hit would kill it): (the battle, the cage, the Knight, its points and hitpoints from the tick before
 /// it walks, the index of the grab's tick G, the first whose point the next tick keeps).
-fn grabbed() -> (BattleState, EntityId, EntityId, Vec<(i32, i32)>, Vec<i32>, usize) {
+fn grabbed() -> Grab {
     let (mut s, cage) = battle();
     let far = n(CAGE.0 + 3700, CAGE.1);
     let knight = s.scenario_spawn_now(Team::Red, "Knight", far, None).expect("a red Knight");

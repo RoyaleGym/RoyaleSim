@@ -47,7 +47,8 @@ fn goblins(s: &mut BattleState, g: EntityId, team: Team, at: (i32, i32)) -> Vec<
     assert!(find_live(s, team, "Goblin").is_empty(), "a Goblin above half");
     let max = s.entity(g).expect("the Giant").max_hp;
     assert!(s.debug_set_hp(g, max / 2 - 1));
-    let (mut seen, mut born): (Vec<EntityId>, Vec<(usize, (i32, i32))>) = (Vec::new(), Vec::new());
+    let mut seen: Vec<EntityId> = Vec::new();
+    let mut born: Vec<(usize, (i32, i32))> = Vec::new();
     for k in 1..=95 {
         assert!(s.debug_set_pos(g, n(at.0, at.1)));
         s.tick();
