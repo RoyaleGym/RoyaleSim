@@ -1527,7 +1527,14 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 (db.get(base).name.clone(), "deployed")
             } else if let Some(heroes) = roots.ability_of.get(&e.card_idx) {
                 (db.get(heroes[0]).name.clone(), "ability")
-            } else if let Some(forms) = roots.evo_unit_of.get(&e.card_idx) {
+            } else if let Some(forms) = roots.evo_unit_of.get(&e.card_idx).filter(|forms| {
+                // Only while a form of this team is on the field or has just died: the Evo Mortar's shot's unit is the
+                // plain Goblin record, and a Goblin Drill's or a Goblin Barrel's Goblin is no Mortar's.
+                // PLANT replay_roots_evo_unit_without_its_form (regression): every unit a form names roots to the form.
+                cfg!(clash_plant = "replay_roots_evo_unit_without_its_form")
+                    || s.entities().any(|o| o.team == e.team && forms.contains(&o.card_idx))
+                    || recent_deaths.iter().any(|(t, team, c, _)| *team == e.team && forms.contains(c) && tick.saturating_sub(*t) <= DEATH_SPAWN_LOOKBACK)
+            }) {
                 // the Evo Royal Ghost's pair: the truth names each by the form's card (its base, `base_of_form`)
                 (db.get(forms[0]).name.clone(), "evo-unit")
             } else if let Some(mount) = e.attached_to {
