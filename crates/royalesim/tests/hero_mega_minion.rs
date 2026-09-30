@@ -10,6 +10,7 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_mega_minion`):
+//!   - warp_swing_held_a_tick -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` red;
 //!   - warp_never -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` and `its_strike_shot_takes_156` red;
 //!   - warp_full_speed -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` red;
 //!   - warp_no_instant_hit -> the same red (the kill's tick);
@@ -29,7 +30,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 const DECK: [&str; 8] = ["MegaMinion", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
 /// On blue's side, out of every red tower's reach.
-const AT: (i32, i32) = (9000, 10000);
+const AT: (i32, i32) = (9000, 9000);
 
 fn battle() -> BattleState {
     let mut cfg: BattleConfig = config();
@@ -50,6 +51,13 @@ fn battle() -> BattleState {
 /// pass they step before it, as the client's Skeleton did) and held there for 40 ticks.
 fn start(units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
     let mut s = battle();
+    // Blue's princess towers down (its king wakes; its reach stops short of y 12000): no crown tower reaches the scene.
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
     let reds: Vec<(EntityId, Vec2)> = units
         .iter()
         .map(|(card, p)| (s.scenario_spawn_now(Team::Red, card, n(p.0, p.1), None).expect("a red unit"), n(p.0, p.1)))
@@ -69,12 +77,12 @@ fn start(units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId,
 
 #[test]
 fn the_warp_steps_up_to_its_speed_and_stands_on_its_pick() {
-    // A red Knight 3000 ahead (1766 max hitpoints) and a red Minion (230) held over the river 7200 off: the pick is the
-    // Minion. After the cast and the trigger's tick the hero steps 343, then 400 more a tick while under 1500 and 400
+    // A red Knight 3000 ahead (1766 max hitpoints) and a red Skeleton (81) held 7200 off on the ground, as the client's
+    // (a flier would share the hero's air and push it off its centre): the pick is the Skeleton. After the cast and the trigger's tick the hero steps 343, then 400 more a tick while under 1500 and 400
     // less while over: 343, 743, 1143, 1543, 1143, 1543, and a last step onto the Minion's centre (where the move pass has
     // it, after its own step). It swings on the next tick, and the Minion is gone on the one after.
     let minion = (AT.0 - 4320, AT.1 + 5760);
-    let (mut s, hero, reds) = start(&[("Knight", (AT.0, AT.1 + 3000)), ("Minions", minion)]);
+    let (mut s, hero, reds) = start(&[("Knight", (AT.0, AT.1 + 3000)), ("Skeleton", minion)]);
     let target = reds[1].0;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut steps = Vec::new();
@@ -101,7 +109,8 @@ fn the_warp_steps_up_to_its_speed_and_stands_on_its_pick() {
     let first = steps.iter().position(|d| *d > 0).expect("the hero warps");
     let want = [343, 743, 1143, 1543, 1143, 1543];
     for (k, w) in want.iter().enumerate() {
-        assert!((steps[first + k] - w).abs() <= 1, "step {k}: {} for {w}: {steps:?}", steps[first + k]);
+        // Each step truncated to whole native units on each axis: a few units short of the law along a diagonal.
+        assert!((steps[first + k] - w).abs() <= 3, "step {k}: {} for {w}: {steps:?}", steps[first + k]);
     }
     let a = arrived.expect("on the Minion's centre");
     assert_eq!(a, first + want.len(), "the seventh step lands it: {steps:?}");

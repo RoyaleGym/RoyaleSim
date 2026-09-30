@@ -6868,6 +6868,16 @@ impl WarpBoard {
     fn warping(&self, id: EntityId) -> bool {
         self.runs.iter().any(|r| r.id == id)
     }
+
+    /// Does hero `id`'s warp hold its swing? Until it arrives: the Attack phase runs before the move pass, so on the tick
+    /// after the arrival the run (dropped only at that tick's Path phase) holds nothing, and the swing `land_warps` set
+    /// fires then (measured: on its centre on t212, progress 1500 on t213).
+    fn warp_holds_swing(&self, id: EntityId) -> bool {
+        #[cfg(not(clash_plant = "warp_swing_held_a_tick"))]
+        return self.runs.iter().any(|r| r.id == id && !r.arrived);
+        #[cfg(clash_plant = "warp_swing_held_a_tick")]
+        return self.warping(id); // PLANT (regression): the arrived run holds the swing a tick more.
+    }
 }
 
 /// A WARP UNDER WAY: its hero, its target, the tick it was made (the trigger's: the hero stands on it), this tick's step
@@ -16791,8 +16801,8 @@ impl BattleState {
                 || self.spins.iter().any(|r| r.id == e.id_of(i) && r.began.is_some())
                 // A lift's descent holds the attack (its NO_ATTACK), `lift_pass`.
                 || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l))
-                // A warp holds it too, through its arrival tick (`WarpRun`).
-                || self.warps.warping(e.id_of(i));
+                // A warp holds it too, until it arrives (`WarpBoard::warp_holds_swing`).
+                || self.warps.warp_holds_swing(e.id_of(i));
             let can_act = e.deploy_ms[i] == 0
                 && !held
                 && !chaining

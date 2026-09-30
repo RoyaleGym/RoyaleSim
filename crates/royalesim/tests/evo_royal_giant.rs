@@ -58,6 +58,8 @@ fn scene(card: &str) -> Vec<(bool, i32, Vec2)> {
     let mut shots = 0;
     for _ in 0..200 {
         assert!(s.debug_set_pos(giant, at));
+        let gt = s.entity(giant).expect("the Royal Giant").max_hp;
+        assert!(s.debug_set_hp(giant, gt));
         assert!(s.debug_set_pos(knight, kn_at));
         let (kt, ct) = (s.entity(knight).expect("the Knight").max_hp, s.entity(cannon).expect("the Cannon").max_hp);
         assert!(s.debug_set_hp(knight, kt));

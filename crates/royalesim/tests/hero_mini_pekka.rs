@@ -157,13 +157,17 @@ fn the_heal_comes_before_the_level_as_six_scenes_measure() {
 
 #[test]
 fn its_blows_after_the_press_take_the_new_levels_damage() {
-    // A red Knight in its reach, held there with its hitpoints topped up (the hero's too, so it outlives the scene).
+    // A red Knight in its reach, held there with its hitpoints topped up (the hero's too, so it outlives the scene); the
+    // press on the tick of its first blow, as the client's one-blow Golem scene (a stack of 0: one level).
     let (mut s, hero, reds) = start(&[("Knight", (9500, 13100))]);
     let top = s.entity(hero).expect("the hero").max_hp;
     let mut before = Vec::new();
     for _ in 0..100 {
         assert!(s.debug_set_hp(hero, top));
         before.extend(step(&mut s, hero, &reds).into_iter().filter(|d| *d > 300));
+        if !before.is_empty() {
+            break;
+        }
     }
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut after = Vec::new();
