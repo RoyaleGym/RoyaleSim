@@ -334,13 +334,14 @@ pub fn decay_offset(con: &mut Contact) {
 /// The separation scan over the CURRENT
 /// positions of every overlapping neighbour.
 pub fn separation_scan(index: &Index, bodies: &[Body], me: usize, con: &mut Contact, scratch: &mut Vec<usize>) {
-    separation_scan_with(index, bodies, me, con, scratch, false);
+    separation_scan_with(index, bodies, me, con, scratch, (false, false));
 }
 
-/// `separation_scan` for a unit its own side does not push when `skip_allies` (a carried NO_PUSHED_BY_ALLY buff, status.rs
-/// `BuffDef::no_pushed_by_ally`: the Hero Wizard's shot's HeroWizardNoMove): its neighbours of its own side are passed
-/// over. The table's word; unmeasured on its own.
-pub fn separation_scan_with(index: &Index, bodies: &[Body], me: usize, con: &mut Contact, scratch: &mut Vec<usize>, skip_allies: bool) {
+/// `separation_scan` for a unit its own side does not push when `skip.0` (a carried NO_PUSHED_BY_ALLY buff, status.rs
+/// `BuffDef::no_pushed_by_ally`: the Hero Wizard's shot's HeroWizardNoMove), and the other side does not when `skip.1`
+/// (NO_PUSHED_BY_ENEMY, `BuffDef::no_pushed_by_enemy`: the Evo Valkyrie's after each attack): those neighbours are
+/// passed over. The table's word; unmeasured on its own.
+pub fn separation_scan_with(index: &Index, bodies: &[Body], me: usize, con: &mut Contact, scratch: &mut Vec<usize>, skip: (bool, bool)) {
     let u = bodies[me];
     if u.r == 0 || !u.collidable {
         return;
@@ -355,10 +356,14 @@ pub fn separation_scan_with(index: &Index, bodies: &[Body], me: usize, con: &mut
         if u.air != e.air || !e.collidable || !e.alive {
             continue;
         }
-        // NO_PUSHED_BY_ALLY: `skip_allies` (NO_PUSHED_BY_ENEMY is not modelled: no card in data/derived/cards.json
-        // carries it)
+        // NO_PUSHED_BY_ALLY: `skip.0`.
         #[cfg(not(clash_plant = "ally_push_kept"))]
-        if skip_allies && e.side == u.side {
+        if skip.0 && e.side == u.side {
+            continue;
+        }
+        // NO_PUSHED_BY_ENEMY: `skip.1`.
+        #[cfg(not(clash_plant = "enemy_push_kept"))]
+        if skip.1 && e.side != u.side {
             continue;
         }
         let my_r = if e.mover { u.r } else { r_static };
@@ -980,6 +985,29 @@ mod tests {
         member.avoid_static = false;
         separation_scan(&index, &[walker, member], 0, &mut troop, &mut scratch);
         assert_eq!((con.acc, con.count), (troop.acc, troop.count), "separation is unchanged");
+    }
+
+    #[test]
+    fn a_unit_the_other_side_does_not_push_is_passed_over_by_its_enemies_alone() {
+        // A Valkyrie (R 500, Mass 7) overlapped by a red Knight above her and a blue Knight below her: with NO_PUSHED_BY_ENEMY
+        // only the blue Knight pushes her; with NO_PUSHED_BY_ALLY only the red one.
+        let index = Index::new(36, 64);
+        let valk = body(9500, 8500, 500, 7, true, 0);
+        let red = body(9500, 9200, 500, 6, true, 1);
+        let blue = body(9500, 7800, 500, 6, true, 0);
+        let bodies = vec![valk, red, blue];
+        let mut scratch = Vec::new();
+        let scan = |skip: (bool, bool), scratch: &mut Vec<usize>| {
+            let mut con = Contact::default();
+            separation_scan_with(&index, &bodies, 0, &mut con, scratch, skip);
+            (con.acc, con.count)
+        };
+        let (both, only_blue, only_red) = (scan((false, false), &mut scratch), scan((false, true), &mut scratch), scan((true, false), &mut scratch));
+        assert_eq!(both.1, 2, "both Knights push her");
+        assert_eq!(only_blue.1, 1, "the red Knight is passed over");
+        assert!(only_blue.0 .1 > 0, "the blue Knight below pushes her up: {:?}", only_blue.0);
+        assert_eq!(only_red.1, 1, "the blue Knight is passed over");
+        assert!(only_red.0 .1 < 0, "the red Knight above pushes her down: {:?}", only_red.0);
     }
 
     #[test]

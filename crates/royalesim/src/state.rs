@@ -6549,6 +6549,10 @@ pub struct EvoBoard {
     /// not empty.
     #[serde(default)]
     pub winds: Vec<WindState>,
+    /// Each unit whose attack on this tick makes an area on it (the Evo Valkyrie's; `evo_after_fire`), made in this
+    /// tick's Resolve (`attack_areas`): empty between ticks. `default` so a battle saved before it still loads.
+    #[serde(default)]
+    pub attack_areas: Vec<EntityId>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6633,6 +6637,7 @@ impl EvoBoard {
             && self.rages.is_empty()
             && self.stages.is_empty()
             && self.winds.is_empty()
+            && self.attack_areas.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -8935,6 +8940,12 @@ impl BattleState {
                     self.evo.winds.push(WindState { id, team, card, at, life_ms: w.life_ms, next_ms, stay_ms: None });
                 }
             }
+        }
+        // THE EVO VALKYRIE'S TORNADO (card.rs `AttackAreaDef`): made in this tick's Resolve (`attack_areas`), so it first
+        // acts on the next tick.
+        #[cfg(not(clash_plant = "attack_area_never"))]
+        if evo.attack_area.is_some() {
+            self.evo.attack_areas.push(id);
         }
         // THE EVO INFERNO DRAGON'S COUNT (card.rs `StagesDef`): one more per hit, to its cap, across targets; the hit
         // restarts the decay (`stages_pass`).
@@ -13231,6 +13242,27 @@ impl BattleState {
         }
     }
 
+    /// THE AREA AN ATTACK MAKES ON ITS UNIT (card.rs `AttackAreaDef`, the Evo Valkyrie's tornado), in the Resolve phase of
+    /// the attack's tick: an area riding on the unit (spell.rs `SpellMotion::Attached`, part `EVO_ATTACK_AREA`), which
+    /// first acts on the next tick, and the unit's own buff for its time. A unit this tick killed makes nothing.
+    fn attack_areas(&mut self) {
+        let cards = self.cfg.cards.clone();
+        for id in std::mem::take(&mut self.evo.attack_areas) {
+            if !self.ents.is_alive(id) {
+                continue;
+            }
+            let i = id.index as usize;
+            let Some(aa) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.attack_area) else { continue };
+            let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+            let area = spell::attached_area(&cards, &self.cfg.calib, team, card, level, id, pos, crate::card::EVO_ATTACK_AREA).expect("the area loads with its card");
+            self.spells.push(area);
+            if let Some(b) = aa.self_buff {
+                let h = crate::status::BuffHit::plain(id, b.buff, b.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            }
+        }
+    }
+
     /// THE FIRST DAMAGE'S BUFF (card.rs `EvoDef::first_hit`, the Evo Minion Horde's ghost), in the Resolve phase right
     /// after the tick's damage: each unit of a card that carries one, hurt this tick and alive, takes the buff once in its
     /// life (the table's OnDamageTakenAction under its once-only flag). The hit that triggers it lands in full.
@@ -14288,13 +14320,25 @@ impl BattleState {
                 .spells
                 .iter()
                 .filter_map(|s| {
-                    let crate::spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
-                    let Some(crate::card::SpellShape::PulsingAreaEffect { hit, life_ms: whole, .. }) =
-                        crate::spell::shape_of(self.cfg.cards.get(s.card)).and_then(|d| crate::spell::shape_at(&d.shape, s.depth))
-                    else {
-                        return None;
+                    // A standing pulsing area (the Tornado), or an area riding on a unit (the Evo Valkyrie's tornado,
+                    // spell.rs `SpellMotion::Attached`, where it stood at its last update): its life left and whole.
+                    let (pos, hit, left, whole) = match &s.motion {
+                        crate::spell::SpellMotion::Pulsing(p) => {
+                            let Some(crate::card::SpellShape::PulsingAreaEffect { hit, life_ms: whole, .. }) =
+                                crate::spell::shape_of(self.cfg.cards.get(s.card)).and_then(|d| crate::spell::shape_at(&d.shape, s.depth))
+                            else {
+                                return None;
+                            };
+                            (p.pos, hit, p.life_ms, *whole)
+                        }
+                        #[cfg(not(clash_plant = "riding_area_never_pulls"))]
+                        crate::spell::SpellMotion::Attached { pos, part, life_ms, .. } => {
+                            let a = crate::spell::attached_def(&self.cfg.cards, s.card, *part)?;
+                            (*pos, &a.hit, *life_ms, a.life_ms)
+                        }
+                        _ => return None,
                     };
-                    let live = if lag { p.life_ms < *whole && p.life_ms > -self.cfg.calib.tick_ms } else { p.life_ms > 0 };
+                    let live = if lag { left < whole && left > -self.cfg.calib.tick_ms } else { left > 0 };
                     if !live {
                         return None;
                     }
@@ -14304,7 +14348,7 @@ impl BattleState {
                         return None;
                     }
                     Some(AttractSource {
-                        pos: p.pos,
+                        pos,
                         radius: hit.radius,
                         team: s.team,
                         pct,
@@ -14424,9 +14468,14 @@ impl BattleState {
         let mut dash_ended: Vec<usize> = Vec::new();
         // THE DASH CHAINS this tick (`chain_pass` set their phases): per entity, (phase, target, JumpSpeed).
         let mut chain_at: Vec<Option<(ChainPhase, Option<EntityId>, i32)>> = vec![None; self.ents.capacity()];
-        // A unit its own side does not push (a carried NO_PUSHED_BY_ALLY buff: move16402.rs `separation_scan_with`).
-        let no_ally: Vec<bool> = (0..self.ents.capacity())
-            .map(|i| self.ents.alive[i] && self.ents.buffs_of(&self.cfg.cards.buffs, i).any(|b| b.no_pushed_by_ally))
+        // A unit its own side does not push (a carried NO_PUSHED_BY_ALLY buff), and one the other side does not
+        // (NO_PUSHED_BY_ENEMY): move16402.rs `separation_scan_with`.
+        let no_ally: Vec<(bool, bool)> = (0..self.ents.capacity())
+            .map(|i| {
+                let live = self.ents.alive[i];
+                let buffs = &self.cfg.cards.buffs;
+                (live && self.ents.buffs_of(buffs, i).any(|b| b.no_pushed_by_ally), live && self.ents.buffs_of(buffs, i).any(|b| b.no_pushed_by_enemy))
+            })
             .collect();
         for c in &self.chains {
             let ci = c.id.index as usize;
@@ -18358,6 +18407,10 @@ impl BattleState {
         if !out.shield_broke.is_empty() {
             self.shield_blasts(out.shield_broke);
         }
+        // THE EVO VALKYRIE'S TORNADO (card.rs `AttackAreaDef`): this tick's attacks.
+        if !self.evo.attack_areas.is_empty() {
+            self.attack_areas();
+        }
         self.riders_die_with_their_mounts();
         // transform.HEALTH_TRIGGER_TIMING = crossing_tick_resolve: the health trigger read right after the tick's
         // damage lands, on the crossing tick itself (the units it kills are skipped: they are dying).
@@ -18490,6 +18543,16 @@ impl BattleState {
             .spells
             .iter()
             .filter_map(|s| {
+                // An area riding on a unit (the Evo Valkyrie's tornado) binds as a standing one, at the point it stood
+                // at on this tick's update, which is where its applications this tick bound their slots.
+                #[cfg(not(clash_plant = "riding_area_unbound"))]
+                if let spell::SpellMotion::Attached { pos, part, life_ms, .. } = &s.motion {
+                    if *life_ms <= 0 {
+                        return None;
+                    }
+                    let a = spell::attached_def(&self.cfg.cards, s.card, *part)?;
+                    return Some([a.hit.buff, a.hit.buff2].into_iter().flatten().map(|b| (*pos, b.buff + 1)).collect::<Vec<_>>());
+                }
                 let spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
                 // An area kept one tick past its life for its last pull (status.ATTRACT_ONSET = client_next_tick) has
                 // ended: its bound buffs go as they did before that key.

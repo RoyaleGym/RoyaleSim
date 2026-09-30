@@ -474,18 +474,22 @@ fn forms_take_slots_after_every_existing_card() {
             ("Wizard", "Wizard_EV1"),
             ("Knight", "Knight_EV1"),
             ("Barbarians", "Barbarians_EV1"),
-            ("Bomber", "Bomber_EV1")
+            ("Bomber", "Bomber_EV1"),
+            ("Valkyrie", "Valkyrie_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Twenty-one forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Twenty-two forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
-    // Barbarians, then the Evo Bomber last.
-    assert_eq!(db.cards.len(), n0 + 30);
+    // Barbarians, the Evo Bomber, then the Evo Valkyrie last.
+    assert_eq!(db.cards.len(), n0 + 31);
+    assert_eq!(db.cards[n0 + 30].name, "Valkyrie_EV1");
+    let valk = db.cards[n0 + 30].evo.as_ref().and_then(|e| e.attack_area).expect("the Evo Valkyrie's tornado");
+    assert!(valk.area.follow && valk.area.life_ms == 500 && valk.self_buff.is_some_and(|b| db.buffs[b.buff as usize].no_pushed_by_enemy));
     assert_eq!(db.cards[n0 + 29].name, "Bomber_EV1");
     assert!(db.cards[n0 + 29].evo.as_ref().and_then(|e| e.bounce).is_some_and(|b| b.count == 2));
     assert_eq!(db.cards[n0 + 28].name, "Barbarians_EV1");

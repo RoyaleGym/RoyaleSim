@@ -1915,6 +1915,8 @@ pub struct EvoDef {
     pub shield_blast: Option<SpellDef>,
     /// Evo Bomber: its bomb bounces on along its line where it lands (`BounceDef`).
     pub bounce: Option<BounceDef>,
+    /// Evo Valkyrie: the area each attack makes on her, and her own buff (`AttackAreaDef`).
+    pub attack_area: Option<AttackAreaDef>,
     /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
     /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
     /// recruits lost their shields in melee and never ran up.
@@ -4169,6 +4171,8 @@ struct RawEvolution {
     evo_hit_rage: Option<RawSpawnRage>,
     /// The Evo Bomber's bounce (`bounce_block`).
     evo_bounce: Option<RawBounce>,
+    /// The Evo Valkyrie's tornado and her own buff (`attack_area_block`).
+    evo_attack_area: Option<RawAttackArea>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4188,6 +4192,15 @@ struct RawBounce {
     range_milli: Option<i32>,
 }
 
+/// cards.json `evolutions[].evo_attack_area` (tools/extract_cards.py `attack_area_block`).
+#[derive(Deserialize)]
+struct RawAttackArea {
+    area: RawAreaEffect,
+    follow: bool,
+    self_buff: Option<RawBuff>,
+    self_buff_ms: Option<i32>,
+}
+
 /// THE EVO BOMBER'S BOUNCE (tools/extract_cards.py `bounce_block`; combat.rs `BounceHop`, the bounce in
 /// `step_projectiles`): where its bomb lands (and splashes) a new bomb goes on from that point along the line of the
 /// last step, `range` further, with the same speed, damage and splash, `count` times. Radius in subtiles.
@@ -4201,6 +4214,24 @@ pub struct BounceDef {
     pub count: u8,
     pub range: i32,
 }
+
+/// THE AREA EACH ATTACK MAKES ON ITS UNIT (tools/extract_cards.py `attack_area_block`; state.rs `attack_areas`; spell.rs
+/// `attached_def`, part `EVO_ATTACK_AREA`), the Evo Valkyrie's tornado: on the tick of each of her hits an area riding
+/// on her (`SpellMotion::Attached`, a plain pulsing area: the Tornado's pull and its buff's pulses), which first acts on
+/// the next tick, and her own buff (`self_buff`: NO_PUSHED_BY_ENEMY for 500 ms).
+///
+/// Measured on client 15.535.29 (sp-form-Valkyrie-evo-s0, three hits at level 11): her hit on H; every enemy within
+/// 5000 of her pulled toward her from H+2 through H+11, while she walked; each lost 42 on H+9 and nothing more from it.
+/// Read off the table, not measured: her own buff.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AttackAreaDef {
+    pub area: AttachedArea,
+    pub self_buff: Option<BuffApply>,
+}
+
+/// The `part` of an area riding on a unit (spell.rs `SpellMotion::Attached`, `attached_def`) that names its card's
+/// `AttackAreaDef` rather than an area of its ability.
+pub const EVO_ATTACK_AREA: u8 = u8::MAX;
 
 /// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
 /// makes, each of which the loaded form must carry.
@@ -5160,6 +5191,8 @@ struct RawBuff {
     no_pushed_by_ally: Option<bool>,
     /// character_buffs GameTagsToSet NO_DAMAGE (`BuffDef::no_damage`); 15.535 only, written where set.
     no_damage: Option<bool>,
+    /// character_buffs GameTagsToSet NO_PUSHED_BY_ENEMY (`BuffDef::no_pushed_by_enemy`); 15.535 only, written where set.
+    no_pushed_by_enemy: Option<bool>,
     /// character_buffs GameTagsToSet UNKILLABLE and CharacterCrownTowerDamagePercent (`BuffDef::unkillable`,
     /// `BuffDef::char_crown_pct`); 15.535 only, written where set.
     unkillable: Option<bool>,
@@ -5344,6 +5377,7 @@ impl RawBuff {
             not_cloned: self.not_cloned.unwrap_or(false),
             invisible: self.invisible.unwrap_or(false),
             no_pushed_by_ally: self.no_pushed_by_ally.unwrap_or(false),
+            no_pushed_by_enemy: self.no_pushed_by_enemy.unwrap_or(false),
             no_damage: self.no_damage.unwrap_or(false),
             damage_reduction,
             damage_pct: self.damage_multiplier.unwrap_or(0),
@@ -9340,6 +9374,7 @@ impl CardDb {
             extra.evo_data_only.is_some(),
             extra.evo_hit_rage.is_some(),
             extra.evo_bounce.is_some(),
+            extra.evo_attack_area.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9377,6 +9412,9 @@ impl CardDb {
         } else if extra.evo_shield_blast.is_some() {
             // The start's shown buff and the loss's blast (`shield_blast_block` reads them whole).
             &["ActionGroup", "ActionPlayEffect", "ActionSpawn"]
+        } else if extra.evo_attack_area.is_some() {
+            // The attack's area and her buff (`attack_area_block` reads them whole).
+            &["ActionSpawn"]
         } else {
             &[]
         };
@@ -9414,12 +9452,19 @@ impl CardDb {
         let charge_spawns = |g: &RawActionGraph| {
             extra.evo_charge_after_shield.as_ref().and_then(|c| c.buff.as_deref()).is_some_and(|b| g.spawns.iter().all(|s| s == &format!("BuffType:{b}")))
         };
+        // THE ATTACK'S AREA AND HER BUFF are their block's too (`attack_area_block` reads them whole).
+        let attack_spawns = |g: &RawActionGraph| {
+            extra.evo_attack_area.as_ref().is_some_and(|a| {
+                let (area, buff) = (a.area.name.as_deref().unwrap_or(""), a.self_buff.as_ref().and_then(|b| b.name.as_deref()).unwrap_or(""));
+                g.spawns.iter().all(|x| x == &format!("AreaEffectType:{area}") || x == &format!("BuffType:{buff}"))
+            })
+        };
         // THE RING'S AREA is its block's too (`ring_block` reads it whole).
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9491,6 +9536,7 @@ impl CardDb {
                     ring: None,
                     shield_blast: None,
                     bounce: None,
+                    attack_area: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9660,6 +9706,7 @@ impl CardDb {
             ring: None,
             shield_blast: None,
             bounce: None,
+            attack_area: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9724,6 +9771,24 @@ impl CardDb {
                 return Err("a bounce on a card whose shot does not splash; not simulated".into());
             }
             evo.bounce = Some(BounceDef { count, range: milli(range) });
+        }
+        // THE AREA EACH ATTACK MAKES ON THE UNIT (the Evo Valkyrie's tornado): its area converted as an area spell's (a
+        // plain pulsing area that releases nothing), riding on the unit as a hero's area does (spell.rs `attached_def`),
+        // its first hit on its first update (HitSpeed less no HitSpeedOffset, as a hero's slow area); and her own buff.
+        if let Some(aa) = &extra.evo_attack_area {
+            let (shape, more) = convert_area_effect(&aa.area, buffs, ctx).map_err(|e| format!("attack area: {e}"))?;
+            let SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } = shape else {
+                return Err("an attack area that is not a plain pulsing area; not simulated".into());
+            };
+            if !more.is_empty() || !aa.follow || life_ms <= 0 || hit_speed_ms <= 0 {
+                return Err("an attack area that releases units, stands still, or has no clock; not simulated".into());
+            }
+            let self_buff = match &aa.self_buff {
+                Some(b) => Some(buffs.apply(b, aa.self_buff_ms, "the attack area's own buff")?),
+                None => None,
+            };
+            let area = AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: true, stay: false, end: None };
+            evo.attack_area = Some(AttackAreaDef { area, self_buff });
         }
         // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
         if let Some(rage) = &extra.evo_hit_rage {

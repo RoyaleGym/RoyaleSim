@@ -407,6 +407,10 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
 
 /// Area `part` of card `card`'s ability (card.rs `AbilityEffect::Areas`), or None.
 pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&AttachedArea> {
+    // THE AREA AN ATTACK MAKES ON ITS UNIT (card.rs `AttackAreaDef`, the Evo Valkyrie's tornado): off its EvoDef.
+    if part == crate::card::EVO_ATTACK_AREA {
+        return cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.attack_area.as_ref()).map(|a| &a.area);
+    }
     match cards.cards.get(card as usize).and_then(|c| c.ability.as_ref()).map(|a| &a.effect) {
         Some(AbilityEffect::Areas { areas, .. }) => areas.get(part as usize),
         // The Hero Valkyrie's blow (`AbilityEffect::SpinChain`): her spin's one area.
@@ -1691,6 +1695,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             if alive && a.follow {
                 *pos = ctx.ents.pos[parent.index as usize];
             }
+            let was_live = *life_ms > 0;
             while *next_ms <= 0 && *life_ms > 0 {
                 let clock = AreaClock { pos: *pos, age_ms: a.life_ms - *life_ms + tick, left_ms: *life_ms, hit_speed_ms: a.hit_speed_ms };
                 impact(ctx, s.team, s.card, s.level, *pos, &a.hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
@@ -1705,12 +1710,18 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             if *life_ms > 0 {
                 return true;
             }
+            // The update after its last: it pulled on this tick (status.ATTRACT_ONSET = client_next_tick) and goes.
+            if !was_live {
+                return false;
+            }
             if let Some(end) = a.end {
                 if let Ok(v) = attached_area(ctx.cards, ctx.calib, s.team, s.card, s.level, *parent, *pos, end) {
                     out.born.push(v);
                 }
             }
-            return false;
+            // A pulling area stays one tick past its life, applying nothing, as a standing pulsing area does
+            // (`attract_lags`): its last update's pull moves its victims on the next tick.
+            return attract_lags(ctx, &a.hit);
         }
         let def = ctx.cards.get(s.card);
         let Some(shape) = shape_of(def).and_then(|d| shape_at(&d.shape, s.depth)) else { return false };

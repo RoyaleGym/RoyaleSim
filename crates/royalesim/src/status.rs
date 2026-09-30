@@ -143,6 +143,11 @@ pub struct BuffDef {
     /// the field still reads.
     #[serde(default)]
     pub no_pushed_by_ally: bool,
+    /// NO_PUSHED_BY_ENEMY among the row's GameTagsToSet (the Evo Valkyrie's Valkyrie_NotPushed_BUF): while it lasts the
+    /// other side does not push its carrier (move16402.rs `separation_scan_with`). `default` so a record written before
+    /// the field still reads.
+    #[serde(default)]
+    pub no_pushed_by_enemy: bool,
     /// NO_DAMAGE among the row's GameTagsToSet (the Evo Minion Horde's ghost): while it lasts no hit lands on its carrier
     /// (combat.rs `resolve`). `default` so a record written before the field still reads.
     #[serde(default)]
@@ -212,6 +217,7 @@ impl BuffDef {
             && self.damage_pct == 0
             && !self.unkillable
             && !self.no_pushed_by_ally
+            && !self.no_pushed_by_enemy
             && !self.no_damage
     }
 
