@@ -3656,8 +3656,21 @@ def globals_block(v: Vintage) -> dict:
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
-    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1",
+    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
 )
+# THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
+# its health trigger may set, and the columns a drop's area may set; any other stops the build.
+BARREL_POP_READ = {"ClassType", "DropBalloonAtHpList", "ContainerAeoList", "OffsetXList", "OffsetYList",
+                   "TotalBalloons", "Singleton", "OverrideKamikazeDoubleContainer"}
+BARREL_POP_DISPLAY = {"TransitionTime", "BalloonFlyStartFrameList", "BalloonFlyEndFrameList",
+                      "BalloonPopStartFrameList", "BalloonPopEndFrameList", "UseSpecialKamikaze",
+                      "SpecialKamikazeStartFrameList", "SpecialKamikazeEndFrameList", "SpecialDeployStartFrameLabel",
+                      "SpecialDeployEndFrameLabel"}
+BARREL_AT_HEALTH_KEYS = {"ClassType", "HealthPercentages", "Actions", "ForceStopIfTrue", "StatsTags"}
+BARREL_DROP_READ = {"Radius", "LifeDuration", "Damage", "HitSpeed", "Pushback", "HitsAir", "HitsGround", "OnlyEnemies",
+                    "OnLifeTimeEndAction", "OnStartingAction", "Base", "Rarity"}
+BARREL_DROP_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "SpawnRadius", "IsSpawnConstPriority", "Count",
+                          "DeployTime", "SpawnPushback", "StatsTags"}
 # THE EVO GIANT SNOWBALL'S ROLL (`capture_block`): the keys its capture and its roll may set, and the two filters it
 # implements; any other stops the build.
 CAPTURE_KEYS = {
@@ -4288,6 +4301,78 @@ def army_block(t: Tables, card: dict, s: dict) -> dict:
     }
 
 
+def barrel_block(t: Tables, card: dict) -> dict:
+    """SkeletonBalloon_EV1's two drops (characters/skeleton_balloon_ev1.toml), read whole or the build stops:
+      - the row's OnStartingAction: an ActionGroup, at 0, of an ActionRunActionAtHealth (HealthPercentages [p]:
+        `at_hp_pct`) that runs the pop, and the pop itself (display: the balloons' animation); its OnDeathAction the
+        pop; no DeathSpawnCharacter of its own;
+      - the pop (ActionSkeletonBarrelPopBalloon): DropBalloonAtHpList [p], two containers (ContainerAeoList: the one the
+        health trigger drops, then the one the death drops), each at OffsetXList / OffsetYList from the barrel (the
+        owner's frame, native: `extra_offset`, `death_offset`); TotalBalloons 2, Singleton, no kamikaze override; the
+        rest display only;
+      - each container's area: the base barrel's container (SkeletonContainerNew) to the column, but for its Damage: its
+        LifeDuration the container's DeployTime (its fuse), its Radius and Pushback the container's DeathDamageRadius
+        and DeathPushBack, one hit (HitSpeed = LifeDuration), and its OnLifeTimeEndAction an ActionSpawn of the
+        container's death spawn (character, Count, SpawnRadius, DeployTime, SpawnPushback). Each is written as the
+        container's own record with the area's name and Damage (`extra`, `death`): the engine's death bomb with a death
+        spawn."""
+    acts = t["actions"]
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"{unit}: {what}")
+
+    need(not row["DeathSpawnCharacter"], "a DeathSpawnCharacter beside its drops")
+    group = group_subactions(t, row["OnStartingAction"], f"{unit} start")
+    need([acts.get(n)["ClassType"] for n, _ in group] == ["ActionRunActionAtHealth", "ActionSkeletonBarrelPopBalloon"]
+         and all(d == 0 for _, d in group), f"its start group {group}")
+    trig = _one_action(acts, group[0][0], "ActionRunActionAtHealth", BARREL_AT_HEALTH_KEYS)
+    pct = col_list(acts, group[0][0], "HealthPercentages")
+    need(len(pct) == 1 and col_list(acts, group[0][0], "Actions") == [group[1][0]]
+         and row["OnDeathAction"] == group[1][0], "the health trigger and the death do not both run the pop")
+    need(trig["ForceStopIfTrue"] in (None, "is_kamikazing"), f"the trigger's stop {trig['ForceStopIfTrue']!r}")
+    pop = acts.get(group[1][0])
+    unread = _present(pop) - BARREL_POP_READ - BARREL_POP_DISPLAY
+    need(not unread, f"the pop sets {sorted(unread)}")
+    aeos = col_list(acts, group[1][0], "ContainerAeoList")
+    xs, ys = col_list(acts, group[1][0], "OffsetXList"), col_list(acts, group[1][0], "OffsetYList")
+    need(col_list(acts, group[1][0], "DropBalloonAtHpList") == pct and len(aeos) == 2 and len(xs) == 2 and len(ys) == 2
+         and pop["TotalBalloons"] == 2 and not pop["OverrideKamikazeDoubleContainer"], "the pop's lists")
+    base = norm_unit(t, "SkeletonContainerNew")
+    at = t["area_effect_objects"]
+    drops = []
+    for name in aeos:
+        a = at.get(name)
+        need(a is not None, f"no area {name}")
+        own = at.set_fields.get(name, set())
+        base_row = at.set_fields.get(a["Base"].split(".")[-1], set()) if isinstance(a["Base"], str) else set()
+        unread = (own | base_row) - BARREL_DROP_READ - {"ScaledEffect", "StatsTags", "HitEffect"}
+        need(not unread, f"{name} sets {sorted(unread)}")
+        need(a["LifeDuration"] == base["deploy_time_ms"] and a["HitSpeed"] == a["LifeDuration"]
+             and a["Radius"] == base["death_damage_radius_milli"] and a["Pushback"] == base["death_pushback_milli"]
+             and flag(a, "OnlyEnemies") is True, f"{name} is not the container's fuse, radius and push")
+        need(_cosmetic_action(acts, a["OnStartingAction"]) or acts.get(a["OnStartingAction"]) is not None,
+             f"{name} start")
+        sp = _one_action(acts, a["OnLifeTimeEndAction"], "ActionSpawn", BARREL_DROP_SPAWN_KEYS)
+        ds = base["death_spawn"]
+        need(sp["SpawnType"] == "CharacterType" and sp["SpawnData"] == ds["character"] and sp["Count"] == ds["count"]
+             and sp["SpawnRadius"] == ds["radius_milli"] and sp["DeployTime"] == ds["deploy_time_ms"]
+             and sp["SpawnPushback"] is True and base["death_spawn_pushback"] is True,
+             f"{name}'s spawn is not the container's death spawn")
+        drops.append({**base, "name": name, "death_damage": a["Damage"]})
+    return {
+        "at_hp_pct": pct[0],
+        "extra": drops[0],
+        "extra_offset_x_milli": xs[0],
+        "extra_offset_y_milli": ys[0],
+        "death": drops[1],
+        "death_offset_x_milli": xs[1],
+        "death_offset_y_milli": ys[1],
+    }
+
+
 def capture_block(t: Tables, card: dict) -> dict:
     """THE EVO GIANT SNOWBALL (spells_evolved Snowball_EV1; characters/snowball_ev1.toml), read whole or the build
     stops:
@@ -4431,6 +4516,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_ghost"] = ghost_block(t, card)
         elif name == "SkeletonArmy_EV1":
             card["evo_army"] = army_block(t, card, s)
+        elif name == "SkeletonBalloon_EV1":
+            card["evo_barrel"] = barrel_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

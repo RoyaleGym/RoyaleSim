@@ -1770,9 +1770,32 @@ pub struct EvoDef {
     /// form and by its General and Spectral records alike, so each registers in its play's group (state.rs
     /// `evo_created`).
     pub army: Option<ArmyDef>,
+    /// Evo Skeleton Barrel: a second drop at a health line beside the one at its death (`BarrelDef`).
+    pub barrel: Option<BarrelDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
+}
+
+/// THE EVO SKELETON BARREL (characters/skeleton_balloon_ev1.toml; tools/extract_cards.py `barrel_block`; state.rs
+/// `barrel_pass`): each drop is the base barrel's container (a death bomb that releases seven Skeletons: `CardDef`
+/// `death_bomb_fuse_ms` with a death spawn) with the drop area's own Damage. The first, `extra`, falls once, when the
+/// barrel's hitpoints are at or below `at_hp_pct` of its maximum and it is not diving onto its target, `extra_offset_*`
+/// from it in the owner's frame; the other is the form's death spawn, `death_offset_*` from where it died. Offsets in
+/// subtiles.
+///
+/// Measured on client 15.535.29 (sp-form-SkeletonBalloon-evo-s0, level 11): the barrel (665) fell to 448 on t974 and its
+/// first seven Skeletons appeared on t987; it was gone on t1033 and the next seven appeared on t1045; each ring about
+/// 1,480 from a point beside the barrel. Unmeasured: the drops' blow (no enemy stood under either), and a barrel killed
+/// from above the line in one hit (the table's action runs on the health it reads; here it drops only at death).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BarrelDef {
+    pub at_hp_pct: i32,
+    pub extra: FormUnit,
+    pub extra_offset_x: i32,
+    pub extra_offset_y: i32,
+    pub death_offset_x: i32,
+    pub death_offset_y: i32,
 }
 
 /// THE EVO BATTLE RAM (characters_evo.toml [BattleRam_EV1]; tools/extract_cards.py `ram_block`). Its row keeps the base
@@ -3938,9 +3961,24 @@ struct RawEvolution {
     evo_army: Option<RawArmy>,
     /// The Evo Giant Snowball's roll (`capture_block`).
     evo_capture: Option<RawCapture>,
+    /// The Evo Skeleton Barrel's drops (`barrel_block`).
+    evo_barrel: Option<RawBarrel>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_barrel` (tools/extract_cards.py `barrel_block`): the health line, the two containers (units
+/// records) and their offsets.
+#[derive(Deserialize)]
+struct RawBarrel {
+    at_hp_pct: Option<i32>,
+    extra: Option<serde_json::Value>,
+    extra_offset_x_milli: Option<i32>,
+    extra_offset_y_milli: Option<i32>,
+    death: Option<serde_json::Value>,
+    death_offset_x_milli: Option<i32>,
+    death_offset_y_milli: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_capture` (tools/extract_cards.py `capture_block`).
@@ -8889,6 +8927,7 @@ impl CardDb {
             extra.evo_wind.is_some(),
             extra.evo_ghost.is_some(),
             extra.evo_army.is_some(),
+            extra.evo_barrel.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -8910,6 +8949,8 @@ impl CardDb {
             &["ActionAnimatorLayer", "ActionGhostEvoAction", "ActionGhostEvoSpawnSummon", "ActionGroup", "ActionPlayEffect"]
         } else if extra.evo_army.is_some() {
             &ARMY_GRAPH
+        } else if extra.evo_barrel.is_some() {
+            &["ActionAddHealthBarPart", "ActionGroup", "ActionRunActionAtHealth", "ActionSkeletonBarrelPopBalloon"]
         } else {
             &[]
         };
@@ -8993,6 +9034,7 @@ impl CardDb {
                     wind: None,
                     ghost: None,
                     army: None,
+                    barrel: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -9083,6 +9125,38 @@ impl CardDb {
                 army_units.push(m);
             }
         }
+        // A BARREL FORM'S TWO CONTAINERS: each the base barrel's container record with its drop's Damage, loaded here as a
+        // summon-only record after the form (the drop at the health line, then the one at death, which is the form's
+        // death spawn). Each must load as a death bomb with a death spawn whose unit is already loaded.
+        let mut drops: Vec<CardDef> = Vec::new();
+        if let Some(b) = &extra.evo_barrel {
+            if c.death_spawn.is_some() {
+                return Err("a barrel form whose row has a death spawn beside its drops".into());
+            }
+            for v in [b.extra.as_ref(), b.death.as_ref()] {
+                let mut uv = v.cloned().ok_or("a barrel with a drop missing")?;
+                let obj = uv.as_object_mut().ok_or("a barrel drop that is not an object")?;
+                obj.insert("kind".into(), serde_json::Value::String("building".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("a barrel drop: {e}"))?;
+                let (mut d, _, dneeds) = convert(ur, buffs, ctx).map_err(|e| format!("a barrel drop: {e}"))?;
+                if d.death_bomb_fuse_ms().is_none() || d.death_spawn.is_none() {
+                    return Err(format!("barrel drop {} is not a death bomb with a death spawn", d.name));
+                }
+                for (which, n) in dneeds {
+                    let at = self.index(&n).filter(|_| which == UnitUse::DeathSpawn).ok_or_else(|| format!("barrel drop {}: needs {n}, which is not loaded", d.name))?;
+                    if let Some(ds) = d.death_spawn.as_mut() {
+                        ds.unit = at;
+                    }
+                }
+                if self.index(&d.name).is_some() || !self.rarities.iter().any(|r| r.name == d.rarity) {
+                    return Err(format!("barrel drop {}: a name already loaded or a rarity not in rarities.csv", d.name));
+                }
+                d.summon_only = true;
+                drops.push(d);
+            }
+            c.death_spawn = bc.death_spawn;
+        }
         if c.kind != bc.kind || c.elixir != bc.elixir || c.rarity != bc.rarity {
             return Err(format!("a {:?} of {} elixir ({}) against its base's {:?} of {} ({})", c.kind, c.elixir, c.rarity, bc.kind, bc.elixir, bc.rarity));
         }
@@ -9106,6 +9180,7 @@ impl CardDb {
             wind: None,
             ghost: None,
             army: None,
+            barrel: None,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
@@ -9123,6 +9198,18 @@ impl CardDb {
             }
             let spectral_buff = buffs.apply_def(def, raw, a.spectral_buff_ms, "the Spectral's buff")?;
             evo.army = Some(ArmyDef { general: FormUnit { unit: u16::MAX }, general_offset_x: x, general_offset_y: y, spectral: FormUnit { unit: u16::MAX }, spectral_buff });
+        }
+        if let Some(b) = &extra.evo_barrel {
+            let pct = b.at_hp_pct.filter(|p| (1..100).contains(p)).ok_or("a barrel with no health line")?;
+            let o = |v: Option<i32>| v.map(milli).ok_or("a barrel with a drop's offset missing");
+            evo.barrel = Some(BarrelDef {
+                at_hp_pct: pct,
+                extra: FormUnit { unit: u16::MAX },
+                extra_offset_x: o(b.extra_offset_x_milli)?,
+                extra_offset_y: o(b.extra_offset_y_milli)?,
+                death_offset_x: o(b.death_offset_x_milli)?,
+                death_offset_y: o(b.death_offset_y_milli)?,
+            });
         }
         // THE WIND: its buffs interned now, and the dragon's IgnoreBuff (the ally buff alone, which the extractor
         // checks) set here, as the table pass sets every other row's.
@@ -9253,6 +9340,20 @@ impl CardDb {
             }
             for k in [form, gi, si] {
                 self.cards[k as usize].evo = Some(evo.clone());
+            }
+        }
+        // The barrel's two containers after the form: the health line's, then the death's (the form's death spawn).
+        if !drops.is_empty() {
+            let first = self.cards.len() as u16;
+            for d in drops {
+                self.push(d, None)?;
+            }
+            let f = &mut self.cards[form as usize];
+            if let Some(b) = f.evo.as_mut().and_then(|v| v.barrel.as_mut()) {
+                b.extra = FormUnit { unit: first };
+            }
+            if let Some(ds) = f.death_spawn.as_mut() {
+                ds.unit = first + 1;
             }
         }
         self.forms.push((base, FORM_EVOLUTION, form));
@@ -9906,6 +10007,10 @@ impl CardDb {
         if let Some(a) = c.evo.as_ref().and_then(|v| v.army.as_ref()) {
             out.push((UnitRef::EvoUnit(0), a.general.unit, None));
             out.push((UnitRef::EvoUnit(1), a.spectral.unit, None));
+        }
+        // The Evo Skeleton Barrel's drop at its health line (its death drop is its death spawn, above).
+        if let Some(b) = c.evo.as_ref().and_then(|v| v.barrel.as_ref()) {
+            out.push((UnitRef::EvoUnit(0), b.extra.unit, None));
         }
         // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
         // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.

@@ -6542,6 +6542,10 @@ pub struct EvoBoard {
     /// still loads; hashed only when not empty.
     #[serde(default)]
     pub armies: Vec<ArmyMember>,
+    /// Each Evo Skeleton Barrel whose drop at its health line has fallen (`barrel_pass`). `default` so a battle saved
+    /// before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub barrel_drops: Vec<EntityId>,
 }
 
 /// ONE UNIT OF AN EVO SKELETON ARMY'S PLAY (card.rs `ArmyDef`): the unit, its group (one a play, `evo_created`) and its
@@ -6598,6 +6602,7 @@ impl EvoBoard {
             && self.stages.is_empty()
             && self.winds.is_empty()
             && self.armies.is_empty()
+            && self.barrel_drops.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -11618,6 +11623,8 @@ impl BattleState {
         // drain below reads the entity's LifeTime (measured on client 15.535.29: the Goblin Demolisher's switch and
         // its first drain on the same tick).
         self.fire_scheduled();
+        // The Evo Skeleton Barrels' drops at their health line (`barrel_pass`).
+        self.barrel_pass();
         // The Hero Wizard's lifts, after the tick's presses fired (`lift_pass`).
         if !self.lifts.is_empty() {
             self.lift_pass();
@@ -12937,6 +12944,43 @@ impl BattleState {
             .filter(|(d2, _, _, _)| *d2 <= r2)
             .min()
             .map(|(_, _, _, j)| e.id_of(j))
+    }
+
+    /// THE EVO SKELETON BARRELS' DROPS AT THEIR HEALTH LINE (card.rs `BarrelDef`), at the top of the Status phase: a barrel
+    /// whose hitpoints are at or below `at_hp_pct` of its maximum, not diving onto its target (its attack under way:
+    /// the table's `is_kamikazing` stop), and whose drop has not fallen, drops its `extra` container `extra_offset` from
+    /// it in the owner's frame: the death bomb a death leaves (`phase_reap`), made here, a tick before a death's would be,
+    /// so its fuse carries that tick (measured on client 15.535.29: the hit that took the barrel under the line on t974,
+    /// its Skeletons on t987; a death on t1033, its Skeletons on t1045).
+    fn barrel_pass(&mut self) {
+        let tick = self.cfg.calib.tick_ms;
+        let mut made = Vec::new();
+        for i in 0..self.ents.capacity() {
+            if !self.ents.alive[i] || self.ents.hp[i] <= 0 {
+                continue;
+            }
+            let Some(b) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel) else { continue };
+            let id = self.ents.id_of(i);
+            #[cfg(not(clash_plant = "barrel_drop_never"))]
+            let below = (self.ents.hp[i] as i64) * 100 <= (self.ents.max_hp[i] as i64) * b.at_hp_pct as i64;
+            #[cfg(clash_plant = "barrel_drop_never")]
+            let below = false; // PLANT (regression): the barrel drops at its death alone.
+            if !below || self.ents.attack_phase[i] != AttackPhase::Idle || self.evo.barrel_drops.contains(&id) {
+                continue;
+            }
+            let unit = self.cfg.cards.get(b.extra.unit);
+            let Some(fuse_ms) = unit.death_bomb_fuse_ms() else { continue };
+            let level = self.cfg.cards.unit_level(self.ents.card[i], b.extra.unit, None, self.ents.level[i]).expect("the drop's level validated at deploy");
+            let damage = self.cfg.cards.scaled(b.extra.unit, level, unit.death_damage).expect("the drop's level validated at deploy");
+            let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
+            let fwd = spell::forward_dy(team);
+            let at = Vec2::new(pos.x + fwd * b.extra_offset_x, pos.y + fwd * b.extra_offset_y);
+            made.push(Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0 });
+            self.evo.barrel_drops.push(id);
+        }
+        self.spells.extend(made);
+        let ents = &self.ents;
+        self.evo.barrel_drops.retain(|id| ents.is_alive(*id));
     }
 
     /// Is lift `l` in its descent (`AbilityEffect::GroundToAir`: its last `transition_ms`)?
@@ -17643,6 +17687,14 @@ impl BattleState {
                 let base = unit.death_damage;
                 let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
                 let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
+                // An Evo Skeleton Barrel's death drop falls `death_offset` from it in the owner's frame (`BarrelDef`).
+                let pos = match self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel) {
+                    Some(b) => {
+                        let fwd = spell::forward_dy(team);
+                        Vec2::new(pos.x + fwd * b.death_offset_x, pos.y + fwd * b.death_offset_y)
+                    }
+                    None => pos,
+                };
                 self.spells.push(Spell {
                     team,
                     card: ds.unit,
@@ -21366,6 +21418,14 @@ impl BattleState {
                 for (id, ms) in &b.spears {
                     h.id(*id);
                     h.i32(*ms);
+                }
+            }
+            // The Evo Skeleton Barrels' fallen drops, only when there are some.
+            if !b.barrel_drops.is_empty() {
+                h.u32(0x4241_5252);
+                h.u32(b.barrel_drops.len() as u32);
+                for id in &b.barrel_drops {
+                    h.id(*id);
                 }
             }
             // The Evo Skeleton Armies' units, only when there are some.

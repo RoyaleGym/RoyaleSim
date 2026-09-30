@@ -288,6 +288,10 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
         out.push((UnitRef::EvoUnit(0), a.general.unit, None));
         out.push((UnitRef::EvoUnit(1), a.spectral.unit, None));
     }
+    // the Evo Skeleton Barrel's drop at its health line
+    if let Some(b) = c.evo.as_ref().and_then(|v| v.barrel.as_ref()) {
+        out.push((UnitRef::EvoUnit(0), b.extra.unit, None));
+    }
     // every entry of the card's deploy spawn area (the Tri Wizards' TriWizardSpawn): entry 0 the card itself, then the
     // cards whose deploy areas its actions make
     if let Some(SpellDef { shape: SpellShape::ScheduledArea { schedule, .. }, .. }) = &c.deploy_spawn_area {
