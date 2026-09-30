@@ -4569,6 +4569,7 @@ HERO_FORMS = {
     "Balloon_hero": ("Balloon", "balloon_hero"),
     "Valkyrie_hero": ("Valkyrie", "valkyrie_hero"),
     "Wizard_hero": ("Wizard", "wizard_hero"),
+    "MiniPekka_hero": ("MiniPekka", "mini_pekka_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -4908,6 +4909,9 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     elif "ActionGroundToAir" in classes:
         effect = ground_to_air_effect(h, name, subs, delays, units, hero_unit or "")
         classes = []
+    elif "ActionSelect" in classes and "ActionHeal" in classes:
+        effect = level_up_effect(h, name, subs, delays, hero_unit or "")
+        classes = []
     elif (
         "ActionSpawn" in classes
         and set(classes) <= group_classes
@@ -5174,6 +5178,134 @@ def ground_to_air_effect(h: Tables, name: str, subs: list[str], delays: list[int
             "tornado": norm_aeo(h, pulls[0]),
             "damage": norm_aeo(h, hits[0]),
         },
+    }
+
+
+def level_up_effect(h: Tables, name: str, subs: list[str], delays: list[int], hero_unit: str) -> dict:
+    """THE HERO MINI PEKKA'S BUTTON ([ABILITY.MiniPekkHeroAbility]), read whole or the build stops. Its
+    OnActivationAction is an ActionGroup, every step at delay 0, of:
+      - an ActionSelect whose PerActionConditions are `<stack> == 0`, `== 1`, ... and a last `>= k` on one
+        [VARIABLE] (the level stack), each option an inline ActionSetCharacterLevel of RelativeLevelAdjustment n whose
+        NextAction only plays an effect -> `levels` (the levels gained, by the stack);
+      - an ActionHeal whose Value is `(max_hp - hp) * <VAR> / 100`, VAR a [VARIABLE] with an int DefaultValue ->
+        `heal_missing_pct` (after the level set: the group's order);
+      - an ActionSetVariable of another [VARIABLE] to 1, which only the quest's ForceStopIfTrue and the hit effect's
+        cosmetic select read (the press stops the quest as ABILITY_CASTED does);
+      - an ActionFilter on the stack whose OnTrueAction is an ActionRunForcedAnimationOnce (an animation: the cast
+        holds the hero for CastTime).
+    The stack is filled by the hero unit's quest (`hero_quest`) -> `quest`."""
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    acts = h["actions"]
+    need(all(d == 0 for d in delays), "a delayed step")
+    by = {acts.get(s)["ClassType"]: s for s in subs}
+    need(sorted(by) == ["ActionFilter", "ActionHeal", "ActionSelect", "ActionSetVariable"] and len(subs) == 4,
+         f"the group is {[acts.get(s)['ClassType'] for s in subs]}")
+    need(subs.index(by["ActionSelect"]) < subs.index(by["ActionHeal"]), "the heal before the level set")
+    sel = by["ActionSelect"]
+    need(_present(acts.get(sel)) <= {"ClassType", "PerActionConditions", "SubActions"}, f"{sel} sets more")
+    conds = _action_list(acts, sel, "PerActionConditions")
+    opts = _action_list(acts, sel, "SubActions")
+    need(len(conds) == len(opts) >= 2, f"{sel}'s conditions and options")
+    var = conds[0].split(" ")[0]
+    want = [f"{var} == {k}" for k in range(len(conds) - 1)] + [f"{var} >= {len(conds) - 1}"]
+    need(conds == want and var in h.variables and not (h.variables.get(var) or {}).get("DefaultValue"),
+         f"{sel}'s conditions {conds}")
+    levels = []
+    for o in opts:
+        need(isinstance(o, dict) and o.get("ClassType") == "ActionSetCharacterLevel"
+             and set(o) <= {"ClassType", "RelativeLevelAdjustment", "NextAction"}
+             and isinstance(o.get("RelativeLevelAdjustment"), int) and o["RelativeLevelAdjustment"] > 0, f"option {o}")
+        nxt = o.get("NextAction")
+        need(nxt is None or (acts.get(nxt) is not None and acts.get(nxt)["ClassType"] == "ActionPlayEffect"),
+             f"option {o}'s NextAction")
+        levels.append(o["RelativeLevelAdjustment"])
+    heal = acts.get(by["ActionHeal"])
+    need(_present(heal) == {"ClassType", "Value"}, f"{by['ActionHeal']} sets more")
+    m = re.fullmatch(r"\(max_hp - hp\) \* (\w+) / 100", heal["Value"])
+    pct = (h.variables.get(m.group(1)) or {}).get("DefaultValue") if m else None
+    need(isinstance(pct, int) and 0 < pct <= 100, f"the heal {heal['Value']}")
+    played = acts.get(by["ActionSetVariable"])
+    need(_present(played) == {"ClassType", "Variable", "Value"} and played["Value"] == "1"
+         and played["Variable"] in h.variables and played["Variable"] != var, f"{by['ActionSetVariable']}")
+    filt = acts.get(by["ActionFilter"])
+    anim = acts.get(filt["OnTrueAction"]) if isinstance(filt["OnTrueAction"], str) else None
+    need(_present(filt) == {"ClassType", "Condition", "OnTrueAction"} and filt["Condition"].startswith(var)
+         and anim is not None and anim["ClassType"] == "ActionRunForcedAnimationOnce"
+         and _present(anim) <= {"ClassType", "PlaybackDuration"}, f"{by['ActionFilter']}")
+    quest = hero_quest(h, name, hero_unit, var, played["Variable"], len(levels) - 1)
+    return {"kind": "level_up", "levels": levels, "heal_missing_pct": pct, "quest": quest}
+
+
+# The keys of the Hero Mini PEKKA's quest action (ActionMiniPekkaHeroQuest) that only the bar's display reads.
+HERO_QUEST_UI_KEYS = {
+    "BarIndicatorName", "ContainerName", "BarNamesList", "AbilityButtonStartLabel", "AbilityButtonEndLabel",
+    "AbilityButtonTextFieldValues", "StatsTags",
+}
+
+
+def hero_quest(h: Tables, name: str, unit: str, var: str, played: str, top: int) -> dict:
+    """THE QUEST THAT FILLS A LEVEL STACK: the hero unit's OnStartingAction, an ActionMiniPekkaHeroQuest, read whole or
+    the build stops. Its bar fills from StartTimerDelay (`start_delay_ms`) after it starts; every hit that sets its
+    UpgradeBarIfTrue tag adds AmountToIncreaseOnUpgradeBarList (`per_hit_ms`); full at Intervals (`interval_ms`), it
+    runs OnIntervalReachedAction (an ActionGroup of one ActionSetVariable: `var` = min(top, var + 1)) and starts again,
+    MaxResets times (`max_resets`), and stops for good on ForceStopIfTrue (the press: ABILITY_CASTED, or `played` set).
+    The tag: the unit's OnHitTargetAction is an ActionGroup, every step at delay 0, of an ActionSpawn of a BuffType
+    (SpawnTime 50) whose buff sets that tag and nothing else, and an ActionSelect on `var` that only plays effects
+    (ActionRunOnInstigator of an ActionPlayEffect). Every list column holds one value."""
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: its quest's {what}")
+
+    acts = h["actions"]
+    _, urow = unit_record(h, unit)
+    q = acts.get(urow["OnStartingAction"]) if isinstance(urow["OnStartingAction"], str) else None
+    need(q is not None and q["ClassType"] == "ActionMiniPekkaHeroQuest", f"OnStartingAction {urow['OnStartingAction']}")
+    qn = urow["OnStartingAction"]
+    read = {"ClassType", "Intervals", "AmountToIncreaseOnUpgradeBarList", "StartTimerDelay", "MaxResets",
+            "OnIntervalReachedAction", "OnMaxResetsReachedAction", "ForceStopIfTrue", "UpgradeBarIfTrue"}
+    need(not (_present(q) - read - HERO_QUEST_UI_KEYS), f"keys {sorted(_present(q) - read - HERO_QUEST_UI_KEYS)}")
+    iv = _action_list(acts, qn, "Intervals")
+    per = _action_list(acts, qn, "AmountToIncreaseOnUpgradeBarList")
+    need(len(iv) == 1 and len(per) == 1 and all(isinstance(x, int) and x > 0 for x in iv + per), "lists")
+    need(q["OnMaxResetsReachedAction"] in (None, ""), "OnMaxResetsReachedAction")
+    stop = f"ABILITY_CASTED || !is_active_or_secondary_champion || {played} > 0"
+    need(q["ForceStopIfTrue"] == stop, "ForceStopIfTrue")
+    got = _group_leaves(acts, q["OnIntervalReachedAction"])
+    need(got is not None and len(got[0]) == 1 and got[1] == [0], "OnIntervalReachedAction")
+    up = acts.get(got[0][0])
+    need(up["ClassType"] == "ActionSetVariable" and up["Variable"] == var
+         and up["Value"] == f"min({top}, {var} + 1)", f"step {got[0][0]}")
+    tag = q["UpgradeBarIfTrue"]
+    hit = _group_leaves(acts, urow["OnHitTargetAction"]) if isinstance(urow["OnHitTargetAction"], str) else None
+    need(hit is not None and all(d == 0 for d in hit[1]), "OnHitTargetAction")
+    spawns = [s for s in hit[0] if acts.get(s)["ClassType"] == "ActionSpawn"]
+    need(len(spawns) == 1, "OnHitTargetAction's buff")
+    sp = acts.get(spawns[0])
+    buff = h["character_buffs"].get(sp["SpawnData"]) if sp["SpawnType"] == "BuffType" else None
+    need(buff is not None and _present(sp) == {"ClassType", "SpawnType", "SpawnData", "SpawnTime"}
+         and sp["SpawnTime"] == 50 and {k for k, v in buff.items() if v is not None} == {"Rarity", "GameTagsToSet"}
+         and buff["GameTagsToSet"] == tag,
+         f"tag buff {sp['SpawnData']}")
+    for s in hit[0]:
+        if s in spawns:
+            continue
+        a = acts.get(s)
+        need(a["ClassType"] == "ActionSelect", f"hit step {s}")
+        for o in _action_list(acts, s, "SubActions"):
+            r = acts.get(o) if isinstance(o, str) else None
+            on_instigator = r is not None and r["ClassType"] == "ActionRunOnInstigator"
+            eff = acts.get(r["ActionToExecute"]) if on_instigator else None
+            need(eff is not None and eff["ClassType"] == "ActionPlayEffect", f"hit effect {o}")
+    return {
+        "start_delay_ms": q["StartTimerDelay"] or 0,
+        "interval_ms": iv[0],
+        "per_hit_ms": per[0],
+        "max_resets": q["MaxResets"],
     }
 
 

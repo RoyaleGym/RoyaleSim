@@ -310,6 +310,12 @@
    "characters/hero_form/ice_golemite_hero_spell.toml": {
     "sha256": "ccb424bc5913354b4dd762109e70209046ab21495488ae44f7aad70ca5f117b5"
    },
+   "characters/hero_form/mini_pekka_hero.toml": {
+    "sha256": "5d4eb28fafa612bbe46a56ca8555d0692209df754066feaf4d5593d94d9298fa"
+   },
+   "characters/hero_form/mini_pekka_hero_spell.toml": {
+    "sha256": "b8a7ffafecbec98557b683683f9b00c440a05c85e6173b64ad22a84d057d451b"
+   },
    "characters/hero_form/musketeer_hero.toml": {
     "sha256": "6005fa04c0c0723173400b83be551a53d7e01ede457eac480adc40c450ccf334"
    },
@@ -82470,6 +82476,279 @@
       },
       "overlays": [
        "characters/hero_form/wizard_hero.toml [EXT]"
+      ]
+     }
+    },
+    "area_effect_objects": {}
+   }
+  },
+  {
+   "name": "MiniPekka_hero",
+   "display_name": "Hero Mini P.E.K.K.A",
+   "kind": "troop",
+   "elixir": 4,
+   "rarity": "Rare",
+   "summon_character": "MiniPekkaHero",
+   "hitpoints": 543,
+   "damage": 295,
+   "damage_source": "characters.MiniPekkaHero.Damage",
+   "hit_speed_ms": 1600,
+   "load_time_ms": 1100,
+   "load_first_hit": false,
+   "speed": 90,
+   "stop_movement_after_ms": null,
+   "wait_ms": null,
+   "range_milli": 800,
+   "minimum_range_milli": null,
+   "sight_range_milli": 5500,
+   "collision_radius_milli": 450,
+   "mass": 4,
+   "deploy_time_ms": 1000,
+   "attacks_air": false,
+   "attacks_ground": true,
+   "target_only_buildings": false,
+   "flying_height": 0,
+   "area_damage_radius_milli": 0,
+   "self_as_aoe_center": false,
+   "projectile": null,
+   "shield_hitpoints": 0,
+   "crown_tower_damage_percent": 100,
+   "lifetime_ms": null,
+   "ignore_pushback": false,
+   "death_damage": null,
+   "death_damage_radius_milli": null,
+   "death_spawn": null,
+   "death_area_effect": null,
+   "spawner": null,
+   "spawn_radius_milli": null,
+   "spawn_angle_shift_deg": null,
+   "projectile_start_radius_milli": 450,
+   "kamikaze": false,
+   "kamikaze_time_ms": null,
+   "spawn_pathfind": null,
+   "charge": null,
+   "dash": null,
+   "jump": null,
+   "hides_when_not_attacking": false,
+   "hide_time_ms": null,
+   "up_time_ms": null,
+   "buff_on_damage": null,
+   "defaults_applied": [
+    "crown_tower_damage_percent",
+    "area_damage_radius_milli",
+    "flying_height",
+    "shield_hitpoints"
+   ],
+   "death_spawn_projectile": null,
+   "spawn_area_object": null,
+   "hovering": false,
+   "variable_damage": null,
+   "attack_pushback_milli": null,
+   "special": null,
+   "ignore_buffs": null,
+   "death_pushback_milli": null,
+   "action_graph": {
+    "roots": {
+     "OnHitTargetAction": "MiniPekka_hero_on_hit_action",
+     "OnStartingAction": "MiniPekkaHero_run_timer_continuous",
+     "VisualActions": "MiniPekka_hero_quest_bar_continuous"
+    },
+    "class_types": [
+     "ActionAddHealthBarPart",
+     "ActionGroup",
+     "ActionMiniPekkaHeroQuest",
+     "ActionPlayEffect",
+     "ActionRunOnInstigator",
+     "ActionSelect",
+     "ActionSetVariable",
+     "ActionSpawn"
+    ],
+    "spawns": [
+     "BuffType:MiniPekkaHero_buff_for_tag"
+    ],
+    "mechanic": true
+   },
+   "death_spawn_pushback": false,
+   "count": 1,
+   "summon_radius_milli": null,
+   "summon_width_milli": null,
+   "summon_deploy_delay_ms": null,
+   "summon_deploy_delay_second_ms": null,
+   "second_summon": null,
+   "deploy_area_effect": null,
+   "deploy_projectile": null,
+   "level_scaling": {
+    "rarity": "Rare",
+    "level_count": 14,
+    "multiplier_percent_by_level": [
+     100,
+     110,
+     121,
+     133,
+     146,
+     160,
+     176,
+     193,
+     212,
+     233,
+     256,
+     281,
+     309,
+     339,
+     372,
+     409
+    ],
+    "applies_to": [
+     "hitpoints",
+     "damage"
+    ],
+    "rounding": "floor -- MEASURED on the 16.402 live captures' max_hp (tests/levels.rs); the composition with crown-tower percent and shields is still calibration.json combat.DAMAGE_ARITHMETIC",
+    "relative_level": 2,
+    "reading": "object_rarity_local_1",
+    "ladder_rarity": "Common",
+    "base_level": 1
+   },
+   "form_of": "MiniPekka",
+   "ability": {
+    "name": "MiniPekkHeroAbility",
+    "mana_cost": 1,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 950,
+    "trigger_delay_ms": 200,
+    "keep_current_target": true,
+    "is_champion": false,
+    "effect": {
+     "kind": "level_up",
+     "levels": [
+      1,
+      2,
+      3,
+      5
+     ],
+     "heal_missing_pct": 30,
+     "quest": {
+      "start_delay_ms": 1000,
+      "interval_ms": 22000,
+      "per_hit_ms": 8000,
+      "max_resets": 3
+     }
+    }
+   },
+   "tables": {
+    "units": {
+     "MiniPekkaHero": {
+      "name": "MiniPekkaHero",
+      "source_table": "characters",
+      "rarity": "Common",
+      "hitpoints": 543,
+      "damage": 295,
+      "damage_source": "characters.MiniPekkaHero.Damage",
+      "hit_speed_ms": 1600,
+      "load_time_ms": 1100,
+      "load_first_hit": false,
+      "speed": 90,
+      "stop_movement_after_ms": null,
+      "wait_ms": null,
+      "range_milli": 800,
+      "minimum_range_milli": null,
+      "sight_range_milli": 5500,
+      "collision_radius_milli": 450,
+      "mass": 4,
+      "deploy_time_ms": 1000,
+      "attacks_air": false,
+      "attacks_ground": true,
+      "target_only_buildings": false,
+      "flying_height": 0,
+      "area_damage_radius_milli": 0,
+      "self_as_aoe_center": false,
+      "projectile": null,
+      "shield_hitpoints": 0,
+      "crown_tower_damage_percent": 100,
+      "lifetime_ms": null,
+      "ignore_pushback": false,
+      "tile_size_override": null,
+      "death_damage": null,
+      "death_damage_radius_milli": null,
+      "death_spawn": null,
+      "death_area_effect": null,
+      "death_spawn_projectile": null,
+      "spawner": null,
+      "spawn_area_object": null,
+      "spawn_radius_milli": null,
+      "spawn_angle_shift_deg": null,
+      "projectile_start_radius_milli": 450,
+      "kamikaze": false,
+      "kamikaze_time_ms": null,
+      "spawn_pathfind": null,
+      "charge": null,
+      "dash": null,
+      "jump": null,
+      "hovering": false,
+      "hides_when_not_attacking": false,
+      "hide_time_ms": null,
+      "up_time_ms": null,
+      "buff_on_damage": null,
+      "ignore_buffs": null,
+      "variable_damage": null,
+      "attack_pushback_milli": null,
+      "death_pushback_milli": null,
+      "special": null,
+      "attached_character": null,
+      "defaults_applied": [
+       "crown_tower_damage_percent",
+       "area_damage_radius_milli",
+       "flying_height",
+       "shield_hitpoints"
+      ],
+      "action_graph": {
+       "roots": {
+        "OnHitTargetAction": "MiniPekka_hero_on_hit_action",
+        "OnStartingAction": "MiniPekkaHero_run_timer_continuous",
+        "VisualActions": "MiniPekka_hero_quest_bar_continuous"
+       },
+       "class_types": [
+        "ActionAddHealthBarPart",
+        "ActionGroup",
+        "ActionMiniPekkaHeroQuest",
+        "ActionPlayEffect",
+        "ActionRunOnInstigator",
+        "ActionSelect",
+        "ActionSetVariable",
+        "ActionSpawn"
+       ],
+       "spawns": [
+        "BuffType:MiniPekkaHero_buff_for_tag"
+       ],
+       "mechanic": true
+      },
+      "death_spawn_pushback": false,
+      "raw": {
+       "Name": "MiniPekka",
+       "Rarity": "Common",
+       "SightRange": 5500,
+       "DeployTime": 1000,
+       "Speed": 90,
+       "Hitpoints": 543,
+       "HitSpeed": 1600,
+       "LoadTime": 1100,
+       "Damage": 295,
+       "Range": 800,
+       "AttacksGround": true,
+       "CollisionRadius": 450,
+       "Mass": 4,
+       "Ability": "MiniPekkHeroAbility",
+       "OnStartingAction": "MiniPekkaHero_run_timer_continuous",
+       "OnHitTargetAction": "MiniPekka_hero_on_hit_action"
+      },
+      "list_columns": {
+       "VisualActions": [
+        "MiniPekka_hero_quest_bar_continuous",
+        "Healthbar_Medium"
+       ]
+      },
+      "overlays": [
+       "characters/hero_form/mini_pekka_hero.toml [EXT]"
       ]
      }
     },

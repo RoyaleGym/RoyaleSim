@@ -6387,6 +6387,17 @@ pub const ABILITY_BUTTONS: usize = 3;
 /// (TriggerDelay 0) is made on P + 1 and its first wave lands on P + 2 (`fire_ability`).
 pub const ABILITY_START_TICKS: i32 = 1;
 
+/// A LEVEL SET'S TICK (card.rs `AbilityEffect::LevelUp`, the Hero Mini PEKKA's): it lands this many ticks before a
+/// press's other effects would (`press_ability_button`), on the press's start + TriggerDelay - 1 tick.
+///
+/// Measured on client 15.535.29 (sp-form-MiniPekka-hero-s0, level 11): a press issued on t187, the cast from t188, and
+/// on t191 the hero reads level 12, max hitpoints 1525 (1390 before) and 1358 hitpoints (1173 the tick before). Every
+/// other hero's effect runs a tick later here (`fire_ability`): the Hero Musketeer's turret (first frame P + 5), which
+/// the table puts down through a 50 ms placeholder building, and the enemies' drop of a lifted or cloaked hero, were
+/// fitted there. Open: whether every trigger is a tick sooner on the client and those lags belong to the placeholder
+/// and the retargeting.
+pub const LEVEL_SET_EARLY_TICKS: i32 = 1;
+
 /// AN ABILITY'S TIME IN WHOLE TICKS: `ms` less its part-tick, what the client runs a CastTime, a TriggerDelay and an
 /// ability's state duration on. Measured on client 15.535.29: CastTime 933 holds 17 frames past the first, as 900
 /// would, and 950 holds 18 (`start_ability`); the Monk's TriggerDelay 933 lands his Deflect on P + 18, not P + 19.
@@ -6761,6 +6772,19 @@ pub const CHAIN_SUB_STEP: i32 = 250;
 /// A Spectral the Evo Skeleton Army's deaths leave (`army_deaths`, `army_spectrals`): its side, its card, its level, its
 /// point and its group.
 type SpectralToMake = (Team, u16, i32, Vec2, u32);
+
+/// A HERO MINI PEKKA'S QUEST (card.rs `QuestDef`; `quest_pass`): the hero, the tick it was created, the bar's fill
+/// (ms), the stack, the times the bar has filled, and whether it has stopped (the press, or its last fill). Saved and
+/// hashed (`BattleState::quests`, only when not empty).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QuestRun {
+    pub id: EntityId,
+    pub born: u32,
+    pub filled_ms: i32,
+    pub stack: i32,
+    pub resets: i32,
+    pub stopped: bool,
+}
 
 /// A HERO WIZARD'S LIFT UNDER WAY (card.rs `AbilityEffect::GroundToAir`; `lift_pass`): the hero, the tick its button
 /// fired and its own row. Saved and hashed (`BattleState::lifts`, only when not empty).
@@ -7220,6 +7244,8 @@ pub struct EntityView<'a> {
     pub card: &'a str,
     /// Index of `card` in the CardDb (for bindings that must not look names up).
     pub card_idx: u16,
+    /// Its level (a hero's level set moves it: card.rs `AbilityEffect::LevelUp`).
+    pub level: i32,
     pub pos: Vec2,
     /// The direction this entity faces, as a vector rather than an angle (there is no
     /// floating point here). Read by the spawner's ring law, which lays a set
@@ -7801,6 +7827,8 @@ pub struct BattleState {
     spins: Vec<SpinRun>,
     /// The lifts under way (`LiftRun`), in press order. Empty in every battle without one.
     lifts: Vec<LiftRun>,
+    /// The heroes' quests (`QuestRun`), in creation order. Empty in every battle without one.
+    quests: Vec<QuestRun>,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8197,6 +8225,7 @@ impl BattleState {
             throws: Vec::new(),
             spins: Vec::new(),
             lifts: Vec::new(),
+            quests: Vec::new(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -8349,6 +8378,9 @@ impl BattleState {
         // A HERO UNIT'S ONE CHARGE (`HeroUnit`), for every creation of a card with an ability but a Clone's copy.
         if appearance && c.ability.is_some() {
             self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0 });
+            if matches!(c.ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::LevelUp { .. })) {
+                self.quests.push(QuestRun { id, born: self.tick, filled_ms: 0, stack: 0, resets: 0, stopped: false });
+            }
         }
         // StartWithBuffWhenNotAttacking false (card.rs `starts_visible`, the Evo Royal Ghost's pair): visible from its
         // creation, its idle time counted from now (target.rs `invisible_at`).
@@ -11629,6 +11661,10 @@ impl BattleState {
         if !self.lifts.is_empty() {
             self.lift_pass();
         }
+        // The heroes' quests (`quest_pass`).
+        if !self.quests.is_empty() {
+            self.quest_pass();
+        }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
             self.hero_units.retain(|h| ents.is_alive(h.id));
@@ -12981,6 +13017,86 @@ impl BattleState {
         self.spells.extend(made);
         let ents = &self.ents;
         self.evo.barrel_drops.retain(|id| ents.is_alive(*id));
+    }
+
+    /// A HERO'S LEVEL SET (card.rs `AbilityEffect::LevelUp`): entity `i` goes `gain` levels up (to the highest its
+    /// card's ladder has, when that is less), its max hitpoints and damage the card's own on the new level, its
+    /// hitpoints scaled by the ladder's two multipliers (truncated), and then it heals `heal_pct` per cent of what it is
+    /// missing (truncated).
+    ///
+    /// Measured on client 15.535.29 (sp-form-MiniPekka-hero-s0, level 11, the stack 0): 1173 of 1390 hitpoints became
+    /// 1358 of 1525 (x 281 / 256 = 1287, then 30 % of the 238 missing), and its next blow took 828 off a Knight (755
+    /// before). Four readings give that 1358 (this one; the max hitpoints' ratio rounded, then the heal; the same
+    /// truncated, then the heal rounded; the heal first on the old level, then the ratio): Oracle's scenes at other
+    /// hitpoints are queued.
+    fn level_up(&mut self, i: usize, gain: i32, heal_pct: i32) {
+        let (card, from) = (self.ents.card[i], self.ents.level[i]);
+        let cards = self.cfg.cards.clone();
+        let mut to = from + gain;
+        while to > from && cards.level_multiplier(card, to).is_err() {
+            to -= 1;
+        }
+        let (Ok(m0), Ok(m1)) = (cards.level_multiplier(card, from), cards.level_multiplier(card, to)) else { return };
+        if to == from {
+            return;
+        }
+        let c = cards.get(card);
+        self.ents.level[i] = to;
+        self.ents.max_hp[i] = cards.scaled(card, to, c.hitpoints).expect("the level checked above");
+        self.ents.damage[i] = cards.scaled(card, to, c.damage).expect("the level checked above");
+        let hp = ((self.ents.hp[i] as i64) * (m1 as i64) / (m0.max(1) as i64)) as i32;
+        let hp = hp.min(self.ents.max_hp[i]);
+        self.ents.hp[i] = hp + (self.ents.max_hp[i] - hp) * heal_pct / 100;
+    }
+
+    /// A HERO'S QUEST'S HIT (card.rs `QuestDef::per_hit_ms`): entity `i`'s running quest, when it has one, fills by the
+    /// hit's share.
+    fn quest_hit(&mut self, i: usize) {
+        let id = self.ents.id_of(i);
+        let Some(crate::card::AbilityEffect::LevelUp { quest, .. }) = self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| &a.effect) else {
+            return;
+        };
+        let per = quest.per_hit_ms;
+        #[cfg(clash_plant = "quest_hits_unread")]
+        let per = {
+            let _ = per;
+            0 // PLANT: a hit fills nothing.
+        };
+        if let Some(q) = self.quests.iter_mut().find(|q| q.id == id && !q.stopped) {
+            q.filled_ms += per;
+        }
+    }
+
+    /// THE HEROES' QUESTS (card.rs `QuestDef`, `QuestRun`), in the Status phase: each running one fills a tick's time
+    /// from `start_delay_ms` after its hero's creation; a full bar (`interval_ms`, hits included: `quest_hit`) raises the
+    /// stack by one, to the last of the level set's gains, and empties; after `max_resets` fills it stops. A hero gone
+    /// ends its quest.
+    fn quest_pass(&mut self) {
+        let tick = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.quests);
+        let mut keep = Vec::new();
+        for mut q in runs {
+            if !self.ents.is_alive(q.id) {
+                continue;
+            }
+            let i = q.id.index as usize;
+            let Some(crate::card::AbilityEffect::LevelUp { levels, quest, .. }) = self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| a.effect.clone()) else {
+                continue;
+            };
+            if !q.stopped {
+                if ((self.tick - q.born) as i32) * tick > quest.start_delay_ms {
+                    q.filled_ms += tick;
+                }
+                if q.filled_ms >= quest.interval_ms {
+                    q.stack = (q.stack + 1).min(levels.len() as i32 - 1);
+                    q.filled_ms = 0;
+                    q.resets += 1;
+                    q.stopped = q.resets >= quest.max_resets;
+                }
+            }
+            keep.push(q);
+        }
+        self.quests = keep;
     }
 
     /// Is lift `l` in its descent (`AbilityEffect::GroundToAir`: its last `transition_ms`)?
@@ -15967,6 +16083,10 @@ impl BattleState {
                     &bolts,
                     self.tick,
                 );
+                // A HERO'S QUEST'S HIT (card.rs `QuestDef::per_hit_ms`, the Hero Mini PEKKA's): each hit fills its bar.
+                if !self.quests.is_empty() {
+                    self.quest_hit(i);
+                }
                 // AN EVOLVED UNIT'S HIT (`evo_after_fire`): the group's count, the snipe.
                 if self.cfg.cards.get(self.ents.card[i]).evo.is_some() {
                     self.evo_after_fire(i, shots_from, t, revealed_from);
@@ -19552,7 +19672,18 @@ impl BattleState {
         let id = self.hero_units[h].id;
         // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay in whole ticks
         // (`whole_ticks_ms`).
-        let ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + whole_ticks_ms(a.trigger_ms, self.cfg.calib.tick_ms);
+        let mut ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + whole_ticks_ms(a.trigger_ms, self.cfg.calib.tick_ms);
+        // A LEVEL SET (the Hero Mini PEKKA's) lands LEVEL_SET_EARLY_TICKS before that (`LEVEL_SET_EARLY_TICKS`), and the
+        // press stops its quest for good (the table's ForceStopIfTrue: ABILITY_CASTED).
+        if matches!(a.effect, crate::card::AbilityEffect::LevelUp { .. }) {
+            #[cfg(not(clash_plant = "level_set_on_trigger"))]
+            {
+                ms -= LEVEL_SET_EARLY_TICKS * self.cfg.calib.tick_ms;
+            }
+            if let Some(q) = self.quests.iter_mut().find(|q| q.id == id) {
+                q.stopped = true;
+            }
+        }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
         Ok(id)
     }
@@ -19745,6 +19876,16 @@ impl BattleState {
                     }
                 }
                 let _ = (team, level);
+            }
+            // THE LEVEL SET (the Hero Mini PEKKA's; `level_up`): its quest's stack picks the gain.
+            crate::card::AbilityEffect::LevelUp { levels, heal_missing_pct, .. } => {
+                let stack = self.quests.iter().find(|q| q.id == hero).map_or(0, |q| q.stack);
+                let gain = levels[(stack.max(0) as usize).min(levels.len() - 1)];
+                #[cfg(not(clash_plant = "level_up_never"))]
+                self.level_up(i, gain, heal_missing_pct);
+                #[cfg(clash_plant = "level_up_never")]
+                let _ = (gain, heal_missing_pct); // PLANT: the press does nothing.
+                let _ = (team, level, pos);
             }
             // THE SPIN IS PRESSED (`SpinRun`): it takes its first target and begins in this tick's Path phase, or waits for
             // one (`spin_seek`).
@@ -20413,6 +20554,7 @@ impl BattleState {
             kind: e.kind[i],
             card: &self.cfg.cards.get(e.card[i]).name,
             card_idx: e.card[i],
+            level: e.level[i],
             pos: e.pos[i],
             facing: e.facing[i],
             push_applied: e.push_applied[i],
@@ -21348,6 +21490,19 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The heroes' quests, only when there are some.
+        if !self.quests.is_empty() {
+            h.u32(0x5155_4553);
+            h.u32(self.quests.len() as u32);
+            for q in &self.quests {
+                h.id(q.id);
+                h.u32(q.born);
+                h.i32(q.filled_ms);
+                h.i32(q.stack);
+                h.i32(q.resets);
+                h.bool(q.stopped);
+            }
+        }
         // The lifts under way, only when there are some.
         if !self.lifts.is_empty() {
             h.u32(0x4c49_4654);
@@ -22171,6 +22326,9 @@ struct Snapshot {
     /// The lifts under way (`BattleState::lifts`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     lifts: Vec<LiftRun>,
+    /// The heroes' quests (`BattleState::quests`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    quests: Vec<QuestRun>,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -22851,6 +23009,7 @@ impl BattleState {
             throws: self.throws.clone(),
             spins: self.spins.clone(),
             lifts: self.lifts.clone(),
+            quests: self.quests.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -23106,6 +23265,7 @@ impl BattleState {
             throws: snap.throws,
             spins: snap.spins,
             lifts: snap.lifts,
+            quests: snap.quests,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),

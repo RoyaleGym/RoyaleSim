@@ -1233,6 +1233,27 @@ pub enum AbilityEffect {
     /// `total_ms` - `transition_ms` on, its attack held from then until it lands, `total_ms` on. When its target stands
     /// within `instant_range` (its attack reach's rule) at the trigger, its first swing fires on its first free tick.
     GroundToAir { unit: u16, transition_ms: i32, total_ms: i32, buff: BuffApply, instant_range: i32 },
+    /// A LEVEL SET ON THE HERO (the Hero Mini PEKKA's; tools/extract_cards.py `level_up_effect`; state.rs `level_up`):
+    /// at the trigger the hero's level rises by `levels[stack]` (the last entry for a stack past the list), its
+    /// hitpoints, max hitpoints and damage taken on the new level, and then it heals `heal_missing_pct` per cent of the
+    /// hitpoints it is missing. The stack is `quest`'s (`QuestDef`, state.rs `QuestRun`), stopped by the press.
+    LevelUp { levels: Vec<i32>, heal_missing_pct: i32, quest: QuestDef },
+}
+
+/// THE HERO MINI PEKKA'S QUEST (the unit's OnStartingAction, an ActionMiniPekkaHeroQuest; tools/extract_cards.py
+/// `hero_quest`; state.rs `QuestRun`, `quest_pass`): a bar that fills a tick's time a tick from `start_delay_ms` after
+/// the hero's creation, and `per_hit_ms` more on each hit it lands (its OnHitTargetAction's tag); full at
+/// `interval_ms`, the stack rises by one (to the last of `AbilityEffect::LevelUp`'s gains) and the bar starts again
+/// from empty, `max_resets` times at most. The press stops it for good.
+///
+/// Read off the table, not measured (Oracle's scenes are queued): the bar's clock, the hit's share, its start and
+/// whether a full bar carries what spills over (here it does not).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct QuestDef {
+    pub start_delay_ms: i32,
+    pub interval_ms: i32,
+    pub per_hit_ms: i32,
+    pub max_resets: i32,
 }
 
 /// THE EVO GIANT SNOWBALL (tools/extract_cards.py `capture_block`; spell.rs `SpellMotion::CaptureRoll`, `capture_roll`):
@@ -4511,6 +4532,20 @@ struct RawAbilityEffect {
     rest_buff: Option<RawBuff>,
     rest_ms: Option<i32>,
     area: Option<RawSpinArea>,
+    /// `level_up` (tools/extract_cards.py `level_up_effect`): the levels gained by the stack, the heal's share of the
+    /// missing hitpoints, and the quest that fills the stack (`hero_quest`).
+    levels: Option<Vec<i32>>,
+    heal_missing_pct: Option<i32>,
+    quest: Option<RawQuest>,
+}
+
+/// A `level_up` effect's quest (tools/extract_cards.py `hero_quest`).
+#[derive(Deserialize)]
+struct RawQuest {
+    start_delay_ms: i32,
+    interval_ms: i32,
+    per_hit_ms: i32,
+    max_resets: i32,
 }
 
 /// A `ground_to_air` effect's reach: the air form's shot's two areas, OffsetY ahead of the hit.
@@ -9688,6 +9723,26 @@ impl CardDb {
                     total_ms,
                     buff,
                     instant_range: milli(pos(e.instant_range_milli, "instant range")?),
+                }
+            }
+            // THE LEVEL SET (the Hero Mini PEKKA's): a gain for each stack its quest can reach, the heal's share and the
+            // quest's clock. A row with a shield or a death blow is refused: `level_up` re-reads hitpoints and damage
+            // alone.
+            "level_up" => {
+                let e = &a.effect;
+                let levels = e.levels.clone().filter(|l| !l.is_empty() && l.iter().all(|x| *x > 0)).ok_or_else(|| format!("{what}: a level set with no gains"))?;
+                let heal_missing_pct = e.heal_missing_pct.filter(|p| (0..=100).contains(p)).ok_or_else(|| format!("{what}: a heal share outside 0..=100"))?;
+                let q = e.quest.as_ref().ok_or_else(|| format!("{what}: a level set with no quest"))?;
+                if q.start_delay_ms < 0 || q.interval_ms <= 0 || q.per_hit_ms < 0 || q.max_resets < 0 {
+                    return Err(format!("{what}: its quest's clock"));
+                }
+                if c.shield_hitpoints != 0 || c.death_damage != 0 {
+                    return Err(format!("{what}: a level set on a row with a shield or a death blow is not simulated"));
+                }
+                AbilityEffect::LevelUp {
+                    levels,
+                    heal_missing_pct,
+                    quest: QuestDef { start_delay_ms: q.start_delay_ms, interval_ms: q.interval_ms, per_hit_ms: q.per_hit_ms, max_resets: q.max_resets },
                 }
             }
             other => return Err(format!("{what}: effect {other} is not simulated")),
