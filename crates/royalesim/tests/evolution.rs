@@ -500,8 +500,13 @@ fn forms_take_slots_after_every_existing_card() {
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
-    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner and the Evo Goblin Giant.
-    assert_eq!(db.cards.len(), n0 + 45);
+    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant and the Evo Princess.
+    assert_eq!(db.cards.len(), n0 + 46);
+    assert_eq!(db.cards[n0 + 45].name, "Princess_EV1");
+    let fv = db.cards[n0 + 45].evo.as_ref().and_then(|e| e.freeze_volley).expect("the Evo Princess's freezing volley");
+    assert!(fv.every == 2 && fv.freeze.radius == 3000 * K && fv.freeze.damage == 66 && fv.area.life_ms == 5500 && fv.area.hit_speed_ms == 300);
+    assert!(fv.buff.is_some() && db.cards[n0 + 45].custom_first_projectile.is_some_and(|s| s.radius == 2000 * K && s.damage == 66));
+    assert!(db.cards[n0 + 45].death_area_effect.is_some());
     assert_eq!(db.cards[n0 + 44].name, "GoblinGiant_EV1");
     let gg = db.cards[n0 + 44].spawner.expect("the Evo Goblin Giant's interval");
     assert!(gg.below_hp_pct == Some(50) && gg.pause_time_ms == 2200 && gg.start_time_ms == Some(0) && gg.to_location == Some((0, -5)));

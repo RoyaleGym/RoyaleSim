@@ -6577,6 +6577,10 @@ pub struct EvoBoard {
     /// clock starts (`spawner_pass`). `default` so a battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
     pub spawn_gates: Vec<(EntityId, u32)>,
+    /// Each Evo Princess's count of volleys (card.rs `FreezeVolleyDef`, `evo_after_fire`). `default` so a battle saved
+    /// before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub volleys: Vec<(EntityId, u32)>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6692,6 +6696,7 @@ impl EvoBoard {
             && self.witch_waves.is_empty()
             && self.cages.is_empty()
             && self.spawn_gates.is_empty()
+            && self.volleys.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -9132,6 +9137,40 @@ impl BattleState {
                 // She keeps aiming at its target until `snipe_pass` lets it go, the tick after this one.
                 if let Some(s) = self.evo.snipers.iter_mut().find(|(m, _, _)| *m == id) {
                     s.1 = s.1.saturating_sub(1);
+                }
+            }
+        }
+        // THE EVO PRINCESS'S FREEZING VOLLEY (card.rs `FreezeVolleyDef`): her volleys counted from 0; each `every`-th (the
+        // first, the third, ...) fires the freezing arrow: its damage and splash, its slow, and its area where it lands.
+        if let Some(fv) = evo.freeze_volley {
+            self.evo.volleys.retain(|(v, _)| self.ents.is_alive(*v));
+            let n = match self.evo.volleys.iter_mut().find(|(v, _)| *v == id) {
+                Some(v) => {
+                    v.1 += 1;
+                    v.1 - 1
+                }
+                None => {
+                    self.evo.volleys.push((id, 1));
+                    0
+                }
+            };
+            #[cfg(not(clash_plant = "freeze_volley_never"))]
+            let freezing = n % u32::from(fv.every) == 0;
+            #[cfg(clash_plant = "freeze_volley_never")]
+            let freezing = n == u32::MAX; // PLANT: every volley plain.
+            if freezing {
+                let (card, level) = (self.ents.card[i], self.ents.level[i]);
+                let damage = cards.scaled(card, level, fv.freeze.damage).expect("level validated at spawn");
+                let from = shots_from.min(self.projectiles.len());
+                for p in self.projectiles[from..].iter_mut().filter(|p| p.firer == Some(id)) {
+                    p.damage = damage;
+                    p.splash = fv.freeze.radius;
+                    p.hits_air = fv.freeze.hits_air;
+                    p.hits_ground = fv.freeze.hits_ground;
+                    p.crown_pct = fv.freeze.crown_pct;
+                    p.buff = fv.buff;
+                    p.pulse = 0;
+                    p.release = Some((card, level));
                 }
             }
         }
@@ -23158,6 +23197,15 @@ impl BattleState {
                     h.i32(r.from.x);
                     h.i32(r.from.y);
                     h.u32(r.free_at);
+                }
+            }
+            // The Evo Princesses' counts of volleys, only when there are some.
+            if !b.volleys.is_empty() {
+                h.u32(0x564f_4c59);
+                h.u32(b.volleys.len() as u32);
+                for (v, n) in &b.volleys {
+                    h.id(*v);
+                    h.u32(*n);
                 }
             }
             // The spawners armed below a health share, only when there are some.

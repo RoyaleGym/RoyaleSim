@@ -422,6 +422,10 @@ pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&Attac
         let fw = cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.fireworks.as_ref())?;
         return Some(if part == crate::card::EVO_FIREWORKS { &fw.big } else { &fw.small });
     }
+    // THE EVO PRINCESS'S FREEZING AREA (card.rs `FreezeVolleyDef::area`), where her freezing arrow landed.
+    if part == crate::card::EVO_FREEZE_AREA {
+        return cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.freeze_volley.as_ref()).map(|f| &f.area);
+    }
     // THE AREA RIDING A SHOT'S TARGET (card.rs `EvoDef::impact_area`, the Evo Ice Spirits').
     if part == crate::card::EVO_IMPACT_AREA {
         return cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.impact_area.as_ref());

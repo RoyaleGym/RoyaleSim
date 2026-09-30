@@ -2160,6 +2160,12 @@ pub fn step_projectiles(
                 units.push(crate::spell::Release { team: p.team, unit: ss.unit.unit, level: lvl, pos: p.aim, deploy_ms: Some(ss.deploy_ms), count: 1 });
             }
         }
+        // THE EVO PRINCESS'S FREEZING ARROW (card.rs `FreezeVolleyDef`): its area where it landed, standing there (a plain
+        // arrow of hers carries no release).
+        #[cfg(not(clash_plant = "freeze_area_dropped"))]
+        if let Some((card, level)) = p.release.filter(|(c, _)| cards.get(*c).evo.as_ref().is_some_and(|v| v.freeze_volley.is_some())) {
+            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: p.aim, target: None, part: Some(crate::card::EVO_FREEZE_AREA) });
+        }
         #[cfg(clash_plant = "projectile_area_dropped")]
         let _ = &areas; // PLANT: the shot's area is dropped.
         false

@@ -1947,6 +1947,8 @@ pub struct EvoDef {
     pub cage: Option<CageDef>,
     /// Evo Executioner: his axe's strong hit near him and its push on the way out (`AxeDef`).
     pub axe: Option<AxeDef>,
+    /// Evo Princess: every so many volleys her freezing arrow, its slow and the area it leaves (`FreezeVolleyDef`).
+    pub freeze_volley: Option<FreezeVolleyDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4251,6 +4253,8 @@ struct RawEvolution {
     /// The Evo Goblin Giant's interval under half its hitpoints (`spawn_below_block`; the interval itself is the
     /// card's `interval_spawner`).
     evo_spawn_below: Option<RawSpawnBelow>,
+    /// The Evo Princess's freezing volley (`freeze_volley_block`).
+    evo_freeze_volley: Option<RawFreezeVolley>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4313,6 +4317,15 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_freeze_volley` (tools/extract_cards.py `freeze_volley_block`): the frequency and her two
+/// real arrows as projectile records.
+#[derive(Deserialize)]
+struct RawFreezeVolley {
+    every: Option<i32>,
+    shot: Option<serde_json::Value>,
+    freeze: Option<serde_json::Value>,
 }
 
 /// cards.json `evolutions[].evo_spawn_below` (tools/extract_cards.py `spawn_below_block`).
@@ -4411,6 +4424,34 @@ pub const EVO_IMPACT_AREA: u8 = u8::MAX - 1;
 /// rocket lands, and where each spark's flight ends.
 pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
+/// The Evo Princess's freezing arrow's area (`FreezeVolleyDef::area`).
+pub const EVO_FREEZE_AREA: u8 = u8::MAX - 4;
+
+/// The ms of its age at which the Evo Princess's freezing area first pulses (`FreezeVolleyDef::area`): its first update.
+/// Read off the table, not measured (every walker it caught was deploying on the landing).
+pub const FREEZE_AREA_FIRST_MS: i32 = 50;
+
+/// THE EVO PRINCESS'S FREEZING VOLLEY (tools/extract_cards.py `freeze_volley_block`; state.rs `evo_after_fire`, EvoBoard
+/// `volleys`; combat.rs `step_projectiles`, part EVO_FREEZE_AREA): her volleys are counted from 0, and each whose count
+/// is a multiple of `every` (the first, the third, ...) fires the `freeze` arrow in place of her plain one (the card's
+/// `custom_first_projectile`): its damage and splash, its `buff` on what it hits, and where it lands an area standing
+/// there (`area`: a pulsing slow). Her death leaves the card's own death area (a 3500 ms slow whose first update leaves
+/// a one-hit blow).
+///
+/// Measured on client 15.535.29, level 11 (sp-form-Princess-evo-s0; Oracle's sp-f3-prinwalk2-s0 and sp-f3-prin-*):
+/// volleys 60 ticks apart, each 168 on what it splashes; the 1st and 3rd slowed walkers by 30 % (a Knight's step 59-60
+/// to 41-42, an Ice Spirit's 120 to 76-84, a Skeleton's 88-90 to 62) and the 2nd and 4th did not; the first area slowed
+/// until 110-115 ticks after its landing (5500 ms) a Knight 2882 from the landing point; after her death walkers stayed
+/// slowed past the areas' ends, and her blow took 169-170 off a Cannon 1521, 2517 and 3515 from her centre 2 ticks after
+/// it, and nothing off one 4510 away (radius 3000, edge-based). Read off the table, not measured: the areas' first
+/// pulse, the death area's end.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FreezeVolleyDef {
+    pub every: u8,
+    pub freeze: CustomShotDef,
+    pub buff: Option<BuffApply>,
+    pub area: AttachedArea,
+}
 
 /// THE EVO WITCH'S SOUL DRAIN (tools/extract_cards.py `soul_drain_block`; state.rs EvoBoard `souls`, `soul_heals`): a
 /// unit she spawned (`spawned_by`) dying sends a soul that reaches her `flight_ms` on and heals her one pulse of `heal`
@@ -9742,6 +9783,7 @@ impl CardDb {
             extra.evo_cage.is_some(),
             extra.evo_axe.is_some(),
             extra.evo_spawn_below.is_some(),
+            extra.evo_freeze_volley.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9785,6 +9827,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_freeze_volley.is_some() {
+            // Her count's start and effect, and her selector (`freeze_volley_block` reads them, and her arrows', whole).
+            &["ActionFilter", "ActionGroup", "ActionPlayEffect", "ActionSetAttackSequenceIndex", "ActionSetVariable"]
         } else if extra.evo_spawn_below.is_some() {
             // The health trigger, its interval and spawn, their effects and the bag's layer (`spawn_below_block`; the
             // interval spawner's own reader holds the graph to its one unit).
@@ -9904,6 +9949,17 @@ impl CardDb {
         // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
         let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // A FORM'S DEATH AREA (the Evo Princess's: a slow whose first update leaves a one-hit blow): its
+            // `area_effect_objects` row, converted as a card's death area is.
+            if which == UnitUse::DeathAreaEffect && extra.evo_freeze_volley.is_some() {
+                let aeo = ctx.aeos.get(&u).ok_or_else(|| format!("death area effect {u}: no area_effect_objects record"))?;
+                let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("death area effect {u}: {e}"))?;
+                if !aneeds.is_empty() {
+                    return Err(format!("death area effect {u} releases units; not simulated"));
+                }
+                c.death_area_effect = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+                continue;
+            }
             // THE EVO GOBLIN GIANT'S GOBLIN AND RIDERS: loaded unit records found by name (the riders the base's).
             if extra.evo_spawn_below.is_some() && matches!(which, UnitUse::Spawner | UnitUse::Attach) {
                 let idx = self.index(&u).filter(|&i| self.get(i).kind == CardKind::Troop).ok_or_else(|| format!("its unit {u} is not a loaded troop"))?;
@@ -9989,6 +10045,7 @@ impl CardDb {
                     death_on_kill_only: false,
                     cage: None,
                     axe: None,
+                    freeze_volley: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10192,6 +10249,7 @@ impl CardDb {
             death_on_kill_only: false,
             cage: None,
             axe: None,
+            freeze_volley: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10310,6 +10368,45 @@ impl CardDb {
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
             });
+        }
+        // THE FREEZE VOLLEY (the Evo Princess's): her plain real arrow as the card's, and every `every`-th volley's
+        // freezing one with its slow and the area it leaves (one pulsing area, standing where it lands).
+        if let Some(fv) = &extra.evo_freeze_volley {
+            let rec = |v: &Option<serde_json::Value>, what: &str| -> Result<RawSpellProjectile, String> {
+                let v = v.clone().ok_or_else(|| format!("a freeze volley with no {what}"))?;
+                serde_json::from_value(v).map_err(|e| format!("the freeze volley's {what}: {e}"))
+            };
+            let (plain, freezing) = (rec(&fv.shot, "arrow")?, rec(&fv.freeze, "freezing arrow")?);
+            let shot = |p: &RawSpellProjectile, what: &str| -> Result<CustomShotDef, String> {
+                Ok(CustomShotDef {
+                    speed: p.speed.filter(|s| *s > 0).ok_or_else(|| format!("the freeze volley's {what} has no speed"))?,
+                    damage: p.damage.unwrap_or(0),
+                    radius: milli(p.radius_milli.unwrap_or(0)),
+                    hits_air: p.aoe_to_air.unwrap_or(false),
+                    hits_ground: p.aoe_to_ground.unwrap_or(false),
+                    crown_pct: crown(p.crown_tower_damage_percent),
+                })
+            };
+            c.custom_first_projectile = Some(shot(&plain, "arrow")?);
+            let every = fv.every.and_then(|n| u8::try_from(n).ok()).filter(|n| *n >= 1).ok_or("a freeze volley with no frequency")?;
+            let buff = match &freezing.target_buff {
+                Some(v) if !v.is_null() => {
+                    let b: RawBuff = serde_json::from_value(v.clone()).map_err(|e| format!("the freezing arrow's TargetBuff: {e}"))?;
+                    Some(buffs.apply(&b, freezing.buff_time_ms, "the freezing arrow")?)
+                }
+                _ => None,
+            };
+            let aname = freezing.spawn_area_effect_object.clone().ok_or("a freezing arrow that leaves no area")?;
+            let aeo = ctx.aeos.get(&aname).ok_or_else(|| format!("the freezing arrow's area {aname}: no area_effect_objects record"))?;
+            let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("the freezing arrow's area {aname}: {e}"))?;
+            let SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } = shape else {
+                return Err(format!("the freezing arrow's area {aname} is not one pulsing area; not simulated"));
+            };
+            if !aneeds.is_empty() {
+                return Err(format!("the freezing arrow's area {aname} releases units; not simulated"));
+            }
+            let area = AttachedArea { hit, level_scaled: false, life_ms, hit_speed_ms, first_ms: FREEZE_AREA_FIRST_MS, follow: false, stay: true, end: None };
+            evo.freeze_volley = Some(FreezeVolleyDef { every, freeze: shot(&freezing, "freezing arrow")?, buff, area });
         }
         // THE INTERVAL UNDER A HEALTH SHARE (the Evo Goblin Giant's): the card's spawner carries it.
         if let Some(sb) = &extra.evo_spawn_below {

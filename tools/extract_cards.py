@@ -3703,7 +3703,7 @@ EVOLUTIONS = (
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
-    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1",
+    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4910,6 +4910,93 @@ def spawn_below_block(t: Tables, card: dict) -> dict:
     return {"health_pct": shares[0]}
 
 
+# THE EVO PRINCESS (`freeze_volley_block`): the unit row's columns it reads besides display, and her counter's
+# condition.
+FREEZE_VOLLEY_ROW = {"OnStartingAction", "OnStartingAttackAction", "AttackSequenceMode", "AttackSequence",
+                     "AttackSequenceList", "CustomFirstProjectile", "DeathAreaEffect", "ClonedVersion", "StatsTags"}
+FREEZE_VOLLEY_CONDITION = "{count} % {every} == 0"
+
+
+def freeze_volley_block(t: Tables, card: dict) -> dict:
+    """THE EVO PRINCESS (characters/princess_ev1.toml), read whole or the build stops: her OnStartingAction sets her
+    count of volleys to 0 (a VARIABLE, `Princess_EV1_attack_count`); her OnStartingAttackAction is an ActionFilter
+    "count % frequency == 0" (the frequency a VARIABLE's DefaultValue, `every`) whose branches set the
+    AttackSequenceList entry, 1 on true and 0 on false (AttackSequenceMode "None", AttackSequence [0, 1]); each entry
+    names a damage-less decoration and her real arrow (CustomFirstProjectile), and each real arrow's OnStartingAction
+    adds one to the count on its shooter (ActionRunActionOnShooter), then selects again. Entry 0's arrow is her plain
+    shot (`shot`); entry 1's is the freezing one (`freeze`: its TargetBuff and the area it leaves, `area`). The two
+    arrows are written as their projectile records, their action graphs (read here) dropped. Her DeathAreaEffect is the
+    record's own."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - FREEZE_VOLLEY_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    arrays = t[table].arrays.get(unit, {})
+    seq = arrays.get("AttackSequenceList")
+    need(row["AttackSequenceMode"] == "None" and arrays.get("AttackSequence") == [0, 1] and isinstance(seq, list)
+         and len(seq) == 2 and all(set(e) == {"Projectile", "CustomFirstProjectile"} for e in seq),
+         f"its attack sequence {seq}")
+    # The selector: the count against the frequency, entry 1 on true.
+    f = acts.get(row["OnStartingAttackAction"])
+    need(f is not None and f["ClassType"] == "ActionFilter"
+         and _present(f) <= {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"}, "its selector")
+    count, every = "Princess_EV1_attack_count", "Princess_EV1_reload_frequency"
+    need(f["Condition"] == FREEZE_VOLLEY_CONDITION.format(count=count, every=every),
+         f"its selector's condition {f['Condition']!r}")
+    freq = (t.variables.get(every) or {}).get("DefaultValue")
+    need(isinstance(freq, int) and not isinstance(freq, bool) and freq >= 1 and count in t.variables, "its counter")
+    for branch, index in (("OnTrueAction", 1), ("OnFalseAction", 0)):
+        a = acts.get(f[branch])
+        need(a is not None and a["ClassType"] == "ActionSetAttackSequenceIndex" and a["AttackIndex"] == index
+             and _present(a) <= {"ClassType", "AttackIndex", "SetEvenIfCombatDisabled"}, f"its selector's {branch}")
+    # The start: the count set to 0, and an effect.
+    subs = group_subactions(t, row["OnStartingAction"], f"{unit} start")
+    sets = [acts.get(n) for n, _ in subs if (acts.get(n) or {}).get("ClassType") == "ActionSetVariable"]
+    need(len(sets) == 1 and sets[0]["Variable"] == count and str(sets[0]["Value"]).strip() == "0"
+         and all((acts.get(n) or {}).get("ClassType") == "ActionSetVariable" or _cosmetic_action(acts, n) for n,
+                 _ in subs),
+         f"its start {subs}")
+    # Each real arrow adds one on its shooter, then selects again.
+    shots = []
+    for k, entry in enumerate(seq):
+        deco, real = norm_projectile(t, entry["Projectile"]), norm_projectile(t, entry["CustomFirstProjectile"])
+        need(deco is not None and not deco["damage"] and not deco["radius_milli"], f"entry {k}'s decoration")
+        need(real is not None and real["damage"] and real["radius_milli"], f"entry {k}'s arrow")
+        g = real.get("action_graph") or {}
+        need(set(g.get("roots", {})) <= {"OnStartingAction"} and not g.get("spawns")
+             and set(g.get("class_types", [])) <= {"ActionRunActionOnShooter", "ActionGroup", "ActionSetVariable",
+                                                   "ActionFilter", "ActionSetAttackSequenceIndex", "ActionPlayEffect"},
+             f"entry {k}'s arrow's action {g}")
+        run = acts.get(pt_row(t, entry["CustomFirstProjectile"])["OnStartingAction"])
+        need(run is not None and run["ClassType"] == "ActionRunActionOnShooter", f"entry {k}'s arrow's action")
+        add = [n for n, _ in group_subactions(t, run["ActionToExecute"], f"{unit} count")
+               if (acts.get(n) or {}).get("ClassType") == "ActionSetVariable"]
+        need(len(add) == 1 and acts.get(add[0])["Variable"] == count
+             and str(acts.get(add[0])["Value"]).replace(" ", "") == f"{count}+1", f"entry {k}'s count")
+        real = dict(real)
+        real["action_graph"] = None
+        shots.append(real)
+    plain, freeze = shots
+    need(plain["spawn_area_effect_object"] is None and plain["target_buff"] is None, "the plain arrow's area or buff")
+    need(isinstance(freeze["spawn_area_effect_object"], str) and freeze["target_buff"] is not None,
+         "the freezing arrow")
+    need(card.get("death_area_effect") == row["DeathAreaEffect"], "her death area")
+    return {"every": freq, "shot": plain, "freeze": freeze}
+
+
+def pt_row(t: Tables, name: str):
+    """A projectile row by name (the table's own record, with its action columns)."""
+    return t["projectiles"].get(name)
+
+
 # THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
 IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
                    "TopEffectDisabledForAttachedCharacters", "NotCloned"}
@@ -5593,6 +5680,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_axe"] = axe_block(t, card)
         elif name == "GoblinGiant_EV1":
             card["evo_spawn_below"] = spawn_below_block(t, card)
+        elif name == "Princess_EV1":
+            card["evo_freeze_volley"] = freeze_volley_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":
