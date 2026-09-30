@@ -6573,6 +6573,11 @@ pub struct EvoBoard {
     /// when not empty.
     #[serde(default)]
     pub cages: Vec<CageRun>,
+    /// The captives a dying Evo Goblin Cage let go, each with the last tick it stands (card.rs `CageDef`,
+    /// CAGE_RELEASE_HOLD_TICKS): the move pass skips it -- no walk, no contact scan of its own -- and its body stays
+    /// collidable. `default` so a battle saved before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub freed: Vec<(EntityId, u32)>,
     /// Each spawner armed below a share of its unit's hitpoints (card.rs `SpawnerDef::below_hp_pct`), with the tick its
     /// clock starts (`spawner_pass`). `default` so a battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
@@ -6710,6 +6715,7 @@ impl EvoBoard {
             && self.souls.is_empty()
             && self.witch_waves.is_empty()
             && self.cages.is_empty()
+            && self.freed.is_empty()
             && self.spawn_gates.is_empty()
             && self.volleys.is_empty()
             && self.nets.is_empty()
@@ -15123,6 +15129,15 @@ impl BattleState {
                 (live && self.ents.buffs_of(buffs, i).any(|b| b.no_pushed_by_ally), live && self.ents.buffs_of(buffs, i).any(|b| b.no_pushed_by_enemy))
             })
             .collect();
+        // THE EVO GOBLIN CAGES' FREED CAPTIVES still in their release hold this tick (EvoBoard `freed`; the rest dropped).
+        let mut freed_hold = vec![false; self.ents.capacity()];
+        if !self.evo.freed.is_empty() {
+            let (tick, ents) = (self.tick, &self.ents);
+            self.evo.freed.retain(|(id, until)| tick <= *until && ents.is_alive(*id));
+            for (id, _) in &self.evo.freed {
+                freed_hold[id.index as usize] = true;
+            }
+        }
         for c in &self.chains {
             let ci = c.id.index as usize;
             if let Some(crate::card::AbilityEffect::DashChain { speed, .. }) = self.cfg.cards.get(self.ents.card[ci]).ability.as_ref().map(|a| a.effect.clone()) {
@@ -15447,6 +15462,14 @@ impl BattleState {
                 // pushback branch, so a knockback keeps today's behaviour, and a pull is applied
                 // alone as the held branch below applies it: both are unmeasured on a waiting
                 // member and keep today's reach.
+                // AN EVO GOBLIN CAGE'S FREED CAPTIVE IN ITS RELEASE HOLD (EvoBoard `freed`, card.rs
+                // CAGE_RELEASE_HOLD_TICKS) DOES NOT MOVE: no walk, no avoidance, no separation scan of its own. Its body
+                // stays collidable, so the cage's new unit, put down on the same point, is pushed off it. Measured on
+                // client 15.535.29 (Oracle's sp-f2-cageknfb-s0 and sp-f2-cagegolem-s0): a Knight and a Golem stood on the
+                // cage's point on the death's tick and the next, while the new unit, deploying, slid 150 a tick off them.
+                if freed_hold[i] {
+                    continue;
+                }
                 if calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0 {
                     if attract[i] != (0, 0) {
                         let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, deploying && !flying, &is_water, arena.cols, arena.rows);
@@ -19670,6 +19693,9 @@ impl BattleState {
                     #[cfg(clash_plant = "cage_release_at_once")]
                     let hold = 0; // PLANT: the captive walks on the tick after the cage's death.
                     self.ents.stun_ms[ci] = hold;
+                    // Through the hold it is not pushed either (EvoBoard `freed`; the move pass skips it).
+                    #[cfg(not(any(clash_plant = "cage_release_at_once", clash_plant = "cage_release_pushed")))]
+                    self.evo.freed.push((c, self.tick + crate::card::CAGE_RELEASE_HOLD_TICKS as u32));
                 }
             }
             // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit she spawned dying sends one, due its flight and a
@@ -23343,6 +23369,15 @@ impl BattleState {
                     h.i32(r.from.x);
                     h.i32(r.from.y);
                     h.u32(r.free_at);
+                }
+            }
+            // The Evo Goblin Cages' freed captives in their hold, only when there are some.
+            if !b.freed.is_empty() {
+                h.u32(0x4652_4545);
+                h.u32(b.freed.len() as u32);
+                for (id, until) in &b.freed {
+                    h.id(*id);
+                    h.u32(*until);
                 }
             }
             // The Evo Hunters' net clocks, only when there are some.

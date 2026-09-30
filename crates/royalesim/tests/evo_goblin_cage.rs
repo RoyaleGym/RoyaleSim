@@ -17,7 +17,9 @@
 //!   - cage_hits_never -> `a_knight_is_grabbed_3_ticks_after_it_comes_in_reach_held_dragged_and_hit_every_20_ticks` and
 //!     `after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on` red;
 //!   - cage_takes_on_free -> `after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on` red;
-//!   - cage_release_at_once -> `the_cages_death_lets_its_captive_go_on_its_point_standing_a_tick` red.
+//!   - cage_release_at_once -> `the_cages_death_lets_its_captive_go_on_its_point_standing_a_tick` and
+//!     `the_cages_death_lets_a_knight_go_on_its_point_unpushed_by_its_brawler` red;
+//!   - cage_release_pushed -> the same two red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -125,17 +127,38 @@ fn the_cages_death_lets_its_captive_go_on_its_point_standing_a_tick() {
         }
     }
     assert_eq!(on, 4, "caged on the point");
-    assert!(s.debug_set_hp(cage, 0));
-    let mut after = Vec::new();
-    for _ in 0..3 {
-        s.tick();
-        after.push(point(&s, golem).expect("the Golem"));
-    }
-    assert!(s.entity(cage).is_none(), "the cage died");
+    let after = release(&mut s, cage, golem);
     assert_eq!((after[0], after[1]), (CAGE, CAGE), "stands on the point: {after:?}");
     assert_ne!(after[2], CAGE, "walks on K + 2: {after:?}");
     let brawlers = find_live(&s, Team::Blue, "GoblinCage_EV1_GoblinBrawler");
     assert!(brawlers.len() == 1 && brawlers[0].max_hp == 1080, "its Brawler");
+}
+
+/// The cage dies on K with `captive` set on its point: the captive's points after K, K + 1 and K + 2.
+fn release(s: &mut BattleState, cage: EntityId, captive: EntityId) -> Vec<(i32, i32)> {
+    assert!(s.debug_set_hp(cage, 0));
+    let mut after = Vec::new();
+    for _ in 0..3 {
+        s.tick();
+        after.push(point(s, captive).expect("the captive"));
+    }
+    assert!(s.entity(cage).is_none(), "the cage died");
+    after
+}
+
+#[test]
+fn the_cages_death_lets_a_knight_go_on_its_point_unpushed_by_its_brawler() {
+    // Measured (Oracle's sp-f2-cageknfb-s0, a Fireball killing the cage): the Knight on the point on K and K + 1, though
+    // the Brawler is put down on it, and walking from K + 2; the Brawler, deploying, slides 150 a tick off it toward its
+    // own side.
+    let (mut s, cage, knight, pts, _, _) = grabbed();
+    assert_eq!(*pts.last().expect("points"), CAGE, "caged");
+    let after = release(&mut s, cage, knight);
+    assert_eq!((after[0], after[1]), (CAGE, CAGE), "stands on the point: {after:?}");
+    assert_ne!(after[2], CAGE, "walks on K + 2: {after:?}");
+    let b = find_live(&s, Team::Blue, "GoblinCage_EV1_GoblinBrawler");
+    let at: Vec<(i32, i32)> = b.iter().map(|e| (e.pos.x / K, e.pos.y / K)).collect();
+    assert!(at.len() == 1 && at[0].1 < CAGE.1 - 150, "its Brawler slid off toward blue's side: {at:?}");
 }
 
 #[test]

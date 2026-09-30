@@ -4545,7 +4545,9 @@ pub struct WitchWaves {
 /// 324, 472, 573, 642; the Golem 169, 341, 497, 603, 677: the Snowball's shares of the grab distance plus 1090) and was
 /// set on the cage's point on the 16th; the Knight and the Golem lost 366 (143 at level 1) on G + 20 and every 20 ticks;
 /// a Golem caged when the cage expired (and in another run when a Fireball killed it) was let go on its point on that
-/// tick, stood that tick and the next and walked from the one after, and took no Fireball hit while caged. A captive
+/// tick, stood that tick and the next and walked from the one after, and took no Fireball hit while caged; a Knight let
+/// go when a Fireball killed the cage (sp-f2-cageknfb-s0) alike. Neither was pushed on those two ticks by the cage's new
+/// unit, put down on the same point, which slid 150 a tick off it, deploying (state.rs EvoBoard `freed`). A captive
 /// Skeleton that died on G + 16: the cage took its next target 6 ticks after the death, and the next Skeleton, in reach
 /// by then, made its last step 10 ticks after it. Not measured: which troop the cage takes when several are in reach
 /// (here the closest); in the client it takes its target, and a target that dies outside the reach also holds it 6
@@ -4568,7 +4570,7 @@ pub const CAGE_GRAB_LAG_TICKS: i32 = 1;
 /// 3318 and a Golem 3549 away) to within a unit.
 pub const CAGE_DRAG_EXTRA: i32 = 1090;
 /// The ticks a released captive stands after the cage's death tick (`CageDef`): measured 1 (it walks two ticks after the
-/// death tick).
+/// death tick), unpushed (state.rs EvoBoard `freed`).
 pub const CAGE_RELEASE_HOLD_TICKS: i32 = 1;
 
 /// THE EVO EXECUTIONER'S AXE (tools/extract_cards.py `axe_block`; combat.rs `straight_hits`): his pingpong throw hits
