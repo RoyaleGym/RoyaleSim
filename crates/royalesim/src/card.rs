@@ -88,9 +88,9 @@ pub struct ProjectileDef {
 /// has not hit, `count` targets in all. On the card, not on `ProjectileDef` (its Debug is inside the format-3 card
 /// fingerprint). Radius in subtiles.
 ///
-/// Read off the table, not measured yet (no corpus battle plays either card; Oracle's chain scenes are queued): the
-/// pick's reference point (the last target hit, here), whether a hop takes a crown tower (here it may, as the default
-/// targets do), and the hop's first step (the tick after the landing, as a released shot's).
+/// Measured on client 15.535.29 (four chain scenes, `ChainHop`): the pick is made from the last unit hit, and a hop
+/// waits CHAIN_HOP_WAIT_TICKS on it before it flies. Read off the table, not measured: whether a hop takes a crown
+/// tower (here it may, as the default targets do).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ChainHitDef {
     pub count: i32,
@@ -1333,7 +1333,7 @@ pub const WARP_FIRST_STEP: i32 = 343;
 /// `interval_ms`, the stack rises by one (to the last of `AbilityEffect::LevelUp`'s gains) and the bar starts again
 /// from empty, `max_resets` times at most. The press stops it for good.
 ///
-/// Read off the table, not measured (Oracle's scenes are queued): the bar's clock, the hit's share, its start and
+/// Read off the table, not measured: the bar's clock, the hit's share, its start and
 /// whether a full bar carries what spills over (here it does not).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct QuestDef {
@@ -1969,7 +1969,7 @@ pub struct BarrelDef {
 /// on t1280 and t1255, the first's blow taking 43 (17 at level 1) off the princess tower on t1281 and each walking a new
 /// path from t1282 and t1257; a hog whose first hit on the tower fell on t1278 took a new path on t1289 and its blow
 /// took 43 on t1290. The ground troops beside a landed hog took it as their target from two ticks after its landing.
-/// Open (Oracle's hogs scenes are queued): the attack trigger's tick against the swing's, and the retarget's two ticks.
+/// Open: the attack trigger's tick against the swing's, and the retarget's two ticks.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FallDef {
     pub at_hp_pct: i32,
@@ -2023,9 +2023,15 @@ pub struct RamPushDef {
     pub damage: i32,
 }
 
-/// A RAGE AFTER HITS (characters_evo.toml Barbarian_EV1 BuffAfterHitsCount / BuffAfterHitsTime / BuffAfterHits, single
-/// entries; `ram_block`'s `spawn_rage`): the unit lands `apply` on itself after every `hits`-th hit it deals (state.rs
-/// `evo_after_fire`).
+/// A BUFF AFTER HITS (characters_evo.toml Barbarian_EV1 and Bat_EV1 BuffAfterHitsCount / BuffAfterHitsTime /
+/// BuffAfterHits, single entries; `ram_block`'s `spawn_rage`, `hit_rage_block`): the unit lands `apply` on itself after
+/// every `hits`-th hit it deals, on the hit's tick (state.rs `evo_after_fire`): the Evo Barbarians' rage, the Evo Bats'
+/// heal. A heal pulses its HealPerSecond (level-scaled on the unit's card and level) times its HitFrequency, the first
+/// pulse a HitFrequency less a tick after the hit, up to its AllowedOverHealPerc of the maximum.
+///
+/// Measured on client 15.535.29 (sp-form-Bats-evo-s0, level 11, 122 max): a bat's hit on t879 healed it 38 on t888; a
+/// bat's hit on t885 healed it 38 on t894 and 38 on t904 (to 198, over its maximum). BatsEV1_Heal's 30 a second is 76 at
+/// level 11, half of it every 500 ms, for 1000 ms: two pulses a hit. Read off the table, not measured: the cap at 200 %.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct HitRageDef {
     pub hits: u32,

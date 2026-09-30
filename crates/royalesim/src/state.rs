@@ -9019,7 +9019,22 @@ impl BattleState {
             #[cfg(clash_plant = "hit_rage_never")]
             let lands = false; // PLANT (regression): the Barbarian never rages.
             if lands {
-                let h = crate::status::BuffHit::plain(id, r.apply.buff, r.apply.time_ms, 0);
+                // A HEAL AFTER HITS (the Evo Bats'; card.rs `HitRageDef`): its pulse scaled on the unit's card and level,
+                // the first a HitFrequency less a tick out (this tick counts toward it). A rage's pulse is 0.
+                let def = self.cfg.cards.buffs[r.apply.buff as usize];
+                let (card, level) = (self.ents.card[i], self.ents.level[i]);
+                #[cfg(not(clash_plant = "hit_heal_no_pulse"))]
+                let pulse = def.pulse_amount(self.cfg.calib.buff_pulse_amount, |m| self.cfg.cards.scaled(card, level, m)).unwrap_or(0);
+                #[cfg(clash_plant = "hit_heal_no_pulse")]
+                let pulse = {
+                    let _ = (card, level);
+                    0 // PLANT: a buff after hits never pulses.
+                };
+                let mut h = crate::status::BuffHit::plain(id, r.apply.buff, r.apply.time_ms, pulse);
+                #[cfg(not(clash_plant = "hit_heal_a_period_out"))]
+                if pulse != 0 {
+                    h.first_pulse_ms = Some((def.hit_frequency_ms - self.cfg.calib.tick_ms).max(0));
+                }
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
             }
         }

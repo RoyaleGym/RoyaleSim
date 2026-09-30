@@ -3702,6 +3702,7 @@ EVOLUTIONS = (
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
+    "Bats_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4562,15 +4563,17 @@ def bounce_block(t: Tables, card: dict) -> dict:
     return {"count": row["SpawnChain"], "range_milli": pt.get(nxt)["ProjectileRange"]}
 
 
-def hit_rage_block(t: Tables, card: dict) -> dict:
-    """THE EVO BARBARIANS' RAGE (spells_evolved Barbarians_EV1; its unit Barbarian_EV1, the Evo Battle Ram's death
-    spawn), read whole or the build stops: the unit row sets nothing but display columns and BuffAfterHits*, single
-    entries, whose buff spawns nothing; its rage lands after every `hits`-th hit for `time_ms`."""
+def hit_rage_block(t: Tables, card: dict, stats: frozenset | set = frozenset()) -> dict:
+    """A BUFF AFTER HITS: the Evo Barbarians' rage (spells_evolved Barbarians_EV1; its unit Barbarian_EV1, the Evo
+    Battle Ram's death spawn) and the Evo Bats' heal (Bat_EV1), read whole or the build stops: the unit row sets
+    nothing but display columns, the `stats` its card record reads (the Bats' Hitpoints percent) and BuffAfterHits*,
+    single entries, whose buff spawns nothing; it lands after every `hits`-th hit for `time_ms`."""
     unit = card["summon_character"]
     table, _ = unit_record(t, unit)
     tb = t[table]
     own = tb.set_fields.get(unit, set())
-    extra = {c for c in own - {"BuffAfterHits", "BuffAfterHitsCount", "BuffAfterHitsTime"} - DATA_ONLY_DISPLAY
+    read = {"BuffAfterHits", "BuffAfterHitsCount", "BuffAfterHitsTime"} | set(stats)
+    extra = {c for c in own - read - DATA_ONLY_DISPLAY
              if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
     if extra or card.get("action_graph"):
         raise SystemExit(f"{card['name']}: its unit {unit} sets {sorted(extra)} or names an action")
@@ -5159,6 +5162,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_data_only"] = data_only_block(t, card, DATA_ONLY_KNIGHT)
         elif name == "Barbarians_EV1":
             card["evo_hit_rage"] = hit_rage_block(t, card)
+        elif name == "Bats_EV1":
+            card["evo_hit_rage"] = hit_rage_block(t, card, {"Hitpoints"})
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

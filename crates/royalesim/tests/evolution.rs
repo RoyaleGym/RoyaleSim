@@ -482,19 +482,24 @@ fn forms_take_slots_after_every_existing_card() {
             ("Archer", "Archer_EV1"),
             ("RoyalGiant", "RoyalGiant_EV1"),
             ("MegaKnight", "MegaKnight_EV1"),
-            ("Pekka", "Pekka_EV1")
+            ("Pekka", "Pekka_EV1"),
+            ("Bats", "Bats_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Twenty-six forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Twenty-seven forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
-    // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, then the
-    // Evo P.E.K.K.A. last.
-    assert_eq!(db.cards.len(), n0 + 35);
+    // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
+    // P.E.K.K.A., then the Evo Bats last.
+    assert_eq!(db.cards.len(), n0 + 36);
+    assert_eq!(db.cards[n0 + 35].name, "Bats_EV1");
+    let heal = db.cards[n0 + 35].evo.as_ref().and_then(|e| e.hit_rage).expect("the Evo Bats' heal");
+    let hb = db.buffs[heal.apply.buff as usize];
+    assert!(heal.hits == 1 && heal.apply.time_ms == 1000 && hb.heal_per_second == 30 && hb.over_heal_pct == 200);
     assert_eq!(db.cards[n0 + 34].name, "Pekka_EV1");
     let heal = db.cards[n0 + 34].evo.as_ref().and_then(|e| e.kill_heal).expect("the Evo P.E.K.K.A.'s heal");
     assert!(heal.level == 10 && heal.below == [990, 1990] && heal.buffs.iter().all(|b| b.time_ms == 550));
