@@ -447,7 +447,20 @@ fn forms_take_slots_after_every_existing_card() {
     assert_eq!(db.rejected_evolutions, Vec::<(String, String)>::new());
     assert_eq!(db0.forms.len(), 0);
     let n0 = db0.cards.len();
-    let names = |d: &CardDb, n: usize| d.cards[..n].iter().map(|c| format!("{c:?}")).collect::<Vec<_>>();
+    // An enchant's attacker list may reach the forms too (the Rune Giant's: the Evo Firecracker and the Evo Hunter fire
+    // their bases' listed rows): its entries past the parent build's slots are left out here, as a buff's added names are.
+    let names = |d: &CardDb, n: usize| {
+        d.cards[..n]
+            .iter()
+            .map(|c| {
+                let mut c = c.clone();
+                if let Some(e) = c.enchant.as_mut() {
+                    e.per_attacker.retain(|a| usize::from(a.0) < n);
+                }
+                format!("{c:?}")
+            })
+            .collect::<Vec<_>>()
+    };
     assert_eq!(names(&db, n0), names(&db0, n0), "a card slot of the table without forms moved");
     assert_eq!(db.buffs[..db0.buffs.len()], db0.buffs[..], "a buff slot moved");
     for (k, (now, was)) in db.buff_names.iter().zip(&db0.buff_names).enumerate() {

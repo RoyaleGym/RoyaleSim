@@ -45,12 +45,18 @@ fn its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on() {
     let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mu_at, None).expect("a red Musketeer");
     let (ktop, mtop) = (s.entity(knight).expect("the Knight").max_hp, s.entity(musk).expect("the Musketeer").max_hp);
     let (mut landed, mut kh, mut mh) = (None, Vec::new(), Vec::new());
+    // The spirit's first 60 frames (point, attack phase, target, shots in flight), for the message if the shot never lands.
+    let mut trail = Vec::new();
     for k in 0..400 {
         // Held until the shot lands; from the next tick the Knight stands 4500 off the landing point.
         let far = landed.is_some();
         assert!(s.debug_set_pos(knight, if far { n(13500, 13000) } else { kn_at }));
         assert!(s.debug_set_pos(musk, mu_at));
         s.tick();
+        if k < 60 {
+            let sp = find_live(&s, Team::Blue, "IceSpirits_EV1").first().map(|e| (e.pos.x / K, e.pos.y / K, format!("{:?}", e.attack_phase), e.target));
+            trail.push((k, sp, s.projectiles().len()));
+        }
         kh.push(s.entity(knight).expect("the Knight").hp);
         mh.push(s.entity(musk).expect("the Musketeer").hp);
         if landed.is_none() && kh[k] < ktop {
@@ -60,7 +66,7 @@ fn its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on() {
             break;
         }
     }
-    let h = landed.expect("the shot landed on the Knight");
+    let h = landed.unwrap_or_else(|| panic!("the shot never landed on the Knight: {trail:?}"));
     assert_eq!((kh[h], mh[h]), (ktop - 110, mtop - 110), "the shot's 110 on both");
     // The area stands where the shot landed: one hit of 110 on the landing + 60 on the Musketeer beside that point, none
     // on the Knight 4500 off it.

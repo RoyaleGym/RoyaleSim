@@ -422,7 +422,9 @@ fn under_the_shipped_rise_law_an_enemy_in_reach_at_the_waits_end_is_taken_withou
             assert_eq!(states[6], HideState::Hidden, "from K + {from}: under on K + 6: {states:?}");
         } else {
             assert!(states.iter().all(|h| *h == HideState::Up), "from K + {from}: never under: {states:?}");
-            assert!(targets[..6].iter().all(|t| t.is_none()), "from K + {from}: nothing taken before K + 6: {targets:?}");
+            // On K the target field still names the victim (cleared on K + 1's Target phase).
+            assert_eq!(targets[0], Some(knight), "from K + {from}: the victim still named on K: {targets:?}");
+            assert!(targets[1..6].iter().all(|t| t.is_none()), "from K + {from}: nothing taken K + 1 .. K + 5: {targets:?}");
             assert_eq!(targets[6], second, "from K + {from}: the Knight taken on K + 6: {targets:?}");
         }
     }
@@ -896,7 +898,9 @@ fn hide_delay_meanings_after_a_kill(law: RiseLaw) {
     }
     let n = ticks_of(hide_ms) as i64;
     assert!(n > 5, "scene: HideTimeMs must exceed the 5 ticks the Knight outlives the shot");
-    let idle = ticks_of(up_wait_ms(&bare(with_rise_law(law, config())))) as i64;
+    // Under the shipped rise law the kill's tick counts as one with a target: one tick call more
+    // (`losing_its_target_sends_it_under_after_its_up_wait`).
+    let idle = ticks_of(up_wait_ms(&bare(with_rise_law(law, config())))) as i64 + i64::from(law == RiseLaw::Client16402SurfaceAttacking);
     assert_eq!(got[0].1 as i64, idle, "idle_time_without_target under {law:?}: {idle} tick calls after the kill");
     // time_since_last_shot: HideTimeMs after the shot is n ticks; the strict "more
     // than" adds one; the 5 ticks the Knight outlived the shot come off.
