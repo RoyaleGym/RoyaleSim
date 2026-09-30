@@ -3676,7 +3676,7 @@ EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
-    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1",
+    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4373,15 +4373,18 @@ def far_shot_block(t: Tables, card: dict) -> dict:
     return {"range_milli": int(m.group(1)), "damage": r2["Damage"]}
 
 
-# THE EVO VALKYRIE'S TORNADO (`attack_area_block`): the columns its area row may set beside the cosmetic ones.
+# THE AREA AN ATTACK MAKES ON ITS UNIT (`attack_area_block`): the columns its area row may set beside the cosmetic ones.
+# The Evo Valkyrie's tornado; the Evo Royal Giant's push (Tags NO_AOE_PUSHBACK_VFX: the push's effect only).
 ATTACK_AREA_READ = {"Base", "Buff", "FollowBehaviour", "LifeDuration", "Radius"}
+ATTACK_AREA_READ_PUSH = {"Damage", "HitsGround", "LifeDuration", "OnlyEnemies", "Pushback", "Radius", "Rarity", "Tags"}
 
 
-def attack_area_block(t: Tables, card: dict) -> dict:
-    """THE EVO VALKYRIE'S TORNADO (characters_evo Valkyrie_EV1), read whole or the build stops: her OnAttackAction is an
-    ActionSpawn of an area on her (ParentGOAsSource), whose NextAction (inline) hangs a buff on her for its SpawnTime
-    (`self_buff`, `self_buff_ms`); the area (`area`, as `norm_aeo` reads it, its row setting only ATTACK_AREA_READ beside
-    cosmetic columns) rides on her (FollowBehaviour FollowParent: `follow`) and releases nothing."""
+def attack_area_block(t: Tables, card: dict, read: set) -> dict:
+    """THE AREA AN ATTACK MAKES ON ITS UNIT (characters_evo Valkyrie_EV1, RoyalGiant_EV1), read whole or the build stops:
+    the OnAttackAction is an ActionSpawn of an area on the unit (ParentGOAsSource), whose NextAction (inline), when it
+    has one, hangs a buff on the unit for its SpawnTime (`self_buff`, `self_buff_ms`); the area (`area`, as `norm_aeo`
+    reads it, its row setting only `read` beside cosmetic columns, Tags only NO_AOE_PUSHBACK_VFX) rides on the unit when
+    its FollowBehaviour is FollowParent (`follow`), else stays where it was made, and releases nothing."""
     unit = card["summon_character"]
     _, row = unit_record(t, unit)
     acts = t["actions"]
@@ -4396,19 +4399,23 @@ def attack_area_block(t: Tables, card: dict) -> dict:
          and a["ParentGOAsSource"] is True, f"OnAttackAction {row['OnAttackAction']!r} is not an area on her")
     need(_present(a) <= {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"}, f"OnAttackAction's keys {sorted(_present(a))}")
     nxt = a["NextAction"]
-    need(isinstance(nxt, dict) and nxt.get("ClassType") == "ActionSpawn" and nxt.get("SpawnType") == "BuffType"
-         and isinstance(nxt.get("SpawnTime"), int) and {k for k, v in nxt.items() if v is not None} <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime"},
-         f"its NextAction {nxt!r} is not a buff on her for a time")
-    buff = norm_buff(t, nxt["SpawnData"])
-    need(buff is not None, f"its NextAction's buff {nxt['SpawnData']!r} is no buff")
+    buff, buff_ms = None, None
+    if nxt is not None:
+        need(isinstance(nxt, dict) and nxt.get("ClassType") == "ActionSpawn" and nxt.get("SpawnType") == "BuffType"
+             and isinstance(nxt.get("SpawnTime"), int) and {k for k, v in nxt.items() if v is not None} <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime"},
+             f"its NextAction {nxt!r} is not a buff on it for a time")
+        buff, buff_ms = norm_buff(t, nxt["SpawnData"]), nxt["SpawnTime"]
+        need(buff is not None, f"its NextAction's buff {nxt['SpawnData']!r} is no buff")
     name = a["SpawnData"]
     own = {c for c in aeos.set_fields.get(name, set()) if not COSMETIC.search(c)}
-    need(aeos.get(name) is not None and own <= ATTACK_AREA_READ, f"the area {name} sets {sorted(own - ATTACK_AREA_READ)}")
-    need(aeos.get(name)["FollowBehaviour"] == "FollowParent", "the area does not ride on her")
+    need(aeos.get(name) is not None and own <= read, f"the area {name} sets {sorted(own - read)}")
+    need(aeos.get(name)["Tags"] in (None, "NO_AOE_PUSHBACK_VFX"), f"the area's Tags {aeos.get(name)['Tags']!r}")
+    follow = aeos.get(name)["FollowBehaviour"] == "FollowParent"
+    need(follow or aeos.get(name)["FollowBehaviour"] is None, f"the area's FollowBehaviour {aeos.get(name)['FollowBehaviour']!r}")
     area = norm_aeo(t, name)
     need(not area["spawn_character"] and not area["spawn_area_effect_object"] and not area["projectile"] and not area["action_graph"],
          "the area releases something")
-    return {"area": area, "follow": True, "self_buff": buff, "self_buff_ms": nxt["SpawnTime"]}
+    return {"area": area, "follow": follow, "self_buff": buff, "self_buff_ms": buff_ms}
 
 
 def bounce_block(t: Tables, card: dict) -> dict:
@@ -5028,7 +5035,9 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":
-            card["evo_attack_area"] = attack_area_block(t, card)
+            card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ)
+        elif name == "RoyalGiant_EV1":
+            card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ_PUSH)
         elif name == "Archer_EV1":
             card["evo_far_shot"] = far_shot_block(t, card)
         elif name == "AngryBarbarians_EV1":

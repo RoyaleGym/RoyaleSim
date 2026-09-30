@@ -4232,13 +4232,16 @@ pub struct BounceDef {
 }
 
 /// THE AREA EACH ATTACK MAKES ON ITS UNIT (tools/extract_cards.py `attack_area_block`; state.rs `attack_areas`; spell.rs
-/// `attached_def`, part `EVO_ATTACK_AREA`), the Evo Valkyrie's tornado: on the tick of each of her hits an area riding
-/// on her (`SpellMotion::Attached`, a plain pulsing area: the Tornado's pull and its buff's pulses), which first acts on
-/// the next tick, and her own buff (`self_buff`: NO_PUSHED_BY_ENEMY for 500 ms).
+/// `attached_def`, part `EVO_ATTACK_AREA`): on the tick of each attack an area on the unit (`SpellMotion::Attached`),
+/// which first acts on the next tick, and the unit's own buff (`self_buff`). The Evo Valkyrie's tornado rides on her (a
+/// plain pulsing area: the Tornado's pull and its buff's pulses; her buff NO_PUSHED_BY_ENEMY for 500 ms); the Evo Royal
+/// Giant's push is one hit where he stood (its damage on his level, its Pushback's ladder).
 ///
-/// Measured on client 15.535.29 (sp-form-Valkyrie-evo-s0, three hits at level 11): her hit on H; every enemy within
+/// Measured on client 15.535.29: sp-form-Valkyrie-evo-s0 (three hits at level 11): her hit on H; every enemy within
 /// 5000 of her pulled toward her from H+2 through H+11, while she walked; each lost 42 on H+9 and nothing more from it.
-/// Read off the table, not measured: her own buff.
+/// Oracle's sp-rg-evo-attack-s0 (five shots at level 11): a Knight 1722-2443 from the giant lost 81 (32 on the ladder)
+/// on the tick after each shot left, and slid away from him from the tick after that, 198, 174, 149, 125, ... (the
+/// Pushback 1000 ladder). Read off the table, not measured: the Valkyrie's own buff.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AttackAreaDef {
     pub area: AttachedArea,
@@ -9815,17 +9818,20 @@ impl CardDb {
         // its first hit on its first update (HitSpeed less no HitSpeedOffset, as a hero's slow area); and her own buff.
         if let Some(aa) = &extra.evo_attack_area {
             let (shape, more) = convert_area_effect(&aa.area, buffs, ctx).map_err(|e| format!("attack area: {e}"))?;
-            let SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } = shape else {
-                return Err("an attack area that is not a plain pulsing area; not simulated".into());
+            // A pulsing area rides on the unit (the tornado); a one-hit area stays where it was made (the push).
+            let (hit, life_ms, hit_speed_ms) = match shape {
+                SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } if hit_speed_ms > 0 && aa.follow => (hit, life_ms, hit_speed_ms),
+                SpellShape::AreaEffect { hit } if !aa.follow => (hit, aa.area.life_duration_ms.unwrap_or(0), 0),
+                _ => return Err("an attack area that is neither a riding pulsing area nor one hit where it is made; not simulated".into()),
             };
-            if !more.is_empty() || !aa.follow || life_ms <= 0 || hit_speed_ms <= 0 {
-                return Err("an attack area that releases units, stands still, or has no clock; not simulated".into());
+            if !more.is_empty() || life_ms <= 0 {
+                return Err("an attack area that releases units or has no life; not simulated".into());
             }
             let self_buff = match &aa.self_buff {
                 Some(b) => Some(buffs.apply(b, aa.self_buff_ms, "the attack area's own buff")?),
                 None => None,
             };
-            let area = AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: true, stay: false, end: None };
+            let area = AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: aa.follow, stay: false, end: None };
             evo.attack_area = Some(AttackAreaDef { area, self_buff });
         }
         // THE POWER SHOT (the Evo Archer's): on a card whose attack is a projectile, and with no selector of its own.
