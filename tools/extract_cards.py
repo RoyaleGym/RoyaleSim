@@ -870,7 +870,8 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
                 if key is None:
                     raise SystemExit(f"{p.name}: [{section}.{name}] names no table")
                 if t[key].get(name) is not None:
-                    raise SystemExit(f"{p.name}: [{section}.{name}] is in the pack already; an addition may not change it")
+                    why = "is in the pack already; an addition may not change it"
+                    raise SystemExit(f"{p.name}: [{section}.{name}] {why}")
                 t[key].overlay(p, {name: fields}, f"client_additions/{p.name} [{section}]")
 
     # The target filters an action names (TargetFilter, HitFilter), by name: read by `strike_area_block`.
@@ -6553,7 +6554,10 @@ def build(t: Tables) -> dict:
         )
     # A CLIENT ADDITION'S CARD GOES LAST (`load_tables`), whatever its kind: a card's place in this list is its id in a
     # catalogue built from it, so an addition moves no card the pack carries.
-    added = {n for n, labels in t["spells_characters"].overlaid.items() if any(lb.startswith("client_additions/") for lb in labels)}
+    added = {
+        n for n, labels in t["spells_characters"].overlaid.items()
+        if any(lb.startswith("client_additions/") for lb in labels)
+    }
     cards = [c for c in cards if c["name"] not in added] + [c for c in cards if c["name"] in added]
     doc = {
         "version": v.version,
