@@ -267,7 +267,6 @@ KNOWN_SLICE_GAPS = {
         "no third phase, so a hit lands and the unit is free at the same tick the "
         "cooldown says",
     ),
-    "OverrideAttackFinishTime": ("15.535", "Valkyrie. The same phase the engine does not have"),
     "WalkingSpeedTweakPercentage": (
         "both",
         "Wizard. The engine walks every unit at its Speed column through "

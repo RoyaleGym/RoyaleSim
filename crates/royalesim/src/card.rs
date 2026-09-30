@@ -1210,6 +1210,16 @@ pub enum AbilityEffect {
     /// the cape lands on P + 4 (TriggerDelay 200), every enemy drops her then (its Invisible), and she attacks at 2.8
     /// times her rate (HitSpeedMultiplier 280) from her cast's end to P + 73. One charge.
     SelfBuff { buff: BuffApply },
+    /// A SPIN THAT WALKS A CHAIN (the Hero Valkyrie's; tools/extract_cards.py `spin_chain_effect`; state.rs `SpinRun`,
+    /// `spin_seek`, `spin_pass`): from the trigger, the closest enemy ground troop whose centre lies within `radius` of
+    /// the hero, or, with none, the first that comes (WaitForTarget). From the tick she has one her spin begins: she
+    /// walks at `chain_buff`'s speed to her target and does not attack; on the tick she has it in her attack reach she
+    /// takes the closest one within `radius` not yet reached, up to `count` in all, and with none her chain ends;
+    /// `area` strikes on her point that first tick and every `every_ms` after, `spin_ms` / `every_ms` blows in all,
+    /// and `guard_buff` cuts every hit on her until the last. The pending buff lands `pending_delay_ms` after the
+    /// trigger and lasts to the spin's end. The last blow ends the spin: she drops her target and holds `rest_ms` (the
+    /// rest buff's SpawnTime: its HitSpeedMultiplier -100 stops her attack). Radii in subtiles.
+    SpinChain { radius: i32, count: i32, pending_delay_ms: i32, every_ms: i32, spin_ms: i32, pending_buff: BuffApply, chain_buff: BuffApply, guard_buff: BuffApply, rest_ms: i32, area: AttachedArea },
 }
 
 /// ONE STEP OF AN ACTION GROUP (`AbilityEffect::ActionGroup`).
@@ -2323,6 +2333,11 @@ pub struct CardDef {
     /// client15535_ladder_from_attacker_hit_tick; read as "the row sets VariableDamage2" by
     /// targeting.VARIABLE_DAMAGE_WALK_REACH = client15535_no_own_radius_walking_every_row.
     pub combo: Option<ComboDef>,
+    /// OverrideAttackFinishTime (tools/extract_cards.py `override_attack_finish`, set on a row, or inherited by a form's
+    /// [EXT] row, the Hero Valkyrie's): its attack ends with its hit, so a kill costs it no retarget wait (state.rs
+    /// phase_target, combat.POST_KILL_RETARGET_WAIT's clause (a), beside that key's list of unit names). false on every
+    /// other row.
+    pub override_attack_finish: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -2638,6 +2653,8 @@ struct RawCard {
     /// `CardDef::projectile_y_offset`. Written on the 15.535 rows that set it only, so absent (a blank, 0) everywhere
     /// else and in the 2018 file.
     projectile_y_offset_milli: Option<i32>,
+    /// `CardDef::override_attack_finish`. Written on the 15.535 rows that set it true only.
+    override_attack_finish: Option<bool>,
     /// characters.csv Kamikaze / KamikazeTime.
     kamikaze: Option<bool>,
     kamikaze_time_ms: Option<i32>,
@@ -4285,6 +4302,32 @@ struct RawAbilityEffect {
     failsafe_start_ms: Option<i32>,
     failsafe_every_ms: Option<i32>,
     landing: Option<RawThrowLanding>,
+    /// `spin_chain` (tools/extract_cards.py `spin_chain_effect`): the spin's clock, its four buffs and their times, and
+    /// its blow's area (`radius_milli` and `count` above).
+    pending_delay_ms: Option<i32>,
+    every_ms: Option<i32>,
+    spin_ms: Option<i32>,
+    pending_buff: Option<RawBuff>,
+    pending_ms: Option<i32>,
+    chain_buff: Option<RawBuff>,
+    guard_buff: Option<RawBuff>,
+    guard_ms: Option<i32>,
+    rest_buff: Option<RawBuff>,
+    rest_ms: Option<i32>,
+    area: Option<RawSpinArea>,
+}
+
+/// A `spin_chain` effect's blow: an area with one hit.
+#[derive(Deserialize)]
+struct RawSpinArea {
+    name: String,
+    life_ms: i32,
+    radius_milli: i32,
+    damage: i32,
+    crown_tower_damage_percent: i32,
+    hits_ground: bool,
+    hits_air: bool,
+    only_enemies: bool,
 }
 
 /// A `throw` effect's landing blow: its unit's SpawnAreaObject, one hit on enemy ground units.
@@ -5409,6 +5452,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_pushback: 0,
         ignore_clone: false,
         projectile_y_offset: 0,
+        override_attack_finish: false,
         evo: None,
         form_of: None,
         ability: None,
@@ -7667,6 +7711,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // column may point backwards (an event row ships -800), so it is not `nonneg`.
         #[cfg(not(clash_plant = "projectile_y_offset_unread"))]
         projectile_y_offset: milli(raw.projectile_y_offset_milli.unwrap_or(0)),
+        #[cfg(not(clash_plant = "finish_column_unread"))]
+        override_attack_finish: raw.override_attack_finish.unwrap_or(false),
+        #[cfg(clash_plant = "finish_column_unread")]
+        override_attack_finish: false, // PLANT: the row's column is not read; only the key's list of names exempts.
         #[cfg(clash_plant = "projectile_y_offset_unread")]
         projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
         evo: None,
@@ -9225,6 +9273,62 @@ impl CardDb {
                     unit_deploy_ms: e.unit_deploy_ms.filter(|d| *d > 0).ok_or_else(|| format!("{what}: a throw's unit with no deploy"))?,
                     start_offset: milli(e.start_offset_milli.unwrap_or(0)),
                     speeds,
+                }
+            }
+            // THE SPIN (the Hero Valkyrie's): its blow a one-hit area on her point (`AttachedArea`, level-scaled), its buffs
+            // on herself. The chain buff has no SpawnTime of its own (the chain's phase buff): it is given the spin's
+            // length and taken off when the chain ends. The rest buff is read for its time alone: a buff whose only column
+            // is HitSpeedMultiplier -100, which the engine runs as a hold (state.rs `spin_pass`).
+            "spin_chain" => {
+                let e = &a.effect;
+                let pos = |v: Option<i32>, key: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a spin with no {key}"));
+                let (every_ms, spin_ms, rest_ms) = (pos(e.every_ms, "every_ms")?, pos(e.spin_ms, "spin_ms")?, pos(e.rest_ms, "rest_ms")?);
+                let pending_delay_ms = e.pending_delay_ms.filter(|d| *d >= 0).ok_or_else(|| format!("{what}: a spin with no pending delay"))?;
+                if spin_ms % every_ms != 0 {
+                    return Err(format!("{what}: a spin of {spin_ms} ms is not a whole number of {every_ms} ms blows"));
+                }
+                fn need<'a>(b: &'a Option<RawBuff>, what: &str, key: &str) -> Result<&'a RawBuff, String> {
+                    b.as_ref().ok_or_else(|| format!("{what}: a spin with no {key}"))
+                }
+                let pending_buff = buffs.apply_own(need(&e.pending_buff, &what, "pending buff")?, e.pending_ms, &format!("{what} pending buff"))?;
+                let chain_buff = buffs.apply_own(need(&e.chain_buff, &what, "chain buff")?, Some(spin_ms), &format!("{what} chain buff"))?;
+                let guard_buff = buffs.apply_own(need(&e.guard_buff, &what, "guard buff")?, e.guard_ms, &format!("{what} guard buff"))?;
+                let rest = need(&e.rest_buff, &what, "rest buff")?.convert_own(&format!("{what} rest buff"))?;
+                if rest.hit_speed_pct != -100 || rest.speed_pct != 0 || rest.damage_reduction != 0 || rest.pulses() {
+                    return Err(format!("{what}: a rest buff that does more than stop the attack is not simulated"));
+                }
+                let r = e.area.as_ref().ok_or_else(|| format!("{what}: a spin with no blow"))?;
+                if r.life_ms <= 0 || r.radius_milli <= 0 || r.damage <= 0 {
+                    return Err(format!("{what}: blow {} with no life, radius or damage", r.name));
+                }
+                let hit = SpellHit {
+                    damage: r.damage,
+                    crown_pct: r.crown_tower_damage_percent,
+                    radius: milli(r.radius_milli),
+                    hits_air: r.hits_air,
+                    hits_ground: r.hits_ground,
+                    only_enemies: r.only_enemies,
+                    only_own_troops: false,
+                    ignore_buildings: false,
+                    no_effect_to_crown_towers: false,
+                    knockback: None,
+                    buff: None,
+                    buff2: None,
+                    caps_buff_time: false,
+                    controls_buff: false,
+                };
+                let area = AttachedArea { hit, level_scaled: true, life_ms: r.life_ms, hit_speed_ms: 0, first_ms: 0, follow: false, stay: true, end: None };
+                AbilityEffect::SpinChain {
+                    radius: milli(e.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a spin with no radius"))?),
+                    count: e.count.filter(|c| *c > 0).ok_or_else(|| format!("{what}: a spin with no chain count"))?,
+                    pending_delay_ms,
+                    every_ms,
+                    spin_ms,
+                    pending_buff,
+                    chain_buff,
+                    guard_buff,
+                    rest_ms,
+                    area,
                 }
             }
             other => return Err(format!("{what}: effect {other} is not simulated")),

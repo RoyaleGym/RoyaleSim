@@ -6757,6 +6757,23 @@ pub const CHAIN_SUB_STEP: i32 = 250;
 /// point and its group.
 type SpectralToMake = (Team, u16, i32, Vec2, u32);
 
+/// A HERO VALKYRIE'S SPIN UNDER WAY (card.rs `AbilityEffect::SpinChain`; `spin_seek`, `spin_pass`): the hero, the tick
+/// her button fired, whether its pending buff has landed, the tick her spin began (None while she waits for a first
+/// target), whether her chain still runs, its target, the targets she has reached and the links left, and the blows
+/// struck. Saved and hashed (`BattleState::spins`, only when not empty).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SpinRun {
+    pub id: EntityId,
+    pub fired: u32,
+    pub pending: bool,
+    pub began: Option<u32>,
+    pub chaining: bool,
+    pub target: Option<EntityId>,
+    pub reached: Vec<EntityId>,
+    pub left: i32,
+    pub blows: u32,
+}
+
 /// ONE ABILITY BUTTON as a side sees it (`BattleState::ability_buttons`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AbilityButton {
@@ -7766,6 +7783,8 @@ pub struct BattleState {
     chains: Vec<ChainRun>,
     /// The throws under way (`ThrowRun`), in press order. Empty in every battle without one.
     throws: Vec<ThrowRun>,
+    /// The spins under way (`SpinRun`), in press order. Empty in every battle without one.
+    spins: Vec<SpinRun>,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8160,6 +8179,7 @@ impl BattleState {
             hero_units: Vec::new(),
             chains: Vec::new(),
             throws: Vec::new(),
+            spins: Vec::new(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -10861,6 +10881,10 @@ impl BattleState {
                 Phase::Path => {
                     // The dash chains' phases for this tick's move pass (`chain_pass`).
                     self.chain_pass();
+                    // The Hero Valkyrie's spins before the move (`spin_seek`).
+                    if !self.spins.is_empty() {
+                        self.spin_seek();
+                    }
                     // An Evo Cannon bomb due this tick lands before anything moves (`land_barrage_early`).
                     self.land_barrage_early();
                     match self.cfg.path_model {
@@ -12329,6 +12353,8 @@ impl BattleState {
                     // combat.DASH_CHAIN_PENDING = client15535_run_to_current_target, whose target is re-decided each tick
                     // (measured on client 15.535.29: a Knight placed mid-run became his target on its first tick).
                     && !self.chains.iter().any(|c| c.id == self.ents.id_of(i) && !(c.phase == ChainPhase::Seek && pending_redecides))
+                    // A spin's chain keeps its own target too (`spin_seek`, `spin_pass`).
+                    && !self.spins.iter().any(|r| r.id == self.ents.id_of(i) && r.chaining)
                 {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
@@ -12442,7 +12468,7 @@ impl BattleState {
                         let inferno = true; // PLANT (regression): every unit waits after a reach loss, not the inferno's alone.
                         let waits = match wait_mode {
                             PostKillWait::MeasuredList => wait_units.contains(&c.unit_name),
-                            PostKillWait::AttackFinish => !(override_units.contains(&c.unit_name) || wears_finish_override(cards, e, i)) && e.attack_ms[i] != 0,
+                            PostKillWait::AttackFinish => !(override_units.contains(&c.unit_name) || c.override_attack_finish || wears_finish_override(cards, e, i)) && e.attack_ms[i] != 0,
                             PostKillWait::None => false,
                         };
                         if inferno && left && !next_in_reach && waits {
@@ -12476,7 +12502,9 @@ impl BattleState {
                         // kill), (c) a projectile card whose victim was doomed: any one skips the wait.
                         PostKillWait::AttackFinish => {
                             let c = cards.get(e.card[i]);
-                            !(override_units.contains(&c.unit_name) || wears_finish_override(cards, e, i))
+                            // (a) also reads the row's own column (`CardDef::override_attack_finish`), which a form's row
+                            // inherits under another unit name (the Hero Valkyrie's ValkyrieHero).
+                            !(override_units.contains(&c.unit_name) || c.override_attack_finish || wears_finish_override(cards, e, i))
                                 && e.attack_ms[i] != 0
                                 && !(c.projectile.is_some() && e.target_doomed[i])
                         }
@@ -12893,6 +12921,174 @@ impl BattleState {
             .filter(|(d2, _, _, _)| *d2 <= r2)
             .min()
             .map(|(_, _, _, j)| e.id_of(j))
+    }
+
+    /// THE CLOSEST TARGET THE HERO VALKYRIE'S SPIN MAY TAKE from hero `i` (card.rs `AbilityEffect::SpinChain`; the
+    /// table's GroundCharacterTargetsNoInactive): an enemy troop that is not flying, mid-leap, held by a hook, under
+    /// ground or invisible, whose centre lies within `range` of hers, not in `reached`; the nearest by centre distance,
+    /// then the earliest created. None when none is. The filter's INACTIVE tag is set by no row a battle plays.
+    fn spin_pick(&self, i: usize, range: i32, reached: &[EntityId]) -> Option<EntityId> {
+        let e = &self.ents;
+        let r2 = (range as i64) * (range as i64);
+        (0..e.capacity())
+            .filter(|&j| {
+                e.alive[j]
+                    && e.hp[j] > 0
+                    && e.team[j] != e.team[i]
+                    && e.kind[j] == EntityKind::Troop
+                    && !e.in_air(j)
+                    && !e.jumping[j]
+                    && e.hooked_by[j].is_none()
+                    && e.tunnel_dest[j].is_none()
+                    && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, j)
+                    && !reached.contains(&e.id_of(j))
+            })
+            .map(|j| (e.pos[j].dist2(e.pos[i]), e.creation_seq[j], j))
+            .filter(|(d2, _, _)| *d2 <= r2)
+            .min()
+            .map(|(_, _, j)| e.id_of(j))
+    }
+
+    /// Take buff `buff` (a `CardDb::buffs` index) off entity `i`: every slot that holds it is emptied.
+    fn drop_buff(&mut self, i: usize, buff: u16) {
+        for s in self.ents.buff_slots_mut(i) {
+            if s.id == buff + 1 {
+                *s = crate::status::BuffSlot::default();
+            }
+        }
+    }
+
+    /// THE HERO VALKYRIE'S SPINS BEFORE THE MOVE (card.rs `AbilityEffect::SpinChain`, `SpinRun`), at the top of the Path
+    /// phase:
+    ///   - the pending buff lands `pending_delay_ms` after the button fired, for the spin's life;
+    ///   - a spin that waits takes the closest target within the charge's circle (`spin_pick`) and begins: the guard and
+    ///     chain buffs land, her attack cycle stands idle, and her blows count from this tick (`spin_pass`);
+    ///   - a chain whose target is gone takes the closest one not yet reached, or ends (its buff taken off);
+    ///   - a chain's target is hers, whatever this tick's Target phase would have decided (it decides nothing for her).
+    ///
+    /// Measured on client 15.535.29 (sp-form-Valkyrie-hero-s0, level 11, the press's first frame P = t197): she walks
+    /// 150 a tick (her 60 at the chain buff's 250 %, the largest of her speed buffs) from P + 1; a Skeleton she had
+    /// taken, killed by her own blow on t213, leaves her with none that frame and the Musketeer, the closest she had not
+    /// reached, on t214. Unmeasured: a press with nothing in the circle (the table waits, WaitForTarget).
+    fn spin_seek(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let mut runs = std::mem::take(&mut self.spins);
+        runs.retain(|r| self.ents.is_alive(r.id));
+        for r in runs.iter_mut() {
+            let i = r.id.index as usize;
+            let Some(crate::card::AbilityEffect::SpinChain { radius, count, pending_delay_ms, pending_buff, chain_buff, guard_buff, .. }) = self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| a.effect.clone()) else {
+                continue;
+            };
+            if !r.pending && self.tick >= r.fired + (pending_delay_ms / tick_ms) as u32 {
+                r.pending = true;
+                let h = crate::status::BuffHit::plain(r.id, pending_buff.buff, pending_buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            }
+            if r.began.is_none() {
+                let Some(t) = self.spin_pick(i, radius, &[]) else { continue };
+                r.began = Some(self.tick);
+                r.chaining = true;
+                r.target = Some(t);
+                r.left = count;
+                #[cfg(not(clash_plant = "spin_unguarded"))]
+                let on = [guard_buff, chain_buff];
+                #[cfg(clash_plant = "spin_unguarded")]
+                let on = [chain_buff]; // PLANT (regression): the guard buff never lands; every hit on her is whole.
+                for b in on {
+                    let h = crate::status::BuffHit::plain(r.id, b.buff, b.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                }
+                self.ents.attack_phase[i] = AttackPhase::Idle;
+                self.ents.attack_ms[i] = 0;
+            } else if r.chaining && !r.target.is_some_and(|t| self.ents.is_alive(t)) {
+                r.target = if r.left > 0 { self.spin_pick(i, radius, &r.reached) } else { None };
+                if r.target.is_none() {
+                    r.chaining = false;
+                    self.drop_buff(i, chain_buff.buff);
+                    self.ents.target[i] = None;
+                }
+            }
+            if r.chaining {
+                self.ents.target[i] = r.target;
+                self.ents.target_locked[i] = false;
+            }
+        }
+        self.spins = runs;
+    }
+
+    /// THE HERO VALKYRIE'S SPINS AFTER THE MOVE (`SpinRun`), in the Projectile phase before the spells step:
+    ///   - a chain whose target stands in her attack reach (Range + both radii, `target::in_attack_range`) on the points
+    ///     the move left has reached it: she takes the closest one not yet reached at once, or, with none or `count`
+    ///     reached, her chain ends: its buff comes off and she has no target (the next Target phase gives her one);
+    ///   - on the spin's first tick and every `every_ms` after, her blow is made on her point (spell.rs `attached_area`,
+    ///     the spin's one area): it strikes in this tick's spells step, once;
+    ///   - the last blow (`spin_ms` / `every_ms` of them) ends the spin: the pending, guard and chain buffs come off,
+    ///     she drops her target, her attack cycle stands idle, and she holds for the rest (`rest_ms`) on the retarget
+    ///     wait's counter (entity.rs `retarget_wait`: no target, no walk, no attack): her Target phase `rest_ms` / tick
+    ///     + 1 ticks on takes one, and her first swing starts from her load (combat.rs `attack_step`).
+    ///
+    /// Measured on client 15.535.29 (sp-form-Valkyrie-hero-s0, level 11, P = t197): the blows fall on P + 1 + 5k, k = 0
+    /// to 13 (the Knight and the Musketeer lose 97, 38 at level 1, on each blow's tick while they stand within 2500 +
+    /// their radius of her); she takes the Knight on t203 as she has her first target, a Skeleton, in reach, and a
+    /// Skeleton on t212 as she has the Knight in reach (2021 from it; 2200 its reach); she reaches the Musketeer on t241
+    /// with none left and stands from t242; every hit on her is cut 15 % from P + 1 to the last blow, truncated (the
+    /// Knight's 202 to 171, the Musketeer's 217 to 184, a tower's 109 to 92); she has no target t263 to t271, takes the
+    /// Knight on t272 at progress 1450 (LoadTime + 50) and hits it on t273.
+    fn spin_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let mut runs = std::mem::take(&mut self.spins);
+        runs.retain(|r| self.ents.is_alive(r.id));
+        let mut ended: Vec<EntityId> = Vec::new();
+        for r in runs.iter_mut() {
+            let i = r.id.index as usize;
+            let card = self.ents.card[i];
+            let Some(crate::card::AbilityEffect::SpinChain { radius, every_ms, spin_ms, pending_buff, chain_buff, guard_buff, rest_ms, .. }) = self.cfg.cards.get(card).ability.as_ref().map(|a| a.effect.clone()) else {
+                ended.push(r.id);
+                continue;
+            };
+            let Some(began) = r.began else { continue };
+            if let Some(t) = r.target.filter(|t| r.chaining && self.ents.is_alive(*t)) {
+                let ti = t.index as usize;
+                let range = self.cfg.cards.get(card).range;
+                if target::in_attack_range(&self.cfg.calib, self.ents.pos[i], range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]) {
+                    #[cfg(not(clash_plant = "spin_retakes_reached"))]
+                    r.reached.push(t);
+                    r.left -= 1;
+                    r.target = if r.left > 0 { self.spin_pick(i, radius, &r.reached) } else { None };
+                    self.ents.target[i] = r.target;
+                    if r.target.is_none() {
+                        r.chaining = false;
+                        self.drop_buff(i, chain_buff.buff);
+                    }
+                }
+            }
+            let every = (every_ms / tick_ms).max(1) as u32;
+            let blows = (spin_ms / every_ms) as u32;
+            if (self.tick - began) % every == 0 && r.blows < blows {
+                let (team, level, pos) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
+                let sp = spell::attached_area(&self.cfg.cards, &self.cfg.calib, team, card, level, r.id, pos, 0).expect("the spin's area loads with its card");
+                self.spells.push(sp);
+                r.blows += 1;
+                if r.blows == blows {
+                    ended.push(r.id);
+                    for b in [pending_buff, guard_buff, chain_buff] {
+                        self.drop_buff(i, b.buff);
+                    }
+                    self.ents.target[i] = None;
+                    self.ents.target_locked[i] = false;
+                    self.ents.attack_phase[i] = AttackPhase::Idle;
+                    self.ents.attack_ms[i] = 0;
+                    // The rest rides the post-kill wait's counter, which only a waiting arm counts down.
+                    #[cfg(not(clash_plant = "spin_rest_skipped"))]
+                    if self.cfg.calib.post_kill_wait != PostKillWait::None {
+                        self.ents.retarget_wait[i] = (rest_ms / tick_ms + 1) as i16;
+                    }
+                    let _ = rest_ms;
+                }
+            }
+        }
+        runs.retain(|r| !ended.contains(&r.id));
+        self.spins = runs;
     }
 
     /// THE CLOSEST TARGET A DASH CHAIN MAY TAKE from champion `i`: an enemy ground character (the table's
@@ -15539,7 +15735,8 @@ impl BattleState {
             // Mid-dash (combat.DASH_ATTACK): the swing holds; the dash ends in a fresh cycle.
             // A champion whose dash chain runs does not attack (`chain_pass`): the press row walks, the rest dash
             // or stand.
-            let chaining = self.chains.iter().any(|c| c.id == e.id_of(i));
+            // A hero whose spin has begun does not attack either (`SpinRun`: the chain's and the blows' NO_ATTACK).
+            let chaining = self.chains.iter().any(|c| c.id == e.id_of(i)) || self.spins.iter().any(|r| r.id == e.id_of(i) && r.began.is_some());
             let can_act = e.deploy_ms[i] == 0
                 && !held
                 && !chaining
@@ -16353,6 +16550,10 @@ impl BattleState {
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
         if !self.throws.is_empty() {
             self.throw_pass();
+        }
+        // The Hero Valkyrie's spins after the move, before the spells step, so a blow strikes on its own tick (`spin_pass`).
+        if !self.spins.is_empty() {
+            self.spin_pass();
         }
         {
             let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &self.scratch.deltas, tick: self.tick };
@@ -19392,6 +19593,14 @@ impl BattleState {
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                 let _ = (team, level, pos);
             }
+            // THE SPIN IS PRESSED (`SpinRun`): it takes its first target and begins in this tick's Path phase, or waits for
+            // one (`spin_seek`).
+            crate::card::AbilityEffect::SpinChain { .. } => {
+                self.spins.retain(|r| r.id != hero);
+                #[cfg(not(clash_plant = "spin_never"))]
+                self.spins.push(SpinRun { id: hero, fired: self.tick, pending: false, began: None, chaining: false, target: None, reached: Vec::new(), left: 0, blows: 0 });
+                let _ = (team, level, pos);
+            }
             crate::card::AbilityEffect::ActionGroup { steps } => {
                 for st in steps {
                     match st.action {
@@ -20974,6 +21183,31 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The spins under way, only when there are some.
+        if !self.spins.is_empty() {
+            h.u32(0x5350_494e);
+            h.u32(self.spins.len() as u32);
+            for r in &self.spins {
+                h.id(r.id);
+                h.u32(r.fired);
+                h.bool(r.pending);
+                h.bool(r.began.is_some());
+                if let Some(b) = r.began {
+                    h.u32(b);
+                }
+                h.bool(r.chaining);
+                h.bool(r.target.is_some());
+                if let Some(t) = r.target {
+                    h.id(t);
+                }
+                h.u32(r.reached.len() as u32);
+                for t in &r.reached {
+                    h.id(*t);
+                }
+                h.i32(r.left);
+                h.u32(r.blows);
+            }
+        }
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
         // pending transformation -- hashes as it did before the list.
         // The evolved units' state, only when there is some. PLANT evo_hashed_when_absent (tests/evolution.rs): in every
@@ -21748,6 +21982,9 @@ struct Snapshot {
     /// The throws under way (`BattleState::throws`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     throws: Vec<ThrowRun>,
+    /// The spins under way (`BattleState::spins`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    spins: Vec<SpinRun>,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -21925,7 +22162,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -21988,7 +22225,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.idle_buff,
                     c.idle_area,
                     c.deploy_spawn_area,
-                    c.combo
+                    c.combo,
+                    c.override_attack_finish
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -22425,6 +22663,7 @@ impl BattleState {
             hero_units: self.hero_units.clone(),
             chains: self.chains.clone(),
             throws: self.throws.clone(),
+            spins: self.spins.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -22678,6 +22917,7 @@ impl BattleState {
             hero_units: snap.hero_units,
             chains: snap.chains,
             throws: snap.throws,
+            spins: snap.spins,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),

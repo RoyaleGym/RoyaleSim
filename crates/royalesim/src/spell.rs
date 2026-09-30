@@ -387,6 +387,8 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
 pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&AttachedArea> {
     match cards.cards.get(card as usize).and_then(|c| c.ability.as_ref()).map(|a| &a.effect) {
         Some(AbilityEffect::Areas { areas, .. }) => areas.get(part as usize),
+        // The Hero Valkyrie's blow (`AbilityEffect::SpinChain`): her spin's one area.
+        Some(AbilityEffect::SpinChain { area, .. }) if part == 0 => Some(area),
         _ => None,
     }
 }

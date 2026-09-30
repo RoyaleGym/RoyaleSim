@@ -2561,6 +2561,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # set it, so no other row and nothing in the 2018 file changes. The column also stays out of
         # `raw` (COSMETIC), which is why it is read here by name.
         "projectile_y_offset_milli": c.get("ProjectileYOffset"),
+        # OverrideAttackFinishTime: the row's attack ends with its hit, so a kill costs it no retarget wait
+        # (calibration combat.POST_KILL_RETARGET_WAIT's clause (a)). Read by name so an [EXT] row that inherits it (the
+        # Hero Valkyrie's) carries it; 15.535 rows that set it true only, so every other row is unchanged.
+        "override_attack_finish": c.get("OverrideAttackFinishTime"),
         # THE SPECIAL (SpecialRange / SpecialMinRange / SpecialLoadTime / ProjectileSpecial): the
         # Fisherman's hook, under calibration combat.SPECIAL_HOOK. `projectile` is the
         # ProjectileSpecial row in the shape of every projectile object, and `drag_margin_milli`
@@ -2622,6 +2626,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         del u["mana"]
     if u["projectile_y_offset_milli"] is None or not isinstance(c, Row):
         del u["projectile_y_offset_milli"]
+    if u["override_attack_finish"] is not True or not isinstance(c, Row):
+        del u["override_attack_finish"]
     if not isinstance(c, Row):
         # The 2018 file stays byte-identical: it does not grow the keys written for the 15.535
         # rows alone (UNIT_FIELDS_15535).
@@ -3264,6 +3270,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # Only on a row that sets ProjectileYOffset (norm_unit), so every other card row is unchanged.
     if "projectile_y_offset_milli" in u:
         card["projectile_y_offset_milli"] = u["projectile_y_offset_milli"]
+    # Only on a row whose OverrideAttackFinishTime is true (norm_unit).
+    if "override_attack_finish" in u:
+        card["override_attack_finish"] = u["override_attack_finish"]
     if "attack_select" in u:
         card["attack_select"] = u["attack_select"]
     if "enchant_friends" in u:
@@ -4346,6 +4355,7 @@ HERO_FORMS = {
     "IceGolemite_hero": ("IceGolemite", "ice_golemite_hero"),
     "Berserker_hero": ("Berserker", "berserker_hero"),
     "Balloon_hero": ("Balloon", "balloon_hero"),
+    "Valkyrie_hero": ("Valkyrie", "valkyrie_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -4386,6 +4396,22 @@ THROW_PROJECTILE_PINNED = {"Speed": 1, "Homing": True, "Damage": 0, "Gravity": 0
 THROW_PROJECTILE_COSMETIC = {"Rarity", "HitEffect", "TrailEffect", "PrefabAsset", "Name"}
 THROW_LANDING_PINNED = {"OnlyEnemies": True, "HitsGround": True, "HitsAir": False, "LifeDuration": 50, "HitSpeed": 50}
 THROW_SPEED_BLOCKS = 40
+# THE HERO VALKYRIE'S SPIN (`spin_chain_effect`): the keys its seeker, its chain and its blow's interval may set, the
+# filter both its picks read, and the columns its blow's area may set (read, or display only); any other stops the
+# build.
+SPIN_SEEKER_KEYS = {
+    "ClassType", "GameTagsToSet", "OncePerTarget", "WaitForTarget", "TargetSelectionMode", "TargetFilter", "Actions",
+    "Delays", "ActionOnSelfWhenTriggered", "Shape", "PauseTags", "AbortIfInstigatorDies",
+}
+SPIN_CHAIN_KEYS = {
+    "ClassType", "TargetResolver", "GameTagsToSet", "ChainCount", "ChainCompleteIfTrue", "OnChainBegan",
+    "OnFinishedAction", "ChainPhaseBuff", "PerformAttackOnReach", "ResetTargetAfterReach", "PauseIfAttackSpeedZero",
+    "StopMovementWhenAtTarget",
+}
+SPIN_INTERVAL_KEYS = {"ClassType", "Interval", "ActionToExecute", "GameTagsToSet", "ForceStopIfTrue", "StatsTags"}
+SPIN_FILTER = "GroundCharacterTargetsNoInactive"
+SPIN_AREA_READ = {"LifeDuration", "Radius", "HitsGround", "HitsAir", "OnlyEnemies", "Damage", "CrownTowerDamagePercent"}
+SPIN_AREA_COSMETIC = {"Rarity", "ScaledEffect", "ExtraHitEffect", "StatsTags"}
 
 
 def hero_files(v: Vintage, stem: str) -> list[Path]:
@@ -4626,7 +4652,8 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     a = h.abilities.get(name) if isinstance(name, str) else None
     if a is None:
         raise SystemExit(f"hero ability {name!r}: no [ABILITY] row")
-    unread = set(a) - ABILITY_READ_KEYS - ABILITY_UI_KEYS
+    # A blank PendingBuff (the Hero Valkyrie's "") names no buff.
+    unread = set(a) - ABILITY_READ_KEYS - ABILITY_UI_KEYS - ({"PendingBuff"} if a.get("PendingBuff") == "" else set())
     if unread:
         raise SystemExit(f"hero ability {name}: sets {sorted(unread)}, which this reader does not read")
     acts = h["actions"]
@@ -4650,7 +4677,10 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     subs, delays = got
     classes = [acts.get(s)["ClassType"] for s in subs]
     group_classes = {"ActionSpawn", "ActionPlayEffect", "ActionChangeGameObjectData"}
-    if (
+    if "ActionRunActionListOnObjectsInShapeWithPrio" in classes:
+        effect = spin_chain_effect(h, name, subs, delays)
+        classes = []
+    elif (
         "ActionSpawn" in classes
         and set(classes) <= group_classes
         and any(acts.get(s)["SpawnType"] == "BuffType" for s in subs if acts.get(s)["ClassType"] == "ActionSpawn")
@@ -4832,6 +4862,126 @@ def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
             "radius_milli": land["Radius"],
             "damage": land["Damage"],
             "crown_tower_damage_percent": ct_percent(land["CrownTowerDamagePercent"]),
+        },
+    }
+
+
+def spin_chain_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dict:
+    """THE HERO VALKYRIE'S BUTTON ([ABILITY.ValkyrieHero_Ability]), read whole or the build stops:
+      - OnActivationAction: an ActionGroup of the spin's clock reset (an ActionSetVariable of its variable to 0), the
+        seeker, the pending buff `pending_delay_ms` later (an ActionSpawn of a BuffType, alive while the clock is
+        short of its maximum: `pending_buff`) and the button's UI state (ActionOverrideAbilityButtonState, not read);
+      - the seeker: an ActionRunActionListOnObjectsInShapeWithPrio that waits for (WaitForTarget) the closest enemy in
+        its circle Shape (`radius_milli`) through SPIN_FILTER, once, and then runs the chain group on the hero; its
+        per-target action is a 50 ms duration with no effect;
+      - the chain group: an animation, the chain, and the guard buff (an ActionSpawn of a BuffType alive while the clock
+        is short: `guard_buff`, a DamageReduction);
+      - the chain: an ActionAttackChain whose resolver takes the closest in the same circle through the same filter,
+        up to `count` targets, with no attack on reaching one (PerformAttackOnReach false, ResetTargetAfterReach,
+        StopMovementWhenAtTarget), its phase buff (`chain_buff`) while it runs, and NO_ATTACK; complete when the clock
+        reaches its maximum (`spin_ms`, the maximum variable's DefaultValue); its OnChainBegan an ActionInterval every
+        `every_ms` (NO_ATTACK, stopped at the same maximum) of the blow (an ActionSpawnToLocation of `area` at the
+        hero's x, y) and the clock's step (the variable plus the interval); its OnFinishedAction an animation's stop
+        and the rest buff (`rest_buff`, SpawnTime `rest_ms`);
+      - the blow's area: one hit (no HitSpeed) on `area.radius_milli`, `area.damage` level-scaled, the crown-tower
+        percent, ground and air as its columns say, enemies only."""
+    acts = h["actions"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    def spawn_buff(action: str, what: str) -> tuple[dict, int, dict]:
+        sp = _one_action(acts, action, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+        buff = norm_buff(h, sp["SpawnData"])
+        need(sp["SpawnType"] == "BuffType" and buff is not None and isinstance(sp["SpawnTime"], int),
+             f"{what} {action}")
+        return buff, sp["SpawnTime"], h["character_buffs"].get(sp["SpawnData"])
+
+    classes = [acts.get(s)["ClassType"] for s in subs]
+    need(classes[:3] == ["ActionSetVariable", "ActionRunActionListOnObjectsInShapeWithPrio", "ActionSpawn"]
+         and all(c == "ActionOverrideAbilityButtonState" for c in classes[3:]) and delays[:2] == [0, 0],
+         f"the activation group runs {classes} at {delays}")
+    reset = _one_action(acts, subs[0], "ActionSetVariable", {"ClassType", "Variable", "Value"})
+    var = reset["Variable"]
+    need(reset["Value"] == "0" and (h.variables.get(var) or {}).get("DefaultValue", 0) == 0, f"the clock reset {reset}")
+    sk = _one_action(acts, subs[1], "ActionRunActionListOnObjectsInShapeWithPrio", SPIN_SEEKER_KEYS)
+    need(sk["OncePerTarget"] is True and sk["WaitForTarget"] is True and sk["TargetSelectionMode"] == "Closest"
+         and sk["TargetFilter"] == SPIN_FILTER and sk["AbortIfInstigatorDies"] is False, "the seeker's flags")
+    need(col_list(acts, subs[1], "Delays") == [0], "the seeker's Delays")
+    dummy = _one_action(acts, sk["Actions"], "ActionWithDuration", {"ClassType", "ActionDuration"})
+    need(dummy["ActionDuration"] == 50, "the seeker's per-target action")
+    shape = h.shapes.get(sk["Shape"]) if isinstance(sk["Shape"], str) else None
+    need(shape is not None and shape.get("ClassType") == "Circle" and isinstance(shape.get("Radius"), int)
+         and shape.get("CollectionMethod") == "ContainsOrigin", f"the seeker's Shape {sk['Shape']!r}")
+    pending, pending_ms, pending_row = spawn_buff(subs[2], "the pending buff")
+    group = group_subactions(h, sk["ActionOnSelfWhenTriggered"], f"hero ability {name} chain group")
+    gclasses = [acts.get(n)["ClassType"] for n, _ in group]
+    need(gclasses == ["ActionRunForcedAnimationOnce", "ActionAttackChain", "ActionSpawn"]
+         and all(d == 0 for _, d in group), f"the chain group runs {gclasses}")
+    guard, guard_ms, guard_row = spawn_buff(group[2][0], "the guard buff")
+    ch = _one_action(acts, group[1][0], "ActionAttackChain", SPIN_CHAIN_KEYS)
+    res = h.resolvers.get(ch["TargetResolver"])
+    need(res is not None and res.get("Shape") == sk["Shape"] and res.get("Filter") == SPIN_FILTER
+         and list(res.get("StrategyList") or []) == ["RESOLVER_STRATEGY_CLOSEST_TARGET"], "the chain's resolver")
+    need(ch["PerformAttackOnReach"] is False and ch["ResetTargetAfterReach"] is True
+         and ch["StopMovementWhenAtTarget"] is True and ch["GameTagsToSet"] == "NO_ATTACK"
+         and isinstance(ch["ChainCount"], int) and ch["ChainCount"] > 0, "the chain's flags")
+    mx = next((k for k in h.variables if ch["ChainCompleteIfTrue"] == f"{var} >= {k}"), None)
+    need(mx is not None and isinstance((h.variables.get(mx) or {}).get("DefaultValue"), int),
+         f"the chain's end {ch['ChainCompleteIfTrue']!r}")
+    spin_ms = h.variables[mx]["DefaultValue"]
+    alive = f"{var} < {mx}"
+    need(pending_row["AliveIfTrue"] == alive and guard_row["AliveIfTrue"] == alive, "the buffs' lives")
+    chain_buff = norm_buff(h, ch["ChainPhaseBuff"])
+    need(chain_buff is not None, f"the chain's phase buff {ch['ChainPhaseBuff']!r}")
+    iv = _one_action(acts, ch["OnChainBegan"], "ActionInterval", SPIN_INTERVAL_KEYS)
+    every = iv["Interval"]
+    need(isinstance(every, int) and every > 0 and iv["GameTagsToSet"] == "NO_ATTACK"
+         and iv["ForceStopIfTrue"] == ch["ChainCompleteIfTrue"], "the blow's interval")
+    step = group_subactions(h, iv["ActionToExecute"], f"hero ability {name} blow")
+    need(len(step) == 2 and all(d == 0 for _, d in step), f"the blow's group {step}")
+    inner = group_subactions(h, step[0][0], f"hero ability {name} blow's spawn")
+    need(len(inner) == 1 and inner[0][1] == 0, f"the blow's spawn group {inner}")
+    keys = {"ClassType", "SpawnType", "SpawnData", "TargetExprX", "TargetExprY"}
+    sp = _one_action(acts, inner[0][0], "ActionSpawnToLocation", keys)
+    need(sp["SpawnType"] == "AreaEffectType" and sp["TargetExprX"] == "x" and sp["TargetExprY"] == "y",
+         "the blow is not an area on the hero's point")
+    clock = _one_action(acts, step[1][0], "ActionSetVariable", {"ClassType", "Variable", "Value"})
+    need(clock["Variable"] == var and clock["Value"] == f"{var} + {every}", f"the clock's step {clock}")
+    stop = group_subactions(h, ch["OnFinishedAction"], f"hero ability {name} end")
+    need([acts.get(n)["ClassType"] for n, _ in stop] == ["ActionStopForcedAnimation", "ActionSpawn"]
+         and all(d == 0 for _, d in stop), f"the chain's end {stop}")
+    rest, rest_ms, _ = spawn_buff(stop[1][0], "the rest buff")
+    at = h["area_effect_objects"]
+    area = at.get(sp["SpawnData"])
+    need(area is not None, f"no area row {sp['SpawnData']}")
+    unread = at.set_fields.get(sp["SpawnData"], set()) - SPIN_AREA_READ - SPIN_AREA_COSMETIC
+    need(not unread and isinstance(area["Radius"], int) and isinstance(area["Damage"], int)
+         and isinstance(area["LifeDuration"], int), f"the blow's area sets {sorted(unread)}")
+    return {
+        "kind": "spin_chain",
+        "radius_milli": shape["Radius"],
+        "count": ch["ChainCount"],
+        "pending_delay_ms": delays[2],
+        "every_ms": every,
+        "spin_ms": spin_ms,
+        "pending_buff": pending,
+        "pending_ms": pending_ms,
+        "chain_buff": chain_buff,
+        "guard_buff": guard,
+        "guard_ms": guard_ms,
+        "rest_buff": rest,
+        "rest_ms": rest_ms,
+        "area": {
+            "name": sp["SpawnData"],
+            "life_ms": area["LifeDuration"],
+            "radius_milli": area["Radius"],
+            "damage": area["Damage"],
+            "crown_tower_damage_percent": ct_percent(area["CrownTowerDamagePercent"]),
+            "hits_ground": flag(area, "HitsGround") is True,
+            "hits_air": flag(area, "HitsAir") is True,
+            "only_enemies": flag(area, "OnlyEnemies") is True,
         },
     }
 

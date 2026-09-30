@@ -452,7 +452,10 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Skeleton Dragons, the Witch Mother and the Sparky left the report while nothing reads those keys for them.
     # Measured with the installed module's catalogue, the ledger before and after the flip.
     # The wave-2 figure above was measured before this flip; the merged 95 is confirmed on the built module.
-    outside_by_vintage = {"2018": 40, "15.535": 95}
+    # 95 -> 94 when card.rs began reading OverrideAttackFinishTime off the row (CardDef::override_attack_finish, the
+    # Hero Valkyrie's patch): MINISPARKYS leave, their only flag. The WHOLE delta: the outside sets before and after
+    # differ by MiniSparkys alone. The Electro Dragon, the Princess and the Bowler lose the key and stay for others.
+    outside_by_vintage = {"2018": 40, "15.535": 94}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (
