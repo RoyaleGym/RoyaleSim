@@ -392,13 +392,16 @@ fn add_splash_bonus(ents: &Entities, calib: &Calib, hits: &mut [Hit], b: Bonus, 
     }
 }
 
-/// AN EVO BOMBER'S BOUNCES (`Projectile::bounce`): the bounces left, their length (subtiles) and the point this flight
-/// started from (the thrower's, then each landing's): the line a bounce goes on along.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+/// AN EVO BOMBER'S BOUNCES (`Projectile::bounce`): the bounces left, their length (subtiles), the point this flight
+/// started from (the thrower's, then each landing's): the line a bounce goes on along, and every unit the throw's
+/// landings have hit so far, sorted (a later landing spares them). `hit` is `default` so a battle saved before it loads.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct BounceHop {
     pub left: u8,
     pub range: i32,
     pub from: Vec2,
+    #[serde(default)]
+    pub hit: Vec<EntityId>,
 }
 
 /// A CHAINED SHOT'S HOPS (`Projectile::chain`): the hops left, the chain's radius (subtiles), every unit it has hit, in
@@ -1364,7 +1367,7 @@ pub fn fire(
             // THE CHAIN (card.rs `ChainHitDef`): the hops after this target.
             chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target], wait: 0 }),
             // THE BOUNCE (card.rs `BounceDef`, the Evo Bomber's): the bounces after this landing.
-            bounce: card.evo.as_ref().and_then(|v| v.bounce).map(|b| BounceHop { left: b.count, range: b.range, from: pos }),
+            bounce: card.evo.as_ref().and_then(|v| v.bounce).map(|b| BounceHop { left: b.count, range: b.range, from: pos, hit: Vec::new() }),
         });
         return;
     }
@@ -2004,19 +2007,38 @@ pub fn step_projectiles(
         if p.splash > 0 {
             let from = dmg.hits.len();
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
+            // AN EVO BOMBER'S LATER LANDING spares every unit the throw's earlier landings hit (card.rs `BounceDef`).
+            #[cfg(not(clash_plant = "bounce_rehits"))]
+            if let Some(b) = p.bounce.as_ref().filter(|b| !b.hit.is_empty()) {
+                let mut k = from;
+                while k < dmg.hits.len() {
+                    if b.hit.binary_search(&dmg.hits[k].target).is_ok() {
+                        dmg.hits.remove(k);
+                    } else {
+                        k += 1;
+                    }
+                }
+            }
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], bonus, p.target);
             apply_attack_buff(ents, calib, p.buff, p.pulse, (p.src_level, p.buff_first), p.target, scratch, fx);
             // AN EVO BOMBER'S BOUNCE (`Projectile::bounce`, card.rs `BounceDef`): a new bomb on the landing point, aimed
             // `range` on along the line this flight came (from `BounceHop::from`), one bounce fewer; it first steps next
             // tick, as every released shot does.
             #[cfg(not(clash_plant = "bounce_never"))]
-            if let Some(b) = p.bounce.filter(|b| b.left > 0) {
+            if let Some(b) = p.bounce.as_ref().filter(|b| b.left > 0) {
                 let (dx, dy) = (i64::from(p.aim.x - b.from.x), i64::from(p.aim.y - b.from.y));
                 let len = isqrt(dx * dx + dy * dy);
                 if len > 0 {
                     let r = i64::from(b.range);
                     let next = Vec2::new(p.aim.x + (dx * r / len) as i32, p.aim.y + (dy * r / len) as i32);
-                    let hop = BounceHop { left: b.left - 1, range: b.range, from: p.aim };
+                    // The next landing spares this one's victims too.
+                    let mut hit = b.hit.clone();
+                    for h in &dmg.hits[from..] {
+                        if let Err(k) = hit.binary_search(&h.target) {
+                            hit.insert(k, h.target);
+                        }
+                    }
+                    let hop = BounceHop { left: b.left - 1, range: b.range, from: p.aim, hit };
                     released.push(Projectile { pos: p.aim, aim: next, fixed: true, frac: Vec2::default(), fresh: false, bounce: Some(hop), ..p.clone() });
                 }
             }

@@ -22077,12 +22077,19 @@ impl BattleState {
                     h.u32(t.next as u32);
                 }
                 // A bomb's bounces, only on one.
-                if let Some(b) = p.bounce {
+                if let Some(b) = &p.bounce {
                     h.u32(0x424f_554e);
                     h.u32(u32::from(b.left));
                     h.i32(b.range);
                     h.i32(b.from.x);
                     h.i32(b.from.y);
+                    // The units its throw has hit, only when there are some.
+                    if !b.hit.is_empty() {
+                        h.u32(b.hit.len() as u32);
+                        for id in &b.hit {
+                            h.id(*id);
+                        }
+                    }
                 }
                 // A chained shot's hops, only on one, so a battle without one hashes as before.
                 if let Some(c) = &p.chain {

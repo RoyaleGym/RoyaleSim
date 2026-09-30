@@ -4223,8 +4223,10 @@ struct RawFarShot {
 ///
 /// Measured on client 15.535.29 (sp-form-Bomber-evo-s0, two throws): the bomb (400 a tick) landed on t855; a bomb stood
 /// on its landing point on t855, moved 400 a tick from t856 along the throw's line (within 0.01 of its bearing) and
-/// landed 2499 on on t862, and the next did the same, landing on t869; the second throw alike (t891, t898). Read off
-/// the table, not measured: each landing's splash.
+/// landed 2499 on on t862, and the next did the same, landing on t869; the second throw alike (t891, t898). A later
+/// landing spares every unit the throw's earlier landings hit (combat.rs `BounceHop::hit`): the bomb hit a Musketeer
+/// 1965 from its landing, and the bounces landed 1551 (t862) and, on the second throw, 1807 (t898) from it, and it lost
+/// nothing. Read off the table, not measured: a fresh unit's splash from a bounce (the bomb's).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct BounceDef {
     pub count: u8,

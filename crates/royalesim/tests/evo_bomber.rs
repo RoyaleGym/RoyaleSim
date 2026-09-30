@@ -6,11 +6,15 @@
 //!   - that bomb moved from the next frame, 400 a tick along the throw's line (within 0.01 of its bearing), and landed
 //!     2500 on (2499 read) 7 frames after the first landing; a second did the same 7 frames later (SpawnChain 2).
 //!
-//! Read off the table, not measured: each landing's splash (the bounce's row extends the bomb's).
+//!   - a later landing spared a Musketeer the bomb had hit, 1551 and 1807 from the bounces' landings.
+//!
+//! Read off the table, not measured: a fresh unit's splash from a bounce (the bounce's row extends the bomb's).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_bomber`):
 //!   - bounce_never -> `the_bomb_bounces_twice_along_its_line_2500_each` red.
+//! PLANT bounce_rehits (`RUSTFLAGS='--cfg clash_plant="bounce_rehits"' CARGO_TARGET_DIR=target/plant cargo test
+//! --profile gate --test evo_bomber`) -> `a_bounce_spares_what_the_throws_landing_hit` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -63,7 +67,7 @@ fn the_bomb_bounces_twice_along_its_line_2500_each() {
         assert!(s.debug_set_hp(giant, gt));
         assert!(s.debug_set_hp(knight, kt));
         s.tick();
-        bombs.push(s.projectiles().iter().filter_map(|p| p.bounce.map(|b| (p.pos, p.aim, b.left))).collect());
+        bombs.push(s.projectiles().iter().filter_map(|p| p.bounce.as_ref().map(|b| (p.pos, p.aim, b.left))).collect());
         lost.push((gt - s.entity(giant).expect("the Giant").hp, kt - s.entity(knight).expect("the Knight").hp));
     }
     let with = |k: usize, left: u8| bombs[k].iter().find(|b| b.2 == left).copied();
@@ -92,4 +96,47 @@ fn the_bomb_bounces_twice_along_its_line_2500_each() {
     assert_eq!(lost[b2 + 7].1, lost[b1].0, "the second bounce splashes the Knight as the bomb did the Giant");
     assert!(lost[b1..b2 + 7].iter().all(|l| l.1 == 0), "nothing reached the Knight before: {:?}", &lost[b1..b2 + 7]);
     assert!((b2 + 7..b2 + 20).all(|k| bombs[k].iter().all(|b| b.2 == 2)), "no third bounce");
+}
+
+#[test]
+fn a_bounce_spares_what_the_throws_landing_hit() {
+    // As above, with a second red Knight held 1250 on from where the bomb lands, along the line: in the splash (1500 +
+    // 500) of the landing and of the first bounce's. The landing takes it down once; the first bounce leaves it.
+    let mut s = battle();
+    let at = n(8000, 9800);
+    let giant_at = n(9500, 13500);
+    s.spawn_unit(Team::Blue, "Bomber_EV1", at, None).expect("the Bomber");
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("a red Giant");
+    s.tick();
+    let bomber = find_live(&s, Team::Blue, "Bomber_EV1").first().expect("the Bomber").id;
+    let mut mid: Option<(royalesim::EntityId, Vec2)> = None;
+    let mut lost: Vec<i32> = Vec::new();
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(bomber, at));
+        assert!(s.debug_set_pos(giant, giant_at));
+        let gt = s.entity(giant).expect("the Giant").max_hp;
+        assert!(s.debug_set_hp(giant, gt));
+        // Once the bomb is thrown, the Knight goes 1250 on from its landing point along the throw's line.
+        if mid.is_none() {
+            if let Some(aim) = s.projectiles().iter().find(|p| p.bounce.as_ref().is_some_and(|b| b.left == 2)).map(|p| p.aim) {
+                let d = aim.sub(at);
+                let len = i64::from(d.len().max(1));
+                let k_at = Vec2::new(aim.x + (i64::from(d.x) * 1250 * i64::from(K) / len) as i32, aim.y + (i64::from(d.y) * 1250 * i64::from(K) / len) as i32);
+                let k = s.scenario_spawn_now(Team::Red, "Knight", k_at, None).expect("a red Knight");
+                mid = Some((k, k_at));
+            }
+        }
+        if let Some((k, k_at)) = mid {
+            assert!(s.debug_set_pos(k, k_at));
+        }
+        let before = mid.map(|(k, _)| s.entity(k).expect("the Knight").hp);
+        s.tick();
+        lost.push(match (mid, before) {
+            (Some((k, _)), Some(b)) => b - s.entity(k).expect("the Knight").hp,
+            _ => 0,
+        });
+    }
+    // The throw's landing hits it; its two bounces (7 and 14 frames on) leave it.
+    let first = lost.iter().position(|l| *l > 0).expect("the landing hits the Knight");
+    assert!(first + 14 < lost.len() && lost[first + 1..=first + 14].iter().all(|l| *l == 0), "the bounces spare it: {:?}", &lost[first..(first + 15).min(lost.len())]);
 }
