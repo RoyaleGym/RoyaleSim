@@ -506,9 +506,9 @@ Working:
   card that loads, the Miner, the Goblin Drill and the Mirror included, and the Minion Giant last.
   A clone reads the same 145-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
-- Evolved and hero forms for fifty special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
+- Evolved and hero forms for fifty-one special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
   Elite Barbarians, Evo Zap, Evo Battle Ram, Evo Inferno Dragon, Evo Baby Dragon, Evo Royal Ghost,
-  Evo Skeleton Army, Evo Giant Snowball, Evo Skeleton Barrel, Evo Mortar, Evo Royal Hogs, Evo Minion Horde, Evo Tesla, Evo Royal Recruits, Evo Wizard, Evo Knight, Evo Barbarians, Evo Bomber, Evo Valkyrie, Evo Archer, Evo Royal Giant, Evo Mega Knight, Evo P.E.K.K.A., Evo Bats, Evo Wall Breakers, Evo Ice Spirits, Evo Firecracker, Evo Witch, Evo Goblin Cage, Evo Executioner, Evo Goblin Giant, Evo Princess, Evo Hunter, Evo Dart Goblin, Evo Furnace, Evo Electro Dragon, Evo Goblin Drill, Hero Musketeer, Hero Ice Golem, Hero Berserker, Hero Balloon,
+  Evo Skeleton Army, Evo Giant Snowball, Evo Skeleton Barrel, Evo Mortar, Evo Royal Hogs, Evo Minion Horde, Evo Tesla, Evo Royal Recruits, Evo Wizard, Evo Knight, Evo Barbarians, Evo Bomber, Evo Valkyrie, Evo Archer, Evo Royal Giant, Evo Mega Knight, Evo P.E.K.K.A., Evo Bats, Evo Wall Breakers, Evo Ice Spirits, Evo Firecracker, Evo Witch, Evo Goblin Cage, Evo Executioner, Evo Goblin Giant, Evo Princess, Evo Hunter, Evo Dart Goblin, Evo Furnace, Evo Electro Dragon, Evo Goblin Drill, Evo Goblin Barrel, Hero Musketeer, Hero Ice Golem, Hero Berserker, Hero Balloon,
   Hero Valkyrie, Hero Wizard, Hero Mini P.E.K.K.A., Hero Knight, Hero Mega Minion and Hero Giant.
   `reset(..., forms=...)` marks
   a deck's card 1 for its evolution or 2 for its hero. Counting each card's own plays, an evolved

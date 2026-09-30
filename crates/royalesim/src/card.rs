@@ -1959,6 +1959,9 @@ pub struct EvoDef {
     pub chain: Option<EvoChainDef>,
     /// Evo Goblin Drill: its building's hides (`DrillDef`), on the form and on the building it morphs into.
     pub drill: Option<DrillDef>,
+    /// Evo Goblin Barrel: its decoy barrel's card (a summon-only spell: the form's with GoblinDummies for its Goblins),
+    /// cast with the form at the point mirrored across the arena's middle (state.rs `phase_spawn`).
+    pub mirror: Option<u16>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4275,6 +4278,8 @@ struct RawEvolution {
     evo_chain: Option<RawEvoChain>,
     /// The Evo Goblin Drill's hides (`drill_block`).
     evo_drill: Option<RawDrill>,
+    /// The Evo Goblin Barrel's decoy (`mirror_block`).
+    evo_mirror: Option<RawMirror>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4336,6 +4341,12 @@ struct RawCage {
     hit_ms: Option<i32>,
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
+    unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_mirror` (tools/extract_cards.py `mirror_block`).
+#[derive(Deserialize)]
+struct RawMirror {
     unit: Option<String>,
 }
 
@@ -10047,10 +10058,13 @@ impl CardDb {
             extra.evo_furnace.is_some(),
             extra.evo_chain.is_some(),
             extra.evo_drill.is_some(),
+            extra.evo_mirror.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
-        if (spell_form && carried != 0) || (!spell_form && carried != 1) {
-            return Err("a troop or building form carries exactly one mechanic block here, a spell form none".into());
+        // A spell form's mechanic is its own spell object's, save the Evo Goblin Barrel's decoy, a block of its own.
+        let spell_blocks = usize::from(extra.evo_mirror.is_some());
+        if (spell_form && carried != spell_blocks) || (!spell_form && carried != 1) {
+            return Err("a troop or building form carries exactly one mechanic block here, a spell form none but a decoy".into());
         }
         let reads: &[&str] = if extra.evo_barrage.is_some() {
             &["ActionCannonBarrage", "ActionGroup"]
@@ -10090,6 +10104,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_mirror.is_some() {
+            // The decoy's cast (`mirror_block` reads it whole).
+            &["ActionMirroredExtraSpell"]
         } else if extra.evo_chain.is_some() {
             // His attack's group and its chain (`evo_chain_block` reads them whole).
             &["ActionChainProjectileAttack", "ActionGroup"]
@@ -10188,6 +10205,8 @@ impl CardDb {
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
+        // THE DECOY BARREL is its block's too (`mirror_block` reads it whole).
+        let mirror_spawns = |g: &RawActionGraph| extra.evo_mirror.is_some() && g.spawns.iter().all(|s| s.starts_with("ProjectileType:"));
         // THE CHAIN'S LIGHTNINGS are its block's too (`evo_chain_block` reads them whole).
         let chain_spawns = |g: &RawActionGraph| extra.evo_chain.is_some() && g.spawns.iter().all(|s| s.starts_with("ProjectileType:"));
         // THE FURNACE'S SPIRITS AND THEIR LAUNCH are its block's too (`furnace_block` reads them whole).
@@ -10197,7 +10216,7 @@ impl CardDb {
             })
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -10235,6 +10254,15 @@ impl CardDb {
         // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
         let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // THE EVO GOBLIN BARREL'S GOBLINS: its barrel's, a loaded troop found by name.
+            if let (Some(_), UnitUse::Spell) = (extra.evo_mirror.as_ref(), &which) {
+                let idx = self.index(&u).filter(|&i| self.get(i).kind == CardKind::Troop).ok_or_else(|| format!("its barrel's unit {u} is not a loaded troop"))?;
+                match c.spell.as_mut().map(|s| &mut s.shape) {
+                    Some(SpellShape::Projectile { spawn: Some(sp), .. }) => sp.unit = idx,
+                    _ => return Err("a barrel form whose spell releases no unit".into()),
+                }
+                continue;
+            }
             // THE EVO GOBLIN DRILL'S BUILDING: its base's building in play (`drill_block` holds the two rows alike but for
             // the block's own columns), named units.GoblinDrill_EV1 as a unit record beside a card of its name is.
             if let (Some(d), UnitUse::Morph) = (extra.evo_drill.as_ref(), &which) {
@@ -10351,6 +10379,7 @@ impl CardDb {
                     furnace: None,
                     chain: None,
                     drill: None,
+                    mirror: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10560,6 +10589,7 @@ impl CardDb {
             furnace: None,
             chain: None,
             drill: None,
+            mirror: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10679,6 +10709,28 @@ impl CardDb {
                 hide,
             });
         }
+        // THE DECOY'S UNIT (the Evo Goblin Barrel's GoblinDummy): its own row, a plain troop, loaded as a summon-only record
+        // after the form; the decoy barrel that releases it is made after the form's push.
+        let dummy = match extra.evo_mirror.as_ref().and_then(|m| m.unit.clone()) {
+            None if extra.evo_mirror.is_some() => return Err("a decoy barrel with no unit".into()),
+            None => None,
+            Some(u) => {
+                let mut uv = ctx.units.get(&u).cloned().ok_or_else(|| format!("decoy unit {u}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("decoy unit {u}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("decoy unit {u}: {e}"))?;
+                if ur.action_graph.as_ref().is_some_and(|g| g.mechanic.unwrap_or(false)) {
+                    return Err(format!("decoy unit {u} runs an action graph; not simulated"));
+                }
+                let (mut m, _, dneeds) = convert(ur, buffs, ctx).map_err(|e| format!("decoy unit {u}: {e}"))?;
+                if let Some((_, n)) = dneeds.first() {
+                    return Err(format!("decoy unit {u} needs {n}; not simulated"));
+                }
+                m.summon_only = true;
+                Some(m)
+            }
+        };
         // THE HIDES (the Evo Goblin Drill's), read onto the form: its building gets the form's EvoDef when it is pushed.
         if let Some(d) = &extra.evo_drill {
             let m = morph.as_ref().ok_or("a drill form whose dig morphs into nothing")?;
@@ -11172,6 +11224,25 @@ impl CardDb {
             }
             if let Some(ds) = f.death_spawn.as_mut() {
                 ds.unit = first + 1;
+            }
+        }
+        // THE EVO GOBLIN BARREL'S DECOY after the form: its GoblinDummy, then the decoy barrel (the form's spell with the
+        // dummies for its Goblins; not played, no block, its units rooted to the base as the form's are); the form casts it.
+        if let Some(dm) = dummy {
+            self.push(dm, None)?;
+            let di = (self.cards.len() - 1) as u16;
+            let mut decoy = self.cards[form as usize].clone();
+            decoy.name = format!("{}_Decoy", decoy.name);
+            decoy.summon_only = true;
+            decoy.evo = None;
+            match decoy.spell.as_mut().map(|s| &mut s.shape) {
+                Some(SpellShape::Projectile { spawn: Some(sp), .. }) => sp.unit = di,
+                _ => return Err("a decoy barrel whose spell releases no unit".into()),
+            }
+            self.push(decoy, None)?;
+            let bi = (self.cards.len() - 1) as u16;
+            if let Some(v) = self.cards[form as usize].evo.as_mut() {
+                v.mirror = Some(bi);
             }
         }
         // THE EVO GOBLIN DRILL'S BUILDING after the form, carrying the form's EvoDef (its hides); the form's dig morphs into

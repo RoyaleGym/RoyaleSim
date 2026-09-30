@@ -3704,7 +3704,7 @@ EVOLUTIONS = (
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
-    "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1",
+    "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -5071,6 +5071,35 @@ def net_block(t: Tables, card: dict) -> dict:
             "ground_ms": ground[0]["TotalDuration"]}
 
 
+def mirror_block(t: Tables, s, card: dict) -> dict:
+    """THE EVO GOBLIN BARREL (spells_evolved.toml GoblinBarrel_EV1, projectiles_evo.toml), read whole or the build
+    stops: its OnExecuteAction is an ActionMirroredExtraSpell of one Projectile, its decoy (`projectile`): the barrel's
+    own projectile in play (an [EXT] of the same row, setting nothing else) but for its SpawnCharacter (`unit`), cast
+    with the barrel at the point mirrored across the arena's middle."""
+    acts, pt = t["actions"], t["projectiles"]
+    name = card["name"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{name}: {what}")
+
+    # Its section of csv_logic/spells_evolved.toml (no overlay lays that file): the execute action, the layout its
+    # barrel shares with its base's, and the card screen's stats.
+    doc = tomllib.load((t.vintage.raw / "spells_evolved.toml").open("rb")).get(name) or {}
+    need(set(doc) <= {"OnExecuteAction", "SummonCharactersOffsetsX", "SummonCharactersOffsetsY", "Stats"},
+         f"its spells_evolved.toml section sets {sorted(doc)}")
+    a = acts.get(doc.get("OnExecuteAction"))
+    need(a is not None and a["ClassType"] == "ActionMirroredExtraSpell" and _present(a) <= {"ClassType", "Projectile"},
+         "its execute action")
+    decoy, own = a["Projectile"], card["projectile"]["name"]
+    d, o = pt.get(decoy), pt.get(own)
+    need(d is not None and o is not None and d["Base"] == o["Base"] and d["Base"], f"its decoy {decoy!r}")
+    extra = {c for c in pt.set_fields.get(decoy, set()) if not COSMETIC.search(c) and not c.startswith("Prestige")}
+    need(extra <= {"Base", "SpawnCharacter"} and d["SpawnCharacter"] and d["SpawnCharacter"] != o["SpawnCharacter"],
+         f"its decoy sets {sorted(extra)}")
+    return {"projectile": decoy, "unit": d["SpawnCharacter"]}
+
+
 # THE EVO GOBLIN DRILL (`drill_block`): its dig's and its building's columns besides display, and its actions' keys.
 DRILL_DIG_ROW = {"SpawnPathfindMorph"}
 DRILL_ROW = {"OnStartingAction", "SpawnAreaObject", "ClonedVersion"}
@@ -6005,6 +6034,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_cycles"] = s["DarkElixirCost"]
             if name == "Snowball_EV1":
                 card["evo_capture"] = capture_block(t, card)
+            if name == "GoblinBarrel_EV1":
+                card["evo_mirror"] = mirror_block(t, s, card)
             out.append(card)
             continue
         card = summon_card(t, rarities, kind, "spells_evolved", s)

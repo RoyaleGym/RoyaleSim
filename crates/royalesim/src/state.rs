@@ -12472,6 +12472,16 @@ impl BattleState {
                     let cast = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, p.pos, self.tick)
                         .expect("spell level validated at enqueue");
                     self.spells.extend(cast);
+                    // THE EVO GOBLIN BARREL'S DECOY (card.rs `EvoDef::mirror`): cast with it at the point mirrored across the
+                    // arena's middle. Measured on client 15.535.29 (sp-form-GoblinBarrel-evo-s0): played at (14500, 13500),
+                    // its Goblins and the decoy's three GoblinDummies about (3500, 13500) stood on one tick.
+                    #[cfg(not(clash_plant = "barrel_decoy_never"))]
+                    if let Some(decoy) = self.cfg.cards.get(p.card).evo.as_ref().and_then(|v| v.mirror) {
+                        let at = Vec2::new(self.cfg.arena.width - p.pos.x, p.pos.y);
+                        let cast = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, decoy, p.level, at, self.tick)
+                            .expect("the decoy loads with its form");
+                        self.spells.extend(cast);
+                    }
                     continue;
                 }
             };

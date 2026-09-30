@@ -509,7 +509,8 @@ fn forms_take_slots_after_every_existing_card() {
             ("BlowdartGoblin", "BlowdartGoblin_EV1"),
             ("FirespiritHut", "FirespiritHut_EV1"),
             ("ElectroDragon", "ElectroDragon_EV1"),
-            ("GoblinDrill", "GoblinDrill_EV1")
+            ("GoblinDrill", "GoblinDrill_EV1"),
+            ("GoblinBarrel", "GoblinBarrel_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
@@ -522,9 +523,13 @@ fn forms_take_slots_after_every_existing_card() {
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
     // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
-    // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace, the Evo Electro Dragon and the Evo Goblin Drill with its
-    // building.
-    assert_eq!(db.cards.len(), n0 + 52);
+    // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace, the Evo Electro Dragon, the Evo Goblin Drill with its
+    // building and the Evo Goblin Barrel with its GoblinDummy and its decoy barrel.
+    assert_eq!(db.cards.len(), n0 + 55);
+    let barrel: Vec<&str> = db.cards[n0 + 52..].iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(barrel, ["GoblinBarrel_EV1", "GoblinDummy", "GoblinBarrel_EV1_Decoy"]);
+    assert_eq!(db.cards[n0 + 52].evo.as_ref().and_then(|e| e.mirror), Some((n0 + 54) as u16), "the form casts its decoy");
+    assert!(db.cards[n0 + 54].summon_only && db.cards[n0 + 54].evo.is_none() && db.cards[n0 + 53].hitpoints == 32);
     assert_eq!((db.cards[n0 + 50].name.as_str(), db.cards[n0 + 51].name.as_str()), ("GoblinDrill_EV1", "units.GoblinDrill_EV1"));
     let dr = db.cards[n0 + 51].evo.as_ref().and_then(|e| e.drill).expect("the Evo Goblin Drill building's hides");
     assert!(dr.thresholds == [66, 33] && dr.waves == [[-1, 1], [-1, 0]] && dr.hide_ms == 1000 && dr.goblin_deploy_ms == 500 && db.cards[dr.goblin as usize].name == "Goblin");
