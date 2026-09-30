@@ -360,6 +360,7 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.evo.as_ref().and_then(|v| v.barrage.as_ref()).map(|b| &b.shot))
         .or(def.evo.as_ref().and_then(|v| v.ghost.as_ref()).map(|g| &g.strike))
         .or(def.evo.as_ref().and_then(|v| v.fall.as_ref()).map(|f| &f.landing))
+        .or(def.evo.as_ref().and_then(|v| v.shield_blast.as_ref()))
         .or(def.idle_area.as_ref())
         .or(def.deploy_spawn_area.as_ref())
         // The Hero Giant's landing blow (card.rs `SlapDef::landing`; state.rs `slap_pass`).

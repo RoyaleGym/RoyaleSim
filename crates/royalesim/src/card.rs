@@ -1910,6 +1910,9 @@ pub struct EvoDef {
     pub first_hit: Option<BuffApply>,
     /// Evo Tesla: the ring it makes at its creation and each time it comes up (`RingDef`).
     pub ring: Option<RingDef>,
+    /// Evo Wizard: the blast its shield's loss makes on it (state.rs `shield_blasts`; spell.rs `shape_of`), a one-hit
+    /// area. Read off the table, not measured: the client's scene never broke the shield.
+    pub shield_blast: Option<SpellDef>,
     /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
     /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
     /// recruits lost their shields in melee and never ran up.
@@ -4156,6 +4159,8 @@ struct RawEvolution {
     evo_ring: Option<RawRing>,
     /// The Evo Royal Recruits' charge after the shield (`charge_after_shield_block`): the buff it spawns.
     evo_charge_after_shield: Option<RawChargeAfterShield>,
+    /// The Evo Wizard's blast (`shield_blast_block`): the area and the buff that only shows.
+    evo_shield_blast: Option<RawShieldBlast>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4166,6 +4171,13 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_shield_blast` (tools/extract_cards.py `shield_blast_block`).
+#[derive(Deserialize)]
+struct RawShieldBlast {
+    area: Option<String>,
+    shown_buff: Option<String>,
 }
 
 /// cards.json `evolutions[].evo_charge_after_shield` (tools/extract_cards.py `charge_after_shield_block`).
@@ -9288,6 +9300,7 @@ impl CardDb {
             extra.evo_first_hit.is_some(),
             extra.evo_ring.is_some(),
             extra.evo_charge_after_shield.is_some(),
+            extra.evo_shield_blast.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9322,6 +9335,9 @@ impl CardDb {
         } else if extra.evo_charge_after_shield.is_some() {
             // The shield's loss: the charge-range buff's spawn (`charge_after_shield_block` reads it whole).
             &["ActionSpawn"]
+        } else if extra.evo_shield_blast.is_some() {
+            // The start's shown buff and the loss's blast (`shield_blast_block` reads them whole).
+            &["ActionGroup", "ActionPlayEffect", "ActionSpawn"]
         } else {
             &[]
         };
@@ -9348,6 +9364,13 @@ impl CardDb {
             let name = extra.evo_first_hit.as_ref().and_then(|f| f.buff.as_ref()).and_then(|b| b.name.as_deref());
             name.is_some_and(|n| g.spawns.iter().all(|s| s == &format!("BuffType:{n}")))
         };
+        // THE BLAST AND THE SHOWN BUFF are their block's too (`shield_blast_block` reads them whole).
+        let blast_spawns = |g: &RawActionGraph| {
+            extra.evo_shield_blast.as_ref().is_some_and(|b| {
+                let (a, s) = (b.area.as_deref().unwrap_or(""), b.shown_buff.as_deref().unwrap_or(""));
+                g.spawns.iter().all(|x| x == &format!("AreaEffectType:{a}") || x == &format!("BuffType:{s}"))
+            })
+        };
         // THE CHARGE-RANGE BUFF is its block's too (`charge_after_shield_block` reads it whole).
         let charge_spawns = |g: &RawActionGraph| {
             extra.evo_charge_after_shield.as_ref().and_then(|c| c.buff.as_deref()).is_some_and(|b| g.spawns.iter().all(|s| s == &format!("BuffType:{b}")))
@@ -9357,7 +9380,7 @@ impl CardDb {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9427,6 +9450,7 @@ impl CardDb {
                     fall: None,
                     first_hit: None,
                     ring: None,
+                    shield_blast: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9594,6 +9618,7 @@ impl CardDb {
             fall: None,
             first_hit: None,
             ring: None,
+            shield_blast: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9649,6 +9674,16 @@ impl CardDb {
                 crown_hit: r.crown_hit.unwrap_or(0).max(0),
                 stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
             });
+        }
+        // THE SHIELD'S BLAST: the area converted as an area spell's (it must release no unit), on a card with a shield.
+        if let Some(b) = &extra.evo_shield_blast {
+            let name = b.area.as_deref().ok_or("a shield blast with no area")?;
+            let aeo = ctx.aeos.get(name).ok_or_else(|| format!("shield blast {name}: no area record"))?;
+            let (shape, more) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("shield blast {name}: {e}"))?;
+            if !more.is_empty() || c.shield_hitpoints <= 0 {
+                return Err(format!("shield blast {name}: releases units, or the card has no shield; not simulated"));
+            }
+            evo.shield_blast = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
         }
         // THE CHARGE AFTER THE SHIELD: the card's charge carries the buff's range; a card with no charge or no shield
         // is refused.

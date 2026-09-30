@@ -13209,6 +13209,27 @@ impl BattleState {
         self.evo.barrel_drops.retain(|id| ents.is_alive(*id));
     }
 
+    /// THE SHIELD'S BLAST (card.rs `EvoDef::shield_blast`, the Evo Wizard's), in the Resolve phase right after the tick's
+    /// damage: each unit whose shield went to 0 makes its blast on its point, at its level, as a cast of its card (the area
+    /// strikes on its first update). Read off the table, not measured.
+    fn shield_blasts(&mut self, broke: Vec<EntityId>) {
+        let cards = self.cfg.cards.clone();
+        for id in broke {
+            if !self.ents.is_alive(id) {
+                continue;
+            }
+            let i = id.index as usize;
+            let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+            #[cfg(not(clash_plant = "shield_blast_never"))]
+            {
+                let blast = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos, self.tick).expect("the blast loads with its card");
+                self.spells.extend(blast);
+            }
+            #[cfg(clash_plant = "shield_blast_never")]
+            let _ = (team, card, level, pos); // PLANT: the shield's loss makes nothing.
+        }
+    }
+
     /// THE FIRST DAMAGE'S BUFF (card.rs `EvoDef::first_hit`, the Evo Minion Horde's ghost), in the Resolve phase right
     /// after the tick's damage: each unit of a card that carries one, hurt this tick and alive, takes the buff once in its
     /// life (the table's OnDamageTakenAction under its once-only flag). The hit that triggers it lands in full.
@@ -18331,6 +18352,10 @@ impl BattleState {
         // THE EVO MINION HORDE'S GHOST (card.rs `EvoDef::first_hit`): the first damage a minion survives lands its buff.
         if !out.hurt.is_empty() {
             self.first_hit(out.hurt);
+        }
+        // THE EVO WIZARD'S BLAST (card.rs `EvoDef::shield_blast`): a shield taken to 0 this tick.
+        if !out.shield_broke.is_empty() {
+            self.shield_blasts(out.shield_broke);
         }
         self.riders_die_with_their_mounts();
         // transform.HEALTH_TRIGGER_TIMING = crossing_tick_resolve: the health trigger read right after the tick's

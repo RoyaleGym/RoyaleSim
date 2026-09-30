@@ -3671,7 +3671,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
-    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1",
+    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4326,6 +4326,42 @@ FALL_GROUNDED_SET = {
 }
 
 
+def shield_blast_block(t: Tables, card: dict) -> dict:
+    """THE EVO WIZARD'S BLAST (spells_evolved Wizard_EV1; characters_evo Wizard_EV1), read whole or the build stops. The
+    unit row sets ShieldHitpoints; its ShieldLostAction is a group of one ActionSpawn, at delay 0, of an AreaEffectType
+    on the Wizard (`area`: the blast, a row of `area_effect_objects`); its OnStartingAction is a group of one ActionSpawn
+    of a buff that only shows while the shield holds (`shown_buff`: no column but AliveIfTrue HAS_SHIELD()) and an
+    effect."""
+    acts = t["actions"]
+    unit = card["summon_character"]
+    _, urow = unit_record(t, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"Wizard_EV1: {what}")
+
+    need(isinstance(urow["ShieldHitpoints"], int) and urow["ShieldHitpoints"] > 0, "no shield")
+    got = _group_leaves(acts, urow["ShieldLostAction"]) if isinstance(urow["ShieldLostAction"], str) else None
+    need(got is not None and len(got[0]) == 1 and got[1] == [0], "ShieldLostAction is not one step at delay 0")
+    sp = _one_action(acts, got[0][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies", "ParentGOAsSource"})
+    need(sp["SpawnType"] == "AreaEffectType" and sp["ParentGOAsSource"] is True, "the blast is not an area on the Wizard")
+    area = sp["SpawnData"]
+    need(t["area_effect_objects"].get(area) is not None, f"no area {area}")
+    # The start group lists one step and two delays ([100, 100]): its SubActions are read directly.
+    g = acts.get(urow["OnStartingAction"]) if isinstance(urow["OnStartingAction"], str) else None
+    need(g is not None and g["ClassType"] == "ActionGroup", "OnStartingAction is not a group")
+    ssubs = _action_list(acts, urow["OnStartingAction"], "SubActions")
+    need(len(ssubs) == 1, "OnStartingAction is not one step")
+    vfx = _one_action(acts, ssubs[0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies", "SpawnTime", "NextAction"})
+    shown = t["character_buffs"].get(vfx["SpawnData"])
+    need(vfx["SpawnType"] == "BuffType" and shown is not None
+         and t["character_buffs"].set_fields.get(vfx["SpawnData"], set()) <= {"Rarity", "AliveIfTrue"}
+         and shown["AliveIfTrue"] == "HAS_SHIELD()", "the start's buff does more than show")
+    need(vfx["NextAction"] is None or _cosmetic_action(acts, vfx["NextAction"]) or _cosmetic_inline(vfx["NextAction"]),
+         "the start's buff's NextAction")
+    return {"area": area, "shown_buff": vfx["SpawnData"]}
+
+
 def charge_after_shield_block(t: Tables, card: dict) -> dict:
     """THE EVO ROYAL RECRUITS' CHARGE (spells_evolved RoyalRecruits_EV1; characters_evo Recruit_EV1), read whole or the
     build stops. The unit row sets ChargeSpeedMultiplier and DamageSpecial and no ChargeRange; its ShieldLostAction is an
@@ -4813,6 +4849,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_ring"] = ring_block(t, card)
         elif name == "RoyalRecruits_EV1":
             card["evo_charge_after_shield"] = charge_after_shield_block(t, card)
+        elif name == "Wizard_EV1":
+            card["evo_shield_blast"] = shield_blast_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

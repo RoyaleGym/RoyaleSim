@@ -2201,6 +2201,9 @@ pub struct ResolveOut {
     /// Units of a card with a first-hit buff (card.rs `EvoDef::first_hit`) that took damage this tick and live on it,
     /// ascending slot order (state.rs `first_hit`).
     pub hurt: Vec<EntityId>,
+    /// Units of a card with a shield blast (card.rs `EvoDef::shield_blast`) whose shield this tick's damage took to 0,
+    /// ascending slot order (state.rs `shield_blasts`).
+    pub shield_broke: Vec<EntityId>,
 }
 
 /// Apply every buffered hit in one pass. `sums` is scratch.
@@ -2287,6 +2290,9 @@ pub fn resolve(
         }
         if ents.shield[i] > 0 {
             ents.shield[i] = (ents.shield[i] as i64 - s).max(0) as i32;
+            if ents.shield[i] == 0 && cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) {
+                out.shield_broke.push(ents.id_of(i));
+            }
         } else {
             ents.hp[i] = (ents.hp[i] as i64 - s).max(i32::MIN as i64) as i32;
             unkillable_floor(ents, cards, i);
