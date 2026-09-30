@@ -3704,7 +3704,7 @@ EVOLUTIONS = (
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
-    "FirespiritHut_EV1",
+    "FirespiritHut_EV1", "ElectroDragon_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4424,28 +4424,34 @@ def uppercut_block(t: Tables, card: dict) -> dict:
 
     subs = group_subactions(t, row["OnAttackAction"], f"{unit} attack")
     classes = [(acts.get(n) or {}).get("ClassType") for n, _ in subs]
-    need(classes == ["ActionSetVariable", "ActionMegaKnightUppercut"] and all(d == 0 for _, d in subs), f"OnAttackAction runs {subs}")
+    need(classes == ["ActionSetVariable", "ActionMegaKnightUppercut"] and all(d == 0 for _, d in subs),
+         f"OnAttackAction runs {subs}")
     counter, upper = acts.get(subs[0][0]), acts.get(subs[1][0])
     var = counter["Variable"]
     m = re.fullmatch(rf"\({re.escape(str(var))} \+ 1\) % (\d+)", str(counter["Value"]))
     need(m is not None and (t.variables.get(var) or {}).get("DefaultValue") == 0, f"the counter {counter['Value']!r}")
     every = int(m.group(1))
     sel = acts.get(counter["NextAction"] or "")
-    need(counter["NextActionWait"] is True and sel is not None and sel["ClassType"] == "ActionSelect", "the counter's select")
+    need(counter["NextActionWait"] is True and sel is not None and sel["ClassType"] == "ActionSelect",
+         "the counter's select")
     seq = t[tb].arrays.get(unit, {}).get("AttackSequenceList")
     need(isinstance(seq, list) and all(e == {"Damage": row["Damage"]} for e in seq), f"the attack entries {seq}")
-    need(upper["ExecuteIfTrue"] == f"{var} % {every} == 0" and upper["IgnorePushbackChecks"] is True and upper["DoFollowUpJump"] is False
+    need(upper["ExecuteIfTrue"] == f"{var} % {every} == 0" and upper["IgnorePushbackChecks"] is True
+         and upper["DoFollowUpJump"] is False
          and isinstance(upper["PushBackStrength"], int) and upper["PushBackStrength"] > 0, "the uppercut")
     tsubs = group_subactions(t, upper["ActionOnTargets"], f"{unit} uppercut target")
     kb = [(n, d) for n, d in tsubs if acts.get(n)["ClassType"] == "ActionKnockback"]
     root = [(n, d) for n, d in tsubs if acts.get(n)["ClassType"] == "ActionWithDuration"]
     rest = [n for n, _ in tsubs if acts.get(n)["ClassType"] not in ("ActionKnockback", "ActionWithDuration")]
-    need(len(kb) == 1 and kb[0][1] == 0 and len(root) == 1 and all(_cosmetic_action(acts, n) for n in rest), f"the target group {tsubs}")
+    need(len(kb) == 1 and kb[0][1] == 0 and len(root) == 1 and all(_cosmetic_action(acts, n) for n in rest),
+         f"the target group {tsubs}")
     k = acts.get(kb[0][0])
     r = acts.get(root[0][0])
-    need(isinstance(k["Duration"], int) and str(r["GameTagsToSet"]).strip() == "NO_MOVE" and isinstance(r["ActionDuration"], int),
+    need(isinstance(k["Duration"], int) and str(r["GameTagsToSet"]).strip() == "NO_MOVE"
+         and isinstance(r["ActionDuration"], int),
          "the knock or the root")
-    return {"every": every, "push_milli": upper["PushBackStrength"], "flight_ms": k["Duration"], "root_delay_ms": root[0][1],
+    return {"every": every, "push_milli": upper["PushBackStrength"], "flight_ms": k["Duration"],
+            "root_delay_ms": root[0][1],
             "root_ms": r["ActionDuration"]}
 
 
@@ -5063,6 +5069,73 @@ def net_block(t: Tables, card: dict) -> dict:
             "cast_ms": a["TrapCastTime"], "start_extra_milli": a["ProjectileStartExtraRadius"], "speed": net["speed"],
             "snare": norm_buff(t, spawns[0]["SpawnData"]), "snare_ms": spawns[0]["SpawnTime"],
             "ground_ms": ground[0]["TotalDuration"]}
+
+
+# THE EVO ELECTRO DRAGON (`evo_chain_block`): the unit row's columns it reads besides display, and the chain's keys.
+EVO_CHAIN_ROW = {"AttackSequenceList", "ClonedVersion", "StatsTags", "UseAnimator"}
+EVO_CHAIN_KEYS = {"ClassType", "Projectiles", "ChainRange", "ChainTargets", "AbortIfInstigatorDies", "MaxChainLength",
+                  "RepeatTargets", "DeprioritizeRepeatTargets", "MaximumTargetsToRememberForRepeatChecks",
+                  "GameTagsToSet", "StatsTags", "NextAction"}
+EVO_CHAIN_TOWERS = "default_targets_including_invisible"
+EVO_CHAIN_NO_TOWERS = "default_targets_no_towers_including_invisible"
+
+
+def evo_chain_block(t: Tables, card: dict) -> dict:
+    """THE EVO ELECTRO DRAGON (characters/electro_dragon_ev1.toml), read whole or the build stops: his one
+    AttackSequenceList entry's DoAttackAction is a group of an ActionChainProjectileAttack (and an empty sound); the
+    chain is endless (MaxChainLength -1), repeats its targets but not its last `remember`
+    (MaximumTargetsToRememberForRepeatChecks), within ChainRange (`range_milli`); its Projectiles list is his shot, as
+    his base's Projectile in play, `strong` times, then the weak lightning (`weak_damage`, `weak_speed`, no buff) for
+    every later hop; its ChainTargets take a crown tower on the first `towers_until` projectiles only, and the
+    invisible on all. His next shot ends it (its GameTagsToSet, the next action's ForceStopIfTrue)."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, pt = t["actions"], t["projectiles"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - EVO_CHAIN_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    seq = col_list(t[table], unit, "AttackSequenceList")
+    need(len(seq) == 1 and isinstance(seq[0], dict) and set(seq[0]) == {"DoAttackAction"}, f"its attack sequence {seq}")
+    subs = group_subactions(t, seq[0]["DoAttackAction"], f"{unit} attack")
+    need(len(subs) == 2 and all(d == 0 for _, d in subs), f"its attack group {subs}")
+    name = subs[0][0]
+    ch = acts.get(name)
+    need(ch is not None and ch["ClassType"] == "ActionChainProjectileAttack" and _present(ch) <= EVO_CHAIN_KEYS,
+         f"its chain ({sorted(_present(ch)) if ch is not None else None})")
+    sound = acts.get(subs[1][0])
+    need(sound is None or sound["ClassType"] is None or _cosmetic_action(acts, subs[1][0]), "its attack's sound")
+    need(ch["MaxChainLength"] == -1 and ch["RepeatTargets"] is True and ch["DeprioritizeRepeatTargets"] is True
+         and ch["AbortIfInstigatorDies"] is False and ch["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1", "its chain's rule")
+    remember = ch["MaximumTargetsToRememberForRepeatChecks"]
+    need(isinstance(remember, int) and remember >= 1 and isinstance(ch["ChainRange"], int) and ch["ChainRange"] > 0,
+         "its chain's reach")
+    projs = col_list(acts, name, "Projectiles")
+    targets = col_list(acts, name, "ChainTargets")
+    need(len(projs) >= 2 and all(pt.get(p) is not None for p in projs), f"its projectiles {projs}")
+    need(len(targets) >= 2 and all(x in (EVO_CHAIN_TOWERS, EVO_CHAIN_NO_TOWERS) for x in targets)
+         and targets == sorted(targets, key=lambda x: x == EVO_CHAIN_NO_TOWERS) and targets[-1] == EVO_CHAIN_NO_TOWERS,
+         f"its chain's targets {targets}")
+    base = pt.get(row["Projectile"])
+    play = ("Damage", "Speed", "Homing", "OnlyEnemies", "BuffTime")
+    rows = [pt.get(p) for p in projs]
+    need(all(r[c] == base[c] for r in rows[:-1] for c in play) and all(r["TargetBuff"] for r in rows[:-1]),
+         "its strong hits differ from his shot in play")
+    buff = t["character_buffs"].get(rows[0]["TargetBuff"])
+    need(buff is not None and {c for c in t["character_buffs"].set_fields.get(rows[0]["TargetBuff"], set())
+                               if not COSMETIC.search(c)} <= {"Base", "StatsTags"}
+         and buff["Base"] == f"BUFF.{base['TargetBuff']}", "its stun is not his shot's")
+    weak = rows[-1]
+    need(all(weak[c] == base[c] for c in ("Homing", "OnlyEnemies")) and not weak["TargetBuff"] and not weak["BuffTime"]
+         and isinstance(weak["Damage"], int) and isinstance(weak["Speed"], int), "its weak lightning")
+    return {"remember": remember, "range_milli": ch["ChainRange"], "strong": len(projs) - 1,
+            "towers_until": targets.index(EVO_CHAIN_NO_TOWERS), "weak_damage": weak["Damage"],
+            "weak_speed": weak["Speed"], "invisible": True}
 
 
 # THE EVO FURNACE (`furnace_block`): the unit row's columns it reads besides display, and the keys of each action.
@@ -5925,6 +5998,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_dart_poison"] = dart_poison_block(t, card)
         elif name == "FirespiritHut_EV1":
             card["evo_furnace"] = furnace_block(t, card)
+        elif name == "ElectroDragon_EV1":
+            card["evo_chain"] = evo_chain_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

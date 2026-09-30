@@ -413,6 +413,17 @@ pub struct ChainHop {
     pub hit: Vec<EntityId>,
     #[serde(default)]
     pub wait: u8,
+    /// THE EVO ELECTRO DRAGON'S CHAIN (card.rs `EvoChainDef`): endless, `hit` its last hits only. `default` so a battle
+    /// saved before it loads.
+    #[serde(default)]
+    pub evo: Option<EvoHop>,
+}
+
+/// AN EVO ELECTRO DRAGON'S CHAIN (`ChainHop::evo`): this projectile's place in it (0: his shot) and the tick of his shot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EvoHop {
+    pub n: u16,
+    pub shot: u32,
 }
 
 /// A CHAINED SHOT'S HOP WAITS this many ticks on the target it hit before its first step, then flies at the shot's speed.
@@ -434,6 +445,29 @@ pub fn chain_next(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, tea
         .filter(|(d2, _, _)| *d2 <= r2)
         .min()
         .map(|(_, _, j)| ents.id_of(j))
+}
+
+/// THE NEXT TARGET OF AN EVO ELECTRO DRAGON'S CHAIN (card.rs `EvoChainDef`): the closest enemy of `team` to unit `from`,
+/// centre to centre within the chain's radius, not `from` itself, that is not one of the chain's last `remember` hits;
+/// if there is none, the closest of those (a repeat). Alive, above the ground, in the air or on it as the shot hits,
+/// visible unless `invisible`, and a crown tower only while `towers`. Ties by creation order.
+#[allow(clippy::too_many_arguments)]
+pub fn chain_next_remember(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, team: Team, from: usize, hop: &ChainHop, remember: usize, towers: bool, invisible: bool, hits_air: bool, hits_ground: bool) -> Option<EntityId> {
+    let r2 = (hop.radius as i64) * (hop.radius as i64);
+    let recent = &hop.hit[hop.hit.len().saturating_sub(remember)..];
+    let near = |j: usize| (ents.pos[j].dist2(ents.pos[from]), ents.creation_seq[j], j);
+    let cands: Vec<usize> = (0..ents.capacity())
+        .filter(|&j| j != from && ents.alive[j] && ents.hp[j] > 0 && ents.team[j] != team)
+        .filter(|&j| if ents.in_air(j) { hits_air } else { hits_ground })
+        .filter(|&j| !ents.underground(j) && (invisible || !crate::target::invisible_at(calib, cards, ents, tick, j)))
+        .filter(|&j| towers || !matches!(ents.kind[j], EntityKind::KingTower | EntityKind::PrincessTower))
+        .filter(|&j| near(j).0 <= r2)
+        .collect();
+    #[cfg(not(clash_plant = "evo_chain_no_repeat"))]
+    let repeat = cands.iter().filter(|&&j| recent.contains(&ents.id_of(j))).map(|&j| near(j)).min();
+    #[cfg(clash_plant = "evo_chain_no_repeat")]
+    let repeat: Option<(i64, u32, usize)> = None; // PLANT (regression): the chain never repeats a target.
+    cands.iter().filter(|&&j| !recent.contains(&ents.id_of(j))).map(|&j| near(j)).min().or(repeat).map(|(_, _, j)| ents.id_of(j))
 }
 
 /// The state of a straight shot (`Projectile::straight`). Distances SUBTILES. `Default` is a
@@ -1365,7 +1399,7 @@ pub fn fire(
             enchant: None,
             trail: None,
             // THE CHAIN (card.rs `ChainHitDef`): the hops after this target.
-            chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target], wait: 0 }),
+            chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target], wait: 0, evo: None }),
             // THE BOUNCE (card.rs `BounceDef`, the Evo Bomber's): the bounces after this landing.
             bounce: card.evo.as_ref().and_then(|v| v.bounce).map(|b| BounceHop { left: b.count, range: b.range, from: pos, hit: Vec::new() }),
         });
@@ -2133,8 +2167,32 @@ pub fn step_projectiles(
             // A CHAINED SHOT (`Projectile::chain`, card.rs `ChainHitDef`): it goes on from the target it landed on to
             // the next (`chain_next`), a new shot from that target's point with the same speed, damage and buff, which
             // first steps next tick as every released shot does.
+            // AN EVO ELECTRO DRAGON'S CHAIN (card.rs `EvoChainDef`) hops by its own rule (`chain_next_remember`), at once,
+            // without end while he lives; its hops past the strong ones are the weak lightning.
             #[cfg(not(clash_plant = "chain_never"))]
-            if let Some(c) = p.chain.as_ref().filter(|c| c.left > 0) {
+            if let Some((c, e, d)) = p.chain.as_ref().filter(|c| c.left > 0).and_then(|c| {
+                let d = p.firer_card.and_then(|f| cards.get(f).evo.as_ref().and_then(|v| v.chain))?;
+                c.evo.map(|e| (c, e, d))
+            }) {
+                let towers = e.n.saturating_add(1) < u16::from(d.towers_until);
+                let next = chain_next_remember(ents, cards, calib, tick, p.team, ti, c, usize::from(d.remember), towers, d.invisible, p.hits_air, p.hits_ground)
+                    .filter(|_| p.firer.is_some_and(|f| ents.is_alive(f)));
+                if let Some(next) = next {
+                    let keep = c.hit.len().saturating_sub(usize::from(d.remember).saturating_sub(1));
+                    let mut hit = c.hit[keep..].to_vec();
+                    hit.push(next);
+                    let n = e.n.saturating_add(1);
+                    let hop = ChainHop { left: c.left, radius: c.radius, hit, wait: 0, evo: Some(EvoHop { n, shot: e.shot }) };
+                    let mut q = Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() };
+                    if n >= u16::from(d.strong) {
+                        q.speed = d.weak_speed * calib.projectile_speed_to_subtiles_per_tick;
+                        q.damage = p.firer_card.and_then(|f| cards.scaled(f, p.src_level, d.weak_damage).ok()).unwrap_or(d.weak_damage);
+                        q.buff = None;
+                        q.pulse = 0;
+                    }
+                    released.push(q);
+                }
+            } else if let Some(c) = p.chain.as_ref().filter(|c| c.left > 0) {
                 if let Some(next) = chain_next(ents, cards, calib, tick, p.team, ti, c, p.hits_air, p.hits_ground) {
                     let mut hit = c.hit.clone();
                     hit.push(next);
@@ -2142,7 +2200,7 @@ pub fn step_projectiles(
                     let wait = CHAIN_HOP_WAIT_TICKS;
                     #[cfg(clash_plant = "chain_hop_no_wait")]
                     let wait = 0; // PLANT: the hop steps on the tick after the hit.
-                    let hop = ChainHop { left: c.left - 1, radius: c.radius, hit, wait };
+                    let hop = ChainHop { left: c.left - 1, radius: c.radius, hit, wait, evo: None };
                     released.push(Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
                 }
             }

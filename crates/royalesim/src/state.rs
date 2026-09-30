@@ -9274,6 +9274,19 @@ impl BattleState {
                 }
             }
         }
+        // THE EVO ELECTRO DRAGON'S CHAIN (card.rs `EvoChainDef`): his new shot starts it anew, endless; his older chains
+        // stop where their hops in flight land.
+        #[cfg(not(clash_plant = "evo_chain_never"))]
+        if let Some(ch) = evo.chain {
+            let (from, tick) = (shots_from.min(self.projectiles.len()), self.tick);
+            for (k, p) in self.projectiles.iter_mut().enumerate().filter(|(_, p)| p.firer == Some(id)) {
+                if k >= from {
+                    p.chain = Some(combat::ChainHop { left: u8::MAX, radius: ch.range, hit: vec![p.target], wait: 0, evo: Some(combat::EvoHop { n: 0, shot: tick }) });
+                } else if let Some(c) = p.chain.as_mut().filter(|c| c.evo.is_some_and(|e| e.shot < tick)) {
+                    c.left = 0;
+                }
+            }
+        }
     }
 
     /// THE EVO ROYAL GHOST'S PAIR (card.rs `GhostDef`), made by ghost `i`'s hit on `hit` while it was hidden, in the
@@ -23076,6 +23089,12 @@ impl BattleState {
                     h.u32(c.hit.len() as u32);
                     for id in &c.hit {
                         h.id(*id);
+                    }
+                    // An Evo Electro Dragon's chain, only when it is one.
+                    if let Some(e) = c.evo {
+                        h.u32(0x4556_4348);
+                        h.u32(u32::from(e.n));
+                        h.u32(e.shot);
                     }
                 }
             }

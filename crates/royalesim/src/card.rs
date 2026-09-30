@@ -1955,6 +1955,8 @@ pub struct EvoDef {
     pub dart_poison: Option<DartPoisonDef>,
     /// Evo Furnace: the quick spawn its attacks start (`FurnaceDef`).
     pub furnace: Option<FurnaceDef>,
+    /// Evo Electro Dragon: his shot's endless chain (`EvoChainDef`).
+    pub chain: Option<EvoChainDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4267,6 +4269,8 @@ struct RawEvolution {
     evo_dart_poison: Option<RawDartPoison>,
     /// The Evo Furnace's quick spawn (`furnace_block`).
     evo_furnace: Option<RawFurnace>,
+    /// The Evo Electro Dragon's endless chain (`evo_chain_block`).
+    evo_chain: Option<RawEvoChain>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4329,6 +4333,18 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_chain` (tools/extract_cards.py `evo_chain_block`).
+#[derive(Deserialize)]
+struct RawEvoChain {
+    remember: Option<i32>,
+    range_milli: Option<i32>,
+    strong: Option<i32>,
+    towers_until: Option<i32>,
+    weak_damage: Option<i32>,
+    weak_speed: Option<i32>,
+    invisible: Option<bool>,
 }
 
 /// cards.json `evolutions[].evo_furnace` (tools/extract_cards.py `furnace_block`).
@@ -4484,6 +4500,31 @@ pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
 /// The Evo Princess's freezing arrow's area (`FreezeVolleyDef::area`).
 pub const EVO_FREEZE_AREA: u8 = u8::MAX - 4;
+
+/// THE EVO ELECTRO DRAGON'S CHAIN (tools/extract_cards.py `evo_chain_block`; state.rs `evo_after_fire`; combat.rs
+/// `EvoHop`, `chain_next_remember`): his shot chains without end. From the unit it hit, it hops to the closest enemy
+/// within `range` (SUBTILES, centre to centre) that is not one of its last `remember` hits, else to the closest of
+/// those (a repeat), never back onto the unit it hit; a crown tower only on the first `towers_until` projectiles (his
+/// shot and its first hop), the invisible too when `invisible`. Its first `strong` hits are his shot's (its damage,
+/// speed and stun); every later hop deals `weak_damage` (level 1, on his card's ladder) at `weak_speed` (the raw Speed
+/// column) with no buff. A hop flies at once from the unit hit. His next shot ends his chains where their hops in
+/// flight land; so does his death.
+///
+/// Measured on client 15.535.29, level 11 (Oracle's sp-f4-ed-s0, sp-f4-ed3-s0): 192 on his target and on the next two
+/// hits, then 64 on every hop; with a Knight, an Ice Golem 1200 from it and a Valkyrie 3100 from the Ice Golem and 4260
+/// from the Knight, the hits ran K, I, V, I, K, I, V (the last two remembered; the Knight out of reach of the
+/// Valkyrie); each shot a new chain. Read off the table, not measured: a crown tower in reach of a hop, the chain after
+/// his death.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct EvoChainDef {
+    pub remember: u8,
+    pub range: i32,
+    pub strong: u8,
+    pub towers_until: u8,
+    pub weak_damage: i32,
+    pub weak_speed: i32,
+    pub invisible: bool,
+}
 
 /// THE EVO FURNACE'S QUICK SPAWN (tools/extract_cards.py `furnace_block`; state.rs EvoBoard `furnaces`, `furnace_pass`,
 /// the interval's hold in `spawner_pass`): its normal spawn is its base's interval (`CardDef::spawner`). An attack's
@@ -9959,6 +10000,7 @@ impl CardDb {
             extra.evo_net.is_some(),
             extra.evo_dart_poison.is_some(),
             extra.evo_furnace.is_some(),
+            extra.evo_chain.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -10002,6 +10044,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_chain.is_some() {
+            // His attack's group and its chain (`evo_chain_block` reads them whole).
+            &["ActionChainProjectileAttack", "ActionGroup"]
         } else if extra.evo_furnace.is_some() {
             // Its interval, the moving check and its stop, the attack's pause and quick spawn, their effects, the sides'
             // select and turn, and the hat's layer (`furnace_block` reads them whole).
@@ -10097,6 +10142,8 @@ impl CardDb {
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
+        // THE CHAIN'S LIGHTNINGS are its block's too (`evo_chain_block` reads them whole).
+        let chain_spawns = |g: &RawActionGraph| extra.evo_chain.is_some() && g.spawns.iter().all(|s| s.starts_with("ProjectileType:"));
         // THE FURNACE'S SPIRITS AND THEIR LAUNCH are its block's too (`furnace_block` reads them whole).
         let furnace_spawns = |g: &RawActionGraph| {
             extra.evo_furnace.as_ref().and_then(|f| f.character.as_deref()).is_some_and(|u| {
@@ -10104,7 +10151,7 @@ impl CardDb {
             })
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -10240,6 +10287,7 @@ impl CardDb {
                     net: None,
                     dart_poison: None,
                     furnace: None,
+                    chain: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10447,6 +10495,7 @@ impl CardDb {
             net: None,
             dart_poison: None,
             furnace: None,
+            chain: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10564,6 +10613,23 @@ impl CardDb {
                 hit_ms: pos(cg.hit_ms, "hit frequency")?,
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
+            });
+        }
+        // THE ENDLESS CHAIN (the Evo Electro Dragon's): on a card whose homing shot chains.
+        if let Some(e) = &extra.evo_chain {
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a chain with no {k}"));
+            if !c.projectile_homing || c.projectile.is_none() {
+                return Err("an endless chain on a card whose shot does not home".into());
+            }
+            let small = |v: i32, k: &str| u8::try_from(v).map_err(|_| format!("a chain's {k} of {v}"));
+            evo.chain = Some(EvoChainDef {
+                remember: small(pos(e.remember, "memory")?, "memory")?,
+                range: milli(pos(e.range_milli, "ChainRange")?),
+                strong: small(pos(e.strong, "strong hits")?, "strong hits")?,
+                towers_until: small(e.towers_until.filter(|x| *x >= 0).ok_or("a chain with no tower filter")?, "tower filter")?,
+                weak_damage: pos(e.weak_damage, "weak Damage")?,
+                weak_speed: pos(e.weak_speed, "weak Speed")?,
+                invisible: e.invisible.unwrap_or(false),
             });
         }
         // THE QUICK SPAWN (the Evo Furnace's): its normal spawn is its base's interval, which the block must restate.

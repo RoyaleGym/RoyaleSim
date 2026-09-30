@@ -507,7 +507,8 @@ fn forms_take_slots_after_every_existing_card() {
             ("Princess", "Princess_EV1"),
             ("Hunter", "Hunter_EV1"),
             ("BlowdartGoblin", "BlowdartGoblin_EV1"),
-            ("FirespiritHut", "FirespiritHut_EV1")
+            ("FirespiritHut", "FirespiritHut_EV1"),
+            ("ElectroDragon", "ElectroDragon_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
@@ -520,8 +521,11 @@ fn forms_take_slots_after_every_existing_card() {
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
     // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
-    // the Evo Hunter, the Evo Dart Goblin and the Evo Furnace.
-    assert_eq!(db.cards.len(), n0 + 49);
+    // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace and the Evo Electro Dragon.
+    assert_eq!(db.cards.len(), n0 + 50);
+    assert_eq!(db.cards[n0 + 49].name, "ElectroDragon_EV1");
+    let ch = db.cards[n0 + 49].evo.as_ref().and_then(|e| e.chain).expect("the Evo Electro Dragon's chain");
+    assert!(ch.remember == 2 && ch.range == 4000 * K && ch.strong == 3 && ch.towers_until == 2 && ch.weak_damage == 25 && ch.weak_speed == 400);
     assert_eq!(db.cards[n0 + 48].name, "FirespiritHut_EV1");
     let fu = db.cards[n0 + 48].evo.as_ref().and_then(|e| e.furnace).expect("the Evo Furnace's quick spawn");
     assert!(fu.quick_ms == 2400 && fu.quick_after_ms == 400 && fu.move_ms == 1000 && fu.delay_ms == 400 && fu.side_x == 1500 * K && fu.back_y == 1000 * K);
