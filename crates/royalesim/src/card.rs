@@ -1922,6 +1922,12 @@ pub struct EvoDef {
     pub bounce: Option<BounceDef>,
     /// Evo Valkyrie: the area each attack makes on her, and her own buff (`AttackAreaDef`).
     pub attack_area: Option<AttackAreaDef>,
+    /// Evo Ice Spirits: the area its shot leaves rides on the shot's target (`AttachedArea`, part EVO_IMPACT_AREA; the
+    /// form's `projectile_area` converted). Measured on client 15.535.29 (sp-form-IceSpirits-evo-s0, level 11): the shot
+    /// landed on t755 (110 off a Knight and a Musketeer, 43 at level 1, and the Freeze); the area hit both again for 110
+    /// on t815, 3000 ms on, the Knight 2100 from the landing point by then. Read off the table, not measured: that it
+    /// rides on the target (the scene's Knight stayed in reach of the landing point), and stays where a dead target was.
+    pub impact_area: Option<AttachedArea>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4204,6 +4210,8 @@ struct RawEvolution {
     evo_kill_heal: Option<RawKillHeal>,
     /// The Evo Wall Breakers' death action (`death_action_block`), written into the record's death columns.
     evo_death_action: Option<RawDeathAction>,
+    /// The Evo Ice Spirits' area riding its shot's target (`impact_area_block`).
+    evo_impact_area: Option<RawImpactArea>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4255,6 +4263,13 @@ struct RawDeathAction {
     unit: Option<String>,
 }
 
+/// cards.json `evolutions[].evo_impact_area` (tools/extract_cards.py `impact_area_block`): the area row the form's shot
+/// leaves.
+#[derive(Deserialize)]
+struct RawImpactArea {
+    area: Option<String>,
+}
+
 /// cards.json `evolutions[].evo_kill_heal` (tools/extract_cards.py `kill_heal_block`).
 #[derive(Deserialize)]
 struct RawKillHeal {
@@ -4300,6 +4315,10 @@ pub struct AttackAreaDef {
 /// The `part` of an area riding on a unit (spell.rs `SpellMotion::Attached`, `attached_def`) that names its card's
 /// `AttackAreaDef` rather than an area of its ability.
 pub const EVO_ATTACK_AREA: u8 = u8::MAX;
+
+/// The part (spell.rs `SpellMotion::Attached`) that names an evolved form's area riding its shot's target
+/// (`EvoDef::impact_area`, the Evo Ice Spirits').
+pub const EVO_IMPACT_AREA: u8 = u8::MAX - 1;
 
 /// THE EVO ARCHER'S POWER SHOT (tools/extract_cards.py `far_shot_block`; state.rs `select_attack`; combat.rs `fire`): her
 /// OnStartingAttackAction `!target_in_range(4500)` sets her attack entry, read as the Three Musketeers' selector is
@@ -9509,6 +9528,7 @@ impl CardDb {
             extra.evo_uppercut.is_some(),
             extra.evo_kill_heal.is_some(),
             extra.evo_death_action.is_some(),
+            extra.evo_impact_area.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9646,7 +9666,27 @@ impl CardDb {
         // A RAM FORM'S DEATH SPAWN (Barbarian_EV1): its own unit row, loaded here as a summon-only record after the form,
         // carrying the rage it lands after its hits (`HitRageDef`) in an EvoDef of its own.
         let mut death: Option<CardDef> = None;
+        // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
+        let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // THE SHOT'S AREA (the Evo Ice Spirits'): the form's `projectile_area`, converted as a death's area is; one
+            // pulsing area that hits once, at its life's end, and rides on the shot's target.
+            if let (Some(ia), UnitUse::ProjectileArea) = (extra.evo_impact_area.as_ref(), &which) {
+                if ia.area.as_deref() != Some(u.as_str()) || c.projectile_area.is_some() {
+                    return Err(format!("area {u} is not the impact area {:?}", ia.area));
+                }
+                let aeo = ctx.aeos.get(&u).ok_or_else(|| format!("impact area {u}: no area_effect_objects record"))?;
+                let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("impact area {u}: {e}"))?;
+                let SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } = shape.clone() else {
+                    return Err(format!("impact area {u} is not one pulsing area; not simulated"));
+                };
+                if !aneeds.is_empty() || life_ms <= 0 || hit_speed_ms != life_ms {
+                    return Err(format!("impact area {u} releases units or does not hit once at its life's end; not simulated"));
+                }
+                c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+                impact = Some(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: true, stay: true, end: None });
+                continue;
+            }
             if let (Some(r), UnitUse::DeathSpawn) = (extra.evo_ram.as_ref(), &which) {
                 let rage = r.spawn_rage.as_ref().ok_or("a ram with no spawn_rage")?;
                 if rage.unit.as_deref() != Some(u.as_str()) || death.is_some() {
@@ -9692,6 +9732,7 @@ impl CardDb {
                     far_shot: None,
                     uppercut: None,
                     kill_heal: None,
+                    impact_area: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9888,6 +9929,7 @@ impl CardDb {
             far_shot: None,
             uppercut: None,
             kill_heal: None,
+            impact_area: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9989,6 +10031,10 @@ impl CardDb {
             let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
             let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
             evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
+        }
+        // THE AREA RIDING THE SHOT'S TARGET (the Evo Ice Spirits'), made from the form's projectile area above.
+        if extra.evo_impact_area.is_some() {
+            evo.impact_area = Some(impact.ok_or("an impact area whose shot leaves none")?);
         }
         // THE DEATH ACTION (the Evo Wall Breakers'): the record's death is one unit on the point with no deploy and a blow.
         if extra.evo_death_action.is_some() {

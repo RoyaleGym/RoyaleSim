@@ -484,19 +484,24 @@ fn forms_take_slots_after_every_existing_card() {
             ("MegaKnight", "MegaKnight_EV1"),
             ("Pekka", "Pekka_EV1"),
             ("Bats", "Bats_EV1"),
-            ("Wallbreakers", "Wallbreakers_EV1")
+            ("Wallbreakers", "Wallbreakers_EV1"),
+            ("IceSpirits", "IceSpirits_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Twenty-eight forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Twenty-nine forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
-    // P.E.K.K.A., the Evo Bats, then the Evo Wall Breakers with their runner last.
-    assert_eq!(db.cards.len(), n0 + 38);
+    // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, then the Evo Ice Spirits last.
+    assert_eq!(db.cards.len(), n0 + 39);
+    assert_eq!(db.cards[n0 + 38].name, "IceSpirits_EV1");
+    let ia = db.cards[n0 + 38].evo.as_ref().and_then(|e| e.impact_area).expect("the Evo Ice Spirits' area");
+    assert!(ia.follow && ia.stay && ia.life_ms == 3000 && ia.hit_speed_ms == 3000 && ia.first_ms == 3000 && ia.hit.damage == 43);
+    assert!(db.cards[n0 + 38].projectile_area.is_some());
     assert_eq!(db.cards[n0 + 36].name, "Wallbreakers_EV1");
     let wb = &db.cards[n0 + 36];
     let ds = wb.death_spawn.expect("the Evo Wall Breakers' runner");

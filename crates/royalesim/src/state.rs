@@ -17891,6 +17891,14 @@ impl BattleState {
         // A landing object's area effect: cast at its point and appended after them, so
         // it too first applies next tick (as a death's area effect does, `phase_reap`).
         for a in areas {
+            // THE AREA RIDING THE SHOT'S TARGET (card.rs `EvoDef::impact_area`, the Evo Ice Spirits'): made on the target
+            // (where the shot landed; it rides on the target from its first update, and stays where a dead one was).
+            #[cfg(not(clash_plant = "impact_area_stays"))]
+            if let Some(t) = a.target.filter(|_| self.cfg.cards.get(a.card).evo.as_ref().is_some_and(|e| e.impact_area.is_some())) {
+                let s = spell::attached_area(&self.cfg.cards, &self.cfg.calib, a.team, a.card, a.level, t, a.pos, crate::card::EVO_IMPACT_AREA).expect("released area level validated at deploy");
+                self.spells.push(s);
+                continue;
+            }
             #[allow(unused_mut)]
             let mut v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, a.team, a.card, a.level, a.pos, self.tick).expect("released area level validated at deploy");
             // A SPEAR'S AREA (combat.rs `step_projectiles`, card.rs `SpearDef`) first applies one HitSpeed after it is

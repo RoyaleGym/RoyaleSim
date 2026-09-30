@@ -3702,7 +3702,7 @@ EVOLUTIONS = (
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
-    "Bats_EV1", "Wallbreakers_EV1",
+    "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4586,6 +4586,44 @@ def hit_rage_block(t: Tables, card: dict, stats: frozenset | set = frozenset()) 
     return {"unit": unit, "hits": counts[0], "time_ms": times[0], "buff": buff}
 
 
+# THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
+IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
+                   "TopEffectDisabledForAttachedCharacters", "NotCloned"}
+
+
+def impact_area_block(t: Tables, card: dict) -> dict:
+    """THE EVO ICE SPIRITS' AREA (characters_evo IceSpirits_EV1; projectiles_evo IceSpiritsProjectile_EV1;
+    area_effect_objects_evo IceSpiritsAOE_EV1), read whole or the build stops: the unit row sets nothing but display
+    columns and its Projectile; the shot's SpawnAreaEffectObject (`area`) follows the shot's target (FollowBehaviour
+    FollowTarget), stays where it was when its target dies (StayAfterParentDies) and lives one HitSpeed (LifeDuration
+    = HitSpeed: one hit, at its end); the shot's OnHitTargetAction only hangs a display buff on the target."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - {"Projectile", "ClonedVersion"} - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    pr = t["projectiles"].get(row["Projectile"])
+    need(pr is not None and isinstance(pr["SpawnAreaEffectObject"], str), f"its shot {row['Projectile']!r}")
+    keys = {"ClassType", "SpawnType", "SpawnData", "SpawnTime"}
+    tag = _one_action(acts, pr["OnHitTargetAction"], "ActionSpawn", keys)
+    bf = t["character_buffs"]
+    need(tag["SpawnType"] == "BuffType" and bf.get(tag["SpawnData"]) is not None
+         and bf.set_fields.get(tag["SpawnData"], set()) <= IMPACT_TAG_BUFF, f"the shot's OnHitTargetAction {tag}")
+    name = pr["SpawnAreaEffectObject"]
+    a = t["area_effect_objects"].get(name)
+    need(a is not None and a["FollowBehaviour"] == "FollowTarget" and a["StayAfterParentDies"] is True
+         and isinstance(a["HitSpeed"], int) and a["HitSpeed"] > 0 and a["LifeDuration"] == a["HitSpeed"],
+         f"the shot's area {name}")
+    return {"area": name}
+
+
 # THE EVO WALL BREAKERS' DEATH ACTION (`death_action_block`): the unit row's columns it reads besides display, and the
 # columns its blow's projectile row may set (the rest is display: its file, export, hit effect).
 DEATH_ACTION_ROW = {"OnKilledAction", "Projectile", "IgnoreResurrect", "ClonedVersion"}
@@ -5218,6 +5256,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_hit_rage"] = hit_rage_block(t, card, {"Hitpoints"})
         elif name == "Wallbreakers_EV1":
             card["evo_death_action"] = death_action_block(t, card)
+        elif name == "IceSpirits_EV1":
+            card["evo_impact_area"] = impact_area_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

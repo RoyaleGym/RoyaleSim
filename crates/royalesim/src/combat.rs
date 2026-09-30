@@ -1965,7 +1965,7 @@ pub fn step_projectiles(
             if let Some(sp) = cards.get(tr.card).evo.as_ref().and_then(|v| v.spear) {
                 let dt = calib.tick_ms.max(1);
                 while i32::from(tr.steps) >= (sp.trail_first_ms + sp.trail_every_ms * i32::from(tr.next)) / dt {
-                    areas.push(crate::spell::AreaRelease { team: p.team, card: tr.card, level: tr.level, pos: start });
+                    areas.push(crate::spell::AreaRelease { team: p.team, card: tr.card, level: tr.level, pos: start, target: None });
                     tr.next = tr.next.saturating_add(1);
                 }
             }
@@ -2112,7 +2112,7 @@ pub fn step_projectiles(
             // `CardDef::projectile_area_ahead` along the owner's forward (the Hero Wizard's air form's 1000; 0 on every
             // other card).
             let ahead = cards.get(card).projectile_area_ahead * crate::spell::forward_dy(p.team);
-            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: Vec2::new(p.aim.x, p.aim.y + ahead) });
+            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: Vec2::new(p.aim.x, p.aim.y + ahead), target: Some(p.target) });
         }
         // THE UNIT THE SHOT PUTS DOWN (card.rs `ShotSpawnDef`, the Evo Mortar's Goblin): one, where it landed, released
         // this tick at the firer's level on the unit's ladder (state.rs `phase_projectile`: on this frame, inert on it).
